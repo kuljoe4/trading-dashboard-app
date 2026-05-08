@@ -50,6 +50,49 @@ async def get_status():
         return {"running": False}
     return active_session.get_status()
 
+@router.get("/binance/rate-limit")
+async def get_binance_rate_limit():
+    """
+    Get current Binance API rate limit status.
+    
+    Returns:
+        {
+            "used_weight": int,
+            "used_weight_1m": int,
+            "limit": int (1200),
+            "used_pct": float (0-100),
+            "status": "ok" | "warning" | "critical"
+        }
+    """
+    if not active_session:
+        return {
+            "used_weight": 0,
+            "used_weight_1m": 0,
+            "limit": 1200,
+            "used_pct": 0.0,
+            "status": "no_session"
+        }
+    
+    rate_limit = active_session.binance_rate_limit
+    used_pct = (rate_limit["used_weight_1m"] / rate_limit["limit"] * 100) if rate_limit["limit"] > 0 else 0
+    
+    # Determine status
+    if used_pct >= 90:
+        status = "critical"
+    elif used_pct >= 70:
+        status = "warning"
+    else:
+        status = "ok"
+    
+    return {
+        "used_weight": rate_limit["used_weight"],
+        "used_weight_1m": rate_limit["used_weight_1m"],
+        "limit": rate_limit["limit"],
+        "used_pct": round(used_pct, 2),
+        "status": status,
+        "last_update": rate_limit["last_update"]
+    }
+
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()

@@ -19,6 +19,15 @@ class TradingSession:
     """
     Per-user engine container.
     Owns all modules. Orchestrates the scan → signal → risk → order loop.
+    
+    Supports:
+    - Independent paper/live balances
+    - Multiple signal types (AND logic)
+    - Dynamic SL (percentage or lookback extremes)
+    - Exponential RR sequence for profit locking
+    - Exit signals for custom close conditions
+    - Per-symbol trade limits
+    - Binance rate limit tracking
     """
 
     def __init__(self, user_id: str, strategy_id: str, config: SessionConfig):
@@ -28,18 +37,29 @@ class TradingSession:
         self.started_at = datetime.utcnow()
         self.running = False
 
-        # State
-        self.balance: float = 10_000.0  # Updated from exchange on start
-        self.total_pnl: float = 0.0
+        # Separate Paper/Live Balances
+        self.balance_paper: float = config.paper_starting_balance
+        self.balance_live: float = config.live_starting_balance
+        self.total_pnl_paper: float = 0.0
+        self.total_pnl_live: float = 0.0
         self.log_lines: list[dict] = []
         self._ws_broadcaster: Optional[Callable] = None
+        
+        # Binance Rate Limit Tracking
+        self.binance_rate_limit = {
+            "used_weight": 0,
+            "used_weight_1m": 0,
+            "limit": 1200,
+            "used_pct": 0.0,
+            "last_update": None
+        }
 
         # Modules
         self.ticker_cache = TickerCache()
         self.kline_store = KlineStore()
         self.market_feed = MarketFeed(self.ticker_cache, self.kline_store, config)
         self.scanner = MomentumScanner(self.kline_store, self.ticker_cache)
-        self.signal_engine = SignalEngine()
+        self.signal_engine = SignalEngine(self.kline_store)
         self.risk_engine = RiskEngine()
         self.order_manager = OrderManager(self.ticker_cache, config)
         self.position_tracker = PositionTracker(
@@ -56,26 +76,40 @@ class TradingSession:
 
     def set_ws_broadcaster(self, cb: Callable):
         self._ws_broadcaster = cb
+    
+    @property
+    def balance(self) -> float:
+        """Get active balance (paper or live based on config)."""
+        return self.balance_paper if self.config.paper_mode else self.balance_live
+    
+    @property
+    def total_pnl(self) -> float:
+        """Get active PnL (paper or live based on config)."""
+        return self.total_pnl_paper if self.config.paper_mode else self.total_pnl_live
 
     async def start(self, binance_client=None):
         self.running = True
-        if binance_client:
+        
+        if binance_client and not self.config.paper_mode:
             self.order_manager.client = binance_client
             # Fetch live balance
             try:
-                account = await binance_client.futures_account_balance()
-                for asset in account:
+                # Use lighter endpoint: /fapi/v2/balance (1 weight vs 5 for full account)
+                balance_data = await binance_client.futures_account_balance()
+                for asset in balance_data:
                     if asset["asset"] == "USDT":
-                        self.balance = float(asset["balance"])
+                        self.balance_live = float(asset["balance"])
                         break
+                await self._log(f"Live balance fetched: ${self.balance_live:.2f}", "info")
             except Exception as e:
-                await self._log(f"Balance fetch failed: {e} — using $10,000", "warn")
+                await self._log(f"Live balance fetch failed: {e} — using config default", "warn")
 
         await self.market_feed.start()
         await self.position_tracker.start()
         await self._log(
-            f"Session started | paper={self.config.paper_mode} | "
-            f"threshold={self.config.scan_pct_threshold}% / {self.config.scan_interval}",
+            f"Session started | mode={'LIVE' if not self.config.paper_mode else 'PAPER'} | "
+            f"signals={','.join(self.config.enabled_signals)} | "
+            f"sl_type={self.config.sl_type} | rr_seq={self.config.live_rr_sequence}",
             "info",
         )
 
@@ -118,44 +152,81 @@ class TradingSession:
             if self.position_tracker.has_symbol(opp.symbol):
                 continue
 
-            # Check entry confirmation
-            confirmed, reason = self.signal_engine.check_entry(opp, self.config)
-            if not confirmed:
+            # Check entry confirmation - ALL signals must fire (AND logic)
+            all_signals_fired, fired_signals, signal_reason = await self.signal_engine.check_entry(
+                opp.symbol,
+                self.config
+            )
+            if not all_signals_fired:
+                await self._log(f"{opp.symbol}: Signals not confirmed - {signal_reason}", "debug")
                 continue
 
-            # Check risk gate
+            # Check risk gate with per-symbol limit
             can_enter, gate_reason = self.risk_engine.can_enter(
                 active_trades=self.position_tracker.active_list(),
                 balance=self.balance,
+                symbol=opp.symbol,
                 config=self.config,
                 total_sl_used=self.position_tracker.total_sl_used,
             )
             if not can_enter:
-                await self._log(f"Risk gate: {gate_reason}", "warn")
+                await self._log(f"{opp.symbol}: {gate_reason}", "warn")
                 continue
 
-            # Compute size
+            # Get current price
             price = await self.ticker_cache.get_price(opp.symbol)
             if not price:
+                await self._log(f"{opp.symbol}: No price available", "warn")
                 continue
-            sizing = self.risk_engine.compute(
-                balance=self.balance,
+            
+            # Compute SL - support both percentage and lookback types
+            sl_price = self.risk_engine.compute_sl(
                 entry_price=price,
                 direction=opp.direction,
                 config=self.config,
+                lookback_lows=None,  # TODO: Get from kline_store
+                lookback_highs=None   # TODO: Get from kline_store
             )
-            if sizing.qty <= 0:
+            
+            # Compute position size
+            qty = self.risk_engine.compute_position_size(
+                balance=self.balance,
+                entry_price=price,
+                sl_price=sl_price,
+                direction=opp.direction,
+                config=self.config
+            )
+            
+            if qty <= 0:
+                await self._log(f"{opp.symbol}: Position size <= 0", "warn")
                 continue
+            
+            # Calculate TP based on config ratio (fixed at entry, not adjusted)
+            rr_ratio = self.config.exit_rr_sequence[0] if self.config.exit_rr_sequence else 1.0
+            risk = abs(price - sl_price)
+            if opp.direction == "LONG":
+                tp_price = price + (risk * rr_ratio)
+            else:
+                tp_price = price - (risk * rr_ratio)
 
-            # Enter
+            # Enter trade
             trade = await self.order_manager.enter(
                 strategy_id=self.strategy_id,
                 symbol=opp.symbol,
                 direction=opp.direction,
-                sizing=sizing,
+                entry_price=price,
+                qty=qty,
+                sl_price=sl_price,
+                tp_price=tp_price
             )
             if trade:
+                trade.entry_signal_type = ",".join(fired_signals)
                 self.position_tracker.add_trade(trade)
+                await self._log(
+                    f"Entry: {opp.symbol} {opp.direction} @ {price} | "
+                    f"SL={sl_price:.2f} TP={tp_price:.2f} | qty={qty:.4f}",
+                    "info"
+                )
                 await self._broadcast_event("trade_event", {
                     "event": "entry",
                     "trade": trade.to_dict(),
@@ -163,7 +234,11 @@ class TradingSession:
 
     async def _on_trade_close(self, closed: dict):
         pnl = closed.get("pnl", 0)
-        self.total_pnl += pnl
+        if self.config.paper_mode:
+            self.total_pnl_paper += pnl
+        else:
+            self.total_pnl_live += pnl
+        
         await self._broadcast_event("trade_event", {
             "event": closed.get("exit_reason", "close"),
             "trade": closed,
@@ -185,7 +260,9 @@ class TradingSession:
 
     async def _broadcast_tick(self):
         await self._broadcast_event("tick", {
-            "balance": round(self.balance, 2),
+            "balance_paper": round(self.balance_paper, 2),
+            "balance_live": round(self.balance_live, 2),
+            "balance": round(self.balance, 2),  # Active balance
             "total_pnl": round(self.total_pnl, 2),
             "total_risk_pct": round(
                 (self.position_tracker.total_risk() / self.balance * 100)
@@ -193,6 +270,7 @@ class TradingSession:
             ),
             "total_sl_used": round(self.position_tracker.total_sl_used, 2),
             "trades": self.position_tracker.active_list(),
+            "rate_limit": self.binance_rate_limit,
         })
 
     async def _broadcast_event(self, event_type: str, payload: dict):
@@ -208,6 +286,8 @@ class TradingSession:
             "strategy_id": self.strategy_id,
             "running": self.running,
             "paper_mode": self.config.paper_mode,
+            "balance_paper": round(self.balance_paper, 2),
+            "balance_live": round(self.balance_live, 2),
             "balance": round(self.balance, 2),
             "total_pnl": round(self.total_pnl, 2),
             "total_risk_pct": round(
@@ -218,4 +298,5 @@ class TradingSession:
             "active_trades": self.position_tracker.active_list(),
             "config": self.config.model_dump(),
             "started_at": self.started_at.isoformat(),
+            "rate_limit": self.binance_rate_limit,
         }

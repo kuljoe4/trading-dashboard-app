@@ -1,0 +1,18 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
+
+body { 
+  background: #080b0f; 
+  color: #c8d4e8; 
+  height: 100vh; 
+  margin: 0; 
+  font-family: 'IBM Plex Mono', 'Fira Code', monospace;
+  box-sizing: border-box;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+@keyframes ping { 75%, 100% { transform: scale(2); opacity: 0; } }
+
+::-webkit-scrollbar { width: 4px; } 
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2a3550; border-radius: 2px; }

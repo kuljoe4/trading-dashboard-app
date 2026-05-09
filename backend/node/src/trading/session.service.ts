@@ -1,10 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { SessionConfig } from '../models/session_config';
-import { SignalEngineService } from '../engine/signal_engine.service';
-import { RiskEngineService } from '../engine/risk_engine.service';
-import { PositionTrackerService } from '../engine/position_tracker.service';
-import { OrderManagerService } from '../engine/order_manager.service';
-import { Trade } from '../models/trade';
+import { SessionConfig } from '../models/SessionConfig';
+import { SignalEngineService } from '../engine/signalEngine';
+import { RiskEngineService } from '../engine/riskEngine';
+import { PositionTrackerService } from '../engine/positionTracker';
+import { OrderManagerService } from '../engine/orderManager';
+import { Trade } from '../models/Trade';
 import { v4 as uuid } from 'uuid';
 
 @Injectable()
@@ -119,8 +119,8 @@ export class SessionService {
     if (this.tradingSession?.wsBroadcaster) {
       try {
         this.tradingSession.wsBroadcaster({ type: eventType, ...payload });
-      } catch (error) {
-        this.logger.error(`Broadcast error: ${error.message}`);
+      } catch (err) {
+        this.logger.error(`Broadcast error: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
@@ -138,7 +138,7 @@ export class SessionService {
   removeTrade(symbol: string) {
     if (this.tradingSession) {
       const sessionData = this.tradingSession.sessionData;
-      sessionData.trades = sessionData.trades.filter(t => t.symbol !== symbol);
+      sessionData.trades = sessionData.trades.filter((t: any) => t.symbol !== symbol);
       this.logger.log(`Removed trade ${symbol} from session`);
     }
   }

@@ -1,97 +1,51 @@
-import { Field, ObjectType } from '@nestjs/graphql';
-import { IsString, IsNumber, IsOptional, IsDate, IsBoolean } from 'class-validator';
-
-@ObjectType()
 export class Trade {
-  @Field()
-  @IsString()
-  id: string;
+  id: string = '';
 
-  @Field()
-  @IsString()
-  symbol: string;
+  symbol: string = '';
 
-  @Field()
-  @IsString()
-  direction: 'LONG' | 'SHORT';
+  direction: 'LONG' | 'SHORT' = 'LONG';
 
-  @Field()
-  @IsNumber()
-  entry_price: number;
+  entry_price: number = 0;
 
-  @Field()
-  @IsNumber()
-  qty: number;
+  qty: number = 0;
 
-  @Field()
-  @IsNumber()
-  initial_sl: number;
+  initial_sl: number = 0;
 
-  @Field()
-  @IsNumber()
-  current_sl: number;
+  current_sl: number = 0;
 
-  @Field()
-  @IsNumber()
-  max_rr_achieved: number;
+  max_rr_achieved: number = 0;
 
-  @Field()
-  @IsNumber()
-  rr_sequence_index: number;
+  rr_sequence_index: number = 0;
 
-  @Field()
-  @IsOptional()
-  @IsDate()
   entry_ts?: Date;
 
-  @Field()
-  @IsNumber()
-  tp: number;
+  tp: number = 0;
 
-  @Field()
-  @IsNumber()
-  pnl: number;
+  pnl: number = 0;
 
-  @Field()
-  @IsString()
-  status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL';
+  status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL' = 'OPEN';
 
-  @Field()
-  @IsOptional()
-  @IsDate()
   exit_ts?: Date;
 
-  @Field()
-  @IsOptional()
-  @IsNumber()
   exit_price?: number;
 
-  @Field()
-  @IsOptional()
-  @IsString()
   exit_reason?: string;
 
-  @Field()
-  @IsOptional()
-  @IsString()
   exit_signal_type?: string;
 
-  @Field()
-  @IsOptional()
-  @IsString()
   exit_signal_reason?: string;
 
-  @Field()
-  @IsOptional()
-  @IsString()
   entry_signal_type?: string;
 
-  @Field()
-  @IsNumber()
-  entry_signal_confidence: number;
+  entry_signal_confidence = 0;
 
-  @Field()
-  @IsOptional()
-  @IsArray()
   sl_adjustments?: { timestamp: string; prev_sl: number; new_sl: number; reason: string; milestone_index: number }[];
+
+  pnl_pct?: number;
+
+  quantity?: number;
+
+  binance_order_id?: string;
+
+  binance_close_order_id?: string;
 }

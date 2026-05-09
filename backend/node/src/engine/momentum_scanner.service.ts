@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { SessionConfig } from '../../models/session_config';
+import { SessionConfig } from '../models/SessionConfig';
 import { KlineStoreService, Candle } from './kline_store.service';
 import { TickerCacheService } from './ticker_cache.service';
 
@@ -63,7 +63,7 @@ export class MomentumScannerService {
             opportunities.push(opportunity);
           }
         } catch (error) {
-          this.logger.debug(`Scan error for ${symbol}: ${error.message}`);
+          this.logger.debug(`Scan error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
 
@@ -72,7 +72,7 @@ export class MomentumScannerService {
 
       return opportunities;
     } catch (error) {
-      this.logger.warn(`Scan error: ${error.message}`);
+      this.logger.warn(`Scan error: ${error instanceof Error ? error.message : String(error)}`);
       return [];
     }
   }

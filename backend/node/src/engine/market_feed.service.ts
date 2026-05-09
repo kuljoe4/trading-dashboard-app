@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import WebSocket from 'ws';
-import { SessionConfig } from '../../models/session_config';
+import { SessionConfig } from '../models/SessionConfig';
 import { TickerCacheService } from './ticker_cache.service';
 import { KlineStoreService } from './kline_store.service';
 
@@ -104,13 +104,13 @@ export class MarketFeedService {
           if (Array.isArray(tickers) && tickers.length > 0) {
             await this.tickerCache.bulkUpdate(tickers);
           }
-        } catch (error) {
-          this.logger.warn(`miniTicker parse error: ${error.message}`);
+        } catch (err) {
+          this.logger.warn(`miniTicker parse error: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
 
       ws.on('error', (error) => {
-        this.logger.warn(`miniTicker WS error: ${error.message}`);
+        this.logger.warn(`miniTicker WS error: ${error instanceof Error ? error.message : String(error)}`);
       });
 
       ws.on('close', () => {
@@ -150,8 +150,8 @@ export class MarketFeedService {
             await this.subscribeKlineStream(symbol, config.scan_interval);
           }
         }
-      } catch (error) {
-        this.logger.warn(`Watchlist update error: ${error.message}`);
+      } catch (err) {
+        this.logger.warn(`Watchlist update error: ${err instanceof Error ? err.message : String(err)}`);
       }
     };
 
@@ -201,17 +201,17 @@ export class MarketFeedService {
               try {
                 await this.onCandeClose(symbol);
               } catch (err) {
-                this.logger.warn(`Candle close callback error for ${symbol}: ${err.message}`);
+                this.logger.warn(`Candle close callback error for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
               }
             }
           }
-        } catch (error) {
-          this.logger.warn(`Kline parse error for ${stream}: ${error.message}`);
+        } catch (err) {
+          this.logger.warn(`Kline parse error for ${stream}: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
 
       ws.on('error', (error) => {
-        this.logger.warn(`Kline WS ${stream} error: ${error.message}`);
+        this.logger.warn(`Kline WS ${stream} error: ${error instanceof Error ? error.message : String(error)}`);
       });
 
       ws.on('close', () => {
@@ -252,7 +252,7 @@ export class MarketFeedService {
         }
       }
     } catch (error) {
-      this.logger.warn(`Backfill failed for ${symbol}: ${error.message}`);
+      this.logger.warn(`Backfill failed for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }

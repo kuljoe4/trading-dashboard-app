@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Trade } from '../../models/trade';
-import { SessionConfig } from '../../models/session_config';
+import { Trade } from '../models/Trade';
+import { SessionConfig } from '../models/SessionConfig';
 import { SignalEngineService } from './signalEngine';
 import { v4 as uuid } from 'uuid';
 
@@ -33,7 +33,7 @@ export class OrderManagerService {
         symbol,
         direction,
         entry_price: entryPrice,
-        quantity: qty,
+        qty,
         initial_sl: slPrice,
         current_sl: slPrice,
         tp: tpPrice,
@@ -52,19 +52,19 @@ export class OrderManagerService {
       if (!this.paperMode && this.binanceClient) {
         try {
           const binanceDirection = direction === 'LONG' ? 'BUY' : 'SELL';
-          const response = await this.binanceClient.futures_create_order(
-            symbol=symbol,
-            side=binanceDirection,
-            type='MARKET',
-            quantity=qty,
-          );
+          const response = await this.binanceClient.futures_create_order({
+            symbol,
+            side: binanceDirection,
+            type: 'MARKET',
+            quantity: qty,
+          });
           trade.binance_order_id = response.orderId;
           this.logger.log(
             `Binance order placed: ${symbol} ${direction} qty=${qty} order_id=${response.orderId}`,
           );
-        } catch (error) {
+        } catch (err) {
           this.logger.warn(
-            `Binance order failed (continuing in paper mode): ${error.message}`,
+            `Binance order failed (continuing in paper mode): ${err instanceof Error ? err.message : String(err)}`,
           );
         }
       }
@@ -74,7 +74,7 @@ export class OrderManagerService {
       );
       return trade;
     } catch (error) {
-      this.logger.error(`Enter failed: ${error.message}`);
+      this.logger.error(`Enter failed: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }
@@ -105,9 +105,9 @@ export class OrderManagerService {
           this.logger.log(`Exit signal ${exitSignal} fired for ${symbol}`);
           return { exitTriggered: true, exitSignalType: exitSignal };
         }
-      } catch (error) {
+      } catch (err) {
         this.logger.debug(
-          `Exit signal ${exitSignal} check error: ${error.message}`,
+          `Exit signal ${exitSignal} check error: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
@@ -128,7 +128,7 @@ export class OrderManagerService {
         ? exitPrice - trade.entry_price
         : trade.entry_price - exitPrice;
 
-      const pnl = pnlPoints * trade.quantity;
+      const pnl = pnlPoints * trade.quantity || 0;
       const pnlPct = (pnlPoints / trade.entry_price) * 100;
 
       // Update trade
@@ -146,26 +146,26 @@ export class OrderManagerService {
       } else if (exitReason.includes('SIGNAL')) {
         trade.status = 'CLOSED_SIGNAL';
       } else {
-        trade.status = 'CLOSED_OTHER';
+        trade.status = 'CLOSED_SIGNAL';
       }
 
       // In live mode, place close order
       if (!paperMode && this.binanceClient) {
         try {
           const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
-          const response = await this.binanceClient.futures_create_order(
-            symbol=symbol,
-            side=closeDirection,
-            type='MARKET',
-            quantity=trade.quantity,
-          );
+          const response = await this.binanceClient.futures_create_order({
+            symbol,
+            side: closeDirection,
+            type: 'MARKET',
+            quantity: trade.quantity || 0,
+          });
           trade.binance_close_order_id = response.orderId;
           this.logger.log(
-            `Binance close order placed: ${symbol} qty=${trade.quantity} order_id=${response.orderId}`,
+            `Binance close order placed: ${symbol} qty=${trade.quantity || 0} order_id=${response.orderId}`,
           );
-        } catch (error) {
+        } catch (err) {
           this.logger.warn(
-            `Binance close order failed: ${error.message}`,
+            `Binance close order failed: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
       }
@@ -176,7 +176,7 @@ export class OrderManagerService {
 
       return { trade, exitOccurred: true };
     } catch (error) {
-      this.logger.error(`Close failed: ${error.message}`);
+      this.logger.error(`Close failed: ${error instanceof Error ? error.message : String(error)}`);
       return { trade, exitOccurred: false };
     }
   }

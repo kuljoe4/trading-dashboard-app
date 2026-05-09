@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { KlineStoreService, Candle } from './kline_store.service';
-import { SessionConfig } from '../../models/session_config';
+import { KlineStoreService } from './kline_store.service';
+import { SessionConfig } from '../models/SessionConfig';
 
 @Injectable()
 export class SignalEngineService {
@@ -48,7 +48,7 @@ export class SignalEngineService {
           failedSignals.push(signalType);
         }
       } catch (error) {
-        this.logger.warn(`Signal ${signalType} error for ${symbol}: ${error.message}`);
+        this.logger.warn(`Signal ${signalType} error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
         failedSignals.push(signalType);
       }
     }
@@ -81,7 +81,7 @@ export class SignalEngineService {
       // Engulfing: current candle high > prev high AND current low < prev low
       return currCandle.high > prevCandle.high && currCandle.low < prevCandle.low;
     } catch (error) {
-      this.logger.debug(`Engulfing signal error for ${symbol}: ${error.message}`);
+      this.logger.debug(`Engulfing signal error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
   }
@@ -109,7 +109,7 @@ export class SignalEngineService {
       return (prevClose <= ma && currClose > ma) ||
         (prevClose >= ma && currClose < ma);
     } catch (error) {
-      this.logger.debug(`MA signal error for ${symbol}: ${error.message}`);
+      this.logger.debug(`MA signal error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
   }
@@ -137,7 +137,7 @@ export class SignalEngineService {
       return (prevClose <= ema && currClose > ema) ||
         (prevClose >= ema && currClose < ema);
     } catch (error) {
-      this.logger.debug(`EMA signal error for ${symbol}: ${error.message}`);
+      this.logger.debug(`EMA signal error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
       return false;
     }
   }
@@ -158,44 +158,6 @@ export class SignalEngineService {
       ema = prices[i] * multiplier + ema * (1 - multiplier);
     }
 
-    return ema;
-  }
-}
-    }
-  }
-
-  private async emaSignal(symbol: string, config: any): Promise<boolean> {
-    try {
-      const period = parseInt(config.signal_params?.ema_period || '12', 10);
-      const candles = await this.klineStore.getRecentCandles(symbol, '1m', period + 1);
-      if (candles.length < period + 1) return false;
-
-      const closes = candles.map(c => parseFloat(c[4]));
-      const ema = this.calculateEMA(closes.slice(-period), period);
-      const prevClose = closes[closes.length - 2];
-      const currClose = closes[closes.length - 1];
-
-      return (prevClose <= ema && currClose > ema) || (prevClose >= ema && currClose < ema);
-    } catch (error) {
-      this.logger.error(`EMA signal error for ${symbol}: ${error.message}`);
-      return false;
-    }
-  }
-
-  private calculateSMA(prices: number[]): number {
-    return prices.reduce((sum, price) => sum + price, 0) / prices.length;
-  }
-
-  private calculateEMA(prices: number[], period: number): number {
-    if (prices.length < period) return this.calculateSMA(prices);
-    
-    const multiplier = 2 / (period + 1);
-    let ema = this.calculateSMA(prices.slice(-period));
-    
-    for (let i = prices.length - period; i < prices.length; i++) {
-      ema = prices[i] * multiplier + ema * (1 - multiplier);
-    }
-    
     return ema;
   }
 }

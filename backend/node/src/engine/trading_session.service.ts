@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { SessionConfig } from '../../models/session_config';
-import { Trade } from '../../models/trade';
+import { SessionConfig } from '../models/SessionConfig';
+import { Trade } from '../models/Trade';
 import { TickerCacheService } from './ticker_cache.service';
 import { KlineStoreService } from './kline_store.service';
 import { SignalEngineService } from './signalEngine';
@@ -63,7 +63,7 @@ export class TradingSessionService {
         this.balanceLive = balance;
         this.logger.log(`Live balance: ${this.balanceLive} USDT`);
       } catch (error) {
-        this.logger.warn(`Failed to fetch live balance: ${error.message}`);
+        this.logger.warn(`Failed to fetch live balance: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
 
@@ -129,12 +129,13 @@ export class TradingSessionService {
 
           if (result.exitOccurred) {
             this.updateBalance(result.trade);
+            const trade = result.trade;
             this.broadcast('trade', {
               event: 'closed',
               symbol: trade.symbol,
               reason: exitCondition.exitReason,
-              pnl: result.trade.pnl,
-              pnl_pct: result.trade.pnl_pct,
+              pnl: trade.pnl,
+              pnl_pct: trade.pnl_pct,
             });
           }
         }
@@ -261,7 +262,7 @@ export class TradingSessionService {
         }
       }
     } catch (error) {
-      this.logger.error(`OnCandleClose error: ${error.message}`);
+      this.logger.error(`OnCandleClose error: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -273,7 +274,7 @@ export class TradingSessionService {
       const usdtBalance = response.find((b: any) => b.asset === 'USDT');
       return parseFloat(usdtBalance?.balance || 0);
     } catch (error) {
-      this.logger.warn(`Balance fetch failed: ${error.message}`);
+      this.logger.warn(`Balance fetch failed: ${error instanceof Error ? error.message : String(error)}`);
       return 0;
     }
   }

@@ -1,18 +1,15 @@
-import { Controller, Post, Get, Body, UseGuards, ParseBoolPipe } from '@nestjs/common';
+import { Controller, Post, Get, Body } from '@nestjs/common';
 import { SessionService } from './session.service';
-import { SessionConfigDto } from '../dto/session-config.dto';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { SessionConfig } from '../models/SessionConfig';
 
 @Controller('session')
 export class SessionController {
   constructor(private readonly sessionService: SessionService) {}
 
   @Post('start')
-  async startSession(
-    @Body() config: SessionConfigDto,
-    @Body('paper_mode', ParseBoolPipe) paperMode: boolean,
-  ) {
-    return this.sessionService.startSession(config, paperMode);
+  async startSession(@Body() body: any) {
+    const { config, paper_mode } = body;
+    return this.sessionService.startSession(config, paper_mode || true);
   }
 
   @Post('stop')

@@ -156,7 +156,7 @@ export function DashboardView() {
     try {
       updateConfig(newConfig)
       const res = await sessionAPI.start(newConfig)
-      setSessionActive(true, res.data.strategy_id)
+      setSessionActive(true, res.data.strategyId || res.data.strategy_id)
     } catch (e) {
       alert(e?.response?.data?.detail || 'Failed to start')
     } finally {

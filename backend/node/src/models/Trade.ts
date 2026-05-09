@@ -39,7 +39,14 @@ export class Trade {
 
   entry_signal_confidence = 0;
 
-  sl_adjustments?: { timestamp: string; prev_sl: number; new_sl: number; reason: string; milestone_index: number }[];
+  sl_adjustments?: {
+    timestamp: string;
+    prev_sl: number;
+    new_sl: number;
+    reason: string;
+    milestone_index: number;
+    max_rr_achieved?: number;
+  }[];
 
   pnl_pct?: number;
 

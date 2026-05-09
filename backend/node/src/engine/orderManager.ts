@@ -128,7 +128,7 @@ export class OrderManagerService {
         ? exitPrice - trade.entry_price
         : trade.entry_price - exitPrice;
 
-      const pnl = pnlPoints * trade.quantity || 0;
+      const pnl = pnlPoints * trade.qty || 0;
       const pnlPct = (pnlPoints / trade.entry_price) * 100;
 
       // Update trade
@@ -157,11 +157,11 @@ export class OrderManagerService {
             symbol,
             side: closeDirection,
             type: 'MARKET',
-            quantity: trade.quantity || 0,
+            quantity: trade.qty || 0,
           });
           trade.binance_close_order_id = response.orderId;
           this.logger.log(
-            `Binance close order placed: ${symbol} qty=${trade.quantity || 0} order_id=${response.orderId}`,
+            `Binance close order placed: ${symbol} qty=${trade.qty || 0} order_id=${response.orderId}`,
           );
         } catch (err) {
           this.logger.warn(

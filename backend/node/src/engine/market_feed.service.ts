@@ -8,6 +8,9 @@ const BINANCE_WS_BASE = 'wss://fstream.binance.com';
 
 interface BinanceKline {
   E: number;
+  data?: {
+    k: BinanceKline['k'];
+  };
   k: {
     t: number;
     T: number;

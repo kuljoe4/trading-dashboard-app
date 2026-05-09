@@ -22,7 +22,7 @@ const App = () => {
       try {
         const res = await sessionAPI.status();
         if (res.data.running) {
-          setSessionActive(true, res.data.strategy_id);
+          setSessionActive(true, res.data.strategyId || res.data.strategy_id);
         }
       } catch (e) {
         console.error("Failed to fetch session status", e);

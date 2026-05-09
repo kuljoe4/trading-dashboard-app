@@ -35,12 +35,21 @@ export const useTradingStore = create((set, get) => ({
   connectWS: () => {
     if (get().ws) return
     
-    const ws = new WebSocket('ws://localhost:8000/api/session/ws')
+    const ws = new WebSocket(import.meta.env.VITE_WS_URL || 'ws://localhost:3000/session/ws')
     
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data)
       
-      if (data.type === 'tick') {
+      if (data.type === 'status') {
+        set({
+          sessionActive: data.running,
+          strategyId: data.strategyId || null,
+          balance: data.balance ?? get().balance,
+          totalPnl: data.totalPnl ?? get().totalPnl,
+          activeTrades: data.activeTrades || get().activeTrades,
+          logs: data.logLines || get().logs,
+        })
+      } else if (data.type === 'tick') {
         set({
           balance: data.balance,
           totalPnl: data.total_pnl,

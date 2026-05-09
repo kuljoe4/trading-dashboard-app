@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Trade } from '../../models/trade';
-import { SessionConfig } from '../../models/session_config';
+import { Trade } from '../models/Trade';
+import { SessionConfig } from '../models/SessionConfig';
 import { RiskEngineService } from './riskEngine';
 import { SignalEngineService } from './signalEngine';
 import { OrderManagerService } from './orderManager';
@@ -37,7 +37,7 @@ export class PositionTrackerService {
   totalRisk(): number {
     return this.activeList().reduce(
       (sum, trade) =>
-        sum + Math.abs(trade.entry_price - trade.current_sl) * trade.quantity,
+        sum + Math.abs(trade.entry_price - trade.current_sl) * trade.qty,
       0,
     );
   }
@@ -68,8 +68,11 @@ export class PositionTrackerService {
 
     // Find highest milestone crossed by max_rr
     let currentIndex = -1;
-    for (let i = 0; i < config.live_rr_sequence.length; i++) {
-      if (trade.max_rr_achieved >= config.live_rr_sequence[i]) {
+    const liveRrSequence = config.live_rr_sequence || [];
+    const exitRrSequence = config.exit_rr_sequence || [];
+
+    for (let i = 0; i < liveRrSequence.length; i++) {
+      if (trade.max_rr_achieved >= liveRrSequence[i]) {
         currentIndex = i;
       }
     }
@@ -80,7 +83,7 @@ export class PositionTrackerService {
       this.rrSequenceIndex.set(symbol, currentIndex);
 
       // Get target RR for this milestone
-      const exitRr = config.exit_rr_sequence[currentIndex];
+      const exitRr = exitRrSequence[currentIndex] ?? 0;
 
       // Calculate new SL based on target RR
       let newSl: number;
@@ -213,19 +216,19 @@ export class PositionTrackerService {
     } else if (exitReason.includes('SIGNAL')) {
       trade.status = 'CLOSED_SIGNAL';
     } else {
-      trade.status = 'CLOSED_OTHER';
+      trade.status = 'CLOSED_SIGNAL';
     }
 
     // Calculate PnL
     let pnl: number;
     if (trade.direction === 'LONG') {
-      pnl = (exitPrice - trade.entry_price) * trade.quantity;
+      pnl = (exitPrice - trade.entry_price) * trade.qty;
     } else {
-      pnl = (trade.entry_price - exitPrice) * trade.quantity;
+      pnl = (trade.entry_price - exitPrice) * trade.qty;
     }
 
     trade.pnl = pnl;
-    trade.pnl_pct = (pnl / (trade.entry_price * trade.quantity)) * 100;
+    trade.pnl_pct = (pnl / (trade.entry_price * trade.qty)) * 100;
 
     // Remove from tracking
     this.trades.delete(symbol);

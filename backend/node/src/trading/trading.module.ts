@@ -11,10 +11,11 @@ import { MomentumScannerService } from '../engine/momentum_scanner.service';
 import { KlineStoreService } from '../engine/kline_store.service';
 import { SessionService } from './session.service';
 import { SessionController } from './session.controller';
+import { SettingsController } from './settings.controller';
 
 @Module({
   imports: [ConfigModule],
-  controllers: [SessionController],
+  controllers: [SessionController, SettingsController],
   providers: [
     SignalEngineService,
     RiskEngineService,

@@ -127,7 +127,7 @@ export class TradingSessionService {
             this.config,
           );
 
-          if (result.exitOccurred) {
+          if (result.exitOccurred && result.trade) {
             this.updateBalance(result.trade);
             const trade = result.trade;
             this.broadcast('trade', {

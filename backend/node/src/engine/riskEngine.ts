@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { SessionConfig } from '../../models/session_config';
-import { Trade } from '../../models/trade';
+import { SessionConfig } from '../models/SessionConfig';
+import { Trade } from '../models/Trade';
 import { v4 as uuid } from 'uuid';
 
 @Injectable()
@@ -18,36 +18,41 @@ export class RiskEngineService {
     totalSlUsed: number
   ): Promise<{ canEnter: boolean; reason: string }> {
     // Check global max open trades
-    if (activeTrades.length >= config.max_open_trades) {
+    const maxOpenTrades = config.max_open_trades ?? 5;
+    const maxOpenTradesPerSymbol = config.max_open_trades_per_symbol ?? 1;
+    const maxTotalRiskPct = config.max_total_risk_pct ?? 5.0;
+    const totalSlGuardUsdt = config.total_sl_guard_usdt ?? 200.0;
+
+    if (activeTrades.length >= maxOpenTrades) {
       return {
         canEnter: false,
-        reason: `Global max open trades (${config.max_open_trades}) reached`
+        reason: `Global max open trades (${maxOpenTrades}) reached`
       };
     }
 
     // Check per-symbol max open trades
     const symbolTradeCount = activeTrades.filter(t => t.symbol === symbol).length;
-    if (symbolTradeCount >= config.max_open_trades_per_symbol) {
+    if (symbolTradeCount >= maxOpenTradesPerSymbol) {
       return {
         canEnter: false,
-        reason: `Max open trades for ${symbol} (${config.max_open_trades_per_symbol}) reached`
+        reason: `Max open trades for ${symbol} (${maxOpenTradesPerSymbol}) reached`
       };
     }
 
     // Check total risk percentage
     const totalRiskPct = (totalSlUsed / balance) * 100;
-    if (totalRiskPct >= config.max_total_risk_pct) {
+    if (totalRiskPct >= maxTotalRiskPct) {
       return {
         canEnter: false,
-        reason: `Total risk ${totalRiskPct.toFixed(2)}% >= max ${config.max_total_risk_pct}%`
+        reason: `Total risk ${totalRiskPct.toFixed(2)}% >= max ${maxTotalRiskPct}%`
       };
     }
 
     // Check absolute SL guard in USDT
-    if (totalSlUsed >= config.total_sl_guard_usdt) {
+    if (totalSlUsed >= totalSlGuardUsdt) {
       return {
         canEnter: false,
-        reason: `Total SL ${totalSlUsed.toFixed(2)} USDT >= guard ${config.total_sl_guard_usdt} USDT`
+        reason: `Total SL ${totalSlUsed.toFixed(2)} USDT >= guard ${totalSlGuardUsdt} USDT`
       };
     }
 
@@ -66,7 +71,7 @@ export class RiskEngineService {
   ): Promise<number> {
     if (config.sl_type === 'pct') {
       // Simple percentage-based SL
-      const distance = entryPrice * (config.sl_distance_pct / 100);
+      const distance = entryPrice * ((config.sl_distance_pct ?? 0.8) / 100);
       return direction === 'LONG' ? entryPrice - distance : entryPrice + distance;
     }
 
@@ -81,13 +86,13 @@ export class RiskEngineService {
         // For LONG: SL = min(lookback lows) - pct_limit
         const minLow = Math.min(...lookbackLows);
         const distance = Math.abs(minLow - entryPrice);
-        const limitAdjustment = distance * (config.sl_pct_limit / 100);
+        const limitAdjustment = distance * ((config.sl_pct_limit ?? 1.0) / 100);
         return minLow - limitAdjustment;
       } else {
         // For SHORT: SL = max(lookback highs) + pct_limit
         const maxHigh = Math.max(...lookbackHighs);
         const distance = Math.abs(maxHigh - entryPrice);
-        const limitAdjustment = distance * (config.sl_pct_limit / 100);
+        const limitAdjustment = distance * ((config.sl_pct_limit ?? 1.0) / 100);
         return maxHigh + limitAdjustment;
       }
     }
@@ -107,7 +112,7 @@ export class RiskEngineService {
   ): Promise<number> {
     if (balance <= 0 || entryPrice <= 0) return 0;
 
-    const riskAmount = balance * (config.risk_pct_per_trade / 100);
+    const riskAmount = balance * ((config.risk_pct_per_trade ?? 1.0) / 100);
     const slDistance = Math.abs(entryPrice - slPrice);
     
     if (slDistance <= 0) return 0;

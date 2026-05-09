@@ -1,23 +1,36 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 
 @Controller('settings')
 export class SettingsController {
-  private static apiKey = '';
-  private static apiSecret = '';
+  constructor(
+    @InjectRepository(SettingsEntity)
+    private settingsRepository: Repository<SettingsEntity>,
+  ) {}
 
   @Get('keys')
-  getKeys() {
+  async getKeys() {
+    const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
     return {
-      api_key: SettingsController.apiKey
-        ? `${SettingsController.apiKey.slice(0, 4)}...${SettingsController.apiKey.slice(-4)}`
+      api_key: settings?.binance_api_key
+        ? `${settings.binance_api_key.slice(0, 4)}...${settings.binance_api_key.slice(-4)}`
         : '',
     };
   }
 
   @Post('keys')
-  updateKeys(@Body() body: { api_key?: string; api_secret?: string }) {
-    SettingsController.apiKey = body.api_key || '';
-    SettingsController.apiSecret = body.api_secret || '';
+  async updateKeys(@Body() body: { api_key?: string; api_secret?: string }) {
+    let settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+    if (!settings) {
+      settings = this.settingsRepository.create({ id: 'default' });
+    }
+
+    settings.binance_api_key = body.api_key || '';
+    settings.binance_api_secret = body.api_secret || '';
+
+    await this.settingsRepository.save(settings);
 
     return { status: 'saved' };
   }

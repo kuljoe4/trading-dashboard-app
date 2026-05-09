@@ -1,5 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { Session as SessionEntity } from '../models/entities/Session.entity';
+import { TradeEntity } from '../models/entities/Trade.entity';
+import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { SignalEngineService } from '../engine/signalEngine';
 import { RiskEngineService } from '../engine/riskEngine';
 import { PositionTrackerService } from '../engine/positionTracker';
@@ -14,7 +18,10 @@ import { SessionController } from './session.controller';
 import { SettingsController } from './settings.controller';
 
 @Module({
-  imports: [ConfigModule],
+  imports: [
+    ConfigModule,
+    TypeOrmModule.forFeature([SessionEntity, TradeEntity, SettingsEntity]),
+  ],
   controllers: [SessionController, SettingsController],
   providers: [
     SignalEngineService,

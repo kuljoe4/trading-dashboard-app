@@ -35,7 +35,8 @@ export const useTradingStore = create((set, get) => ({
   connectWS: () => {
     if (get().ws) return
     
-    const ws = new WebSocket(import.meta.env.VITE_WS_URL || 'ws://localhost:3000/session/ws')
+    const wsUrl = import.meta.env.VITE_WS_URL || (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.hostname + (window.location.port ? ':' + window.location.port : '') + '/session/ws';
+    const ws = new WebSocket(wsUrl)
     
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data)

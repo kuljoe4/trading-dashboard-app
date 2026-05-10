@@ -59,7 +59,9 @@ export class PositionTrackerService {
     const risk = Math.abs(trade.entry_price - trade.initial_sl);
     if (risk <= 0) return;
 
-    const reward = Math.abs(currentPrice - trade.entry_price);
+    const reward = trade.direction === 'LONG'
+      ? currentPrice - trade.entry_price
+      : trade.entry_price - currentPrice;
     const liveRr = reward / risk;
 
     // Update peak R:R (one-way ladder, never goes down)
@@ -88,11 +90,11 @@ export class PositionTrackerService {
       // Calculate new SL based on target RR
       let newSl: number;
       if (trade.direction === 'LONG') {
-        // For LONG: new_sl = entry - (risk × exit_rr)
-        newSl = trade.entry_price - risk * exitRr;
-      } else {
-        // For SHORT: new_sl = entry + (risk × exit_rr)
+        // For LONG: breakeven is entry; positive exit RR locks profit above entry.
         newSl = trade.entry_price + risk * exitRr;
+      } else {
+        // For SHORT: breakeven is entry; positive exit RR locks profit below entry.
+        newSl = trade.entry_price - risk * exitRr;
       }
 
       // Only move SL deeper into profit (stricter protection)
@@ -159,7 +161,7 @@ export class PositionTrackerService {
     }
 
     // Check TP hit
-    if (trade.direction === 'LONG' && currentPrice >= trade.tp) {
+    if (trade.tp != null && trade.direction === 'LONG' && currentPrice >= trade.tp) {
       return {
         exitOccurred: true,
         exitType: 'CLOSED_TP',
@@ -167,7 +169,7 @@ export class PositionTrackerService {
       };
     }
 
-    if (trade.direction === 'SHORT' && currentPrice <= trade.tp) {
+    if (trade.tp != null && trade.direction === 'SHORT' && currentPrice <= trade.tp) {
       return {
         exitOccurred: true,
         exitType: 'CLOSED_TP',

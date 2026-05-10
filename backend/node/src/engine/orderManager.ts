@@ -25,7 +25,7 @@ export class OrderManagerService {
     entryPrice: number,
     qty: number,
     slPrice: number,
-    tpPrice: number,
+    tpPrice: number | null,
   ): Promise<Trade | null> {
     try {
       const trade = {

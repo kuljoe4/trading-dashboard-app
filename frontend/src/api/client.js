@@ -11,6 +11,8 @@ export const sessionAPI = {
   }),
   stop: () => api.post('/session/stop'),
   status: () => api.get('/session/status'),
+  rateLimit: () => api.get('/session/binance/rate-limit'),
+  history: () => api.get('/session/history'),
 }
 
 export const settingsAPI = {

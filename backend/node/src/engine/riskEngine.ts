@@ -82,19 +82,22 @@ export class RiskEngineService {
         return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' });
       }
 
+      const minPct = config.sl_min_pct ?? 0.3;
+      const maxPct = config.sl_max_pct ?? 3.0;
+      const minDistance = entryPrice * (minPct / 100);
+      const maxDistance = entryPrice * (maxPct / 100);
+
       if (direction === 'LONG') {
-        // For LONG: SL = min(lookback lows) - pct_limit
-        const minLow = Math.min(...lookbackLows);
-        const distance = Math.abs(minLow - entryPrice);
-        const limitAdjustment = distance * ((config.sl_pct_limit ?? 1.0) / 100);
-        return minLow - limitAdjustment;
-      } else {
-        // For SHORT: SL = max(lookback highs) + pct_limit
-        const maxHigh = Math.max(...lookbackHighs);
-        const distance = Math.abs(maxHigh - entryPrice);
-        const limitAdjustment = distance * ((config.sl_pct_limit ?? 1.0) / 100);
-        return maxHigh + limitAdjustment;
+        const structuralSl = Math.min(...lookbackLows);
+        const rawDistance = Math.abs(entryPrice - structuralSl);
+        const clampedDistance = Math.min(Math.max(rawDistance, minDistance), maxDistance);
+        return entryPrice - clampedDistance;
       }
+
+      const structuralSl = Math.max(...lookbackHighs);
+      const rawDistance = Math.abs(structuralSl - entryPrice);
+      const clampedDistance = Math.min(Math.max(rawDistance, minDistance), maxDistance);
+      return entryPrice + clampedDistance;
     }
 
     throw new Error(`Unknown sl_type: ${config.sl_type}`);
@@ -131,12 +134,15 @@ export class RiskEngineService {
     slPrice: number,
     direction: 'LONG' | 'SHORT',
     config: SessionConfig,
-  ): Promise<number> {
+  ): Promise<number | null> {
+    if (config.tp_mode === 'exp_rr_seq') {
+      return null;
+    }
+
     const risk = Math.abs(entryPrice - slPrice);
     if (risk <= 0) return entryPrice;
 
-    // Use first exit RR threshold for initial TP
-    const initialRr = config.exit_rr_sequence?.[0] || 1;
+    const initialRr = config.tp_ratio || 2;
     const reward = risk * initialRr;
 
     return direction === 'LONG'

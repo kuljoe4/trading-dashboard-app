@@ -1,18 +1,15 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Session as SessionEntity } from '../models/entities/Session.entity';
 import { TradeEntity } from '../models/entities/Trade.entity';
 import { SessionConfig } from '../models/SessionConfig';
-import { SignalEngineService } from '../engine/signalEngine';
-import { RiskEngineService } from '../engine/riskEngine';
-import { PositionTrackerService } from '../engine/positionTracker';
-import { OrderManagerService } from '../engine/orderManager';
+import { TradingSessionService } from '../engine/trading_session.service';
 import { Trade } from '../models/Trade';
 import { v4 as uuid } from 'uuid';
 
 @Injectable()
-export class SessionService {
+export class SessionService implements OnModuleInit {
   private readonly logger = new Logger(SessionService.name);
   
   private sessionRunning = false;
@@ -24,7 +21,19 @@ export class SessionService {
     private sessionRepository: Repository<SessionEntity>,
     @InjectRepository(TradeEntity)
     private tradeRepository: Repository<TradeEntity>,
+    private tradingSessionService: TradingSessionService,
   ) {}
+
+  async onModuleInit() {
+    // Cleanup any sessions marked as running in the database on startup
+    const runningSessions = await this.sessionRepository.find({ where: { running: true } });
+    if (runningSessions.length > 0) {
+      this.logger.log(`Cleaning up ${runningSessions.length} stale running sessions`);
+      for (const session of runningSessions) {
+        await this.sessionRepository.update(session.id, { running: false });
+      }
+    }
+  }
 
   async startSession(config: SessionConfig, paperMode: boolean) {
     if (this.sessionRunning) {
@@ -34,7 +43,7 @@ export class SessionService {
     const session = this.sessionRepository.create({
       running: true,
       paperMode,
-      balance: paperMode ? config.paper_starting_balance : config.live_starting_balance,
+      balance: paperMode ? (config.paper_starting_balance || 10000.0) : (config.live_starting_balance || 10000.0),
       config,
       logLines: [],
     });
@@ -42,6 +51,9 @@ export class SessionService {
     const savedSession = await this.sessionRepository.save(session);
     this.currentSessionId = savedSession.id;
     this.sessionRunning = true;
+
+    // Start the actual trading engine
+    await this.tradingSessionService.start(config);
 
     this.logger.log(`Session ${this.currentSessionId} started in ${paperMode ? 'paper' : 'live'} mode`);
     return { strategyId: this.currentSessionId, status: 'started' };
@@ -53,6 +65,9 @@ export class SessionService {
     }
 
     await this.sessionRepository.update(this.currentSessionId, { running: false });
+
+    // Stop the actual trading engine
+    await this.tradingSessionService.stop();
 
     this.logger.log('Stopping trading session');
     this.sessionRunning = false;
@@ -78,34 +93,57 @@ export class SessionService {
     const session = await this.sessionRepository.findOne({ where: { id: this.currentSessionId } });
     if (!session) return { running: false };
 
+    const engineStatus = this.tradingSessionService.getStatus();
     const activeTrades = await this.tradeRepository.find({ where: { status: 'OPEN' } });
 
     return {
       running: session.running,
       strategyId: session.id,
       paperMode: session.paperMode,
-      balance: session.balance,
+      balance: engineStatus.running ? (session.paperMode ? engineStatus.balance_paper : engineStatus.balance_live) : session.balance,
       totalPnl: session.totalPnl,
       logLines: session.logLines,
-      activeTrades: activeTrades,
+      activeTrades: engineStatus.activeTrades?.length ? engineStatus.activeTrades : activeTrades,
+      scannerResults: engineStatus.scannerResults,
+      activeWindows: engineStatus.activeWindows,
+      gateState: engineStatus.gateState,
+      scannerPaused: engineStatus.scannerPaused,
+      history: engineStatus.history,
+      totalRiskPct: engineStatus.balance_paper > 0 ? (engineStatus.total_risk / engineStatus.balance_paper) * 100 : 0,
+      totalSlUsed: engineStatus.total_risk,
       config: session.config,
       startTime: session.startTime,
     };
   }
 
+  async getHistory() {
+    const engineStatus = this.tradingSessionService.getStatus();
+    if (engineStatus.history?.length) {
+      return { trades: engineStatus.history };
+    }
+
+    const closedTrades = await this.tradeRepository.find({
+      where: [
+        { status: 'CLOSED' as any },
+        { status: 'CLOSED_SL' },
+        { status: 'CLOSED_TP' },
+        { status: 'CLOSED_SIGNAL' },
+      ],
+      order: { exit_ts: 'DESC' },
+      take: 50,
+    });
+
+    return { trades: closedTrades };
+  }
+
   async getBinanceRateLimit() {
-    return {
-      usedWeight: 0,
-      usedWeight1m: 0,
-      limit: 1200,
-      usedPct: 0,
-      status: 'ok',
-    };
+    return this.tradingSessionService.getBinanceRateLimit();
   }
 
   // WebSocket broadcaster
   setBroadcaster(callback: (data: any) => void) {
     this.wsBroadcaster = callback;
+    this.tradingSessionService.setWsBroadcaster(callback);
   }
 
   // Broadcast event to WebSocket clients

@@ -7,9 +7,9 @@ export class SessionController {
   constructor(private readonly sessionService: SessionService) {}
 
   @Post('start')
-  async startSession(@Body() body: any) {
-    const { config, paper_mode } = body;
-    return this.sessionService.startSession(config, paper_mode || true);
+  async startSession(@Body() body: { config: SessionConfig; paper_mode?: boolean }) {
+    const config = Object.assign(new SessionConfig(), body.config);
+    return this.sessionService.startSession(config, body.paper_mode ?? true);
   }
 
   @Post('stop')
@@ -25,5 +25,10 @@ export class SessionController {
   @Get('binance/rate-limit')
   async getBinanceRateLimit() {
     return this.sessionService.getBinanceRateLimit();
+  }
+
+  @Get('history')
+  async getHistory() {
+    return this.sessionService.getHistory();
   }
 }

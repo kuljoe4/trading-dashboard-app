@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { C, pnlColor, fmtUSD, fmt } from '../lib/theme'
+import React, { useEffect, useMemo, useState } from 'react'
+import { C, pnlColor, fmtUSD, fmt, fmtVol } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
 import { sessionAPI } from '../api/client'
 import { DecisionLog } from '../components/DecisionLog'
@@ -12,8 +12,9 @@ import {
 
 // --- Strategy Card ---
 const StrategyCard = ({ s, config, onClick }) => {
-  const slPct = (s.totalSlUsed / config.total_sl_guard_usdt) * 100;
+  const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
   const activeTrade = s.activeTrades && s.activeTrades.length > 0 ? s.activeTrades[0] : null;
+  const activeDirection = activeTrade?.direction?.toUpperCase()
 
   return (
     <div onClick={onClick} style={{ 
@@ -53,12 +54,102 @@ const StrategyCard = ({ s, config, onClick }) => {
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 6, background: C.greenDim, border: `1px solid ${C.greenBorder}` }}>
           <PulseDot color={C.green} />
           <span style={{ fontSize: 12, color: C.text, fontFamily: "monospace" }}>{activeTrade.symbol}</span>
-          <span style={{ fontSize: 11, color: activeTrade.direction === 'LONG' ? C.green : C.red }}>{activeTrade.direction}</span>
+          <span style={{ fontSize: 11, color: activeDirection === 'LONG' ? C.green : C.red }}>{activeDirection}</span>
           <span style={{ marginLeft: "auto", fontSize: 13, fontWeight: 700, color: pnlColor(activeTrade.pnl), fontFamily: "monospace" }}>{fmtUSD(activeTrade.pnl)}</span>
         </div>
       )}
     </div>
   );
+}
+
+const RateLimitStrip = ({ rateLimit }) => {
+  const used = rateLimit?.used_weight_1m || 0
+  const limit = rateLimit?.limit || 1200
+  const pct = Math.min((used / limit) * 100, 100)
+  const color = pct >= 90 ? C.red : pct >= 70 ? C.amber : C.green
+
+  return (
+    <div className="rate-strip">
+      <span>LIMITS</span>
+      <div>
+        <strong style={{ color }}>{used}/{limit}</strong>
+        <i><b style={{ width: `${pct}%`, background: color }} /></i>
+      </div>
+      <em style={{ color }}>{pct >= 90 ? 'CRITICAL' : pct >= 70 ? 'WARN' : 'OK'}</em>
+    </div>
+  )
+}
+
+const GateBanner = ({ gateState, scannerPaused }) => {
+  if (!gateState && !scannerPaused) return null
+  const messages = {
+    max_trades: 'Max open trades reached. Scanner is paused until a position closes.',
+    sl_guard: 'Stop-loss guard has been reached. New entries are blocked for this session.',
+    risk_pct: 'Total risk limit reached. Scanner can watch, but entries are gated.',
+    risk: 'Risk gate is active. New entries are blocked.',
+  }
+
+  return (
+    <div className={`gate-banner ${scannerPaused ? 'gate-banner--blocked' : 'gate-banner--warn'}`}>
+      {messages[gateState] || 'Risk gate active.'}
+    </div>
+  )
+}
+
+const ActiveWindows = ({ windows }) => {
+  if (!windows?.length) return null
+  return (
+    <div>
+      <SectionLabel>Active Windows</SectionLabel>
+      <div className="active-window-list">
+        {windows.map((window) => {
+          const pct = Math.max(0, Math.min((window.remaining_ms / 90000) * 100, 100))
+          const color = window.direction === 'long' ? C.green : C.red
+          return (
+            <div key={window.symbol} className="active-window-card">
+              <div>
+                <strong>{window.symbol}</strong>
+                <span style={{ color }}>{window.direction.toUpperCase()}</span>
+              </div>
+              <div>
+                <span style={{ color }}>{Math.abs(window.pct_change).toFixed(2)}%</span>
+                <small>{Math.round(window.remaining_ms / 1000)}s left</small>
+              </div>
+              <i><b style={{ width: `${pct}%`, background: pct > 30 ? C.amber : C.red }} /></i>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+const ScannerPreview = ({ scannerResults, config, onOpen }) => {
+  const threshold = config.scan_pct_threshold || 2
+  const top = scannerResults.slice(0, 5)
+  return (
+    <div className="panel">
+      <div className="panel__header">
+        <SectionLabel>Scanner</SectionLabel>
+        <button className="ghost-button" onClick={onOpen}>Open Scanner</button>
+      </div>
+      {top.length === 0 ? (
+        <div className="empty-panel empty-panel--compact">Waiting for scanner data.</div>
+      ) : top.map((opp, i) => {
+        const passing = Math.abs(opp.pct) >= threshold
+        const color = opp.dir === 'short' ? C.red : C.green
+        return (
+          <div key={opp.symbol} className="scanner-preview-row" style={{ opacity: passing ? 1 : 0.5 }}>
+            <span>#{i + 1}</span>
+            <strong>{opp.symbol}</strong>
+            <em style={{ color }}>{opp.pct >= 0 ? '+' : ''}{opp.pct.toFixed(2)}%</em>
+            <small>{fmtVol(opp.vol)}</small>
+            <b style={{ color: passing ? C.green : C.dim }}>{passing ? 'PASS' : 'WAIT'}</b>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 // --- Detail View ---
@@ -69,9 +160,9 @@ const StrategyDetailView = ({ s, onBack }) => {
   const entryMet = scanMet && s.activeTrades.length > 0
 
   return (
-    <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
+    <div className="strategy-detail">
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
+      <div className="strategy-detail__header">
         <button onClick={onBack} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, color: C.dim, padding: "6px 12px", cursor: "pointer", fontSize: 12 }}>← Back</button>
         <div style={{ flex: 1 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -84,7 +175,7 @@ const StrategyDetailView = ({ s, onBack }) => {
       </div>
 
       {/* Summary Row */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
+      <div className="summary-grid">
         <StatCard label="TOTAL P&L" value={fmtUSD(s.totalPnl)} color={pnlColor(s.totalPnl)} />
         <StatCard label="HITS" value={s.logs.filter(l => l.msg.includes('Entry')).length.toString()} />
         <StatCard label="SL USED" value={`$${s.totalSlUsed.toFixed(0)} / $${config.total_sl_guard_usdt}`} color={s.totalSlUsed > config.total_sl_guard_usdt * 0.7 ? C.amber : C.text} />
@@ -93,7 +184,7 @@ const StrategyDetailView = ({ s, onBack }) => {
 
       {/* Condition Widgets */}
       <SectionLabel>Entry Conditions</SectionLabel>
-      <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
+      <div className="condition-grid">
         <ConditionWidget
           label={`Scanner: % Move in last ${config.scan_lookback}×${config.scan_interval}`}
           value={bestOpp.pct}
@@ -107,7 +198,7 @@ const StrategyDetailView = ({ s, onBack }) => {
           threshold={config.scan_pct_threshold}
           unit=" confirm"
           satisfied={entryMet}
-          sublabel="Breakout above N-bar high"
+          sublabel={`${bestOpp.symbol} confirmation`}
         />
       </div>
 
@@ -118,7 +209,7 @@ const StrategyDetailView = ({ s, onBack }) => {
       </div>
 
       {/* P&L Chart + Timeline */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 16 }}>
+      <div className="detail-content-grid">
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 16 }}>
           <SectionLabel>Session Logs</SectionLabel>
           <DecisionLog />
@@ -141,7 +232,9 @@ export function DashboardView() {
   const [showConfig, setShowConfig] = useState(false)
   const { 
     sessionActive, balance, totalPnl, totalRiskPct, totalSlUsed, 
-    activeTrades, logs, config, setSessionActive, updateConfig
+    activeTrades, logs, config, setSessionActive, updateConfig,
+    scannerResults, activeWindows, gateState, scannerPaused, rateLimit,
+    wsStatus, updateStats
   } = useTradingStore()
   const [loading, setLoading] = useState(false)
 
@@ -149,6 +242,14 @@ export function DashboardView() {
   const currentStrategy = {
     sessionActive, totalPnl, totalRiskPct, totalSlUsed, activeTrades, logs
   }
+
+  const maxRR = useMemo(() => activeTrades.reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
+
+  useEffect(() => {
+    sessionAPI.rateLimit()
+      .then((res) => updateStats({ rateLimit: res.data }))
+      .catch(() => {})
+  }, [updateStats])
 
   async function handleCreateStrategy(newConfig) {
     setLoading(true)
@@ -186,50 +287,66 @@ export function DashboardView() {
   }
 
   return (
-    <div style={{ flex: 1, overflow: 'auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div className="dashboard-view">
       
       {/* Controls */}
-      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: 20, display: 'flex', alignItems: 'center', gap: 16 }}>
+      <div className="dashboard-controls" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
         <StatusBadge status={sessionActive} />
         {config.paper_mode && <PaperBadge />}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 10 }}>
           {!sessionActive ? (
-            <Btn variant="success" onClick={() => setShowConfig(true)}>{loading ? 'Starting…' : '▶ New Session'}</Btn>
+            <Btn variant="success" onClick={() => setShowConfig(true)}>{loading ? 'Starting...' : 'New Session'}</Btn>
           ) : (
             <Btn variant="danger" onClick={handleStop}>
-              {loading ? 'Stopping…' : '■ Stop Session'}
+              {loading ? 'Stopping...' : 'Stop Session'}
             </Btn>
           )}
         </div>
       </div>
 
-      <SectionLabel>Strategies</SectionLabel>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 14 }}>
-        <StrategyCard s={currentStrategy} config={config} onClick={() => setSelected(true)} />
-        
-        {/* Placeholder for "New Strategy" */}
-        {!sessionActive && (
-          <div 
-            onClick={() => setShowConfig(true)}
-            style={{ 
-              border: `2px dashed ${C.border}`, borderRadius: 10, display: 'flex', 
-              alignItems: 'center', justifyContent: 'center', minHeight: 180, 
-              color: C.dim, cursor: 'pointer', transition: 'all 0.2s' 
-            }}
-            onMouseEnter={e => e.currentTarget.style.borderColor = C.accent}
-            onMouseLeave={e => e.currentTarget.style.borderColor = C.border}
-          >
-            + New Strategy
-          </div>
-        )}
-      </div>
+      <RateLimitStrip rateLimit={rateLimit} />
+      <GateBanner gateState={gateState} scannerPaused={scannerPaused} />
 
-      {/* Quick Stats Overlay (matching Spec) */}
-      <div style={{ marginTop: 'auto', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+      <div className="summary-grid dashboard-summary">
         <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} />
         <StatCard label="Total Session P&L" value={fmtUSD(totalPnl)} color={pnlColor(totalPnl)} />
-        <StatCard label="Active Risk" value={`${totalRiskPct.toFixed(1)}%`} />
-        <StatCard label="SL Guard Status" value={`$${totalSlUsed.toFixed(0)} / $${config.total_sl_guard_usdt}`} />
+        <StatCard label="Active Risk" value={`${totalRiskPct.toFixed(1)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? C.amber : C.text} />
+        <StatCard label="Peak Max RR" value={`+${maxRR.toFixed(2)}`} color={C.accent} />
+      </div>
+
+      <div className="cockpit-grid">
+        <div className="side-context">
+          <div className="panel">
+            <SectionLabel>Strategy</SectionLabel>
+            <div className="strategy-grid">
+              <StrategyCard s={currentStrategy} config={config} onClick={() => setSelected(true)} />
+              {!sessionActive && (
+                <button className="new-strategy-card" onClick={() => setShowConfig(true)}>
+                  New Strategy
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="panel">
+            <ActiveWindows windows={activeWindows} />
+
+            <SectionLabel>Active Positions</SectionLabel>
+            <div className="active-trade-stack">
+              {activeTrades.length === 0
+                ? <div className="empty-panel">{sessionActive ? `Scanner is live (${wsStatus}). No open position yet.` : 'Start a session to begin scanning.'}</div>
+                : activeTrades.map((trade) => <ActiveTradeBar key={trade.id || trade.symbol} trade={trade} />)}
+            </div>
+          </div>
+        </div>
+
+        <div className="side-context">
+          <ScannerPreview scannerResults={scannerResults} config={config} onOpen={() => window.dispatchEvent(new CustomEvent('open-scanner'))} />
+          <div className="panel">
+            <SectionLabel>Decision Log</SectionLabel>
+            <DecisionLog />
+          </div>
+        </div>
       </div>
 
       {showConfig && (

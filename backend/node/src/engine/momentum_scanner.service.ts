@@ -54,12 +54,12 @@ export class MomentumScannerService {
 
       for (const symbol of symbols) {
         try {
-          const opportunity = await this.scanSymbol(
+      const opportunity = await this.scanSymbol(
             symbol,
             interval,
             config,
           );
-          if (opportunity) {
+          if (opportunity && this.passesConfig(opportunity, config)) {
             opportunities.push(opportunity);
           }
         } catch (error) {
@@ -83,13 +83,14 @@ export class MomentumScannerService {
     config: SessionConfig,
   ): Promise<Opportunity | null> {
     // Get recent candles for momentum calculation
-    const candles = await this.klineStore.getRecentCandles(symbol, interval, 20);
-    if (candles.length < 2) {
+    const lookback = Math.max(config.scan_lookback || 1, 1);
+    const candles = await this.klineStore.getRecentCandles(symbol, interval, Math.max(20, lookback + 1));
+    if (candles.length < lookback + 1) {
       return null;
     }
 
     const currentPrice = candles[candles.length - 1].close;
-    const previousPrice = candles[candles.length - 2].close;
+    const previousPrice = candles[candles.length - 1 - lookback].close;
 
     // Calculate simple momentum
     const momentumPct =
@@ -115,10 +116,23 @@ export class MomentumScannerService {
       symbol,
       price: ticker || currentPrice,
       momentum: momentumPct,
-      volume_24h: tickerData?.volume_24h || 0,
+      volume_24h: Number(tickerData?.volume_24h || 0),
       score,
       direction,
     };
+  }
+
+  private passesConfig(opportunity: Opportunity, config: SessionConfig): boolean {
+    const threshold = config.scan_pct_threshold ?? 0;
+    const minVolume = config.scan_min_volume_usdt ?? 0;
+    const side = config.entry_side || 'both';
+
+    if (Math.abs(opportunity.momentum) < threshold) return false;
+    if (opportunity.volume_24h < minVolume) return false;
+    if (side === 'long' && opportunity.direction !== 'LONG') return false;
+    if (side === 'short' && opportunity.direction !== 'SHORT') return false;
+
+    return true;
   }
 
   private calculateScore(

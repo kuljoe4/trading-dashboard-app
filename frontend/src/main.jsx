@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { DashboardView } from './views/DashboardView';
 import { SettingsView } from './views/SettingsView';
+import { HistoryView } from './views/HistoryView';
 import { C } from './lib/theme';
 import { useTradingStore } from './store/trading';
 import { sessionAPI } from './api/client';
@@ -14,7 +15,7 @@ const App = () => {
   const [showScanner, setShowScanner] = useState(false);
   
   const { 
-    sessionActive, setSessionActive, balance, totalRiskPct 
+    sessionActive, setSessionActive, balance, totalRiskPct, config, wsStatus, updateStats
   } = useTradingStore();
 
   useEffect(() => {
@@ -24,12 +25,28 @@ const App = () => {
         if (res.data.running) {
           setSessionActive(true, res.data.strategyId || res.data.strategy_id);
         }
+        updateStats({
+          balance: res.data.balance ?? balance,
+          totalRiskPct: res.data.totalRiskPct ?? totalRiskPct,
+          totalSlUsed: res.data.totalSlUsed ?? 0,
+          activeTrades: res.data.activeTrades || [],
+          scannerResults: res.data.scannerResults || [],
+          activeWindows: res.data.activeWindows || [],
+          tradeHistory: res.data.history || [],
+          config: res.data.config ? { ...config, ...res.data.config } : config,
+        });
       } catch (e) {
         console.error("Failed to fetch session status", e);
       }
     }
     checkStatus();
   }, [setSessionActive]);
+
+  useEffect(() => {
+    const openScanner = () => setShowScanner(true);
+    window.addEventListener('open-scanner', openScanner);
+    return () => window.removeEventListener('open-scanner', openScanner);
+  }, []);
 
   const handleKill = async () => {
     if (window.confirm("Are you sure you want to KILL all sessions?")) {
@@ -43,22 +60,25 @@ const App = () => {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: C.bg, color: C.text }}>
+    <div className="app-shell" style={{ background: C.bg, color: C.text }}>
       <TopBar 
         balance={balance} 
         totalRisk={totalRiskPct} 
         onKill={handleKill} 
         sessionActive={sessionActive} 
+        paperMode={config.paper_mode}
+        wsStatus={wsStatus}
       />
 
       {/* Nav */}
-      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", padding: "0 24px", gap: 4 }}>
-        {[["dashboard", "Dashboard"], ["settings", "Settings"]].map(([v, label]) => (
+      <div className="app-nav" style={{ background: C.surface, borderBottom: `1px solid ${C.border}` }}>
+        {[["dashboard", "Dashboard"], ["history", "History"], ["settings", "Settings"]].map(([v, label]) => (
           <button 
             key={v} 
             onClick={() => setView(v)}
+            className="app-nav__tab"
             style={{ 
-              padding: "10px 16px", fontSize: 12, fontWeight: view === v ? 700 : 400, 
+              fontWeight: view === v ? 700 : 400, 
               color: view === v ? C.text : C.dim, background: "none", border: "none", 
               borderBottom: `2px solid ${view === v ? C.accent : "transparent"}`, cursor: "pointer",
               transition: 'all 0.2s'
@@ -69,9 +89,9 @@ const App = () => {
         ))}
         <button 
           onClick={() => setShowScanner(true)}
+          className="scanner-trigger"
           style={{ 
-            marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, 
-            padding: "6px 14px", borderRadius: 6, border: `1px solid ${C.border}`, 
+            border: `1px solid ${C.border}`, 
             background: "none", color: C.text, fontSize: 11, cursor: "pointer" 
           }}
         >
@@ -81,8 +101,10 @@ const App = () => {
       </div>
 
       {/* Main Content */}
-      <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
-        {view === 'dashboard' ? <DashboardView /> : <SettingsView />}
+      <div className="app-main">
+        {view === 'dashboard' && <DashboardView />}
+        {view === 'history' && <HistoryView />}
+        {view === 'settings' && <SettingsView />}
       </div>
 
       {showScanner && <ScannerOverlay onClose={() => setShowScanner(false)} />}

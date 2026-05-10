@@ -19,7 +19,7 @@ export class Trade {
 
   entry_ts?: Date;
 
-  tp: number = 0;
+  tp?: number | null = 0;
 
   pnl: number = 0;
 

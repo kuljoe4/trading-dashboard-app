@@ -1,27 +1,33 @@
 import React from 'react'
 import { C } from '../lib/theme'
+import { PaperBadge, PulseDot } from './ui/primitives'
 
-export const TopBar = ({ balance, totalRisk, onKill, sessionActive }) => {
+export const TopBar = ({ balance, totalRisk, onKill, sessionActive, paperMode, wsStatus }) => {
+  const wsColor = wsStatus === 'live' ? C.green : wsStatus === 'connecting' ? C.amber : C.red
   return (
-    <div style={{ height: 52, background: C.surface, borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", padding: "0 20px", gap: 20, flexShrink: 0 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: "auto" }}>
+    <div className="top-bar" style={{ background: C.surface, borderBottom: `1px solid ${C.border}` }}>
+      <div className="top-bar__brand">
         <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.accent }} />
         <span style={{ fontSize: 13, fontWeight: 700, color: C.text, letterSpacing: 0.5 }}>MOMENTUM ENGINE</span>
+        {paperMode && <PaperBadge />}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: wsColor, fontSize: 10 }}>
+          <PulseDot color={wsColor} /> {wsStatus.toUpperCase()}
+        </span>
       </div>
-      <div>
+      <div className="top-bar__metric">
         <span style={{ fontSize: 10, color: C.dim }}>BALANCE </span>
         <span style={{ fontSize: 14, fontWeight: 700, color: C.text, fontFamily: "monospace" }}>${balance.toLocaleString()}</span>
       </div>
-      <div>
+      <div className="top-bar__metric">
         <span style={{ fontSize: 10, color: C.dim }}>OPEN RISK </span>
         <span style={{ fontSize: 14, fontWeight: 700, color: totalRisk > 3 ? C.amber : C.text, fontFamily: "monospace" }}>{totalRisk.toFixed(1)}%</span>
       </div>
-      <button onClick={onKill} style={{ 
-        padding: "6px 14px", borderRadius: 6, border: `1px solid ${C.redBorder}`, 
+      <button onClick={onKill} className="top-bar__kill" style={{ 
+        border: `1px solid ${C.redBorder}`, 
         background: C.redDim, color: C.red, fontSize: 11, fontWeight: 700, 
         cursor: "pointer", letterSpacing: 1 
       }}>
-        ⬛ KILL
+        KILL SESSION
       </button>
     </div>
   )

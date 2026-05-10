@@ -5,18 +5,30 @@ export class SessionConfig {
 
   scan_pct_threshold: number = 2.0;
 
+  scan_min_volume_usdt?: number = 500000;
+
+  scan_mode?: 'interval' | 'active_window' = 'interval';
+
+  scan_window_duration_sec?: number = 90;
+
+  scan_check_interval_sec?: number = 5;
+
   watchlist_size: number = 50;
+
+  entry_side?: 'both' | 'long' | 'short' = 'both';
 
   excluded_symbols?: string[];
 
   symbols?: string[];
 
-  enabled_signals?: string[];
+  enabled_signals?: string[] = ['momentum_pct'];
+
+  signal_logic?: 'any' | 'all' = 'all';
 
   signal_params?: string;
 
   // Stop Loss Configuration
-  sl_type?: string = "pct";
+  sl_type?: 'pct' | 'lookback_low/high' = "pct";
 
   sl_distance_pct?: number = 0.8;
 
@@ -26,10 +38,18 @@ export class SessionConfig {
 
   sl_pct_limit?: number = 1.0;
 
-  // Exponential RR Sequence for Profit Locking
-  live_rr_sequence?: number[] = [1.0, 2.0];
+  sl_min_pct?: number = 0.3;
 
-  exit_rr_sequence?: number[] = [0.0, 1.0];
+  sl_max_pct?: number = 3.0;
+
+  tp_mode?: 'fixed' | 'exp_rr_seq' = 'fixed';
+
+  tp_ratio?: number = 2.0;
+
+  // Exponential RR Sequence for Profit Locking
+  live_rr_sequence?: number[] = [1.0, 2.0, 4.0];
+
+  exit_rr_sequence?: number[] = [0.0, 1.0, 2.0];
 
   // Exit Signal Configuration - ANY exit signal fires close
   exit_signals?: string[] = [];

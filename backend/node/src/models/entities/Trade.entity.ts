@@ -32,8 +32,8 @@ export class TradeEntity {
   @CreateDateColumn()
   entry_ts: Date;
 
-  @Column('decimal', { precision: 20, scale: 8 })
-  tp: number;
+  @Column('decimal', { precision: 20, scale: 8, nullable: true })
+  tp: number | null;
 
   @Column('decimal', { precision: 20, scale: 8, default: 0 })
   pnl: number;

@@ -10,9 +10,12 @@ export class SignalEngineService {
     string,
     (symbol: string, config: any, interval: string) => Promise<boolean>
   > = {
+    momentum_pct: this.momentumPctSignal.bind(this),
+    breakout_hl: this.breakoutHlSignal.bind(this),
     engulfing: this.engulfingSignal.bind(this),
     ma: this.maSignal.bind(this),
     ema: this.emaSignal.bind(this),
+    ema_cross: this.emaSignal.bind(this),
   };
 
   constructor(private readonly klineStore: KlineStoreService) {}
@@ -53,13 +56,46 @@ export class SignalEngineService {
       }
     }
 
-    const allFired = failedSignals.length === 0;
+    const logic = config.signal_logic || 'all';
+    const allFired = logic === 'any'
+      ? firedSignals.length > 0
+      : failedSignals.length === 0;
     const reason =
       `Signals fired: ${firedSignals.length}/${config.enabled_signals.length}` +
       (firedSignals.length > 0 ? ` (${firedSignals.join(', ')})` : '') +
       (failedSignals.length > 0 ? `; Failed: ${failedSignals.join(', ')}` : '');
 
     return { allFired, firedSignals, reason };
+  }
+
+  private async momentumPctSignal(
+    symbol: string,
+    config: SessionConfig,
+    interval: string,
+  ): Promise<boolean> {
+    const lookback = Math.max(config.scan_lookback || 3, 1);
+    const candles = await this.klineStore.getRecentCandles(symbol, interval, lookback + 1);
+    if (candles.length < lookback + 1) return false;
+
+    const first = candles[candles.length - 1 - lookback].close;
+    const last = candles[candles.length - 1].close;
+    const pct = ((last - first) / first) * 100;
+    return Math.abs(pct) >= (config.scan_pct_threshold || 0);
+  }
+
+  private async breakoutHlSignal(
+    symbol: string,
+    config: SessionConfig,
+    interval: string,
+  ): Promise<boolean> {
+    const lookback = Math.max(config.scan_lookback || 3, 2);
+    const candles = await this.klineStore.getRecentCandles(symbol, interval, lookback + 1);
+    if (candles.length < lookback + 1) return false;
+
+    const current = candles[candles.length - 1];
+    const previous = candles.slice(0, -1);
+    return current.close > Math.max(...previous.map((c) => c.high)) ||
+      current.close < Math.min(...previous.map((c) => c.low));
   }
 
   private async engulfingSignal(

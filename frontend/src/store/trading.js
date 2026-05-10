@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { sessionAPI } from '../api/client'
 
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value)
@@ -109,6 +110,7 @@ export const useTradingStore = create((set, get) => ({
   gateState: null,
   scannerPaused: false,
   wsStatus: 'offline',
+  sessionList: [],
   rateLimit: {
     used_weight_1m: 0,
     limit: 1200,
@@ -126,6 +128,16 @@ export const useTradingStore = create((set, get) => ({
     }
   },
 
+  fetchSessions: async () => {
+    try {
+      const res = await sessionAPI.list()
+      console.log('tradingStore: fetchSessions response:', res.data);
+      set({ sessionList: res.data })
+    } catch (e) {
+      console.error('tradingStore: fetchSessions error:', e);
+    }
+  },
+
   updateStats: (stats) => set((state) => ({ ...state, ...stats })),
   updateConfig: (newConfig) => set((state) => ({ config: { ...state.config, ...newConfig } })),
 
@@ -134,10 +146,14 @@ export const useTradingStore = create((set, get) => ({
     if (get().ws) return
     set({ wsStatus: 'connecting' })
 
-    const wsUrl = import.meta.env.VITE_WS_URL || (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.hostname + (window.location.port ? ':' + window.location.port : '') + '/session/ws'
+    const wsUrl = import.meta.env.VITE_WS_URL || (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + (window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '')) + '/session/ws'
     const ws = new WebSocket(wsUrl)
 
     ws.onopen = () => set({ wsStatus: 'live' })
+
+    // Throttled scanner update to prevent React choking on high-freq updates
+    let lastScannerUpdate = 0;
+    const SCANNER_THROTTLE_MS = 200;
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data)
@@ -197,10 +213,14 @@ export const useTradingStore = create((set, get) => ({
       } else if (data.type === 'log') {
         set((state) => ({ logs: [normalizeLog(data), ...state.logs].slice(0, 100) }))
       } else if (data.type === 'scanner') {
-        set({
-          scannerResults: (data.opportunities || []).map(normalizeOpportunity),
-          activeWindows: (data.activeWindows || []).map(normalizeWindow),
-        })
+        const now = Date.now();
+        if (now - lastScannerUpdate >= SCANNER_THROTTLE_MS) {
+          set({
+            scannerResults: (data.opportunities || []).map(normalizeOpportunity),
+            activeWindows: (data.activeWindows || []).map(normalizeWindow),
+          })
+          lastScannerUpdate = now;
+        }
       } else if (data.type === 'trade_event') {
         const trade = data.trade ? normalizeTrade(data.trade) : null
         set((state) => ({

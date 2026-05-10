@@ -10,6 +10,7 @@ export interface Opportunity {
   volume_24h: number;
   score: number; // 0-100 opportunity score
   direction: 'LONG' | 'SHORT';
+  history?: number[]; // Recent close prices for sparkline
 }
 
 @Injectable()
@@ -54,12 +55,12 @@ export class MomentumScannerService {
 
       for (const symbol of symbols) {
         try {
-      const opportunity = await this.scanSymbol(
+          const opportunity = await this.scanSymbol(
             symbol,
             interval,
             config,
           );
-          if (opportunity && this.passesConfig(opportunity, config)) {
+          if (opportunity) {
             opportunities.push(opportunity);
           }
         } catch (error) {
@@ -67,10 +68,10 @@ export class MomentumScannerService {
         }
       }
 
-      // Sort by score descending
+      // Sort by score descending and take top 15
       opportunities.sort((a, b) => b.score - a.score);
 
-      return opportunities;
+      return opportunities.slice(0, 15);
     } catch (error) {
       this.logger.warn(`Scan error: ${error instanceof Error ? error.message : String(error)}`);
       return [];
@@ -119,6 +120,7 @@ export class MomentumScannerService {
       volume_24h: Number(tickerData?.volume_24h || 0),
       score,
       direction,
+      history: candles.slice(-20).map(c => c.close),
     };
   }
 

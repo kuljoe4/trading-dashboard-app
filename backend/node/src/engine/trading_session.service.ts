@@ -23,10 +23,12 @@ export class TradingSessionService {
   private lastRateLimitCheck = 0;
   private binanceRateLimit: Record<string, any> = {};
   private wsBroadcaster: ((data: any) => void) | null = null;
+  private onBalanceUpdate: ((balance: number, pnl: number) => void) | null = null;
   private lastScannerResults: any[] = [];
   private closedTrades: Trade[] = [];
   private gateState: string | null = null;
   private activeWindows: Map<string, any> = new Map();
+  private updateInterval: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly tickerCache: TickerCacheService,
@@ -41,6 +43,10 @@ export class TradingSessionService {
 
   setWsBroadcaster(cb: (data: any) => void) {
     this.wsBroadcaster = cb;
+  }
+
+  setBalanceUpdateCallback(cb: (balance: number, pnl: number) => void) {
+    this.onBalanceUpdate = cb;
   }
 
   private broadcast(eventType: string, payload: any) {
@@ -78,6 +84,9 @@ export class TradingSessionService {
     await this.marketFeed.start(config);
     await this.momentumScanner.start(config);
 
+    // Start periodic UI updates
+    this.updateInterval = setInterval(() => this.periodicUpdate(), 2000);
+
     this.logger.log(
       `Session started | mode=${config.paper_mode ? 'PAPER' : 'LIVE'} | ` +
         `balance=${this.getBalance()} | signals=${config.enabled_signals?.join(',')} | ` +
@@ -90,12 +99,48 @@ export class TradingSessionService {
   }
 
   async stop() {
+    this.logger.warn('Stop() method called. Stack trace:', new Error().stack);
     this.running = false;
+    if (this.updateInterval) {
+      clearInterval(this.updateInterval);
+      this.updateInterval = null;
+    }
     await this.marketFeed.stop();
     await this.momentumScanner.stop();
     this.logger.log('Session stopped');
     this.broadcastSnapshot('stopped');
     return { status: 'stopped' };
+  }
+
+  private async periodicUpdate() {
+    if (!this.running || !this.config) return;
+
+    try {
+      // Periodic scan for UI updates
+      const opportunities = await this.momentumScanner.scan(this.config);
+      this.lastScannerResults = opportunities.map((o) => ({
+        symbol: o.symbol,
+        price: o.price,
+        pct: Number(o.momentum.toFixed(2)),
+        momentum: Number(o.momentum.toFixed(2)),
+        direction: o.direction.toLowerCase(),
+        dir: o.direction.toLowerCase(),
+        vol: o.volume_24h,
+        volume_usdt: o.volume_24h,
+        score: Number((o.score / 10).toFixed(1)),
+        history: o.history,
+      }));
+
+      this.broadcast('scanner', {
+        count: this.lastScannerResults.length,
+        opportunities: this.lastScannerResults,
+        activeWindows: this.getActiveWindows(),
+      });
+
+      await this.broadcastTick();
+    } catch (error) {
+      this.logger.debug(`Periodic update error: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private async onCandleClose(symbol: string) {
@@ -148,7 +193,7 @@ export class TradingSessionService {
 
       // Scan for new opportunities
       const opportunities = await this.momentumScanner.scan(this.config);
-      this.lastScannerResults = opportunities.slice(0, 10).map((o) => ({
+      this.lastScannerResults = opportunities.map((o) => ({
         symbol: o.symbol,
         price: o.price,
         pct: Number(o.momentum.toFixed(2)),
@@ -158,6 +203,7 @@ export class TradingSessionService {
         vol: o.volume_24h,
         volume_usdt: o.volume_24h,
         score: Number((o.score / 10).toFixed(1)),
+        history: o.history,
       }));
       this.refreshActiveWindows(this.lastScannerResults);
       this.broadcast('scanner', {
@@ -417,6 +463,10 @@ export class TradingSessionService {
       this.balancePaper += trade.pnl || 0;
     } else {
       this.balanceLive += trade.pnl || 0;
+    }
+
+    if (this.onBalanceUpdate) {
+      this.onBalanceUpdate(this.getBalance(), trade.pnl || 0);
     }
   }
 

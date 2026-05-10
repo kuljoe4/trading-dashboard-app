@@ -7,7 +7,7 @@ import { ActiveTradeBar } from '../components/ActiveTradeBar'
 import { ConfigModal } from '../components/ConfigModal'
 import { 
   StatCard, SectionLabel, Btn, StatusBadge, PaperBadge, 
-  ConditionWidget, PnLBars, PulseDot 
+  ConditionWidget, PnLBars, PulseDot, Sparkline 
 } from '../components/ui/primitives'
 
 // --- Strategy Card ---
@@ -137,14 +137,18 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
         <div className="empty-panel empty-panel--compact">Waiting for scanner data.</div>
       ) : top.map((opp, i) => {
         const passing = Math.abs(opp.pct) >= threshold
-        const color = opp.dir === 'short' ? C.red : C.green
+        const dir = (opp.dir || opp.direction || '').toLowerCase()
+        const isLong = dir ? dir === 'long' : opp.pct >= 0
+        const color = isLong ? C.green : C.red
         return (
           <div key={opp.symbol} className="scanner-preview-row" style={{ opacity: passing ? 1 : 0.5 }}>
-            <span>#{i + 1}</span>
-            <strong>{opp.symbol}</strong>
-            <em style={{ color }}>{opp.pct >= 0 ? '+' : ''}{opp.pct.toFixed(2)}%</em>
-            <small>{fmtVol(opp.vol)}</small>
-            <b style={{ color: passing ? C.green : C.dim }}>{passing ? 'PASS' : 'WAIT'}</b>
+            <span style={{ fontSize: 10, color: C.dim }}>#{i + 1}</span>
+            <strong style={{ minWidth: 60 }}>{opp.symbol.replace('USDT', '')}</strong>
+            <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
+              <Sparkline data={opp.history} width={40} height={16} color={color} />
+            </div>
+            <em style={{ color, minWidth: 50, textAlign: 'right' }}>{opp.pct >= 0 ? '+' : ''}{opp.pct.toFixed(2)}%</em>
+            <b style={{ color: passing ? C.green : C.dim, minWidth: 40, textAlign: 'right' }}>{passing ? 'PASS' : 'WAIT'}</b>
           </div>
         )
       })}
@@ -230,36 +234,92 @@ const StrategyDetailView = ({ s, onBack }) => {
 export function DashboardView() {
   const [selected, setSelected] = useState(null)
   const [showConfig, setShowConfig] = useState(false)
-  const { 
-    sessionActive, balance, totalPnl, totalRiskPct, totalSlUsed, 
-    activeTrades, logs, config, setSessionActive, updateConfig,
-    scannerResults, activeWindows, gateState, scannerPaused, rateLimit,
-    wsStatus, updateStats
-  } = useTradingStore()
+  
+  window.useTradingStore = useTradingStore;
+
+  // Use granular selectors to prevent re-renders on every websocket tick
+  const sessionActive = useTradingStore((s) => s.sessionActive)
+  const strategyId = useTradingStore((s) => s.strategyId)
+  const balance = useTradingStore((s) => s.balance)
+  const totalPnl = useTradingStore((s) => s.totalPnl)
+  const totalRiskPct = useTradingStore((s) => s.totalRiskPct)
+  const totalSlUsed = useTradingStore((s) => s.totalSlUsed)
+  const activeTrades = useTradingStore((s) => s.activeTrades)
+  const logs = useTradingStore((s) => s.logs)
+  const config = useTradingStore((s) => s.config)
+  const setSessionActive = useTradingStore((s) => s.setSessionActive)
+  const updateConfig = useTradingStore((s) => s.updateConfig)
+  const scannerResults = useTradingStore((s) => s.scannerResults)
+  const activeWindows = useTradingStore((s) => s.activeWindows)
+  const gateState = useTradingStore((s) => s.gateState)
+  const scannerPaused = useTradingStore((s) => s.scannerPaused)
+  const rateLimit = useTradingStore((s) => s.rateLimit)
+  const updateStats = useTradingStore((s) => s.updateStats)
+  const sessionList = useTradingStore((s) => s.sessionList)
+  const fetchSessions = useTradingStore((s) => s.fetchSessions)
+  const wsStatus = useTradingStore((s) => s.wsStatus)
+
   const [loading, setLoading] = useState(false)
 
-  // Mocking the current state as a single strategy object for the card/detail views
-  const currentStrategy = {
-    sessionActive, totalPnl, totalRiskPct, totalSlUsed, activeTrades, logs
-  }
+  const currentStrategy = useMemo(() => ({
+    sessionActive, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, logs
+  }), [sessionActive, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, logs])
 
   const maxRR = useMemo(() => activeTrades.reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
+
+  const timeAgo = (dateStr) => {
+    const seconds = Math.floor((new Date() - new Date(dateStr)) / 1000)
+    let interval = seconds / 31536000
+    if (interval > 1) return Math.floor(interval) + "y ago"
+    interval = seconds / 2592000
+    if (interval > 1) return Math.floor(interval) + "mo ago"
+    interval = seconds / 86400
+    if (interval > 1) return Math.floor(interval) + "d ago"
+    interval = seconds / 3600
+    if (interval > 1) return Math.floor(interval) + "h ago"
+    interval = seconds / 60
+    if (interval > 1) return Math.floor(interval) + "m ago"
+    return Math.floor(seconds) + "s ago"
+  }
 
   useEffect(() => {
     sessionAPI.rateLimit()
       .then((res) => updateStats({ rateLimit: res.data }))
-      .catch(() => {})
-  }, [updateStats])
+      .catch((e) => console.error('RateLimit fetch failed:', e))
+    
+    fetchSessions();
+  }, []); // Empty dependency array ensures it only runs on mount
 
   async function handleCreateStrategy(newConfig) {
     setLoading(true)
     setShowConfig(false)
     try {
       updateConfig(newConfig)
-      const res = await sessionAPI.start(newConfig)
+      
+      // If we are currently editing an existing historical session, save it first
+      const activeHistSession = sessionList.find(s => s.config && JSON.stringify(s.config) === JSON.stringify(config))
+      if (activeHistSession) {
+        await sessionAPI.update(activeHistSession.id, newConfig)
+      }
+
+      const res = await sessionAPI.start(newConfig, newConfig.paper_mode)
       setSessionActive(true, res.data.strategyId || res.data.strategy_id)
+      await fetchSessions()
     } catch (e) {
       alert(e?.response?.data?.detail || 'Failed to start')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleRestart(id) {
+    setLoading(true)
+    try {
+      const res = await sessionAPI.start(null, null, id)
+      setSessionActive(true, res.data.strategyId || res.data.strategy_id)
+      await fetchSessions()
+    } catch (e) {
+      alert(e?.response?.data?.detail || 'Failed to restart')
     } finally {
       setLoading(false)
     }
@@ -270,10 +330,11 @@ export function DashboardView() {
     try {
       await sessionAPI.stop()
       setSessionActive(false, null)
+      await fetchSessions()
     } catch (e) {
       if (e?.response?.status === 400) {
-        // Backend says it's already stopped, so sync frontend
         setSessionActive(false, null)
+        await fetchSessions()
       } else {
         alert(e?.response?.data?.detail || 'Failed to stop session')
       }
@@ -295,9 +356,9 @@ export function DashboardView() {
         {config.paper_mode && <PaperBadge />}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 10 }}>
           {!sessionActive ? (
-            <Btn variant="success" onClick={() => setShowConfig(true)}>{loading ? 'Starting...' : 'New Session'}</Btn>
+            <Btn variant="success" onClick={() => setShowConfig(true)} disabled={loading}>{loading ? 'Starting...' : 'New Session'}</Btn>
           ) : (
-            <Btn variant="danger" onClick={handleStop}>
+            <Btn variant="danger" onClick={handleStop} disabled={loading}>
               {loading ? 'Stopping...' : 'Stop Session'}
             </Btn>
           )}
@@ -317,12 +378,91 @@ export function DashboardView() {
       <div className="cockpit-grid">
         <div className="side-context">
           <div className="panel">
-            <SectionLabel>Strategy</SectionLabel>
+            <SectionLabel>Strategies</SectionLabel>
             <div className="strategy-grid">
-              <StrategyCard s={currentStrategy} config={config} onClick={() => setSelected(true)} />
+              {/* Active Strategy Card */}
+              {sessionActive && (
+                <StrategyCard s={currentStrategy} config={config} onClick={() => setSelected(true)} />
+              )}
+              
+              {/* Historical / Stopped Sessions */}
+              {sessionList
+                .filter(s => s.id !== strategyId) // Don't show the active one in the history
+                .slice(0, 5)
+                .map(s => (
+                <div key={s.id} style={{ 
+                  background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, 
+                  padding: 18, position: "relative", display: "flex", flexDirection: "column", gap: 12
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.dim }} />
+                        <span style={{ fontSize: 10, color: C.dim, fontWeight: 700, letterSpacing: 0.5 }}>STOPPED</span>
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{s.config?.scan_interval} Momentum</div>
+                      <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>{timeAgo(s.startTime)} · {s.id.substring(0, 8)}</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: pnlColor(s.totalPnl), fontFamily: "monospace" }}>{fmtUSD(s.totalPnl)}</div>
+                      <div style={{ fontSize: 10, color: C.dim }}>Final P&L</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "auto" }}>
+                    <div style={{ fontSize: 11, color: C.dim }}>
+                      Bal: ${Number(s.balance).toLocaleString()}
+                    </div>
+                    {!sessionActive && (
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button 
+                          onClick={() => {
+                            updateConfig(s.config);
+                            setShowConfig(true);
+                          }}
+                          style={{ 
+                            background: C.surface, color: C.dim, border: `1px solid ${C.border}`, borderRadius: 4, 
+                            padding: '6px 8px', fontSize: 11, cursor: 'pointer'
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button 
+                          onClick={async () => {
+                            if (confirm('Delete this strategy session? Trade history will be preserved.')) {
+                              setLoading(true);
+                              await sessionAPI.delete(s.id);
+                              await fetchSessions();
+                              setLoading(false);
+                            }
+                          }}
+                          style={{ 
+                            background: C.redDim, color: C.red, border: 'none', borderRadius: 4, 
+                            padding: '6px 8px', fontSize: 11, cursor: 'pointer'
+                          }}
+                        >
+                          Delete
+                        </button>
+                        <button 
+                          onClick={() => handleRestart(s.id)}
+                          disabled={loading}
+                          style={{ 
+                            background: C.accent, color: 'white', border: 'none', borderRadius: 4, 
+                            padding: '6px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                            opacity: loading ? 0.5 : 1
+                          }}
+                        >
+                          Restart
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+
               {!sessionActive && (
-                <button className="new-strategy-card" onClick={() => setShowConfig(true)}>
-                  New Strategy
+                <button className="new-strategy-card" onClick={() => setShowConfig(true)} disabled={loading}>
+                  + New Configuration
                 </button>
               )}
             </div>

@@ -92,7 +92,7 @@ export class MarketFeedService {
       const url = `${BINANCE_WS_BASE}/stream?streams=!miniTicker@arr`;
       const ws = new WebSocket(url, {
         perMessageDeflate: false,
-        handshakeTimeout: 5000,
+        handshakeTimeout: 15000,
       });
 
       ws.on('open', () => {
@@ -179,7 +179,7 @@ export class MarketFeedService {
 
       const ws = new WebSocket(url, {
         perMessageDeflate: false,
-        handshakeTimeout: 5000,
+        handshakeTimeout: 15000,
       });
 
       ws.on('open', () => {
@@ -217,10 +217,10 @@ export class MarketFeedService {
         this.logger.warn(`Kline WS ${stream} error: ${error instanceof Error ? error.message : String(error)}`);
       });
 
-      ws.on('close', () => {
+      ws.on('close', (code, reason) => {
         this.klineWsMap.delete(symbol);
         if (this.running) {
-          this.logger.warn(`Kline stream ${stream} closed, reconnecting in ${backoff}s`);
+          this.logger.warn(`Kline stream ${stream} closed (Code: ${code}, Reason: ${reason.toString()}), reconnecting in ${backoff}s`);
           this.subscriptionTasks.push(
             setTimeout(connect, backoff * 1000),
           );

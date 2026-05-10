@@ -33,30 +33,77 @@ export class SessionService implements OnModuleInit {
         await this.sessionRepository.update(session.id, { running: false });
       }
     }
+
+    // Wire balance updates to persistence
+    this.tradingSessionService.setBalanceUpdateCallback(async (balance, pnl) => {
+      if (this.currentSessionId) {
+        await this.sessionRepository.increment({ id: this.currentSessionId }, 'totalPnl', pnl);
+        await this.sessionRepository.update(this.currentSessionId, { balance });
+      }
+    });
   }
 
-  async startSession(config: SessionConfig, paperMode: boolean) {
+  async startSession(config: SessionConfig, paperMode: boolean, sessionId?: string) {
     if (this.sessionRunning) {
       throw new Error('Session already running');
     }
 
-    const session = this.sessionRepository.create({
-      running: true,
-      paperMode,
-      balance: paperMode ? (config.paper_starting_balance || 10000.0) : (config.live_starting_balance || 10000.0),
-      config,
-      logLines: [],
-    });
+    let session;
+    if (sessionId) {
+      session = await this.sessionRepository.findOne({ where: { id: sessionId } });
+      if (!session) throw new Error('Session not found');
+      
+      // Update session to running
+      session.running = true;
+      await this.sessionRepository.save(session);
+      
+      // Use existing config and balance
+      config = session.config;
+      paperMode = session.paperMode;
+      
+      // Update config with current session balance so engine starts with correct funds
+      if (paperMode) {
+        config.paper_starting_balance = Number(session.balance);
+      } else {
+        config.live_starting_balance = Number(session.balance);
+      }
+    } else {
+      session = this.sessionRepository.create({
+        running: true,
+        paperMode,
+        balance: paperMode ? (config.paper_starting_balance || 10000.0) : (config.live_starting_balance || 10000.0),
+        config,
+        logLines: [],
+      });
+      session = await this.sessionRepository.save(session);
+    }
 
-    const savedSession = await this.sessionRepository.save(session);
-    this.currentSessionId = savedSession.id;
+    this.currentSessionId = session.id;
     this.sessionRunning = true;
 
     // Start the actual trading engine
     await this.tradingSessionService.start(config);
 
-    this.logger.log(`Session ${this.currentSessionId} started in ${paperMode ? 'paper' : 'live'} mode`);
+    this.logger.log(`Session ${this.currentSessionId} ${sessionId ? 'restarted' : 'started'} in ${paperMode ? 'paper' : 'live'} mode`);
     return { strategyId: this.currentSessionId, status: 'started' };
+  }
+
+  async updateSession(id: string, config: SessionConfig) {
+    await this.sessionRepository.update(id, { config });
+    return { status: 'updated' };
+  }
+
+  async deleteSession(id: string) {
+    // Manually delete session, ensuring no cascade to trades (as there is no FK link in the current entity model)
+    await this.sessionRepository.delete(id);
+    return { status: 'deleted' };
+  }
+
+  async listSessions() {
+    return this.sessionRepository.find({
+      order: { startTime: 'DESC' },
+      take: 20,
+    });
   }
 
   async stopSession() {

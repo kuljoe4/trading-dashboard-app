@@ -1,6 +1,6 @@
 import React from 'react'
 import { C, fmtVol } from '../lib/theme'
-import { PulseDot } from './ui/primitives'
+import { PulseDot, Sparkline } from './ui/primitives'
 import { useTradingStore } from '../store/trading'
 
 export const ScannerOverlay = ({ onClose }) => {
@@ -32,7 +32,7 @@ export const ScannerOverlay = ({ onClose }) => {
         )}
         
         <div className="scanner-row scanner-row--head" style={{ color: C.dim, borderBottom: `1px solid ${C.border}` }}>
-          <span>#</span><span>SYMBOL</span><span style={{ textAlign: "right" }}>MOVE</span><span style={{ textAlign: "right" }}>VOLUME</span><span>SCORE</span><span style={{ textAlign: "center" }}>PASS</span>
+          <span>#</span><span>SYMBOL</span><span style={{ textAlign: "right" }}>MOVE</span><span style={{ textAlign: "center" }}>TREND</span><span style={{ textAlign: "right" }}>VOLUME</span><span>SCORE</span><span style={{ textAlign: "center" }}>PASS</span>
         </div>
 
         <div style={{ maxHeight: 400, overflowY: 'auto' }}>
@@ -53,6 +53,9 @@ export const ScannerOverlay = ({ onClose }) => {
                   <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "monospace", color: isLong ? C.green : C.red, textAlign: "right" }}>
                     {isLong ? "▲" : "▼"} {Math.abs(opp.pct).toFixed(2)}%
                   </span>
+                  <div style={{ display: "flex", justifyContent: "center" }}>
+                    <Sparkline data={opp.history} color={isLong ? C.green : C.red} />
+                  </div>
                   <span style={{ fontSize: 11, color: C.dim, fontFamily: "monospace", textAlign: "right" }}>{fmtVol(opp.vol)}</span>
                   <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                     <div style={{ flex: 1, height: 3, background: C.border, borderRadius: 2 }}>

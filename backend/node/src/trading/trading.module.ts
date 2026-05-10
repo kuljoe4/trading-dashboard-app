@@ -16,6 +16,7 @@ import { KlineStoreService } from '../engine/kline_store.service';
 import { SessionService } from './session.service';
 import { SessionController } from './session.controller';
 import { SettingsController } from './settings.controller';
+import { DataInjectorService } from '../engine/data_injector.service';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { SettingsController } from './settings.controller';
     MomentumScannerService,
     KlineStoreService,
     SessionService,
+    DataInjectorService,
   ],
   exports: [
     SignalEngineService,

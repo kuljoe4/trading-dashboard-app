@@ -238,6 +238,7 @@ export class MarketFeedService {
   }
 
   private async backfillKlines(symbol: string, interval: string) {
+    this.logger.debug(`Backfilling ${interval} candles for ${symbol}`);
     try {
       const url = `https://fapi.binance.com/fapi/v1/klines`;
       const params = new URLSearchParams({
@@ -251,8 +252,10 @@ export class MarketFeedService {
         const klines = await response.json();
         if (Array.isArray(klines)) {
           await this.klineStore.seedFromRest(symbol, interval, klines);
-          this.logger.debug(`Backfilled ${klines.length} candles for ${symbol}`);
+          this.logger.debug(`Backfilled ${klines.length} candles for ${symbol}/${interval}`);
         }
+      } else {
+        this.logger.warn(`Backfill response not ok for ${symbol}/${interval}: ${response.statusText}`);
       }
     } catch (error) {
       this.logger.warn(`Backfill failed for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);

@@ -28,7 +28,8 @@ export class TradingSessionService {
   private closedTrades: Trade[] = [];
   private gateState: string | null = null;
   private activeWindows: Map<string, any> = new Map();
-  private updateInterval: NodeJS.Timeout | null = null;
+  private mainLoopInterval: NodeJS.Timeout | null = null;
+  private hotLoopInterval: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly tickerCache: TickerCacheService,
@@ -69,12 +70,11 @@ export class TradingSessionService {
     this.orderManager.setBinanceClient(binanceClient, config.paper_mode);
     this.marketFeed.setCandeCloseCallback(this.onCandleClose.bind(this));
 
-    // Fetch live balance if in live mode
+    // Fetch live balance
     if (!config.paper_mode && binanceClient) {
       try {
         const balance = await this.fetchBinanceBalance();
         this.balanceLive = balance;
-        this.logger.log(`Live balance: ${this.balanceLive} USDT`);
       } catch (error) {
         this.logger.warn(`Failed to fetch live balance: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -84,27 +84,24 @@ export class TradingSessionService {
     await this.marketFeed.start(config);
     await this.momentumScanner.start(config);
 
-    // Start periodic UI updates
-    this.updateInterval = setInterval(() => this.periodicUpdate(), 2000);
+    // Pro Loop Architecture
+    // 1. Hot Loop (500ms): Exit monitoring & PnL updates
+    this.hotLoopInterval = setInterval(() => this.hotLoop(), 500);
 
-    this.logger.log(
-      `Session started | mode=${config.paper_mode ? 'PAPER' : 'LIVE'} | ` +
-        `balance=${this.getBalance()} | signals=${config.enabled_signals?.join(',')} | ` +
-        `sl_type=${config.sl_type}`,
-    );
+    // 2. Main Loop (2000ms): Scanning & Entry
+    this.mainLoopInterval = setInterval(() => this.mainLoop(), 2000);
 
+    this.logger.log(`Session started | mode=${config.paper_mode ? 'PAPER' : 'LIVE'} | balance=${this.getBalance()}`);
     this.broadcastSnapshot('started');
 
     return { status: 'started' };
   }
 
   async stop() {
-    this.logger.warn('Stop() method called. Stack trace:', new Error().stack);
     this.running = false;
-    if (this.updateInterval) {
-      clearInterval(this.updateInterval);
-      this.updateInterval = null;
-    }
+    if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
+    if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
+    
     await this.marketFeed.stop();
     await this.momentumScanner.stop();
     this.logger.log('Session stopped');
@@ -112,239 +109,132 @@ export class TradingSessionService {
     return { status: 'stopped' };
   }
 
-  private async periodicUpdate() {
+  /**
+   * Pro Hot Loop: 500ms
+   * Handles high-frequency tasks: SL/TP monitoring and UI ticks
+   */
+  private async hotLoop() {
     if (!this.running || !this.config) return;
-
     try {
-      // Periodic scan for UI updates
-      const opportunities = await this.momentumScanner.scan(this.config);
-      this.lastScannerResults = opportunities.map((o) => ({
-        symbol: o.symbol,
-        price: o.price,
-        pct: Number(o.momentum.toFixed(2)),
-        momentum: Number(o.momentum.toFixed(2)),
-        direction: o.direction.toLowerCase(),
-        dir: o.direction.toLowerCase(),
-        vol: o.volume_24h,
-        volume_usdt: o.volume_24h,
-        score: Number((o.score / 10).toFixed(1)),
-        history: o.history,
-      }));
+      await this.checkExits();
+      await this.broadcastTick();
+    } catch (error) {
+      this.logger.debug(`Hot loop error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 
+  /**
+   * Pro Main Loop: 2000ms
+   * Handles lower-frequency tasks: Market scanning and trade entry
+   */
+  private async mainLoop() {
+    if (!this.running || !this.config) return;
+    try {
+      const opportunities = await this.momentumScanner.scan(this.config);
+      this.updateScannerResults(opportunities);
+      
       this.broadcast('scanner', {
         count: this.lastScannerResults.length,
         opportunities: this.lastScannerResults,
         activeWindows: this.getActiveWindows(),
       });
 
-      await this.broadcastTick();
-
-      // Attempt entries in real-time
       await this.processEntries(opportunities);
     } catch (error) {
-      this.logger.debug(`Periodic update error: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.debug(`Main loop error: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  private async processEntries(opportunities: any[]) {
-    if (!this.running || !this.config) return;
+  private async checkExits() {
+    const activeTrades = this.positionTracker.activeList();
+    for (const trade of activeTrades) {
+      const currentPrice = await this.tickerCache.getPrice(trade.symbol);
+      if (!currentPrice) continue;
 
-    for (const opp of opportunities) {
-      // Skip if already has position
-      if (this.positionTracker.hasSymbol(opp.symbol)) {
-        continue;
-      }
+      // 1. Ratchet SL if applicable
+      await this.positionTracker.checkRrSequenceAdjustments(trade.symbol, currentPrice, this.config!);
 
-      // 1. Check Signal Evaluation
-      const signalResult = await this.signalEngine.checkEntry(
-        opp.symbol,
-        this.config,
-        this.config.scan_interval || '1m',
-      );
+      // 2. Check Exit Conditions (SL/TP/Signals)
+      const exitCondition = await this.positionTracker.checkExitConditions(trade.symbol, currentPrice, this.config!);
 
-      if (!signalResult.allFired) {
-        // Log only if it's a "Top 3" candidate to avoid spam
-        if (opportunities.indexOf(opp) < 3) {
-          this.logger.debug(`${opp.symbol}: Evaluation failed - ${signalResult.reason}`);
+      if (exitCondition?.exitOccurred) {
+        const result = await this.positionTracker.closeTrade(trade.symbol, currentPrice, exitCondition.exitReason, this.config!);
+        if (result.exitOccurred && result.trade) {
+          this.updateBalance(result.trade);
+          this.closedTrades.unshift(result.trade);
+          this.broadcast('trade_event', {
+            event: 'closed',
+            trade: this.serializeTrade(result.trade, currentPrice),
+            symbol: result.trade.symbol,
+            reason: exitCondition.exitReason,
+            pnl: result.trade.pnl,
+          });
         }
-        continue;
-      }
-
-      this.logger.log(`${opp.symbol}: ALL SIGNALS FIRED! Proceeding to risk checks...`);
-
-      // 2. Check risk gate
-      const activeTrades = this.positionTracker.activeList();
-      const riskResult = await this.riskEngine.canEnter(
-        activeTrades,
-        this.getBalance(),
-        opp.symbol,
-        this.config,
-        this.positionTracker.totalRisk(),
-      );
-
-      if (!riskResult.canEnter) {
-        this.gateState = this.mapGateState(riskResult.reason);
-        this.broadcast('gate', {
-          gateState: this.gateState,
-          scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard',
-          reason: riskResult.reason,
-        });
-        this.logger.warn(`${opp.symbol}: Risk gate blocked entry - ${riskResult.reason}`);
-        continue;
-      }
-
-      // 3. Prepare Trade Data
-      const price = await this.tickerCache.getPrice(opp.symbol);
-      if (!price) {
-        this.logger.warn(`${opp.symbol}: Could not get current price for entry`);
-        continue;
-      }
-
-      const lookback = await this.klineStore.getLookbackExtremes(
-        opp.symbol,
-        this.config.sl_lookback_timeframe || this.config.scan_interval || '1m',
-        this.config.sl_lookback_period || 20,
-      );
-
-      const slPrice = await this.riskEngine.computeSl(
-        price,
-        opp.direction.toUpperCase() as any,
-        this.config,
-        lookback.lows,
-        lookback.highs,
-      );
-
-      const qty = await this.riskEngine.computePositionSize(
-        this.getBalance(),
-        price,
-        slPrice,
-        opp.direction.toUpperCase() as any,
-        this.config,
-      );
-
-      if (qty <= 0) {
-        this.logger.warn(`${opp.symbol}: Invalid position size calculated (${qty})`);
-        continue;
-      }
-
-      const tpPrice = await this.riskEngine.computeTp(
-        price,
-        slPrice,
-        opp.direction.toUpperCase() as any,
-        this.config,
-      );
-
-      // 4. Execute Order
-      this.logger.log(`${opp.symbol}: Sending ${opp.direction} order (Qty: ${qty.toFixed(4)}, SL: ${slPrice.toFixed(4)})`);
-      
-      const trade = await this.orderManager.enter(
-        uuid().substring(0, 8),
-        opp.symbol,
-        opp.direction.toUpperCase() as any,
-        price,
-        qty,
-        slPrice,
-        tpPrice,
-      );
-
-      if (trade) {
-        this.positionTracker.addTrade(trade);
-        this.gateState = null;
-        this.activeWindows.delete(opp.symbol);
-        this.broadcast('trade_event', {
-          event: 'opened',
-          trade: this.serializeTrade(trade, price),
-          symbol: opp.symbol,
-          direction: opp.direction.toUpperCase(),
-          entry: price,
-          qty: qty.toFixed(4),
-          sl: slPrice.toFixed(4),
-          tp: tpPrice == null ? null : tpPrice.toFixed(4),
-          signals: signalResult.firedSignals,
-        });
-
-        this.logger.log(
-          `SUCCESS: Opened ${opp.symbol} ${opp.direction} @ ${price}.`,
-        );
       }
     }
   }
 
   private async onCandleClose(symbol: string) {
     if (!this.running || !this.config) return;
+    // In Pro version, we don't re-scan everything on candle close to prevent event-loop blocking.
+    // The mainLoop and hotLoop handle entries and exits efficiently.
+    this.logger.debug(`Candle closed for ${symbol}`);
+  }
 
-    try {
-      // Check exit conditions for open trades
+  private updateScannerResults(opportunities: any[]) {
+    this.lastScannerResults = opportunities.map((o) => ({
+      symbol: o.symbol,
+      price: o.price,
+      pct: Number(o.momentum.toFixed(2)),
+      momentum: Number(o.momentum.toFixed(2)),
+      direction: o.direction.toLowerCase(),
+      dir: o.direction.toLowerCase(),
+      vol: o.volume_24h,
+      volume_usdt: o.volume_24h,
+      score: Number((o.score / 10).toFixed(1)),
+      history: o.history,
+    }));
+    this.refreshActiveWindows(this.lastScannerResults);
+  }
+
+  private async processEntries(opportunities: any[]) {
+    for (const opp of opportunities) {
+      if (this.positionTracker.hasSymbol(opp.symbol)) continue;
+
+      const signalResult = await this.signalEngine.checkEntry(opp.symbol, this.config!, this.config!.scan_interval || '1m');
+      if (!signalResult.allFired) continue;
+
+      this.logger.log(`${opp.symbol}: ALL SIGNALS FIRED! Proceeding to risk checks...`);
+
       const activeTrades = this.positionTracker.activeList();
-      for (const trade of activeTrades) {
-        const currentPrice = await this.tickerCache.getPrice(trade.symbol);
-        if (!currentPrice) continue;
+      const riskResult = await this.riskEngine.canEnter(activeTrades, this.getBalance(), opp.symbol, this.config!, this.positionTracker.totalRisk());
 
-        // Check RR sequence adjustments (SL ratcheting)
-        await this.positionTracker.checkRrSequenceAdjustments(
-          trade.symbol,
-          currentPrice,
-          this.config,
-        );
-
-        // Check exit conditions
-        const exitCondition = await this.positionTracker.checkExitConditions(
-          trade.symbol,
-          currentPrice,
-          this.config,
-        );
-
-        if (exitCondition?.exitOccurred) {
-          const result = await this.positionTracker.closeTrade(
-            trade.symbol,
-            currentPrice,
-            exitCondition.exitReason,
-            this.config,
-          );
-
-          if (result.exitOccurred && result.trade) {
-            this.updateBalance(result.trade);
-            const trade = result.trade;
-            this.closedTrades.unshift(trade);
-            this.broadcast('trade_event', {
-              event: 'closed',
-              trade: this.serializeTrade(trade, currentPrice),
-              symbol: trade.symbol,
-              reason: exitCondition.exitReason,
-              pnl: trade.pnl,
-              pnl_pct: trade.pnl_pct,
-            });
-          }
-        }
+      if (!riskResult.canEnter) {
+        this.gateState = this.mapGateState(riskResult.reason);
+        this.broadcast('gate', { gateState: this.gateState, reason: riskResult.reason });
+        this.logger.warn(`${opp.symbol}: Risk gate blocked - ${riskResult.reason}`);
+        continue;
       }
 
-      // Scan for new opportunities
-      const opportunities = await this.momentumScanner.scan(this.config);
-      this.lastScannerResults = opportunities.map((o) => ({
-        symbol: o.symbol,
-        price: o.price,
-        pct: Number(o.momentum.toFixed(2)),
-        momentum: Number(o.momentum.toFixed(2)),
-        direction: o.direction.toLowerCase(),
-        dir: o.direction.toLowerCase(),
-        vol: o.volume_24h,
-        volume_usdt: o.volume_24h,
-        score: Number((o.score / 10).toFixed(1)),
-        history: o.history,
-      }));
-      this.refreshActiveWindows(this.lastScannerResults);
-      this.broadcast('scanner', {
-        count: this.lastScannerResults.length,
-        opportunities: this.lastScannerResults,
-        activeWindows: this.getActiveWindows(),
-      });
+      const price = await this.tickerCache.getPrice(opp.symbol);
+      if (!price) continue;
 
-      // Try to enter new trades
-      await this.processEntries(opportunities);
+      const lookback = await this.klineStore.getLookbackExtremes(opp.symbol, this.config!.sl_lookback_timeframe || '1m', this.config!.sl_lookback_period || 20);
+      const slPrice = await this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, this.config!, lookback.lows, lookback.highs);
+      const qty = await this.riskEngine.computePositionSize(this.getBalance(), price, slPrice, opp.direction.toUpperCase() as any, this.config!);
       
-      await this.broadcastTick();
-    } catch (error) {
-      this.logger.error(`OnCandleClose error: ${error instanceof Error ? error.message : String(error)}`);
+      if (qty <= 0) continue;
+
+      const tpPrice = await this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, this.config!);
+
+      this.logger.log(`${opp.symbol}: Sending ${opp.direction} order (Qty: ${qty.toFixed(4)})`);
+      
+      const trade = await this.orderManager.enter(uuid().substring(0, 8), opp.symbol, opp.direction.toUpperCase() as any, price, qty, slPrice, tpPrice);
+
+      if (trade) {
+        this.positionTracker.addTrade(trade);
+        this.broadcast('trade_event', { event: 'opened', trade: this.serializeTrade(trade, price) });
+      }
     }
   }
 
@@ -353,28 +243,16 @@ export class TradingSessionService {
       this.activeWindows.clear();
       return;
     }
-
     const now = Date.now();
     const durationMs = (this.config.scan_window_duration_sec || 90) * 1000;
-
     opportunities.forEach((opp) => {
       const existing = this.activeWindows.get(opp.symbol);
       this.activeWindows.set(opp.symbol, {
         symbol: opp.symbol,
-        direction: opp.dir,
-        pct_change: opp.pct,
         opened_at: existing?.opened_at || now,
         expires_at: existing?.expires_at || now + durationMs,
-        checks: (existing?.checks || 0) + 1,
-        entries: existing?.entries || 0,
       });
     });
-
-    for (const [symbol, window] of this.activeWindows.entries()) {
-      if (window.expires_at <= now || this.positionTracker.hasSymbol(symbol)) {
-        this.activeWindows.delete(symbol);
-      }
-    }
   }
 
   private getActiveWindows() {
@@ -386,7 +264,7 @@ export class TradingSessionService {
   }
 
   private mapGateState(reason: string): string {
-    if (reason.includes('Global max open trades') || reason.includes('Max open trades')) return 'max_trades';
+    if (reason.includes('max open trades')) return 'max_trades';
     if (reason.includes('Total SL')) return 'sl_guard';
     if (reason.includes('Total risk')) return 'risk_pct';
     return 'risk';
@@ -395,26 +273,14 @@ export class TradingSessionService {
   private serializeTrade(trade: Trade, currentPrice?: number) {
     const current = currentPrice ?? trade.exit_price ?? trade.entry_price;
     const risk = Math.abs(trade.entry_price - trade.initial_sl) || 1;
-    const liveRr = trade.direction === 'LONG'
-      ? (current - trade.entry_price) / risk
-      : (trade.entry_price - current) / risk;
-    const pnl = trade.direction === 'LONG'
-      ? (current - trade.entry_price) * trade.qty
-      : (trade.entry_price - current) * trade.qty;
-
+    const pnl = trade.direction === 'LONG' ? (current - trade.entry_price) * trade.qty : (trade.entry_price - current) * trade.qty;
     return {
       ...trade,
       current_price: current,
       sl_price: trade.current_sl,
       tp_price: trade.tp,
       pnl,
-      rr: liveRr,
-      max_rr_achieved: trade.max_rr_achieved,
-      live_rr_sequence: this.config?.live_rr_sequence || [],
-      exit_rr_sequence: this.config?.exit_rr_sequence || [],
-      tp_mode: this.config?.tp_mode || 'fixed',
-      tp_ratio: this.config?.tp_ratio || 2,
-      sl_type: this.config?.sl_type,
+      rr: (trade.direction === 'LONG' ? (current - trade.entry_price) : (trade.entry_price - current)) / risk,
       paper_mode: this.config?.paper_mode,
     };
   }
@@ -436,8 +302,6 @@ export class TradingSessionService {
       total_sl_used: totalRiskUsdt,
       trades,
       gateState: this.gateState,
-      scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard',
-      activeWindows: this.getActiveWindows(),
       rateLimit: this.getBinanceRateLimit(),
     });
   }
@@ -449,38 +313,24 @@ export class TradingSessionService {
       mode: this.config?.paper_mode ? 'PAPER' : 'LIVE',
       balance: this.getBalance(),
       config: this.config,
-      gateState: this.gateState,
-      scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard',
       activeTrades: this.positionTracker.activeList().map((trade) => this.serializeTrade(trade)),
-      scannerResults: this.lastScannerResults,
-      activeWindows: this.getActiveWindows(),
       history: this.closedTrades.slice(0, 50).map((trade) => this.serializeTrade(trade, trade.exit_price)),
     });
   }
 
   async fetchBinanceBalance(): Promise<number> {
     if (!this.binanceClient) return 0;
-
     try {
       const response = await this.binanceClient.futures_account_balance();
       const usdtBalance = response.find((b: any) => b.asset === 'USDT');
       return parseFloat(usdtBalance?.balance || 0);
-    } catch (error) {
-      this.logger.warn(`Balance fetch failed: ${error instanceof Error ? error.message : String(error)}`);
-      return 0;
-    }
+    } catch (error) { return 0; }
   }
 
   private updateBalance(trade: Trade) {
-    if (this.config?.paper_mode) {
-      this.balancePaper += trade.pnl || 0;
-    } else {
-      this.balanceLive += trade.pnl || 0;
-    }
-
-    if (this.onBalanceUpdate) {
-      this.onBalanceUpdate(this.getBalance(), trade.pnl || 0);
-    }
+    if (this.config?.paper_mode) this.balancePaper += trade.pnl || 0;
+    else this.balanceLive += trade.pnl || 0;
+    if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), trade.pnl || 0);
   }
 
   private getBalance(): number {
@@ -493,7 +343,6 @@ export class TradingSessionService {
       mode: this.config?.paper_mode ? 'PAPER' : 'LIVE',
       balance_paper: this.balancePaper,
       balance_live: this.balanceLive,
-      active_trades: this.positionTracker.activeList().length,
       activeTrades: this.positionTracker.activeList().map((trade) => this.serializeTrade(trade)),
       total_risk: this.positionTracker.totalRisk(),
       scannerResults: this.lastScannerResults,
@@ -501,7 +350,6 @@ export class TradingSessionService {
       gateState: this.gateState,
       scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard',
       history: this.closedTrades.slice(0, 50).map((trade) => this.serializeTrade(trade, trade.exit_price)),
-      binance_rate_limit: this.getBinanceRateLimit(),
     };
   }
 
@@ -511,10 +359,8 @@ export class TradingSessionService {
 
   getBinanceRateLimit() {
     return {
-      used_weight: this.binanceRateLimit.used || 0,
       used_weight_1m: this.binanceRateLimit.used_1m || 0,
       limit: 1200,
-      used_pct: ((this.binanceRateLimit.used_1m || 0) / 1200) * 100,
       last_update: new Date().toISOString(),
     };
   }

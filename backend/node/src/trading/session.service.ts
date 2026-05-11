@@ -89,7 +89,7 @@ export class SessionService implements OnModuleInit {
   }
 
   async updateSession(id: string, config: SessionConfig) {
-    await this.sessionRepository.update(id, { config });
+    await this.sessionRepository.update(id, { config: config as any });
     return { status: 'updated' };
   }
 
@@ -140,7 +140,7 @@ export class SessionService implements OnModuleInit {
     const session = await this.sessionRepository.findOne({ where: { id: this.currentSessionId } });
     if (!session) return { running: false };
 
-    const engineStatus = this.tradingSessionService.getStatus();
+    const engineStatus: any = this.tradingSessionService.getStatus();
     const activeTrades = await this.tradeRepository.find({ where: { status: 'OPEN' } });
 
     return {
@@ -156,7 +156,7 @@ export class SessionService implements OnModuleInit {
       gateState: engineStatus.gateState,
       scannerPaused: engineStatus.scannerPaused,
       history: engineStatus.history,
-      totalRiskPct: engineStatus.balance_paper > 0 ? (engineStatus.total_risk / engineStatus.balance_paper) * 100 : 0,
+      totalRiskPct: session.paperMode ? (engineStatus.balance_paper > 0 ? (engineStatus.total_risk / engineStatus.balance_paper) * 100 : 0) : (engineStatus.balance_live > 0 ? (engineStatus.total_risk / engineStatus.balance_live) * 100 : 0),
       totalSlUsed: engineStatus.total_risk,
       config: session.config,
       startTime: session.startTime,

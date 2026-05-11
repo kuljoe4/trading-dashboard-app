@@ -164,9 +164,9 @@ export class TradingSessionService {
           this.closedTrades.unshift(result.trade);
           this.broadcast('trade_event', {
             event: 'closed',
-            trade: this.serializeTrade(result.trade, currentPrice),
-            symbol: result.trade.symbol,
+            symbol: result.trade.symbol, // Fix: Added symbol for frontend log
             reason: exitCondition.exitReason,
+            trade: this.serializeTrade(result.trade, currentPrice),
             pnl: result.trade.pnl,
           });
         }
@@ -176,8 +176,6 @@ export class TradingSessionService {
 
   private async onCandleClose(symbol: string) {
     if (!this.running || !this.config) return;
-    // In Pro version, we don't re-scan everything on candle close to prevent event-loop blocking.
-    // The mainLoop and hotLoop handle entries and exits efficiently.
     this.logger.debug(`Candle closed for ${symbol}`);
   }
 
@@ -211,7 +209,11 @@ export class TradingSessionService {
 
       if (!riskResult.canEnter) {
         this.gateState = this.mapGateState(riskResult.reason);
-        this.broadcast('gate', { gateState: this.gateState, reason: riskResult.reason });
+        this.broadcast('gate', { 
+          gateState: this.gateState, 
+          reason: riskResult.reason,
+          scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' // Fix: Added scannerPaused
+        });
         this.logger.warn(`${opp.symbol}: Risk gate blocked - ${riskResult.reason}`);
         continue;
       }
@@ -233,7 +235,11 @@ export class TradingSessionService {
 
       if (trade) {
         this.positionTracker.addTrade(trade);
-        this.broadcast('trade_event', { event: 'opened', trade: this.serializeTrade(trade, price) });
+        this.broadcast('trade_event', { 
+          event: 'opened', 
+          symbol: opp.symbol, // Fix: Added symbol for frontend log
+          trade: this.serializeTrade(trade, price) 
+        });
       }
     }
   }
@@ -249,10 +255,19 @@ export class TradingSessionService {
       const existing = this.activeWindows.get(opp.symbol);
       this.activeWindows.set(opp.symbol, {
         symbol: opp.symbol,
+        direction: opp.dir,
+        pct_change: opp.pct,
         opened_at: existing?.opened_at || now,
         expires_at: existing?.expires_at || now + durationMs,
+        checks: (existing?.checks || 0) + 1,
+        entries: existing?.entries || 0,
       });
     });
+    for (const [symbol, window] of this.activeWindows.entries()) {
+      if (window.expires_at <= now || this.positionTracker.hasSymbol(symbol)) {
+        this.activeWindows.delete(symbol);
+      }
+    }
   }
 
   private getActiveWindows() {
@@ -282,6 +297,11 @@ export class TradingSessionService {
       pnl,
       rr: (trade.direction === 'LONG' ? (current - trade.entry_price) : (trade.entry_price - current)) / risk,
       paper_mode: this.config?.paper_mode,
+      max_rr: trade.max_rr_achieved, // Fix: Ensure max_rr is mapped
+      live_rr_sequence: this.config?.live_rr_sequence || [],
+      exit_rr_sequence: this.config?.exit_rr_sequence || [],
+      tp_mode: this.config?.tp_mode || 'fixed',
+      tp_ratio: this.config?.tp_ratio || 2,
     };
   }
 
@@ -302,6 +322,8 @@ export class TradingSessionService {
       total_sl_used: totalRiskUsdt,
       trades,
       gateState: this.gateState,
+      scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard',
+      activeWindows: this.getActiveWindows(),
       rateLimit: this.getBinanceRateLimit(),
     });
   }
@@ -313,7 +335,11 @@ export class TradingSessionService {
       mode: this.config?.paper_mode ? 'PAPER' : 'LIVE',
       balance: this.getBalance(),
       config: this.config,
+      gateState: this.gateState,
+      scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard',
       activeTrades: this.positionTracker.activeList().map((trade) => this.serializeTrade(trade)),
+      scannerResults: this.lastScannerResults,
+      activeWindows: this.getActiveWindows(),
       history: this.closedTrades.slice(0, 50).map((trade) => this.serializeTrade(trade, trade.exit_price)),
     });
   }

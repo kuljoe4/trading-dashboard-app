@@ -19,3 +19,4 @@ dist/
 # IDEs
 .vscode/
 .idea/
+backend/node/backend_logs.txt

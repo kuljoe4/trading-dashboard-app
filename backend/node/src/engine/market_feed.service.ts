@@ -130,7 +130,7 @@ export class MarketFeedService {
           const msg = JSON.parse(data.toString());
           let tickers: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
           if (tickers.length > 0) {
-            await this.tickerCache.bulkUpdate(tickers);
+            await this.tickerCache.bulkUpdate(tickers); if (this.tickerCache.getCacheSize() % 50 === 0) console.log("--- TICKER CACHE UPDATE --- size:", this.tickerCache.getCacheSize());
           }
         } catch (err) {
           this.logger.warn(`miniTicker parse error: ${err instanceof Error ? err.message : String(err)}`);

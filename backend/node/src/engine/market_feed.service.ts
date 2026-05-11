@@ -5,7 +5,7 @@ import { TickerCacheService } from './ticker_cache.service';
 import { KlineStoreService } from './kline_store.service';
 import { TradingSessionService } from './trading_session.service';
 
-const BINANCE_WS_BASE = 'wss://fstream.binance.com';
+const BINANCE_WS_BASE = 'wss://fstream.binance.com/market';
 
 interface BinanceKline {
   stream?: string;

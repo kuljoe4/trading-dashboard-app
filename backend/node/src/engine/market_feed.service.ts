@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import WebSocket from 'ws';
 import { SessionConfig } from '../models/SessionConfig';
 import { TickerCacheService } from './ticker_cache.service';
 import { KlineStoreService } from './kline_store.service';
+import { TradingSessionService } from './trading_session.service';
 
 const BINANCE_WS_BASE = 'wss://fstream.binance.com';
 
@@ -44,6 +45,8 @@ export class MarketFeedService {
   constructor(
     private tickerCache: TickerCacheService,
     private klineStore: KlineStoreService,
+    @Inject(forwardRef(() => TradingSessionService))
+    private tradingSession: TradingSessionService,
   ) {}
 
   setCandeCloseCallback(cb: (symbol: string) => Promise<void>) {
@@ -54,6 +57,9 @@ export class MarketFeedService {
     this.running = true;
     this.logger.log('MarketFeed starting');
 
+    // Seed initial tickers from REST as fallback for aggregate WS stream
+    await this.fetchInitialTickers();
+
     // Start !miniTicker@arr stream
     this.startMiniTickerStream();
 
@@ -61,6 +67,30 @@ export class MarketFeedService {
     this.startWatchlistManager(config);
 
     this.logger.log('MarketFeed started');
+  }
+
+  private async fetchInitialTickers() {
+    this.logger.log('Fetching initial tickers from Binance REST API...');
+    try {
+      const response = await fetch('https://fapi.binance.com/fapi/v1/ticker/24hr');
+      
+      const weight = response.headers.get('X-MBX-USED-WEIGHT-1M');
+      if (weight) this.tradingSession.updateRateLimit(parseInt(weight));
+
+      if (response.ok) {
+        const tickers = await response.json();
+        if (Array.isArray(tickers)) {
+          // Filter only USDT pairs to keep it focused
+          const usdtTickers = tickers.filter(t => t.symbol.endsWith('USDT'));
+          await this.tickerCache.bulkUpdate(usdtTickers);
+          this.logger.log(`Seeded ${usdtTickers.length} USDT tickers from REST API`);
+        }
+      } else {
+        this.logger.warn(`Failed to fetch initial tickers: ${response.statusText}`);
+      }
+    } catch (error) {
+      this.logger.warn(`Fetch initial tickers error: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   async stop() {
@@ -90,21 +120,32 @@ export class MarketFeedService {
       if (!this.running) return;
 
       const url = `${BINANCE_WS_BASE}/stream?streams=!miniTicker@arr`;
-      const ws = new WebSocket(url, {
-        perMessageDeflate: false,
-        handshakeTimeout: 15000,
-      });
+      const ws = new WebSocket(url, { handshakeTimeout: 15000 });
 
       ws.on('open', () => {
-        this.logger.debug('miniTicker stream connected');
-        ws.ping();
+        this.logger.log('miniTicker stream connected');
       });
 
       ws.on('message', async (data: Buffer) => {
         try {
           const msg = JSON.parse(data.toString());
-          const tickers = msg.data || [];
-          if (Array.isArray(tickers) && tickers.length > 0) {
+          
+          // Resilient parsing: handle raw arrays, wrapped objects, or single entries
+          let tickers: any[] = [];
+          if (Array.isArray(msg)) {
+            tickers = msg;
+          } else if (msg.data && Array.isArray(msg.data)) {
+            tickers = msg.data;
+          } else if (msg.data && typeof msg.data === 'object') {
+            tickers = [msg.data];
+          } else if (typeof msg === 'object' && msg.s) {
+            tickers = [msg];
+          }
+
+          if (tickers.length > 0) {
+            if (this.tickerCache.getCacheSize() <= 1) {
+              this.logger.log(`Received first data packet from Binance (${tickers.length} symbols)`);
+            }
             await this.tickerCache.bulkUpdate(tickers);
           }
         } catch (err) {
@@ -150,6 +191,7 @@ export class MarketFeedService {
 
         for (const symbol of symbols) {
           if (!this.klineWsMap.has(symbol)) {
+            this.logger.log(`Subscribing to kline stream for ${symbol}`);
             await this.subscribeKlineStream(symbol, config.scan_interval);
           }
         }
@@ -158,10 +200,8 @@ export class MarketFeedService {
       }
     };
 
-    // Initial update after 2s delay
-    this.subscriptionTasks.push(
-      setTimeout(updateWatchlist, 2000),
-    );
+    // Initial update immediately after REST seeding
+    updateWatchlist().then(() => this.logger.log('Initial watchlist initialized'));
 
     // Periodic updates every 60s
     this.watchlistInterval = setInterval(updateWatchlist, 60000);
@@ -248,6 +288,10 @@ export class MarketFeedService {
       });
 
       const response = await fetch(`${url}?${params}`);
+
+      const weight = response.headers.get('X-MBX-USED-WEIGHT-1M');
+      if (weight) this.tradingSession.updateRateLimit(parseInt(weight));
+
       if (response.ok) {
         const klines = await response.json();
         if (Array.isArray(klines)) {

@@ -15,10 +15,14 @@ export class TickerCacheService {
     for (const t of tickers) {
       const symbol = t.s || t.symbol;
       if (symbol) {
+        // Handle both WS (!miniTicker) and REST (ticker/24hr) field names
+        const price = parseFloat(t.c || t.lastPrice || t.price || 0);
+        const volume = parseFloat(t.q || t.quoteVolume || t.v || t.volume_24h || 0);
+
         this.tickers.set(symbol, {
           symbol,
-          price: parseFloat(t.c || t.price || 0),
-          volume_24h: parseFloat(t.v || t.volume_24h || 0),
+          price,
+          volume_24h: volume,
         });
       }
     }
@@ -33,8 +37,14 @@ export class TickerCacheService {
     return Array.from(this.tickers.values());
   }
 
+  getCacheSize(): number {
+    return this.tickers.size;
+  }
+
   async topByVolume(n: number, excluded: string[] = []): Promise<Ticker[]> {
-    return Array.from(this.tickers.values())
+    const all = Array.from(this.tickers.values());
+    this.logger.debug(`topByVolume requested ${n} symbols. Cache size: ${all.length}`);
+    return all
       .filter(t => !excluded.includes(t.symbol))
       .sort((a, b) => b.volume_24h - a.volume_24h)
       .slice(0, n);

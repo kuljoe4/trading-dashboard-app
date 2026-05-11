@@ -138,8 +138,135 @@ export class TradingSessionService {
       });
 
       await this.broadcastTick();
+
+      // Attempt entries in real-time
+      await this.processEntries(opportunities);
     } catch (error) {
       this.logger.debug(`Periodic update error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async processEntries(opportunities: any[]) {
+    if (!this.running || !this.config) return;
+
+    for (const opp of opportunities) {
+      // Skip if already has position
+      if (this.positionTracker.hasSymbol(opp.symbol)) {
+        continue;
+      }
+
+      // 1. Check Signal Evaluation
+      const signalResult = await this.signalEngine.checkEntry(
+        opp.symbol,
+        this.config,
+        this.config.scan_interval || '1m',
+      );
+
+      if (!signalResult.allFired) {
+        // Log only if it's a "Top 3" candidate to avoid spam
+        if (opportunities.indexOf(opp) < 3) {
+          this.logger.debug(`${opp.symbol}: Evaluation failed - ${signalResult.reason}`);
+        }
+        continue;
+      }
+
+      this.logger.log(`${opp.symbol}: ALL SIGNALS FIRED! Proceeding to risk checks...`);
+
+      // 2. Check risk gate
+      const activeTrades = this.positionTracker.activeList();
+      const riskResult = await this.riskEngine.canEnter(
+        activeTrades,
+        this.getBalance(),
+        opp.symbol,
+        this.config,
+        this.positionTracker.totalRisk(),
+      );
+
+      if (!riskResult.canEnter) {
+        this.gateState = this.mapGateState(riskResult.reason);
+        this.broadcast('gate', {
+          gateState: this.gateState,
+          scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard',
+          reason: riskResult.reason,
+        });
+        this.logger.warn(`${opp.symbol}: Risk gate blocked entry - ${riskResult.reason}`);
+        continue;
+      }
+
+      // 3. Prepare Trade Data
+      const price = await this.tickerCache.getPrice(opp.symbol);
+      if (!price) {
+        this.logger.warn(`${opp.symbol}: Could not get current price for entry`);
+        continue;
+      }
+
+      const lookback = await this.klineStore.getLookbackExtremes(
+        opp.symbol,
+        this.config.sl_lookback_timeframe || this.config.scan_interval || '1m',
+        this.config.sl_lookback_period || 20,
+      );
+
+      const slPrice = await this.riskEngine.computeSl(
+        price,
+        opp.direction.toUpperCase() as any,
+        this.config,
+        lookback.lows,
+        lookback.highs,
+      );
+
+      const qty = await this.riskEngine.computePositionSize(
+        this.getBalance(),
+        price,
+        slPrice,
+        opp.direction.toUpperCase() as any,
+        this.config,
+      );
+
+      if (qty <= 0) {
+        this.logger.warn(`${opp.symbol}: Invalid position size calculated (${qty})`);
+        continue;
+      }
+
+      const tpPrice = await this.riskEngine.computeTp(
+        price,
+        slPrice,
+        opp.direction.toUpperCase() as any,
+        this.config,
+      );
+
+      // 4. Execute Order
+      this.logger.log(`${opp.symbol}: Sending ${opp.direction} order (Qty: ${qty.toFixed(4)}, SL: ${slPrice.toFixed(4)})`);
+      
+      const trade = await this.orderManager.enter(
+        uuid().substring(0, 8),
+        opp.symbol,
+        opp.direction.toUpperCase() as any,
+        price,
+        qty,
+        slPrice,
+        tpPrice,
+      );
+
+      if (trade) {
+        this.positionTracker.addTrade(trade);
+        this.gateState = null;
+        this.activeWindows.delete(opp.symbol);
+        this.broadcast('trade_event', {
+          event: 'opened',
+          trade: this.serializeTrade(trade, price),
+          symbol: opp.symbol,
+          direction: opp.direction.toUpperCase(),
+          entry: price,
+          qty: qty.toFixed(4),
+          sl: slPrice.toFixed(4),
+          tp: tpPrice == null ? null : tpPrice.toFixed(4),
+          signals: signalResult.firedSignals,
+        });
+
+        this.logger.log(
+          `SUCCESS: Opened ${opp.symbol} ${opp.direction} @ ${price}.`,
+        );
+      }
     }
   }
 
@@ -213,122 +340,8 @@ export class TradingSessionService {
       });
 
       // Try to enter new trades
-      for (const opp of opportunities) {
-        if (!this.running || !this.config) break;
-
-        // Skip if already has position
-        if (this.positionTracker.hasSymbol(opp.symbol)) {
-          continue;
-        }
-
-        // Check ALL signals fired (AND logic)
-        const signalResult = await this.signalEngine.checkEntry(
-          opp.symbol,
-          this.config,
-          this.config.scan_interval || '1m',
-        );
-
-        if (!signalResult.allFired) {
-          this.logger.debug(
-            `${opp.symbol}: Signals not all fired - ${signalResult.reason}`,
-          );
-          continue;
-        }
-
-        // Check risk gate
-        const activeTrades2 = this.positionTracker.activeList();
-        const riskResult = await this.riskEngine.canEnter(
-          activeTrades2,
-          this.getBalance(),
-          opp.symbol,
-          this.config,
-          this.positionTracker.totalRisk(),
-        );
-
-        if (!riskResult.canEnter) {
-          this.gateState = this.mapGateState(riskResult.reason);
-          this.broadcast('gate', {
-            gateState: this.gateState,
-            scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard',
-            reason: riskResult.reason,
-          });
-          this.logger.debug(`${opp.symbol}: Risk gate failed - ${riskResult.reason}`);
-          continue;
-        }
-
-        // Get current price
-        const price = await this.tickerCache.getPrice(opp.symbol);
-        if (!price) continue;
-
-        // Compute SL
-        const lookback = await this.klineStore.getLookbackExtremes(
-          opp.symbol,
-          this.config.sl_lookback_timeframe || this.config.scan_interval || '1m',
-          this.config.sl_lookback_period || 20,
-        );
-
-        const slPrice = await this.riskEngine.computeSl(
-          price,
-          opp.direction,
-          this.config,
-          lookback.lows,
-          lookback.highs,
-        );
-
-        // Compute position size
-        const qty = await this.riskEngine.computePositionSize(
-          this.getBalance(),
-          price,
-          slPrice,
-          opp.direction,
-          this.config,
-        );
-
-        if (qty <= 0) {
-          this.logger.debug(`${opp.symbol}: Invalid position size ${qty}`);
-          continue;
-        }
-
-        // Compute TP
-        const tpPrice = await this.riskEngine.computeTp(
-          price,
-          slPrice,
-          opp.direction,
-          this.config,
-        );
-
-        // Enter trade
-        const trade = await this.orderManager.enter(
-          uuid().substring(0, 8),
-          opp.symbol,
-          opp.direction,
-          price,
-          qty,
-          slPrice,
-          tpPrice,
-        );
-
-        if (trade) {
-          this.positionTracker.addTrade(trade);
-          this.gateState = null;
-          this.activeWindows.delete(opp.symbol);
-          this.broadcast('trade_event', {
-            event: 'opened',
-            trade: this.serializeTrade(trade, price),
-            symbol: opp.symbol,
-            direction: opp.direction,
-            entry: price,
-            qty: qty.toFixed(4),
-            sl: slPrice.toFixed(4),
-            tp: tpPrice == null ? null : tpPrice.toFixed(4),
-            signals: signalResult.firedSignals,
-          });
-
-          this.logger.log(
-            `Entered: ${opp.symbol} ${opp.direction} @ ${price} qty=${qty.toFixed(4)} SL=${slPrice.toFixed(4)} TP=${tpPrice == null ? 'none' : tpPrice.toFixed(4)}`,
-          );
-        }
-      }
+      await this.processEntries(opportunities);
+      
       await this.broadcastTick();
     } catch (error) {
       this.logger.error(`OnCandleClose error: ${error instanceof Error ? error.message : String(error)}`);
@@ -488,8 +501,12 @@ export class TradingSessionService {
       gateState: this.gateState,
       scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard',
       history: this.closedTrades.slice(0, 50).map((trade) => this.serializeTrade(trade, trade.exit_price)),
-      binance_rate_limit: this.binanceRateLimit,
+      binance_rate_limit: this.getBinanceRateLimit(),
     };
+  }
+
+  updateRateLimit(used1m: number) {
+    this.binanceRateLimit.used_1m = used1m;
   }
 
   getBinanceRateLimit() {

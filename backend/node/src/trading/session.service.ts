@@ -242,4 +242,9 @@ export class SessionService implements OnModuleInit {
 
     await this.sessionRepository.save(session);
   }
+
+  async injectTickers(tickers: any[]) {
+    await this.tradingSessionService.injectTickers(tickers);
+    return { success: true, count: tickers.length };
+  }
 }

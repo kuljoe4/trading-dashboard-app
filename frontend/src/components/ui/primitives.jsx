@@ -29,7 +29,7 @@ export const SectionLabel = ({ children }) => (
 )
 
 // --- Button ---
-export const Btn = ({ children, variant, onClick, disabled, style: customStyle, ...props }) => (
+export const Btn = ({ children, variant, onClick, style: customStyle, disabled, ...props }) => (
   <button 
     onClick={onClick}
     disabled={disabled}

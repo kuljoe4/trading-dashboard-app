@@ -59,15 +59,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose }) => {
   }, [cfg.live_rr_sequence, cfg.exit_rr_sequence])
 
   function field(label, key, type = 'number', opts = null, attrs = {}) {
+    const id = `config-${key}`
     return (
       <div className="field">
-        <label>{label}</label>
+        <label htmlFor={id}>{label}</label>
         {opts ? (
-          <select value={cfg[key] ?? ''} onChange={(e) => setField(key, e.target.value)}>
+          <select id={id} value={cfg[key] ?? ''} onChange={(e) => setField(key, e.target.value)}>
             {opts.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         ) : (
           <input
+            id={id}
             type={type}
             value={cfg[key] ?? ''}
             min={attrs.min}

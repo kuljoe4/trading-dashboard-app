@@ -109,13 +109,12 @@ export class MomentumScannerService {
     );
 
     // Get current price and volume
-    const ticker = await this.tickerCache.getPrice(symbol);
-    const tickers = await this.tickerCache.getLatestTickers();
-    const tickerData = tickers.find((t: any) => t.symbol === symbol);
+    // BOLT OPTIMIZATION: Use O(1) ticker lookup instead of O(N) array search
+    const tickerData = await this.tickerCache.getTicker(symbol);
 
     return {
       symbol,
-      price: ticker || currentPrice,
+      price: tickerData?.price || currentPrice,
       momentum: momentumPct,
       volume_24h: Number(tickerData?.volume_24h || 0),
       score,

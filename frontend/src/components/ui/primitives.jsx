@@ -29,20 +29,24 @@ export const SectionLabel = ({ children }) => (
 )
 
 // --- Button ---
-export const Btn = ({ children, variant, onClick, style: customStyle }) => (
+export const Btn = ({ children, variant, onClick, disabled, style: customStyle, ...props }) => (
   <button 
     onClick={onClick}
+    disabled={disabled}
     style={{ 
       padding: '8px 16px', 
       borderRadius: 6, 
       border: variant === 'danger' ? `1px solid ${C.redBorder}` : 'none', 
-      cursor: 'pointer',
+      cursor: disabled ? 'not-allowed' : 'pointer',
       background: variant === 'success' ? C.green : variant === 'danger' ? C.redDim : C.accent,
       color: variant === 'danger' ? C.red : 'white',
       fontWeight: 'bold',
       fontSize: 12,
+      opacity: disabled ? 0.5 : 1,
+      transition: 'all 0.2s',
       ...customStyle
     }}
+    {...props}
   >
     {children}
   </button>
@@ -113,7 +117,11 @@ export const PnLBars = ({ trades }) => {
   if (!trades || trades.length === 0) return <div style={{ height: 60 }} />
   const max = Math.max(...trades.map(t => Math.abs(t.pnl || 0)), 1);
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 60, padding: "0 4px" }}>
+    <div
+      role="img"
+      aria-label="Profit and Loss performance chart"
+      style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 60, padding: "0 4px" }}
+    >
       {trades.map((t, i) => {
         const pnl = t.pnl || 0;
         const h = Math.max(4, (Math.abs(pnl) / max) * 52);
@@ -144,7 +152,13 @@ export const Sparkline = ({ data = [], width = 60, height = 24, color = C.accent
   }).join(' ');
 
   return (
-    <svg width={width} height={height} style={{ overflow: 'visible' }}>
+    <svg
+      width={width}
+      height={height}
+      role="img"
+      aria-label="Price trend sparkline"
+      style={{ overflow: 'visible' }}
+    >
       <polyline
         fill="none"
         stroke={color}

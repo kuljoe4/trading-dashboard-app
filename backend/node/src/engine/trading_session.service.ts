@@ -390,8 +390,4 @@ export class TradingSessionService {
       last_update: new Date().toISOString(),
     };
   }
-
-  async injectTickers(tickers: any[]) {
-    await this.tickerCache.bulkUpdate(tickers);
-  }
 }

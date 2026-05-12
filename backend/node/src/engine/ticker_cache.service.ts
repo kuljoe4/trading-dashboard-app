@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-interface Ticker {
+export interface Ticker {
   symbol: string;
   price: number;
   volume_24h: number;
@@ -31,6 +31,13 @@ export class TickerCacheService {
   async getPrice(symbol: string): Promise<number | null> {
     const ticker = this.tickers.get(symbol);
     return ticker ? ticker.price : null;
+  }
+
+  /**
+   * Get full ticker data for a symbol in O(1)
+   */
+  async getTicker(symbol: string): Promise<Ticker | null> {
+    return this.tickers.get(symbol) || null;
   }
 
   async getLatestTickers(): Promise<Ticker[]> {

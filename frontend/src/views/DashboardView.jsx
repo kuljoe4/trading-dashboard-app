@@ -398,6 +398,7 @@ export function DashboardView() {
         </motion.div>
 
         <RateLimitStrip rateLimit={rateLimit} />
+        <SystemHealth monitoring={monitoring} />
         <GateBanner gateState={gateState} scannerPaused={scannerPaused} />
 
         {/* Global Metrics */}

@@ -12,6 +12,9 @@ const Toggle = ({ value, onChange, label, color = C.accent }) => (
     type="button"
     onClick={() => onChange(!value)}
     className="toggle-control"
+    role="switch"
+    aria-checked={value}
+    aria-label={label}
     style={{ color: value ? C.text : C.dim }}
   >
     <span style={{ background: value ? color : C.border }}>
@@ -26,6 +29,7 @@ const Chip = ({ active, onClick, children, color = C.accent }) => (
     type="button"
     onClick={onClick}
     className="config-chip"
+    aria-pressed={active}
     style={{
       borderColor: active ? color : C.border,
       background: active ? `${color}20` : 'transparent',

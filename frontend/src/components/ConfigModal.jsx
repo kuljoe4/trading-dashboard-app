@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react'
-import { C } from '../lib/theme'
+import { X, Plus, Trash2 } from 'lucide-react'
+import { cn, Btn } from './ui/primitives'
+import * as Switch from '@radix-ui/react-switch'
 
 const SIGNALS = [
   ['momentum_pct', '% Momentum'],
@@ -7,34 +9,35 @@ const SIGNALS = [
   ['ema_cross', 'EMA Cross'],
 ]
 
-const Toggle = ({ value, onChange, label, color = C.accent }) => (
-  <button
-    type="button"
-    onClick={() => onChange(!value)}
-    className="toggle-control"
-    role="switch"
-    aria-checked={value}
-    aria-label={label}
-    style={{ color: value ? C.text : C.dim }}
-  >
-    <span style={{ background: value ? color : C.border }}>
-      <i style={{ left: value ? 22 : 3 }} />
-    </span>
-    {label}
-  </button>
+const Toggle = ({ value, onChange, label, color = "bg-accent" }) => (
+  <div className="flex items-center gap-3">
+    <Switch.Root
+      checked={value}
+      onCheckedChange={onChange}
+      className={cn(
+        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50",
+        value ? color : "bg-border"
+      )}
+    >
+      <Switch.Thumb
+        className={cn(
+          "pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform",
+          value ? "translate-x-5" : "translate-x-0"
+        )}
+      />
+    </Switch.Root>
+    <span className={cn("text-sm font-bold", value ? "text-text" : "text-dim")}>{label}</span>
+  </div>
 )
 
-const Chip = ({ active, onClick, children, color = C.accent }) => (
+const Chip = ({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10" }) => (
   <button
     type="button"
     onClick={onClick}
-    className="config-chip"
-    aria-pressed={active}
-    style={{
-      borderColor: active ? color : C.border,
-      background: active ? `${color}20` : 'transparent',
-      color: active ? color : C.dim,
-    }}
+    className={cn(
+      "px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all",
+      active ? activeClass : "border-border text-dim hover:border-dim/50"
+    )}
   >
     {children}
   </button>
@@ -45,8 +48,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose }) => {
   const [section, setSection] = useState('scan')
 
   const setField = (key, value) => setCfg((prev) => ({ ...prev, [key]: value }))
-  const numberField = (label, key, attrs = {}) => field(label, key, 'number', null, attrs)
-  const selectField = (label, key, opts) => field(label, key, 'text', opts)
 
   const riskAmount = ((cfg.paper_starting_balance || 10000) * ((cfg.risk_pct_per_trade || 0) / 100))
   const slDistance = 100 * ((cfg.sl_distance_pct || 1) / 100)
@@ -61,10 +62,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose }) => {
   function field(label, key, type = 'number', opts = null, attrs = {}) {
     const id = `config-${key}`
     return (
-      <div className="field">
-        <label htmlFor={id}>{label}</label>
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor={id} className="text-[10px] text-dim font-bold tracking-widest uppercase">{label}</label>
         {opts ? (
-          <select id={id} value={cfg[key] ?? ''} onChange={(e) => setField(key, e.target.value)}>
+          <select
+            id={id}
+            value={cfg[key] ?? ''}
+            onChange={(e) => setField(key, e.target.value)}
+            className="bg-surface border border-border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent"
+          >
             {opts.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         ) : (
@@ -76,6 +82,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose }) => {
             max={attrs.max}
             step={attrs.step}
             onChange={(e) => setField(key, type === 'number' ? Number(e.target.value) : e.target.value)}
+            className="bg-surface border border-border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent"
           />
         )}
       </div>
@@ -110,60 +117,72 @@ export const ConfigModal = ({ initialConfig, onSave, onClose }) => {
   }
 
   return (
-    <div className="modal-overlay">
-      <div className="config-panel" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-        <div className="config-header">
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>New Session</div>
-            <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>Configure scanner, exits, and risk before launch</div>
-          </div>
-          <button onClick={onClose} className="icon-button" aria-label="Close configuration">Close</button>
+    <div className="flex flex-col h-full bg-surface text-text overflow-hidden">
+      <div className="p-5 border-b border-border flex justify-between items-center shrink-0">
+        <div>
+          <div className="text-lg font-bold">New Session</div>
+          <div className="text-[11px] text-dim font-medium mt-0.5">Configure scanner, exits, and risk before launch</div>
         </div>
+        <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full transition-colors" aria-label="Close configuration">
+          <X size={18} className="text-dim" />
+        </button>
+      </div>
 
-        <div className="config-sections">
-          {[
-            ['scan', 'Scan'],
-            ['signals', 'Signals'],
-            ['exit', 'Exit'],
-            ['risk', 'Risk'],
-            ['mode', 'Mode'],
-          ].map(([id, label]) => (
-            <Chip key={id} active={section === id} onClick={() => setSection(id)}>{label}</Chip>
-          ))}
-        </div>
+      <div className="flex gap-2 p-4 overflow-x-auto no-scrollbar shrink-0 border-b border-border">
+        {[
+          ['scan', 'Scan'],
+          ['signals', 'Signals'],
+          ['exit', 'Exit'],
+          ['risk', 'Risk'],
+          ['mode', 'Mode'],
+        ].map(([id, label]) => (
+          <Chip key={id} active={section === id} onClick={() => setSection(id)}>{label}</Chip>
+        ))}
+      </div>
 
+      <div className="flex-1 overflow-y-auto p-5">
         {section === 'scan' && (
-          <>
-            <div className="section-title">Scanner</div>
-            <div className="config-grid">
-              {selectField('Interval', 'scan_interval', ['1m', '5m', '15m', '1h'])}
-              {numberField('Lookback candles', 'scan_lookback', { min: 1, max: 20 })}
-              {numberField('% threshold', 'scan_pct_threshold', { min: 0.1, step: 0.1 })}
-              {numberField('Min volume USDT', 'scan_min_volume_usdt', { min: 0, step: 100000 })}
-              {numberField('Watchlist size', 'watchlist_size', { min: 10, max: 100 })}
-              {selectField('Entry side', 'entry_side', ['both', 'long', 'short'])}
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {field('Interval', 'scan_interval', 'text', ['1m', '5m', '15m', '1h'])}
+              {field('Lookback candles', 'scan_lookback', 'number', null, { min: 1, max: 20 })}
+              {field('% threshold', 'scan_pct_threshold', 'number', null, { min: 0.1, step: 0.1 })}
+              {field('Min volume USDT', 'scan_min_volume_usdt', 'number', null, { min: 0, step: 100000 })}
+              {field('Watchlist size', 'watchlist_size', 'number', null, { min: 10, max: 100 })}
+              {field('Entry side', 'entry_side', 'text', ['both', 'long', 'short'])}
             </div>
-            <div className="mode-row">
-              <Chip active={cfg.scan_mode === 'interval'} onClick={() => setField('scan_mode', 'interval')}>Interval</Chip>
-              <Chip active={cfg.scan_mode === 'active_window'} onClick={() => setField('scan_mode', 'active_window')}>Active Window</Chip>
+            <div className="flex gap-2 p-1 bg-background rounded-lg">
+              <button
+                className={cn("flex-1 py-2 text-[11px] font-bold rounded-md transition-all", cfg.scan_mode === 'interval' ? "bg-surface text-accent shadow-sm" : "text-dim")}
+                onClick={() => setField('scan_mode', 'interval')}
+              >Interval</button>
+              <button
+                className={cn("flex-1 py-2 text-[11px] font-bold rounded-md transition-all", cfg.scan_mode === 'active_window' ? "bg-surface text-accent shadow-sm" : "text-dim")}
+                onClick={() => setField('scan_mode', 'active_window')}
+              >Active Window</button>
             </div>
             {cfg.scan_mode === 'active_window' && (
-              <div className="config-grid">
-                {numberField('Window duration sec', 'scan_window_duration_sec', { min: 10, max: 600 })}
-                {numberField('Check interval sec', 'scan_check_interval_sec', { min: 2, max: 60 })}
+              <div className="grid grid-cols-2 gap-5">
+                {field('Window duration sec', 'scan_window_duration_sec', 'number', null, { min: 10, max: 600 })}
+                {field('Check interval sec', 'scan_check_interval_sec', 'number', null, { min: 2, max: 60 })}
               </div>
             )}
-          </>
+          </div>
         )}
 
         {section === 'signals' && (
-          <>
-            <div className="section-title">Entry Signals</div>
-            <div className="mode-row">
-              <Chip active={cfg.signal_logic === 'all'} onClick={() => setField('signal_logic', 'all')}>Require All</Chip>
-              <Chip active={cfg.signal_logic === 'any'} onClick={() => setField('signal_logic', 'any')}>Allow Any</Chip>
+          <div className="space-y-6">
+            <div className="flex gap-2 p-1 bg-background rounded-lg">
+              <button
+                className={cn("flex-1 py-2 text-[11px] font-bold rounded-md transition-all", cfg.signal_logic === 'all' ? "bg-surface text-accent shadow-sm" : "text-dim")}
+                onClick={() => setField('signal_logic', 'all')}
+              >Require All</button>
+              <button
+                className={cn("flex-1 py-2 text-[11px] font-bold rounded-md transition-all", cfg.signal_logic === 'any' ? "bg-surface text-accent shadow-sm" : "text-dim")}
+                onClick={() => setField('signal_logic', 'any')}
+              >Allow Any</button>
             </div>
-            <div className="signal-grid">
+            <div className="grid grid-cols-2 gap-3">
               {SIGNALS.map(([key, label]) => {
                 const active = (cfg.enabled_signals || []).includes(key)
                 return (
@@ -179,86 +198,116 @@ export const ConfigModal = ({ initialConfig, onSave, onClose }) => {
                 )
               })}
             </div>
-          </>
+          </div>
         )}
 
         {section === 'exit' && (
-          <>
-            <div className="section-title">Take Profit</div>
-            <div className="mode-row">
-              <Chip active={cfg.tp_mode === 'fixed'} onClick={() => setField('tp_mode', 'fixed')}>Fixed R:R</Chip>
-              <Chip active={cfg.tp_mode === 'exp_rr_seq'} onClick={() => setField('tp_mode', 'exp_rr_seq')}>EXP RR</Chip>
-            </div>
-            {cfg.tp_mode === 'fixed' ? (
-              <div className="config-grid">{numberField('TP ratio', 'tp_ratio', { min: 0.2, step: 0.1 })}</div>
-            ) : (
-              <div className="sequence-editor">
-                {sequence.map(([trigger, exit], i) => (
-                  <div key={i} className="sequence-row">
-                    <span>{i + 1}</span>
-                    <input type="number" value={trigger} min="0.5" step="0.5" onChange={(e) => updateSequence(i, 0, e.target.value)} />
-                    <input type="number" value={exit} min="-1" step="0.5" onChange={(e) => updateSequence(i, 1, e.target.value)} />
-                    <strong>{exit === 0 ? 'BE' : `${exit}R`}</strong>
-                    <button type="button" onClick={() => removeStep(i)}>Remove</button>
-                  </div>
-                ))}
-                <button type="button" className="ghost-button" onClick={addStep}>Add Step</button>
+          <div className="space-y-8">
+            <div className="space-y-4">
+              <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Take Profit Mode</div>
+              <div className="flex gap-2 p-1 bg-background rounded-lg">
+                <button className={cn("flex-1 py-2 text-[11px] font-bold rounded-md transition-all", cfg.tp_mode === 'fixed' ? "bg-surface text-accent shadow-sm" : "text-dim")} onClick={() => setField('tp_mode', 'fixed')}>Fixed R:R</button>
+                <button className={cn("flex-1 py-2 text-[11px] font-bold rounded-md transition-all", cfg.tp_mode === 'exp_rr_seq' ? "bg-surface text-accent shadow-sm" : "text-dim")} onClick={() => setField('tp_mode', 'exp_rr_seq')}>EXP RR</button>
               </div>
-            )}
+              {cfg.tp_mode === 'fixed' ? (
+                <div className="grid grid-cols-1">{field('TP ratio', 'tp_ratio', 'number', null, { min: 0.2, step: 0.1 })}</div>
+              ) : (
+                <div className="space-y-3">
+                  {sequence.map(([trigger, exit], i) => (
+                    <div key={i} className="flex items-center gap-3 p-3 bg-background rounded-lg border border-border">
+                      <span className="text-[11px] text-dim font-bold w-4">{i + 1}</span>
+                      <div className="flex-1 flex flex-col gap-1">
+                        <span className="text-[9px] text-dim uppercase font-bold">Trigger RR</span>
+                        <input type="number" value={trigger} min="0.5" step="0.5" onChange={(e) => updateSequence(i, 0, e.target.value)} className="bg-surface border border-border rounded px-2 py-1 text-xs font-mono" />
+                      </div>
+                      <div className="flex-1 flex flex-col gap-1">
+                        <span className="text-[9px] text-dim uppercase font-bold">Exit RR</span>
+                        <input type="number" value={exit} min="-1" step="0.5" onChange={(e) => updateSequence(i, 1, e.target.value)} className="bg-surface border border-border rounded px-2 py-1 text-xs font-mono" />
+                      </div>
+                      <div className="w-10 text-center text-xs font-bold font-mono">
+                        {exit === 0 ? 'BE' : `${exit}R`}
+                      </div>
+                      <button onClick={() => removeStep(i)} className="text-red/60 hover:text-red p-1"><Trash2 size={16} /></button>
+                    </div>
+                  ))}
+                  <button onClick={addStep} className="w-full py-2 border border-dashed border-border rounded-lg text-[11px] font-bold text-dim hover:text-accent hover:border-accent transition-all flex items-center justify-center gap-1.5">
+                    <Plus size={14} /> Add Step
+                  </button>
+                </div>
+              )}
+            </div>
 
-            <div className="section-title">Stop Loss</div>
-            <div className="mode-row">
-              <Chip active={cfg.sl_type === 'pct'} onClick={() => setField('sl_type', 'pct')}>Fixed Percent</Chip>
-              <Chip active={cfg.sl_type === 'lookback_low/high'} onClick={() => setField('sl_type', 'lookback_low/high')}>Lookback H/L</Chip>
-            </div>
-            {cfg.sl_type === 'pct' ? (
-              <div className="config-grid">{numberField('SL distance %', 'sl_distance_pct', { min: 0.05, step: 0.05 })}</div>
-            ) : (
-              <div className="config-grid">
-                {selectField('SL timeframe', 'sl_lookback_timeframe', ['1m', '5m', '15m', '1h', '4h'])}
-                {numberField('Lookback bars', 'sl_lookback_period', { min: 1, max: 50 })}
-                {numberField('Min SL %', 'sl_min_pct', { min: 0.05, step: 0.05 })}
-                {numberField('Max SL %', 'sl_max_pct', { min: 0.1, step: 0.1 })}
+            <div className="space-y-4">
+              <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Stop Loss Mode</div>
+              <div className="flex gap-2 p-1 bg-background rounded-lg">
+                <button className={cn("flex-1 py-2 text-[11px] font-bold rounded-md transition-all", cfg.sl_type === 'pct' ? "bg-surface text-accent shadow-sm" : "text-dim")} onClick={() => setField('sl_type', 'pct')}>Fixed %</button>
+                <button className={cn("flex-1 py-2 text-[11px] font-bold rounded-md transition-all", cfg.sl_type === 'lookback_low/high' ? "bg-surface text-accent shadow-sm" : "text-dim")} onClick={() => setField('sl_type', 'lookback_low/high')}>Lookback H/L</button>
               </div>
-            )}
-          </>
+              {cfg.sl_type === 'pct' ? (
+                <div className="grid grid-cols-1">{field('SL distance %', 'sl_distance_pct', 'number', null, { min: 0.05, step: 0.05 })}</div>
+              ) : (
+                <div className="grid grid-cols-2 gap-5">
+                  {field('SL timeframe', 'sl_lookback_timeframe', 'text', ['1m', '5m', '15m', '1h', '4h'])}
+                  {field('Lookback bars', 'sl_lookback_period', 'number', null, { min: 1, max: 50 })}
+                  {field('Min SL %', 'sl_min_pct', 'number', null, { min: 0.05, step: 0.05 })}
+                  {field('Max SL %', 'sl_max_pct', 'number', null, { min: 0.1, step: 0.1 })}
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
         {section === 'risk' && (
-          <>
-            <div className="section-title">Risk Guard</div>
-            <div className="config-grid">
-              {numberField('Risk % per trade', 'risk_pct_per_trade', { min: 0.1, step: 0.1 })}
-              {numberField('Max open trades', 'max_open_trades', { min: 1 })}
-              {numberField('Max total risk %', 'max_total_risk_pct', { min: 0.5, step: 0.5 })}
-              {numberField('SL guard USDT', 'total_sl_guard_usdt', { min: 1, step: 10 })}
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {field('Risk % per trade', 'risk_pct_per_trade', 'number', null, { min: 0.1, step: 0.1 })}
+              {field('Max open trades', 'max_open_trades', 'number', null, { min: 1 })}
+              {field('Max total risk %', 'max_total_risk_pct', 'number', null, { min: 0.5, step: 0.5 })}
+              {field('SL guard USDT', 'total_sl_guard_usdt', 'number', null, { min: 1, step: 10 })}
             </div>
-            <div className="sizing-preview">
-              <div><span>Risk amount</span><strong style={{ color: C.amber }}>${riskAmount.toFixed(2)}</strong></div>
-              <div><span>SL distance at $100</span><strong style={{ color: C.red }}>{slDistance.toFixed(2)}</strong></div>
-              <div><span>Estimated qty</span><strong style={{ color: C.accent }}>{estimatedQty.toFixed(1)}</strong></div>
+            <div className="grid grid-cols-3 gap-3 p-4 bg-background rounded-xl border border-border">
+              <div className="flex flex-col gap-1">
+                <span className="text-[9px] text-dim uppercase font-bold">Risk amount</span>
+                <span className="text-sm font-bold font-mono text-amber">${riskAmount.toFixed(2)}</span>
+              </div>
+              <div className="flex flex-col gap-1">
+                <span className="text-[9px] text-dim uppercase font-bold">SL @ $100</span>
+                <span className="text-sm font-bold font-mono text-red">{slDistance.toFixed(2)}</span>
+              </div>
+              <div className="flex flex-col gap-1 text-right">
+                <span className="text-[9px] text-dim uppercase font-bold">Est. qty</span>
+                <span className="text-sm font-bold font-mono text-accent">{estimatedQty.toFixed(1)}</span>
+              </div>
             </div>
-          </>
+          </div>
         )}
 
         {section === 'mode' && (
-          <>
-            <div className="section-title">Trading Mode</div>
-            <div className="mode-card" style={{ borderColor: cfg.paper_mode ? C.amber : C.green }}>
-              <Toggle value={cfg.paper_mode} onChange={(value) => setField('paper_mode', value)} label={cfg.paper_mode ? 'Paper Mode' : 'Live Trading'} color={cfg.paper_mode ? C.amber : C.green} />
-              <p>{cfg.paper_mode ? 'Simulated fills with no real funds at risk.' : 'Real Binance Futures orders. Confirm keys and permissions before launch.'}</p>
+          <div className="space-y-6">
+            <div className={cn("p-5 rounded-xl border-2 transition-all", cfg.paper_mode ? "border-amber/30 bg-amber/5" : "border-green/30 bg-green/5")}>
+              <Toggle
+                value={cfg.paper_mode}
+                onChange={(v) => setField('paper_mode', v)}
+                label={cfg.paper_mode ? 'Paper Mode' : 'Live Trading'}
+                color={cfg.paper_mode ? "bg-amber" : "bg-green"}
+              />
+              <p className="mt-3 text-xs text-dim leading-relaxed font-medium">
+                {cfg.paper_mode
+                  ? 'Simulated fills with no real funds at risk. Perfect for testing strategies.'
+                  : 'Real Binance Futures orders. Ensure keys have "Futures" permissions before launch.'}
+              </p>
             </div>
-            <div className="config-grid">
-              {numberField('Paper balance USDT', 'paper_starting_balance', { min: 100, step: 1000 })}
-              {numberField('Live balance reference', 'live_starting_balance', { min: 0, step: 1000 })}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {field('Paper balance USDT', 'paper_starting_balance', 'number', null, { min: 100, step: 1000 })}
+              {field('Live balance reference', 'live_starting_balance', 'number', null, { min: 0, step: 1000 })}
             </div>
-          </>
+          </div>
         )}
+      </div>
 
-        <div className="config-actions">
-          <button onClick={onClose} className="ghost-button">Cancel</button>
-          <button onClick={() => onSave(cfg)} className="primary-button">Start Session</button>
-        </div>
+      <div className="p-5 border-t border-border bg-surface flex gap-3 shrink-0">
+        <Btn variant="ghost" onClick={onClose} className="flex-1">Cancel</Btn>
+        <Btn variant="primary" onClick={() => onSave(cfg)} className="flex-[2]">Start Session</Btn>
       </div>
     </div>
   )

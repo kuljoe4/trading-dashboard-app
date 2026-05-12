@@ -3,20 +3,16 @@ import { createRoot } from 'react-dom/client';
 import { DashboardView } from './views/DashboardView';
 import { SettingsView } from './views/SettingsView';
 import { HistoryView } from './views/HistoryView';
-import { C } from './lib/theme';
 import { useTradingStore } from './store/trading';
 import { sessionAPI } from './api/client';
-import { TopBar } from './components/TopBar';
-import { ScannerOverlay } from './components/ScannerOverlay';
-import { PulseDot } from './components/ui/primitives';
+import './index.css';
 
 const App = () => {
-  const [view, setView] = useState('dashboard');
-  const [showScanner, setShowScanner] = useState(false);
-  
   const { 
-    sessionActive, setSessionActive, balance, totalRiskPct, config, wsStatus, updateStats
+    sessionActive, setSessionActive, balance, totalRiskPct, config, updateStats
   } = useTradingStore();
+
+  const [view, setView] = useState('cockpit');
 
   useEffect(() => {
     async function checkStatus() {
@@ -40,74 +36,28 @@ const App = () => {
       }
     }
     checkStatus();
-  }, [setSessionActive]);
 
-  useEffect(() => {
-    const openScanner = () => setShowScanner(true);
-    window.addEventListener('open-scanner', openScanner);
-    return () => window.removeEventListener('open-scanner', openScanner);
-  }, []);
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#/', '') || 'cockpit';
+      setView(hash === 'dashboard' ? 'cockpit' : hash);
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    handleHashChange();
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [setSessionActive, balance, totalRiskPct, config, updateStats]);
 
-  const handleKill = async () => {
-    if (window.confirm("Are you sure you want to KILL all sessions?")) {
-      try {
-        await sessionAPI.stop();
-        setSessionActive(false, null);
-      } catch (e) {
-        alert("Kill command failed");
-      }
+  const renderView = () => {
+    switch (view) {
+      case 'cockpit': return <DashboardView />;
+      case 'history': return <HistoryView />;
+      case 'settings': return <SettingsView />;
+      default: return <DashboardView />;
     }
   };
 
   return (
-    <div className="app-shell" style={{ background: C.bg, color: C.text }}>
-      <TopBar 
-        balance={balance} 
-        totalRisk={totalRiskPct} 
-        onKill={handleKill} 
-        sessionActive={sessionActive} 
-        paperMode={config.paper_mode}
-        wsStatus={wsStatus}
-      />
-
-      {/* Nav */}
-      <div className="app-nav" style={{ background: C.surface, borderBottom: `1px solid ${C.border}` }}>
-        {[["dashboard", "Dashboard"], ["history", "History"], ["settings", "Settings"]].map(([v, label]) => (
-          <button 
-            key={v} 
-            onClick={() => setView(v)}
-            className="app-nav__tab"
-            style={{ 
-              fontWeight: view === v ? 700 : 400, 
-              color: view === v ? C.text : C.dim, background: "none", border: "none", 
-              borderBottom: `2px solid ${view === v ? C.accent : "transparent"}`, cursor: "pointer",
-              transition: 'all 0.2s'
-            }}
-          >
-            {label}
-          </button>
-        ))}
-        <button 
-          onClick={() => setShowScanner(true)}
-          className="scanner-trigger"
-          style={{ 
-            border: `1px solid ${C.border}`, 
-            background: "none", color: C.text, fontSize: 11, cursor: "pointer" 
-          }}
-        >
-          <PulseDot color={C.green} />
-          Scanner Live
-        </button>
-      </div>
-
-      {/* Main Content */}
-      <div className="app-main">
-        {view === 'dashboard' && <DashboardView />}
-        {view === 'history' && <HistoryView />}
-        {view === 'settings' && <SettingsView />}
-      </div>
-
-      {showScanner && <ScannerOverlay onClose={() => setShowScanner(false)} />}
+    <div className="min-h-screen bg-background text-text font-sans selection:bg-accent selection:text-white">
+      {renderView()}
     </div>
   );
 };

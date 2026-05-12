@@ -1,80 +1,96 @@
 import React from 'react'
-import { C, fmtVol } from '../lib/theme'
-import { PulseDot, Sparkline } from './ui/primitives'
+import { fmtVol } from '../lib/theme'
+import { PulseDot, Sparkline, cn } from './ui/primitives'
 import { useTradingStore } from '../store/trading'
+import { X } from 'lucide-react'
 
 export const ScannerOverlay = ({ onClose }) => {
   const { scannerResults, activeWindows, config, scannerPaused, gateState } = useTradingStore()
   const threshold = config.scan_pct_threshold || 2.0
 
   return (
-    <div className="scanner-overlay">
-      <div className="scanner-panel" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-        <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <PulseDot color={C.green} />
-            <span style={{ fontSize: 14, fontWeight: 700, color: C.text }}>Live Scanner</span>
-            <span style={{ fontSize: 10, color: C.dim }}>threshold ≥ {threshold}%</span>
-            {scannerPaused && <span style={{ fontSize: 10, color: C.red }}>paused: {gateState}</span>}
-          </div>
-          <button onClick={onClose} className="icon-button" aria-label="Close scanner">Close</button>
+    <div className="flex flex-col h-full bg-surface text-text overflow-hidden">
+      <div className="p-4 border-b border-border flex justify-between items-center shrink-0">
+        <div className="flex items-center gap-2.5">
+          <PulseDot color="bg-green" />
+          <span className="text-[14px] font-bold">Live Scanner</span>
+          <span className="text-[10px] text-dim font-medium uppercase tracking-wider">threshold ≥ {threshold}%</span>
+          {scannerPaused && <span className="text-[10px] text-red font-bold uppercase">PAUSED: {gateState}</span>}
         </div>
+        <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full transition-colors" aria-label="Close scanner">
+          <X size={18} className="text-dim" />
+        </button>
+      </div>
 
-        {activeWindows.length > 0 && (
-          <div className="active-window-strip">
-            {activeWindows.map((window) => (
-              <div key={window.symbol}>
-                <strong style={{ color: window.direction === 'long' ? C.green : C.red }}>{window.symbol}</strong>
-                <span>{Math.round(window.remaining_ms / 1000)}s</span>
-              </div>
-            ))}
-          </div>
-        )}
-        
-        <div className="scanner-row scanner-row--head" style={{ color: C.dim, borderBottom: `1px solid ${C.border}` }}>
-          <span>#</span><span>SYMBOL</span><span style={{ textAlign: "right" }}>MOVE</span><span style={{ textAlign: "center" }}>TREND</span><span style={{ textAlign: "right" }}>VOLUME</span><span>SCORE</span><span style={{ textAlign: "center" }}>PASS</span>
+      {activeWindows.length > 0 && (
+        <div className="flex gap-4 p-2.5 bg-accent/5 border-b border-border overflow-x-auto no-scrollbar shrink-0">
+          {activeWindows.map((window) => (
+            <div key={window.symbol} className="flex items-center gap-1.5 px-2 py-1 bg-surface border border-border rounded whitespace-nowrap">
+              <strong className={cn("text-[11px] font-mono", window.direction === 'long' ? "text-green" : "text-red")}>
+                {window.symbol}
+              </strong>
+              <span className="text-[10px] text-dim font-mono">{Math.round(window.remaining_ms / 1000)}s</span>
+            </div>
+          ))}
         </div>
+      )}
 
-        <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-          {scannerResults.length === 0 ? (
-            <div style={{ padding: 40, textAlign: 'center', color: C.dim, fontSize: 13 }}>Waiting for scanner data...</div>
-          ) : (
-            scannerResults.map((opp, i) => {
-              const passing = Math.abs(opp.pct) >= threshold
-              const dir = (opp.dir || opp.direction || '').toLowerCase()
-              const isLong = dir ? dir === 'long' : opp.pct >= 0
-              return (
-                <div key={opp.symbol} className="scanner-row" style={{ borderBottom: `1px solid ${C.border}`, opacity: passing ? 1 : 0.45 }}>
-                  <span style={{ fontSize: 11, color: C.dim, fontFamily: "monospace" }}>#{i + 1}</span>
-                  <div>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: C.text, fontFamily: "monospace" }}>{opp.symbol.replace("USDT", "")}</span>
-                    <span style={{ fontSize: 10, color: C.dim }}>/USDT</span>
-                  </div>
-                  <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "monospace", color: isLong ? C.green : C.red, textAlign: "right" }}>
-                    {isLong ? "▲" : "▼"} {Math.abs(opp.pct).toFixed(2)}%
-                  </span>
-                  <div style={{ display: "flex", justifyContent: "center" }}>
-                    <Sparkline data={opp.history} color={isLong ? C.green : C.red} />
-                  </div>
-                  <span style={{ fontSize: 11, color: C.dim, fontFamily: "monospace", textAlign: "right" }}>{fmtVol(opp.vol)}</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    <div style={{ flex: 1, height: 3, background: C.border, borderRadius: 2 }}>
-                      <div style={{ width: `${(opp.score / 10) * 100}%`, height: "100%", background: C.accent, borderRadius: 2 }} />
-                    </div>
-                    <span style={{ fontSize: 10, color: C.dim, fontFamily: "monospace", minWidth: 24 }}>{opp.score.toFixed(1)}</span>
-                  </div>
-                  {passing
-                    ? <span style={{ fontSize: 10, fontWeight: 700, color: C.green, textAlign: "center" }}>PASS</span>
-                    : <span style={{ fontSize: 10, color: C.dim, textAlign: "center" }}>WAIT</span>}
+      <div className="grid grid-cols-[30px_1.5fr_1fr_1fr_1fr_1fr_50px] items-center px-4 py-2 text-[10px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase">
+        <span>#</span>
+        <span>Symbol</span>
+        <span className="text-right">Move</span>
+        <span className="text-center">Trend</span>
+        <span className="text-right">Volume</span>
+        <span className="text-right px-2">Score</span>
+        <span className="text-center">Pass</span>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {scannerResults.length === 0 ? (
+          <div className="py-20 text-center text-dim text-[13px] font-medium">Waiting for scanner data...</div>
+        ) : (
+          scannerResults.map((opp, i) => {
+            const passing = Math.abs(opp.pct) >= threshold
+            const dir = (opp.dir || opp.direction || '').toLowerCase()
+            const isLong = dir ? dir === 'long' : opp.pct >= 0
+            return (
+              <div key={opp.symbol}
+                className={cn(
+                  "grid grid-cols-[30px_1.5fr_1fr_1fr_1fr_1fr_50px] items-center px-4 py-3 border-b border-border/50 transition-opacity",
+                  !passing && "opacity-45"
+                )}>
+                <span className="text-[11px] text-dim font-mono">#{i + 1}</span>
+                <div className="flex items-baseline gap-0.5">
+                  <span className="text-[13px] font-bold font-mono">{opp.symbol.replace("USDT", "")}</span>
+                  <span className="text-[9px] text-dim font-mono">/USDT</span>
                 </div>
-              )
-            })
-          )}
-        </div>
+                <span className={cn(
+                  "text-[14px] font-bold font-mono text-right",
+                  isLong ? "text-green" : "text-red"
+                )}>
+                  {isLong ? "▲" : "▼"} {Math.abs(opp.pct).toFixed(2)}%
+                </span>
+                <div className="flex justify-center">
+                  <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={40} height={16} />
+                </div>
+                <span className="text-[11px] text-dim font-mono text-right">{fmtVol(opp.vol)}</span>
+                <div className="flex items-center gap-2 px-2">
+                  <div className="flex-1 h-1 bg-border rounded-full overflow-hidden">
+                    <div className="h-full bg-accent rounded-full" style={{ width: `${(opp.score / 10) * 100}%` }} />
+                  </div>
+                  <span className="text-[10px] text-dim font-mono min-width-[24px]">{opp.score.toFixed(1)}</span>
+                </div>
+                {passing
+                  ? <span className="text-[10px] font-bold text-green text-center">PASS</span>
+                  : <span className="text-[10px] font-medium text-dim text-center">WAIT</span>}
+              </div>
+            )
+          })
+        )}
+      </div>
 
-        <div style={{ padding: "10px 14px", borderTop: `1px solid ${C.border}`, fontSize: 10, color: C.dim, textAlign: "center" }}>
-          WS: !miniTicker@arr + kline · Real-time updates
-        </div>
+      <div className="p-3 border-t border-border text-[10px] text-dim font-medium text-center shrink-0">
+        WS: !miniTicker@arr + kline · Real-time updates
       </div>
     </div>
   )

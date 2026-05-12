@@ -5,7 +5,7 @@ import { TickerCacheService } from './ticker_cache.service';
 import { KlineStoreService } from './kline_store.service';
 import { TradingSessionService } from './trading_session.service';
 
-const BINANCE_WS_BASE = 'wss://fstream.binance.com';
+const BINANCE_WS_BASE = 'wss://fstream.binance.com/market';
 
 interface BinanceKline {
   stream?: string;
@@ -59,11 +59,32 @@ export class MarketFeedService {
     this.currentInterval = config.scan_interval || '1m';
     this.logger.log('MarketFeed starting');
 
-    // Seed initial tickers from REST
-    await this.fetchInitialTickers();
-
-    // Start !miniTicker@arr stream
+    // Start !miniTicker@arr stream first
     this.startMiniTickerStream();
+
+    // Prioritize WebSocket for initial data. Fallback to REST only if WS is slow.
+    const waitForWs = new Promise<void>((resolve) => {
+      const check = setInterval(() => {
+        if (this.tickerCache.getCacheSize() > 0) {
+          clearInterval(check);
+          this.logger.log('Initial tickers populated from WebSocket');
+          resolve();
+        }
+      }, 100);
+      
+      // 5s timeout for fallback
+      setTimeout(() => {
+        clearInterval(check);
+        resolve();
+      }, 5000);
+    });
+
+    await waitForWs;
+
+    if (this.tickerCache.getCacheSize() === 0) {
+      this.logger.log('WebSocket data not received yet, falling back to REST seeding');
+      await this.fetchInitialTickers();
+    }
 
     // Start watchlist manager
     this.startWatchlistManager(config);
@@ -71,13 +92,18 @@ export class MarketFeedService {
     this.logger.log('MarketFeed started');
   }
 
+  private updateWeight(headers: Headers) {
+    const weight = headers.get('X-MBX-USED-WEIGHT-1M');
+    if (weight) {
+      this.tradingSession.updateRateLimit(parseInt(weight));
+    }
+  }
+
   private async fetchInitialTickers() {
     this.logger.log('Fetching initial tickers from Binance REST API...');
     try {
       const response = await fetch('https://fapi.binance.com/fapi/v1/ticker/24hr');
-      
-      const weight = response.headers.get('X-MBX-USED-WEIGHT-1M');
-      if (weight) this.tradingSession.updateRateLimit(parseInt(weight));
+      this.updateWeight(response.headers);
 
       if (response.ok) {
         const tickers = await response.json();
@@ -257,6 +283,8 @@ export class MarketFeedService {
     try {
       const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=100`;
       const response = await fetch(url);
+      this.updateWeight(response.headers);
+      
       if (response.ok) {
         const klines = await response.json();
         if (Array.isArray(klines)) {

@@ -1,6 +1,6 @@
 import React from 'react'
 import { C } from '../lib/theme'
-import { PaperBadge, PulseDot } from './ui/primitives'
+import { PaperBadge, PulseDot, Btn } from './ui/primitives'
 
 export const TopBar = ({ balance, totalRisk, onKill, sessionActive, paperMode, wsStatus }) => {
   const wsColor = wsStatus === 'live' ? C.green : wsStatus === 'connecting' ? C.amber : C.red
@@ -22,13 +22,15 @@ export const TopBar = ({ balance, totalRisk, onKill, sessionActive, paperMode, w
         <span style={{ fontSize: 10, color: C.dim }}>OPEN RISK </span>
         <span style={{ fontSize: 14, fontWeight: 700, color: totalRisk > 3 ? C.amber : C.text, fontFamily: "monospace" }}>{totalRisk.toFixed(1)}%</span>
       </div>
-      <button onClick={onKill} className="top-bar__kill" style={{ 
-        border: `1px solid ${C.redBorder}`, 
-        background: C.redDim, color: C.red, fontSize: 11, fontWeight: 700, 
-        cursor: "pointer", letterSpacing: 1 
-      }}>
+      <Btn
+        variant="danger"
+        onClick={onKill}
+        className="top-bar__kill"
+        aria-label="Kill all sessions"
+        style={{ fontSize: 11, letterSpacing: 1 }}
+      >
         KILL SESSION
-      </button>
+      </Btn>
     </div>
   )
 }

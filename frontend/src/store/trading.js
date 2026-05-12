@@ -49,6 +49,7 @@ const normalizeTrade = (trade = {}) => ({
 
 const normalizeLog = (log = {}) => ({
   ...log,
+  id: log.id || Math.random().toString(36).substring(2, 15),
   ts: log.ts || log.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
   level: log.level || log.lv || 'info',
   msg: log.msg || log.message || '',

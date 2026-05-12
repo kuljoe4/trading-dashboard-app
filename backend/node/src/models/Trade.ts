@@ -55,4 +55,6 @@ export class Trade {
   binance_order_id?: string;
 
   binance_close_order_id?: string;
+
+  sessionId?: string;
 }

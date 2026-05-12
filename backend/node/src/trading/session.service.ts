@@ -82,14 +82,15 @@ export class SessionService implements OnModuleInit {
     this.sessionRunning = true;
 
     // Start the actual trading engine
-    await this.tradingSessionService.start(config);
+    await this.tradingSessionService.start(config, null, this.currentSessionId);
 
     this.logger.log(`Session ${this.currentSessionId} ${sessionId ? 'restarted' : 'started'} in ${paperMode ? 'paper' : 'live'} mode`);
     return { strategyId: this.currentSessionId, status: 'started' };
   }
 
   async updateSession(id: string, config: SessionConfig) {
-    await this.sessionRepository.update(id, { config: config as any });
+    // Ensure we pass a plain object for the config column to avoid TypeORM issues with class instances
+    await this.sessionRepository.update(id, { config: Object.assign({}, config) as any });
     return { status: 'updated' };
   }
 

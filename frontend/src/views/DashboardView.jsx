@@ -5,6 +5,7 @@ import { sessionAPI } from '../api/client'
 import { DecisionLog } from '../components/DecisionLog'
 import { ActiveTradeBar } from '../components/ActiveTradeBar'
 import { ConfigModal } from '../components/ConfigModal'
+import { SystemHealth } from '../components/SystemHealth'
 import { 
   StatCard, SectionLabel, Btn, StatusBadge, PaperBadge, 
   ConditionWidget, PnLBars, PulseDot, Sparkline 
@@ -254,6 +255,7 @@ export function DashboardView() {
   const gateState = useTradingStore((s) => s.gateState)
   const scannerPaused = useTradingStore((s) => s.scannerPaused)
   const rateLimit = useTradingStore((s) => s.rateLimit)
+  const monitoring = useTradingStore((s) => s.monitoring)
   const updateStats = useTradingStore((s) => s.updateStats)
   const sessionList = useTradingStore((s) => s.sessionList)
   const fetchSessions = useTradingStore((s) => s.fetchSessions)
@@ -366,6 +368,7 @@ export function DashboardView() {
       </div>
 
       <RateLimitStrip rateLimit={rateLimit} />
+      <SystemHealth monitoring={monitoring} />
       <GateBanner gateState={gateState} scannerPaused={scannerPaused} />
 
       <div className="summary-grid dashboard-summary">

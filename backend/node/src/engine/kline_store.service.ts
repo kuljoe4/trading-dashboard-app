@@ -29,13 +29,33 @@ export class KlineStoreService {
       volume: parseFloat(kline.v || kline[7] || 0),
     };
 
-    // Remove if already exists (update by timestamp)
-    const filtered = existing.filter((c) => c.time !== candle.time);
-    filtered.push(candle);
+    // O(1) Update: Check if it's the current candle being updated or a new one
+    // We prioritize the latest timestamp to maintain chronological order
+    if (existing.length > 0) {
+      const last = existing[existing.length - 1];
+      if (last.time === candle.time) {
+        existing[existing.length - 1] = candle;
+      } else if (candle.time > last.time) {
+        existing.push(candle);
+      } else {
+        // Late arriving candle, falling back to safe but slower update to ensure data integrity
+        const idx = existing.findIndex(c => c.time === candle.time);
+        if (idx !== -1) {
+          existing[idx] = candle;
+        } else {
+          existing.push(candle);
+          existing.sort((a, b) => a.time - b.time);
+        }
+      }
+    } else {
+      existing.push(candle);
+    }
 
     // Keep only the last N candles
-    const trimmed = filtered.slice(-this.MAX_CANDLES);
-    this.klines.set(key, trimmed);
+    if (existing.length > this.MAX_CANDLES) {
+      existing.shift();
+    }
+    this.klines.set(key, existing);
   }
 
   async getRecentCandles(symbol: string, interval: string, count: number): Promise<Candle[]> {

@@ -16,14 +16,16 @@ import { KlineStoreService } from '../engine/kline_store.service';
 import { SessionService } from './session.service';
 import { SessionController } from './session.controller';
 import { SettingsController } from './settings.controller';
+import { MonitoringController } from './monitoring.controller';
 import { DataInjectorService } from '../engine/data_injector.service';
+import { MonitoringService } from '../engine/monitoring.service';
 
 @Module({
   imports: [
     ConfigModule,
     TypeOrmModule.forFeature([SessionEntity, TradeEntity, SettingsEntity]),
   ],
-  controllers: [SessionController, SettingsController],
+  controllers: [SessionController, SettingsController, MonitoringController],
   providers: [
     SignalEngineService,
     RiskEngineService,
@@ -36,6 +38,7 @@ import { DataInjectorService } from '../engine/data_injector.service';
     KlineStoreService,
     SessionService,
     DataInjectorService,
+    MonitoringService,
   ],
   exports: [
     SignalEngineService,
@@ -47,6 +50,7 @@ import { DataInjectorService } from '../engine/data_injector.service';
     MarketFeedService,
     MomentumScannerService,
     KlineStoreService,
+    MonitoringService,
   ],
 })
 export class TradingModule {}

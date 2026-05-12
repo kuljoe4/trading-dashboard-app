@@ -112,6 +112,7 @@ export const useTradingStore = create((set, get) => ({
   scannerPaused: false,
   wsStatus: 'offline',
   sessionList: [],
+  monitoring: null,
   rateLimit: {
     used_weight_1m: 0,
     limit: 1200,
@@ -210,6 +211,7 @@ export const useTradingStore = create((set, get) => ({
           gateState: data.gateState ?? null,
           scannerPaused: data.scannerPaused ?? false,
           rateLimit: data.rateLimit || get().rateLimit,
+          monitoring: data.monitoring || get().monitoring,
         })
       } else if (data.type === 'log') {
         set((state) => ({ logs: [normalizeLog(data), ...state.logs].slice(0, 100) }))

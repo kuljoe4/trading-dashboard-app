@@ -4,6 +4,7 @@ import { SessionConfig } from '../models/SessionConfig';
 import { TickerCacheService } from './ticker_cache.service';
 import { KlineStoreService } from './kline_store.service';
 import { TradingSessionService } from './trading_session.service';
+import { MonitoringService } from './monitoring.service';
 
 const BINANCE_WS_BASE = 'wss://fstream.binance.com/market';
 
@@ -48,6 +49,7 @@ export class MarketFeedService {
     private klineStore: KlineStoreService,
     @Inject(forwardRef(() => TradingSessionService))
     private tradingSession: TradingSessionService,
+    private monitoringService: MonitoringService,
   ) {}
 
   setCandeCloseCallback(cb: (symbol: string) => Promise<void>) {
@@ -102,6 +104,7 @@ export class MarketFeedService {
   private async fetchInitialTickers() {
     this.logger.log('Fetching initial tickers from Binance REST API...');
     try {
+      this.monitoringService.incrementApiRequests();
       const response = await fetch('https://fapi.binance.com/fapi/v1/ticker/24hr');
       this.updateWeight(response.headers);
 
@@ -280,8 +283,12 @@ export class MarketFeedService {
   }
 
   private async backfillKlines(symbol: string, interval: string) {
+    // Basic concurrency limit for backfills: random delay to spread requests
+    await new Promise(resolve => setTimeout(resolve, Math.random() * 2000));
+
     try {
       const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=100`;
+      this.monitoringService.incrementApiRequests();
       const response = await fetch(url);
       this.updateWeight(response.headers);
       

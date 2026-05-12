@@ -9,6 +9,7 @@ import { PositionTrackerService } from './positionTracker';
 import { OrderManagerService } from './orderManager';
 import { MarketFeedService } from './market_feed.service';
 import { MomentumScannerService } from './momentum_scanner.service';
+import { MonitoringService } from './monitoring.service';
 import { v4 as uuid } from 'uuid';
 
 @Injectable()
@@ -40,6 +41,7 @@ export class TradingSessionService {
     private readonly orderManager: OrderManagerService,
     private readonly marketFeed: MarketFeedService,
     private readonly momentumScanner: MomentumScannerService,
+    private readonly monitoringService: MonitoringService,
   ) {}
 
   setWsBroadcaster(cb: (data: any) => void) {
@@ -115,9 +117,11 @@ export class TradingSessionService {
    */
   private async hotLoop() {
     if (!this.running || !this.config) return;
+    const start = performance.now();
     try {
       await this.checkExits();
       await this.broadcastTick();
+      this.monitoringService.recordHotLoop(performance.now() - start);
     } catch (error) {
       this.logger.debug(`Hot loop error: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -129,6 +133,7 @@ export class TradingSessionService {
    */
   private async mainLoop() {
     if (!this.running || !this.config) return;
+    const start = performance.now();
     try {
       const opportunities = await this.momentumScanner.scan(this.config);
       this.updateScannerResults(opportunities);
@@ -140,6 +145,7 @@ export class TradingSessionService {
       });
 
       await this.processEntries(opportunities);
+      this.monitoringService.recordMainLoop(performance.now() - start);
     } catch (error) {
       this.logger.debug(`Main loop error: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -325,6 +331,7 @@ export class TradingSessionService {
       scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard',
       activeWindows: this.getActiveWindows(),
       rateLimit: this.getBinanceRateLimit(),
+      monitoring: this.monitoringService.getMetrics(),
     });
   }
 

@@ -29,13 +29,21 @@ export class KlineStoreService {
       volume: parseFloat(kline.v || kline[7] || 0),
     };
 
-    // Remove if already exists (update by timestamp)
-    const filtered = existing.filter((c) => c.time !== candle.time);
-    filtered.push(candle);
+    // BOLT OPTIMIZATION: O(1) in-place update if timestamp matches last candle
+    if (existing.length > 0 && existing[existing.length - 1].time === candle.time) {
+      existing[existing.length - 1] = candle;
+    } else {
+      // Otherwise use the O(N) path for out-of-order or new candles
+      const filtered = existing.filter((c) => c.time !== candle.time);
+      filtered.push(candle);
 
-    // Keep only the last N candles
-    const trimmed = filtered.slice(-this.MAX_CANDLES);
-    this.klines.set(key, trimmed);
+      // Keep only the last N candles
+      if (filtered.length > this.MAX_CANDLES) {
+        this.klines.set(key, filtered.slice(-this.MAX_CANDLES));
+      } else {
+        this.klines.set(key, filtered);
+      }
+    }
   }
 
   async getRecentCandles(symbol: string, interval: string, count: number): Promise<Candle[]> {

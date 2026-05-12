@@ -24,9 +24,6 @@ export class Session {
   @Column('jsonb', { nullable: true })
   config: any;
 
-  @Column('jsonb', { default: [] })
-  logLines: any[];
-
   @OneToMany(() => TradeEntity, (trade) => trade.session)
   trades: TradeEntity[];
 }

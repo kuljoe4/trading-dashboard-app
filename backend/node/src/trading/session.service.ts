@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Session as SessionEntity } from '../models/entities/Session.entity';
 import { TradeEntity } from '../models/entities/Trade.entity';
+import { Log as LogEntity } from '../models/entities/Log.entity';
 import { SessionConfig } from '../models/SessionConfig';
 import { TradingSessionService } from '../engine/trading_session.service';
 import { Trade } from '../models/Trade';
@@ -21,6 +22,8 @@ export class SessionService implements OnModuleInit {
     private sessionRepository: Repository<SessionEntity>,
     @InjectRepository(TradeEntity)
     private tradeRepository: Repository<TradeEntity>,
+    @InjectRepository(LogEntity)
+    private logRepository: Repository<LogEntity>,
     private tradingSessionService: TradingSessionService,
   ) {}
 
@@ -73,7 +76,6 @@ export class SessionService implements OnModuleInit {
         paperMode,
         balance: paperMode ? (config.paper_starting_balance || 10000.0) : (config.live_starting_balance || 10000.0),
         config,
-        logLines: [],
       });
       session = await this.sessionRepository.save(session);
     }
@@ -144,13 +146,19 @@ export class SessionService implements OnModuleInit {
     const engineStatus: any = this.tradingSessionService.getStatus();
     const activeTrades = await this.tradeRepository.find({ where: { status: 'OPEN' } });
 
+    const logs = await this.logRepository.find({
+      where: { sessionId: session.id },
+      order: { ts: 'DESC' },
+      take: 100,
+    });
+
     return {
       running: session.running,
       strategyId: session.id,
       paperMode: session.paperMode,
       balance: engineStatus.running ? (session.paperMode ? engineStatus.balance_paper : engineStatus.balance_live) : session.balance,
       totalPnl: session.totalPnl,
-      logLines: session.logLines,
+      logLines: logs,
       activeTrades: engineStatus.activeTrades?.length ? engineStatus.activeTrades : activeTrades,
       scannerResults: engineStatus.scannerResults,
       activeWindows: engineStatus.activeWindows,
@@ -225,22 +233,11 @@ export class SessionService implements OnModuleInit {
   async logMessage(msg: string, level: 'info' | 'warn' | 'error' = 'info') {
     if (!this.currentSessionId) return;
     
-    const session = await this.sessionRepository.findOne({ where: { id: this.currentSessionId } });
-    if (!session) return;
-
-    const newLine = {
+    await this.logRepository.insert({
+      sessionId: this.currentSessionId,
       ts: new Date().toISOString(),
       level,
       msg,
-    };
-
-    session.logLines.push(newLine);
-    
-    // Keep log lines limited
-    if (session.logLines.length > 200) {
-      session.logLines = session.logLines.slice(-200);
-    }
-
-    await this.sessionRepository.save(session);
+    });
   }
 }

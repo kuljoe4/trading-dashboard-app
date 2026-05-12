@@ -29,20 +29,23 @@ export const SectionLabel = ({ children }) => (
 )
 
 // --- Button ---
-export const Btn = ({ children, variant, onClick, style: customStyle }) => (
+export const Btn = ({ children, variant, onClick, style: customStyle, disabled, ...props }) => (
   <button 
     onClick={onClick}
+    disabled={disabled}
     style={{ 
       padding: '8px 16px', 
       borderRadius: 6, 
       border: variant === 'danger' ? `1px solid ${C.redBorder}` : 'none', 
-      cursor: 'pointer',
+      cursor: disabled ? 'not-allowed' : 'pointer',
       background: variant === 'success' ? C.green : variant === 'danger' ? C.redDim : C.accent,
       color: variant === 'danger' ? C.red : 'white',
       fontWeight: 'bold',
       fontSize: 12,
+      opacity: disabled ? 0.5 : 1,
       ...customStyle
     }}
+    {...props}
   >
     {children}
   </button>

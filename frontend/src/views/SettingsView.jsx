@@ -50,8 +50,9 @@ export function SettingsView() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <label style={{ fontSize: 12, color: C.dim }}>Update API Key</label>
+            <label htmlFor="apiKey" style={{ fontSize: 12, color: C.dim }}>Update API Key</label>
             <input 
+              id="apiKey"
               type="text" 
               value={apiKey} 
               onChange={e => setApiKey(e.target.value)}
@@ -61,8 +62,9 @@ export function SettingsView() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <label style={{ fontSize: 12, color: C.dim }}>Update API Secret</label>
+            <label htmlFor="apiSecret" style={{ fontSize: 12, color: C.dim }}>Update API Secret</label>
             <input 
+              id="apiSecret"
               type="password" 
               value={apiSecret} 
               onChange={e => setApiSecret(e.target.value)}
@@ -71,7 +73,13 @@ export function SettingsView() {
             />
           </div>
 
-          <Btn onClick={handleSave}>{loading ? 'Saving...' : 'Save Keys'}</Btn>
+          <Btn
+            onClick={handleSave}
+            disabled={loading || (!apiKey && !apiSecret)}
+            title={(!apiKey && !apiSecret) ? "Enter API key or secret to save" : ""}
+          >
+            {loading ? 'Saving...' : 'Save Keys'}
+          </Btn>
 
           {status && (
             <div style={{ fontSize: 13, color: status.type === 'success' ? C.green : C.red }}>

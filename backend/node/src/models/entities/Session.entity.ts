@@ -1,4 +1,5 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, OneToMany } from 'typeorm';
+import { TradeEntity } from './Trade.entity';
 
 @Entity()
 export class Session {
@@ -25,4 +26,7 @@ export class Session {
 
   @Column('jsonb', { default: [] })
   logLines: any[];
+
+  @OneToMany(() => TradeEntity, (trade) => trade.session)
+  trades: TradeEntity[];
 }

@@ -17,6 +17,7 @@ export class TradingSessionService {
   private readonly logger = new Logger(TradingSessionService.name);
 
   private running = false;
+  private sessionId: string | null = null;
   private config: SessionConfig | null = null;
   private binanceClient: any = null;
   private balancePaper = 0;
@@ -58,8 +59,9 @@ export class TradingSessionService {
     }
   }
 
-  async start(config: SessionConfig, binanceClient?: any) {
+  async start(config: SessionConfig, binanceClient?: any, sessionId?: string) {
     this.running = true;
+    this.sessionId = sessionId || null;
     this.config = config;
     this.binanceClient = binanceClient;
     this.balancePaper = config.paper_starting_balance || 1000;
@@ -237,7 +239,7 @@ export class TradingSessionService {
 
       this.logger.log(`${opp.symbol}: Sending ${opp.direction} order (Qty: ${qty.toFixed(4)})`);
       
-      const trade = await this.orderManager.enter(uuid().substring(0, 8), opp.symbol, opp.direction.toUpperCase() as any, price, qty, slPrice, tpPrice);
+      const trade = await this.orderManager.enter(this.sessionId || uuid().substring(0, 8), opp.symbol, opp.direction.toUpperCase() as any, price, qty, slPrice, tpPrice);
 
       if (trade) {
         this.positionTracker.addTrade(trade);

@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Session as SessionEntity } from '../models/entities/Session.entity';
 import { TradeEntity } from '../models/entities/Trade.entity';
+import { Log as LogEntity } from '../models/entities/Log.entity';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { SignalEngineService } from '../engine/signalEngine';
 import { RiskEngineService } from '../engine/riskEngine';
@@ -21,7 +22,7 @@ import { DataInjectorService } from '../engine/data_injector.service';
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([SessionEntity, TradeEntity, SettingsEntity]),
+    TypeOrmModule.forFeature([SessionEntity, TradeEntity, LogEntity, SettingsEntity]),
   ],
   controllers: [SessionController, SettingsController],
   providers: [

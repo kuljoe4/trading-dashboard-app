@@ -19,7 +19,7 @@ export class OrderManagerService {
   }
 
   async enter(
-    strategyId: string,
+    sessionId: string,
     symbol: string,
     direction: 'LONG' | 'SHORT',
     entryPrice: number,
@@ -46,6 +46,7 @@ export class OrderManagerService {
         entry_signal_confidence: 1.0,
         pnl: 0,
         pnl_pct: 0,
+        sessionId,
       } as Trade;
 
       // In live mode, attempt to place actual order

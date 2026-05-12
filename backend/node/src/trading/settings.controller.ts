@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { UpdateKeysDto } from './dto/update-keys.dto';
+import { encrypt } from '../lib/crypto';
 
 @Controller('settings')
 export class SettingsController {
@@ -33,7 +34,7 @@ export class SettingsController {
       settings.binance_api_key = body.api_key;
     }
     if (body.api_secret !== undefined) {
-      settings.binance_api_secret = body.api_secret;
+      settings.binance_api_secret = encrypt(body.api_secret);
     }
 
     await this.settingsRepository.save(settings);

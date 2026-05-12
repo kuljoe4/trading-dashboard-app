@@ -1,4 +1,5 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Session } from './Session.entity';
 
 @Entity()
 export class TradeEntity {
@@ -55,4 +56,11 @@ export class TradeEntity {
 
   @Column('decimal', { precision: 10, scale: 4, nullable: true })
   pnl_pct: number;
+
+  @Column({ nullable: true })
+  sessionId: string;
+
+  @ManyToOne(() => Session)
+  @JoinColumn({ name: 'sessionId' })
+  session: Session;
 }

@@ -28,7 +28,7 @@ export class SettingsController {
       settings = this.settingsRepository.create({ id: 'default' });
     }
 
-    // Only update if provided, preventing clearing keys with empty strings
+    // Security: Only update if explicitly provided to prevent accidental deletion
     if (body.api_key !== undefined) {
       settings.binance_api_key = body.api_key;
     }

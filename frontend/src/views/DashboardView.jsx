@@ -5,6 +5,7 @@ import { sessionAPI } from '../api/client'
 import { DecisionLog } from '../components/DecisionLog'
 import { ActiveTradeBar } from '../components/ActiveTradeBar'
 import { ConfigModal } from '../components/ConfigModal'
+import { SystemHealth } from '../components/SystemHealth'
 import { ScannerOverlay } from '../components/ScannerOverlay'
 import { 
   StatCard, SectionLabel, Btn, StatusBadge, PaperBadge, 

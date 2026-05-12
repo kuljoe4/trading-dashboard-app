@@ -9,11 +9,6 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
 
-  // Increase body size limit
-  const express = require('express');
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ limit: '50mb', extended: true }));
-
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

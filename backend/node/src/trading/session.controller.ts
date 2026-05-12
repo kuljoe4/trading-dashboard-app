@@ -49,9 +49,4 @@ export class SessionController {
   async getHistory() {
     return this.sessionService.getHistory();
   }
-
-  @Post('debug/inject')
-  async injectData(@Body() body: { tickers: any[] }) {
-    return this.sessionService.injectTickers(body.tickers);
-  }
 }

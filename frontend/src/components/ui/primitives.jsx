@@ -2,7 +2,7 @@ import React from 'react'
 import { C } from '../../lib/theme'
 
 // --- Pulse dot ---
-export const PulseDot = ({ color }) => (
+export const PulseDot = React.memo(({ color }) => (
   <span style={{ position: "relative", display: "inline-flex", alignItems: "center", justifyContent: "center", width: 10, height: 10 }}>
     <span style={{
       position: "absolute", width: 10, height: 10, borderRadius: "50%",
@@ -11,15 +11,15 @@ export const PulseDot = ({ color }) => (
     }} />
     <span style={{ width: 6, height: 6, borderRadius: "50%", background: color, flexShrink: 0 }} />
   </span>
-)
+))
 
 // --- Stat Card ---
-export const StatCard = ({ label, value, color = C.text }) => (
+export const StatCard = React.memo(({ label, value, color = C.text }) => (
   <div style={{ background: C.surface, border: `1px solid ${C.border}`, padding: 16, borderRadius: 8 }}>
     <div style={{ fontSize: 10, color: C.dim, letterSpacing: 1, marginBottom: 6, textTransform: "uppercase" }}>{label}</div>
     <div style={{ fontSize: 18, fontWeight: 700, color, fontFamily: "monospace" }}>{value}</div>
   </div>
-)
+))
 
 // --- Section Label ---
 export const SectionLabel = ({ children }) => (
@@ -43,6 +43,7 @@ export const Btn = ({ children, variant, onClick, style: customStyle, disabled, 
       fontWeight: 'bold',
       fontSize: 12,
       opacity: disabled ? 0.5 : 1,
+      transition: 'all 0.2s',
       ...customStyle
     }}
     {...props}
@@ -81,7 +82,7 @@ export const PaperBadge = () => (
 )
 
 // --- Condition Widget ---
-export const ConditionWidget = ({ label, value, threshold, unit = "%", satisfied, sublabel }) => {
+export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%", satisfied, sublabel }) => {
   const pct = Math.min((Math.abs(value) / (threshold * 1.5)) * 100, 100);
   const color = satisfied ? C.green : C.amber;
   return (
@@ -109,14 +110,18 @@ export const ConditionWidget = ({ label, value, threshold, unit = "%", satisfied
       </div>
     </div>
   );
-}
+})
 
 // --- P&L Bars ---
 export const PnLBars = ({ trades }) => {
   if (!trades || trades.length === 0) return <div style={{ height: 60 }} />
   const max = Math.max(...trades.map(t => Math.abs(t.pnl || 0)), 1);
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 60, padding: "0 4px" }}>
+    <div
+      role="img"
+      aria-label="Profit and Loss performance chart"
+      style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 60, padding: "0 4px" }}
+    >
       {trades.map((t, i) => {
         const pnl = t.pnl || 0;
         const h = Math.max(4, (Math.abs(pnl) / max) * 52);
@@ -133,7 +138,7 @@ export const PnLBars = ({ trades }) => {
 }
 
 // --- Sparkline ---
-export const Sparkline = ({ data = [], width = 60, height = 24, color = C.accent }) => {
+export const Sparkline = React.memo(({ data = [], width = 60, height = 24, color = C.accent }) => {
   if (!data || data.length < 2) return <div style={{ width, height }} />;
   
   const min = Math.min(...data);
@@ -147,7 +152,13 @@ export const Sparkline = ({ data = [], width = 60, height = 24, color = C.accent
   }).join(' ');
 
   return (
-    <svg width={width} height={height} style={{ overflow: 'visible' }}>
+    <svg
+      width={width}
+      height={height}
+      role="img"
+      aria-label="Price trend sparkline"
+      style={{ overflow: 'visible' }}
+    >
       <polyline
         fill="none"
         stroke={color}
@@ -158,4 +169,4 @@ export const Sparkline = ({ data = [], width = 60, height = 24, color = C.accent
       />
     </svg>
   );
-}
+})

@@ -23,4 +23,4 @@ export const C = {
 export const pnlColor = (pnl) => (pnl >= 0 ? C.green : C.red);
 export const fmtUSD = (val) => val >= 0 ? `+$${val.toLocaleString('en', { minimumFractionDigits: 2 })}` : `-$${Math.abs(val).toLocaleString('en', { minimumFractionDigits: 2 })}`;
 export const fmt = (n, d = 2) => (n >= 0 ? "+" : "") + n.toFixed(d);
-export const fmtVol = (v) => v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : `$${(v / 1_000).toFixed(0)}K`;
+export const fmtVol = (v) => v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(2)}M` : `$${(v / 1_000).toFixed(1)}K`;

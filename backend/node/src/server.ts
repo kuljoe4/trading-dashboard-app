@@ -1,9 +1,11 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { Request, Response, NextFunction } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { WebSocketServer } from 'ws';
 import { AppModule } from './app.module';
 import { SessionService } from './trading/session.service';
+import { MonitoringService } from './engine/monitoring.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -16,6 +18,17 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
+  // Security Headers Middleware
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; object-src 'none';");
+    if (process.env.NODE_ENV === 'production') {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+    next();
+  });
 
   // Enable CORS for frontend
   app.enableCors({
@@ -33,18 +46,50 @@ async function bootstrap() {
 
   const httpServer = app.getHttpServer();
   const sessionService = app.get(SessionService);
+  const monitoringService = app.get(MonitoringService);
   const wss = new WebSocketServer({ server: httpServer, path: '/session/ws' });
 
-  sessionService.setBroadcaster((data: unknown) => {
-    const payload = JSON.stringify(data);
-    wss.clients.forEach((client) => {
+  const updateMonitoringSuppression = () => {
+    const anyActive = Array.from(wss.clients).some((c: any) => c.monitoringEnabled !== false);
+    monitoringService.setEnabled(anyActive);
+  };
+
+  sessionService.setBroadcaster((data: any) => {
+    const basePayload = typeof data === 'string' ? JSON.parse(data) : data;
+    
+    wss.clients.forEach((client: any) => {
       if (client.readyState === client.OPEN) {
-        client.send(payload);
+        // Suppress monitoring data if client has it disabled
+        if (basePayload.type === 'tick' && client.monitoringEnabled === false) {
+          const stripped = { ...basePayload };
+          delete stripped.monitoring;
+          client.send(JSON.stringify(stripped));
+        } else {
+          client.send(JSON.stringify(basePayload));
+        }
       }
     });
   });
 
-  wss.on('connection', async (socket) => {
+  wss.on('connection', async (socket: any) => {
+    socket.monitoringEnabled = true; // Default to enabled
+    updateMonitoringSuppression();
+    
+    socket.on('message', (message: string) => {
+      try {
+        const data = JSON.parse(message);
+        if (data.type === 'set_monitoring') {
+          socket.monitoringEnabled = data.enabled;
+          console.log(`Client monitoring preference updated: ${data.enabled}`);
+          updateMonitoringSuppression();
+        }
+      } catch (e) {}
+    });
+
+    socket.on('close', () => {
+      updateMonitoringSuppression();
+    });
+
     socket.send(JSON.stringify({ type: 'status', ...(await sessionService.getStatus()) }));
   });
 

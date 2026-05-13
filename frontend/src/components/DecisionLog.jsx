@@ -14,7 +14,7 @@ const LogEntry = React.memo(({ log }) => (
   </div>
 ))
 
-export const DecisionLog = () => {
+export const DecisionLog = React.memo(() => {
   const logs = useTradingStore(state => state.logs)
 
   return (
@@ -28,4 +28,4 @@ export const DecisionLog = () => {
       )}
     </div>
   )
-}
+})

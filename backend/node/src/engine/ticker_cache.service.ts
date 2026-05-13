@@ -10,6 +10,7 @@ export interface Ticker {
 export class TickerCacheService {
   private readonly logger = new Logger(TickerCacheService.name);
   private tickers: Map<string, Ticker> = new Map();
+  private _topByVolumeCache: { [key: string]: { data: Ticker[], timestamp: number } } = {};
 
   async bulkUpdate(tickers: any[]) {
     for (const t of tickers) {
@@ -49,11 +50,27 @@ export class TickerCacheService {
   }
 
   async topByVolume(n: number, excluded: string[] = []): Promise<Ticker[]> {
+    const cacheKey = `${n}_${[...excluded].sort().join(',')}`;
+    const cached = this._topByVolumeCache[cacheKey];
+    const CACHE_TTL_MS = 30000; // 30 seconds
+
+    if (cached && (Date.now() - cached.timestamp < CACHE_TTL_MS)) {
+      return cached.data;
+    }
+
     const all = Array.from(this.tickers.values());
-    this.logger.debug(`topByVolume requested ${n} symbols. Cache size: ${all.length}`);
-    return all
+    this.logger.debug(`topByVolume requested ${n} symbols. Cache size: ${all.length}. Cache miss - recomputing.`);
+
+    const result = all
       .filter(t => !excluded.includes(t.symbol))
       .sort((a, b) => b.volume_24h - a.volume_24h)
       .slice(0, n);
+
+    this._topByVolumeCache[cacheKey] = {
+      data: result,
+      timestamp: Date.now()
+    };
+
+    return result;
   }
 }

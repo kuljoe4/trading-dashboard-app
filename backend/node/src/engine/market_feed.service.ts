@@ -159,7 +159,7 @@ export class MarketFeedService {
           const msg = JSON.parse(data.toString());
           let tickers: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
           if (tickers.length > 0) {
-            await this.tickerCache.bulkUpdate(tickers); if (this.tickerCache.getCacheSize() % 50 === 0) console.log("--- TICKER CACHE UPDATE --- size:", this.tickerCache.getCacheSize());
+            await this.tickerCache.bulkUpdate(tickers);
           }
         } catch (err) {
           this.logger.warn(`miniTicker parse error: ${err instanceof Error ? err.message : String(err)}`);
@@ -283,6 +283,13 @@ export class MarketFeedService {
   }
 
   private async backfillKlines(symbol: string, interval: string) {
+    // Check if we already have data for this symbol/interval to avoid redundant seeding
+    const existingCandles = await this.klineStore.getRecentCandles(symbol, interval, 1);
+    if (existingCandles.length > 0) {
+      this.logger.debug(`Skipping backfill for ${symbol}/${interval}: Data already exists in store`);
+      return;
+    }
+
     // Basic concurrency limit for backfills: random delay to spread requests
     await new Promise(resolve => setTimeout(resolve, Math.random() * 2000));
 

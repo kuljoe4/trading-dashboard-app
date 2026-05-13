@@ -11,17 +11,35 @@ export class MonitoringService {
   private mainLoopExecutionTime = 0;
   private apiRequestCount = 0;
   private eventLoopLag = 0;
+  private enabled = true;
 
   constructor() {
     this.measureEventLoopLag();
     // Update CPU metrics every 2 seconds to avoid jitter from multiple callers
-    setInterval(() => this.updateCpuMetrics(), 2000);
+    setInterval(() => {
+      if (this.enabled) this.updateCpuMetrics();
+    }, 2000);
+  }
+
+  setEnabled(enabled: boolean) {
+    if (this.enabled !== enabled) {
+      this.logger.log(`Monitoring ${enabled ? 'enabled' : 'disabled'} based on client preferences`);
+    }
+    this.enabled = enabled;
   }
 
   private measureEventLoopLag() {
+    if (!this.enabled) {
+      setTimeout(() => this.measureEventLoopLag(), 2000);
+      return;
+    }
     const start = Date.now();
     const delay = 1000;
     setTimeout(() => {
+      if (!this.enabled) {
+        this.measureEventLoopLag();
+        return;
+      }
       const end = Date.now();
       const lag = Math.max(0, end - start - delay);
       this.eventLoopLag = lag;

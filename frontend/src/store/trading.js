@@ -23,29 +23,33 @@ const normalizeOpportunity = (opp = {}) => {
   }
 }
 
-const normalizeTrade = (trade = {}) => ({
-  ...trade,
-  symbol: trade.symbol ?? '---',
-  direction: (trade.direction ?? trade.side ?? '').toString().toUpperCase(),
-  entry_price: toNumber(trade.entry_price ?? trade.entry),
-  current_price: toNumber(trade.current_price ?? trade.current ?? trade.exit_price ?? trade.entry_price ?? trade.entry),
-  sl_price: toNumber(trade.sl_price ?? trade.current_sl ?? trade.sl ?? trade.initial_sl),
-  initial_sl: toNumber(trade.initial_sl ?? trade.sl_price ?? trade.sl),
-  tp_price: trade.tp_price == null && trade.tp == null ? null : toNumber(trade.tp_price ?? trade.tp),
-  pnl: toNumber(trade.pnl ?? trade.live_pnl),
-  rr: toNumber(trade.rr ?? trade.live_rr),
-  max_rr: toNumber(trade.max_rr ?? trade.max_rr_achieved),
-  live_rr_sequence: trade.live_rr_sequence || [],
-  exit_rr_sequence: trade.exit_rr_sequence || [],
-  tp_mode: trade.tp_mode || (trade.tp_price == null && trade.tp == null ? 'exp_rr_seq' : 'fixed'),
-  tp_ratio: toNumber(trade.tp_ratio, 2),
-  sl_type: trade.sl_type,
-  sl_adjustments: trade.sl_adjustments || [],
-  exit_reason: trade.exit_reason,
-  exit_price: trade.exit_price == null ? undefined : toNumber(trade.exit_price),
-  paper_mode: trade.paper_mode ?? true,
-  qty: trade.qty ?? trade.quantity ?? 0,
-})
+const normalizeTrade = (trade = {}) => {
+  if (!trade || typeof trade !== 'object') return null;
+  return {
+    ...trade,
+    symbol: trade.symbol ?? '---',
+    direction: (trade.direction ?? trade.side ?? '').toString().toUpperCase(),
+    entry_price: toNumber(trade.entry_price ?? trade.entry),
+    current_price: toNumber(trade.current_price ?? trade.current ?? trade.exit_price ?? trade.entry_price ?? trade.entry),
+    sl_price: toNumber(trade.sl_price ?? trade.current_sl ?? trade.sl ?? trade.initial_sl),
+    initial_sl: toNumber(trade.initial_sl ?? trade.sl_price ?? trade.sl),
+    tp_price: trade.tp_price == null && trade.tp == null ? null : toNumber(trade.tp_price ?? trade.tp),
+    // Fix: Only update PnL if it's explicitly provided and valid
+    pnl: (trade.pnl !== undefined && trade.pnl !== null) ? toNumber(trade.pnl) : 0,
+    rr: toNumber(trade.rr ?? trade.live_rr),
+    max_rr: toNumber(trade.max_rr ?? trade.max_rr_achieved),
+    live_rr_sequence: trade.live_rr_sequence || [],
+    exit_rr_sequence: trade.exit_rr_sequence || [],
+    tp_mode: trade.tp_mode || (trade.tp_price == null && trade.tp == null ? 'exp_rr_seq' : 'fixed'),
+    tp_ratio: toNumber(trade.tp_ratio, 2),
+    sl_type: trade.sl_type,
+    sl_adjustments: trade.sl_adjustments || [],
+    exit_reason: trade.exit_reason,
+    exit_price: trade.exit_price == null ? undefined : toNumber(trade.exit_price),
+    paper_mode: trade.paper_mode ?? true,
+    qty: trade.qty ?? trade.quantity ?? 0,
+  };
+}
 
 const normalizeLog = (log = {}) => ({
   ...log,
@@ -120,6 +124,26 @@ export const useTradingStore = create((set, get) => ({
   },
   sessionSummary: null,
   config: defaultConfig,
+  
+  // UX Settings
+  healthEnabled: localStorage.getItem('health_enabled') !== 'false',
+  streamingEnabled: localStorage.getItem('streaming_enabled') !== 'false',
+  
+  setHealthEnabled: (enabled) => {
+    localStorage.setItem('health_enabled', enabled)
+    set({ healthEnabled: enabled })
+    
+    // Signal preference to backend if WS is open
+    const ws = get().ws
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'set_monitoring', enabled }))
+    }
+  },
+  
+  setStreamingEnabled: (enabled) => {
+    localStorage.setItem('streaming_enabled', enabled)
+    set({ streamingEnabled: enabled })
+  },
 
   setSessionActive: (active, id) => {
     set({ sessionActive: active, strategyId: id })
@@ -151,13 +175,18 @@ export const useTradingStore = create((set, get) => ({
     const wsUrl = import.meta.env.VITE_WS_URL || (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + (window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '')) + '/session/ws'
     const ws = new WebSocket(wsUrl)
 
-    ws.onopen = () => set({ wsStatus: 'live' })
+    ws.onopen = () => {
+      set({ wsStatus: 'live' })
+      // Send current health preference on open
+      ws.send(JSON.stringify({ type: 'set_monitoring', enabled: get().healthEnabled }))
+    }
 
     // Throttled scanner update to prevent React choking on high-freq updates
     let lastScannerUpdate = 0;
     const SCANNER_THROTTLE_MS = 200;
 
     ws.onmessage = (event) => {
+      if (!get().streamingEnabled) return;
       const data = JSON.parse(event.data)
 
       if (data.type === 'status') {
@@ -168,11 +197,11 @@ export const useTradingStore = create((set, get) => ({
           totalPnl: data.totalPnl ?? state.totalPnl,
           totalRiskPct: data.totalRiskPct ?? state.totalRiskPct,
           totalSlUsed: data.totalSlUsed ?? state.totalSlUsed,
-          activeTrades: data.activeTrades?.map(normalizeTrade) || state.activeTrades,
+          activeTrades: data.activeTrades?.map(normalizeTrade).filter(Boolean) || state.activeTrades,
           logs: data.logLines?.map(normalizeLog) || state.logs,
           scannerResults: data.scannerResults?.map(normalizeOpportunity) || state.scannerResults,
           activeWindows: data.activeWindows?.map(normalizeWindow) || state.activeWindows,
-          tradeHistory: data.history?.map(normalizeTrade) || state.tradeHistory,
+          tradeHistory: data.history?.map(normalizeTrade).filter(Boolean) || state.tradeHistory,
           gateState: data.gateState ?? state.gateState,
           scannerPaused: data.scannerPaused ?? state.scannerPaused,
           config: data.config ? { ...state.config, ...data.config } : state.config,
@@ -184,10 +213,10 @@ export const useTradingStore = create((set, get) => ({
             sessionActive: data.running ?? data.status === 'started',
             balance: data.balance ?? state.balance,
             config: data.config ? { ...state.config, ...data.config } : state.config,
-            activeTrades: data.activeTrades?.map(normalizeTrade) || state.activeTrades,
+            activeTrades: data.activeTrades?.map(normalizeTrade).filter(Boolean) || state.activeTrades,
             scannerResults: data.scannerResults?.map(normalizeOpportunity) || state.scannerResults,
             activeWindows: data.activeWindows?.map(normalizeWindow) || state.activeWindows,
-            tradeHistory: data.history?.map(normalizeTrade) || state.tradeHistory,
+            tradeHistory: data.history?.map(normalizeTrade).filter(Boolean) || state.tradeHistory,
             gateState: data.gateState ?? state.gateState,
             scannerPaused: data.scannerPaused ?? state.scannerPaused,
             sessionSummary: stopped
@@ -206,7 +235,7 @@ export const useTradingStore = create((set, get) => ({
           totalPnl: data.total_pnl,
           totalRiskPct: data.total_risk_pct,
           totalSlUsed: data.total_sl_used,
-          activeTrades: (data.trades || []).map(normalizeTrade),
+          activeTrades: (data.trades || []).map(normalizeTrade).filter(Boolean),
           activeWindows: (data.activeWindows || []).map(normalizeWindow),
           gateState: data.gateState ?? null,
           scannerPaused: data.scannerPaused ?? false,

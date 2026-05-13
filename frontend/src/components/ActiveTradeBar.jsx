@@ -18,7 +18,7 @@ const Pill = ({ children, className }) => (
   </span>
 )
 
-const RRLadder = ({ trade }) => {
+const RRLadder = React.memo(({ trade }) => {
   const triggers = trade.live_rr_sequence || []
   const exits = trade.exit_rr_sequence || []
   const maxRR = trade.max_rr || 0
@@ -108,12 +108,12 @@ const RRLadder = ({ trade }) => {
       </div>
     </div>
   )
-}
+})
 
-export const ActiveTradeBar = ({ trade, compact = false }) => {
+export const ActiveTradeBar = React.memo(({ trade, compact = false }) => {
   if (!trade) return (
-    <div className="p-12 rounded-2xl border border-border border-dashed text-center bg-surface/20">
-      <div className="text-[11px] font-bold text-dim uppercase tracking-widest flex flex-col items-center gap-4">
+    <div className="h-[460px] flex items-center justify-center rounded-2xl border border-border border-dashed bg-surface/20">
+      <div className="text-[11px] font-bold text-dim uppercase tracking-widest flex flex-col items-center gap-4 animate-pulse">
         <Activity size={32} className="opacity-10" />
         No active position
       </div>
@@ -151,11 +151,11 @@ export const ActiveTradeBar = ({ trade, compact = false }) => {
           </Pill>
           {trade.paper_mode && <PaperBadge />}
         </div>
-        <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center shrink-0">
-          <div className={cn("text-3xl font-bold font-mono tracking-tighter", isWinning ? "text-green" : "text-red")}>
+        <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center shrink-0 max-w-[150px]">
+          <div className={cn("text-2xl sm:text-3xl font-bold font-mono tracking-tighter truncate w-full text-right", isWinning ? "text-green" : "text-red")}>
             {trade.pnl > 0 ? '+' : ''}{fmtUSD(trade.pnl)}
           </div>
-          <div className="text-[11px] text-dim font-bold uppercase tracking-widest mt-1">
+          <div className="text-[11px] text-dim font-bold uppercase tracking-widest mt-1 truncate w-full text-right">
             Performance: <span className={isWinning ? "text-green" : "text-red"}>{fmt(trade.rr || 0, 2)}R</span>
           </div>
         </div>
@@ -215,4 +215,4 @@ export const ActiveTradeBar = ({ trade, compact = false }) => {
       {isExpRR && <RRLadder trade={trade} />}
     </div>
   )
-}
+})

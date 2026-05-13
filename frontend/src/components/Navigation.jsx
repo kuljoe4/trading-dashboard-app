@@ -4,8 +4,7 @@ import { useTradingStore } from '../store/trading'
 import { cn, PulseDot } from './ui/primitives'
 
 export const Sidebar = ({ selected }) => {
-  const { wsStatus } = useTradingStore()
-  const [collapsed, setCollapsed] = useState(false)
+  const { wsStatus, sidebarCollapsed: collapsed, toggleSidebar } = useTradingStore()
   
   const isActive = (path) => {
     if (path === '/') return !selected && window.location.hash === '#/'
@@ -16,10 +15,10 @@ export const Sidebar = ({ selected }) => {
 
   return (
     <div className={cn(
-      "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 bg-surface border-r border-border z-50 p-6 transition-all duration-300",
-      collapsed ? "w-[80px]" : "w-[260px]"
+      "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 bg-surface border-r border-border z-50 transition-all duration-300",
+      collapsed ? "w-[80px] p-4" : "w-[260px] p-6"
     )}>
-      <div className="flex items-center gap-3 mb-12">
+      <div className={cn("flex items-center gap-3 mb-12", collapsed && "justify-center")}>
         <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center shadow-lg shadow-accent/20 shrink-0">
           <LayoutDashboard size={24} className="text-white" />
         </div>
@@ -36,28 +35,30 @@ export const Sidebar = ({ selected }) => {
             key={item.path}
             onClick={() => window.location.hash = `#${item.path}`}
             className={cn(
-              "w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-[13px] transition-all",
+              "w-full flex items-center gap-3 py-3 rounded-xl font-bold text-[13px] transition-all",
+              collapsed ? "justify-center px-0" : "px-4",
               isActive(item.path) ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:bg-white/5 hover:text-text"
             )}
           >
             <item.icon size={20} className="shrink-0" />
-            {!collapsed && item.label}
+            {!collapsed && <span>{item.label}</span>}
           </button>
         ))}
         
         <button 
           onClick={triggerScanner}
           className={cn(
-            "w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-[13px] transition-all text-accent hover:bg-accent/10"
+            "w-full flex items-center gap-3 py-3 rounded-xl font-bold text-[13px] transition-all text-accent hover:bg-accent/10",
+            collapsed ? "justify-center px-0" : "px-4"
           )}
         >
           <Zap size={20} className="shrink-0" />
-          {!collapsed && "Scanner"}
+          {!collapsed && <span>Scanner</span>}
         </button>
       </nav>
 
       <button 
-        onClick={() => setCollapsed(!collapsed)}
+        onClick={toggleSidebar}
         className="absolute -right-3 top-8 w-6 h-6 bg-surface border border-border rounded-full flex items-center justify-center text-dim hover:text-text z-50"
       >
         {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}

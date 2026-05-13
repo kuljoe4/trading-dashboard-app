@@ -16,7 +16,7 @@ const Stat = ({ label, value, colorClass = "text-text", sub = '', className }) =
 
 export const SystemHealth = ({ monitoring }) => {
   if (!monitoring) return (
-    <div className="flex items-center gap-6 px-4 py-3 bg-surface border border-border rounded-xl mb-8 opacity-40 animate-pulse">
+    <div className="flex items-center gap-6 px-4 py-3 bg-surface border border-border rounded-xl mb-8 opacity-40 animate-pulse h-[66px]">
       <div className="flex items-center gap-2.5 pr-6 border-r border-border shrink-0">
         <div className="w-2 h-2 rounded-full bg-dim" />
         <span className="text-[11px] font-bold text-dim uppercase tracking-widest leading-none">Initializing Monitor...</span>
@@ -30,7 +30,7 @@ export const SystemHealth = ({ monitoring }) => {
   const lagColor = system.event_loop_lag > 50 ? "text-red" : system.event_loop_lag > 20 ? "text-amber" : "text-green";
 
   return (
-    <div className="flex items-center gap-6 px-4 py-3 bg-surface border border-border rounded-xl mb-8 overflow-x-auto no-scrollbar shadow-sm">
+    <div className="flex items-center gap-6 px-4 py-3 bg-surface border border-border rounded-xl mb-8 overflow-x-auto no-scrollbar shadow-sm h-[66px] shrink-0">
       <div className="flex items-center gap-2.5 pr-6 border-r border-border shrink-0">
         <PulseDot color="bg-green" />
         <span className="text-[11px] font-black text-text uppercase tracking-widest leading-none">System Health</span>

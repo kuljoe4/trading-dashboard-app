@@ -44,7 +44,7 @@ const StrategyCard = ({ s, config, onClick }) => {
             {config.scan_interval} · {config.scan_pct_threshold}% threshold
           </div>
         </div>
-        <div className="text-right">
+        <div className="text-right shrink-0">
           <div className="text-2xl font-bold font-mono" style={{ color: pnlColor(s.totalPnl) }}>
             {fmtUSD(s.totalPnl)}
           </div>
@@ -297,7 +297,8 @@ export function DashboardView() {
     sessionActive, strategyId, balance, totalPnl, totalRiskPct,
     totalSlUsed, activeTrades, logs, config, healthEnabled, setSessionActive,
     updateConfig, scannerResults, activeWindows, gateState,
-    scannerPaused, rateLimit, monitoring, sessionList, fetchSessions, wsStatus
+    scannerPaused, rateLimit, monitoring, sessionList, fetchSessions, wsStatus,
+    sidebarCollapsed
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     strategyId: state.strategyId,
@@ -319,7 +320,8 @@ export function DashboardView() {
     monitoring: state.monitoring,
     sessionList: state.sessionList,
     fetchSessions: state.fetchSessions,
-    wsStatus: state.wsStatus
+    wsStatus: state.wsStatus,
+    sidebarCollapsed: state.sidebarCollapsed
   }))
 
   const { updateStats } = useTradingStore()
@@ -375,7 +377,10 @@ export function DashboardView() {
 
   if (selected) {
     return (
-      <div className="lg:pl-[260px] pb-32">
+      <div className={cn(
+        "pb-32 transition-all duration-300",
+        sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
+      )}>
         <Sidebar selected={selected} />
         <StrategyDetailView s={currentStrategy} onBack={() => setSelected(null)} />
         <BottomNav selected={selected} />
@@ -385,7 +390,8 @@ export function DashboardView() {
 
   return (
     <div className={cn(
-      "min-h-screen transition-all duration-300 lg:pl-[80px] xl:pl-[260px]",
+      "min-h-screen transition-all duration-300",
+      sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]",
       config.paper_mode ? "shadow-[inset_0_0_100px_rgba(245,166,35,0.05)] border-amber/10" : ""
     )}>
       <Sidebar selected={selected} />

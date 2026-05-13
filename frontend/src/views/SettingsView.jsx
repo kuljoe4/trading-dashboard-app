@@ -7,7 +7,7 @@ import { useTradingStore } from '../store/trading'
 import { Sidebar, BottomNav } from '../components/Navigation'
 
 export function SettingsView() {
-  const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled } = useTradingStore()
+  const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, sidebarCollapsed } = useTradingStore()
   const [apiKey, setApiKey] = useState('')
   const [apiSecret, setApiSecret] = useState('')
   const [showSecret, setShowSecret] = useState(false)
@@ -45,7 +45,10 @@ export function SettingsView() {
   }
 
   return (
-    <div className="min-h-screen transition-all duration-1000 lg:pl-[260px]">
+    <div className={cn(
+      "min-h-screen transition-all duration-300",
+      sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
+    )}>
       <Sidebar />
       <div className="max-w-[800px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32 lg:pb-8">
         <div className="flex items-center gap-4 mb-10 bg-surface border border-border rounded-2xl p-6 shadow-sm">

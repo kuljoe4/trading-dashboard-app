@@ -89,8 +89,8 @@ export class TradingSessionService {
     await this.momentumScanner.start(config);
 
     // Pro Loop Architecture
-    // 1. Hot Loop (500ms): Exit monitoring & PnL updates
-    this.hotLoopInterval = setInterval(() => this.hotLoop(), 500);
+    // 1. Hot Loop (1000ms): Exit monitoring & PnL updates
+    this.hotLoopInterval = setInterval(() => this.hotLoop(), 1000);
 
     // 2. Main Loop (2000ms): Scanning & Entry
     this.mainLoopInterval = setInterval(() => this.mainLoop(), 2000);

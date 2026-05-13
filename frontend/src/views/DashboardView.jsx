@@ -25,17 +25,12 @@ import { Sidebar, BottomNav } from '../components/Navigation'
 // --- Strategy Card ---
 const StrategyCard = ({ s, config, onClick }) => {
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
-  const activeTrade = s.activeTrades && s.activeTrades.length > 0 ? s.activeTrades[0] : null;
-  const activeDirection = activeTrade?.direction?.toUpperCase()
 
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      whileHover={{ scale: 1.01 }}
       onClick={onClick}
-      className="bg-surface border border-border rounded-2xl p-6 cursor-pointer transition-all hover:border-accent/40 relative group shadow-sm hover:shadow-accent/5"
+      className="bg-surface border border-border rounded-2xl p-6 cursor-pointer transition-all hover:border-accent/40 relative group shadow-sm hover:shadow-accent/5 h-full"
     >
       <div className="flex justify-between items-start mb-6">
         <div>
@@ -50,14 +45,9 @@ const StrategyCard = ({ s, config, onClick }) => {
           </div>
         </div>
         <div className="text-right">
-          <motion.div
-            key={s.totalPnl}
-            initial={{ scale: 1.1 }}
-            animate={{ scale: 1 }}
-            className={cn("text-2xl font-bold font-mono", pnlColor(s.totalPnl) === C.green ? "text-green" : "text-red")}
-          >
+          <div className="text-2xl font-bold font-mono" style={{ color: pnlColor(s.totalPnl) }}>
             {fmtUSD(s.totalPnl)}
-          </motion.div>
+          </div>
           <div className="text-[10px] text-dim font-bold uppercase tracking-widest mt-1">
             {s.logs.filter(l => l.msg.includes('Entry')).length} ENTRIES
           </div>
@@ -70,35 +60,11 @@ const StrategyCard = ({ s, config, onClick }) => {
           <span className={slPct > 70 ? "text-red" : "text-dim"}>${s.totalSlUsed.toFixed(0)} / ${config.total_sl_guard_usdt}</span>
         </div>
         <div className="h-1.5 bg-border rounded-full overflow-hidden">
-          <motion.div
-            initial={{ width: 0 }}
-            animate={{ width: `${slPct}%` }}
+          <div
             className={cn("h-full transition-all duration-700", slPct > 70 ? "bg-red" : "bg-accent shadow-[0_0_8px_rgba(91,111,255,0.4)]")}
+            style={{ width: `${slPct}%` }}
           />
         </div>
-      </div>
-
-      <div className="h-[74px] mt-6">
-        {activeTrade ? (
-          <motion.div
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="flex items-center gap-3 p-3.5 rounded-xl bg-green/5 border border-green/20 h-full"
-          >
-            <PulseDot color="bg-green" />
-            <span className="text-[13px] font-bold font-mono">{activeTrade.symbol}</span>
-            <span className={cn("text-[11px] font-bold font-mono", activeDirection === 'long' || activeDirection === 'LONG' ? "text-green" : "text-red")}>
-              {activeDirection}
-            </span>
-            <span className={cn("ml-auto text-[14px] font-bold font-mono", pnlColor(activeTrade.pnl) === C.green ? "text-green" : "text-red")}>
-              {fmtUSD(activeTrade.pnl)}
-            </span>
-          </motion.div>
-        ) : (
-          <div className="flex items-center justify-center gap-3 p-3.5 rounded-xl bg-surface/40 border border-border border-dashed h-full text-dim text-[10px] font-bold uppercase tracking-widest">
-            No active trade
-          </div>
-        )}
       </div>
     </motion.div>
   );
@@ -419,7 +385,7 @@ export function DashboardView() {
 
   return (
     <div className={cn(
-      "min-h-screen transition-all duration-1000 lg:pl-[260px]",
+      "min-h-screen transition-all duration-300 lg:pl-[80px] xl:pl-[260px]",
       config.paper_mode ? "shadow-[inset_0_0_100px_rgba(245,166,35,0.05)] border-amber/10" : ""
     )}>
       <Sidebar selected={selected} />
@@ -569,7 +535,7 @@ export function DashboardView() {
             transition={{ delay: 0.5 }}
             className="space-y-10"
           >
-            <ScannerPreview scannerResults={scannerResults} config={config} onOpen={() => setShowScanner(true)} />
+            {/* ScannerPreview removed */}
 
             <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col h-[450px] shadow-sm">
               <SectionLabel className="mb-4">

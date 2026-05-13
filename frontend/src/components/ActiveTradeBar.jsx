@@ -151,11 +151,11 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false }) => {
           </Pill>
           {trade.paper_mode && <PaperBadge />}
         </div>
-        <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center shrink-0">
-          <div className={cn("text-3xl font-bold font-mono tracking-tighter", isWinning ? "text-green" : "text-red")}>
+        <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center shrink-0 max-w-[150px]">
+          <div className={cn("text-2xl sm:text-3xl font-bold font-mono tracking-tighter truncate w-full text-right", isWinning ? "text-green" : "text-red")}>
             {trade.pnl > 0 ? '+' : ''}{fmtUSD(trade.pnl)}
           </div>
-          <div className="text-[11px] text-dim font-bold uppercase tracking-widest mt-1">
+          <div className="text-[11px] text-dim font-bold uppercase tracking-widest mt-1 truncate w-full text-right">
             Performance: <span className={isWinning ? "text-green" : "text-red"}>{fmt(trade.rr || 0, 2)}R</span>
           </div>
         </div>

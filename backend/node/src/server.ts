@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { WebSocketServer } from 'ws';
 import { AppModule } from './app.module';
 import { SessionService } from './trading/session.service';
+import { MonitoringService } from './engine/monitoring.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);

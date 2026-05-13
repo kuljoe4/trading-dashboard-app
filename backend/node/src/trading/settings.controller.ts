@@ -30,11 +30,18 @@ export class SettingsController {
     }
 
     // Security: Only update if explicitly provided to prevent accidental deletion
+    // Also trim whitespace to prevent common copy-paste issues
     if (body.api_key !== undefined) {
-      settings.binance_api_key = body.api_key;
+      const trimmedKey = body.api_key.trim();
+      if (trimmedKey) {
+        settings.binance_api_key = trimmedKey;
+      }
     }
     if (body.api_secret !== undefined) {
-      settings.binance_api_secret = encrypt(body.api_secret);
+      const trimmedSecret = body.api_secret.trim();
+      if (trimmedSecret) {
+        settings.binance_api_secret = encrypt(trimmedSecret);
+      }
     }
 
     await this.settingsRepository.save(settings);

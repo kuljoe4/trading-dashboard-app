@@ -33,18 +33,50 @@ async function bootstrap() {
 
   const httpServer = app.getHttpServer();
   const sessionService = app.get(SessionService);
+  const monitoringService = app.get(MonitoringService);
   const wss = new WebSocketServer({ server: httpServer, path: '/session/ws' });
 
-  sessionService.setBroadcaster((data: unknown) => {
-    const payload = JSON.stringify(data);
-    wss.clients.forEach((client) => {
+  const updateMonitoringSuppression = () => {
+    const anyActive = Array.from(wss.clients).some((c: any) => c.monitoringEnabled !== false);
+    monitoringService.setEnabled(anyActive);
+  };
+
+  sessionService.setBroadcaster((data: any) => {
+    const basePayload = typeof data === 'string' ? JSON.parse(data) : data;
+    
+    wss.clients.forEach((client: any) => {
       if (client.readyState === client.OPEN) {
-        client.send(payload);
+        // Suppress monitoring data if client has it disabled
+        if (basePayload.type === 'tick' && client.monitoringEnabled === false) {
+          const stripped = { ...basePayload };
+          delete stripped.monitoring;
+          client.send(JSON.stringify(stripped));
+        } else {
+          client.send(JSON.stringify(basePayload));
+        }
       }
     });
   });
 
-  wss.on('connection', async (socket) => {
+  wss.on('connection', async (socket: any) => {
+    socket.monitoringEnabled = true; // Default to enabled
+    updateMonitoringSuppression();
+    
+    socket.on('message', (message: string) => {
+      try {
+        const data = JSON.parse(message);
+        if (data.type === 'set_monitoring') {
+          socket.monitoringEnabled = data.enabled;
+          console.log(`Client monitoring preference updated: ${data.enabled}`);
+          updateMonitoringSuppression();
+        }
+      } catch (e) {}
+    });
+
+    socket.on('close', () => {
+      updateMonitoringSuppression();
+    });
+
     socket.send(JSON.stringify({ type: 'status', ...(await sessionService.getStatus()) }));
   });
 

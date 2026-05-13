@@ -50,23 +50,18 @@ export class MomentumScannerService {
         symbols = topByVolume.map((t: any) => t.symbol);
       }
 
-      const opportunities: Opportunity[] = [];
       const interval = config.scan_interval || '1m';
-
-      for (const symbol of symbols) {
+      const scanPromises = symbols.map(async (symbol) => {
         try {
-          const opportunity = await this.scanSymbol(
-            symbol,
-            interval,
-            config,
-          );
-          if (opportunity) {
-            opportunities.push(opportunity);
-          }
+          return await this.scanSymbol(symbol, interval, config);
         } catch (error) {
           this.logger.debug(`Scan error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
+          return null;
         }
-      }
+      });
+
+      const results = await Promise.all(scanPromises);
+      const opportunities: Opportunity[] = results.filter((o): o is Opportunity => o !== null);
 
       // Sort by score descending and take top 15
       opportunities.sort((a, b) => b.score - a.score);

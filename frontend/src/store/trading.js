@@ -120,6 +120,26 @@ export const useTradingStore = create((set, get) => ({
   },
   sessionSummary: null,
   config: defaultConfig,
+  
+  // UX Settings
+  healthEnabled: localStorage.getItem('health_enabled') !== 'false',
+  streamingEnabled: localStorage.getItem('streaming_enabled') !== 'false',
+  
+  setHealthEnabled: (enabled) => {
+    localStorage.setItem('health_enabled', enabled)
+    set({ healthEnabled: enabled })
+    
+    // Signal preference to backend if WS is open
+    const ws = get().ws
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'set_monitoring', enabled }))
+    }
+  },
+  
+  setStreamingEnabled: (enabled) => {
+    localStorage.setItem('streaming_enabled', enabled)
+    set({ streamingEnabled: enabled })
+  },
 
   setSessionActive: (active, id) => {
     set({ sessionActive: active, strategyId: id })
@@ -151,13 +171,18 @@ export const useTradingStore = create((set, get) => ({
     const wsUrl = import.meta.env.VITE_WS_URL || (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + (window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '')) + '/session/ws'
     const ws = new WebSocket(wsUrl)
 
-    ws.onopen = () => set({ wsStatus: 'live' })
+    ws.onopen = () => {
+      set({ wsStatus: 'live' })
+      // Send current health preference on open
+      ws.send(JSON.stringify({ type: 'set_monitoring', enabled: get().healthEnabled }))
+    }
 
     // Throttled scanner update to prevent React choking on high-freq updates
     let lastScannerUpdate = 0;
     const SCANNER_THROTTLE_MS = 200;
 
     ws.onmessage = (event) => {
+      if (!get().streamingEnabled) return;
       const data = JSON.parse(event.data)
 
       if (data.type === 'status') {

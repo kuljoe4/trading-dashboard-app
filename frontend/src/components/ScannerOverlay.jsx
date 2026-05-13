@@ -4,13 +4,19 @@ import { PulseDot, Sparkline, cn } from './ui/primitives'
 import { useTradingStore } from '../store/trading'
 import { X } from 'lucide-react'
 
-export const ScannerOverlay = ({ onClose }) => {
-  const { scannerResults, activeWindows, config, scannerPaused, gateState } = useTradingStore()
+export const ScannerOverlay = React.memo(({ onClose }) => {
+  const { scannerResults, activeWindows, config, scannerPaused, gateState } = useTradingStore(state => ({
+    scannerResults: state.scannerResults,
+    activeWindows: state.activeWindows,
+    config: state.config,
+    scannerPaused: state.scannerPaused,
+    gateState: state.gateState,
+  }))
   const threshold = config.scan_pct_threshold || 2.0
 
   return (
     <div className="flex flex-col h-full bg-surface text-text overflow-hidden">
-      <div className="p-4 border-b border-border flex justify-between items-center shrink-0">
+      <div className="p-4 border-b border-border flex justify-between items-center shrink-0 h-[64px]">
         <div className="flex items-center gap-2.5">
           <PulseDot color="bg-green" />
           <span className="text-[14px] font-bold">Live Scanner</span>
@@ -22,10 +28,13 @@ export const ScannerOverlay = ({ onClose }) => {
         </button>
       </div>
 
-      {activeWindows.length > 0 && (
-        <div className="flex gap-4 p-2.5 bg-accent/5 border-b border-border overflow-x-auto no-scrollbar shrink-0">
+      <div className={cn(
+        "bg-accent/5 border-b border-border overflow-x-auto no-scrollbar shrink-0 transition-all duration-300 ease-in-out",
+        activeWindows.length > 0 ? "h-[42px] p-2.5 opacity-100" : "h-0 p-0 opacity-0 border-none"
+      )}>
+        <div className="flex gap-4">
           {activeWindows.map((window) => (
-            <div key={window.symbol} className="flex items-center gap-1.5 px-2 py-1 bg-surface border border-border rounded whitespace-nowrap">
+            <div key={window.symbol} className="flex items-center gap-1.5 px-2 py-1 bg-surface border border-border rounded whitespace-nowrap h-[26px]">
               <strong className={cn("text-[11px] font-mono", window.direction === 'long' ? "text-green" : "text-red")}>
                 {window.symbol}
               </strong>
@@ -33,9 +42,9 @@ export const ScannerOverlay = ({ onClose }) => {
             </div>
           ))}
         </div>
-      )}
+      </div>
 
-      <div className="grid grid-cols-[30px_1.5fr_1fr_1fr_1fr_1fr_50px] items-center px-4 py-2 text-[10px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase">
+      <div className="grid grid-cols-[30px_100px_1fr_60px_1fr_1fr_50px] items-center px-4 py-2 text-[10px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase h-[36px] shrink-0">
         <span>#</span>
         <span>Symbol</span>
         <span className="text-right">Move</span>
@@ -47,7 +56,7 @@ export const ScannerOverlay = ({ onClose }) => {
 
       <div className="flex-1 overflow-y-auto">
         {scannerResults.length === 0 ? (
-          <div className="py-20 text-center text-dim text-[13px] font-medium">Waiting for scanner data...</div>
+          <div className="h-full flex items-center justify-center text-dim text-[13px] font-medium">Waiting for scanner data...</div>
         ) : (
           scannerResults.map((opp, i) => {
             const passing = Math.abs(opp.pct) >= threshold
@@ -56,29 +65,29 @@ export const ScannerOverlay = ({ onClose }) => {
             return (
               <div key={opp.symbol}
                 className={cn(
-                  "grid grid-cols-[30px_1.5fr_1fr_1fr_1fr_1fr_50px] items-center px-4 py-3 border-b border-border/50 transition-opacity",
+                  "grid grid-cols-[30px_100px_1fr_60px_1fr_1fr_50px] items-center px-4 py-3 border-b border-border/50 transition-opacity h-[56px]",
                   !passing && "opacity-45"
                 )}>
                 <span className="text-[11px] text-dim font-mono">#{i + 1}</span>
-                <div className="flex items-baseline gap-0.5">
-                  <span className="text-[13px] font-bold font-mono">{opp.symbol.replace("USDT", "")}</span>
-                  <span className="text-[9px] text-dim font-mono">/USDT</span>
+                <div className="flex items-baseline gap-0.5 overflow-hidden">
+                  <span className="text-[13px] font-bold font-mono truncate">{opp.symbol.replace("USDT", "")}</span>
+                  <span className="text-[9px] text-dim font-mono">/U</span>
                 </div>
                 <span className={cn(
                   "text-[14px] font-bold font-mono text-right",
                   isLong ? "text-green" : "text-red"
                 )}>
-                  {isLong ? "▲" : "▼"} {Math.abs(opp.pct).toFixed(2)}%
+                  {isLong ? "▲" : "▼"}{Math.abs(opp.pct).toFixed(1)}%
                 </span>
                 <div className="flex justify-center">
                   <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={40} height={16} />
                 </div>
                 <span className="text-[11px] text-dim font-mono text-right">{fmtVol(opp.vol)}</span>
-                <div className="flex items-center gap-2 px-2">
-                  <div className="flex-1 h-1 bg-border rounded-full overflow-hidden">
+                <div className="flex items-center gap-2 px-2 overflow-hidden">
+                  <div className="flex-1 h-1 bg-border rounded-full overflow-hidden min-w-[20px]">
                     <div className="h-full bg-accent rounded-full" style={{ width: `${(opp.score / 10) * 100}%` }} />
                   </div>
-                  <span className="text-[10px] text-dim font-mono min-width-[24px]">{opp.score.toFixed(1)}</span>
+                  <span className="text-[10px] text-dim font-mono whitespace-nowrap">{opp.score.toFixed(1)}</span>
                 </div>
                 {passing
                   ? <span className="text-[10px] font-bold text-green text-center">PASS</span>
@@ -94,4 +103,4 @@ export const ScannerOverlay = ({ onClose }) => {
       </div>
     </div>
   )
-}
+})

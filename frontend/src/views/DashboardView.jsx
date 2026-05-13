@@ -7,6 +7,8 @@ import { ActiveTradeBar } from '../components/ActiveTradeBar'
 import { ConfigModal } from '../components/ConfigModal'
 import { SystemHealth } from '../components/SystemHealth'
 import { ScannerOverlay } from '../components/ScannerOverlay'
+import * as Dialog from '@radix-ui/react-dialog'
+import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { 
   StatCard, SectionLabel, Btn, StatusBadge, PaperBadge, 
   ConditionWidget, PulseDot, Sparkline, PnLBars, cn
@@ -18,6 +20,7 @@ import {
 } from 'lucide-react'
 import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Sidebar, BottomNav } from '../components/Navigation'
 
 // --- Strategy Card ---
 const StrategyCard = ({ s, config, onClick }) => {
@@ -75,22 +78,28 @@ const StrategyCard = ({ s, config, onClick }) => {
         </div>
       </div>
 
-      {activeTrade && (
-        <motion.div
-          initial={{ opacity: 0, x: -10 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="flex items-center gap-3 p-3.5 rounded-xl bg-green/5 border border-green/20"
-        >
-          <PulseDot color="bg-green" />
-          <span className="text-[13px] font-bold font-mono">{activeTrade.symbol}</span>
-          <span className={cn("text-[11px] font-bold font-mono", activeDirection === 'LONG' ? "text-green" : "text-red")}>
-            {activeDirection}
-          </span>
-          <span className={cn("ml-auto text-[14px] font-bold font-mono", pnlColor(activeTrade.pnl) === C.green ? "text-green" : "text-red")}>
-            {fmtUSD(activeTrade.pnl)}
-          </span>
-        </motion.div>
-      )}
+      <div className="h-[74px] mt-6">
+        {activeTrade ? (
+          <motion.div
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="flex items-center gap-3 p-3.5 rounded-xl bg-green/5 border border-green/20 h-full"
+          >
+            <PulseDot color="bg-green" />
+            <span className="text-[13px] font-bold font-mono">{activeTrade.symbol}</span>
+            <span className={cn("text-[11px] font-bold font-mono", activeDirection === 'long' || activeDirection === 'LONG' ? "text-green" : "text-red")}>
+              {activeDirection}
+            </span>
+            <span className={cn("ml-auto text-[14px] font-bold font-mono", pnlColor(activeTrade.pnl) === C.green ? "text-green" : "text-red")}>
+              {fmtUSD(activeTrade.pnl)}
+            </span>
+          </motion.div>
+        ) : (
+          <div className="flex items-center justify-center gap-3 p-3.5 rounded-xl bg-surface/40 border border-border border-dashed h-full text-dim text-[10px] font-bold uppercase tracking-widest">
+            No active trade
+          </div>
+        )}
+      </div>
     </motion.div>
   );
 }
@@ -151,50 +160,71 @@ const GateBanner = ({ gateState, scannerPaused }) => {
 const ScannerPreview = ({ scannerResults, config, onOpen }) => {
   const threshold = config.scan_pct_threshold || 2
   const top = scannerResults.slice(0, 5)
+  // Pre-allocate 5 slots to prevent layout shift
+  const placeholders = Array.from({ length: Math.max(0, 5 - top.length) })
+
   return (
-    <div className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 shadow-sm">
-      <div className="p-5 border-b border-border flex justify-between items-center bg-surface/30">
+    <div className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 shadow-sm h-[385px] flex flex-col">
+      <div className="p-5 border-b border-border flex justify-between items-center bg-surface/30 shrink-0">
         <SectionLabel className="mb-0">
           <Zap size={14} className="text-accent" /> Live Scanner
         </SectionLabel>
         <button className="text-[11px] font-bold text-accent hover:text-accent/80 transition-colors uppercase tracking-widest" onClick={onOpen}>Open Full</button>
       </div>
-      <div className="divide-y divide-border/40">
-        {top.length === 0 ? (
-          <div className="py-12 text-center text-dim text-[11px] font-bold uppercase tracking-widest">Waiting for market data...</div>
+      <div className="flex-1">
+        {top.length === 0 && placeholders.length === 5 ? (
+          <div className="h-full flex items-center justify-center text-dim text-[11px] font-bold uppercase tracking-widest bg-surface/10 animate-pulse">
+            Waiting for market data...
+          </div>
         ) : (
-          <AnimatePresence mode="popLayout">
-            {top.map((opp, i) => {
-              const passing = Math.abs(opp.pct) >= threshold
-              const isLong = opp.pct >= 0
-              const colorClass = isLong ? "text-green" : "text-red"
-              return (
-                <motion.div
-                  key={opp.symbol}
-                  layout
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className={cn(
-                    "flex items-center gap-4 p-4 transition-colors hover:bg-white/5",
-                    !passing && "opacity-60"
-                  )}
-                >
-                  <span className="text-[10px] text-dim font-mono w-4">#{i + 1}</span>
-                  <strong className="text-xs font-mono w-16">{opp.symbol.replace('USDT', '')}</strong>
-                  <div className="flex-1 flex justify-center h-8">
-                    <Sparkline data={opp.history} color={isLong ? "green" : "red"} />
-                  </div>
-                  <em className={cn("text-xs font-bold font-mono w-16 text-right", colorClass)}>
-                    {opp.pct >= 0 ? '+' : ''}{opp.pct.toFixed(2)}%
-                  </em>
-                  <b className={cn("text-[10px] font-bold w-12 text-right uppercase tracking-wider", passing ? "text-green" : "text-dim")}>
-                    {passing ? 'PASS' : 'WAIT'}
-                  </b>
-                </motion.div>
-              )
-            })}
-          </AnimatePresence>
+          <>
+            <AnimatePresence mode="popLayout">
+              {top.map((opp, i) => {
+                const passing = Math.abs(opp.pct) >= threshold
+                const isLong = opp.pct >= 0
+                const colorClass = isLong ? "text-green" : "text-red"
+                const isLast = i === top.length - 1 && placeholders.length === 0;
+                return (
+                  <motion.div
+                    key={opp.symbol}
+                    layout
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className={cn(
+                      "flex items-center gap-4 p-4 transition-colors hover:bg-white/5 h-[64px]",
+                      !isLast && "border-b border-border/40",
+                      !passing && "opacity-60"
+                    )}
+                  >
+                    <span className="text-[10px] text-dim font-mono w-4">#{i + 1}</span>
+                    <strong className="text-xs font-mono w-16">{opp.symbol.replace('USDT', '')}</strong>
+                    <div className="flex-1 flex justify-center h-8">
+                      <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={48} height={20} />
+                    </div>
+                    <em className={cn("text-xs font-bold font-mono w-16 text-right", colorClass)}>
+                      {opp.pct >= 0 ? '+' : ''}{opp.pct.toFixed(2)}%
+                    </em>
+                    <b className={cn("text-[10px] font-bold w-12 text-right uppercase tracking-wider", passing ? "text-green" : "text-dim")}>
+                      {passing ? 'PASS' : 'WAIT'}
+                    </b>
+                  </motion.div>
+                )
+              })}
+            </AnimatePresence>
+            {placeholders.map((_, i) => (
+              <div key={`placeholder-${i}`} className={cn(
+                "h-[64px] flex items-center px-4 opacity-10 grayscale",
+                i !== placeholders.length - 1 && "border-b border-border/40"
+              )}>
+                <div className="w-4 h-2 bg-dim rounded-full mr-4" />
+                <div className="w-16 h-3 bg-dim rounded-full mr-4" />
+                <div className="flex-1" />
+                <div className="w-16 h-3 bg-dim rounded-full mr-4" />
+                <div className="w-12 h-2 bg-dim rounded-full" />
+              </div>
+            ))}
+          </>
         )}
       </div>
     </div>
@@ -203,7 +233,7 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
 
 // --- Detail View ---
 const StrategyDetailView = ({ s, onBack }) => {
-  const { config, scannerResults } = useTradingStore()
+  const { config, scannerResults, healthEnabled, monitoring } = useTradingStore()
   const bestOpp = scannerResults[0] || { symbol: '---', pct: 0, dir: '---' }
   const scanMet = Math.abs(bestOpp.pct) >= config.scan_pct_threshold
   const entryMet = scanMet && s.activeTrades.length > 0
@@ -226,6 +256,8 @@ const StrategyDetailView = ({ s, onBack }) => {
           </div>
         </div>
       </div>
+
+      {healthEnabled && <SystemHealth monitoring={monitoring} />}
 
       {/* Summary Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
@@ -297,11 +329,34 @@ export function DashboardView() {
   
   const {
     sessionActive, strategyId, balance, totalPnl, totalRiskPct,
-    totalSlUsed, activeTrades, logs, config, setSessionActive,
+    totalSlUsed, activeTrades, logs, config, healthEnabled, setSessionActive,
     updateConfig, scannerResults, activeWindows, gateState,
-    scannerPaused, rateLimit, updateStats, sessionList,
-    fetchSessions, wsStatus
-  } = useTradingStore()
+    scannerPaused, rateLimit, monitoring, sessionList, fetchSessions, wsStatus
+  } = useTradingStore(state => ({
+    sessionActive: state.sessionActive,
+    strategyId: state.strategyId,
+    balance: state.balance,
+    totalPnl: state.totalPnl,
+    totalRiskPct: state.totalRiskPct,
+    totalSlUsed: state.totalSlUsed,
+    activeTrades: state.activeTrades,
+    logs: state.logs,
+    config: state.config,
+    healthEnabled: state.healthEnabled,
+    setSessionActive: state.setSessionActive,
+    updateConfig: state.updateConfig,
+    scannerResults: state.scannerResults,
+    activeWindows: state.activeWindows,
+    gateState: state.gateState,
+    scannerPaused: state.scannerPaused,
+    rateLimit: state.rateLimit,
+    monitoring: state.monitoring,
+    sessionList: state.sessionList,
+    fetchSessions: state.fetchSessions,
+    wsStatus: state.wsStatus
+  }))
+
+  const { updateStats } = useTradingStore()
 
   const [loading, setLoading] = useState(false)
 
@@ -353,15 +408,22 @@ export function DashboardView() {
   }
 
   if (selected) {
-    return <StrategyDetailView s={currentStrategy} onBack={() => setSelected(null)} />
+    return (
+      <div className="lg:pl-[260px] pb-32">
+        <Sidebar selected={selected} />
+        <StrategyDetailView s={currentStrategy} onBack={() => setSelected(null)} />
+        <BottomNav selected={selected} />
+      </div>
+    )
   }
 
   return (
     <div className={cn(
-      "min-h-screen transition-all duration-1000",
+      "min-h-screen transition-all duration-1000 lg:pl-[260px]",
       config.paper_mode ? "shadow-[inset_0_0_100px_rgba(245,166,35,0.05)] border-amber/10" : ""
     )}>
-      <div className="max-w-[1400px] mx-auto p-4 md:p-8">
+      <Sidebar selected={selected} />
+      <div className="max-w-[1400px] mx-auto p-4 md:p-8 pb-32 lg:pb-8">
 
         {/* Header Bar */}
         <motion.div
@@ -375,11 +437,14 @@ export function DashboardView() {
                 <span className="text-xl font-bold tracking-tight">Operator Cockpit</span>
                 {config.paper_mode && <PaperBadge />}
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 lg:hidden">
                 <span className={cn("text-[10px] font-bold font-mono tracking-widest uppercase", wsStatus === 'live' ? "text-green" : "text-amber")}>
                   {wsStatus === 'live' ? 'Connected' : 'Reconnecting'}
                 </span>
                 <PulseDot color={wsStatus === 'live' ? "bg-green" : "bg-amber"} />
+              </div>
+              <div className="hidden lg:block text-[11px] text-dim font-bold uppercase tracking-widest">
+                Real-time strategy management & market oversight
               </div>
             </div>
           </div>
@@ -398,7 +463,7 @@ export function DashboardView() {
         </motion.div>
 
         <RateLimitStrip rateLimit={rateLimit} />
-        <SystemHealth monitoring={monitoring} />
+        {healthEnabled && <SystemHealth monitoring={monitoring} />}
         <GateBanner gateState={gateState} scannerPaused={scannerPaused} />
 
         {/* Global Metrics */}
@@ -415,7 +480,7 @@ export function DashboardView() {
         </motion.div>
 
         {/* Main Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-10">
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-10">
 
           {/* Left Workspace */}
           <div className="space-y-10">
@@ -431,7 +496,7 @@ export function DashboardView() {
                 ) : (
                   <button
                     onClick={() => setShowConfig(true)}
-                    className="bg-background border-2 border-dashed border-border rounded-2xl p-10 flex flex-col items-center justify-center gap-4 text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all group"
+                    className="bg-background border-2 border-dashed border-border rounded-2xl p-10 flex flex-col items-center justify-center gap-4 text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all group h-[256px]"
                   >
                     <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
                       <Plus size={24} />
@@ -444,7 +509,7 @@ export function DashboardView() {
                   .filter(s => s.id !== strategyId)
                   .slice(0, 1)
                   .map(s => (
-                  <div key={s.id} className="bg-surface/40 border border-border/60 rounded-2xl p-6 flex flex-col gap-6 opacity-80">
+                  <div key={s.id} className="bg-surface/40 border border-border/60 rounded-2xl p-6 flex flex-col gap-6 opacity-80 h-[256px]">
                      <div className="flex justify-between items-start">
                       <div>
                         <div className="text-[10px] text-dim font-bold tracking-widest uppercase mb-2">Previous Session</div>
@@ -521,9 +586,13 @@ export function DashboardView() {
         <Drawer.Root open={showConfig} onOpenChange={setShowConfig}>
           <Drawer.Portal>
             <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
-            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-[90vh] fixed bottom-0 left-0 right-0 z-50 focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)]">
+            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-[90vh] fixed bottom-0 left-0 right-0 z-50 focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[800px] lg:mx-auto">
               <div className="p-4 bg-background border-b border-border rounded-t-[32px] flex flex-col items-center shrink-0">
                 <div className="w-12 h-1.5 bg-border rounded-full mb-4" />
+                <VisuallyHidden>
+                  <Drawer.Title>Configuration</Drawer.Title>
+                  <Drawer.Description>Form to configure trading strategy parameters</Drawer.Description>
+                </VisuallyHidden>
               </div>
               <div className="flex-1 overflow-y-auto">
                 <ConfigModal initialConfig={config} onSave={handleCreateStrategy} onClose={() => setShowConfig(false)} />
@@ -535,9 +604,13 @@ export function DashboardView() {
         <Drawer.Root open={showScanner} onOpenChange={setShowScanner}>
           <Drawer.Portal>
             <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
-            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-[90vh] fixed bottom-0 left-0 right-0 z-50 focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)]">
+            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-[90vh] fixed bottom-0 left-0 right-0 z-50 focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto">
               <div className="p-4 bg-background border-b border-border rounded-t-[32px] flex flex-col items-center shrink-0">
                 <div className="w-12 h-1.5 bg-border rounded-full mb-4" />
+                <VisuallyHidden>
+                  <Drawer.Title>Scanner</Drawer.Title>
+                  <Drawer.Description>View live market scanner opportunities</Drawer.Description>
+                </VisuallyHidden>
               </div>
               <div className="flex-1 overflow-y-auto">
                 <ScannerOverlay onClose={() => setShowScanner(false)} />
@@ -556,22 +629,7 @@ export function DashboardView() {
           <Zap size={28} />
         </motion.button>
 
-        {/* Bottom Navigation (Mobile) */}
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-surface/90 backdrop-blur-md border-t border-border px-8 py-5 flex justify-around items-center z-40">
-          <button className="text-accent flex flex-col items-center gap-2">
-            <LayoutDashboard size={24} />
-            <span className="text-[10px] font-bold uppercase tracking-widest">Cockpit</span>
-          </button>
-          <button className="text-dim flex flex-col items-center gap-2" onClick={() => window.location.hash = '#/history'}>
-            <History size={24} />
-            <span className="text-[10px] font-bold uppercase tracking-widest">History</span>
-          </button>
-          <button className="text-dim flex flex-col items-center gap-2" onClick={() => window.location.hash = '#/settings'}>
-            <SettingsIcon size={24} />
-            <span className="text-[10px] font-bold uppercase tracking-widest">Settings</span>
-          </button>
-        </div>
-        <div className="lg:hidden h-28" />
+        <BottomNav selected={selected} />
       </div>
     </div>
   )

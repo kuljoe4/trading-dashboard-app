@@ -17,7 +17,11 @@ export class KlineStoreService {
 
   async upsertCandle(symbol: string, interval: string, kline: any) {
     const key = `${symbol}_${interval}`;
-    const existing = this.klines.get(key) || [];
+    let existing = this.klines.get(key);
+    if (!existing) {
+      existing = [];
+      this.klines.set(key, existing);
+    }
 
     // Parse kline data from Binance format
     const candle: Candle = {
@@ -29,19 +33,40 @@ export class KlineStoreService {
       volume: parseFloat(kline.v || kline[7] || 0),
     };
 
-    // BOLT OPTIMIZATION: O(1) in-place update if timestamp matches last candle
-    if (existing.length > 0 && existing[existing.length - 1].time === candle.time) {
-      existing[existing.length - 1] = candle;
-    } else {
-      // Otherwise use the O(N) path for out-of-order or new candles
-      const filtered = existing.filter((c) => c.time !== candle.time);
-      filtered.push(candle);
+    const lastIdx = existing.length - 1;
 
-      // Keep only the last N candles
-      if (filtered.length > this.MAX_CANDLES) {
-        this.klines.set(key, filtered.slice(-this.MAX_CANDLES));
-      } else {
-        this.klines.set(key, filtered);
+    // BOLT OPTIMIZATION: O(1) paths for real-time streams
+    if (existing.length > 0) {
+      const lastCandle = existing[lastIdx];
+      
+      if (lastCandle.time === candle.time) {
+        // Update current candle
+        existing[lastIdx] = candle;
+        return;
+      } 
+      
+      if (candle.time > lastCandle.time) {
+        // New candle arriving
+        existing.push(candle);
+        if (existing.length > this.MAX_CANDLES) {
+          existing.shift(); // O(1) removal from start (for small N like 500)
+        }
+        return;
+      }
+    } else {
+      existing.push(candle);
+      return;
+    }
+
+    // Fallback for out-of-order candles (rare in real-time)
+    const idx = existing.findIndex(c => c.time === candle.time);
+    if (idx !== -1) {
+      existing[idx] = candle;
+    } else {
+      existing.push(candle);
+      existing.sort((a, b) => a.time - b.time);
+      if (existing.length > this.MAX_CANDLES) {
+        existing.shift();
       }
     }
   }

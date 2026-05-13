@@ -18,7 +18,7 @@ const Pill = ({ children, className }) => (
   </span>
 )
 
-const RRLadder = ({ trade }) => {
+const RRLadder = React.memo(({ trade }) => {
   const triggers = trade.live_rr_sequence || []
   const exits = trade.exit_rr_sequence || []
   const maxRR = trade.max_rr || 0
@@ -108,12 +108,12 @@ const RRLadder = ({ trade }) => {
       </div>
     </div>
   )
-}
+})
 
-export const ActiveTradeBar = ({ trade, compact = false }) => {
+export const ActiveTradeBar = React.memo(({ trade, compact = false }) => {
   if (!trade) return (
-    <div className="p-12 rounded-2xl border border-border border-dashed text-center bg-surface/20">
-      <div className="text-[11px] font-bold text-dim uppercase tracking-widest flex flex-col items-center gap-4">
+    <div className="h-[460px] flex items-center justify-center rounded-2xl border border-border border-dashed bg-surface/20">
+      <div className="text-[11px] font-bold text-dim uppercase tracking-widest flex flex-col items-center gap-4 animate-pulse">
         <Activity size={32} className="opacity-10" />
         No active position
       </div>
@@ -215,4 +215,4 @@ export const ActiveTradeBar = ({ trade, compact = false }) => {
       {isExpRR && <RRLadder trade={trade} />}
     </div>
   )
-}
+})

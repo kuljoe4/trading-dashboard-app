@@ -135,6 +135,17 @@ export class TradingSessionService {
    */
   private async mainLoop() {
     if (!this.running || !this.config) return;
+    
+    // Check if scanner should be paused based on gate state
+    if (this.gateState === 'max_trades' || this.gateState === 'sl_guard') {
+      this.broadcast('scanner', {
+        count: 0,
+        opportunities: [],
+        activeWindows: this.getActiveWindows(),
+      });
+      return;
+    }
+
     const start = performance.now();
     try {
       const opportunities = await this.momentumScanner.scan(this.config);
@@ -319,9 +330,14 @@ export class TradingSessionService {
       const current = await this.tickerCache.getPrice(trade.symbol);
       return this.serializeTrade(trade, current || trade.entry_price);
     }));
-    const totalPnl = trades.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
-    const totalRiskUsdt = this.positionTracker.totalRisk();
+    const activePnl = trades.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
     const balance = this.getBalance();
+    const startingBalance = this.config?.paper_mode 
+      ? this.config.paper_starting_balance 
+      : this.config.live_starting_balance;
+    const realizedPnl = balance - (startingBalance || balance);
+    const totalPnl = realizedPnl + activePnl;
+    const totalRiskUsdt = this.positionTracker.totalRisk();
 
     this.broadcast('tick', {
       balance,

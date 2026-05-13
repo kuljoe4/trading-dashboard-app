@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { settingsAPI } from '../api/client'
 import { SectionLabel, Btn, StatCard, cn } from '../components/ui/primitives'
-import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Eye, EyeOff } from 'lucide-react'
 import { motion } from 'framer-motion'
 
 export function SettingsView() {
   const [apiKey, setApiKey] = useState('')
   const [apiSecret, setApiSecret] = useState('')
+  const [showSecret, setShowSecret] = useState(false)
   const [maskedKey, setMaskedKey] = useState('')
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState(null)
@@ -90,12 +91,20 @@ export function SettingsView() {
                   <div className="relative">
                     <input
                       id="apiSecret"
-                      type="password"
+                      type={showSecret ? 'text' : 'password'}
                       value={apiSecret}
                       onChange={e => setApiSecret(e.target.value)}
-                      className="w-full bg-background border border-border focus:border-accent focus:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
+                      className="w-full bg-background border border-border focus:border-accent focus:outline-none rounded-xl pl-4 pr-12 py-3 text-sm font-mono text-text transition-all"
                       placeholder="••••••••••••••••"
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowSecret(!showSecret)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-dim hover:text-accent transition-colors"
+                      aria-label={showSecret ? "Hide API Secret" : "Show API Secret"}
+                    >
+                      {showSecret ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
                   </div>
                 </div>
               </div>

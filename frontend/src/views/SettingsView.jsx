@@ -10,6 +10,7 @@ export function SettingsView() {
   const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled } = useTradingStore()
   const [apiKey, setApiKey] = useState('')
   const [apiSecret, setApiSecret] = useState('')
+  const [showSecret, setShowSecret] = useState(false)
   const [maskedKey, setMaskedKey] = useState('')
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState(null)

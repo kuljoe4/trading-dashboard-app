@@ -8,3 +8,6 @@
 ## 2025-05-11 - [Unified Button Primitive UX]
 **Learning:** Consolidating raw HTML buttons into a single `Btn` primitive ensures that accessibility fixes (like `aria-label`) and interaction improvements (like disabled state cursors and transitions) propagate consistently throughout the dashboard cockpit.
 **Action:** Prefer refactoring unique buttons to use the shared `Btn` primitive whenever possible to maintain UX standards.
+## 2026-05-13 - [API Secret Visibility Toggle]
+**Learning:** Sensitive fields like API Secrets benefit greatly from a visibility toggle, allowing users to verify long, complex strings before submission. Proper implementation requires adjusting input padding (e.g., `pr-12`) to prevent text from overlapping the toggle icon and using descriptive ARIA labels.
+**Action:** Always provide a visibility toggle for sensitive credentials and ensure no visual collision between input text and the toggle button.

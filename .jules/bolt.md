@@ -4,3 +4,7 @@
 ## 2025-05-15 - [Initial Performance Audit]
 **Learning:** The application uses a high-frequency WebSocket feed (ticks every 2s, scanner updates every 200ms) which triggers frequent re-renders of the entire DashboardView. Most UI components are functional and do not use React.memo, leading to unnecessary DOM reconciliations. DecisionLog also uses array indices as keys while prepending items, causing a full list re-render on every new log.
 **Action:** Implement React.memo for core UI primitives and fix list rendering keys to minimize the impact of high-frequency state updates.
+
+## 2025-05-24 - [Optimization] TTL Caching for Sorted Results
+**Learning:** In a trading engine with hundreds of symbols, sorting the full ticker list by volume on every 2s scanner tick is a waste of CPU. However, when implementing cache keys, beware of in-place operations like 'Array.sort()' which mutate the original arguments and can cause side effects for the caller.
+**Action:** Use defensive copying (e.g. '[...arr].sort()') when generating cache keys from input arrays and prioritize TTL-based caching for computationally expensive operations in hot loops.

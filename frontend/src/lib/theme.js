@@ -21,6 +21,13 @@ export const C = {
 };
 
 export const pnlColor = (pnl) => (pnl >= 0 ? C.green : C.red);
-export const fmtUSD = (val) => val >= 0 ? `+$${val.toLocaleString('en', { minimumFractionDigits: 2 })}` : `-$${Math.abs(val).toLocaleString('en', { minimumFractionDigits: 2 })}`;
-export const fmt = (n, d = 2) => (n >= 0 ? "+" : "") + n.toFixed(d);
+export const fmtUSD = (val) => {
+  const n = Number(val || 0);
+  const formatted = Math.abs(n).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return n >= 0 ? `+$${formatted}` : `-$${formatted}`;
+};
+export const fmt = (n, d = 2) => {
+  const val = Number(n || 0);
+  return (val >= 0 ? "+" : "") + val.toFixed(d);
+};
 export const fmtVol = (v) => v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(2)}M` : `$${(v / 1_000).toFixed(1)}K`;

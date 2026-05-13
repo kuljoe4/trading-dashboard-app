@@ -14,7 +14,7 @@ const price = (value) => {
 }
 
 export const HistoryView = () => {
-  const { tradeHistory, updateStats, sessionSummary } = useTradingStore()
+  const { tradeHistory, updateStats, sessionSummary, sidebarCollapsed } = useTradingStore()
   const totalPnl = tradeHistory.reduce((sum, trade) => sum + (trade.pnl || 0), 0)
   const wins = tradeHistory.filter((trade) => (trade.pnl || 0) > 0).length
   const winRate = tradeHistory.length ? Math.round((wins / tradeHistory.length) * 100) : 0
@@ -27,7 +27,10 @@ export const HistoryView = () => {
   }, [updateStats])
 
   return (
-    <div className="min-h-screen transition-all duration-1000 lg:pl-[260px]">
+    <div className={cn(
+      "min-h-screen transition-all duration-300",
+      sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
+    )}>
       <Sidebar />
       <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32 lg:pb-8">
         <div className="flex items-center gap-4 mb-10 bg-surface border border-border rounded-2xl p-6 shadow-sm">
@@ -119,10 +122,10 @@ export const HistoryView = () => {
                         <span className="text-xs font-bold uppercase tracking-tight text-dim/80">{trade.exit_reason || 'Manual'}</span>
                       </div>
 
-                      <div className="flex flex-col items-end">
+                      <div className="flex flex-col items-end min-w-[100px]">
                         <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-1">Result</span>
                         <span className={cn("text-base font-bold font-mono tracking-tighter", isWin ? "text-green" : "text-red")}>
-                          {isWin ? '+' : ''}{fmtUSD(trade.pnl || 0)}
+                          {fmtUSD(trade.pnl || 0)}
                         </span>
                       </div>
                     </motion.div>

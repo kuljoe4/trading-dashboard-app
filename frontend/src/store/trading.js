@@ -23,8 +23,17 @@ const normalizeOpportunity = (opp = {}) => {
   }
 }
 
-const normalizeTrade = (trade = {}) => {
+const normalizeTrade = (trade = {}, prevTrade = null) => {
   if (!trade || typeof trade !== 'object') return null;
+
+  // Prevent PnL flickering by preserving last known value if current is missing or invalid
+  let pnl = 0;
+  if (trade.pnl !== undefined && trade.pnl !== null) {
+    pnl = toNumber(trade.pnl);
+  } else if (prevTrade && prevTrade.pnl !== undefined) {
+    pnl = prevTrade.pnl;
+  }
+
   return {
     ...trade,
     symbol: trade.symbol ?? '---',
@@ -34,8 +43,7 @@ const normalizeTrade = (trade = {}) => {
     sl_price: toNumber(trade.sl_price ?? trade.current_sl ?? trade.sl ?? trade.initial_sl),
     initial_sl: toNumber(trade.initial_sl ?? trade.sl_price ?? trade.sl),
     tp_price: trade.tp_price == null && trade.tp == null ? null : toNumber(trade.tp_price ?? trade.tp),
-    // Fix: Only update PnL if it's explicitly provided and valid
-    pnl: (trade.pnl !== undefined && trade.pnl !== null) ? toNumber(trade.pnl) : 0,
+    pnl,
     rr: toNumber(trade.rr ?? trade.live_rr),
     max_rr: toNumber(trade.max_rr ?? trade.max_rr_achieved),
     live_rr_sequence: trade.live_rr_sequence || [],
@@ -128,6 +136,13 @@ export const useTradingStore = create((set, get) => ({
   // UX Settings
   healthEnabled: localStorage.getItem('health_enabled') !== 'false',
   streamingEnabled: localStorage.getItem('streaming_enabled') !== 'false',
+  sidebarCollapsed: localStorage.getItem('sidebar_collapsed') === 'true',
+
+  toggleSidebar: () => {
+    const next = !get().sidebarCollapsed
+    localStorage.setItem('sidebar_collapsed', next)
+    set({ sidebarCollapsed: next })
+  },
   
   setHealthEnabled: (enabled) => {
     localStorage.setItem('health_enabled', enabled)
@@ -194,14 +209,20 @@ export const useTradingStore = create((set, get) => ({
           sessionActive: data.running,
           strategyId: data.strategyId || state.strategyId,
           balance: data.balance ?? state.balance,
-          totalPnl: data.totalPnl ?? state.totalPnl,
+          totalPnl: (data.totalPnl !== undefined && data.totalPnl !== null) ? toNumber(data.totalPnl) : state.totalPnl,
           totalRiskPct: data.totalRiskPct ?? state.totalRiskPct,
           totalSlUsed: data.totalSlUsed ?? state.totalSlUsed,
-          activeTrades: data.activeTrades?.map(normalizeTrade).filter(Boolean) || state.activeTrades,
+          activeTrades: data.activeTrades?.map(t => {
+            const prev = state.activeTrades.find(p => p.symbol === t.symbol);
+            return normalizeTrade(t, prev);
+          }).filter(Boolean) || state.activeTrades,
           logs: data.logLines?.map(normalizeLog) || state.logs,
           scannerResults: data.scannerResults?.map(normalizeOpportunity) || state.scannerResults,
           activeWindows: data.activeWindows?.map(normalizeWindow) || state.activeWindows,
-          tradeHistory: data.history?.map(normalizeTrade).filter(Boolean) || state.tradeHistory,
+          tradeHistory: data.history?.map(t => {
+             const prev = state.tradeHistory.find(p => p.symbol === t.symbol);
+             return normalizeTrade(t, prev);
+          }).filter(Boolean) || state.tradeHistory,
           gateState: data.gateState ?? state.gateState,
           scannerPaused: data.scannerPaused ?? state.scannerPaused,
           config: data.config ? { ...state.config, ...data.config } : state.config,
@@ -213,10 +234,16 @@ export const useTradingStore = create((set, get) => ({
             sessionActive: data.running ?? data.status === 'started',
             balance: data.balance ?? state.balance,
             config: data.config ? { ...state.config, ...data.config } : state.config,
-            activeTrades: data.activeTrades?.map(normalizeTrade).filter(Boolean) || state.activeTrades,
+            activeTrades: data.activeTrades?.map(t => {
+              const prev = state.activeTrades.find(p => p.symbol === t.symbol);
+              return normalizeTrade(t, prev);
+            }).filter(Boolean) || state.activeTrades,
             scannerResults: data.scannerResults?.map(normalizeOpportunity) || state.scannerResults,
             activeWindows: data.activeWindows?.map(normalizeWindow) || state.activeWindows,
-            tradeHistory: data.history?.map(normalizeTrade).filter(Boolean) || state.tradeHistory,
+            tradeHistory: data.history?.map(t => {
+              const prev = state.tradeHistory.find(p => p.symbol === t.symbol);
+              return normalizeTrade(t, prev);
+            }).filter(Boolean) || state.tradeHistory,
             gateState: data.gateState ?? state.gateState,
             scannerPaused: data.scannerPaused ?? state.scannerPaused,
             sessionSummary: stopped
@@ -230,18 +257,21 @@ export const useTradingStore = create((set, get) => ({
           }
         })
       } else if (data.type === 'tick') {
-        set({
-          balance: data.balance,
-          totalPnl: data.total_pnl,
-          totalRiskPct: data.total_risk_pct,
-          totalSlUsed: data.total_sl_used,
-          activeTrades: (data.trades || []).map(normalizeTrade).filter(Boolean),
+        set((state) => ({
+          balance: data.balance ?? state.balance,
+          totalPnl: (data.total_pnl !== undefined && data.total_pnl !== null) ? toNumber(data.total_pnl) : state.totalPnl,
+          totalRiskPct: data.total_risk_pct ?? state.totalRiskPct,
+          totalSlUsed: data.total_sl_used ?? state.totalSlUsed,
+          activeTrades: (data.trades || []).map(t => {
+            const prev = state.activeTrades.find(p => p.symbol === t.symbol);
+            return normalizeTrade(t, prev);
+          }).filter(Boolean),
           activeWindows: (data.activeWindows || []).map(normalizeWindow),
           gateState: data.gateState ?? null,
           scannerPaused: data.scannerPaused ?? false,
           rateLimit: data.rateLimit || get().rateLimit,
           monitoring: data.monitoring || get().monitoring,
-        })
+        }))
       } else if (data.type === 'log') {
         set((state) => ({ logs: [normalizeLog(data), ...state.logs].slice(0, 100) }))
       } else if (data.type === 'scanner') {

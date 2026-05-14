@@ -30,6 +30,11 @@ export class SessionController {
     return this.sessionService.updateSession(id, body.config);
   }
 
+  @Post('pause')
+  async pauseSession(@Body() body: { paused: boolean }) {
+    return this.sessionService.pauseSession(body.paused);
+  }
+
   @Delete(':id')
   async deleteSession(@Param('id') id: string) {
     return this.sessionService.deleteSession(id);

@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react'
-import { X, Plus, Trash2 } from 'lucide-react'
+import React, { useEffect, useMemo, useState } from 'react'
+import { X, Plus, Trash2, Save, FolderOpen } from 'lucide-react'
 import { cn, Btn } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 
@@ -43,11 +43,38 @@ const Chip = ({ active, onClick, children, activeClass = "border-accent text-acc
   </button>
 )
 
-export const ConfigModal = ({ initialConfig, onSave, onClose }) => {
+export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) => {
   const [cfg, setCfg] = useState({ ...initialConfig })
   const [section, setSection] = useState('scan')
+  const [presets, setPresets] = useState([])
+  const [presetName, setPresetName] = useState('')
+
+  useEffect(() => {
+    const saved = localStorage.getItem('strategy_presets')
+    if (saved) setPresets(JSON.parse(saved))
+  }, [])
 
   const setField = (key, value) => setCfg((prev) => ({ ...prev, [key]: value }))
+
+  const savePreset = () => {
+    if (!presetName) return
+    const next = [...presets.filter(p => p.name !== presetName), { name: presetName, config: cfg }]
+    setPresets(next)
+    localStorage.setItem('strategy_presets', JSON.stringify(next))
+    setPresetName('')
+  }
+
+  const loadPreset = (p) => {
+    setCfg({ ...p.config })
+    setSection('scan')
+  }
+
+  const deletePreset = (e, name) => {
+    e.stopPropagation()
+    const next = presets.filter(p => p.name !== name)
+    setPresets(next)
+    localStorage.setItem('strategy_presets', JSON.stringify(next))
+  }
 
   const riskAmount = ((cfg.paper_starting_balance || 10000) * ((cfg.risk_pct_per_trade || 0) / 100))
   const slDistance = 100 * ((cfg.sl_distance_pct || 1) / 100)
@@ -135,6 +162,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose }) => {
           ['exit', 'Exit'],
           ['risk', 'Risk'],
           ['mode', 'Mode'],
+          ['presets', 'Presets'],
         ].map(([id, label]) => (
           <Chip key={id} active={section === id} onClick={() => setSection(id)}>{label}</Chip>
         ))}
@@ -284,6 +312,65 @@ export const ConfigModal = ({ initialConfig, onSave, onClose }) => {
           </div>
         )}
 
+        {section === 'presets' && (
+          <div className="space-y-6">
+            <div className="flex flex-col gap-3">
+              <label className="text-[10px] text-dim font-bold tracking-widest uppercase">Save Current as Preset</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="e.g. Scalping 1m"
+                  value={presetName}
+                  onChange={(e) => setPresetName(e.target.value)}
+                  className="flex-1 bg-surface border border-border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent"
+                />
+                <button
+                  onClick={savePreset}
+                  disabled={!presetName}
+                  className="bg-accent/10 border border-accent/20 text-accent px-4 py-2 rounded-md hover:bg-accent/20 disabled:opacity-50 transition-colors"
+                >
+                  <Save size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-[10px] text-dim font-bold tracking-widest uppercase">Saved Library</label>
+              {presets.length === 0 ? (
+                <div className="p-10 border border-dashed border-border rounded-xl text-center text-dim text-xs font-medium">
+                  No presets saved yet
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3">
+                  {presets.map((p) => (
+                    <div
+                      key={p.name}
+                      onClick={() => loadPreset(p)}
+                      className="group flex items-center justify-between p-4 bg-background border border-border rounded-xl cursor-pointer hover:border-accent/40 transition-all"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-surface flex items-center justify-center border border-border group-hover:border-accent/20">
+                          <FolderOpen size={14} className="text-dim group-hover:text-accent" />
+                        </div>
+                        <div>
+                          <div className="text-sm font-bold group-hover:text-accent transition-colors">{p.name}</div>
+                          <div className="text-[10px] text-dim font-mono">{p.config.scan_interval} · {p.config.scan_pct_threshold}% · {p.config.risk_pct_per_trade}% Risk</div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => deletePreset(e, p.name)}
+                        className="p-2 text-dim hover:text-red transition-colors opacity-0 group-hover:opacity-100"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {section === 'mode' && (
           <div className="space-y-6">
             <div className={cn("p-5 rounded-xl border-2 transition-all", cfg.paper_mode ? "border-amber/30 bg-amber/5" : "border-green/30 bg-green/5")}>
@@ -309,7 +396,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose }) => {
 
       <div className="p-5 border-t border-border bg-surface flex gap-3 shrink-0">
         <Btn variant="ghost" onClick={onClose} className="flex-1">Cancel</Btn>
-        <Btn variant="primary" onClick={() => onSave(cfg)} className="flex-[2]">Start Session</Btn>
+        <Btn variant="primary" onClick={() => onSave(cfg)} className="flex-[2]">
+          {isEdit ? 'Apply Changes' : 'Start Session'}
+        </Btn>
       </div>
     </div>
   )

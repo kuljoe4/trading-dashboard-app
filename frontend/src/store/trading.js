@@ -110,6 +110,7 @@ const defaultConfig = {
 
 export const useTradingStore = create((set, get) => ({
   sessionActive: false,
+  sessionPaused: false,
   strategyId: null,
   balance: 10000,
   totalPnl: 0,
@@ -207,6 +208,7 @@ export const useTradingStore = create((set, get) => ({
       if (data.type === 'status') {
         set((state) => ({
           sessionActive: data.running,
+          sessionPaused: data.paused ?? state.sessionPaused,
           strategyId: data.strategyId || state.strategyId,
           balance: data.balance ?? state.balance,
           totalPnl: (data.totalPnl !== undefined && data.totalPnl !== null) ? toNumber(data.totalPnl) : state.totalPnl,
@@ -232,6 +234,7 @@ export const useTradingStore = create((set, get) => ({
           const stopped = data.status === 'stopped'
           return {
             sessionActive: data.running ?? data.status === 'started',
+            sessionPaused: data.paused ?? false,
             balance: data.balance ?? state.balance,
             config: data.config ? { ...state.config, ...data.config } : state.config,
             activeTrades: data.activeTrades?.map(t => {
@@ -262,15 +265,17 @@ export const useTradingStore = create((set, get) => ({
           totalPnl: (data.total_pnl !== undefined && data.total_pnl !== null) ? toNumber(data.total_pnl) : state.totalPnl,
           totalRiskPct: data.total_risk_pct ?? state.totalRiskPct,
           totalSlUsed: data.total_sl_used ?? state.totalSlUsed,
-          activeTrades: (data.trades || []).map(t => {
+          activeTrades: data.trades ? (data.trades || []).map(t => {
             const prev = state.activeTrades.find(p => p.symbol === t.symbol);
             return normalizeTrade(t, prev);
-          }).filter(Boolean),
-          activeWindows: (data.activeWindows || []).map(normalizeWindow),
-          gateState: data.gateState ?? null,
-          scannerPaused: data.scannerPaused ?? false,
-          rateLimit: data.rateLimit || get().rateLimit,
-          monitoring: data.monitoring || get().monitoring,
+          }).filter(Boolean) : state.activeTrades,
+          activeWindows: data.activeWindows ? (data.activeWindows || []).map(normalizeWindow) : state.activeWindows,
+          gateState: data.gateState !== undefined ? data.gateState : state.gateState,
+          sessionPaused: data.paused !== undefined ? data.paused : state.sessionPaused,
+          scannerPaused: data.scannerPaused !== undefined ? data.scannerPaused : state.scannerPaused,
+          rateLimit: data.rateLimit || state.rateLimit,
+          monitoring: data.monitoring || state.monitoring,
+          config: data.config ? { ...state.config, ...data.config } : state.config,
         }))
       } else if (data.type === 'log') {
         set((state) => ({ logs: [normalizeLog(data), ...state.logs].slice(0, 100) }))

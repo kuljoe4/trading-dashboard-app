@@ -93,7 +93,19 @@ export class SessionService implements OnModuleInit {
   async updateSession(id: string, config: SessionConfig) {
     // Ensure we pass a plain object for the config column to avoid TypeORM issues with class instances
     await this.sessionRepository.update(id, { config: Object.assign({}, config) as any });
+
+    // If this is the active session, hot-reload the config in the engine
+    if (this.sessionRunning && this.currentSessionId === id) {
+      this.tradingSessionService.updateConfig(config);
+    }
+
     return { status: 'updated' };
+  }
+
+  async pauseSession(paused: boolean) {
+    if (!this.sessionRunning) throw new Error('No session running');
+    this.tradingSessionService.setPaused(paused);
+    return { status: paused ? 'paused' : 'resumed' };
   }
 
   async deleteSession(id: string) {
@@ -154,6 +166,7 @@ export class SessionService implements OnModuleInit {
 
     return {
       running: session.running,
+      paused: engineStatus.paused,
       strategyId: session.id,
       paperMode: session.paperMode,
       balance: engineStatus.running ? (session.paperMode ? engineStatus.balance_paper : engineStatus.balance_live) : session.balance,

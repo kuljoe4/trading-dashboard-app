@@ -34,6 +34,8 @@ export const Sidebar = ({ selected }) => {
           <button 
             key={item.path}
             onClick={() => window.location.hash = `#${item.path}`}
+            aria-label={item.label}
+            title={collapsed ? item.label : undefined}
             className={cn(
               "w-full flex items-center gap-3 py-3 rounded-xl font-bold text-[13px] transition-all",
               collapsed ? "justify-center px-0" : "px-4",
@@ -47,6 +49,8 @@ export const Sidebar = ({ selected }) => {
         
         <button 
           onClick={triggerScanner}
+          aria-label="Market Scanner"
+          title={collapsed ? "Market Scanner" : undefined}
           className={cn(
             "w-full flex items-center gap-3 py-3 rounded-xl font-bold text-[13px] transition-all text-accent hover:bg-accent/10",
             collapsed ? "justify-center px-0" : "px-4"
@@ -59,6 +63,8 @@ export const Sidebar = ({ selected }) => {
 
       <button 
         onClick={toggleSidebar}
+        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         className="absolute -right-3 top-8 w-6 h-6 bg-surface border border-border rounded-full flex items-center justify-center text-dim hover:text-text z-50"
       >
         {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
@@ -93,18 +99,21 @@ export const BottomNav = ({ selected }) => {
     <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-surface/90 backdrop-blur-md border-t border-border px-8 py-5 flex justify-around items-center z-40">
       <button 
         onClick={() => window.location.hash = '#/'}
+        aria-label="Cockpit"
         className={cn("flex flex-col items-center gap-2", isActive('/') ? "text-accent" : "text-dim hover:text-text")}
       >
         <LayoutDashboard size={24} />
       </button>
       <button 
         onClick={() => window.location.hash = '#/history'}
+        aria-label="History"
         className={cn("flex flex-col items-center gap-2", isActive('/history') ? "text-accent" : "text-dim hover:text-text")}
       >
         <History size={24} />
       </button>
       <button 
         onClick={() => window.location.hash = '#/settings'}
+        aria-label="Settings"
         className={cn("flex flex-col items-center gap-2", isActive('/settings') ? "text-accent" : "text-dim hover:text-text")}
       >
         <SettingsIcon size={24} />

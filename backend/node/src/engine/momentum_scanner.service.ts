@@ -61,12 +61,18 @@ export class MomentumScannerService {
       });
 
       const results = await Promise.all(scanPromises);
-      const opportunities: Opportunity[] = results.filter((o): o is Opportunity => o !== null);
+      const tempResults = results.filter((r): r is { opp: Opportunity, candles: Candle[] } => r !== null);
 
       // Sort by score descending and take top 15
-      opportunities.sort((a, b) => b.score - a.score);
+      tempResults.sort((a, b) => b.opp.score - a.opp.score);
 
-      return opportunities.slice(0, 15);
+      const topResults = tempResults.slice(0, 15);
+
+      // BOLT OPTIMIZATION: Only map history for the final top 15 results
+      return topResults.map(({ opp, candles }) => ({
+        ...opp,
+        history: candles.slice(-20).map(c => c.close),
+      }));
     } catch (error) {
       this.logger.warn(`Scan error: ${error instanceof Error ? error.message : String(error)}`);
       return [];
@@ -77,7 +83,7 @@ export class MomentumScannerService {
     symbol: string,
     interval: string,
     config: SessionConfig,
-  ): Promise<Opportunity | null> {
+  ): Promise<{ opp: Opportunity, candles: Candle[] } | null> {
     // Get recent candles for momentum calculation
     const lookback = Math.max(config.scan_lookback || 1, 1);
     const candles = await this.klineStore.getRecentCandles(symbol, interval, Math.max(20, lookback + 1));
@@ -108,13 +114,15 @@ export class MomentumScannerService {
     const tickerData = await this.tickerCache.getTicker(symbol);
 
     return {
-      symbol,
-      price: tickerData?.price || currentPrice,
-      momentum: momentumPct,
-      volume_24h: Number(tickerData?.volume_24h || 0),
-      score,
-      direction,
-      history: candles.slice(-20).map(c => c.close),
+      opp: {
+        symbol,
+        price: tickerData?.price || currentPrice,
+        momentum: momentumPct,
+        volume_24h: Number(tickerData?.volume_24h || 0),
+        score,
+        direction,
+      },
+      candles,
     };
   }
 
@@ -162,9 +170,13 @@ export class MomentumScannerService {
   private calculateVolatility(candles: Candle[]): number {
     if (candles.length < 2) return 0;
 
-    const ranges = candles.slice(-10).map((c) => c.high - c.low);
-    const avgRange =
-      ranges.reduce((a, b) => a + b, 0) / ranges.length;
+    // BOLT OPTIMIZATION: Use direct loop instead of slice().map() to avoid intermediate array allocations
+    const windowSize = Math.min(10, candles.length);
+    let totalRange = 0;
+    for (let i = candles.length - windowSize; i < candles.length; i++) {
+      totalRange += candles[i].high - candles[i].low;
+    }
+    const avgRange = totalRange / windowSize;
     const basePrice = candles[candles.length - 1].close;
 
     return (avgRange / basePrice) * 100;
@@ -173,13 +185,13 @@ export class MomentumScannerService {
   private calculateTrendScore(candles: Candle[]): number {
     if (candles.length < 5) return 0;
 
+    // BOLT OPTIMIZATION: Use direct loop instead of slice() to avoid intermediate array allocation
     // Count consecutive candles in same direction (last 5)
-    const recentCandles = candles.slice(-5);
     let upCount = 0;
     let downCount = 0;
 
-    for (let i = 1; i < recentCandles.length; i++) {
-      if (recentCandles[i].close > recentCandles[i - 1].close) {
+    for (let i = candles.length - 4; i < candles.length; i++) {
+      if (candles[i].close > candles[i - 1].close) {
         upCount++;
       } else {
         downCount++;

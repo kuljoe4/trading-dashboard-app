@@ -77,10 +77,14 @@ async function bootstrap() {
     
     socket.on('message', (message: string) => {
       try {
+        // Limit message size to prevent DoS via large JSON payloads
+        if (message.length > 1000) return;
+
         const data = JSON.parse(message);
         if (data.type === 'set_monitoring') {
-          socket.monitoringEnabled = data.enabled;
-          console.log(`Client monitoring preference updated: ${data.enabled}`);
+          // Strict boolean check for security
+          socket.monitoringEnabled = data.enabled === true;
+          console.log(`Client monitoring preference updated: ${socket.monitoringEnabled}`);
           updateMonitoringSuppression();
         }
       } catch (e) {}

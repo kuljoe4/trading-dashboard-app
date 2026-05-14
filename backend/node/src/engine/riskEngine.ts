@@ -81,11 +81,11 @@ export class RiskEngineService {
     // Check Time-of-Day historical performance
     if (config.risk_use_tod_stats && closedTrades.length > 5) {
       const now = new Date();
-      const currentHour = now.getHours();
+      const currentHour = now.getUTCHours();
 
       const hourTrades = closedTrades.filter(t => {
         const exitTs = t.exit_ts ? new Date(t.exit_ts) : null;
-        return exitTs && exitTs.getHours() === currentHour;
+        return exitTs && exitTs.getUTCHours() === currentHour;
       });
 
       if (hourTrades.length >= 3) {

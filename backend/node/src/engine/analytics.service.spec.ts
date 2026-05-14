@@ -40,7 +40,7 @@ describe('AnalyticsService', () => {
     expect(result.maxDrawdownPct).toBeCloseTo(6.36, 1);
   });
 
-  it('calculates time of day performance correctly', () => {
+  it('calculates time of day performance correctly (UTC)', () => {
     const trades = [
       { pnl: 10, status: 'CLOSED', exit_ts: new Date('2023-01-01T10:30:00Z') },
       { pnl: 20, status: 'CLOSED', exit_ts: new Date('2023-01-01T10:45:00Z') },

@@ -113,27 +113,35 @@ const SessionGroup = ({ session, trades }) => {
   )
 }
 
+const PAGE_SIZE = 5
+
 export const HistoryView = () => {
   const { tradeHistory, updateStats, sessionSummary, sidebarCollapsed, sessionList, fetchSessions, analytics } = useTradingStore()
   const [fullAnalytics, setFullAnalytics] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [visibleSessions, setVisibleSessions] = useState(PAGE_SIZE)
 
-  const sessionsWithTrades = useMemo(() => {
+  const allSessionsWithTrades = useMemo(() => {
     return sessionList.map(session => ({
       ...session,
       trades: tradeHistory.filter(t => t.sessionId === session.id)
     })).sort((a, b) => new Date(b.startTime) - new Date(a.startTime))
   }, [sessionList, tradeHistory])
 
+  const sessionsToRender = useMemo(() => {
+    return allSessionsWithTrades.slice(0, visibleSessions)
+  }, [allSessionsWithTrades, visibleSessions])
+
   const orphans = useMemo(() => {
     const sessionIds = new Set(sessionList.map(s => s.id))
     return tradeHistory.filter(t => !t.sessionId || !sessionIds.has(t.sessionId))
   }, [sessionList, tradeHistory])
 
-  const totalPnl = tradeHistory.reduce((sum, trade) => sum + (trade.pnl || 0), 0)
-  const wins = tradeHistory.filter((trade) => (trade.pnl || 0) > 0).length
-  const winRate = tradeHistory.length ? Math.round((wins / tradeHistory.length) * 100) : 0
-  const avgPnl = tradeHistory.length ? totalPnl / tradeHistory.length : 0
+  const totalPnl = fullAnalytics?.cumulativePnL?.length ? fullAnalytics.cumulativePnL[fullAnalytics.cumulativePnL.length - 1].pnl : tradeHistory.reduce((sum, trade) => sum + (trade.pnl || 0), 0)
+  const totalTrades = fullAnalytics?.totalTrades || tradeHistory.length
+  const wins = fullAnalytics ? Math.round((fullAnalytics.overallWinRate / 100) * totalTrades) : tradeHistory.filter((trade) => (trade.pnl || 0) > 0).length
+  const winRate = fullAnalytics ? Math.round(fullAnalytics.overallWinRate) : (tradeHistory.length ? Math.round((wins / tradeHistory.length) * 100) : 0)
+  const avgPnl = totalTrades ? totalPnl / totalTrades : 0
 
   useEffect(() => {
     setLoading(true)
@@ -166,7 +174,7 @@ export const HistoryView = () => {
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <StatCard label="Total Performance" value={fmtUSD(totalPnl)} color={totalPnl >= 0 ? "text-green" : "text-red"} />
-          <StatCard label="Win Rate" value={`${winRate}%`} color="text-accent" subValue={`${wins} Wins / ${tradeHistory.length - wins} Losses`} />
+          <StatCard label="Win Rate" value={`${winRate}%`} color="text-accent" subValue={`${wins} Wins / ${totalTrades - wins} Losses`} />
           <StatCard
             label="Max Drawdown"
             value={fullAnalytics ? fmtUSD(-fullAnalytics.maxDrawdown) : (analytics?.maxDrawdown ? fmtUSD(-analytics.maxDrawdown) : '$0.00')}
@@ -205,7 +213,7 @@ export const HistoryView = () => {
 
         <div>
           <SectionLabel className="mb-6">Session-Centric Records</SectionLabel>
-          {sessionsWithTrades.length === 0 && orphans.length === 0 ? (
+          {allSessionsWithTrades.length === 0 && orphans.length === 0 ? (
             <div className="bg-surface/20 border border-border border-dashed rounded-2xl p-20 text-center">
               <div className="text-sm font-bold text-dim uppercase tracking-widest flex flex-col items-center gap-4">
                 <ArrowLeftRight size={40} className="opacity-10" />
@@ -215,17 +223,32 @@ export const HistoryView = () => {
           ) : (
             <div className="space-y-4">
               <AnimatePresence mode="popLayout">
-                {sessionsWithTrades.map((s, i) => (
+                {sessionsToRender.map((s, i) => (
                   <motion.div
                     layout
                     key={s.id}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.05 }}
+                    transition={{ delay: Math.min(i * 0.05, 0.5) }}
                   >
                     <SessionGroup session={s} trades={s.trades} />
                   </motion.div>
                 ))}
+
+                {visibleSessions < allSessionsWithTrades.length && (
+                   <motion.div
+                     initial={{ opacity: 0 }}
+                     animate={{ opacity: 1 }}
+                     className="py-10 flex justify-center"
+                   >
+                      <button
+                        onClick={() => setVisibleSessions(v => v + PAGE_SIZE)}
+                        className="px-8 py-3 bg-surface border border-border rounded-xl text-[11px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent transition-all active:scale-95 shadow-sm"
+                      >
+                        Load More Sessions
+                      </button>
+                   </motion.div>
+                )}
 
                 {orphans.length > 0 && (
                   <motion.div

@@ -64,7 +64,7 @@ export class TradingSessionService {
     }
   }
 
-  async start(config: SessionConfig, binanceClient?: any, sessionId?: string) {
+  async start(config: SessionConfig, binanceClient?: any, sessionId?: string, initialHistory: Trade[] = []) {
     this.running = true;
     this.paused = false;
     this.sessionId = sessionId || null;
@@ -72,7 +72,7 @@ export class TradingSessionService {
     this.binanceClient = binanceClient;
     this.balancePaper = config.paper_starting_balance || 1000;
     this.balanceLive = config.live_starting_balance || 0;
-    this.closedTrades = [];
+    this.closedTrades = initialHistory;
     this.gateState = null;
     this.activeWindows.clear();
 
@@ -384,7 +384,7 @@ export class TradingSessionService {
     if (!this.config?.trading_windows?.length) return true;
 
     const now = new Date();
-    const currentTime = now.getHours() * 100 + now.getMinutes();
+    const currentTime = now.getUTCHours() * 100 + now.getUTCMinutes();
 
     return this.config.trading_windows.some(window => {
       const start = parseInt(window.start.replace(':', ''), 10);

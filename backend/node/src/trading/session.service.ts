@@ -91,6 +91,18 @@ export class SessionService implements OnModuleInit {
     this.currentSessionId = session.id;
     this.sessionRunning = true;
 
+    // Load initial history for TOD risk context
+    const initialHistory = await this.tradeRepository.find({
+      where: [
+        { status: 'CLOSED' as any },
+        { status: 'CLOSED_SL' },
+        { status: 'CLOSED_TP' },
+        { status: 'CLOSED_SIGNAL' },
+      ],
+      order: { exit_ts: 'DESC' },
+      take: 200,
+    });
+
     // Instantiate Binance client if not in paper mode
     let binanceClient = null;
     const mode = config.trading_mode || (paperMode ? 'paper' : 'live');
@@ -110,7 +122,7 @@ export class SessionService implements OnModuleInit {
     }
 
     // Start the actual trading engine
-    await this.tradingSessionService.start(config, binanceClient, this.currentSessionId);
+    await this.tradingSessionService.start(config, binanceClient, this.currentSessionId, initialHistory as any);
 
     this.logger.log(`Session ${this.currentSessionId} ${sessionId ? 'restarted' : 'started'} in ${mode} mode`);
     return { strategyId: this.currentSessionId, status: 'started' };

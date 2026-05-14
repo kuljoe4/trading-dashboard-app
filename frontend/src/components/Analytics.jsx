@@ -2,11 +2,26 @@ import React, { useMemo } from 'react';
 import { fmtUSD } from '../lib/theme';
 import { cn } from '../components/ui/primitives';
 
+const downsample = (data, threshold = 100) => {
+  if (data.length <= threshold) return data;
+  const factor = Math.floor(data.length / threshold);
+  const result = [];
+  for (let i = 0; i < data.length; i += factor) {
+    result.push(data[i]);
+  }
+  // Ensure the last point is always included to show current PnL accurately
+  if (result[result.length - 1] !== data[data.length - 1]) {
+    result.push(data[data.length - 1]);
+  }
+  return result;
+};
+
 export const EquityCurve = ({ data = [], height = 180 }) => {
   const points = useMemo(() => {
-    if (!data || data.length < 2) return [];
+    const downsampled = downsample(data);
+    if (!downsampled || downsampled.length < 2) return [];
 
-    const values = data.map(d => d.pnl);
+    const values = downsampled.map(d => d.pnl);
     const min = Math.min(0, ...values);
     const max = Math.max(0.1, ...values);
     const range = max - min;
@@ -16,8 +31,8 @@ export const EquityCurve = ({ data = [], height = 180 }) => {
     const viewMax = max + padding;
     const viewRange = viewMax - viewMin;
 
-    return data.map((d, i) => {
-      const x = (i / (data.length - 1)) * 100;
+    return downsampled.map((d, i) => {
+      const x = (i / (downsampled.length - 1)) * 100;
       const y = 100 - ((d.pnl - viewMin) / viewRange) * 100;
       return { x, y, pnl: d.pnl };
     });

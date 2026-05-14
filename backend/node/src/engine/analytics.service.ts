@@ -57,7 +57,7 @@ export class AnalyticsService {
 
     sortedTrades.forEach((t) => {
       const exitDate = new Date(t.exit_ts!);
-      const hour = exitDate.getHours();
+      const hour = exitDate.getUTCHours();
       const stats = todMap.get(hour)!;
       stats.pnl += Number(t.pnl || 0);
       stats.total += 1;

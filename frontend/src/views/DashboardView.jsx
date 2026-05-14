@@ -16,14 +16,14 @@ import {
 import {
   ChevronLeft, Plus, Trash2, LayoutDashboard, History,
   Settings as SettingsIcon, Activity, Zap, ShieldCheck,
-  BarChart3, XCircle
+  BarChart3, XCircle, Pause, Play, Edit3
 } from 'lucide-react'
 import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sidebar, BottomNav } from '../components/Navigation'
 
 // --- Strategy Card ---
-const StrategyCard = ({ s, config, onClick }) => {
+const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused }) => {
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
 
   return (
@@ -32,6 +32,13 @@ const StrategyCard = ({ s, config, onClick }) => {
       onClick={onClick}
       className="bg-surface border border-border rounded-2xl p-6 cursor-pointer transition-all hover:border-accent/40 relative group shadow-sm hover:shadow-accent/5 h-full"
     >
+      {paused && (
+        <div className="absolute inset-0 bg-background/40 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
+          <div className="bg-amber/10 border border-amber/20 text-amber px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-2xl">
+            <Pause size={12} fill="currentColor" /> Session Paused
+          </div>
+        </div>
+      )}
       <div className="flex justify-between items-start mb-6">
         <div>
           <div className="flex items-center gap-2 mb-3">
@@ -45,6 +52,25 @@ const StrategyCard = ({ s, config, onClick }) => {
           </div>
         </div>
         <div className="text-right shrink-0">
+          <div className="flex gap-2 mb-2 relative z-20">
+            <button
+              onClick={(e) => { e.stopPropagation(); onEdit(); }}
+              className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95"
+              title="Edit Config"
+            >
+              <Edit3 size={14} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onPause(); }}
+              className={cn(
+                "p-2 border rounded-lg transition-all active:scale-95",
+                paused ? "bg-green/10 border-green/20 text-green hover:bg-green/20" : "bg-amber/10 border-amber/20 text-amber hover:bg-amber/20"
+              )}
+              title={paused ? "Resume Session" : "Pause Session"}
+            >
+              {paused ? <Play size={14} fill="currentColor" /> : <Pause size={14} fill="currentColor" />}
+            </button>
+          </div>
           <div className="text-2xl font-bold font-mono" style={{ color: pnlColor(s.totalPnl) }}>
             {fmtUSD(s.totalPnl)}
           </div>
@@ -297,15 +323,17 @@ export function DashboardView() {
   const [selected, setSelected] = useState(null)
   const [showConfig, setShowConfig] = useState(false)
   const [showScanner, setShowScanner] = useState(false)
+  const [isEditMode, setIsEditMode] = useState(false)
   
   const {
-    sessionActive, strategyId, balance, totalPnl, totalRiskPct,
+    sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
     totalSlUsed, activeTrades, logs, config, healthEnabled, setSessionActive,
     updateConfig, scannerResults, activeWindows, gateState,
     scannerPaused, rateLimit, monitoring, sessionList, fetchSessions, wsStatus,
     sidebarCollapsed
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
+    sessionPaused: state.sessionPaused,
     strategyId: state.strategyId,
     balance: state.balance,
     totalPnl: state.totalPnl,
@@ -334,8 +362,8 @@ export function DashboardView() {
   const [loading, setLoading] = useState(false)
 
   const currentStrategy = useMemo(() => ({
-    sessionActive, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, logs
-  }), [sessionActive, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, logs])
+    sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, logs
+  }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, logs])
 
   const maxRR = useMemo(() => activeTrades.reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
 
@@ -351,18 +379,32 @@ export function DashboardView() {
     return () => window.removeEventListener('open-scanner', openScanner);
   }, []);
 
-  async function handleCreateStrategy(newConfig) {
+  async function handleConfigSave(newConfig) {
     setLoading(true)
     setShowConfig(false)
     try {
-      updateConfig(newConfig)
-      const res = await sessionAPI.start(newConfig, newConfig.paper_mode)
-      setSessionActive(true, res.data.strategyId || res.data.strategy_id)
+      if (isEditMode && strategyId) {
+        await sessionAPI.update(strategyId, newConfig)
+        updateConfig(newConfig)
+      } else {
+        updateConfig(newConfig)
+        const res = await sessionAPI.start(newConfig, newConfig.paper_mode)
+        setSessionActive(true, res.data.strategyId || res.data.strategy_id)
+      }
       await fetchSessions()
     } catch (e) {
-      alert(e?.response?.data?.detail || 'Failed to start')
+      alert(e?.response?.data?.detail || 'Failed to save config')
     } finally {
       setLoading(false)
+      setIsEditMode(false)
+    }
+  }
+
+  async function togglePause() {
+    try {
+      await sessionAPI.pause(!sessionPaused)
+    } catch (e) {
+      console.error('Pause toggle failed:', e)
     }
   }
 
@@ -428,7 +470,7 @@ export function DashboardView() {
 
           <div className="flex gap-4">
             {!sessionActive ? (
-              <Btn variant="success" onClick={() => setShowConfig(true)} disabled={loading} className="flex-1 sm:flex-none">
+              <Btn variant="success" onClick={() => { setIsEditMode(false); setShowConfig(true); }} disabled={loading} className="flex-1 sm:flex-none">
                 <Plus size={16} className="mr-2" /> New Session
               </Btn>
             ) : (
@@ -469,10 +511,17 @@ export function DashboardView() {
               <SectionLabel>Active Strategy</SectionLabel>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {sessionActive ? (
-                  <StrategyCard s={currentStrategy} config={config} onClick={() => setSelected(true)} />
+                  <StrategyCard
+                    s={currentStrategy}
+                    config={config}
+                    paused={sessionPaused}
+                    onPause={togglePause}
+                    onEdit={() => { setIsEditMode(true); setShowConfig(true); }}
+                    onClick={() => setSelected(true)}
+                  />
                 ) : (
                   <button
-                    onClick={() => setShowConfig(true)}
+                    onClick={() => { setIsEditMode(false); setShowConfig(true); }}
                     className="bg-background border-2 border-dashed border-border rounded-2xl p-10 flex flex-col items-center justify-center gap-4 text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all group h-[256px]"
                   >
                     <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
@@ -578,7 +627,7 @@ export function DashboardView() {
                 </VisuallyHidden>
               </div>
               <div className="flex-1 overflow-y-auto">
-                <ConfigModal initialConfig={config} onSave={handleCreateStrategy} onClose={() => setShowConfig(false)} />
+                <ConfigModal initialConfig={config} onSave={handleConfigSave} onClose={() => setShowConfig(false)} isEdit={isEditMode} />
               </div>
             </Drawer.Content>
           </Drawer.Portal>

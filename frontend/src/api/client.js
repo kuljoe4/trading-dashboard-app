@@ -14,6 +14,7 @@ export const sessionAPI = {
   status: () => api.get('/session/status'),
   list: () => api.get('/session/list'),
   update: (id, config) => api.patch(`/session/${id}`, { config }),
+  pause: (paused) => api.post('/session/pause', { paused }),
   delete: (id) => api.delete(`/session/${id}`),
   rateLimit: () => api.get('/session/binance/rate-limit'),
   history: () => api.get('/session/history'),

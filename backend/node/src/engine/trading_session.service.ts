@@ -17,6 +17,7 @@ export class TradingSessionService {
   private readonly logger = new Logger(TradingSessionService.name);
 
   private running = false;
+  private paused = false;
   private sessionId: string | null = null;
   private config: SessionConfig | null = null;
   private binanceClient: any = null;
@@ -61,6 +62,7 @@ export class TradingSessionService {
 
   async start(config: SessionConfig, binanceClient?: any, sessionId?: string) {
     this.running = true;
+    this.paused = false;
     this.sessionId = sessionId || null;
     this.config = config;
     this.binanceClient = binanceClient;
@@ -103,6 +105,7 @@ export class TradingSessionService {
 
   async stop() {
     this.running = false;
+    this.paused = false;
     if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
     if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
     
@@ -134,7 +137,7 @@ export class TradingSessionService {
    * Handles lower-frequency tasks: Market scanning and trade entry
    */
   private async mainLoop() {
-    if (!this.running || !this.config) return;
+    if (!this.running || !this.config || this.paused) return;
 
     // Evaluate risk gates before scanning
     const activeTrades = this.positionTracker.activeList();
@@ -387,7 +390,8 @@ export class TradingSessionService {
       total_sl_used: totalRiskUsdt,
       trades,
       gateState: this.gateState,
-      scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period',
+      paused: this.paused,
+      scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period' || this.paused,
       activeWindows: this.getActiveWindows(),
       rateLimit: this.getBinanceRateLimit(),
       monitoring: this.monitoringService.getMetrics(),
@@ -398,6 +402,7 @@ export class TradingSessionService {
     this.broadcast('session', {
       status,
       running: this.running,
+      paused: this.paused,
       mode: this.config?.paper_mode ? 'PAPER' : 'LIVE',
       balance: this.getBalance(),
       config: this.config,
@@ -432,6 +437,7 @@ export class TradingSessionService {
   getStatus() {
     return {
       running: this.running,
+      paused: this.paused,
       mode: this.config?.paper_mode ? 'PAPER' : 'LIVE',
       balance_paper: this.balancePaper,
       balance_live: this.balanceLive,
@@ -443,6 +449,18 @@ export class TradingSessionService {
       scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period',
       history: this.closedTrades.slice(0, 50).map((trade) => this.serializeTrade(trade, trade.exit_price)),
     };
+  }
+
+  setPaused(paused: boolean) {
+    this.paused = paused;
+    this.logger.log(`Session ${paused ? 'PAUSED' : 'RESUMED'}`);
+    this.broadcast('tick', { paused: this.paused });
+  }
+
+  updateConfig(config: SessionConfig) {
+    this.config = config;
+    this.logger.log('Session config updated (hot-reload)');
+    this.broadcast('tick', { config: this.config });
   }
 
   updateRateLimit(used1m: number) {

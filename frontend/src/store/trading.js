@@ -6,6 +6,29 @@ const toNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
+const DEFAULT_LOG_FILTERS = {
+  info: true,
+  warn: true,
+  error: true,
+}
+
+const loadLogFilters = () => {
+  try {
+    const stored = localStorage.getItem('log_filters')
+    return stored ? JSON.parse(stored) : DEFAULT_LOG_FILTERS
+  } catch (e) {
+    return DEFAULT_LOG_FILTERS
+  }
+}
+
+const saveLogFilters = (filters) => {
+  try {
+    localStorage.setItem('log_filters', JSON.stringify(filters))
+  } catch (e) {
+    // ignore storage errors
+  }
+}
+
 const normalizeOpportunity = (opp = {}) => {
   const momentum = toNumber(opp.pct ?? opp.momentum ?? opp.percent_change)
   const direction = (opp.dir ?? opp.direction ?? (momentum >= 0 ? 'long' : 'short')).toString().toLowerCase()
@@ -26,46 +49,69 @@ const normalizeOpportunity = (opp = {}) => {
 const normalizeTrade = (trade = {}, prevTrade = null) => {
   if (!trade || typeof trade !== 'object') return null;
 
-  // Prevent PnL flickering by preserving last known value if current is missing or invalid
-  let pnl = 0;
+  const prev = prevTrade || {};
+  // Preserve existing values when websocket data is partial to avoid flicker
+  const entry_price = toNumber(trade.entry_price ?? trade.entry ?? prev.entry_price);
+  const current_price = toNumber(
+    trade.current_price ?? trade.current ?? prev.current_price ?? trade.exit_price ?? entry_price,
+    entry_price,
+  );
+  const sl_price = toNumber(trade.sl_price ?? trade.current_sl ?? trade.sl ?? trade.initial_sl ?? prev.sl_price);
+  const initial_sl = toNumber(trade.initial_sl ?? trade.sl_price ?? trade.sl ?? prev.initial_sl);
+
+  let pnl = prev.pnl ?? 0;
   if (trade.pnl !== undefined && trade.pnl !== null) {
     pnl = toNumber(trade.pnl);
-  } else if (prevTrade && prevTrade.pnl !== undefined) {
-    pnl = prevTrade.pnl;
   }
 
   return {
     ...trade,
-    symbol: trade.symbol ?? '---',
-    direction: (trade.direction ?? trade.side ?? '').toString().toUpperCase(),
-    entry_price: toNumber(trade.entry_price ?? trade.entry),
-    current_price: toNumber(trade.current_price ?? trade.current ?? trade.exit_price ?? trade.entry_price ?? trade.entry),
-    sl_price: toNumber(trade.sl_price ?? trade.current_sl ?? trade.sl ?? trade.initial_sl),
-    initial_sl: toNumber(trade.initial_sl ?? trade.sl_price ?? trade.sl),
-    tp_price: trade.tp_price == null && trade.tp == null ? null : toNumber(trade.tp_price ?? trade.tp),
+    symbol: trade.symbol ?? prev.symbol ?? '---',
+    direction: (trade.direction ?? trade.side ?? prev.direction ?? '').toString().toUpperCase(),
+    entry_price,
+    current_price,
+    sl_price,
+    initial_sl,
+    tp_price: trade.tp_price == null && trade.tp == null ? prev.tp_price ?? null : toNumber(trade.tp_price ?? trade.tp),
     pnl,
-    rr: toNumber(trade.rr ?? trade.live_rr),
-    max_rr: toNumber(trade.max_rr ?? trade.max_rr_achieved),
-    live_rr_sequence: trade.live_rr_sequence || [],
-    exit_rr_sequence: trade.exit_rr_sequence || [],
-    tp_mode: trade.tp_mode || (trade.tp_price == null && trade.tp == null ? 'exp_rr_seq' : 'fixed'),
-    tp_ratio: toNumber(trade.tp_ratio, 2),
-    sl_type: trade.sl_type,
-    sl_adjustments: trade.sl_adjustments || [],
-    exit_reason: trade.exit_reason,
-    exit_price: trade.exit_price == null ? undefined : toNumber(trade.exit_price),
-    paper_mode: trade.paper_mode ?? true,
-    qty: trade.qty ?? trade.quantity ?? 0,
+    rr: (trade.rr !== undefined && trade.rr !== null) ? toNumber(trade.rr) : prev.rr ?? 0,
+    max_rr: (trade.max_rr !== undefined && trade.max_rr !== null) ? toNumber(trade.max_rr) : prev.max_rr ?? 0,
+    live_rr_sequence: trade.live_rr_sequence || prev.live_rr_sequence || [],
+    exit_rr_sequence: trade.exit_rr_sequence || prev.exit_rr_sequence || [],
+    tp_mode: trade.tp_mode || prev.tp_mode || (trade.tp_price == null && trade.tp == null ? 'exp_rr_seq' : 'fixed'),
+    tp_ratio: (trade.tp_ratio !== undefined && trade.tp_ratio !== null) ? toNumber(trade.tp_ratio, 2) : prev.tp_ratio ?? 0,
+    sl_type: trade.sl_type ?? prev.sl_type,
+    sl_adjustments: trade.sl_adjustments || prev.sl_adjustments || [],
+    exit_reason: trade.exit_reason ?? prev.exit_reason,
+    exit_price: trade.exit_price == null ? (prev.exit_price == null ? undefined : toNumber(prev.exit_price)) : toNumber(trade.exit_price),
+    paper_mode: trade.paper_mode ?? prev.paper_mode ?? true,
+    qty: trade.qty ?? trade.quantity ?? prev.qty ?? 0,
   };
 }
 
-const normalizeLog = (log = {}) => ({
-  ...log,
-  id: log.id || Math.random().toString(36).substring(2, 15),
-  ts: log.ts || log.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-  level: log.level || log.lv || 'info',
-  msg: log.msg || log.message || '',
-})
+const normalizeLog = (log = {}) => {
+  const level = (log.level || log.lv || 'info').toString().toLowerCase()
+  const msg = (log.msg || log.message || '').toString().trim()
+
+  return {
+    ...log,
+    id: log.id || Math.random().toString(36).substring(2, 15),
+    ts: log.ts || log.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    level: ['info', 'warn', 'error'].includes(level) ? level : 'info',
+    msg,
+  }
+}
+
+const uniqueLogs = (logs = []) => {
+  const seen = new Set()
+  return logs.filter((log) => {
+    const normalized = normalizeLog(log)
+    const key = `${normalized.level}::${normalized.msg}::${normalized.ts}`
+    if (seen.has(key) || !normalized.msg) return false
+    seen.add(key)
+    return true
+  })
+}
 
 const normalizeWindow = (window = {}) => ({
   ...window,
@@ -133,6 +179,7 @@ export const useTradingStore = create((set, get) => ({
   },
   sessionSummary: null,
   config: defaultConfig,
+  logFilters: loadLogFilters(),
   
   // UX Settings
   healthEnabled: localStorage.getItem('health_enabled') !== 'false',
@@ -170,10 +217,23 @@ export const useTradingStore = create((set, get) => ({
     }
   },
 
+  clearSessionState: (summary = null) => set({
+    sessionActive: false,
+    sessionPaused: false,
+    strategyId: null,
+    activeTrades: [],
+    scannerResults: [],
+    activeWindows: [],
+    gateState: null,
+    scannerPaused: false,
+    monitoring: null,
+    rateLimit: { used_weight_1m: 0, limit: 1200, used_pct: 0 },
+    sessionSummary: summary,
+  }),
+
   fetchSessions: async () => {
     try {
       const res = await sessionAPI.list()
-      console.log('tradingStore: fetchSessions response:', res.data);
       set({ sessionList: res.data })
     } catch (e) {
       console.error('tradingStore: fetchSessions error:', e);
@@ -182,6 +242,21 @@ export const useTradingStore = create((set, get) => ({
 
   updateStats: (stats) => set((state) => ({ ...state, ...stats })),
   updateConfig: (newConfig) => set((state) => ({ config: { ...state.config, ...newConfig } })),
+  toggleLogFilter: (level) => set((state) => {
+    const next = { ...state.logFilters, [level]: !state.logFilters[level] }
+    saveLogFilters(next)
+    const ws = get().ws
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'set_log_filters', filters: next }))
+    }
+    return { logFilters: next }
+  }),
+  addLog: (log) => set((state) => {
+    const normalized = normalizeLog(log)
+    if (!normalized.msg) return {}
+    if (state.logs.length > 0 && state.logs[0].level === normalized.level && state.logs[0].msg === normalized.msg) return {}
+    return { logs: [normalized, ...state.logs].slice(0, 100) }
+  }),
 
   ws: null,
   connectWS: () => {
@@ -195,6 +270,7 @@ export const useTradingStore = create((set, get) => ({
       set({ wsStatus: 'live' })
       // Send current health preference on open
       ws.send(JSON.stringify({ type: 'set_monitoring', enabled: get().healthEnabled }))
+      ws.send(JSON.stringify({ type: 'set_log_filters', filters: get().logFilters }))
     }
 
     // Throttled scanner update to prevent React choking on high-freq updates
@@ -206,29 +282,32 @@ export const useTradingStore = create((set, get) => ({
       const data = JSON.parse(event.data)
 
       if (data.type === 'status') {
-        set((state) => ({
-          sessionActive: data.running,
-          sessionPaused: data.paused ?? state.sessionPaused,
-          strategyId: data.strategyId || state.strategyId,
-          balance: data.balance ?? state.balance,
-          totalPnl: (data.totalPnl !== undefined && data.totalPnl !== null) ? toNumber(data.totalPnl) : state.totalPnl,
-          totalRiskPct: data.totalRiskPct ?? state.totalRiskPct,
-          totalSlUsed: data.totalSlUsed ?? state.totalSlUsed,
-          activeTrades: data.activeTrades?.map(t => {
-            const prev = state.activeTrades.find(p => p.symbol === t.symbol);
-            return normalizeTrade(t, prev);
-          }).filter(Boolean) || state.activeTrades,
-          logs: data.logLines?.map(normalizeLog) || state.logs,
-          scannerResults: data.scannerResults?.map(normalizeOpportunity) || state.scannerResults,
-          activeWindows: data.activeWindows?.map(normalizeWindow) || state.activeWindows,
-          tradeHistory: data.history?.map(t => {
-             const prev = state.tradeHistory.find(p => p.symbol === t.symbol);
-             return normalizeTrade(t, prev);
-          }).filter(Boolean) || state.tradeHistory,
-          gateState: data.gateState ?? state.gateState,
-          scannerPaused: data.scannerPaused ?? state.scannerPaused,
-          config: data.config ? { ...state.config, ...data.config } : state.config,
-        }))
+        set((state) => {
+          const stopped = data.running === false
+          return {
+            sessionActive: data.running,
+            sessionPaused: data.paused ?? state.sessionPaused,
+            strategyId: data.strategyId || state.strategyId,
+            balance: data.balance ?? state.balance,
+            totalPnl: (data.totalPnl !== undefined && data.totalPnl !== null) ? toNumber(data.totalPnl) : state.totalPnl,
+            totalRiskPct: data.totalRiskPct ?? state.totalRiskPct,
+            totalSlUsed: data.totalSlUsed ?? state.totalSlUsed,
+            activeTrades: stopped ? [] : (data.activeTrades?.map(t => {
+              const prev = state.activeTrades.find(p => p.symbol === t.symbol);
+              return normalizeTrade(t, prev);
+            }).filter(Boolean) || state.activeTrades),
+            logs: data.logLines ? uniqueLogs(data.logLines).slice(0, 100) : state.logs,
+            scannerResults: data.scannerResults?.map(normalizeOpportunity) || state.scannerResults,
+            activeWindows: data.activeWindows?.map(normalizeWindow) || state.activeWindows,
+            tradeHistory: data.history?.map(t => {
+               const prev = state.tradeHistory.find(p => p.symbol === t.symbol);
+               return normalizeTrade(t, prev);
+            }).filter(Boolean) || state.tradeHistory,
+            gateState: data.gateState ?? state.gateState,
+            scannerPaused: data.scannerPaused ?? state.scannerPaused,
+            config: data.config ? { ...state.config, ...data.config } : state.config,
+          }
+        })
       } else if (data.type === 'session') {
         set((state) => {
           const stopped = data.status === 'stopped'
@@ -237,11 +316,10 @@ export const useTradingStore = create((set, get) => ({
             sessionPaused: data.paused ?? false,
             balance: data.balance ?? state.balance,
             config: data.config ? { ...state.config, ...data.config } : state.config,
-            activeTrades: data.activeTrades?.map(t => {
+            activeTrades: stopped ? [] : (data.activeTrades?.map(t => {
               const prev = state.activeTrades.find(p => p.symbol === t.symbol);
               return normalizeTrade(t, prev);
-            }).filter(Boolean) || state.activeTrades,
-            scannerResults: data.scannerResults?.map(normalizeOpportunity) || state.scannerResults,
+            }).filter(Boolean) || state.activeTrades),            scannerResults: data.scannerResults?.map(normalizeOpportunity) || state.scannerResults,
             activeWindows: data.activeWindows?.map(normalizeWindow) || state.activeWindows,
             tradeHistory: data.history?.map(t => {
               const prev = state.tradeHistory.find(p => p.symbol === t.symbol);
@@ -278,7 +356,7 @@ export const useTradingStore = create((set, get) => ({
           config: data.config ? { ...state.config, ...data.config } : state.config,
         }))
       } else if (data.type === 'log') {
-        set((state) => ({ logs: [normalizeLog(data), ...state.logs].slice(0, 100) }))
+        get().addLog(data)
       } else if (data.type === 'scanner') {
         const now = Date.now();
         if (now - lastScannerUpdate >= SCANNER_THROTTLE_MS) {
@@ -288,18 +366,27 @@ export const useTradingStore = create((set, get) => ({
           })
           lastScannerUpdate = now;
         }
+      } else if (data.type === 'session_terminated') {
+        const currentState = get()
+        get().addLog({ level: 'warn', msg: 'Session terminated, clearing active positions.' })
+        get().clearSessionState({
+          endedAt: new Date().toISOString(),
+          totalPnl: currentState.totalPnl,
+          tradeCount: currentState.tradeHistory.length,
+          reason: data.reason || 'terminated',
+        })
       } else if (data.type === 'trade_event') {
         const trade = data.trade ? normalizeTrade(data.trade) : null
+        get().addLog({ level: 'info', msg: `${data.symbol}: ${data.event} ${data.reason || ''}` })
         set((state) => ({
-          logs: [normalizeLog({ level: 'info', msg: `${data.symbol}: ${data.event} ${data.reason || ''}` }), ...state.logs].slice(0, 100),
           tradeHistory: data.event === 'closed' && trade ? [trade, ...state.tradeHistory].slice(0, 50) : state.tradeHistory,
         }))
       } else if (data.type === 'gate') {
         set((state) => ({
           gateState: data.gateState,
           scannerPaused: data.scannerPaused,
-          logs: [normalizeLog({ level: 'warn', msg: data.reason || 'Risk gate active' }), ...state.logs].slice(0, 100),
         }))
+        get().addLog({ level: 'warn', msg: data.reason || 'Risk gate active' })
       }
     }
 

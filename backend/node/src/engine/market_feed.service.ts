@@ -37,7 +37,7 @@ export class MarketFeedService {
   private readonly logger = new Logger(MarketFeedService.name);
   private running = false;
   private miniTickerWs: WebSocket | null = null;
-  private combinedKlineWs: WebSocket | null = null;
+  private combinedKlineWsList: WebSocket[] = [];
   private activeWatchlist: string[] = [];
   private subscriptionTasks: any[] = [];
   private onCandeClose: ((symbol: string) => Promise<void>) | null = null;
@@ -130,10 +130,10 @@ export class MarketFeedService {
       this.miniTickerWs = null;
     }
 
-    if (this.combinedKlineWs) {
-      this.combinedKlineWs.close();
-      this.combinedKlineWs = null;
+    for (const ws of this.combinedKlineWsList) {
+      ws.close();
     }
+    this.combinedKlineWsList = [];
 
     for (const task of this.subscriptionTasks) {
       clearTimeout(task);
@@ -199,7 +199,7 @@ export class MarketFeedService {
                         symbols.some(s => !this.activeWatchlist.includes(s));
 
         if (changed) {
-          this.logger.log(`Watchlist changed. Rebuilding combined kline stream for ${symbols.length} symbols.`);
+          this.logger.log(`Watchlist changed. Rebuilding combined kline streams for ${symbols.length} symbols.`);
           this.activeWatchlist = symbols;
           await this.rebuildCombinedKlineStream();
           
@@ -218,68 +218,79 @@ export class MarketFeedService {
   }
 
   private async rebuildCombinedKlineStream() {
-    if (this.combinedKlineWs) {
-      this.combinedKlineWs.close();
-      this.combinedKlineWs = null;
+    for (const ws of this.combinedKlineWsList) {
+      ws.close();
     }
+    this.combinedKlineWsList = [];
 
     if (this.activeWatchlist.length === 0) return;
 
-    const streams = this.activeWatchlist
-      .map(s => `${s.toLowerCase()}@kline_${this.currentInterval}`)
-      .join('/');
+    // Split watchlist into chunks of 20 to avoid URL length issues
+    const CHUNK_SIZE = 20;
+    const chunks = [];
+    for (let i = 0; i < this.activeWatchlist.length; i += CHUNK_SIZE) {
+      chunks.push(this.activeWatchlist.slice(i, i + CHUNK_SIZE));
+    }
     
-    const url = `${BINANCE_WS_BASE}/stream?streams=${streams}`;
-    
-    const connect = () => {
-      if (!this.running) return;
+    this.logger.log(`Creating ${chunks.length} kline streams for ${this.activeWatchlist.length} symbols.`);
 
-      const ws = new WebSocket(url, { handshakeTimeout: 15000 });
-      let backoff = 2000;
+    for (const chunk of chunks) {
+      const streams = chunk
+        .map(s => `${s.toLowerCase()}@kline_${this.currentInterval}`)
+        .join('/');
+      
+      const url = `${BINANCE_WS_BASE}/stream?streams=${streams}`;
+      
+      const connect = () => {
+        if (!this.running) return;
 
-      ws.on('open', () => {
-        this.logger.log(`Combined kline stream connected for ${this.activeWatchlist.length} symbols`);
-      });
+        const ws = new WebSocket(url, { handshakeTimeout: 15000 });
+        let backoff = 2000;
 
-      ws.on('message', async (data: Buffer) => {
-        try {
-          const msg: BinanceKline = JSON.parse(data.toString());
-          const kline = msg.data?.k;
-          if (kline) {
-            const symbol = kline.s;
-            await this.klineStore.upsertCandle(symbol, this.currentInterval, kline);
-            
-            // Pro: Immediate price propagation to ticker cache
-            await this.tickerCache.bulkUpdate([{
-              s: symbol,
-              c: kline.c,
-              v: kline.q
-            }]);
+        ws.on('open', () => {
+          this.logger.log(`Combined kline stream connected for ${chunk.length} symbols`);
+        });
 
-            if (kline.x && this.onCandeClose) {
-              await this.onCandeClose(symbol);
+        ws.on('message', async (data: Buffer) => {
+          try {
+            const msg: BinanceKline = JSON.parse(data.toString());
+            const kline = msg.data?.k;
+            if (kline) {
+              const symbol = kline.s;
+              await this.klineStore.upsertCandle(symbol, this.currentInterval, kline);
+              
+              // Pro: Immediate price propagation to ticker cache
+              await this.tickerCache.bulkUpdate([{
+                s: symbol,
+                c: kline.c,
+                v: kline.q
+              }]);
+
+              if (kline.x && this.onCandeClose) {
+                await this.onCandeClose(symbol);
+              }
             }
+          } catch (err) {
+            this.logger.warn(`Combined kline parse error: ${err instanceof Error ? err.message : String(err)}`);
           }
-        } catch (err) {
-          this.logger.warn(`Combined kline parse error: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      });
+        });
 
-      ws.on('close', () => {
-        if (this.running) {
-          this.subscriptionTasks.push(setTimeout(() => connect(), backoff));
-          backoff = Math.min(backoff * 1.5, 30000);
-        }
-      });
+        ws.on('close', () => {
+          if (this.running) {
+            this.subscriptionTasks.push(setTimeout(() => connect(), backoff));
+            backoff = Math.min(backoff * 1.5, 30000);
+          }
+        });
 
-      ws.on('error', (err) => {
-        this.logger.warn(`Combined kline WS error: ${err.message}`);
-      });
+        ws.on('error', (err) => {
+          this.logger.warn(`Combined kline WS error (${chunk.length} symbols): ${err.message}`);
+        });
 
-      this.combinedKlineWs = ws;
-    };
+        this.combinedKlineWsList.push(ws);
+      };
 
-    connect();
+      connect();
+    }
   }
 
   private async backfillKlines(symbol: string, interval: string) {

@@ -33,6 +33,17 @@ export class KlineStoreService {
       volume: parseFloat(kline.v || kline[7] || 0),
     };
 
+    const isValidCandle = [candle.open, candle.high, candle.low, candle.close].every(
+      (value) => Number.isFinite(value) && value > 0,
+    );
+
+    if (!isValidCandle) {
+      this.logger.debug(
+        `Ignoring invalid candle for ${symbol}/${interval} at ${candle.time}: open=${candle.open}, high=${candle.high}, low=${candle.low}, close=${candle.close}`,
+      );
+      return;
+    }
+
     const lastIdx = existing.length - 1;
 
     // BOLT OPTIMIZATION: O(1) paths for real-time streams

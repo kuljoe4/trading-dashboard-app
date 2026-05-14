@@ -108,11 +108,25 @@ export class TradingSessionService {
     this.paused = false;
     if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
     if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
+
+    // Properly close active positions on session stop
+    const active = this.positionTracker.activeList();
+    for (const trade of active) {
+      trade.status = 'CLOSED';
+      trade.exit_ts = new Date();
+      trade.exit_reason = 'SESSION_TERMINATED';
+      this.closedTrades.push(trade);
+      this.positionTracker.removeTrade(trade.symbol);
+    }
     
     await this.marketFeed.stop();
     await this.momentumScanner.stop();
     this.logger.log('Session stopped');
     this.broadcastSnapshot('stopped');
+    this.broadcast('session_terminated', {
+      reason: 'SESSION_TERMINATED',
+      endedAt: new Date().toISOString(),
+    });
     return { status: 'stopped' };
   }
 
@@ -348,18 +362,28 @@ export class TradingSessionService {
   }
 
   private serializeTrade(trade: Trade, currentPrice?: number) {
-    const current = currentPrice ?? trade.exit_price ?? trade.entry_price;
-    const risk = Math.abs(trade.entry_price - trade.initial_sl) || 1;
-    const pnl = trade.direction === 'LONG' ? (current - trade.entry_price) * trade.qty : (trade.entry_price - current) * trade.qty;
+    const anyTrade = trade as any;
+    const direction = (anyTrade.direction || anyTrade.side || 'LONG').toString().toUpperCase();
+    const current = currentPrice ?? anyTrade.exit_price ?? anyTrade.entry_price ?? 0;
+    const entry = anyTrade.entry_price ?? anyTrade.entry ?? 0;
+    const risk = Math.abs(entry - (anyTrade.initial_sl ?? anyTrade.current_sl ?? anyTrade.sl_price ?? anyTrade.sl ?? entry)) || 1;
+    const pnl = Number.isFinite(current) && Number.isFinite(entry)
+      ? (direction === 'LONG' ? (current - entry) * (anyTrade.qty ?? 0) : (entry - current) * (anyTrade.qty ?? 0))
+      : 0;
+    const rrValue = Number.isFinite(current) && Number.isFinite(entry)
+      ? ((direction === 'LONG' ? (current - entry) : (entry - current)) / risk)
+      : 0;
+
     return {
       ...trade,
+      direction,
       current_price: current,
-      sl_price: trade.current_sl,
-      tp_price: trade.tp,
-      pnl,
-      rr: (trade.direction === 'LONG' ? (current - trade.entry_price) : (trade.entry_price - current)) / risk,
+      sl_price: anyTrade.current_sl ?? anyTrade.sl_price,
+      tp_price: anyTrade.tp ?? anyTrade.tp_price,
+      pnl: Number.isFinite(pnl) ? pnl : 0,
+      rr: Number.isFinite(rrValue) ? rrValue : 0,
       paper_mode: this.config?.paper_mode,
-      max_rr: trade.max_rr_achieved, // Fix: Ensure max_rr is mapped
+      max_rr: anyTrade.max_rr_achieved ?? anyTrade.max_rr ?? 0,
       live_rr_sequence: this.config?.live_rr_sequence || [],
       exit_rr_sequence: this.config?.exit_rr_sequence || [],
       tp_mode: this.config?.tp_mode || 'fixed',

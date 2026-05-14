@@ -58,21 +58,36 @@ async function bootstrap() {
     const basePayload = typeof data === 'string' ? JSON.parse(data) : data;
     
     wss.clients.forEach((client: any) => {
-      if (client.readyState === client.OPEN) {
-        // Suppress monitoring data if client has it disabled
-        if (basePayload.type === 'tick' && client.monitoringEnabled === false) {
-          const stripped = { ...basePayload };
-          delete stripped.monitoring;
-          client.send(JSON.stringify(stripped));
-        } else {
-          client.send(JSON.stringify(basePayload));
-        }
+      if (client.readyState !== client.OPEN) return;
+
+      // Suppress monitoring data if client has it disabled
+      if (basePayload.type === 'tick' && client.monitoringEnabled === false) {
+        const stripped = { ...basePayload };
+        delete stripped.monitoring;
+        client.send(JSON.stringify(stripped));
+        return;
       }
+
+      if (basePayload.type === 'log' && client.logFilters) {
+        if (client.logFilters[basePayload.level] === false) return;
+      }
+
+      if (basePayload.type === 'status' && client.logFilters && Array.isArray(basePayload.logLines)) {
+        const filteredPayload = {
+          ...basePayload,
+          logLines: basePayload.logLines.filter((log: any) => client.logFilters[log.level] !== false),
+        };
+        client.send(JSON.stringify(filteredPayload));
+        return;
+      }
+
+      client.send(JSON.stringify(basePayload));
     });
   });
 
   wss.on('connection', async (socket: any) => {
     socket.monitoringEnabled = true; // Default to enabled
+    socket.logFilters = { info: true, warn: true, error: true };
     updateMonitoringSuppression();
     
     socket.on('message', (message: string) => {
@@ -86,6 +101,15 @@ async function bootstrap() {
           socket.monitoringEnabled = data.enabled === true;
           console.log(`Client monitoring preference updated: ${socket.monitoringEnabled}`);
           updateMonitoringSuppression();
+        }
+
+        if (data.type === 'set_log_filters' && typeof data.filters === 'object' && data.filters !== null) {
+          socket.logFilters = {
+            info: data.filters.info === true,
+            warn: data.filters.warn === true,
+            error: data.filters.error === true,
+          };
+          console.log(`Client log filter preferences updated: ${JSON.stringify(socket.logFilters)}`);
         }
       } catch (e) {}
     });

@@ -7,7 +7,7 @@ import { useTradingStore } from '../store/trading'
 import { Sidebar, BottomNav } from '../components/Navigation'
 
 export function SettingsView() {
-  const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, sidebarCollapsed } = useTradingStore()
+  const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, sidebarCollapsed, logFilters, toggleLogFilter } = useTradingStore()
   const [apiKey, setApiKey] = useState('')
   const [apiSecret, setApiSecret] = useState('')
   const [showSecret, setShowSecret] = useState(false)
@@ -111,6 +111,32 @@ export function SettingsView() {
                     streamingEnabled ? "translate-x-7" : "translate-x-1"
                   )} />
                 </button>
+              </div>
+
+              <div className="pt-8 border-t border-border/50">
+                <div className="mb-4">
+                  <h3 className="text-sm font-bold uppercase tracking-tight">Backend Log Feed</h3>
+                  <p className="text-[11px] text-dim font-medium uppercase mt-1">Select which backend log levels are sent to this dashboard.</p>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  {['info', 'warn', 'error'].map((level) => {
+                    const enabled = logFilters[level]
+                    const label = level === 'info' ? 'Info' : level === 'warn' ? 'Warnings' : 'Errors'
+                    return (
+                      <button
+                        key={level}
+                        type="button"
+                        onClick={() => toggleLogFilter(level)}
+                        className={cn(
+                          "rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-tight transition-all",
+                          enabled ? 'border-accent bg-accent/10 text-text' : 'border-border text-dim bg-transparent'
+                        )}
+                      >
+                        {label}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
             </div>
           </section>

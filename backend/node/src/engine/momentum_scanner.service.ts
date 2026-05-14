@@ -22,6 +22,17 @@ export class MomentumScannerService {
     private readonly tickerCache: TickerCacheService,
   ) {}
 
+  private isValidPrice(value: number): boolean {
+    return Number.isFinite(value) && value > 0;
+  }
+
+  private calculateMomentum(currentPrice: number, previousPrice: number): number {
+    if (!this.isValidPrice(currentPrice) || !this.isValidPrice(previousPrice)) {
+      return NaN;
+    }
+    return ((currentPrice - previousPrice) / previousPrice) * 100;
+  }
+
   async start(config: SessionConfig) {
     this.logger.log(
       `MomentumScanner started with watchlist_size=${config.watchlist_size}`,
@@ -94,9 +105,21 @@ export class MomentumScannerService {
     const currentPrice = candles[candles.length - 1].close;
     const previousPrice = candles[candles.length - 1 - lookback].close;
 
+    if (!this.isValidPrice(currentPrice) || !this.isValidPrice(previousPrice)) {
+      this.logger.debug(
+        `Skipping scan for ${symbol} due invalid candle prices current=${currentPrice} previous=${previousPrice}`,
+      );
+      return null;
+    }
+
     // Calculate simple momentum
-    const momentumPct =
-      ((currentPrice - previousPrice) / previousPrice) * 100;
+    const momentumPct = this.calculateMomentum(currentPrice, previousPrice);
+    if (!Number.isFinite(momentumPct)) {
+      this.logger.debug(
+        `Skipping scan for ${symbol} due invalid momentum current=${currentPrice} previous=${previousPrice}`,
+      );
+      return null;
+    }
 
     // Determine direction based on momentum
     const direction = momentumPct > 0 ? 'LONG' : 'SHORT';
@@ -113,10 +136,14 @@ export class MomentumScannerService {
     // BOLT OPTIMIZATION: Use O(1) ticker lookup instead of O(N) array search
     const tickerData = await this.tickerCache.getTicker(symbol);
 
+    const displayPrice = this.isValidPrice(tickerData?.price ?? 0)
+      ? tickerData!.price
+      : currentPrice;
+
     return {
       opp: {
         symbol,
-        price: tickerData?.price || currentPrice,
+        price: displayPrice,
         momentum: momentumPct,
         volume_24h: Number(tickerData?.volume_24h || 0),
         score,

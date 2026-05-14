@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { WebSocketGateway, SubscribeMessage, WebSocketServer } from '@nestjs/websockets';
-import { Server } from 'socket.io';
 import { TradingSessionService } from './trading_session.service';
 
 @Injectable()
@@ -13,12 +12,15 @@ import { TradingSessionService } from './trading_session.service';
 export class TradingSessionGateway {
   private readonly logger = new Logger(TradingSessionGateway.name);
 
-  @WebSocketServer() server: Server = null as any;
+  // Note: WebSocketServer is unused as we are using the 'ws' library in server.ts
+  @WebSocketServer() server: any = null;
 
   constructor(private tradingSessionService: TradingSessionService) {
     // Wire the broadcaster
     this.tradingSessionService.setWsBroadcaster((data: any) => {
-      this.server.emit('event', data);
+      if (this.server) {
+        this.server.emit('event', data);
+      }
     });
   }
 

@@ -10,8 +10,10 @@ export function SettingsView() {
   const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, sidebarCollapsed, logFilters, toggleLogFilter } = useTradingStore()
   const [apiKey, setApiKey] = useState('')
   const [apiSecret, setApiSecret] = useState('')
-  const [showSecret, setShowSecret] = useState(false)
+  const [testnetApiKey, setTestnetApiKey] = useState('')
+  const [testnetApiSecret, setTestnetApiSecret] = useState('')
   const [maskedKey, setMaskedKey] = useState('')
+  const [maskedTestnetKey, setMaskedTestnetKey] = useState('')
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState(null)
 
@@ -23,6 +25,7 @@ export function SettingsView() {
     try {
       const res = await settingsAPI.getKeys()
       setMaskedKey(res.data.api_key)
+      setMaskedTestnetKey(res.data.testnet_api_key)
     } catch (e) {
       console.error('Failed to load keys', e)
     }
@@ -32,10 +35,17 @@ export function SettingsView() {
     setLoading(true)
     setStatus(null)
     try {
-      await settingsAPI.updateKeys({ api_key: apiKey, api_secret: apiSecret })
+      await settingsAPI.updateKeys({
+        api_key: apiKey,
+        api_secret: apiSecret,
+        testnet_api_key: testnetApiKey,
+        testnet_api_secret: testnetApiSecret
+      })
       setStatus({ type: 'success', msg: 'Credentials updated successfully!' })
       setApiKey('')
       setApiSecret('')
+      setTestnetApiKey('')
+      setTestnetApiSecret('')
       loadKeys()
     } catch (e) {
       setStatus({ type: 'error', msg: 'Update failed. Check backend logs.' })
@@ -142,49 +152,87 @@ export function SettingsView() {
           </section>
 
           <section>
-            <SectionLabel className="mb-6">Exchange Integration</SectionLabel>
+            <SectionLabel className="mb-6">Exchange Integration (Live)</SectionLabel>
             <div className="bg-surface border border-border rounded-2xl p-6 md:p-8 shadow-sm">
               <div className="grid grid-cols-1 gap-8">
-
                 <div className="flex flex-col gap-2">
-                  <div className="text-[10px] text-dim font-bold tracking-widest uppercase mb-1">Active Credentials</div>
+                  <div className="text-[10px] text-dim font-bold tracking-widest uppercase mb-1">Live Credentials</div>
                   <div className="flex items-center gap-3 p-4 bg-background/50 border border-border rounded-xl">
                     <div className="w-8 h-8 rounded-lg bg-green/10 flex items-center justify-center">
                       <Key size={16} className="text-green" />
                     </div>
                     <div className="text-xs font-mono text-dim tracking-tight truncate">
-                      {maskedKey || 'No API key configured'}
+                      {maskedKey || 'No live API key configured'}
                     </div>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="flex flex-col gap-2">
-                    <label htmlFor="apiKey" className="text-[10px] text-dim font-bold tracking-widest uppercase">Update API Key</label>
-                    <div className="relative">
-                      <input
-                        id="apiKey"
-                        type="text"
-                        value={apiKey}
-                        onChange={e => setApiKey(e.target.value)}
-                        className="w-full bg-background border border-border focus:border-accent focus:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
-                        placeholder="8080...2025"
-                      />
+                    <label htmlFor="apiKey" className="text-[10px] text-dim font-bold tracking-widest uppercase">Update Live API Key</label>
+                    <input
+                      id="apiKey"
+                      type="text"
+                      value={apiKey}
+                      onChange={e => setApiKey(e.target.value)}
+                      className="w-full bg-background border border-border focus:border-accent focus:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
+                      placeholder="8080...2025"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label htmlFor="apiSecret" className="text-[10px] text-dim font-bold tracking-widest uppercase">Update Live API Secret</label>
+                    <input
+                      id="apiSecret"
+                      type="password"
+                      value={apiSecret}
+                      onChange={e => setApiSecret(e.target.value)}
+                      className="w-full bg-background border border-border focus:border-accent focus:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
+                      placeholder="••••••••••••••••"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section>
+            <SectionLabel className="mb-6 text-purple">Binance Demo (Testnet)</SectionLabel>
+            <div className="bg-surface border border-border rounded-2xl p-6 md:p-8 shadow-sm">
+              <div className="grid grid-cols-1 gap-8">
+                <div className="flex flex-col gap-2">
+                  <div className="text-[10px] text-dim font-bold tracking-widest uppercase mb-1">Demo Credentials</div>
+                  <div className="flex items-center gap-3 p-4 bg-background/50 border border-border rounded-xl">
+                    <div className="w-8 h-8 rounded-lg bg-purple/10 flex items-center justify-center">
+                      <Key size={16} className="text-purple" />
+                    </div>
+                    <div className="text-xs font-mono text-dim tracking-tight truncate">
+                      {maskedTestnetKey || 'No testnet API key configured'}
                     </div>
                   </div>
+                </div>
 
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="flex flex-col gap-2">
-                    <label htmlFor="apiSecret" className="text-[10px] text-dim font-bold tracking-widest uppercase">Update API Secret</label>
-                    <div className="relative">
-                      <input
-                        id="apiSecret"
-                        type="password"
-                        value={apiSecret}
-                        onChange={e => setApiSecret(e.target.value)}
-                        className="w-full bg-background border border-border focus:border-accent focus:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
-                        placeholder="••••••••••••••••"
-                      />
-                    </div>
+                    <label htmlFor="testnetApiKey" className="text-[10px] text-dim font-bold tracking-widest uppercase">Update Testnet API Key</label>
+                    <input
+                      id="testnetApiKey"
+                      type="text"
+                      value={testnetApiKey}
+                      onChange={e => setTestnetApiKey(e.target.value)}
+                      className="w-full bg-background border border-border focus:border-purple focus:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
+                      placeholder="abcd...1234"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label htmlFor="testnetApiSecret" className="text-[10px] text-dim font-bold tracking-widest uppercase">Update Testnet API Secret</label>
+                    <input
+                      id="testnetApiSecret"
+                      type="password"
+                      value={testnetApiSecret}
+                      onChange={e => setTestnetApiSecret(e.target.value)}
+                      className="w-full bg-background border border-border focus:border-purple focus:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
+                      placeholder="••••••••••••••••"
+                    />
                   </div>
                 </div>
 
@@ -203,11 +251,11 @@ export function SettingsView() {
                   </div>
                   <Btn
                     onClick={handleSave}
-                    disabled={loading || (!apiKey && !apiSecret)}
+                    disabled={loading || (!apiKey && !apiSecret && !testnetApiKey && !testnetApiSecret)}
                     loading={loading}
                     className="w-full md:w-auto min-w-[160px]"
                   >
-                    Apply Credentials
+                    Apply All Credentials
                   </Btn>
                 </div>
               </div>

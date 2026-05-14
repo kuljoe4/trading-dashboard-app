@@ -10,7 +10,7 @@ import { ScannerOverlay } from '../components/ScannerOverlay'
 import * as Dialog from '@radix-ui/react-dialog'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { 
-  StatCard, SectionLabel, Btn, StatusBadge, PaperBadge, 
+  StatCard, SectionLabel, Btn, StatusBadge, PaperBadge, DemoBadge, LiveBadge,
   ConditionWidget, PulseDot, Sparkline, PnLBars, cn
 } from '../components/ui/primitives'
 import {
@@ -25,12 +25,18 @@ import { Sidebar, BottomNav } from '../components/Navigation'
 // --- Strategy Card ---
 const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused }) => {
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
+  const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
   return (
     <motion.div
       layout
       onClick={onClick}
-      className="bg-surface border border-border rounded-2xl p-6 cursor-pointer transition-all hover:border-accent/40 relative group shadow-sm hover:shadow-accent/5 h-full"
+      className={cn(
+        "bg-surface border border-border rounded-2xl p-6 cursor-pointer transition-all relative group shadow-sm h-full",
+        tradingMode === 'paper' ? "hover:border-amber/40 hover:shadow-amber/5" :
+        tradingMode === 'testnet' ? "hover:border-purple/40 hover:shadow-purple/5" :
+        "hover:border-green/40 hover:shadow-green/5"
+      )}
     >
       {paused && (
         <div className="absolute inset-0 bg-background/40 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
@@ -43,7 +49,9 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused }) => {
         <div>
           <div className="flex items-center gap-2 mb-3">
             <StatusBadge status={s.sessionActive} />
-            {config.paper_mode && <PaperBadge />}
+            {tradingMode === 'paper' && <PaperBadge />}
+            {tradingMode === 'testnet' && <DemoBadge />}
+            {tradingMode === 'live' && <LiveBadge />}
           </div>
           <div className="text-[17px] font-bold">Momentum Strategy</div>
           <div className="text-[11px] text-dim mt-1.5 font-bold uppercase tracking-wider flex items-center gap-2">
@@ -87,7 +95,13 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused }) => {
         </div>
         <div className="h-1.5 bg-border rounded-full overflow-hidden">
           <div
-            className={cn("h-full transition-all duration-700", slPct > 70 ? "bg-red" : "bg-accent shadow-[0_0_8px_rgba(91,111,255,0.4)]")}
+            className={cn(
+              "h-full transition-all duration-700",
+              slPct > 70 ? "bg-red" :
+              tradingMode === 'paper' ? "bg-amber shadow-[0_0_8px_rgba(245,166,35,0.4)]" :
+              tradingMode === 'testnet' ? "bg-purple shadow-[0_0_8px_rgba(168,85,247,0.4)]" :
+              "bg-green shadow-[0_0_8px_rgba(34,197,94,0.4)]"
+            )}
             style={{ width: `${slPct}%` }}
           />
         </div>
@@ -246,7 +260,9 @@ const StrategyDetailView = ({ s, onBack }) => {
           <div className="flex items-center gap-3">
             <span className="text-2xl font-bold">Strategy Console</span>
             <StatusBadge status={s.sessionActive} />
-            {config.paper_mode && <PaperBadge />}
+            {config.trading_mode === 'paper' && <PaperBadge />}
+            {config.trading_mode === 'testnet' && <DemoBadge />}
+            {config.trading_mode === 'live' && <LiveBadge />}
           </div>
           <div className="text-[11px] text-dim mt-1.5 font-bold uppercase tracking-widest flex items-center gap-2">
             <Activity size={12} /> Loop Monitoring · {s.strategyId?.substring(0, 8)}
@@ -435,11 +451,15 @@ export function DashboardView() {
     )
   }
 
+  const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
+
   return (
     <div className={cn(
       "min-h-screen transition-all duration-300",
       sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]",
-      config.paper_mode ? "shadow-[inset_0_0_100px_rgba(245,166,35,0.05)] border-amber/10" : ""
+      tradingMode === 'paper' ? "shadow-[inset_0_0_100px_rgba(245,166,35,0.05)] border-amber/10" :
+      tradingMode === 'testnet' ? "shadow-[inset_0_0_100px_rgba(168,85,247,0.05)] border-purple/10" :
+      "shadow-[inset_0_0_100px_rgba(34,197,94,0.05)] border-green/10"
     )}>
       <Sidebar selected={selected} />
       <div className="max-w-[1400px] mx-auto p-4 md:p-8 pb-32 lg:pb-8">
@@ -454,7 +474,9 @@ export function DashboardView() {
             <div className="flex flex-col">
               <div className="flex items-center gap-3 mb-1">
                 <span className="text-xl font-bold tracking-tight">Operator Cockpit</span>
-                {config.paper_mode && <PaperBadge />}
+                {tradingMode === 'paper' && <PaperBadge />}
+                {tradingMode === 'testnet' && <DemoBadge />}
+                {tradingMode === 'live' && <LiveBadge />}
               </div>
               <div className="flex items-center gap-3 lg:hidden">
                 <span className={cn("text-[10px] font-bold font-mono tracking-widest uppercase", wsStatus === 'live' ? "text-green" : "text-amber")}>

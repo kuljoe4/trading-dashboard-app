@@ -373,22 +373,55 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
 
         {section === 'mode' && (
           <div className="space-y-6">
-            <div className={cn("p-5 rounded-xl border-2 transition-all", cfg.paper_mode ? "border-amber/30 bg-amber/5" : "border-green/30 bg-green/5")}>
-              <Toggle
-                value={cfg.paper_mode}
-                onChange={(v) => setField('paper_mode', v)}
-                label={cfg.paper_mode ? 'Paper Mode' : 'Live Trading'}
-                color={cfg.paper_mode ? "bg-amber" : "bg-green"}
-              />
-              <p className="mt-3 text-xs text-dim leading-relaxed font-medium">
-                {cfg.paper_mode
-                  ? 'Simulated fills with no real funds at risk. Perfect for testing strategies.'
-                  : 'Real Binance Futures orders. Ensure keys have "Futures" permissions before launch.'}
-              </p>
+            <div className="space-y-4">
+              <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Trading Environment</div>
+              <div className="grid grid-cols-1 gap-4">
+                <button
+                  onClick={() => { setField('trading_mode', 'paper'); setField('paper_mode', true); }}
+                  className={cn(
+                    "p-4 rounded-xl border-2 text-left transition-all",
+                    (cfg.trading_mode === 'paper' || (cfg.paper_mode && !cfg.trading_mode)) ? "border-amber bg-amber/5" : "border-border bg-surface hover:border-dim/50"
+                  )}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-bold">Local Paper Trading</span>
+                    {(cfg.trading_mode === 'paper' || (cfg.paper_mode && !cfg.trading_mode)) && <div className="w-2 h-2 rounded-full bg-amber shadow-[0_0_8px_rgba(245,166,35,0.8)]" />}
+                  </div>
+                  <p className="text-[11px] text-dim leading-relaxed">Simulated fills within the app. No real exchange connection required. Best for initial logic testing.</p>
+                </button>
+
+                <button
+                  onClick={() => { setField('trading_mode', 'testnet'); setField('paper_mode', false); }}
+                  className={cn(
+                    "p-4 rounded-xl border-2 text-left transition-all",
+                    cfg.trading_mode === 'testnet' ? "border-purple bg-purple/5" : "border-border bg-surface hover:border-dim/50"
+                  )}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-bold">Binance Demo (Testnet)</span>
+                    {cfg.trading_mode === 'testnet' && <div className="w-2 h-2 rounded-full bg-purple shadow-[0_0_8px_rgba(168,85,247,0.8)]" />}
+                  </div>
+                  <p className="text-[11px] text-dim leading-relaxed">Real-time execution on Binance Testnet. Uses demo funds but tests actual connectivity and exchange latency.</p>
+                </button>
+
+                <button
+                  onClick={() => { setField('trading_mode', 'live'); setField('paper_mode', false); }}
+                  className={cn(
+                    "p-4 rounded-xl border-2 text-left transition-all",
+                    cfg.trading_mode === 'live' ? "border-green bg-green/5" : "border-border bg-surface hover:border-dim/50"
+                  )}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-bold">Binance Live Trading</span>
+                    {cfg.trading_mode === 'live' && <div className="w-2 h-2 rounded-full bg-green shadow-[0_0_8px_rgba(34,197,94,0.8)]" />}
+                  </div>
+                  <p className="text-[11px] text-dim leading-relaxed">Real funds on Binance Futures. Use with extreme caution. Ensure API keys have appropriate permissions.</p>
+                </button>
+              </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {field('Paper balance USDT', 'paper_starting_balance', 'number', null, { min: 100, step: 1000 })}
-              {field('Live balance reference', 'live_starting_balance', 'number', null, { min: 0, step: 1000 })}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-4 border-t border-border/50">
+              {field('Initial Balance USDT', cfg.trading_mode === 'paper' ? 'paper_starting_balance' : 'live_starting_balance', 'number', null, { min: 10, step: 100 })}
             </div>
           </div>
         )}

@@ -21,6 +21,9 @@ export class SessionService implements OnModuleInit {
   private currentSessionId: string | null = null;
   private wsBroadcaster: (data: any) => void = () => {};
 
+  private analyticsCache: { data: any; ts: number } | null = null;
+  private readonly CACHE_TTL_MS = 60000; // 1 minute
+
   constructor(
     @InjectRepository(SessionEntity)
     private sessionRepository: Repository<SessionEntity>,
@@ -240,7 +243,14 @@ export class SessionService implements OnModuleInit {
   }
 
   async getAnalytics() {
+    const now = Date.now();
+    if (this.analyticsCache && (now - this.analyticsCache.ts < this.CACHE_TTL_MS)) {
+      return this.analyticsCache.data;
+    }
+
+    // Only fetch minimal columns for analytics to save memory
     const trades = await this.tradeRepository.find({
+      select: ['pnl', 'exit_ts', 'status'],
       where: [
         { status: 'CLOSED' as any },
         { status: 'CLOSED_SL' },
@@ -249,7 +259,9 @@ export class SessionService implements OnModuleInit {
       ],
     });
 
-    return this.analyticsService.calculateAnalytics(trades);
+    const result = this.analyticsService.calculateAnalytics(trades as any);
+    this.analyticsCache = { data: result, ts: now };
+    return result;
   }
 
   async getBinanceRateLimit() {

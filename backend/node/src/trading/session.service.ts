@@ -11,6 +11,7 @@ import { v4 as uuid } from 'uuid';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { decrypt } from '../lib/crypto';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
+import { AnalyticsService } from '../engine/analytics.service';
 
 @Injectable()
 export class SessionService implements OnModuleInit {
@@ -30,6 +31,7 @@ export class SessionService implements OnModuleInit {
     @InjectRepository(SettingsEntity)
     private settingsRepository: Repository<SettingsEntity>,
     private tradingSessionService: TradingSessionService,
+    private analyticsService: AnalyticsService,
   ) {}
 
   async onModuleInit() {
@@ -211,11 +213,6 @@ export class SessionService implements OnModuleInit {
   }
 
   async getHistory() {
-    const engineStatus = this.tradingSessionService.getStatus();
-    if (engineStatus.history?.length) {
-      return { trades: engineStatus.history };
-    }
-
     const closedTrades = await this.tradeRepository.find({
       where: [
         { status: 'CLOSED' as any },
@@ -224,10 +221,23 @@ export class SessionService implements OnModuleInit {
         { status: 'CLOSED_SIGNAL' },
       ],
       order: { exit_ts: 'DESC' },
-      take: 50,
+      take: 200,
     });
 
     return { trades: closedTrades };
+  }
+
+  async getAnalytics() {
+    const trades = await this.tradeRepository.find({
+      where: [
+        { status: 'CLOSED' as any },
+        { status: 'CLOSED_SL' },
+        { status: 'CLOSED_TP' },
+        { status: 'CLOSED_SIGNAL' },
+      ],
+    });
+
+    return this.analyticsService.calculateAnalytics(trades);
   }
 
   async getBinanceRateLimit() {

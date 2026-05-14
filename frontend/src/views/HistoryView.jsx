@@ -4,8 +4,9 @@ import { sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
 import { SectionLabel, StatCard, cn, PaperBadge } from '../components/ui/primitives'
 import { motion, AnimatePresence } from 'framer-motion'
-import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap } from 'lucide-react'
+import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap, BarChart3, LineChart, Target } from 'lucide-react'
 import { Sidebar, BottomNav } from '../components/Navigation'
+import { EquityCurve, TODPerformance } from '../components/Analytics'
 
 const price = (value) => {
   if (value == null) return 'None'
@@ -113,7 +114,9 @@ const SessionGroup = ({ session, trades }) => {
 }
 
 export const HistoryView = () => {
-  const { tradeHistory, updateStats, sessionSummary, sidebarCollapsed, sessionList, fetchSessions } = useTradingStore()
+  const { tradeHistory, updateStats, sessionSummary, sidebarCollapsed, sessionList, fetchSessions, analytics } = useTradingStore()
+  const [fullAnalytics, setFullAnalytics] = useState(null)
+  const [loading, setLoading] = useState(true)
 
   const sessionsWithTrades = useMemo(() => {
     return sessionList.map(session => ({
@@ -133,10 +136,15 @@ export const HistoryView = () => {
   const avgPnl = tradeHistory.length ? totalPnl / tradeHistory.length : 0
 
   useEffect(() => {
-    sessionAPI.history()
-      .then((res) => updateStats({ tradeHistory: res.data.trades || [] }))
-      .catch(() => {})
-    fetchSessions()
+    setLoading(true)
+    Promise.all([
+      sessionAPI.history(),
+      sessionAPI.analytics(),
+      fetchSessions()
+    ]).then(([historyRes, analyticsRes]) => {
+      updateStats({ tradeHistory: historyRes.data.trades || [] })
+      setFullAnalytics(analyticsRes.data)
+    }).finally(() => setLoading(false))
   }, [updateStats, fetchSessions])
 
   return (
@@ -156,11 +164,25 @@ export const HistoryView = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <StatCard label="Total Performance" value={fmtUSD(totalPnl)} color={totalPnl >= 0 ? "text-green" : "text-red"} />
           <StatCard label="Win Rate" value={`${winRate}%`} color="text-accent" subValue={`${wins} Wins / ${tradeHistory.length - wins} Losses`} />
+          <StatCard
+            label="Max Drawdown"
+            value={fullAnalytics ? fmtUSD(-fullAnalytics.maxDrawdown) : (analytics?.maxDrawdown ? fmtUSD(-analytics.maxDrawdown) : '$0.00')}
+            color="text-red"
+            subValue={fullAnalytics ? `${fullAnalytics.maxDrawdownPct.toFixed(1)}% Peak-to-Valley` : (analytics?.maxDrawdownPct ? `${analytics.maxDrawdownPct.toFixed(1)}%` : '0%')}
+          />
           <StatCard label="Average Trade" value={fmtUSD(avgPnl)} color={avgPnl >= 0 ? "text-green" : "text-red"} />
-          <StatCard label="Record Count" value={tradeHistory.length.toString()} color="text-text" />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
+          <div className="lg:col-span-2 bg-surface border border-border rounded-2xl p-6 shadow-sm overflow-hidden relative">
+             <EquityCurve data={fullAnalytics?.cumulativePnL || analytics?.cumulativePnL || []} />
+          </div>
+          <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
+             <TODPerformance data={fullAnalytics?.timeOfDay || []} />
+          </div>
         </div>
 
         {sessionSummary && (

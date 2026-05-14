@@ -21,6 +21,7 @@ import { MonitoringController } from './monitoring.controller';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { DataInjectorService } from '../engine/data_injector.service';
 import { MonitoringService } from '../engine/monitoring.service';
+import { AnalyticsService } from '../engine/analytics.service';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { MonitoringService } from '../engine/monitoring.service';
     SessionService,
     DataInjectorService,
     MonitoringService,
+    AnalyticsService,
   ],
   exports: [
     SignalEngineService,
@@ -53,6 +55,7 @@ import { MonitoringService } from '../engine/monitoring.service';
     MomentumScannerService,
     KlineStoreService,
     MonitoringService,
+    AnalyticsService,
   ],
 })
 export class TradingModule {}

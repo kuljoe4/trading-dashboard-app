@@ -16,6 +16,7 @@ describe('TradingSessionService', () => {
       { start: async () => {}, stop: async () => {} } as any,
       { start: async () => {}, stop: async () => {} } as any,
       { recordHotLoop: jest.fn(), recordMainLoop: jest.fn(), getMetrics: jest.fn().mockReturnValue({}) } as any,
+      { calculateAnalytics: jest.fn().mockReturnValue({ cumulativePnL: [], maxDrawdown: 0, maxDrawdownPct: 0, timeOfDay: [], overallWinRate: 0 }) } as any,
     )
     service.setWsBroadcaster(broadcaster)
   })

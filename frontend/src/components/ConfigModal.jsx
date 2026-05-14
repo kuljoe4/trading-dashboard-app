@@ -161,6 +161,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
           ['signals', 'Signals'],
           ['exit', 'Exit'],
           ['risk', 'Risk'],
+          ['schedule', 'Schedule'],
           ['mode', 'Mode'],
           ['presets', 'Presets'],
         ].map(([id, label]) => (
@@ -309,6 +310,70 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                 <span className="text-sm font-bold font-mono text-accent">{estimatedQty.toFixed(1)}</span>
               </div>
             </div>
+
+            <div className="pt-6 border-t border-border/40 space-y-4">
+               <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Advanced Risk Filters</div>
+               <div className="flex flex-col gap-4">
+                  <Toggle
+                    label="Historical TOD Risk"
+                    value={cfg.risk_use_tod_stats}
+                    onChange={(v) => setField('risk_use_tod_stats', v)}
+                    color="bg-green"
+                  />
+                  {cfg.risk_use_tod_stats && (
+                    <div className="pl-9">
+                       {field('Min Hour WinRate %', 'tod_min_winrate', 'number', null, { min: 10, max: 90, step: 1 })}
+                    </div>
+                  )}
+               </div>
+            </div>
+          </div>
+        )}
+
+        {section === 'schedule' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+               <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Trading Windows (24h)</div>
+               <button
+                  onClick={() => setField('trading_windows', [...(cfg.trading_windows || []), { start: '09:00', end: '17:00' }])}
+                  className="text-[10px] font-bold text-accent uppercase tracking-widest"
+               >+ Add Window</button>
+            </div>
+
+            {(cfg.trading_windows || []).length === 0 ? (
+               <div className="p-8 border border-dashed border-border rounded-xl text-center">
+                  <span className="text-xs text-dim">Trade 24/7 (No restrictions)</span>
+               </div>
+            ) : (
+               <div className="space-y-3">
+                  {cfg.trading_windows.map((w, i) => (
+                    <div key={i} className="flex items-center gap-3 p-4 bg-background border border-border rounded-xl">
+                       <div className="flex-1 flex flex-col gap-1">
+                          <span className="text-[9px] text-dim uppercase font-bold">Start</span>
+                          <input type="time" value={w.start} onChange={(e) => {
+                             const next = [...cfg.trading_windows];
+                             next[i] = { ...next[i], start: e.target.value };
+                             setField('trading_windows', next);
+                          }} className="bg-surface border border-border rounded px-2 py-1 text-xs font-mono" />
+                       </div>
+                       <div className="flex-1 flex flex-col gap-1">
+                          <span className="text-[9px] text-dim uppercase font-bold">End</span>
+                          <input type="time" value={w.end} onChange={(e) => {
+                             const next = [...cfg.trading_windows];
+                             next[i] = { ...next[i], end: e.target.value };
+                             setField('trading_windows', next);
+                          }} className="bg-surface border border-border rounded px-2 py-1 text-xs font-mono" />
+                       </div>
+                       <button onClick={() => setField('trading_windows', cfg.trading_windows.filter((_, idx) => idx !== i))} className="text-red/60 hover:text-red p-2">
+                          <Trash2 size={16} />
+                       </button>
+                    </div>
+                  ))}
+               </div>
+            )}
+            <p className="text-[10px] text-dim/60 leading-relaxed italic">
+               Note: System will enter 'Sleep Mode' outside these windows if no positions are open, reducing API consumption and CPU usage.
+            </p>
           </div>
         )}
 

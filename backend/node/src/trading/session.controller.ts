@@ -54,4 +54,9 @@ export class SessionController {
   async getHistory() {
     return this.sessionService.getHistory();
   }
+
+  @Get('analytics')
+  async getAnalytics() {
+    return this.sessionService.getAnalytics();
+  }
 }

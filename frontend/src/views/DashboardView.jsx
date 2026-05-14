@@ -103,6 +103,7 @@ const GateBanner = ({ gateState, scannerPaused }) => {
   if (!gateState && !scannerPaused) return null
   const messages = {
     max_trades: 'Maximum open trades reached. Entry gated.',
+    max_trades_period: 'Maximum trades for the current period reached. Scanner paused.',
     sl_guard: 'Session Stop-Loss Guard reached. All entries blocked.',
     risk_pct: 'Total risk limit reached. Entries restricted.',
     risk: 'Risk gate active. Monitoring only.',

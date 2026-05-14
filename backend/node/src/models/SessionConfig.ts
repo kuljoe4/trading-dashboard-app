@@ -61,6 +61,10 @@ export class SessionConfig {
 
   max_open_trades_per_symbol?: number = 1;
 
+  max_trades_per_period?: number = 10;
+
+  trades_period_min?: number = 60;
+
   max_total_risk_pct?: number = 5.0;
 
   total_sl_guard_usdt?: number = 200.0;

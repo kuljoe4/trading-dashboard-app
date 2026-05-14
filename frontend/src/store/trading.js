@@ -208,6 +208,13 @@ export const useTradingStore = create((set, get) => ({
     set({ streamingEnabled: enabled })
   },
 
+  setFocusMode: (focused) => {
+    const ws = get().ws
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: focused }))
+    }
+  },
+
   setSessionActive: (active, id) => {
     set({ sessionActive: active, strategyId: id })
     if (active) {
@@ -284,6 +291,11 @@ export const useTradingStore = create((set, get) => ({
       if (data.type === 'status') {
         set((state) => {
           const stopped = data.running === false
+          const nextTrades = stopped ? [] : (data.activeTrades?.map(t => {
+            const prev = state.activeTrades.find(p => p.symbol === t.symbol);
+            return normalizeTrade(t, prev);
+          }).filter(Boolean) || state.activeTrades);
+
           return {
             sessionActive: data.running,
             sessionPaused: data.paused ?? state.sessionPaused,
@@ -292,10 +304,7 @@ export const useTradingStore = create((set, get) => ({
             totalPnl: (data.totalPnl !== undefined && data.totalPnl !== null) ? toNumber(data.totalPnl) : state.totalPnl,
             totalRiskPct: data.totalRiskPct ?? state.totalRiskPct,
             totalSlUsed: data.totalSlUsed ?? state.totalSlUsed,
-            activeTrades: stopped ? [] : (data.activeTrades?.map(t => {
-              const prev = state.activeTrades.find(p => p.symbol === t.symbol);
-              return normalizeTrade(t, prev);
-            }).filter(Boolean) || state.activeTrades),
+            activeTrades: nextTrades,
             logs: data.logLines ? uniqueLogs(data.logLines).slice(0, 100) : state.logs,
             scannerResults: data.scannerResults?.map(normalizeOpportunity) || state.scannerResults,
             activeWindows: data.activeWindows?.map(normalizeWindow) || state.activeWindows,
@@ -311,15 +320,18 @@ export const useTradingStore = create((set, get) => ({
       } else if (data.type === 'session') {
         set((state) => {
           const stopped = data.status === 'stopped'
+          const nextTrades = stopped ? [] : (data.activeTrades?.map(t => {
+            const prev = state.activeTrades.find(p => p.symbol === t.symbol);
+            return normalizeTrade(t, prev);
+          }).filter(Boolean) || state.activeTrades);
+
           return {
             sessionActive: data.running ?? data.status === 'started',
             sessionPaused: data.paused ?? false,
             balance: data.balance ?? state.balance,
             config: data.config ? { ...state.config, ...data.config } : state.config,
-            activeTrades: stopped ? [] : (data.activeTrades?.map(t => {
-              const prev = state.activeTrades.find(p => p.symbol === t.symbol);
-              return normalizeTrade(t, prev);
-            }).filter(Boolean) || state.activeTrades),            scannerResults: data.scannerResults?.map(normalizeOpportunity) || state.scannerResults,
+            activeTrades: nextTrades,
+            scannerResults: data.scannerResults?.map(normalizeOpportunity) || state.scannerResults,
             activeWindows: data.activeWindows?.map(normalizeWindow) || state.activeWindows,
             tradeHistory: data.history?.map(t => {
               const prev = state.tradeHistory.find(p => p.symbol === t.symbol);
@@ -338,23 +350,33 @@ export const useTradingStore = create((set, get) => ({
           }
         })
       } else if (data.type === 'tick') {
-        set((state) => ({
-          balance: data.balance ?? state.balance,
-          totalPnl: (data.total_pnl !== undefined && data.total_pnl !== null) ? toNumber(data.total_pnl) : state.totalPnl,
-          totalRiskPct: data.total_risk_pct ?? state.totalRiskPct,
-          totalSlUsed: data.total_sl_used ?? state.totalSlUsed,
-          activeTrades: data.trades ? (data.trades || []).map(t => {
+        set((state) => {
+          const nextTrades = data.trades ? (data.trades || []).map(t => {
             const prev = state.activeTrades.find(p => p.symbol === t.symbol);
             return normalizeTrade(t, prev);
-          }).filter(Boolean) : state.activeTrades,
-          activeWindows: data.activeWindows ? (data.activeWindows || []).map(normalizeWindow) : state.activeWindows,
-          gateState: data.gateState !== undefined ? data.gateState : state.gateState,
-          sessionPaused: data.paused !== undefined ? data.paused : state.sessionPaused,
-          scannerPaused: data.scannerPaused !== undefined ? data.scannerPaused : state.scannerPaused,
-          rateLimit: data.rateLimit || state.rateLimit,
-          monitoring: data.monitoring || state.monitoring,
-          config: data.config ? { ...state.config, ...data.config } : state.config,
-        }))
+          }).filter(Boolean) : state.activeTrades;
+
+          // Only update activeTrades if reference should change (data changed)
+          // We still allow PnL changes to trigger updates, but we avoid re-creating 
+          // the array if the backend sends redundant ticks.
+          const tradesChanged = !data.trades || nextTrades.length !== state.activeTrades.length || 
+                               nextTrades.some((t, i) => t.symbol !== state.activeTrades[i]?.symbol || t.pnl !== state.activeTrades[i]?.pnl || t.current_price !== state.activeTrades[i]?.current_price);
+
+          return {
+            balance: data.balance ?? state.balance,
+            totalPnl: (data.total_pnl !== undefined && data.total_pnl !== null) ? toNumber(data.total_pnl) : state.totalPnl,
+            totalRiskPct: data.total_risk_pct ?? state.totalRiskPct,
+            totalSlUsed: data.total_sl_used ?? state.totalSlUsed,
+            activeTrades: tradesChanged ? nextTrades : state.activeTrades,
+            activeWindows: data.activeWindows ? (data.activeWindows || []).map(normalizeWindow) : state.activeWindows,
+            gateState: data.gateState !== undefined ? data.gateState : state.gateState,
+            sessionPaused: data.paused !== undefined ? data.paused : state.sessionPaused,
+            scannerPaused: data.scannerPaused !== undefined ? data.scannerPaused : state.scannerPaused,
+            rateLimit: data.rateLimit || state.rateLimit,
+            monitoring: data.monitoring || state.monitoring,
+            config: data.config ? { ...state.config, ...data.config } : state.config,
+          };
+        })
       } else if (data.type === 'log') {
         get().addLog(data)
       } else if (data.type === 'scanner') {

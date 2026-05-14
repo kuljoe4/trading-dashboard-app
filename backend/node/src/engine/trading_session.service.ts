@@ -400,24 +400,29 @@ export class TradingSessionService {
   private serializeTrade(trade: Trade, currentPrice?: number) {
     const anyTrade = trade as any;
     const direction = (anyTrade.direction || anyTrade.side || 'LONG').toString().toUpperCase();
-    const current = currentPrice ?? anyTrade.exit_price ?? anyTrade.entry_price ?? 0;
     const entry = anyTrade.entry_price ?? anyTrade.entry ?? 0;
-    const risk = Math.abs(entry - (anyTrade.initial_sl ?? anyTrade.current_sl ?? anyTrade.sl_price ?? anyTrade.sl ?? entry)) || 1;
-    const pnl = Number.isFinite(current) && Number.isFinite(entry)
-      ? (direction === 'LONG' ? (current - entry) * (anyTrade.qty ?? 0) : (entry - current) * (anyTrade.qty ?? 0))
-      : 0;
-    const rrValue = Number.isFinite(current) && Number.isFinite(entry)
-      ? ((direction === 'LONG' ? (current - entry) : (entry - current)) / risk)
-      : 0;
+    
+    // Use currentPrice if provided, or fallback to exit_price for closed trades.
+    // We avoid falling back to entry_price here to prevent PnL flickering to 0.
+    const current = currentPrice ?? anyTrade.exit_price;
+    
+    let pnl = undefined;
+    let rrValue = undefined;
+
+    if (current !== undefined && Number.isFinite(current) && Number.isFinite(entry)) {
+      pnl = (direction === 'LONG' ? (current - entry) * (anyTrade.qty ?? 0) : (entry - current) * (anyTrade.qty ?? 0));
+      const risk = Math.abs(entry - (anyTrade.initial_sl ?? anyTrade.current_sl ?? anyTrade.sl_price ?? anyTrade.sl ?? entry)) || 1;
+      rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / risk;
+    }
 
     return {
       ...trade,
       direction,
-      current_price: current,
+      current_price: current ?? entry,
       sl_price: anyTrade.current_sl ?? anyTrade.sl_price,
       tp_price: anyTrade.tp ?? anyTrade.tp_price,
-      pnl: Number.isFinite(pnl) ? pnl : 0,
-      rr: Number.isFinite(rrValue) ? rrValue : 0,
+      pnl: pnl !== undefined && Number.isFinite(pnl) ? pnl : undefined,
+      rr: rrValue !== undefined && Number.isFinite(rrValue) ? rrValue : undefined,
       paper_mode: this.config?.paper_mode,
       trading_mode: this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live'),
       max_rr: anyTrade.max_rr_achieved ?? anyTrade.max_rr ?? 0,
@@ -429,11 +434,23 @@ export class TradingSessionService {
     };
   }
 
+  private lastTickData: any = null;
+  private lastTickTime = 0;
+
   private async broadcastTick() {
     const activeTrades = this.positionTracker.activeList();
     const trades = await Promise.all(activeTrades.map(async (trade) => {
-      const current = await this.tickerCache.getPrice(trade.symbol);
-      return this.serializeTrade(trade, current || trade.entry_price);
+      let current = await this.tickerCache.getPrice(trade.symbol);
+      
+      // Fallback to previous price if cache miss to prevent PnL flickering
+      if (current === null && this.lastTickData) {
+        const prevTrade = this.lastTickData.trades?.find((t: any) => t.symbol === trade.symbol);
+        if (prevTrade) {
+          current = prevTrade.current_price;
+        }
+      }
+      
+      return this.serializeTrade(trade, current ?? undefined);
     }));
     const activePnl = trades.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
     const balance = this.getBalance();
@@ -445,7 +462,8 @@ export class TradingSessionService {
     const totalPnl = realizedPnl + activePnl;
     const totalRiskUsdt = this.positionTracker.totalRisk();
 
-    this.broadcast('tick', {
+    const monitoring = this.monitoringService.getMetrics();
+    const tickData = {
       balance,
       total_pnl: totalPnl,
       total_risk_pct: balance > 0 ? (totalRiskUsdt / balance) * 100 : 0,
@@ -456,8 +474,34 @@ export class TradingSessionService {
       scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period' || this.paused,
       activeWindows: this.getActiveWindows(),
       rateLimit: this.getBinanceRateLimit(),
-      monitoring: this.monitoringService.getMetrics(),
-    });
+      monitoring,
+    };
+
+    const now = Date.now();
+    const hasActiveTrades = trades.length > 0;
+    
+    // Optimization: Only broadcast if significant data changed or as a heartbeat
+    let shouldBroadcast = !this.lastTickData || (now - this.lastTickTime > 5000); // Heartbeat every 5s
+
+    if (!shouldBroadcast) {
+      const prevTrades = this.lastTickData?.trades || [];
+      const tradesChanged = trades.length !== prevTrades.length || 
+                            trades.some((t, i) => t.symbol !== prevTrades[i]?.symbol || Math.abs((t.pnl || 0) - (prevTrades[i]?.pnl || 0)) > 0.1);
+      
+      const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) > 0.05;
+      const monitoringChanged = Math.abs((monitoring?.system?.cpu_usage || 0) - (this.lastTickData?.monitoring?.system?.cpu_usage || 0)) > 5;
+      const gateChanged = tickData.gateState !== this.lastTickData?.gateState;
+
+      if (tradesChanged || pnlChanged || monitoringChanged || gateChanged) {
+        shouldBroadcast = true;
+      }
+    }
+
+    if (shouldBroadcast) {
+      this.broadcast('tick', tickData);
+      this.lastTickData = tickData;
+      this.lastTickTime = now;
+    }
   }
 
   private broadcastSnapshot(status: 'started' | 'stopped') {

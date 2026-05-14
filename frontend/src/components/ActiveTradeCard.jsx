@@ -27,18 +27,18 @@ export const ActiveTradeCard = ({ trade, onTradeClose }) => {
           <span>{trade.symbol || '---'}</span>
           <span className={trade.direction === 'LONG' ? 'text-green' : 'text-red'}>{trade.direction || '---'}</span>
         </div>
-        <div className={`text-lg font-bold ${pnlColor(trade.pnl)}`}>
-          {fmtUSD(trade.pnl)}
+        <div className={`text-lg font-bold ${trade.pnl != null ? pnlColor(trade.pnl) : 'text-dim'}`}>
+          {trade.pnl != null ? fmtUSD(trade.pnl) : '---'}
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-dim">
         <div className="flex flex-col gap-1">
           <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">Entry</span>
-          <span>{fmtUSD(trade.entry_price)}</span>
+          <span>{trade.entry_price != null ? fmtUSD(trade.entry_price) : '---'}</span>
         </div>
         <div className="flex flex-col gap-1">
           <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">Qty</span>
-          <span>{trade.qty}</span>
+          <span>{trade.qty != null ? trade.qty : '---'}</span>
         </div>
       </div>
       <button

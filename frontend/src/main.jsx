@@ -1,11 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
-import { DashboardView } from './views/DashboardView';
-import { SettingsView } from './views/SettingsView';
-import { HistoryView } from './views/HistoryView';
 import { useTradingStore } from './store/trading';
 import { sessionAPI } from './api/client';
 import './index.css';
+
+const DashboardView = lazy(() => import('./views/DashboardView').then(m => ({ default: m.DashboardView })));
+const SettingsView = lazy(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })));
+const HistoryView = lazy(() => import('./views/HistoryView').then(m => ({ default: m.HistoryView })));
+
+const LoadingView = () => (
+  <div className="min-h-screen bg-background flex items-center justify-center">
+    <div className="flex flex-col items-center gap-4">
+      <div className="w-10 h-10 border-4 border-accent border-t-transparent rounded-full animate-spin" />
+      <span className="text-[10px] text-dim font-bold uppercase tracking-[0.2em]">Synchronizing...</span>
+    </div>
+  </div>
+);
 
 const App = () => {
   const { 
@@ -57,7 +67,9 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-background text-text font-sans selection:bg-accent selection:text-white">
-      {renderView()}
+      <Suspense fallback={<LoadingView />}>
+        {renderView()}
+      </Suspense>
     </div>
   );
 };

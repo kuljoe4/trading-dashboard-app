@@ -15,10 +15,10 @@ export class MonitoringService {
 
   constructor() {
     this.measureEventLoopLag();
-    // Update CPU metrics every 2 seconds to avoid jitter from multiple callers
+    // Update CPU metrics every 5 seconds to reduce overhead
     setInterval(() => {
       if (this.enabled) this.updateCpuMetrics();
-    }, 2000);
+    }, 5000);
   }
 
   setEnabled(enabled: boolean) {
@@ -30,11 +30,11 @@ export class MonitoringService {
 
   private measureEventLoopLag() {
     if (!this.enabled) {
-      setTimeout(() => this.measureEventLoopLag(), 2000);
+      setTimeout(() => this.measureEventLoopLag(), 5000);
       return;
     }
     const start = Date.now();
-    const delay = 1000;
+    const delay = 5000; // Increased delay to 5s
     setTimeout(() => {
       if (!this.enabled) {
         this.measureEventLoopLag();
@@ -43,7 +43,7 @@ export class MonitoringService {
       const end = Date.now();
       const lag = Math.max(0, end - start - delay);
       this.eventLoopLag = lag;
-      if (this.eventLoopLag > 100) {
+      if (this.eventLoopLag > 150) { // Increased warning threshold
         this.logger.warn(`High event loop lag detected: ${this.eventLoopLag}ms`);
       }
       this.measureEventLoopLag();

@@ -60,6 +60,11 @@ async function bootstrap() {
     wss.clients.forEach((client: any) => {
       if (client.readyState !== client.OPEN) return;
 
+      // Focus Mode: Suppress scanner updates to save bandwidth/CPU when user is in Detail View
+      if (basePayload.type === 'scanner' && client.focusMode === true) {
+        return;
+      }
+
       // Suppress monitoring data if client has it disabled
       if (basePayload.type === 'tick' && client.monitoringEnabled === false) {
         const stripped = { ...basePayload };
@@ -87,6 +92,7 @@ async function bootstrap() {
 
   wss.on('connection', async (socket: any) => {
     socket.monitoringEnabled = true; // Default to enabled
+    socket.focusMode = false; // Default to disabled
     socket.logFilters = { info: true, warn: true, error: true };
     updateMonitoringSuppression();
     
@@ -101,6 +107,11 @@ async function bootstrap() {
           socket.monitoringEnabled = data.enabled === true;
           console.log(`Client monitoring preference updated: ${socket.monitoringEnabled}`);
           updateMonitoringSuppression();
+        }
+
+        if (data.type === 'set_focus_mode') {
+          socket.focusMode = data.enabled === true;
+          console.log(`Client focus mode updated: ${socket.focusMode}`);
         }
 
         if (data.type === 'set_log_filters' && typeof data.filters === 'object' && data.filters !== null) {

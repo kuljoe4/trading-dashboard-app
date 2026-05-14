@@ -155,11 +155,29 @@ export class SessionService implements OnModuleInit {
     // Stop the actual trading engine
     await this.tradingSessionService.stop();
 
-    this.logger.log('Stopping trading session');
+    // Persist all closed trades to database
+    const closedTrades = this.tradingSessionService.getClosedTrades();
+    let persistedCount = 0;
+    for (const trade of closedTrades) {
+      if ((trade as any)._persisted) continue;
+      try {
+        const tradeEntity = this.tradeRepository.create({
+          ...trade,
+          status: trade.status || 'CLOSED',
+          sessionId: this.currentSessionId!,
+        });
+        await this.tradeRepository.save(tradeEntity);
+        persistedCount += 1;
+      } catch (error) {
+        this.logger.error(`Failed to persist trade ${trade.symbol}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    this.logger.log(`Stopping trading session. Persisted ${persistedCount} closed trades.`);
     this.sessionRunning = false;
     this.currentSessionId = null;
     
-    return { status: 'stopped' };
+    return { status: 'stopped', tradesPerformed: persistedCount };
   }
 
   async getStatus() {
@@ -265,6 +283,29 @@ export class SessionService implements OnModuleInit {
   async removeTrade(symbol: string) {
     await this.tradeRepository.update({ symbol, status: 'OPEN' }, { status: 'CLOSED' });
     this.logger.log(`Closed trade ${symbol} in database`);
+  }
+
+  // Manually close a trade
+  async closeTradeManually(symbol: string) {
+    if (!this.sessionRunning) {
+      throw new Error('No session running');
+    }
+
+    const result = await this.tradingSessionService.closeTradeManually(symbol);
+    
+    if (result.success && result.trade) {
+      // Persist the closed trade to database
+      const tradeEntity = this.tradeRepository.create({
+        ...result.trade,
+        status: result.trade.status || 'CLOSED',
+        sessionId: this.currentSessionId!,
+      });
+      await this.tradeRepository.save(tradeEntity);
+      (result.trade as any)._persisted = true;
+      this.logger.log(`Manually closed trade ${symbol}`);
+    }
+
+    return result;
   }
 
   // Add log line

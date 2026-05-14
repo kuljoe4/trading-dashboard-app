@@ -7,6 +7,8 @@ const SIGNALS = [
   ['momentum_pct', '% Momentum'],
   ['breakout_hl', 'Breakout H/L'],
   ['ema_cross', 'EMA Cross'],
+  ['ma', 'MA Cross'],
+  ['engulfing', 'Engulfing'],
 ]
 
 const Toggle = ({ value, onChange, label, color = "bg-accent" }) => (
@@ -53,6 +55,25 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     const saved = localStorage.getItem('strategy_presets')
     if (saved) setPresets(JSON.parse(saved))
   }, [])
+
+  useEffect(() => {
+    // Parse signal_params when initialConfig changes
+    if (initialConfig && initialConfig.signal_params) {
+      try {
+        const params = typeof initialConfig.signal_params === 'string'
+          ? JSON.parse(initialConfig.signal_params)
+          : initialConfig.signal_params;
+        setCfg(prev => ({
+          ...prev,
+          ...initialConfig,
+          signal_params_ma_period: params.ma_period,
+          signal_params_ema_period: params.ema_period,
+        }));
+      } catch (e) {
+        setCfg({ ...initialConfig })
+      }
+    }
+  }, [initialConfig])
 
   const setField = (key, value) => setCfg((prev) => ({ ...prev, [key]: value }))
 
@@ -226,11 +247,101 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                 )
               })}
             </div>
+
+            <div className="space-y-4 border-t border-border pt-4">
+              <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Signal Parameters</div>
+              <div className="grid grid-cols-2 gap-5">
+                {field('MA Period', 'signal_params_ma_period', 'number', null, { min: 5, max: 50, step: 1 })}
+                {field('EMA Period', 'signal_params_ema_period', 'number', null, { min: 5, max: 50, step: 1 })}
+              </div>
+              <div className="text-xs text-dim">
+                <p>• MA Period: Lookback bars for Moving Average cross signal</p>
+                <p>• EMA Period: Lookback bars for Exponential Moving Average signal</p>
+              </div>
+            </div>
           </div>
         )}
 
         {section === 'exit' && (
           <div className="space-y-8">
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Exit Signals (Optional)</div>
+                <div className="flex gap-2 p-1 bg-background rounded-lg scale-90 origin-right">
+                  <button
+                    className={cn("px-3 py-1 text-[9px] font-bold rounded-md transition-all", (cfg.exit_signal_logic || 'any') === 'any' ? "bg-surface text-red shadow-sm" : "text-dim")}
+                    onClick={() => setField('exit_signal_logic', 'any')}
+                  >Allow Any</button>
+                  <button
+                    className={cn("px-3 py-1 text-[9px] font-bold rounded-md transition-all", cfg.exit_signal_logic === 'all' ? "bg-surface text-red shadow-sm" : "text-dim")}
+                    onClick={() => setField('exit_signal_logic', 'all')}
+                  >Require All</button>
+                </div>
+              </div>
+              <div className="text-xs text-dim mb-3">Signals that will close positions automatically. Set activation delay (sec) for each.</div>
+              <div className="grid grid-cols-1 gap-3">
+                {SIGNALS.map(([key, label]) => {
+                  const active = (cfg.exit_signals || []).includes(key)
+                  const delay = (cfg.exit_signal_delays || {})[key] || 0
+                  return (
+                    <div key={key} className={cn(
+                      "flex flex-col gap-3 p-3 rounded-xl border transition-all",
+                      active ? "border-red/40 bg-red/5" : "border-border bg-background/50"
+                    )}>
+                      <div className="flex items-center justify-between">
+                        <button
+                          type="button"
+                          onClick={() => setField('exit_signals', active
+                            ? (cfg.exit_signals || []).filter((s) => s !== key)
+                            : [...(cfg.exit_signals || []), key])}
+                          className={cn(
+                            "flex-1 text-left text-sm font-bold transition-colors",
+                            active ? "text-red" : "text-dim hover:text-text"
+                          )}
+                        >
+                          {label}
+                        </button>
+                        <Switch.Root
+                          checked={active}
+                          onCheckedChange={(val) => setField('exit_signals', val
+                            ? [...(cfg.exit_signals || []), key]
+                            : (cfg.exit_signals || []).filter((s) => s !== key))}
+                          className={cn(
+                            "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors",
+                            active ? "bg-red" : "bg-border"
+                          )}
+                        >
+                          <Switch.Thumb className={cn(
+                            "pointer-events-none block h-4 w-4 rounded-full bg-white transition-transform",
+                            active ? "translate-x-4" : "translate-x-0"
+                          )} />
+                        </Switch.Root>
+                      </div>
+                      {active && (
+                        <div className="flex items-center gap-3 pt-2 border-t border-red/10 animate-in fade-in slide-in-from-top-1 duration-300">
+                          <span className="text-[10px] text-dim font-bold uppercase tracking-tight">Activation Delay</span>
+                          <div className="flex-1 flex items-center gap-2">
+                            <input
+                              type="number"
+                              min="0"
+                              max="3600"
+                              value={delay}
+                              onChange={(e) => setField('exit_signal_delays', {
+                                ...(cfg.exit_signal_delays || {}),
+                                [key]: Number(e.target.value)
+                              })}
+                              className="w-20 bg-surface border border-red/20 rounded px-2 py-1 text-xs font-mono text-red focus:outline-none focus:border-red/50"
+                            />
+                            <span className="text-[10px] text-red/60 font-bold uppercase">Seconds</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
             <div className="space-y-4">
               <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Take Profit Mode</div>
               <div className="flex gap-2 p-1 bg-background rounded-lg">
@@ -429,7 +540,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
 
       <div className="p-5 border-t border-border bg-surface flex gap-3 shrink-0">
         <Btn variant="ghost" onClick={onClose} className="flex-1">Cancel</Btn>
-        <Btn variant="primary" onClick={() => onSave(cfg)} className="flex-[2]">
+        <Btn variant="primary" onClick={() => {
+          const configToSave = { ...cfg };
+          // Serialize signal parameters
+          const signalParams = {
+            ...(typeof cfg.signal_params === 'string' ? JSON.parse(cfg.signal_params || '{}') : cfg.signal_params || {})
+          };
+          if (cfg.signal_params_ma_period) signalParams.ma_period = cfg.signal_params_ma_period;
+          if (cfg.signal_params_ema_period) signalParams.ema_period = cfg.signal_params_ema_period;
+          configToSave.signal_params = JSON.stringify(signalParams);
+          onSave(configToSave);
+        }} className="flex-[2]">
           {isEdit ? 'Apply Changes' : 'Start Session'}
         </Btn>
       </div>

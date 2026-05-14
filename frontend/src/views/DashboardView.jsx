@@ -302,6 +302,29 @@ const StrategyDetailView = ({ s, onBack }) => {
         </div>
       </div>
 
+      {/* Exit Gates */}
+      {s.activeTrades[0]?.exit_signals_status && (
+        <div className="mb-10">
+          <SectionLabel>Exit Strategy Monitor</SectionLabel>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {Object.entries(s.activeTrades[0].exit_signals_status).map(([key, status]) => {
+              const label = key.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) + " Exit";
+              return (
+                <ConditionWidget
+                  key={key}
+                  label={label}
+                  value={status.active ? (status.fired ? 1 : 0) : status.remaining_delay}
+                  threshold={status.active ? 1 : 0}
+                  unit={status.active ? "" : "s"}
+                  satisfied={status.fired && status.active}
+                  sublabel={status.active ? (status.fired ? "Signal Firing" : "Monitoring...") : `Activating in ${Math.round(status.remaining_delay)}s`}
+                />
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Active Position */}
       <div className="mb-10">
         <SectionLabel>Tactical Overview</SectionLabel>
@@ -667,7 +690,7 @@ export function DashboardView() {
                 </VisuallyHidden>
               </div>
               <div className="flex-1 overflow-y-auto">
-                <ScannerOverlay onClose={() => setShowScanner(false)} />
+                {showScanner && <ScannerOverlay onClose={() => setShowScanner(false)} />}
               </div>
             </Drawer.Content>
           </Drawer.Portal>

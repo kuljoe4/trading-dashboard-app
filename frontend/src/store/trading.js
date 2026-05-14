@@ -379,7 +379,12 @@ export const useTradingStore = create((set, get) => ({
         const trade = data.trade ? normalizeTrade(data.trade) : null
         get().addLog({ level: 'info', msg: `${data.symbol}: ${data.event} ${data.reason || ''}` })
         set((state) => ({
-          tradeHistory: data.event === 'closed' && trade ? [trade, ...state.tradeHistory].slice(0, 50) : state.tradeHistory,
+          activeTrades: data.event === 'closed'
+            ? state.activeTrades.filter((t) => t.symbol !== data.symbol)
+            : state.activeTrades,
+          tradeHistory: data.event === 'closed' && trade
+            ? [trade, ...state.tradeHistory].slice(0, 50)
+            : state.tradeHistory,
         }))
       } else if (data.type === 'gate') {
         set((state) => ({

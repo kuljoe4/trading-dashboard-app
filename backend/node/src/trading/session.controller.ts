@@ -12,6 +12,16 @@ export class SessionController {
       return this.sessionService.startSession(body.config || {} as any, body.paper_mode ?? true, body.sessionId);
     }
     const config = Object.assign(new SessionConfig(), body.config);
+    
+    // Parse signal_params if it's a JSON string
+    if (config.signal_params && typeof config.signal_params === 'string') {
+      try {
+        config.signal_params = JSON.parse(config.signal_params);
+      } catch (e) {
+        // If parsing fails, keep as is
+      }
+    }
+    
     return this.sessionService.startSession(config, body.paper_mode ?? true);
   }
 
@@ -27,7 +37,18 @@ export class SessionController {
 
   @Patch(':id')
   async updateSession(@Param('id') id: string, @Body() body: { config: SessionConfig }) {
-    return this.sessionService.updateSession(id, body.config);
+    const config = Object.assign(new SessionConfig(), body.config);
+    
+    // Parse signal_params if it's a JSON string
+    if (config.signal_params && typeof config.signal_params === 'string') {
+      try {
+        config.signal_params = JSON.parse(config.signal_params);
+      } catch (e) {
+        // If parsing fails, keep as is
+      }
+    }
+    
+    return this.sessionService.updateSession(id, config);
   }
 
   @Post('pause')
@@ -53,5 +74,10 @@ export class SessionController {
   @Get('history')
   async getHistory() {
     return this.sessionService.getHistory();
+  }
+
+  @Post('trade/:symbol/close')
+  async closeTradeManually(@Param('symbol') symbol: string) {
+    return this.sessionService.closeTradeManually(symbol);
   }
 }

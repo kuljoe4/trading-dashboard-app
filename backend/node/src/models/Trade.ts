@@ -35,6 +35,13 @@ export class Trade {
 
   exit_signal_reason?: string;
 
+  exit_signals_status?: Record<string, {
+    fired: boolean;
+    active: boolean;
+    remaining_delay: number;
+    label: string;
+  }>;
+
   entry_signal_type?: string;
 
   entry_signal_confidence = 0;

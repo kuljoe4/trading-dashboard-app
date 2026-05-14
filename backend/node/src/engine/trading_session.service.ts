@@ -423,6 +423,7 @@ export class TradingSessionService {
       max_rr: anyTrade.max_rr_achieved ?? anyTrade.max_rr ?? 0,
       live_rr_sequence: this.config?.live_rr_sequence || [],
       exit_rr_sequence: this.config?.exit_rr_sequence || [],
+      exit_signal_logic: this.config?.exit_signal_logic || 'any',
       tp_mode: this.config?.tp_mode || 'fixed',
       tp_ratio: this.config?.tp_ratio || 2,
     };
@@ -607,5 +608,53 @@ export class TradingSessionService {
       limit: 1200,
       last_update: new Date().toISOString(),
     };
+  }
+
+  /**
+   * Get all closed trades for persistence
+   */
+  getClosedTrades(): Trade[] {
+    return this.closedTrades;
+  }
+
+  /**
+   * Manually close a trade at current market price
+   */
+  async closeTradeManually(symbol: string): Promise<{ success: boolean; trade?: Trade; error?: string }> {
+    if (!this.running) {
+      return { success: false, error: 'No session running' };
+    }
+
+    const activeTrades = this.positionTracker.activeList();
+    const trade = activeTrades.find(t => t.symbol === symbol);
+
+    if (!trade) {
+      return { success: false, error: `No open position for ${symbol}` };
+    }
+
+    const currentPrice = await this.tickerCache.getPrice(symbol);
+    if (!currentPrice) {
+      return { success: false, error: `Could not fetch price for ${symbol}` };
+    }
+
+    // Close the trade
+    const result = await this.positionTracker.closeTrade(symbol, currentPrice, 'MANUAL_CLOSE', this.config!);
+    
+    if (result.exitOccurred && result.trade) {
+      this.updateBalance(result.trade);
+      this.closedTrades.unshift(result.trade);
+      
+      this.broadcast('trade_event', {
+        event: 'closed',
+        symbol: result.trade.symbol,
+        reason: 'MANUAL_CLOSE',
+        trade: this.serializeTrade(result.trade, currentPrice),
+        pnl: result.trade.pnl,
+      });
+
+      return { success: true, trade: result.trade };
+    }
+
+    return { success: false, error: 'Failed to close trade' };
   }
 }

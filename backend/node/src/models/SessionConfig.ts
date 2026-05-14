@@ -54,6 +54,10 @@ export class SessionConfig {
   // Exit Signal Configuration - ANY exit signal fires close
   exit_signals?: string[] = [];
 
+  exit_signal_logic?: 'any' | 'all' = 'any';
+
+  exit_signal_delays?: Record<string, number> = {};
+
   // Risk Management
   risk_pct_per_trade?: number = 1.0;
 

@@ -88,10 +88,24 @@ export class OrderManagerService {
       return { exitTriggered: false };
     }
 
+    const tradeAgeSec = trade.entry_ts
+      ? (Date.now() - new Date(trade.entry_ts).getTime()) / 1000
+      : 0;
+
+    const statuses: Record<string, { fired: boolean, active: boolean, remaining_delay: number, label: string }> = {};
+    const delays = config.exit_signal_delays || {};
+    const logic = config.exit_signal_logic || 'any';
+
+    let firedCount = 0;
+    let activeCount = 0;
+
     // Check each exit signal
-    // Exit signals work like entry signals but in opposite direction
     for (const exitSignal of config.exit_signals) {
       try {
+        const delay = delays[exitSignal] || 0;
+        const isActive = tradeAgeSec >= delay;
+        const remaining = Math.max(0, delay - tradeAgeSec);
+
         // Create temp config with only the exit signal enabled
         const tempConfig = {
           ...config,
@@ -99,10 +113,20 @@ export class OrderManagerService {
         };
 
         const result = await this.signalEngine.checkEntry(symbol, tempConfig, interval);
+        const isFired = result.allFired;
 
-        if (result.allFired) {
-          this.logger.log(`Exit signal ${exitSignal} fired for ${symbol}`);
-          return { exitTriggered: true, exitSignalType: exitSignal };
+        statuses[exitSignal] = {
+          fired: isFired,
+          active: isActive,
+          remaining_delay: remaining,
+          label: exitSignal, // Could map to pretty name if needed
+        };
+
+        if (isFired && isActive) {
+          firedCount++;
+        }
+        if (isActive) {
+          activeCount++;
         }
       } catch (err) {
         this.logger.debug(
@@ -111,7 +135,31 @@ export class OrderManagerService {
       }
     }
 
-    return { exitTriggered: false };
+    // Update trade status for frontend
+    trade.exit_signals_status = statuses;
+
+    const allEnabled = config.exit_signals.length;
+    let exitTriggered = false;
+    let exitSignalType: string | undefined;
+
+    if (logic === 'any') {
+      exitTriggered = firedCount > 0;
+      if (exitTriggered) {
+        exitSignalType = Object.keys(statuses).find(k => statuses[k].fired && statuses[k].active);
+      }
+    } else {
+      // 'all' logic: all signals must be active AND fired
+      exitTriggered = firedCount === allEnabled && activeCount === allEnabled;
+      if (exitTriggered) {
+        exitSignalType = 'combined';
+      }
+    }
+
+    if (exitTriggered) {
+      this.logger.log(`Exit triggered for ${symbol} via ${logic.toUpperCase()} logic (signals fired: ${firedCount}/${allEnabled})`);
+    }
+
+    return { exitTriggered, exitSignalType };
   }
 
   async closeTrade(

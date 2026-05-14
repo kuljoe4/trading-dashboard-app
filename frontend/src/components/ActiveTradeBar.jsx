@@ -1,7 +1,8 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { pnlColor, fmtUSD, fmt, C } from '../lib/theme'
-import { PulseDot, PaperBadge, cn } from './ui/primitives'
-import { Info, TrendingUp, ShieldAlert, Target, Activity, Zap } from 'lucide-react'
+import { PulseDot, PaperBadge, ConditionWidget, cn } from './ui/primitives'
+import { Info, TrendingUp, ShieldAlert, Target, Activity, Zap, XCircle, ShieldCheck } from 'lucide-react'
+import { sessionAPI } from '../api/client'
 
 const price = (value) => {
   if (value == null || Number.isNaN(Number(value))) return 'None'
@@ -110,7 +111,58 @@ const RRLadder = React.memo(({ trade }) => {
   )
 })
 
+const ExitMonitor = React.memo(({ status, logic }) => {
+  if (!status || Object.keys(status).length === 0) return null;
+
+  return (
+    <div className="bg-red/5 border border-red/20 rounded-2xl p-5 mt-5 shadow-[0_0_20px_rgba(255,68,102,0.03)]">
+      <div className="flex justify-between items-center mb-5">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg bg-red/10 border border-red/20 flex items-center justify-center">
+            <ShieldCheck size={14} className="text-red" fill="currentColor" />
+          </div>
+          <span className="text-[11px] text-red font-bold tracking-widest uppercase">Exit Protection</span>
+        </div>
+        <div className="text-[9px] text-dim font-bold uppercase tracking-widest opacity-60 px-2 py-0.5 bg-surface border border-border rounded-md">
+          Logic: {logic === 'all' ? 'Require All' : 'Allow Any'}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {Object.entries(status).map(([key, s]) => {
+          const label = key.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+          return (
+            <ConditionWidget
+              key={key}
+              label={label}
+              value={s.active ? (s.fired ? 1 : 0) : s.remaining_delay}
+              threshold={s.active ? 1 : 0}
+              unit={s.active ? "" : "s"}
+              satisfied={s.fired && s.active}
+              sublabel={s.active ? (s.fired ? "Signal Firing" : "Monitoring...") : `Activating in ${Math.round(s.remaining_delay)}s`}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+});
+
 export const ActiveTradeBar = React.memo(({ trade, compact = false }) => {
+  const [isClosing, setIsClosing] = useState(false)
+
+  const handleClose = async () => {
+    setIsClosing(true)
+    try {
+      await sessionAPI.closeTrade(trade.symbol)
+    } catch (error) {
+      console.error('Failed to close trade:', error)
+      alert(`Error closing trade: ${error.message}`)
+    } finally {
+      setIsClosing(false)
+    }
+  }
+
   if (!trade) return (
     <div className="h-[460px] flex items-center justify-center rounded-2xl border border-border border-dashed bg-surface/20">
       <div className="text-[11px] font-bold text-dim uppercase tracking-widest flex flex-col items-center gap-4 animate-pulse">
@@ -213,6 +265,19 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false }) => {
       </div>
 
       {isExpRR && <RRLadder trade={trade} />}
+
+      <ExitMonitor status={trade.exit_signals_status} logic={trade.exit_signal_logic} />
+
+      <div className="mt-6 flex gap-3">
+        <button
+          onClick={handleClose}
+          disabled={isClosing}
+          className="flex-1 px-4 py-3 bg-red hover:bg-red/80 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+        >
+          <XCircle size={16} />
+          {isClosing ? 'Closing...' : 'Close Position'}
+        </button>
+      </div>
     </div>
   )
 })

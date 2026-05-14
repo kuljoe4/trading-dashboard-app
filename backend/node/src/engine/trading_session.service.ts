@@ -33,6 +33,9 @@ export class TradingSessionService {
   private mainLoopInterval: NodeJS.Timeout | null = null;
   private hotLoopInterval: NodeJS.Timeout | null = null;
   private balancePollInterval: NodeJS.Timeout | null = null;
+  private userDataWs: any = null;
+  private listenKey: string | null = null;
+  private listenKeyKeepAlive: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly tickerCache: TickerCacheService,
@@ -86,15 +89,19 @@ export class TradingSessionService {
         this.logger.warn(`Failed to fetch live balance: ${error instanceof Error ? error.message : String(error)}`);
       }
 
-      // Start balance poll (30s)
-      this.balancePollInterval = setInterval(async () => {
-        const balance = await this.fetchBinanceBalance();
-        if (balance > 0) {
-          this.balanceLive = balance;
-          this.balancePaper = balance;
-          if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), 0);
-        }
-      }, 30000);
+      // Start User Data Stream (WebSocket) for zero-weight real-time updates
+      this.startUserDataStream().catch(err => {
+        this.logger.error(`User Data Stream failed to start: ${err.message}. Falling back to 30s polling.`);
+        // Fallback to balance poll (30s)
+        this.balancePollInterval = setInterval(async () => {
+          const balance = await this.fetchBinanceBalance();
+          if (balance > 0) {
+            this.balanceLive = balance;
+            this.balancePaper = balance;
+            if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), 0);
+          }
+        }, 30000);
+      });
     }
 
     // Start market feed
@@ -119,6 +126,21 @@ export class TradingSessionService {
     if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
     if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
     if (this.balancePollInterval) clearInterval(this.balancePollInterval);
+    if (this.listenKeyKeepAlive) clearInterval(this.listenKeyKeepAlive);
+
+    if (this.userDataWs) {
+      try {
+        this.userDataWs.disconnect();
+      } catch (e) {}
+      this.userDataWs = null;
+    }
+
+    if (this.listenKey && this.binanceClient) {
+      try {
+        await this.binanceClient.restAPI.userDataStreamsApi.closeUserDataStream(this.listenKey);
+      } catch (e) {}
+      this.listenKey = null;
+    }
     
     await this.marketFeed.stop();
     await this.momentumScanner.stop();
@@ -464,6 +486,56 @@ export class TradingSessionService {
 
   private getBalance(): number {
     return this.config?.paper_mode ? this.balancePaper : this.balanceLive;
+  }
+
+  private async startUserDataStream() {
+    if (!this.binanceClient) return;
+
+    try {
+      this.monitoringService.incrementApiRequests();
+      const response = await this.binanceClient.restAPI.userDataStreamsApi.startUserDataStream();
+      this.listenKey = response.data.listenKey;
+
+      this.userDataWs = await this.binanceClient.websocketStreams.connect();
+
+      this.userDataWs.on('message', (msg: any) => {
+        try {
+          const data = typeof msg === 'string' ? JSON.parse(msg) : msg;
+
+          // ACCOUNT_UPDATE event contains balance updates
+          if (data.e === 'ACCOUNT_UPDATE' && data.a && data.a.B) {
+            const usdtBalance = data.a.B.find((b: any) => b.a === 'USDT');
+            if (usdtBalance) {
+              const newBalance = parseFloat(usdtBalance.wb); // Wallet Balance
+              this.logger.log(`[WS] Account Balance Update: ${newBalance}`);
+              this.balanceLive = newBalance;
+              this.balancePaper = newBalance;
+              if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), 0);
+            }
+          }
+        } catch (err) {
+          this.logger.warn(`User Data WS parse error: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      });
+
+      this.userDataWs.userData(this.listenKey);
+
+      // Keepalive listenKey every 30 mins
+      this.listenKeyKeepAlive = setInterval(async () => {
+        if (this.listenKey) {
+          try {
+            this.monitoringService.incrementApiRequests();
+            await this.binanceClient.restAPI.userDataStreamsApi.keepaliveUserDataStream(this.listenKey);
+          } catch (err) {
+            this.logger.warn(`ListenKey keepalive failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      }, 30 * 60 * 1000);
+
+      this.logger.log(`User Data Stream started for real-time balance updates (ListenKey: ${this.listenKey?.substring(0, 8)}...)`);
+    } catch (error) {
+      throw error;
+    }
   }
 
   getStatus() {

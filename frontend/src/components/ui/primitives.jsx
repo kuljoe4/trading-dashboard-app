@@ -85,11 +85,25 @@ export const StatusBadge = ({ status }) => {
   )
 }
 
-// --- Paper Badge ---
+// --- Mode Badges ---
 export const PaperBadge = () => (
   <span className="px-2.5 py-1 rounded-full border border-amber/20 bg-amber/10 text-[10px] text-amber font-bold tracking-wider flex items-center gap-1.5">
     <Zap size={10} fill="currentColor" />
     PAPER
+  </span>
+)
+
+export const DemoBadge = () => (
+  <span className="px-2.5 py-1 rounded-full border border-purple/20 bg-purple/10 text-[10px] text-purple font-bold tracking-wider flex items-center gap-1.5">
+    <Zap size={10} fill="currentColor" />
+    DEMO
+  </span>
+)
+
+export const LiveBadge = () => (
+  <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5">
+    <Zap size={10} fill="currentColor" />
+    LIVE
   </span>
 )
 

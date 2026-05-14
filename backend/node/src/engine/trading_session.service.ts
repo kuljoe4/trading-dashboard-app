@@ -32,6 +32,7 @@ export class TradingSessionService {
   private activeWindows: Map<string, any> = new Map();
   private mainLoopInterval: NodeJS.Timeout | null = null;
   private hotLoopInterval: NodeJS.Timeout | null = null;
+  private balancePollInterval: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly tickerCache: TickerCacheService,
@@ -71,17 +72,29 @@ export class TradingSessionService {
     this.activeWindows.clear();
 
     // Wire services
-    this.orderManager.setBinanceClient(binanceClient, config.paper_mode);
+    const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
+    this.orderManager.setBinanceClient(binanceClient, mode === 'paper');
     this.marketFeed.setCandeCloseCallback(this.onCandleClose.bind(this));
 
     // Fetch live balance
-    if (!config.paper_mode && binanceClient) {
+    if (mode !== 'paper' && binanceClient) {
       try {
         const balance = await this.fetchBinanceBalance();
         this.balanceLive = balance;
+        this.balancePaper = balance; // Sync paper balance too for display consistency
       } catch (error) {
         this.logger.warn(`Failed to fetch live balance: ${error instanceof Error ? error.message : String(error)}`);
       }
+
+      // Start balance poll (30s)
+      this.balancePollInterval = setInterval(async () => {
+        const balance = await this.fetchBinanceBalance();
+        if (balance > 0) {
+          this.balanceLive = balance;
+          this.balancePaper = balance;
+          if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), 0);
+        }
+      }, 30000);
     }
 
     // Start market feed
@@ -105,6 +118,7 @@ export class TradingSessionService {
     this.running = false;
     if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
     if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
+    if (this.balancePollInterval) clearInterval(this.balancePollInterval);
     
     await this.marketFeed.stop();
     await this.momentumScanner.stop();
@@ -356,6 +370,7 @@ export class TradingSessionService {
       pnl,
       rr: (trade.direction === 'LONG' ? (current - trade.entry_price) : (trade.entry_price - current)) / risk,
       paper_mode: this.config?.paper_mode,
+      trading_mode: this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live'),
       max_rr: trade.max_rr_achieved, // Fix: Ensure max_rr is mapped
       live_rr_sequence: this.config?.live_rr_sequence || [],
       exit_rr_sequence: this.config?.exit_rr_sequence || [],
@@ -372,8 +387,8 @@ export class TradingSessionService {
     }));
     const activePnl = trades.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
     const balance = this.getBalance();
-    const mode = this.config?.paper_mode;
-    const startingBalance = mode
+    const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
+    const startingBalance = (mode === 'paper')
       ? this.config?.paper_starting_balance
       : this.config?.live_starting_balance;
     const realizedPnl = balance - (startingBalance ?? balance);
@@ -395,10 +410,12 @@ export class TradingSessionService {
   }
 
   private broadcastSnapshot(status: 'started' | 'stopped') {
+    const tradingMode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
     this.broadcast('session', {
       status,
       running: this.running,
       mode: this.config?.paper_mode ? 'PAPER' : 'LIVE',
+      tradingMode,
       balance: this.getBalance(),
       config: this.config,
       gateState: this.gateState,
@@ -413,15 +430,35 @@ export class TradingSessionService {
   async fetchBinanceBalance(): Promise<number> {
     if (!this.binanceClient) return 0;
     try {
-      const response = await this.binanceClient.futures_account_balance();
-      const usdtBalance = response.find((b: any) => b.asset === 'USDT');
-      return parseFloat(usdtBalance?.balance || 0);
-    } catch (error) { return 0; }
+      this.monitoringService.incrementApiRequests();
+      const response = await this.binanceClient.restAPI.accountApi.futuresAccountBalanceV2();
+      // Handle the official SDK response format (often it's an array of objects)
+      const data = response.data || response;
+      const usdtBalance = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
+      return usdtBalance ? parseFloat(usdtBalance.balance || 0) : 0;
+    } catch (error) {
+      this.logger.error(`Balance fetch failed: ${error instanceof Error ? error.message : String(error)}`);
+      return 0;
+    }
   }
 
-  private updateBalance(trade: Trade) {
-    if (this.config?.paper_mode) this.balancePaper += trade.pnl || 0;
-    else this.balanceLive += trade.pnl || 0;
+  private async updateBalance(trade: Trade) {
+    const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
+    if (mode === 'paper') {
+      this.balancePaper += trade.pnl || 0;
+    } else if (this.binanceClient) {
+      // For real modes, fetch actual balance to account for fees and slippage
+      const balance = await this.fetchBinanceBalance();
+      if (balance > 0) {
+        this.balanceLive = balance;
+        this.balancePaper = balance;
+      } else {
+        // Fallback to manual calculation if API fails
+        this.balanceLive += trade.pnl || 0;
+        this.balancePaper += trade.pnl || 0;
+      }
+    }
+
     if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), trade.pnl || 0);
   }
 
@@ -433,6 +470,7 @@ export class TradingSessionService {
     return {
       running: this.running,
       mode: this.config?.paper_mode ? 'PAPER' : 'LIVE',
+      tradingMode: this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live'),
       balance_paper: this.balancePaper,
       balance_live: this.balanceLive,
       activeTrades: this.positionTracker.activeList().map((trade) => this.serializeTrade(trade)),

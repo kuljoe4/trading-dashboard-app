@@ -11,6 +11,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@binance/derivatives-trading-usds-futures": "^29.0.0",
     "@nestjs/common": "^10.3.0",
     "@nestjs/config": "^3.1.1",
     "@nestjs/core": "^10.3.0",

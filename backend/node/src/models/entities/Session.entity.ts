@@ -12,6 +12,9 @@ export class Session {
   @Column({ default: true })
   paperMode: boolean;
 
+  @Column({ type: 'varchar', default: 'paper' })
+  tradingMode: 'paper' | 'testnet' | 'live';
+
   @Column('decimal', { precision: 20, scale: 8, default: 0 })
   balance: number;
 

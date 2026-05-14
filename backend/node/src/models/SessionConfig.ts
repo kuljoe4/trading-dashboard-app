@@ -72,6 +72,8 @@ export class SessionConfig {
   // Balance & Mode Configuration
   paper_mode?: boolean = true;
 
+  trading_mode?: 'paper' | 'testnet' | 'live' = 'paper';
+
   paper_starting_balance?: number = 10000.0;
 
   live_starting_balance?: number = 10000.0;

@@ -8,6 +8,9 @@ import { SessionConfig } from '../models/SessionConfig';
 import { TradingSessionService } from '../engine/trading_session.service';
 import { Trade } from '../models/Trade';
 import { v4 as uuid } from 'uuid';
+import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
+import { decrypt } from '../lib/crypto';
+import { BinanceClientFactory } from '../lib/binanceClientFactory';
 
 @Injectable()
 export class SessionService implements OnModuleInit {
@@ -24,6 +27,8 @@ export class SessionService implements OnModuleInit {
     private tradeRepository: Repository<TradeEntity>,
     @InjectRepository(LogEntity)
     private logRepository: Repository<LogEntity>,
+    @InjectRepository(SettingsEntity)
+    private settingsRepository: Repository<SettingsEntity>,
     private tradingSessionService: TradingSessionService,
   ) {}
 
@@ -74,6 +79,7 @@ export class SessionService implements OnModuleInit {
       session = this.sessionRepository.create({
         running: true,
         paperMode,
+        tradingMode: config.trading_mode || (paperMode ? 'paper' : 'live'),
         balance: paperMode ? (config.paper_starting_balance || 10000.0) : (config.live_starting_balance || 10000.0),
         config,
       });
@@ -83,10 +89,28 @@ export class SessionService implements OnModuleInit {
     this.currentSessionId = session.id;
     this.sessionRunning = true;
 
-    // Start the actual trading engine
-    await this.tradingSessionService.start(config, null, this.currentSessionId);
+    // Instantiate Binance client if not in paper mode
+    let binanceClient = null;
+    const mode = config.trading_mode || (paperMode ? 'paper' : 'live');
+    if (mode !== 'paper') {
+      const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+      if (!settings) throw new Error('Settings not found. Please configure API keys first.');
 
-    this.logger.log(`Session ${this.currentSessionId} ${sessionId ? 'restarted' : 'started'} in ${paperMode ? 'paper' : 'live'} mode`);
+      const isTestnet = mode === 'testnet';
+      const key = isTestnet ? settings.binance_testnet_api_key : settings.binance_api_key;
+      const secret = isTestnet ? settings.binance_testnet_api_secret : settings.binance_api_secret;
+
+      if (!key || !secret) {
+        throw new Error(`Binance ${isTestnet ? 'Testnet' : 'Live'} API keys are not configured.`);
+      }
+
+      binanceClient = BinanceClientFactory.createClient(key, decrypt(secret), isTestnet);
+    }
+
+    // Start the actual trading engine
+    await this.tradingSessionService.start(config, binanceClient, this.currentSessionId);
+
+    this.logger.log(`Session ${this.currentSessionId} ${sessionId ? 'restarted' : 'started'} in ${mode} mode`);
     return { strategyId: this.currentSessionId, status: 'started' };
   }
 
@@ -156,6 +180,7 @@ export class SessionService implements OnModuleInit {
       running: session.running,
       strategyId: session.id,
       paperMode: session.paperMode,
+      tradingMode: session.tradingMode,
       balance: engineStatus.running ? (session.paperMode ? engineStatus.balance_paper : engineStatus.balance_live) : session.balance,
       totalPnl: session.totalPnl,
       logLines: logs,

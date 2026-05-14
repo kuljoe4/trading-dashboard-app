@@ -53,15 +53,13 @@ export class OrderManagerService {
       if (!this.paperMode && this.binanceClient) {
         try {
           const binanceDirection = direction === 'LONG' ? 'BUY' : 'SELL';
-          const response = await this.binanceClient.futures_create_order({
-            symbol,
-            side: binanceDirection,
-            type: 'MARKET',
+          const response = await this.binanceClient.restAPI.tradeApi.newOrder(symbol, binanceDirection, 'MARKET', {
             quantity: qty,
           });
-          trade.binance_order_id = response.orderId;
+          const orderData = response.data || response;
+          trade.binance_order_id = orderData.orderId;
           this.logger.log(
-            `Binance order placed: ${symbol} ${direction} qty=${qty} order_id=${response.orderId}`,
+            `Binance order placed: ${symbol} ${direction} qty=${qty} order_id=${orderData.orderId}`,
           );
         } catch (err) {
           this.logger.warn(
@@ -154,15 +152,13 @@ export class OrderManagerService {
       if (!paperMode && this.binanceClient) {
         try {
           const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
-          const response = await this.binanceClient.futures_create_order({
-            symbol,
-            side: closeDirection,
-            type: 'MARKET',
+          const response = await this.binanceClient.restAPI.tradeApi.newOrder(symbol, closeDirection, 'MARKET', {
             quantity: trade.qty || 0,
           });
-          trade.binance_close_order_id = response.orderId;
+          const orderData = response.data || response;
+          trade.binance_close_order_id = orderData.orderId;
           this.logger.log(
-            `Binance close order placed: ${symbol} qty=${trade.qty || 0} order_id=${response.orderId}`,
+            `Binance close order placed: ${symbol} qty=${trade.qty || 0} order_id=${orderData.orderId}`,
           );
         } catch (err) {
           this.logger.warn(

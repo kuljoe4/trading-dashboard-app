@@ -12,6 +12,7 @@ export class RiskEngineService {
    */
   async canEnter(
     activeTrades: Trade[],
+    closedTrades: Trade[],
     balance: number,
     symbol: string,
     config: SessionConfig,
@@ -28,6 +29,27 @@ export class RiskEngineService {
         canEnter: false,
         reason: `Global max open trades (${maxOpenTrades}) reached`
       };
+    }
+
+    // Check max trades per period (sliding window)
+    const maxTradesPeriod = config.max_trades_per_period ?? 0;
+    const periodMin = config.trades_period_min ?? 60;
+
+    if (maxTradesPeriod > 0) {
+      const now = new Date();
+      const periodStart = new Date(now.getTime() - periodMin * 60 * 1000);
+
+      const tradesInPeriod = [...activeTrades, ...closedTrades].filter(t => {
+        const entryTs = t.entry_ts ? new Date(t.entry_ts) : null;
+        return entryTs && entryTs >= periodStart;
+      }).length;
+
+      if (tradesInPeriod >= maxTradesPeriod) {
+        return {
+          canEnter: false,
+          reason: `Max trades per period (${maxTradesPeriod} per ${periodMin}m) reached`
+        };
+      }
     }
 
     // Check per-symbol max open trades

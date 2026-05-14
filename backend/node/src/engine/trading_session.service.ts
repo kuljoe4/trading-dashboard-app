@@ -135,9 +135,38 @@ export class TradingSessionService {
    */
   private async mainLoop() {
     if (!this.running || !this.config) return;
+
+    // Evaluate risk gates before scanning
+    const activeTrades = this.positionTracker.activeList();
+    const riskResult = await this.riskEngine.canEnter(
+      activeTrades,
+      this.closedTrades,
+      this.getBalance(),
+      'DUMMY', // Global check
+      this.config!,
+      this.positionTracker.totalRisk(),
+    );
+
+    const prevGateState = this.gateState;
+    if (!riskResult.canEnter) {
+      // Filter out per-symbol reasons for global gate state
+      if (!riskResult.reason.includes('Max open trades for')) {
+        this.gateState = this.mapGateState(riskResult.reason);
+      }
+    } else {
+      this.gateState = null;
+    }
+
+    if (this.gateState !== prevGateState) {
+      this.broadcast('gate', {
+        gateState: this.gateState,
+        reason: riskResult.reason,
+        scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period'
+      });
+    }
     
     // Check if scanner should be paused based on gate state
-    if (this.gateState === 'max_trades' || this.gateState === 'sl_guard') {
+    if (this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period') {
       this.broadcast('scanner', {
         count: 0,
         opportunities: [],
@@ -224,15 +253,25 @@ export class TradingSessionService {
       this.logger.log(`${opp.symbol}: ALL SIGNALS FIRED! Proceeding to risk checks...`);
 
       const activeTrades = this.positionTracker.activeList();
-      const riskResult = await this.riskEngine.canEnter(activeTrades, this.getBalance(), opp.symbol, this.config!, this.positionTracker.totalRisk());
+      const riskResult = await this.riskEngine.canEnter(
+        activeTrades,
+        this.closedTrades,
+        this.getBalance(),
+        opp.symbol,
+        this.config!,
+        this.positionTracker.totalRisk(),
+      );
 
       if (!riskResult.canEnter) {
-        this.gateState = this.mapGateState(riskResult.reason);
-        this.broadcast('gate', { 
-          gateState: this.gateState, 
-          reason: riskResult.reason,
-          scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' // Fix: Added scannerPaused
-        });
+        // Only update gateState if it's a global limit, not per-symbol
+        if (!riskResult.reason.includes('Max open trades for')) {
+          this.gateState = this.mapGateState(riskResult.reason);
+          this.broadcast('gate', {
+            gateState: this.gateState,
+            reason: riskResult.reason,
+            scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period'
+          });
+        }
         this.logger.warn(`${opp.symbol}: Risk gate blocked - ${riskResult.reason}`);
         continue;
       }
@@ -299,6 +338,7 @@ export class TradingSessionService {
 
   private mapGateState(reason: string): string {
     if (reason.includes('max open trades')) return 'max_trades';
+    if (reason.includes('Max trades per period')) return 'max_trades_period';
     if (reason.includes('Total SL')) return 'sl_guard';
     if (reason.includes('Total risk')) return 'risk_pct';
     return 'risk';
@@ -332,10 +372,11 @@ export class TradingSessionService {
     }));
     const activePnl = trades.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
     const balance = this.getBalance();
-    const startingBalance = this.config?.paper_mode 
-      ? this.config.paper_starting_balance 
-      : this.config.live_starting_balance;
-    const realizedPnl = balance - (startingBalance || balance);
+    const mode = this.config?.paper_mode;
+    const startingBalance = mode
+      ? this.config?.paper_starting_balance
+      : this.config?.live_starting_balance;
+    const realizedPnl = balance - (startingBalance ?? balance);
     const totalPnl = realizedPnl + activePnl;
     const totalRiskUsdt = this.positionTracker.totalRisk();
 
@@ -346,7 +387,7 @@ export class TradingSessionService {
       total_sl_used: totalRiskUsdt,
       trades,
       gateState: this.gateState,
-      scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard',
+      scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period',
       activeWindows: this.getActiveWindows(),
       rateLimit: this.getBinanceRateLimit(),
       monitoring: this.monitoringService.getMetrics(),
@@ -361,7 +402,7 @@ export class TradingSessionService {
       balance: this.getBalance(),
       config: this.config,
       gateState: this.gateState,
-      scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard',
+      scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period',
       activeTrades: this.positionTracker.activeList().map((trade) => this.serializeTrade(trade)),
       scannerResults: this.lastScannerResults,
       activeWindows: this.getActiveWindows(),
@@ -399,7 +440,7 @@ export class TradingSessionService {
       scannerResults: this.lastScannerResults,
       activeWindows: this.getActiveWindows(),
       gateState: this.gateState,
-      scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard',
+      scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period',
       history: this.closedTrades.slice(0, 50).map((trade) => this.serializeTrade(trade, trade.exit_price)),
     };
   }

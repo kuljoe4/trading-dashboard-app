@@ -262,6 +262,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose }) => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {field('Risk % per trade', 'risk_pct_per_trade', 'number', null, { min: 0.1, step: 0.1 })}
               {field('Max open trades', 'max_open_trades', 'number', null, { min: 1 })}
+              {field('Max trades per period', 'max_trades_per_period', 'number', null, { min: 0 })}
+              {field('Period (minutes)', 'trades_period_min', 'number', null, { min: 1 })}
               {field('Max total risk %', 'max_total_risk_pct', 'number', null, { min: 0.5, step: 0.5 })}
               {field('SL guard USDT', 'total_sl_guard_usdt', 'number', null, { min: 1, step: 10 })}
             </div>

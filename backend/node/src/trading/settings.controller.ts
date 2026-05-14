@@ -19,6 +19,9 @@ export class SettingsController {
       api_key: settings?.binance_api_key
         ? `${settings.binance_api_key.slice(0, 4)}...${settings.binance_api_key.slice(-4)}`
         : '',
+      testnet_api_key: settings?.binance_testnet_api_key
+        ? `${settings.binance_testnet_api_key.slice(0, 4)}...${settings.binance_testnet_api_key.slice(-4)}`
+        : '',
     };
   }
 
@@ -41,6 +44,19 @@ export class SettingsController {
       const trimmedSecret = body.api_secret.trim();
       if (trimmedSecret) {
         settings.binance_api_secret = encrypt(trimmedSecret);
+      }
+    }
+
+    if (body.testnet_api_key !== undefined) {
+      const trimmedKey = body.testnet_api_key.trim();
+      if (trimmedKey) {
+        settings.binance_testnet_api_key = trimmedKey;
+      }
+    }
+    if (body.testnet_api_secret !== undefined) {
+      const trimmedSecret = body.testnet_api_secret.trim();
+      if (trimmedSecret) {
+        settings.binance_testnet_api_secret = encrypt(trimmedSecret);
       }
     }
 

@@ -10,4 +10,10 @@ export class Settings {
 
   @Column({ nullable: true })
   binance_api_secret: string;
+
+  @Column({ nullable: true })
+  binance_testnet_api_key: string;
+
+  @Column({ nullable: true })
+  binance_testnet_api_secret: string;
 }

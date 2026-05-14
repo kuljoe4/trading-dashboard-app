@@ -333,8 +333,8 @@ export class TradingSessionService {
     const activePnl = trades.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
     const balance = this.getBalance();
     const startingBalance = this.config?.paper_mode 
-      ? this.config.paper_starting_balance 
-      : this.config.live_starting_balance;
+      ? this.config?.paper_starting_balance
+      : this.config?.live_starting_balance;
     const realizedPnl = balance - (startingBalance || balance);
     const totalPnl = realizedPnl + activePnl;
     const totalRiskUsdt = this.positionTracker.totalRisk();

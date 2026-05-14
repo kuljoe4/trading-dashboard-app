@@ -78,6 +78,30 @@ export class RiskEngineService {
       };
     }
 
+    // Check Time-of-Day historical performance
+    if (config.risk_use_tod_stats && closedTrades.length > 5) {
+      const now = new Date();
+      const currentHour = now.getUTCHours();
+
+      const hourTrades = closedTrades.filter(t => {
+        const exitTs = t.exit_ts ? new Date(t.exit_ts) : null;
+        return exitTs && exitTs.getUTCHours() === currentHour;
+      });
+
+      if (hourTrades.length >= 3) {
+        const wins = hourTrades.filter(t => (t.pnl || 0) > 0).length;
+        const winRate = (wins / hourTrades.length) * 100;
+        const minWinRate = config.tod_min_winrate ?? 40.0;
+
+        if (winRate < minWinRate) {
+          return {
+            canEnter: false,
+            reason: `Historical performance for hour ${currentHour} is low (${winRate.toFixed(1)}% WR)`
+          };
+        }
+      }
+    }
+
     return { canEnter: true, reason: 'OK' };
   }
 

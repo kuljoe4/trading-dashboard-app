@@ -172,6 +172,7 @@ export const useTradingStore = create((set, get) => ({
   wsStatus: 'offline',
   sessionList: [],
   monitoring: null,
+  analytics: null,
   rateLimit: {
     used_weight_1m: 0,
     limit: 1200,
@@ -374,6 +375,7 @@ export const useTradingStore = create((set, get) => ({
             scannerPaused: data.scannerPaused !== undefined ? data.scannerPaused : state.scannerPaused,
             rateLimit: data.rateLimit || state.rateLimit,
             monitoring: data.monitoring || state.monitoring,
+            analytics: data.analytics ? { ...state.analytics, ...data.analytics } : state.analytics,
             config: data.config ? { ...state.config, ...data.config } : state.config,
           };
         })

@@ -10,6 +10,7 @@ import { OrderManagerService } from './orderManager';
 import { MarketFeedService } from './market_feed.service';
 import { MomentumScannerService } from './momentum_scanner.service';
 import { MonitoringService } from './monitoring.service';
+import { AnalyticsService } from './analytics.service';
 import { v4 as uuid } from 'uuid';
 
 @Injectable()
@@ -30,6 +31,7 @@ export class TradingSessionService {
   private lastScannerResults: any[] = [];
   private closedTrades: Trade[] = [];
   private gateState: string | null = null;
+  private sleepMode = false;
   private activeWindows: Map<string, any> = new Map();
   private mainLoopInterval: NodeJS.Timeout | null = null;
   private hotLoopInterval: NodeJS.Timeout | null = null;
@@ -48,6 +50,7 @@ export class TradingSessionService {
     private readonly marketFeed: MarketFeedService,
     private readonly momentumScanner: MomentumScannerService,
     private readonly monitoringService: MonitoringService,
+    private readonly analyticsService: AnalyticsService,
   ) {}
 
   setWsBroadcaster(cb: (data: any) => void) {
@@ -64,7 +67,7 @@ export class TradingSessionService {
     }
   }
 
-  async start(config: SessionConfig, binanceClient?: any, sessionId?: string) {
+  async start(config: SessionConfig, binanceClient?: any, sessionId?: string, initialHistory: Trade[] = []) {
     this.running = true;
     this.paused = false;
     this.sessionId = sessionId || null;
@@ -72,7 +75,7 @@ export class TradingSessionService {
     this.binanceClient = binanceClient;
     this.balancePaper = config.paper_starting_balance || 1000;
     this.balanceLive = config.live_starting_balance || 0;
-    this.closedTrades = [];
+    this.closedTrades = initialHistory;
     this.gateState = null;
     this.activeWindows.clear();
 
@@ -201,7 +204,18 @@ export class TradingSessionService {
     );
 
     const prevGateState = this.gateState;
-    if (!riskResult.canEnter) {
+    const isInsideWindow = this.isInsideTradingWindow();
+
+    if (!isInsideWindow) {
+      this.gateState = 'sleeping';
+      const activeTradesCount = this.positionTracker.activeList().length;
+      if (activeTradesCount === 0 && !this.sleepMode) {
+        this.enterSleepMode();
+      }
+    } else if (this.sleepMode) {
+      this.exitSleepMode();
+      this.gateState = null;
+    } else if (!riskResult.canEnter) {
       // Filter out per-symbol reasons for global gate state
       if (!riskResult.reason.includes('Max open trades for')) {
         this.gateState = this.mapGateState(riskResult.reason);
@@ -389,11 +403,49 @@ export class TradingSessionService {
     }));
   }
 
+  private isInsideTradingWindow(): boolean {
+    if (!this.config?.trading_windows?.length) return true;
+
+    const now = new Date();
+    const currentTime = now.getUTCHours() * 100 + now.getUTCMinutes();
+
+    return this.config.trading_windows.some(window => {
+      const start = parseInt(window.start.replace(':', ''), 10);
+      const end = parseInt(window.end.replace(':', ''), 10);
+
+      if (start <= end) {
+        return currentTime >= start && currentTime <= end;
+      } else {
+        // Over-midnight window (e.g., 22:00 to 02:00)
+        return currentTime >= start || currentTime <= end;
+      }
+    });
+  }
+
+  private async enterSleepMode() {
+    this.logger.log('Entering SLEEP MODE (Outside trading windows)');
+    this.sleepMode = true;
+    await this.marketFeed.stop();
+    await this.momentumScanner.stop();
+    this.broadcast('gate', { gateState: 'sleeping', reason: 'Outside trading window' });
+  }
+
+  private async exitSleepMode() {
+    this.logger.log('Exiting SLEEP MODE (Trading window active)');
+    this.sleepMode = false;
+    if (this.config) {
+      await this.marketFeed.start(this.config);
+      await this.momentumScanner.start(this.config);
+    }
+    this.broadcast('gate', { gateState: null, reason: 'Trading window active' });
+  }
+
   private mapGateState(reason: string): string {
     if (reason.includes('max open trades')) return 'max_trades';
     if (reason.includes('Max trades per period')) return 'max_trades_period';
     if (reason.includes('Total SL')) return 'sl_guard';
     if (reason.includes('Total risk')) return 'risk_pct';
+    if (reason.includes('Historical performance')) return 'tod_risk';
     return 'risk';
   }
 
@@ -462,7 +514,10 @@ export class TradingSessionService {
     const totalPnl = realizedPnl + activePnl;
     const totalRiskUsdt = this.positionTracker.totalRisk();
 
+    // Include basic live analytics in tick
+    const analytics = this.analyticsService.calculateAnalytics(this.closedTrades as any, startingBalance);
     const monitoring = this.monitoringService.getMetrics();
+
     const tickData = {
       balance,
       total_pnl: totalPnl,
@@ -475,6 +530,12 @@ export class TradingSessionService {
       activeWindows: this.getActiveWindows(),
       rateLimit: this.getBinanceRateLimit(),
       monitoring,
+      analytics: {
+        maxDrawdown: analytics.maxDrawdown,
+        maxDrawdownPct: analytics.maxDrawdownPct,
+        overallWinRate: analytics.overallWinRate,
+        cumulativePnL: analytics.cumulativePnL.slice(-20),
+      },
     };
 
     const now = Date.now();

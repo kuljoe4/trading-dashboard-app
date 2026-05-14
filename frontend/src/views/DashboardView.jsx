@@ -177,6 +177,8 @@ const GateBanner = ({ gateState, scannerPaused }) => {
     max_trades_period: 'Maximum trades for the current period reached. Scanner paused.',
     sl_guard: 'Session Stop-Loss Guard reached. All entries blocked.',
     risk_pct: 'Total risk limit reached. Entries restricted.',
+  tod_risk: 'Historical performance risk for this hour. Entries blocked.',
+  sleeping: 'Engine idling outside trading windows.',
     risk: 'Risk gate active. Monitoring only.',
   }
 
@@ -189,7 +191,7 @@ const GateBanner = ({ gateState, scannerPaused }) => {
         scannerPaused ? "bg-red/10 border-red/20 text-red" : "bg-amber/10 border-amber/20 text-amber"
       )}
     >
-      <XCircle size={16} className={scannerPaused ? "animate-pulse" : ""} />
+      {gateState === 'sleeping' ? <Pause size={16} className="animate-pulse" /> : <XCircle size={16} className={scannerPaused ? "animate-pulse" : ""} />}
       {messages[gateState] || 'Risk gate active.'}
     </motion.div>
   )

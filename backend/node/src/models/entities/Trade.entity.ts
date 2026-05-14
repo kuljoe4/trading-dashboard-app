@@ -1,4 +1,4 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
 import { Session } from './Session.entity';
 
 @Entity()
@@ -39,9 +39,11 @@ export class TradeEntity {
   @Column('decimal', { precision: 20, scale: 8, default: 0 })
   pnl: number;
 
+  @Index()
   @Column()
   status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL';
 
+  @Index()
   @Column({ nullable: true })
   exit_ts: Date;
 
@@ -57,6 +59,7 @@ export class TradeEntity {
   @Column('decimal', { precision: 10, scale: 4, nullable: true })
   pnl_pct: number;
 
+  @Index()
   @Column({ nullable: true })
   sessionId: string;
 

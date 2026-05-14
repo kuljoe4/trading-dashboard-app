@@ -11,3 +11,7 @@
 ## 2026-05-13 - [API Secret Visibility Toggle]
 **Learning:** Sensitive fields like API Secrets benefit greatly from a visibility toggle, allowing users to verify long, complex strings before submission. Proper implementation requires adjusting input padding (e.g., `pr-12`) to prevent text from overlapping the toggle icon and using descriptive ARIA labels.
 **Action:** Always provide a visibility toggle for sensitive credentials and ensure no visual collision between input text and the toggle button.
+
+## 2025-05-15 - [Icon-Only Button Accessibility & Tooltips]
+**Learning:** Icon-only buttons in navigation (especially when collapsed) and dashboards are invisible to screen readers and potentially confusing to users if visual tooltips are missing. Proper accessibility requires `aria-label` for screen readers and `title` attributes to provide native tooltips in compact states.
+**Action:** Always include `aria-label` on icon-only buttons. For collapsed sidebars or compact UI, also provide a `title` attribute to ensure functional clarity for all users.

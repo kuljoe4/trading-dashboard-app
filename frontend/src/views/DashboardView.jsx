@@ -208,7 +208,11 @@ const StrategyDetailView = ({ s, onBack }) => {
     <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Header */}
       <div className="flex items-center gap-5 mb-10">
-        <button onClick={onBack} className="p-2.5 hover:bg-surface border border-border rounded-xl transition-all active:scale-90 group">
+        <button
+          onClick={onBack}
+          aria-label="Go back to cockpit"
+          className="p-2.5 hover:bg-surface border border-border rounded-xl transition-all active:scale-90 group"
+        >
           <ChevronLeft size={20} className="text-dim group-hover:text-text" />
         </button>
         <div className="flex-1">
@@ -495,7 +499,13 @@ export function DashboardView() {
                     </div>
                     <div className="mt-auto pt-5 border-t border-border/20 flex justify-between items-center">
                       <span className="text-[10px] text-dim font-bold font-mono">ID: {s.id.substring(0, 8)}</span>
-                      <button onClick={async () => { if(confirm('Delete?')) { setLoading(true); await sessionAPI.delete(s.id); await fetchSessions(); setLoading(false); }}} className="text-dim hover:text-red transition-colors"><Trash2 size={16} /></button>
+                      <button
+                        onClick={async () => { if(confirm('Delete?')) { setLoading(true); await sessionAPI.delete(s.id); await fetchSessions(); setLoading(false); }}}
+                        aria-label="Delete session history"
+                        className="text-dim hover:text-red transition-colors"
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </div>
                   </div>
                 ))}

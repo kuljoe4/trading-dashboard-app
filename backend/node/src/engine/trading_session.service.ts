@@ -454,8 +454,8 @@ export class TradingSessionService {
     const direction = (anyTrade.direction || anyTrade.side || 'LONG').toString().toUpperCase();
     const entry = anyTrade.entry_price ?? anyTrade.entry ?? 0;
 
-    const current = currentPrice ?? anyTrade.exit_price ?? anyTrade.last_price ?? entry;
     const currentPriceValid = currentPrice !== undefined && Number.isFinite(currentPrice) && currentPrice > 0;
+    const current = currentPriceValid ? currentPrice : anyTrade.exit_price ?? anyTrade.last_price ?? entry;
     if (currentPriceValid) {
       anyTrade.last_price = currentPrice;
     }

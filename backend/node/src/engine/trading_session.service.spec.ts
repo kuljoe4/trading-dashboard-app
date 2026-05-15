@@ -41,6 +41,30 @@ describe('TradingSessionService', () => {
     expect(serialized.tp_price).toBe(110)
   })
 
+  it('preserves and uses last_price when currentPrice is missing', () => {
+    const trade: any = {
+      direction: 'LONG',
+      entry_price: 100,
+      qty: 1,
+    }
+
+    // First call with price
+    const s1 = (service as any).serializeTrade(trade, 105)
+    expect(s1.current_price).toBe(105)
+    expect(s1.pnl).toBe(5)
+    expect(trade.last_price).toBe(105)
+
+    // Second call with null price (cache miss)
+    const s2 = (service as any).serializeTrade(trade, null)
+    expect(s2.current_price).toBe(105)
+    expect(s2.pnl).toBe(5)
+
+    // Third call with 0 price
+    const s3 = (service as any).serializeTrade(trade, 0)
+    expect(s3.current_price).toBe(105)
+    expect(s3.pnl).toBe(5)
+  })
+
   it('broadcasts session_terminated when stopping', async () => {
     await service.stop()
 

@@ -200,12 +200,15 @@ export class MarketFeedService {
 
         if (changed) {
           this.logger.log(`Watchlist changed. Rebuilding combined kline streams for ${symbols.length} symbols.`);
+          const oldWatchlist = [...this.activeWatchlist];
           this.activeWatchlist = symbols;
           await this.rebuildCombinedKlineStream();
           
           // Backfill new symbols
           for (const symbol of symbols) {
-            await this.backfillKlines(symbol, this.currentInterval);
+            if (!oldWatchlist.includes(symbol)) {
+              await this.backfillKlines(symbol, this.currentInterval);
+            }
           }
         }
       } catch (err) {
@@ -260,10 +263,10 @@ export class MarketFeedService {
               await this.klineStore.upsertCandle(symbol, this.currentInterval, kline);
               
               // Pro: Immediate price propagation to ticker cache
+              // BOLT: Only update price to preserve accurate 24h volume from miniTicker stream
               await this.tickerCache.bulkUpdate([{
                 s: symbol,
-                c: kline.c,
-                v: kline.q
+                c: kline.c
               }]);
 
               if (kline.x && this.onCandeClose) {
@@ -293,12 +296,31 @@ export class MarketFeedService {
     }
   }
 
+  private parseIntervalToMs(interval: string): number {
+    const unit = interval.slice(-1);
+    const value = parseInt(interval.slice(0, -1), 10);
+    switch (unit) {
+      case 'm': return value * 60 * 1000;
+      case 'h': return value * 60 * 60 * 1000;
+      case 'd': return value * 24 * 60 * 60 * 1000;
+      default: return 60 * 1000;
+    }
+  }
+
   private async backfillKlines(symbol: string, interval: string) {
     // Check if we already have data for this symbol/interval to avoid redundant seeding
+    // BOLT: Also check if data is stale (older than 2 intervals)
     const existingCandles = await this.klineStore.getRecentCandles(symbol, interval, 1);
     if (existingCandles.length > 0) {
-      this.logger.debug(`Skipping backfill for ${symbol}/${interval}: Data already exists in store`);
-      return;
+      const lastCandle = existingCandles[0];
+      const intervalMs = this.parseIntervalToMs(interval);
+      const isStale = Date.now() - lastCandle.time > intervalMs * 2;
+
+      if (!isStale) {
+        this.logger.debug(`Skipping backfill for ${symbol}/${interval}: Data is fresh`);
+        return;
+      }
+      this.logger.log(`Backfilling ${symbol}/${interval}: Existing data is stale`);
     }
 
     // Basic concurrency limit for backfills: random delay to spread requests

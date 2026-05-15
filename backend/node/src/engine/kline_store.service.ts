@@ -24,13 +24,14 @@ export class KlineStoreService {
     }
 
     // Parse kline data from Binance format
+    // BOLT: Use open time (t) instead of close time (T) for more reliable interval indexing
     const candle: Candle = {
-      time: parseInt(kline.T || kline[6] || Date.now(), 10),
+      time: parseInt(kline.t || kline[0] || Date.now(), 10),
       open: parseFloat(kline.o || kline[1] || 0),
       high: parseFloat(kline.h || kline[2] || 0),
       low: parseFloat(kline.l || kline[3] || 0),
       close: parseFloat(kline.c || kline[4] || 0),
-      volume: parseFloat(kline.v || kline[7] || 0),
+      volume: parseFloat(kline.q || kline[7] || 0), // Standardize to Quote Volume (USDT)
     };
 
     const isValidCandle = [candle.open, candle.high, candle.low, candle.close].every(

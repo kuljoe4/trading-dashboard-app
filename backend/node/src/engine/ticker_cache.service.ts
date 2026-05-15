@@ -16,9 +16,14 @@ export class TickerCacheService {
     for (const t of tickers) {
       const symbol = t.s || t.symbol;
       if (symbol) {
+        const existing = this.tickers.get(symbol);
+
         // Handle both WS (!miniTicker) and REST (ticker/24hr) field names
-        const price = parseFloat(t.c || t.lastPrice || t.price || 0);
-        const volume = parseFloat(t.q || t.quoteVolume || t.v || t.volume_24h || 0);
+        const priceStr = t.c || t.lastPrice || t.price;
+        const volumeStr = t.q || t.quoteVolume || t.v || t.volume_24h;
+
+        const price = priceStr !== undefined ? parseFloat(priceStr) : existing?.price || 0;
+        const volume = volumeStr !== undefined ? parseFloat(volumeStr) : existing?.volume_24h || 0;
 
         this.tickers.set(symbol, {
           symbol,

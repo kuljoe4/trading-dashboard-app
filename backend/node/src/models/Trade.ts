@@ -29,6 +29,8 @@ export class Trade {
 
   exit_price?: number;
 
+  last_price?: number;
+
   exit_reason?: string;
 
   exit_signal_type?: string;

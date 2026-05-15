@@ -400,7 +400,18 @@ export class TradingSessionService {
   private serializeTrade(trade: Trade, currentPrice?: number) {
     const anyTrade = trade as any;
     const direction = (anyTrade.direction || anyTrade.side || 'LONG').toString().toUpperCase();
-    const current = currentPrice ?? anyTrade.exit_price ?? anyTrade.entry_price ?? 0;
+
+    // Use provided price, or previously seen price, or exit price, or finally entry price
+    const currentPriceValid = currentPrice && Number.isFinite(currentPrice) && currentPrice > 0;
+    const current = currentPriceValid
+      ? currentPrice!
+      : (anyTrade.last_price || anyTrade.exit_price || anyTrade.entry_price || 0);
+
+    if (currentPriceValid) {
+      // Update persistent last_price for this trade instance
+      anyTrade.last_price = current;
+    }
+
     const entry = anyTrade.entry_price ?? anyTrade.entry ?? 0;
     const risk = Math.abs(entry - (anyTrade.initial_sl ?? anyTrade.current_sl ?? anyTrade.sl_price ?? anyTrade.sl ?? entry)) || 1;
     const pnl = Number.isFinite(current) && Number.isFinite(entry)
@@ -433,7 +444,7 @@ export class TradingSessionService {
     const activeTrades = this.positionTracker.activeList();
     const trades = await Promise.all(activeTrades.map(async (trade) => {
       const current = await this.tickerCache.getPrice(trade.symbol);
-      return this.serializeTrade(trade, current || trade.entry_price);
+      return this.serializeTrade(trade, current || undefined);
     }));
     const activePnl = trades.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
     const balance = this.getBalance();

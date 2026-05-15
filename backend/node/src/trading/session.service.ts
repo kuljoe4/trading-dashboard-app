@@ -11,6 +11,7 @@ import { v4 as uuid } from 'uuid';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { decrypt } from '../lib/crypto';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
+import { AnalyticsService } from '../engine/analytics.service';
 
 @Injectable()
 export class SessionService implements OnModuleInit {
@@ -19,6 +20,9 @@ export class SessionService implements OnModuleInit {
   private sessionRunning = false;
   private currentSessionId: string | null = null;
   private wsBroadcaster: (data: any) => void = () => {};
+
+  private analyticsCache: { data: any; ts: number } | null = null;
+  private readonly CACHE_TTL_MS = 60000; // 1 minute
 
   constructor(
     @InjectRepository(SessionEntity)
@@ -30,6 +34,7 @@ export class SessionService implements OnModuleInit {
     @InjectRepository(SettingsEntity)
     private settingsRepository: Repository<SettingsEntity>,
     private tradingSessionService: TradingSessionService,
+    private analyticsService: AnalyticsService,
   ) {}
 
   async onModuleInit() {
@@ -89,6 +94,18 @@ export class SessionService implements OnModuleInit {
     this.currentSessionId = session.id;
     this.sessionRunning = true;
 
+    // Load initial history for TOD risk context
+    const initialHistory = await this.tradeRepository.find({
+      where: [
+        { status: 'CLOSED' as any },
+        { status: 'CLOSED_SL' },
+        { status: 'CLOSED_TP' },
+        { status: 'CLOSED_SIGNAL' },
+      ],
+      order: { exit_ts: 'DESC' },
+      take: 200,
+    });
+
     // Instantiate Binance client if not in paper mode
     let binanceClient = null;
     const mode = config.trading_mode || (paperMode ? 'paper' : 'live');
@@ -108,7 +125,7 @@ export class SessionService implements OnModuleInit {
     }
 
     // Start the actual trading engine
-    await this.tradingSessionService.start(config, binanceClient, this.currentSessionId);
+    await this.tradingSessionService.start(config, binanceClient, this.currentSessionId, initialHistory as any);
 
     this.logger.log(`Session ${this.currentSessionId} ${sessionId ? 'restarted' : 'started'} in ${mode} mode`);
     return { strategyId: this.currentSessionId, status: 'started' };
@@ -229,11 +246,6 @@ export class SessionService implements OnModuleInit {
   }
 
   async getHistory() {
-    const engineStatus = this.tradingSessionService.getStatus();
-    if (engineStatus.history?.length) {
-      return { trades: engineStatus.history };
-    }
-
     const closedTrades = await this.tradeRepository.find({
       where: [
         { status: 'CLOSED' as any },
@@ -242,10 +254,32 @@ export class SessionService implements OnModuleInit {
         { status: 'CLOSED_SIGNAL' },
       ],
       order: { exit_ts: 'DESC' },
-      take: 50,
+      take: 200,
     });
 
     return { trades: closedTrades };
+  }
+
+  async getAnalytics() {
+    const now = Date.now();
+    if (this.analyticsCache && (now - this.analyticsCache.ts < this.CACHE_TTL_MS)) {
+      return this.analyticsCache.data;
+    }
+
+    // Only fetch minimal columns for analytics to save memory
+    const trades = await this.tradeRepository.find({
+      select: ['pnl', 'exit_ts', 'status'],
+      where: [
+        { status: 'CLOSED' as any },
+        { status: 'CLOSED_SL' },
+        { status: 'CLOSED_TP' },
+        { status: 'CLOSED_SIGNAL' },
+      ],
+    });
+
+    const result = this.analyticsService.calculateAnalytics(trades as any);
+    this.analyticsCache = { data: result, ts: now };
+    return result;
   }
 
   async getBinanceRateLimit() {

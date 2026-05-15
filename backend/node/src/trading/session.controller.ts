@@ -81,4 +81,9 @@ export class SessionController {
   async closeTradeManually(@Param('symbol') symbol: string) {
     return this.sessionService.closeTradeManually(symbol);
   }
+
+  @Get('analytics')
+  async getAnalytics() {
+    return this.sessionService.getAnalytics();
+  }
 }

@@ -19,6 +19,7 @@ export const sessionAPI = {
   rateLimit: () => api.get('/session/binance/rate-limit'),
   history: () => api.get('/session/history'),
   closeTrade: (symbol) => api.post(`/session/trade/${symbol}/close`),
+  analytics: () => api.get('/session/analytics'),
 }
 
 export const settingsAPI = {

@@ -1,12 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, lazy, Suspense } from 'react'
 import { pnlColor, fmtUSD, C } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
 import { sessionAPI } from '../api/client'
-import { DecisionLog } from '../components/DecisionLog'
 import { ActiveTradeBar } from '../components/ActiveTradeBar'
-import { ConfigModal } from '../components/ConfigModal'
 import { SystemHealth } from '../components/SystemHealth'
-import { ScannerOverlay } from '../components/ScannerOverlay'
 import * as Dialog from '@radix-ui/react-dialog'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { 
@@ -22,8 +19,21 @@ import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sidebar, BottomNav } from '../components/Navigation'
 
+// Lazy Load heavy components
+const DecisionLog = lazy(() => import('../components/DecisionLog').then(module => ({ default: module.DecisionLog })))
+const ConfigModal = lazy(() => import('../components/ConfigModal').then(module => ({ default: module.ConfigModal })))
+const ScannerOverlay = lazy(() => import('../components/ScannerOverlay').then(module => ({ default: module.ScannerOverlay })))
+const StrategyDetailView = lazy(() => import('./StrategyDetailView'))
+
+const LoadingFallback = () => (
+  <div className="flex items-center justify-center p-20">
+    <div className="w-8 h-8 border-4 border-accent border-t-transparent rounded-full animate-spin" />
+  </div>
+)
+
 // --- Strategy Card ---
 const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
@@ -62,6 +72,16 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused }) => {
         <div className="text-right shrink-0">
           <div className="flex gap-2 mb-2 relative z-20">
             <button
+              onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
+              className={cn(
+                "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95",
+                isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
+              )}
+              title={isExpanded ? "Hide Details" : "Show Details"}
+            >
+              <Activity size={14} />
+            </button>
+            <button
               onClick={(e) => { e.stopPropagation(); onEdit(); }}
               className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95"
               title="Edit Config"
@@ -88,24 +108,35 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused }) => {
         </div>
       </div>
 
-      <div className="mb-6">
-        <div className="flex justify-between text-[10px] text-dim font-bold tracking-widest mb-2 uppercase">
-          <span className="flex items-center gap-1.5"><ShieldCheck size={12} /> SL GUARD</span>
-          <span className={slPct > 70 ? "text-red" : "text-dim"}>${s.totalSlUsed.toFixed(0)} / ${config.total_sl_guard_usdt}</span>
-        </div>
-        <div className="h-1.5 bg-border rounded-full overflow-hidden">
-          <div
-            className={cn(
-              "h-full transition-all duration-700",
-              slPct > 70 ? "bg-red" :
-              tradingMode === 'paper' ? "bg-amber shadow-[0_0_8px_rgba(245,166,35,0.4)]" :
-              tradingMode === 'testnet' ? "bg-purple shadow-[0_0_8px_rgba(168,85,247,0.4)]" :
-              "bg-green shadow-[0_0_8px_rgba(34,197,94,0.4)]"
-            )}
-            style={{ width: `${slPct}%` }}
-          />
-        </div>
-      </div>
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="mb-2 mt-4 pt-4 border-t border-border/20">
+              <div className="flex justify-between text-[10px] text-dim font-bold tracking-widest mb-2 uppercase">
+                <span className="flex items-center gap-1.5"><ShieldCheck size={12} /> SL GUARD</span>
+                <span className={slPct > 70 ? "text-red" : "text-dim"}>${s.totalSlUsed.toFixed(0)} / ${config.total_sl_guard_usdt}</span>
+              </div>
+              <div className="h-1.5 bg-border rounded-full overflow-hidden">
+                <div
+                  className={cn(
+                    "h-full transition-all duration-700",
+                    slPct > 70 ? "bg-red" :
+                    tradingMode === 'paper' ? "bg-amber shadow-[0_0_8px_rgba(245,166,35,0.4)]" :
+                    tradingMode === 'testnet' ? "bg-purple shadow-[0_0_8px_rgba(168,85,247,0.4)]" :
+                    "bg-green shadow-[0_0_8px_rgba(34,197,94,0.4)]"
+                  )}
+                  style={{ width: `${slPct}%` }}
+                />
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -146,6 +177,8 @@ const GateBanner = ({ gateState, scannerPaused }) => {
     max_trades_period: 'Maximum trades for the current period reached. Scanner paused.',
     sl_guard: 'Session Stop-Loss Guard reached. All entries blocked.',
     risk_pct: 'Total risk limit reached. Entries restricted.',
+  tod_risk: 'Historical performance risk for this hour. Entries blocked.',
+  sleeping: 'Engine idling outside trading windows.',
     risk: 'Risk gate active. Monitoring only.',
   }
 
@@ -158,7 +191,7 @@ const GateBanner = ({ gateState, scannerPaused }) => {
         scannerPaused ? "bg-red/10 border-red/20 text-red" : "bg-amber/10 border-amber/20 text-amber"
       )}
     >
-      <XCircle size={16} className={scannerPaused ? "animate-pulse" : ""} />
+      {gateState === 'sleeping' ? <Pause size={16} className="animate-pulse" /> : <XCircle size={16} className={scannerPaused ? "animate-pulse" : ""} />}
       {messages[gateState] || 'Risk gate active.'}
     </motion.div>
   )
@@ -238,126 +271,6 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
   )
 }
 
-// --- Detail View ---
-const StrategyDetailView = ({ s, onBack }) => {
-  const { config, scannerResults, healthEnabled, monitoring } = useTradingStore()
-  const bestOpp = scannerResults[0] || { symbol: '---', pct: 0, dir: '---' }
-  const scanMet = Math.abs(bestOpp.pct) >= config.scan_pct_threshold
-  const entryMet = scanMet && s.activeTrades.length > 0
-
-  return (
-    <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Header */}
-      <div className="flex items-center gap-5 mb-10">
-        <button
-          onClick={onBack}
-          aria-label="Go back to cockpit"
-          className="p-2.5 hover:bg-surface border border-border rounded-xl transition-all active:scale-90 group"
-        >
-          <ChevronLeft size={20} className="text-dim group-hover:text-text" />
-        </button>
-        <div className="flex-1">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl font-bold">Strategy Console</span>
-            <StatusBadge status={s.sessionActive} />
-            {config.trading_mode === 'paper' && <PaperBadge />}
-            {config.trading_mode === 'testnet' && <DemoBadge />}
-            {config.trading_mode === 'live' && <LiveBadge />}
-          </div>
-          <div className="text-[11px] text-dim mt-1.5 font-bold uppercase tracking-widest flex items-center gap-2">
-            <Activity size={12} /> Loop Monitoring · {s.strategyId?.substring(0, 8)}
-          </div>
-        </div>
-      </div>
-
-      {healthEnabled && <SystemHealth monitoring={monitoring} />}
-
-      {/* Summary Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
-        <StatCard label="Total P&L" value={fmtUSD(s.totalPnl)} color={s.totalPnl >= 0 ? "text-green" : "text-red"} />
-        <StatCard label="Hit Count" value={s.logs.filter(l => l.msg.includes('Entry')).length.toString()} color="text-accent" />
-        <StatCard label="SL Budget" value={`$${s.totalSlUsed.toFixed(0)} / $${config.total_sl_guard_usdt}`} color={s.totalSlUsed > config.total_sl_guard_usdt * 0.7 ? "text-amber" : "text-text"} />
-        <StatCard label="Active Risk" value={`${s.totalRiskPct.toFixed(1)}%`} color={s.totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
-      </div>
-
-      {/* Condition Widgets */}
-      <div className="mb-10">
-        <SectionLabel>Automation Gating</SectionLabel>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <ConditionWidget
-            label={`Scanner: % Move (${config.scan_interval})`}
-            value={bestOpp.pct}
-            threshold={config.scan_pct_threshold}
-            satisfied={scanMet}
-            sublabel={`Top Opp: ${bestOpp.symbol} ${bestOpp.dir.toUpperCase()}`}
-          />
-          <ConditionWidget
-            label="Entry Authorization"
-            value={entryMet ? config.scan_pct_threshold + 0.3 : config.scan_pct_threshold - 0.5}
-            threshold={config.scan_pct_threshold}
-            unit=" conf"
-            satisfied={entryMet}
-            sublabel="Waiting for structural signal"
-          />
-        </div>
-      </div>
-
-      {/* Exit Gates */}
-      {s.activeTrades[0]?.exit_signals_status && (
-        <div className="mb-10">
-          <SectionLabel>Exit Strategy Monitor</SectionLabel>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {Object.entries(s.activeTrades[0].exit_signals_status).map(([key, status]) => {
-              const label = key.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) + " Exit";
-              return (
-                <ConditionWidget
-                  key={key}
-                  label={label}
-                  value={status.active ? (status.fired ? 1 : 0) : status.remaining_delay}
-                  threshold={status.active ? 1 : 0}
-                  unit={status.active ? "" : "s"}
-                  satisfied={status.fired && status.active}
-                  sublabel={status.active ? (status.fired ? "Signal Firing" : "Monitoring...") : `Activating in ${Math.round(status.remaining_delay)}s`}
-                />
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Active Position */}
-      <div className="mb-10">
-        <SectionLabel>Tactical Overview</SectionLabel>
-        <ActiveTradeBar trade={s.activeTrades[0]} />
-      </div>
-
-      {/* Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-        <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col h-[450px] shadow-sm">
-          <SectionLabel className="mb-4">
-            <Activity size={14} className="text-accent" /> Intelligence Log
-          </SectionLabel>
-          <div className="flex-1 overflow-hidden">
-            <DecisionLog />
-          </div>
-        </div>
-
-        <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col h-[450px] shadow-sm">
-          <SectionLabel className="mb-4">
-            <BarChart3 size={14} className="text-accent" /> Equity Performance
-          </SectionLabel>
-          <div className="flex-1 flex flex-col justify-center">
-            <PnLBars trades={s.activeTrades} />
-            <div className="mt-10 text-[10px] text-dim font-bold text-center uppercase tracking-widest opacity-40">
-              Live Equity Curve Tracking
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function DashboardView() {
   const [selected, setSelected] = useState(null)
   const [showConfig, setShowConfig] = useState(false)
@@ -366,7 +279,7 @@ export function DashboardView() {
   
   const {
     sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
-    totalSlUsed, activeTrades, logs, config, healthEnabled, setSessionActive,
+    totalSlUsed, activeTrades, config, healthEnabled, setSessionActive,
     updateConfig, scannerResults, activeWindows, gateState,
     scannerPaused, rateLimit, monitoring, sessionList, fetchSessions, wsStatus,
     sidebarCollapsed
@@ -379,7 +292,6 @@ export function DashboardView() {
     totalRiskPct: state.totalRiskPct,
     totalSlUsed: state.totalSlUsed,
     activeTrades: state.activeTrades,
-    logs: state.logs,
     config: state.config,
     healthEnabled: state.healthEnabled,
     setSessionActive: state.setSessionActive,
@@ -396,7 +308,11 @@ export function DashboardView() {
     sidebarCollapsed: state.sidebarCollapsed
   }))
 
-  const { updateStats } = useTradingStore()
+  const logs = useTradingStore(state => state.logs)
+  const { updateStats, setFocusMode } = useTradingStore(state => ({
+    updateStats: state.updateStats,
+    setFocusMode: state.setFocusMode
+  }))
 
   const [loading, setLoading] = useState(false)
 
@@ -405,6 +321,10 @@ export function DashboardView() {
   }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, logs])
 
   const maxRR = useMemo(() => activeTrades.reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
+
+  useEffect(() => {
+    setFocusMode(!!selected)
+  }, [selected, setFocusMode])
 
   useEffect(() => {
     sessionAPI.rateLimit()
@@ -468,7 +388,9 @@ export function DashboardView() {
         sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
       )}>
         <Sidebar selected={selected} />
-        <StrategyDetailView s={currentStrategy} onBack={() => setSelected(null)} />
+        <Suspense fallback={<LoadingFallback />}>
+          <StrategyDetailView s={currentStrategy} onBack={() => setSelected(null)} />
+        </Suspense>
         <BottomNav selected={selected} />
       </div>
     )
@@ -653,7 +575,9 @@ export function DashboardView() {
                 <Activity size={14} className="text-accent" /> Session Logs
               </SectionLabel>
               <div className="flex-1 overflow-hidden">
-                <DecisionLog />
+                <Suspense fallback={<LoadingFallback />}>
+                  <DecisionLog />
+                </Suspense>
               </div>
             </div>
           </motion.div>
@@ -672,7 +596,9 @@ export function DashboardView() {
                 </VisuallyHidden>
               </div>
               <div className="flex-1 overflow-y-auto">
-                <ConfigModal initialConfig={config} onSave={handleConfigSave} onClose={() => setShowConfig(false)} isEdit={isEditMode} />
+                <Suspense fallback={<LoadingFallback />}>
+                  <ConfigModal initialConfig={config} onSave={handleConfigSave} onClose={() => setShowConfig(false)} isEdit={isEditMode} />
+                </Suspense>
               </div>
             </Drawer.Content>
           </Drawer.Portal>
@@ -690,7 +616,9 @@ export function DashboardView() {
                 </VisuallyHidden>
               </div>
               <div className="flex-1 overflow-y-auto">
-                {showScanner && <ScannerOverlay onClose={() => setShowScanner(false)} />}
+                <Suspense fallback={<LoadingFallback />}>
+                  {showScanner && <ScannerOverlay onClose={() => setShowScanner(false)} />}
+                </Suspense>
               </div>
             </Drawer.Content>
           </Drawer.Portal>

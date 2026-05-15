@@ -1,13 +1,14 @@
 import { Controller, Post, Get, Body, Patch, Delete, Param } from '@nestjs/common';
 import { SessionService } from './session.service';
 import { SessionConfig } from '../models/SessionConfig';
+import { StartSessionDto, UpdateSessionDto } from './dto/session.dto';
 
 @Controller('session')
 export class SessionController {
   constructor(private readonly sessionService: SessionService) {}
 
   @Post('start')
-  async startSession(@Body() body: { config?: SessionConfig; paper_mode?: boolean; sessionId?: string }) {
+  async startSession(@Body() body: StartSessionDto) {
     if (body.sessionId) {
       return this.sessionService.startSession(body.config || {} as any, body.paper_mode ?? true, body.sessionId);
     }
@@ -36,7 +37,7 @@ export class SessionController {
   }
 
   @Patch(':id')
-  async updateSession(@Param('id') id: string, @Body() body: { config: SessionConfig }) {
+  async updateSession(@Param('id') id: string, @Body() body: UpdateSessionDto) {
     const config = Object.assign(new SessionConfig(), body.config);
     
     // Parse signal_params if it's a JSON string

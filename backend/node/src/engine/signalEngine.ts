@@ -93,9 +93,16 @@ export class SignalEngineService {
     if (candles.length < lookback + 1) return false;
 
     const current = candles[candles.length - 1];
-    const previous = candles.slice(0, -1);
-    return current.close > Math.max(...previous.map((c) => c.high)) ||
-      current.close < Math.min(...previous.map((c) => c.low));
+
+    // BOLT OPTIMIZATION: Use direct loop instead of slice().map() to avoid intermediate array allocations
+    let maxHigh = -Infinity;
+    let minLow = Infinity;
+    for (let i = 0; i < candles.length - 1; i++) {
+      if (candles[i].high > maxHigh) maxHigh = candles[i].high;
+      if (candles[i].low < minLow) minLow = candles[i].low;
+    }
+
+    return current.close > maxHigh || current.close < minLow;
   }
 
   private async engulfingSignal(
@@ -136,10 +143,10 @@ export class SignalEngineService {
       );
       if (candles.length < period + 1) return false;
 
-      const closes = candles.map((c) => c.close);
-      const ma = this.calculateSMA(closes.slice(0, period));
-      const prevClose = closes[closes.length - 2];
-      const currClose = closes[closes.length - 1];
+      // BOLT OPTIMIZATION: Work directly on Candle array to avoid map() and slice()
+      const ma = this.calculateSMA(candles, 0, period);
+      const prevClose = candles[candles.length - 2].close;
+      const currClose = candles[candles.length - 1].close;
 
       // Crossover: prev <= ma AND curr > ma (bullish) OR prev >= ma AND curr < ma (bearish)
       return (prevClose <= ma && currClose > ma) ||
@@ -164,10 +171,10 @@ export class SignalEngineService {
       );
       if (candles.length < period + 1) return false;
 
-      const closes = candles.map((c) => c.close);
-      const ema = this.calculateEMA(closes, period);
-      const prevClose = closes[closes.length - 2];
-      const currClose = closes[closes.length - 1];
+      // BOLT OPTIMIZATION: Work directly on Candle array to avoid map()
+      const ema = this.calculateEMA(candles, period);
+      const prevClose = candles[candles.length - 2].close;
+      const currClose = candles[candles.length - 1].close;
 
       // Crossover: prev <= ema AND curr > ema (bullish) OR prev >= ema AND curr < ema (bearish)
       return (prevClose <= ema && currClose > ema) ||
@@ -178,20 +185,26 @@ export class SignalEngineService {
     }
   }
 
-  private calculateSMA(prices: number[]): number {
-    if (prices.length === 0) return 0;
-    return prices.reduce((sum, price) => sum + price, 0) / prices.length;
+  private calculateSMA(candles: any[], start: number, end: number): number {
+    const count = end - start;
+    if (count <= 0) return 0;
+
+    let sum = 0;
+    for (let i = start; i < end; i++) {
+      sum += candles[i].close;
+    }
+    return sum / count;
   }
 
-  private calculateEMA(prices: number[], period: number): number {
-    if (prices.length === 0) return 0;
-    if (prices.length < period) return this.calculateSMA(prices);
+  private calculateEMA(candles: any[], period: number): number {
+    if (candles.length === 0) return 0;
+    if (candles.length < period) return this.calculateSMA(candles, 0, candles.length);
 
     const multiplier = 2 / (period + 1);
-    let ema = this.calculateSMA(prices.slice(0, period));
+    let ema = this.calculateSMA(candles, 0, period);
 
-    for (let i = period; i < prices.length; i++) {
-      ema = prices[i] * multiplier + ema * (1 - multiplier);
+    for (let i = period; i < candles.length; i++) {
+      ema = candles[i].close * multiplier + ema * (1 - multiplier);
     }
 
     return ema;

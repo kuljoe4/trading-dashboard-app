@@ -12,3 +12,7 @@
 ## 2026-05-14 - [Optimization] Reducing GC Pressure in High-Frequency Loops
 **Learning:** Functional chains like 'slice().map().reduce()' are elegant but create multiple intermediate arrays. In high-frequency loops (like a 2s scanner), these allocations trigger frequent GC. Replacing them with direct 'for' loops significantly reduces memory churn.
 **Action:** In services that process market data every few seconds, favor direct loops over functional array methods when performance is critical. Defer expensive mapping (like sparkline generation) until AFTER filtering/sorting results.
+
+## 2026-05-15 - [Optimization] Signal Engine Allocation Cleanup
+**Learning:** Signal processing logic (MA, EMA, Breakout) often requires windows of data. Mapping full candle objects to price arrays (`candles.map(c => c.close)`) inside the scanner loop creates thousands of short-lived objects per minute.
+**Action:** Refactor math helpers (SMA/EMA) to accept the source object array and index ranges instead of pre-processed primitive arrays to achieve zero-allocation data windowing.

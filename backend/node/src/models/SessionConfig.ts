@@ -199,9 +199,16 @@ export class SessionConfig {
   track_binance_rate_limits?: boolean = true;
 
   // Schedule & Advanced Risk
+  @IsArray()
+  @IsOptional()
+  @IsObject({ each: true })
   trading_windows?: { start: string; end: string }[] = [];
 
+  @IsBoolean()
+  @IsOptional()
   risk_use_tod_stats?: boolean = false;
 
+  @IsNumber()
+  @IsOptional()
   tod_min_winrate?: number = 40.0;
 }

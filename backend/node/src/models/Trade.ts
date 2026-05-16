@@ -42,6 +42,10 @@ export class Trade {
     active: boolean;
     remaining_delay: number;
     label: string;
+    value: number;
+    threshold: number;
+    unit: string;
+    description?: string;
   }>;
 
   entry_signal_type?: string;
@@ -64,6 +68,8 @@ export class Trade {
   binance_order_id?: string;
 
   binance_close_order_id?: string;
+
+  binance_stop_order_id?: string;
 
   sessionId?: string;
 }

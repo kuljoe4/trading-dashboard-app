@@ -6,7 +6,9 @@ import * as Switch from '@radix-ui/react-switch'
 const SIGNALS = [
   ['momentum_pct', '% Momentum'],
   ['breakout_hl', 'Breakout H/L'],
-  ['ema_cross', 'EMA Cross'],
+  ['ema_price_cross', 'EMA Price Cross'],
+  ['ema_dual_cross', 'EMA Dual Cross'],
+  ['ema_close', 'EMA Close'],
   ['ma', 'MA Cross'],
   ['engulfing', 'Engulfing'],
 ]
@@ -50,6 +52,69 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
   const [section, setSection] = useState('scan')
   const [presets, setPresets] = useState([])
   const [presetName, setPresetName] = useState('')
+  const [errors, setErrors] = useState({})
+
+  const validate = (currentCfg) => {
+    const errs = {}
+    
+    // Scan Section
+    if (!currentCfg.scan_interval) errs.scan_interval = 'Required'
+    if (currentCfg.scan_lookback < 1) errs.scan_lookback = 'Min 1'
+    if (currentCfg.scan_mode === 'active_window') {
+      if (!currentCfg.scan_window_duration_sec) errs.scan_window_duration_sec = 'Required'
+      if (!currentCfg.scan_check_interval_sec) errs.scan_check_interval_sec = 'Required'
+    }
+
+    // Signals Section
+    const allEnabled = [...(currentCfg.enabled_signals || []), ...(currentCfg.exit_signals || [])]
+    if (allEnabled.includes('ma') && !currentCfg.signal_params_ma_period) errs.signal_params_ma_period = 'Required'
+    if (allEnabled.includes('ema_close') || allEnabled.includes('ema_price_cross')) {
+      if (!currentCfg.signal_params_entry_ema_period) errs.signal_params_entry_ema_period = 'Required'
+      if (currentCfg.exit_signals?.includes('ema_close') && !currentCfg.signal_params_exit_ema_period) errs.signal_params_exit_ema_period = 'Required'
+    }
+    if (allEnabled.includes('ema_dual_cross')) {
+      if (!currentCfg.signal_params_entry_ema_fast) errs.signal_params_entry_ema_fast = 'Required'
+      if (!currentCfg.signal_params_entry_ema_slow) errs.signal_params_entry_ema_slow = 'Required'
+      if (currentCfg.signal_params_entry_ema_fast >= currentCfg.signal_params_entry_ema_slow) {
+        errs.signal_params_entry_ema_fast = 'Must be < slow'
+      }
+    }
+
+    // Exit Section
+    if (currentCfg.sl_type === 'lookback_low/high') {
+      if (!currentCfg.sl_lookback_period) errs.sl_lookback_period = 'Required'
+    }
+    if (currentCfg.tp_mode === 'exp_rr_seq') {
+      if (!currentCfg.live_rr_sequence?.length) errs.tp_mode = 'Sequence required'
+    }
+
+    // Risk Section
+    if (currentCfg.risk_pct_per_trade > currentCfg.max_total_risk_pct) {
+      errs.risk_pct_per_trade = 'Exceeds max total risk'
+    }
+
+    setErrors(errs)
+    return Object.keys(errs).length === 0
+  }
+
+  const generatedPresetName = useMemo(() => {
+    const interval = cfg.scan_interval || 'Custom'
+    const risk = cfg.risk_pct_per_trade ? `${cfg.risk_pct_per_trade}% risk` : ''
+    const enabled = Array.isArray(cfg.enabled_signals) ? cfg.enabled_signals : []
+    const signalLabels = enabled
+      .map((signal) => SIGNALS.find(([key]) => key === signal)?.[1] || signal)
+      .filter(Boolean)
+
+    let signalPart = 'Custom signals'
+    if (signalLabels.length === 1) {
+      signalPart = signalLabels[0]
+    } else if (signalLabels.length > 1) {
+      signalPart = `${signalLabels.slice(0, 2).join(', ')}${signalLabels.length > 2 ? ` +${signalLabels.length - 2}` : ''}`
+    }
+
+    const parts = [interval, signalPart, risk].filter(Boolean)
+    return parts.join(' · ') || 'New session preset'
+  }, [cfg.scan_interval, cfg.risk_pct_per_trade, cfg.enabled_signals])
 
   useEffect(() => {
     const saved = localStorage.getItem('strategy_presets')
@@ -68,6 +133,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
           ...initialConfig,
           signal_params_ma_period: params.ma_period,
           signal_params_ema_period: params.ema_period,
+          signal_params_entry_ema_period: params.entry_ema_period,
+          signal_params_exit_ema_period: params.exit_ema_period,
+          signal_params_entry_ema_fast: params.entry_ema_fast,
+          signal_params_entry_ema_slow: params.entry_ema_slow,
+          signal_params_exit_ema_fast: params.exit_ema_fast,
+          signal_params_exit_ema_slow: params.exit_ema_slow,
         }));
       } catch (e) {
         setCfg({ ...initialConfig })
@@ -75,11 +146,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     }
   }, [initialConfig])
 
-  const setField = (key, value) => setCfg((prev) => ({ ...prev, [key]: value }))
+  const setField = (key, value) => {
+    const next = { ...cfg, [key]: value };
+    setCfg(next);
+    if (Object.keys(errors).length > 0) validate(next);
+  }
 
   const savePreset = () => {
-    if (!presetName) return
-    const next = [...presets.filter(p => p.name !== presetName), { name: presetName, config: cfg }]
+    if (!validate(cfg)) return;
+    const name = presetName.trim() || generatedPresetName
+    if (!name) return
+    const next = [...presets.filter(p => p.name !== name), { name, config: cfg }]
     setPresets(next)
     localStorage.setItem('strategy_presets', JSON.stringify(next))
     setPresetName('')
@@ -88,6 +165,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
   const loadPreset = (p) => {
     setCfg({ ...p.config })
     setSection('scan')
+    setErrors({})
   }
 
   const deletePreset = (e, name) => {
@@ -109,15 +187,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
 
   function field(label, key, type = 'number', opts = null, attrs = {}) {
     const id = `config-${key}`
+    const hasError = !!errors[key]
+    
     return (
       <div className="flex flex-col gap-1.5">
-        <label htmlFor={id} className="text-[10px] text-dim font-bold tracking-widest uppercase">{label}</label>
+        <div className="flex justify-between items-center">
+          <label htmlFor={id} className="text-[10px] text-dim font-bold tracking-widest uppercase">{label}</label>
+          {hasError && <span className="text-[9px] text-red font-bold uppercase">{errors[key]}</span>}
+        </div>
         {opts ? (
           <select
             id={id}
             value={cfg[key] ?? ''}
             onChange={(e) => setField(key, e.target.value)}
-            className="bg-surface border border-border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent"
+            className={cn(
+              "bg-surface border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent transition-colors",
+              hasError ? "border-red/50 bg-red/5" : "border-border"
+            )}
           >
             {opts.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
@@ -130,7 +216,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
             max={attrs.max}
             step={attrs.step}
             onChange={(e) => setField(key, type === 'number' ? Number(e.target.value) : e.target.value)}
-            className="bg-surface border border-border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent"
+            className={cn(
+              "bg-surface border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent transition-colors",
+              hasError ? "border-red/50 bg-red/5" : "border-border"
+            )}
           />
         )}
       </div>
@@ -250,14 +339,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
             </div>
 
             <div className="space-y-4 border-t border-border pt-4">
-              <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Signal Parameters</div>
+              <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Entry Signal Parameters</div>
               <div className="grid grid-cols-2 gap-5">
-                {field('MA Period', 'signal_params_ma_period', 'number', null, { min: 5, max: 50, step: 1 })}
-                {field('EMA Period', 'signal_params_ema_period', 'number', null, { min: 5, max: 50, step: 1 })}
+                {field('MA Period', 'signal_params_ma_period', 'number', null, { min: 5, max: 200, step: 1 })}
+                {field('Entry EMA Period', 'signal_params_entry_ema_period', 'number', null, { min: 2, max: 200, step: 1 })}
               </div>
-              <div className="text-xs text-dim">
-                <p>• MA Period: Lookback bars for Moving Average cross signal</p>
-                <p>• EMA Period: Lookback bars for Exponential Moving Average signal</p>
+              <div className="grid grid-cols-2 gap-5">
+                {field('Entry EMA Fast', 'signal_params_entry_ema_fast', 'number', null, { min: 2, max: 200, step: 1 })}
+                {field('Entry EMA Slow', 'signal_params_entry_ema_slow', 'number', null, { min: 2, max: 200, step: 1 })}
+              </div>
+
+              <div className="text-[10px] text-dim font-bold tracking-widest uppercase pt-2">Exit Signal Parameters</div>
+              <div className="grid grid-cols-2 gap-5">
+                {field('Exit EMA Period', 'signal_params_exit_ema_period', 'number', null, { min: 2, max: 200, step: 1 })}
+              </div>
+              <div className="grid grid-cols-2 gap-5">
+                {field('Exit EMA Fast', 'signal_params_exit_ema_fast', 'number', null, { min: 2, max: 200, step: 1 })}
+                {field('Exit EMA Slow', 'signal_params_exit_ema_slow', 'number', null, { min: 2, max: 200, step: 1 })}
               </div>
             </div>
           </div>
@@ -495,14 +593,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
               <div className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="e.g. Scalping 1m"
+                  placeholder={presetName || generatedPresetName}
                   value={presetName}
                   onChange={(e) => setPresetName(e.target.value)}
                   className="flex-1 bg-surface border border-border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent"
                 />
                 <button
                   onClick={savePreset}
-                  disabled={!presetName}
+                  disabled={!presetName && !generatedPresetName}
                   className="bg-accent/10 border border-accent/20 text-accent px-4 py-2 rounded-md hover:bg-accent/20 disabled:opacity-50 transition-colors"
                 >
                   <Save size={18} />
@@ -606,6 +704,18 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
       <div className="p-5 border-t border-border bg-surface flex gap-3 shrink-0">
         <Btn variant="ghost" onClick={onClose} className="flex-1">Cancel</Btn>
         <Btn variant="primary" onClick={() => {
+          if (!validate(cfg)) {
+             // Find the first section with an error and switch to it
+             const firstErrorKey = Object.keys(errors)[0];
+             if (firstErrorKey) {
+                if (['scan_interval', 'scan_lookback', 'scan_window_duration_sec', 'scan_check_interval_sec'].includes(firstErrorKey)) setSection('scan');
+                else if (firstErrorKey.startsWith('signal_params')) setSection('signals');
+                else if (['sl_lookback_period', 'tp_mode'].includes(firstErrorKey)) setSection('exit');
+                else if (['risk_pct_per_trade'].includes(firstErrorKey)) setSection('risk');
+             }
+             return;
+          }
+
           const configToSave = { ...cfg };
           // Serialize signal parameters
           const signalParams = {
@@ -613,6 +723,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
           };
           if (cfg.signal_params_ma_period) signalParams.ma_period = cfg.signal_params_ma_period;
           if (cfg.signal_params_ema_period) signalParams.ema_period = cfg.signal_params_ema_period;
+          if (cfg.signal_params_entry_ema_period) signalParams.entry_ema_period = cfg.signal_params_entry_ema_period;
+          if (cfg.signal_params_exit_ema_period) signalParams.exit_ema_period = cfg.signal_params_exit_ema_period;
+          if (cfg.signal_params_entry_ema_fast) signalParams.entry_ema_fast = cfg.signal_params_entry_ema_fast;
+          if (cfg.signal_params_entry_ema_slow) signalParams.entry_ema_slow = cfg.signal_params_entry_ema_slow;
+          if (cfg.signal_params_exit_ema_fast) signalParams.exit_ema_fast = cfg.signal_params_exit_ema_fast;
+          if (cfg.signal_params_exit_ema_slow) signalParams.exit_ema_slow = cfg.signal_params_exit_ema_slow;
+
           configToSave.signal_params = JSON.stringify(signalParams);
           onSave(configToSave);
         }} className="flex-[2]">

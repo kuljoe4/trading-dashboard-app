@@ -15,3 +15,7 @@
 ## 2025-05-15 - [Icon-Only Button Accessibility & Tooltips]
 **Learning:** Icon-only buttons in navigation (especially when collapsed) and dashboards are invisible to screen readers and potentially confusing to users if visual tooltips are missing. Proper accessibility requires `aria-label` for screen readers and `title` attributes to provide native tooltips in compact states.
 **Action:** Always include `aria-label` on icon-only buttons. For collapsed sidebars or compact UI, also provide a `title` attribute to ensure functional clarity for all users.
+
+## 2026-05-15 - [Custom Switch Accessibility]
+**Learning:** Custom toggle switches implemented as standard buttons lack the necessary semantic meaning for screen readers. Without `role="switch"` and `aria-checked`, users of assistive technology cannot perceive the component's state or purpose.
+**Action:** Always accompany custom-styled toggle buttons with `role="switch"`, `aria-checked`, and a descriptive `aria-label`.

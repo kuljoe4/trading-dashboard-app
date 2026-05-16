@@ -28,6 +28,7 @@ export class TradingSessionService {
   private binanceRateLimit: Record<string, any> = {};
   private wsBroadcaster: ((data: any) => void) | null = null;
   private onBalanceUpdate: ((balance: number, pnl: number) => void) | null = null;
+  private onTradeUpdate: ((trade: Trade) => void) | null = null;
   private lastScannerResults: any[] = [];
   private closedTrades: Trade[] = [];
   private gateState: string | null = null;
@@ -61,6 +62,10 @@ export class TradingSessionService {
     this.onBalanceUpdate = cb;
   }
 
+  setTradeUpdateCallback(cb: (trade: Trade) => void) {
+    this.onTradeUpdate = cb;
+  }
+
   private broadcast(eventType: string, payload: any) {
     if (this.wsBroadcaster) {
       this.wsBroadcaster({ type: eventType, ...payload });
@@ -83,6 +88,9 @@ export class TradingSessionService {
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
     this.orderManager.setBinanceClient(binanceClient, mode === 'paper');
     this.marketFeed.setCandeCloseCallback(this.onCandleClose.bind(this));
+    this.positionTracker.setTradeUpdateCallback((trade) => {
+      if (this.onTradeUpdate) this.onTradeUpdate(trade);
+    });
 
     // Fetch live balance
     if (mode !== 'paper' && binanceClient) {
@@ -151,11 +159,21 @@ export class TradingSessionService {
     // Properly close active positions on session stop
     const active = this.positionTracker.activeList();
     for (const trade of active) {
-      trade.status = 'CLOSED';
-      trade.exit_ts = new Date();
-      trade.exit_reason = 'SESSION_TERMINATED';
-      this.closedTrades.push(trade);
-      this.positionTracker.removeTrade(trade.symbol);
+      const currentPrice = await this.tickerCache.getPrice(trade.symbol);
+      const exitPrice = currentPrice ?? trade.last_price ?? trade.entry_price;
+      const result = await this.positionTracker.closeTrade(trade.symbol, exitPrice, 'SESSION_TERMINATED', this.config!);
+      if (result.exitOccurred && result.trade) {
+        this.closedTrades.push(result.trade);
+        if (this.onTradeUpdate) this.onTradeUpdate(result.trade);
+        await this.updateBalance(result.trade);
+      } else {
+        // Fallback if the engine could not close trade normally
+        trade.status = 'CLOSED';
+        trade.exit_ts = new Date();
+        trade.exit_reason = 'SESSION_TERMINATED';
+        this.closedTrades.push(trade);
+        this.positionTracker.removeTrade(trade.symbol);
+      }
     }
     
     await this.marketFeed.stop();
@@ -277,6 +295,7 @@ export class TradingSessionService {
         if (result.exitOccurred && result.trade) {
           this.updateBalance(result.trade);
           this.closedTrades.unshift(result.trade);
+          if (this.onTradeUpdate) this.onTradeUpdate(result.trade);
           this.broadcast('trade_event', {
             event: 'closed',
             symbol: result.trade.symbol, // Fix: Added symbol for frontend log
@@ -314,7 +333,13 @@ export class TradingSessionService {
     for (const opp of opportunities) {
       if (this.positionTracker.hasSymbol(opp.symbol)) continue;
 
-      const signalResult = await this.signalEngine.checkEntry(opp.symbol, this.config!, this.config!.scan_interval || '1m');
+      const signalResult = await this.signalEngine.checkEntry(
+        opp.symbol,
+        this.config!,
+        this.config!.scan_interval || '1m',
+        opp.direction.toUpperCase() as any,
+        'entry'
+      );
       if (!signalResult.allFired) continue;
 
       this.logger.log(`${opp.symbol}: ALL SIGNALS FIRED! Proceeding to risk checks...`);
@@ -360,6 +385,7 @@ export class TradingSessionService {
 
       if (trade) {
         this.positionTracker.addTrade(trade);
+        if (this.onTradeUpdate) this.onTradeUpdate(trade);
         this.broadcast('trade_event', { 
           event: 'opened', 
           symbol: opp.symbol, // Fix: Added symbol for frontend log
@@ -750,6 +776,7 @@ export class TradingSessionService {
     if (result.exitOccurred && result.trade) {
       this.updateBalance(result.trade);
       this.closedTrades.unshift(result.trade);
+      if (this.onTradeUpdate) this.onTradeUpdate(result.trade);
       
       this.broadcast('trade_event', {
         event: 'closed',

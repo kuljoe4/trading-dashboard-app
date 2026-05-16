@@ -6,7 +6,9 @@ import * as Switch from '@radix-ui/react-switch'
 const SIGNALS = [
   ['momentum_pct', '% Momentum'],
   ['breakout_hl', 'Breakout H/L'],
-  ['ema_cross', 'EMA Cross'],
+  ['ema_price_cross', 'EMA Price Cross'],
+  ['ema_dual_cross', 'EMA Dual Cross'],
+  ['ema_close', 'EMA Close'],
   ['ma', 'MA Cross'],
   ['engulfing', 'Engulfing'],
 ]
@@ -68,6 +70,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
           ...initialConfig,
           signal_params_ma_period: params.ma_period,
           signal_params_ema_period: params.ema_period,
+          signal_params_entry_ema_period: params.entry_ema_period,
+          signal_params_exit_ema_period: params.exit_ema_period,
+          signal_params_entry_ema_fast: params.entry_ema_fast,
+          signal_params_entry_ema_slow: params.entry_ema_slow,
+          signal_params_exit_ema_fast: params.exit_ema_fast,
+          signal_params_exit_ema_slow: params.exit_ema_slow,
         }));
       } catch (e) {
         setCfg({ ...initialConfig })
@@ -250,14 +258,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
             </div>
 
             <div className="space-y-4 border-t border-border pt-4">
-              <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Signal Parameters</div>
+              <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Entry Signal Parameters</div>
               <div className="grid grid-cols-2 gap-5">
-                {field('MA Period', 'signal_params_ma_period', 'number', null, { min: 5, max: 50, step: 1 })}
-                {field('EMA Period', 'signal_params_ema_period', 'number', null, { min: 5, max: 50, step: 1 })}
+                {field('MA Period', 'signal_params_ma_period', 'number', null, { min: 5, max: 200, step: 1 })}
+                {field('Entry EMA Period', 'signal_params_entry_ema_period', 'number', null, { min: 2, max: 200, step: 1 })}
               </div>
-              <div className="text-xs text-dim">
-                <p>• MA Period: Lookback bars for Moving Average cross signal</p>
-                <p>• EMA Period: Lookback bars for Exponential Moving Average signal</p>
+              <div className="grid grid-cols-2 gap-5">
+                {field('Entry EMA Fast', 'signal_params_entry_ema_fast', 'number', null, { min: 2, max: 200, step: 1 })}
+                {field('Entry EMA Slow', 'signal_params_entry_ema_slow', 'number', null, { min: 2, max: 200, step: 1 })}
+              </div>
+
+              <div className="text-[10px] text-dim font-bold tracking-widest uppercase pt-2">Exit Signal Parameters</div>
+              <div className="grid grid-cols-2 gap-5">
+                {field('Exit EMA Period', 'signal_params_exit_ema_period', 'number', null, { min: 2, max: 200, step: 1 })}
+              </div>
+              <div className="grid grid-cols-2 gap-5">
+                {field('Exit EMA Fast', 'signal_params_exit_ema_fast', 'number', null, { min: 2, max: 200, step: 1 })}
+                {field('Exit EMA Slow', 'signal_params_exit_ema_slow', 'number', null, { min: 2, max: 200, step: 1 })}
               </div>
             </div>
           </div>
@@ -613,6 +630,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
           };
           if (cfg.signal_params_ma_period) signalParams.ma_period = cfg.signal_params_ma_period;
           if (cfg.signal_params_ema_period) signalParams.ema_period = cfg.signal_params_ema_period;
+          if (cfg.signal_params_entry_ema_period) signalParams.entry_ema_period = cfg.signal_params_entry_ema_period;
+          if (cfg.signal_params_exit_ema_period) signalParams.exit_ema_period = cfg.signal_params_exit_ema_period;
+          if (cfg.signal_params_entry_ema_fast) signalParams.entry_ema_fast = cfg.signal_params_entry_ema_fast;
+          if (cfg.signal_params_entry_ema_slow) signalParams.entry_ema_slow = cfg.signal_params_entry_ema_slow;
+          if (cfg.signal_params_exit_ema_fast) signalParams.exit_ema_fast = cfg.signal_params_exit_ema_fast;
+          if (cfg.signal_params_exit_ema_slow) signalParams.exit_ema_slow = cfg.signal_params_exit_ema_slow;
+
           configToSave.signal_params = JSON.stringify(signalParams);
           onSave(configToSave);
         }} className="flex-[2]">

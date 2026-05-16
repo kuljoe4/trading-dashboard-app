@@ -2,6 +2,7 @@ import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useTradingStore } from './store/trading';
 import { sessionAPI } from './api/client';
+import { useVisibility } from './hooks/useVisibility';
 import './index.css';
 
 const DashboardView = lazy(() => import('./views/DashboardView').then(m => ({ default: m.DashboardView })));
@@ -19,8 +20,14 @@ const LoadingView = () => (
 
 const App = () => {
   const { 
-    sessionActive, setSessionActive, balance, totalRiskPct, config, updateStats
+    sessionActive, setSessionActive, balance, totalRiskPct, config, updateStats, setThrottled
   } = useTradingStore();
+
+  const isHidden = useVisibility();
+
+  useEffect(() => {
+    setThrottled(isHidden);
+  }, [isHidden, setThrottled]);
 
   const [view, setView] = useState('cockpit');
 

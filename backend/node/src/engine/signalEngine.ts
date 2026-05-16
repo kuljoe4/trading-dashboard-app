@@ -2,13 +2,29 @@ import { Injectable, Logger } from '@nestjs/common';
 import { KlineStoreService } from './kline_store.service';
 import { SessionConfig } from '../models/SessionConfig';
 
+interface SignalDetail {
+  fired: boolean;
+  value: number;
+  threshold: number;
+  unit: string;
+  metric: string;
+  description: string;
+}
+
+interface SignalEntryResult {
+  allFired: boolean;
+  firedSignals: string[];
+  reason: string;
+  details: Record<string, SignalDetail>;
+}
+
 @Injectable()
 export class SignalEngineService {
   private readonly logger = new Logger(SignalEngineService.name);
 
   private readonly signalHandlers: Record<
     string,
-    (symbol: string, config: any, interval: string) => Promise<boolean>
+    (symbol: string, config: any, interval: string) => Promise<SignalDetail>
   > = {
     momentum_pct: this.momentumPctSignal.bind(this),
     breakout_hl: this.breakoutHlSignal.bind(this),
@@ -24,17 +40,19 @@ export class SignalEngineService {
     symbol: string,
     config: SessionConfig,
     interval: string = '1m',
-  ): Promise<{ allFired: boolean; firedSignals: string[]; reason: string }> {
+  ): Promise<SignalEntryResult> {
     if (!config.enabled_signals || config.enabled_signals.length === 0) {
       return {
         allFired: false,
         firedSignals: [],
         reason: 'No signals enabled',
+        details: {},
       };
     }
 
     const firedSignals: string[] = [];
     const failedSignals: string[] = [];
+    const details: Record<string, SignalDetail> = {};
 
     for (const signalType of config.enabled_signals) {
       const handler = this.signalHandlers[signalType];
@@ -44,8 +62,9 @@ export class SignalEngineService {
       }
 
       try {
-        const fired = await handler(symbol, config, interval);
-        if (fired) {
+        const detail = await handler(symbol, config, interval);
+        details[signalType] = detail;
+        if (detail.fired) {
           firedSignals.push(signalType);
         } else {
           failedSignals.push(signalType);
@@ -65,36 +84,62 @@ export class SignalEngineService {
       (firedSignals.length > 0 ? ` (${firedSignals.join(', ')})` : '') +
       (failedSignals.length > 0 ? `; Failed: ${failedSignals.join(', ')}` : '');
 
-    return { allFired, firedSignals, reason };
+    return { allFired, firedSignals, reason, details };
   }
 
   private async momentumPctSignal(
     symbol: string,
     config: SessionConfig,
     interval: string,
-  ): Promise<boolean> {
+  ): Promise<SignalDetail> {
     const lookback = Math.max(config.scan_lookback || 3, 1);
     const candles = await this.klineStore.getRecentCandles(symbol, interval, lookback + 1);
-    if (candles.length < lookback + 1) return false;
+    if (candles.length < lookback + 1) {
+      return {
+        fired: false,
+        value: 0,
+        threshold: config.scan_pct_threshold || 0,
+        unit: '%',
+        metric: 'Momentum %',
+        description: 'Not enough candles',
+      };
+    }
 
     const first = candles[candles.length - 1 - lookback].close;
     const last = candles[candles.length - 1].close;
     const pct = ((last - first) / first) * 100;
-    return Math.abs(pct) >= (config.scan_pct_threshold || 0);
+    const value = Math.abs(pct);
+    const threshold = config.scan_pct_threshold || 0;
+    return {
+      fired: value >= threshold,
+      value,
+      threshold,
+      unit: '%',
+      metric: 'Momentum %',
+      description: `${value.toFixed(2)}% vs threshold ${threshold.toFixed(2)}%`,
+    };
   }
 
   private async breakoutHlSignal(
     symbol: string,
     config: SessionConfig,
     interval: string,
-  ): Promise<boolean> {
+  ): Promise<SignalDetail> {
     const lookback = Math.max(config.scan_lookback || 3, 2);
     const candles = await this.klineStore.getRecentCandles(symbol, interval, lookback + 1);
-    if (candles.length < lookback + 1) return false;
+    if (candles.length < lookback + 1) {
+      return {
+        fired: false,
+        value: 0,
+        threshold: 0,
+        unit: 'pts',
+        metric: 'Breakout H/L',
+        description: 'Not enough candles',
+      };
+    }
 
     const current = candles[candles.length - 1];
 
-    // BOLT OPTIMIZATION: Use direct loop instead of slice().map() to avoid intermediate array allocations
     let maxHigh = -Infinity;
     let minLow = Infinity;
     for (let i = 0; i < candles.length - 1; i++) {
@@ -102,30 +147,70 @@ export class SignalEngineService {
       if (candles[i].low < minLow) minLow = candles[i].low;
     }
 
-    return current.close > maxHigh || current.close < minLow;
+    const breakoutAbove = current.close - maxHigh;
+    const breakoutBelow = minLow - current.close;
+    const fired = breakoutAbove > 0 || breakoutBelow > 0;
+    const value = fired ? Math.max(breakoutAbove, breakoutBelow) : 0;
+    const description = breakoutAbove > 0
+      ? `Above high by ${breakoutAbove.toFixed(2)}`
+      : breakoutBelow > 0
+        ? `Below low by ${breakoutBelow.toFixed(2)}`
+        : 'No breakout';
+
+    return {
+      fired,
+      value,
+      threshold: 0,
+      unit: 'pts',
+      metric: 'Breakout H/L',
+      description,
+    };
   }
 
   private async engulfingSignal(
     symbol: string,
     config: any,
     interval: string,
-  ): Promise<boolean> {
+  ): Promise<SignalDetail> {
     try {
       const candles = await this.klineStore.getRecentCandles(
         symbol,
         interval,
         2,
       );
-      if (candles.length < 2) return false;
+      if (candles.length < 2) {
+        return {
+          fired: false,
+          value: 0,
+          threshold: 1,
+          unit: 'pts',
+          metric: 'Engulfing',
+          description: 'Not enough candles',
+        };
+      }
 
       const prevCandle = candles[0];
       const currCandle = candles[1];
+      const fired = currCandle.high > prevCandle.high && currCandle.low < prevCandle.low;
 
-      // Engulfing: current candle high > prev high AND current low < prev low
-      return currCandle.high > prevCandle.high && currCandle.low < prevCandle.low;
+      return {
+        fired,
+        value: fired ? 1 : 0,
+        threshold: 1,
+        unit: 'pts',
+        metric: 'Engulfing',
+        description: fired ? 'Engulfing candle detected' : 'No engulfing candle',
+      };
     } catch (error) {
       this.logger.debug(`Engulfing signal error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
-      return false;
+      return {
+        fired: false,
+        value: 0,
+        threshold: 1,
+        unit: 'pts',
+        metric: 'Engulfing',
+        description: 'Signal error',
+      };
     }
   }
 
@@ -133,7 +218,7 @@ export class SignalEngineService {
     symbol: string,
     config: any,
     interval: string,
-  ): Promise<boolean> {
+  ): Promise<SignalDetail> {
     try {
       const period = parseInt(config.signal_params?.ma_period || '20', 10);
       const candles = await this.klineStore.getRecentCandles(
@@ -141,19 +226,42 @@ export class SignalEngineService {
         interval,
         period + 1,
       );
-      if (candles.length < period + 1) return false;
+      if (candles.length < period + 1) {
+        return {
+          fired: false,
+          value: 0,
+          threshold: 0,
+          unit: 'pts',
+          metric: 'MA Cross',
+          description: 'Not enough candles',
+        };
+      }
 
-      // BOLT OPTIMIZATION: Work directly on Candle array to avoid map() and slice()
       const ma = this.calculateSMA(candles, 0, period);
       const prevClose = candles[candles.length - 2].close;
       const currClose = candles[candles.length - 1].close;
+      const diff = currClose - ma;
+      const prevDiff = prevClose - ma;
+      const fired = (prevDiff <= 0 && diff > 0) || (prevDiff >= 0 && diff < 0);
 
-      // Crossover: prev <= ma AND curr > ma (bullish) OR prev >= ma AND curr < ma (bearish)
-      return (prevClose <= ma && currClose > ma) ||
-        (prevClose >= ma && currClose < ma);
+      return {
+        fired,
+        value: diff,
+        threshold: 0,
+        unit: 'pts',
+        metric: 'MA Cross',
+        description: `Close − MA = ${diff.toFixed(2)}`,
+      };
     } catch (error) {
       this.logger.debug(`MA signal error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
-      return false;
+      return {
+        fired: false,
+        value: 0,
+        threshold: 0,
+        unit: 'pts',
+        metric: 'MA Cross',
+        description: 'Signal error',
+      };
     }
   }
 
@@ -161,7 +269,7 @@ export class SignalEngineService {
     symbol: string,
     config: any,
     interval: string,
-  ): Promise<boolean> {
+  ): Promise<SignalDetail> {
     try {
       const period = parseInt(config.signal_params?.ema_period || '12', 10);
       const candles = await this.klineStore.getRecentCandles(
@@ -169,19 +277,42 @@ export class SignalEngineService {
         interval,
         period + 1,
       );
-      if (candles.length < period + 1) return false;
+      if (candles.length < period + 1) {
+        return {
+          fired: false,
+          value: 0,
+          threshold: 0,
+          unit: 'pts',
+          metric: 'EMA Cross',
+          description: 'Not enough candles',
+        };
+      }
 
-      // BOLT OPTIMIZATION: Work directly on Candle array to avoid map()
       const ema = this.calculateEMA(candles, period);
       const prevClose = candles[candles.length - 2].close;
       const currClose = candles[candles.length - 1].close;
+      const diff = currClose - ema;
+      const prevDiff = prevClose - ema;
+      const fired = (prevDiff <= 0 && diff > 0) || (prevDiff >= 0 && diff < 0);
 
-      // Crossover: prev <= ema AND curr > ema (bullish) OR prev >= ema AND curr < ema (bearish)
-      return (prevClose <= ema && currClose > ema) ||
-        (prevClose >= ema && currClose < ema);
+      return {
+        fired,
+        value: diff,
+        threshold: 0,
+        unit: 'pts',
+        metric: 'EMA Cross',
+        description: `Close − EMA = ${diff.toFixed(2)}`,
+      };
     } catch (error) {
       this.logger.debug(`EMA signal error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
-      return false;
+      return {
+        fired: false,
+        value: 0,
+        threshold: 0,
+        unit: 'pts',
+        metric: 'EMA Cross',
+        description: 'Signal error',
+      };
     }
   }
 

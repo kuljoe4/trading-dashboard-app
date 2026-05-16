@@ -61,6 +61,9 @@ export class OrderManagerService {
           this.logger.log(
             `Binance order placed: ${symbol} ${direction} qty=${qty} order_id=${orderData.orderId}`,
           );
+
+          // Place initial Stop Loss order on exchange
+          await this.placeStopLoss(trade, slPrice);
         } catch (err) {
           this.logger.warn(
             `Binance order failed (continuing in paper mode): ${err instanceof Error ? err.message : String(err)}`,
@@ -78,6 +81,71 @@ export class OrderManagerService {
     }
   }
 
+  /**
+   * Place a STOP_MARKET order on Binance for stop loss protection
+   */
+  async placeStopLoss(trade: Trade, slPrice: number): Promise<string | null> {
+    if (this.paperMode || !this.binanceClient) return null;
+
+    try {
+      const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
+      // Use STOP_MARKET with closePosition: true for optimal efficiency and robustness
+      const response = await this.binanceClient.restAPI.tradeApi.newOrder(trade.symbol, closeDirection, 'STOP_MARKET', {
+        stopPrice: slPrice,
+        closePosition: 'true',
+        reduceOnly: 'true',
+      });
+      const orderData = response.data || response;
+      trade.binance_stop_order_id = orderData.orderId;
+      this.logger.log(
+        `Binance SL order placed: ${trade.symbol} at ${slPrice} order_id=${orderData.orderId}`,
+      );
+      return orderData.orderId;
+    } catch (err) {
+      this.logger.error(
+        `Failed to place Binance SL: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Update an existing stop loss by canceling and replacing it
+   */
+  async updateStopLoss(trade: Trade, newSlPrice: number): Promise<void> {
+    if (this.paperMode || !this.binanceClient) return;
+
+    // Cancel existing SL order if it exists
+    if (trade.binance_stop_order_id) {
+      await this.cancelBinanceOrder(trade.symbol, trade.binance_stop_order_id);
+    }
+
+    // Place new SL order
+    await this.placeStopLoss(trade, newSlPrice);
+  }
+
+  /**
+   * Cancel an order on Binance
+   */
+  async cancelBinanceOrder(symbol: string, orderId: string): Promise<boolean> {
+    if (this.paperMode || !this.binanceClient) return true;
+
+    try {
+      await this.binanceClient.restAPI.tradeApi.cancelOrder(symbol, { orderId });
+      this.logger.log(`Binance order canceled: ${symbol} order_id=${orderId}`);
+      return true;
+    } catch (err) {
+      // If order is already filled or canceled, we can ignore the error
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg.includes('Order has been filled') || errMsg.includes('UNKNOWN_ORDER')) {
+        this.logger.debug(`Order ${orderId} already closed: ${errMsg}`);
+        return true;
+      }
+      this.logger.warn(`Failed to cancel Binance order ${orderId}: ${errMsg}`);
+      return false;
+    }
+  }
+
   async checkExitSignals(
     symbol: string,
     trade: Trade,
@@ -92,7 +160,7 @@ export class OrderManagerService {
       ? (Date.now() - new Date(trade.entry_ts).getTime()) / 1000
       : 0;
 
-    const statuses: Record<string, { fired: boolean, active: boolean, remaining_delay: number, label: string }> = {};
+    const statuses: Record<string, { fired: boolean, active: boolean, remaining_delay: number, label: string, value: number, threshold: number, unit: string, description?: string }> = {};
     const delays = config.exit_signal_delays || {};
     const logic = config.exit_signal_logic || 'any';
 
@@ -112,14 +180,25 @@ export class OrderManagerService {
           enabled_signals: [exitSignal],
         };
 
-        const result = await this.signalEngine.checkEntry(symbol, tempConfig, interval);
+        const result = await this.signalEngine.checkEntry(
+          symbol,
+          tempConfig,
+          interval,
+          trade.direction,
+          'exit'
+        );
         const isFired = result.allFired;
+        const detail = result.details ? result.details[exitSignal] : null;
 
         statuses[exitSignal] = {
           fired: isFired,
           active: isActive,
           remaining_delay: remaining,
-          label: exitSignal, // Could map to pretty name if needed
+          label: detail?.metric || exitSignal,
+          value: detail?.value ?? (isFired ? 1 : 0),
+          threshold: detail?.threshold ?? 1,
+          unit: detail?.unit ?? '%',
+          description: detail?.description || `Signal ${exitSignal} ${isFired ? 'fired' : 'not fired'}`,
         };
 
         if (isFired && isActive) {
@@ -167,7 +246,7 @@ export class OrderManagerService {
     trade: Trade,
     exitPrice: number,
     exitReason: string,
-    paperMode = true,
+    paperMode = this.paperMode,
   ): Promise<{ trade: Trade; exitOccurred: boolean }> {
     try {
       // Calculate P&L
@@ -196,12 +275,18 @@ export class OrderManagerService {
         trade.status = 'CLOSED_SIGNAL';
       }
 
-      // In live mode, place close order
+      // In live mode, place close order with reduce-only for safety
       if (!paperMode && this.binanceClient) {
         try {
+          // If there is an exchange stop loss, cancel it to prevent orphans
+          if (trade.binance_stop_order_id) {
+            await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id);
+          }
+
           const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
           const response = await this.binanceClient.restAPI.tradeApi.newOrder(symbol, closeDirection, 'MARKET', {
             quantity: trade.qty || 0,
+            reduceOnly: true,
           });
           const orderData = response.data || response;
           trade.binance_close_order_id = orderData.orderId;

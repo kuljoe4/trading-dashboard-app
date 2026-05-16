@@ -50,9 +50,9 @@ export const EquityCurve = ({ data = [], height = 180 }) => {
   const areaD = `${pathD} L 100 100 L 0 100 Z`;
 
   return (
-    <div className="relative group">
+    <div className="relative group" role="img" aria-label={`Cumulative profit and loss chart, latest value ${fmtUSD(data[data.length-1].pnl)}.`}>
       <div className="absolute top-2 left-2 flex flex-col gap-0.5 z-10 pointer-events-none">
-        <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Equity Curve (Live)</span>
+        <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Cumulative P&L</span>
         <span className={cn("text-lg font-bold font-mono tracking-tighter", data[data.length-1].pnl >= 0 ? "text-green" : "text-red")}>
           {fmtUSD(data[data.length-1].pnl)}
         </span>
@@ -116,10 +116,10 @@ export const TODPerformance = ({ data = [] }) => {
   const maxPnl = Math.max(1, ...data.map(d => Math.abs(d.pnl)));
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" role="region" aria-label="Time of day performance histogram">
       <div className="flex items-center justify-between">
         <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Time-of-Day Performance</span>
-        <div className="flex gap-4">
+        <div className="flex gap-4" aria-hidden="true">
           <div className="flex items-center gap-1.5">
              <div className="w-1.5 h-1.5 rounded-full bg-green" />
              <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Win</span>
@@ -137,14 +137,16 @@ export const TODPerformance = ({ data = [] }) => {
           return (
             <div key={h.hour} className="flex-1 flex flex-col items-center gap-1.5 group relative">
               <div
+                role="img"
+                aria-label={`${h.hour}:00 hour, ${h.pnl >= 0 ? 'positive' : 'negative'} performance, ${fmtUSD(h.pnl)} PnL, ${h.winRate.toFixed(0)}% win rate over ${h.total} trades`}
                 className={cn(
-                  "w-full rounded-t-sm transition-all duration-300 hover:opacity-80 cursor-help",
+                  "w-full rounded-t-sm transition-all duration-300 hover:opacity-80",
                   h.pnl >= 0 ? "bg-green/40 border-t border-green/60" : "bg-red/40 border-t border-red/60"
                 )}
                 style={{ height: `${Math.max(4, height)}%` }}
               >
                 {/* Tooltip */}
-                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-surface border border-border p-2 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none min-w-[80px]">
+                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-surface border border-border p-2 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none min-w-[80px]" aria-hidden="true">
                    <div className="text-[8px] text-dim font-bold uppercase tracking-widest mb-1">{h.hour}:00</div>
                    <div className={cn("text-[10px] font-mono font-bold", h.pnl >= 0 ? "text-green" : "text-red")}>{fmtUSD(h.pnl)}</div>
                    <div className="text-[9px] text-dim font-mono">{h.winRate.toFixed(0)}% WR ({h.wins}/{h.total})</div>

@@ -19,7 +19,7 @@ import { Log } from './models/entities/Log.entity';
         type: 'postgres',
         url: configService.get<string>('DATABASE_URL'),
         entities: [Session, TradeEntity, Settings, Log],
-        synchronize: true, // Only for development/hobby plan, careful in production
+        synchronize: configService.get<string>('NODE_ENV') !== 'production', // Disable sync in production for safety
         ssl: configService.get<string>('NODE_ENV') === 'production' ? { rejectUnauthorized: false } : false,
       }),
       inject: [ConfigService],

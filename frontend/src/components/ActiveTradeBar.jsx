@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { pnlColor, fmtUSD, fmt, C } from '../lib/theme'
 import { PulseDot, PaperBadge, ConditionWidget, cn } from './ui/primitives'
-import { Info, TrendingUp, ShieldAlert, Target, Activity, Zap, XCircle, ShieldCheck } from 'lucide-react'
+import { Info, TrendingUp, ShieldAlert, Target, Activity, Zap, XCircle, ShieldCheck, Clock } from 'lucide-react'
 import { sessionAPI } from '../api/client'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -9,6 +9,31 @@ const price = (value) => {
   if (value == null || Number.isNaN(Number(value))) return 'None'
   const n = Number(value)
   return n >= 100 ? `$${n.toFixed(2)}` : `$${n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}`
+}
+
+const timeSince = (entryTs) => {
+  if (!entryTs) return 'Just now'
+  const now = Date.now()
+  const entry = new Date(entryTs).getTime()
+  const diff = Math.floor((now - entry) / 1000)
+  if (diff < 60) return `${diff}s ago`
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  const hours = Math.floor(diff / 3600)
+  const mins = Math.floor((diff % 3600) / 60)
+  return `${hours}h ${mins}m ago`
+}
+
+const duration = (entryTs) => {
+  if (!entryTs) return '0s'
+  const now = Date.now()
+  const entry = new Date(entryTs).getTime()
+  const diff = Math.floor((now - entry) / 1000)
+  const h = Math.floor(diff / 3600)
+  const m = Math.floor((diff % 3600) / 60)
+  const s = diff % 60
+  if (h > 0) return `${h}h ${m}m ${s}s`
+  if (m > 0) return `${m}m ${s}s`
+  return `${s}s`
 }
 
 const Pill = ({ children, className }) => (
@@ -136,11 +161,11 @@ const ExitMonitor = React.memo(({ status, logic }) => {
             <ConditionWidget
               key={key}
               label={label}
-              value={s.active ? (s.fired ? 1 : 0) : s.remaining_delay}
-              threshold={s.active ? 1 : 0}
-              unit={s.active ? "" : "s"}
+              value={s.active ? s.value : s.remaining_delay}
+              threshold={s.active ? s.threshold : 0}
+              unit={s.active ? s.unit : "s"}
               satisfied={s.fired && s.active}
-              sublabel={s.active ? (s.fired ? "Signal Firing" : "Monitoring...") : `Activating in ${Math.round(s.remaining_delay)}s`}
+              sublabel={s.active ? (s.fired ? "Signal Firing" : s.description || "Monitoring...") : `Activating in ${Math.round(s.remaining_delay)}s`}
             />
           );
         })}
@@ -149,9 +174,10 @@ const ExitMonitor = React.memo(({ status, logic }) => {
   );
 });
 
-export const ActiveTradeBar = React.memo(({ trade, config, compact = false }) => {
+export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpanded = false }) => {
+
   const [isClosing, setIsClosing] = useState(false)
-  const [isExpanded, setIsExpanded] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(initialExpanded)
 
   const handleClose = async () => {
     setIsClosing(true)
@@ -178,6 +204,9 @@ export const ActiveTradeBar = React.memo(({ trade, config, compact = false }) =>
   const isLong = direction === 'LONG'
   const isExpRR = trade.tp_mode === 'exp_rr_seq'
   const slDist = trade.entry_price ? ((Math.abs(trade.entry_price - trade.sl_price) / trade.entry_price) * 100).toFixed(2) : '0.00'
+  const pctChange = trade.entry_price && trade.current_price
+    ? ((trade.current_price - trade.entry_price) / trade.entry_price * 100).toFixed(2)
+    : '0.00'
   const risk = Math.abs(trade.entry_price - (trade.initial_sl || trade.sl_price))
   const fixedTarget = trade.tp_price
   const runwayEnd = fixedTarget ?? (isLong ? trade.entry_price + risk * 4 : trade.entry_price - risk * 4)
@@ -185,7 +214,7 @@ export const ActiveTradeBar = React.memo(({ trade, config, compact = false }) =>
   const progress = range > 0
     ? Math.max(0, Math.min(100, (Math.abs(trade.current_price - trade.sl_price) / range) * 100))
     : 50
-
+  const entryTime = trade.entry_ts || trade.entry_time
   const isWinning = trade.pnl >= 0
 
   return (
@@ -229,6 +258,32 @@ export const ActiveTradeBar = React.memo(({ trade, config, compact = false }) =>
         </div>
       </div>
 
+      {/* Quick Stats Bar */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6 p-3 bg-surface/30 rounded-xl border border-border/30">
+        <div className="flex flex-col gap-1">
+          <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Entry</span>
+          <span className="text-sm font-bold font-mono">{price(trade.entry_price)}</span>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Current</span>
+          <span className="text-sm font-bold font-mono">{price(trade.current_price)}</span>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-[9px] text-dim font-bold uppercase tracking-widest">% Change</span>
+          <span className={cn("text-sm font-bold font-mono", Number(pctChange) >= 0 ? "text-green" : "text-red")}>
+            {Number(pctChange) >= 0 ? '+' : ''}{pctChange}%
+          </span>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-[9px] text-dim font-bold uppercase tracking-widest">SL Dist</span>
+          <span className="text-sm font-bold font-mono text-amber">{slDist}%</span>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Duration</span>
+          <span className="text-sm font-bold font-mono text-accent">{duration(entryTime)}</span>
+        </div>
+      </div>
+
       <AnimatePresence>
         {isExpanded && (
           <motion.div
@@ -237,11 +292,12 @@ export const ActiveTradeBar = React.memo(({ trade, config, compact = false }) =>
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="grid grid-cols-3 gap-6 mb-8 p-5 bg-surface/50 rounded-2xl border border-border/50">
+            <div className="grid grid-cols-4 gap-6 mb-8 p-5 bg-surface/50 rounded-2xl border border-border/50">
               {[
                 ['ENTRY', price(trade.entry_price), <Activity size={14} className="text-dim" />],
                 ['CURRENT', price(trade.current_price), <TrendingUp size={14} className="text-accent" />],
                 ['QTY', trade.qty != null ? `${trade.qty}` : '---', <Target size={14} className="text-dim" />],
+                ['OPENED', entryTime ? new Date(entryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '---', <Clock size={14} className="text-accent" />],
               ].map(([k, v, icon]) => (
                 <div key={k} className="flex flex-col gap-2">
                   <div className="flex items-center gap-2">
@@ -274,7 +330,7 @@ export const ActiveTradeBar = React.memo(({ trade, config, compact = false }) =>
               </div>
 
               <div className="relative h-4 -mt-7 mb-4">
-                 <div
+                <div
                   className={cn(
                     "absolute w-5 h-5 rounded-full border-2 border-surface shadow-xl z-20 transition-all duration-500 ease-out",
                     isWinning ? "bg-green" : "bg-red"
@@ -282,9 +338,22 @@ export const ActiveTradeBar = React.memo(({ trade, config, compact = false }) =>
                   style={{ left: `${progress ?? 0}%`, transform: 'translateX(-50%)' }}
                 />
               </div>
+
               <div className="flex justify-between text-[9px] text-dim font-bold uppercase tracking-tighter opacity-50 px-0.5">
-                 <span>{slDist}% RISK</span>
-                 <span>POTENTIAL TARGET</span>
+                <span>{slDist}% RISK</span>
+                <span>POTENTIAL TARGET</span>
+              </div>
+              <div className="flex justify-between text-[9px] text-dim font-bold uppercase tracking-tighter mt-0.5 px-0.5">
+                <span>Opened: {entryTime ? new Date(entryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '---'}</span>
+                <span>Duration: <span className="font-bold text-accent">{duration(entryTime)}</span></span>
+              </div>
+              <div className="flex justify-between text-[9px] text-dim font-bold uppercase tracking-tighter mt-0.5 px-0.5">
+                <span>Time Ago: <span className="font-bold text-text">{timeSince(entryTime)}</span></span>
+                <span>SL Distance: <span className="font-bold text-amber">{slDist}%</span></span>
+              </div>
+              <div className="flex justify-between text-[9px] text-dim font-bold uppercase tracking-tighter mt-1 px-0.5">
+                <span>Entry → Current: <span className={cn("font-bold", Number(pctChange) >= 0 ? "text-green" : "text-red")}>{Number(pctChange) >= 0 ? '+' : ''}{pctChange}%</span></span>
+                <span>SL Distance: <span className="font-bold text-amber">{slDist}%</span></span>
               </div>
             </div>
 

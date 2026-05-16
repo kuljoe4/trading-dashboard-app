@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { settingsAPI } from '../api/client'
 import { SectionLabel, Btn, StatCard, cn } from '../components/ui/primitives'
-import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap } from 'lucide-react'
+import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap, Eye, EyeOff } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
 import { Sidebar, BottomNav } from '../components/Navigation'
@@ -10,8 +10,10 @@ export function SettingsView() {
   const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, sidebarCollapsed, logFilters, toggleLogFilter } = useTradingStore()
   const [apiKey, setApiKey] = useState('')
   const [apiSecret, setApiSecret] = useState('')
+  const [showLiveSecret, setShowLiveSecret] = useState(false)
   const [testnetApiKey, setTestnetApiKey] = useState('')
   const [testnetApiSecret, setTestnetApiSecret] = useState('')
+  const [showTestnetSecret, setShowTestnetSecret] = useState(false)
   const [maskedKey, setMaskedKey] = useState('')
   const [maskedTestnetKey, setMaskedTestnetKey] = useState('')
   const [loading, setLoading] = useState(false)
@@ -87,6 +89,9 @@ export function SettingsView() {
                 </div>
                 <button 
                   onClick={() => setHealthEnabled(!healthEnabled)}
+                  role="switch"
+                  aria-checked={healthEnabled}
+                  aria-label="Toggle System Health Bar"
                   className={cn(
                     "w-12 h-6 rounded-full transition-colors relative shrink-0",
                     healthEnabled ? "bg-green" : "bg-border"
@@ -111,6 +116,9 @@ export function SettingsView() {
                 </div>
                 <button 
                   onClick={() => setStreamingEnabled(!streamingEnabled)}
+                  role="switch"
+                  aria-checked={streamingEnabled}
+                  aria-label="Toggle Real-time Streaming"
                   className={cn(
                     "w-12 h-6 rounded-full transition-colors relative shrink-0",
                     streamingEnabled ? "bg-green" : "bg-border"
@@ -181,14 +189,24 @@ export function SettingsView() {
                   </div>
                   <div className="flex flex-col gap-2">
                     <label htmlFor="apiSecret" className="text-[10px] text-dim font-bold tracking-widest uppercase">Update Live API Secret</label>
-                    <input
-                      id="apiSecret"
-                      type="password"
-                      value={apiSecret}
-                      onChange={e => setApiSecret(e.target.value)}
-                      className="w-full bg-background border border-border focus:border-accent focus:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
-                      placeholder="••••••••••••••••"
-                    />
+                    <div className="relative">
+                      <input
+                        id="apiSecret"
+                        type={showLiveSecret ? "text" : "password"}
+                        value={apiSecret}
+                        onChange={e => setApiSecret(e.target.value)}
+                        className="w-full bg-background border border-border focus:border-accent focus:outline-none rounded-xl px-4 py-3 pr-12 text-sm font-mono text-text transition-all"
+                        placeholder="••••••••••••••••"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowLiveSecret(!showLiveSecret)}
+                        aria-label={showLiveSecret ? "Hide secret" : "Show secret"}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-dim hover:text-accent transition-colors"
+                      >
+                        {showLiveSecret ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -225,14 +243,24 @@ export function SettingsView() {
                   </div>
                   <div className="flex flex-col gap-2">
                     <label htmlFor="testnetApiSecret" className="text-[10px] text-dim font-bold tracking-widest uppercase">Update Testnet API Secret</label>
-                    <input
-                      id="testnetApiSecret"
-                      type="password"
-                      value={testnetApiSecret}
-                      onChange={e => setTestnetApiSecret(e.target.value)}
-                      className="w-full bg-background border border-border focus:border-purple focus:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
-                      placeholder="••••••••••••••••"
-                    />
+                    <div className="relative">
+                      <input
+                        id="testnetApiSecret"
+                        type={showTestnetSecret ? "text" : "password"}
+                        value={testnetApiSecret}
+                        onChange={e => setTestnetApiSecret(e.target.value)}
+                        className="w-full bg-background border border-border focus:border-purple focus:outline-none rounded-xl px-4 py-3 pr-12 text-sm font-mono text-text transition-all"
+                        placeholder="••••••••••••••••"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowTestnetSecret(!showTestnetSecret)}
+                        aria-label={showTestnetSecret ? "Hide secret" : "Show secret"}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-dim hover:text-purple transition-colors"
+                      >
+                        {showTestnetSecret ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                    </div>
                   </div>
                 </div>
 

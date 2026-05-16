@@ -1,7 +1,6 @@
 import React from 'react'
 import { pnlColor, fmtUSD } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
-import { SystemHealth } from '../components/SystemHealth'
 import { ActiveTradeBar } from '../components/ActiveTradeBar'
 import { DecisionLog } from '../components/DecisionLog'
 import { 
@@ -13,7 +12,7 @@ import {
 } from 'lucide-react'
 
 const StrategyDetailView = ({ s, onBack }) => {
-  const { config, scannerResults, healthEnabled, monitoring } = useTradingStore()
+  const { config, scannerResults } = useTradingStore()
   const bestOpp = scannerResults[0] || { symbol: '---', pct: 0, dir: '---' }
   const scanMet = Math.abs(bestOpp.pct) >= config.scan_pct_threshold
   const entryMet = scanMet && s.activeTrades.length > 0
@@ -42,8 +41,6 @@ const StrategyDetailView = ({ s, onBack }) => {
           </div>
         </div>
       </div>
-
-      {healthEnabled && <SystemHealth monitoring={monitoring} />}
 
       {/* Summary Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
@@ -75,33 +72,10 @@ const StrategyDetailView = ({ s, onBack }) => {
         </div>
       </div>
 
-      {/* Exit Gates */}
-      {s.activeTrades[0]?.exit_signals_status && (
-        <div className="mb-10">
-          <SectionLabel>Exit Strategy Monitor</SectionLabel>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {Object.entries(s.activeTrades[0].exit_signals_status).map(([key, status]) => {
-              const label = key.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) + " Exit";
-              return (
-                <ConditionWidget
-                  key={key}
-                  label={label}
-                  value={status.active ? (status.fired ? 1 : 0) : status.remaining_delay}
-                  threshold={status.active ? 1 : 0}
-                  unit={status.active ? "" : "s"}
-                  satisfied={status.fired && status.active}
-                  sublabel={status.active ? (status.fired ? "Signal Firing" : "Monitoring...") : `Activating in ${Math.round(status.remaining_delay)}s`}
-                />
-              )
-            })}
-          </div>
-        </div>
-      )}
-
       {/* Active Position */}
       <div className="mb-10">
         <SectionLabel>Tactical Overview</SectionLabel>
-        <ActiveTradeBar trade={s.activeTrades[0]} />
+        <ActiveTradeBar trade={s.activeTrades[0]} initialExpanded={true} />
       </div>
 
       {/* Content Grid */}

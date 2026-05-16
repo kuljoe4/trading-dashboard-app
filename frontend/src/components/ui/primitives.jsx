@@ -109,10 +109,16 @@ export const LiveBadge = () => (
 
 // --- Condition Widget ---
 export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%", satisfied, sublabel }) => {
-  const pct = Math.min((Math.abs(value) / (Math.max(Math.abs(threshold), 0.1) * 1.5)) * 100, 100);
+  const absThreshold = Math.max(Math.abs(threshold), 0.0001);
+  const pct = threshold !== 0
+    ? Math.min((Math.abs(value) / (absThreshold * 1.5)) * 100, 100)
+    : Math.min(value > 0 ? 100 : 0, 100);
   const colorClass = satisfied ? "bg-green" : "bg-amber";
   const textColorClass = satisfied ? "text-green" : "text-amber";
   const borderColorClass = satisfied ? "border-green/30 shadow-[0_0_15px_rgba(0,229,160,0.05)]" : "border-border";
+
+  const formattedValue = Number.isFinite(value) ? `${value > 0 ? "+" : ""}${value.toFixed(2)}${unit}` : `N/A ${unit}`;
+  const thresholdText = threshold !== 0 ? `≥ ${threshold}${unit}` : "Trigger: 0";
 
   return (
     <div className={cn(
@@ -123,13 +129,13 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
         <div>
           <div className="text-[10px] text-dim tracking-widest mb-1.5 uppercase font-bold">{label}</div>
           <div className={cn("text-2xl font-bold font-mono tracking-tight", textColorClass)}>
-            {value > 0 ? "+" : ""}{value.toFixed(2)}{unit}
+            {formattedValue}
           </div>
           {sublabel && <div className="text-[11px] text-dim mt-1.5 font-bold uppercase tracking-tight">{sublabel}</div>}
         </div>
         <div className="text-right">
           <div className="text-[10px] text-dim mb-1.5 font-bold uppercase tracking-widest">THRESHOLD</div>
-          <div className="text-[14px] text-text font-mono font-bold">≥ {threshold}{unit}</div>
+          <div className="text-[14px] text-text font-mono font-bold">{thresholdText}</div>
         </div>
       </div>
 

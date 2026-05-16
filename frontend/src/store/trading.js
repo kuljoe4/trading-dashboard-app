@@ -186,6 +186,7 @@ export const useTradingStore = create((set, get) => ({
   healthEnabled: localStorage.getItem('health_enabled') !== 'false',
   streamingEnabled: localStorage.getItem('streaming_enabled') !== 'false',
   sidebarCollapsed: localStorage.getItem('sidebar_collapsed') === 'true',
+  isThrottled: false,
 
   toggleSidebar: () => {
     const next = !get().sidebarCollapsed
@@ -193,6 +194,10 @@ export const useTradingStore = create((set, get) => ({
     set({ sidebarCollapsed: next })
   },
   
+  setThrottled: (isThrottled) => {
+    set({ isThrottled })
+  },
+
   setHealthEnabled: (enabled) => {
     localStorage.setItem('health_enabled', enabled)
     set({ healthEnabled: enabled })
@@ -286,7 +291,7 @@ export const useTradingStore = create((set, get) => ({
     const SCANNER_THROTTLE_MS = 200;
 
     ws.onmessage = (event) => {
-      if (!get().streamingEnabled) return;
+      if (!get().streamingEnabled || get().isThrottled) return;
       const data = JSON.parse(event.data)
 
       if (data.type === 'status') {

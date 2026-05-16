@@ -13,6 +13,7 @@ export class PositionTrackerService {
 
   private trades: Map<string, Trade> = new Map(); // symbol -> Trade
   private rrSequenceIndex: Map<string, number> = new Map(); // symbol -> current milestone index
+  private onTradeUpdate: ((trade: Trade) => void) | null = null;
 
   constructor(
     private readonly riskEngine: RiskEngineService,
@@ -24,6 +25,10 @@ export class PositionTrackerService {
 
   setCallbacks(onClose: (closed: any) => void, onTick: () => void) {
     // Callbacks would be set from server
+  }
+
+  setTradeUpdateCallback(cb: (trade: Trade) => void) {
+    this.onTradeUpdate = cb;
   }
 
   hasSymbol(symbol: string): boolean {
@@ -98,14 +103,30 @@ export class PositionTrackerService {
       }
 
       // Only move SL deeper into profit (stricter protection)
-      if (trade.direction === 'LONG' && newSl > trade.current_sl) {
-        const prevSl = trade.current_sl;
-        trade.current_sl = newSl;
-        this.logSlAdjustment(trade, prevSl, newSl, currentIndex);
-      } else if (trade.direction === 'SHORT' && newSl < trade.current_sl) {
-        const prevSl = trade.current_sl;
-        trade.current_sl = newSl;
-        this.logSlAdjustment(trade, prevSl, newSl, currentIndex);
+      if (trade.direction === 'LONG' && newSl) {
+        if (newSl > trade.current_sl) {
+          const prevSl = trade.current_sl;
+          trade.current_sl = newSl;
+          this.logSlAdjustment(trade, prevSl, newSl, currentIndex);
+          // Update exchange-side SL in live mode
+          this.orderManager.updateStopLoss(trade, newSl).catch(err => {
+            this.logger.error(`Failed to update exchange SL for ${symbol}: ${err.message}`);
+          });
+          // Notify of trade state change for persistence
+          if (this.onTradeUpdate) this.onTradeUpdate(trade);
+        }
+      } else if (trade.direction === 'SHORT' && newSl) {
+        if (newSl < trade.current_sl) {
+          const prevSl = trade.current_sl;
+          trade.current_sl = newSl;
+          this.logSlAdjustment(trade, prevSl, newSl, currentIndex);
+          // Update exchange-side SL in live mode
+          this.orderManager.updateStopLoss(trade, newSl).catch(err => {
+            this.logger.error(`Failed to update exchange SL for ${symbol}: ${err.message}`);
+          });
+          // Notify of trade state change for persistence
+          if (this.onTradeUpdate) this.onTradeUpdate(trade);
+        }
       }
     }
   }
@@ -206,41 +227,20 @@ export class PositionTrackerService {
       return { trade: null, exitOccurred: false };
     }
 
-    trade.exit_price = exitPrice;
-    trade.exit_ts = new Date();
-    trade.exit_reason = exitReason;
-
-    // Set status based on reason
-    if (exitReason.includes('SL')) {
-      trade.status = 'CLOSED_SL';
-    } else if (exitReason.includes('TP')) {
-      trade.status = 'CLOSED_TP';
-    } else if (exitReason.includes('SIGNAL')) {
-      trade.status = 'CLOSED_SIGNAL';
-    } else {
-      trade.status = 'CLOSED_SIGNAL';
+    const result = await this.orderManager.closeTrade(symbol, trade, exitPrice, exitReason);
+    if (!result.exitOccurred || !result.trade) {
+      return { trade: null, exitOccurred: false };
     }
 
-    // Calculate PnL
-    let pnl: number;
-    if (trade.direction === 'LONG') {
-      pnl = (exitPrice - trade.entry_price) * trade.qty;
-    } else {
-      pnl = (trade.entry_price - exitPrice) * trade.qty;
-    }
-
-    trade.pnl = pnl;
-    trade.pnl_pct = (pnl / (trade.entry_price * trade.qty)) * 100;
-
-    // Remove from tracking
+    // Remove from tracking after exchange close/recording
     this.trades.delete(symbol);
     this.rrSequenceIndex.delete(symbol);
 
     this.logger.log(
-      `Trade closed: ${symbol} Exit=${exitPrice} P&L=${pnl.toFixed(2)} (${trade.pnl_pct.toFixed(2)}%) Reason=${exitReason}`,
+      `Trade closed: ${symbol} Exit=${exitPrice} P&L=${result.trade.pnl.toFixed(2)} (${(result.trade.pnl_pct ?? 0).toFixed(2)}%) Reason=${exitReason}`,
     );
 
-    return { trade, exitOccurred: true };
+    return { trade: result.trade, exitOccurred: true };
   }
 
   removeTrade(symbol: string): void {

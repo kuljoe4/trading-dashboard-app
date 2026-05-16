@@ -59,6 +59,15 @@ export class TradeEntity {
   @Column('decimal', { precision: 10, scale: 4, nullable: true })
   pnl_pct: number;
 
+  @Column({ nullable: true })
+  binance_order_id: string;
+
+  @Column({ nullable: true })
+  binance_close_order_id: string;
+
+  @Column({ nullable: true })
+  binance_stop_order_id: string;
+
   @Index()
   @Column({ nullable: true })
   sessionId: string;

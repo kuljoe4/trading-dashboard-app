@@ -36,13 +36,31 @@ export class RiskEngineService {
     const periodMin = config.trades_period_min ?? 60;
 
     if (maxTradesPeriod > 0) {
-      const now = new Date();
-      const periodStart = new Date(now.getTime() - periodMin * 60 * 1000);
+      const now = Date.now();
+      const periodStartMs = now - periodMin * 60 * 1000;
+      let tradesInPeriod = 0;
 
-      const tradesInPeriod = [...activeTrades, ...closedTrades].filter(t => {
-        const entryTs = t.entry_ts ? new Date(t.entry_ts) : null;
-        return entryTs && entryTs >= periodStart;
-      }).length;
+      // BOLT OPTIMIZATION: Manual loops to avoid array spread and multiple filters
+      for (const t of activeTrades) {
+        if (t.entry_ts && new Date(t.entry_ts).getTime() >= periodStartMs) {
+          tradesInPeriod++;
+        }
+      }
+
+      // If we already reached the limit, exit early
+      if (tradesInPeriod >= maxTradesPeriod) {
+        return {
+          canEnter: false,
+          reason: `Max trades per period (${maxTradesPeriod} per ${periodMin}m) reached`
+        };
+      }
+
+      for (const t of closedTrades) {
+        if (t.entry_ts && new Date(t.entry_ts).getTime() >= periodStartMs) {
+          tradesInPeriod++;
+          if (tradesInPeriod >= maxTradesPeriod) break;
+        }
+      }
 
       if (tradesInPeriod >= maxTradesPeriod) {
         return {
@@ -80,17 +98,23 @@ export class RiskEngineService {
 
     // Check Time-of-Day historical performance
     if (config.risk_use_tod_stats && closedTrades.length > 5) {
-      const now = new Date();
-      const currentHour = now.getUTCHours();
+      const currentHour = new Date().getUTCHours();
+      let hourTradesCount = 0;
+      let wins = 0;
 
-      const hourTrades = closedTrades.filter(t => {
-        const exitTs = t.exit_ts ? new Date(t.exit_ts) : null;
-        return exitTs && exitTs.getUTCHours() === currentHour;
-      });
+      // BOLT OPTIMIZATION: Single loop to calculate stats without intermediate arrays
+      for (const t of closedTrades) {
+        if (t.exit_ts) {
+          const exitTs = new Date(t.exit_ts);
+          if (exitTs.getUTCHours() === currentHour) {
+            hourTradesCount++;
+            if ((t.pnl || 0) > 0) wins++;
+          }
+        }
+      }
 
-      if (hourTrades.length >= 3) {
-        const wins = hourTrades.filter(t => (t.pnl || 0) > 0).length;
-        const winRate = (wins / hourTrades.length) * 100;
+      if (hourTradesCount >= 3) {
+        const winRate = (wins / hourTradesCount) * 100;
         const minWinRate = config.tod_min_winrate ?? 40.0;
 
         if (winRate < minWinRate) {

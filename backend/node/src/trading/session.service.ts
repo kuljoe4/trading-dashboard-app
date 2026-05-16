@@ -49,9 +49,10 @@ export class SessionService implements OnModuleInit {
 
     // Wire balance updates to persistence
     this.tradingSessionService.setBalanceUpdateCallback(async (balance, pnl) => {
-      if (this.currentSessionId) {
-        await this.sessionRepository.increment({ id: this.currentSessionId }, 'totalPnl', pnl);
-        await this.sessionRepository.update(this.currentSessionId, { balance });
+      const sessionId = this.currentSessionId;
+      if (sessionId) {
+        await this.sessionRepository.increment({ id: sessionId }, 'totalPnl', pnl);
+        await this.sessionRepository.update(sessionId, { balance });
       }
     });
 

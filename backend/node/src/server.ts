@@ -19,13 +19,21 @@ async function bootstrap() {
     }),
   );
 
+  const allowedOrigins = configService.get<string>('ALLOWED_ORIGINS')?.split(',').map((o) => o.trim()) || [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+  ];
+
+  const nodeEnv = configService.get<string>('NODE_ENV');
+
   // Security Headers Middleware
   app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; object-src 'none';");
-    if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none';");
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    if (nodeEnv === 'production') {
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     }
     next();
@@ -33,7 +41,7 @@ async function bootstrap() {
 
   // Enable CORS for frontend
   app.enableCors({
-    origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+    origin: allowedOrigins,
     credentials: true,
   });
 
@@ -48,7 +56,18 @@ async function bootstrap() {
   const httpServer = app.getHttpServer();
   const sessionService = app.get(SessionService);
   const monitoringService = app.get(MonitoringService);
-  const wss = new WebSocketServer({ server: httpServer, path: '/session/ws' });
+  const wss = new WebSocketServer({
+    server: httpServer,
+    path: '/session/ws',
+    verifyClient: (info, done) => {
+      const origin = info.origin;
+      const isAllowed = allowedOrigins.includes(origin);
+      if (!isAllowed) {
+        console.warn(`Blocked WebSocket connection from unauthorized origin: ${origin}`);
+      }
+      done(isAllowed);
+    },
+  });
 
   const updateMonitoringSuppression = () => {
     const anyActive = Array.from(wss.clients).some((c: any) => c.monitoringEnabled !== false);

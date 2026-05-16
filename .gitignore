@@ -21,3 +21,7 @@ dist/
 .idea/
 backend/node/backend_logs.txt
 .github/
+.gemini/
+
+merge-conflict-resolution.skill
+.gitignore

@@ -53,6 +53,25 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
   const [presets, setPresets] = useState([])
   const [presetName, setPresetName] = useState('')
 
+  const generatedPresetName = useMemo(() => {
+    const interval = cfg.scan_interval || 'Custom'
+    const risk = cfg.risk_pct_per_trade ? `${cfg.risk_pct_per_trade}% risk` : ''
+    const enabled = Array.isArray(cfg.enabled_signals) ? cfg.enabled_signals : []
+    const signalLabels = enabled
+      .map((signal) => SIGNALS.find(([key]) => key === signal)?.[1] || signal)
+      .filter(Boolean)
+
+    let signalPart = 'Custom signals'
+    if (signalLabels.length === 1) {
+      signalPart = signalLabels[0]
+    } else if (signalLabels.length > 1) {
+      signalPart = `${signalLabels.slice(0, 2).join(', ')}${signalLabels.length > 2 ? ` +${signalLabels.length - 2}` : ''}`
+    }
+
+    const parts = [interval, signalPart, risk].filter(Boolean)
+    return parts.join(' · ') || 'New session preset'
+  }, [cfg.scan_interval, cfg.risk_pct_per_trade, cfg.enabled_signals])
+
   useEffect(() => {
     const saved = localStorage.getItem('strategy_presets')
     if (saved) setPresets(JSON.parse(saved))
@@ -86,8 +105,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
   const setField = (key, value) => setCfg((prev) => ({ ...prev, [key]: value }))
 
   const savePreset = () => {
-    if (!presetName) return
-    const next = [...presets.filter(p => p.name !== presetName), { name: presetName, config: cfg }]
+    const name = presetName.trim() || generatedPresetName
+    if (!name) return
+    const next = [...presets.filter(p => p.name !== name), { name, config: cfg }]
     setPresets(next)
     localStorage.setItem('strategy_presets', JSON.stringify(next))
     setPresetName('')
@@ -512,14 +532,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
               <div className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="e.g. Scalping 1m"
+                  placeholder={presetName || generatedPresetName}
                   value={presetName}
                   onChange={(e) => setPresetName(e.target.value)}
                   className="flex-1 bg-surface border border-border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent"
                 />
                 <button
                   onClick={savePreset}
-                  disabled={!presetName}
+                  disabled={!presetName && !generatedPresetName}
                   className="bg-accent/10 border border-accent/20 text-accent px-4 py-2 rounded-md hover:bg-accent/20 disabled:opacity-50 transition-colors"
                 >
                   <Save size={18} />

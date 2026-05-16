@@ -49,29 +49,61 @@ export class MomentumScannerService {
    */
   async scan(config: SessionConfig): Promise<Opportunity[]> {
     try {
-      // Get watchlist symbols
-      let symbols: string[];
-      if (config.symbols && config.symbols.length > 0) {
-        symbols = config.symbols;
-      } else {
-        const topByVolume = await this.tickerCache.topByVolume(
-          config.watchlist_size || 10,
-          config.excluded_symbols || [],
-        );
-        symbols = topByVolume.map((t: any) => t.symbol);
+      const results: { opp: Opportunity; candles: Candle[] }[] = [];
+
+      // 1. Global Scan (if enabled)
+      if (config.global_scanner_enabled !== false) {
+        let symbols: string[];
+        if (config.symbols && config.symbols.length > 0) {
+          symbols = config.symbols;
+        } else {
+          const topByVolume = await this.tickerCache.topByVolume(
+            config.watchlist_size || 10,
+            config.excluded_symbols || [],
+          );
+          symbols = topByVolume.map((t: any) => t.symbol);
+        }
+
+        const interval = config.scan_interval || '1m';
+        const globalPromises = symbols.map(async (symbol) => {
+          try {
+            return await this.scanSymbol(symbol, interval, config);
+          } catch (error) {
+            this.logger.debug(`Global scan error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
+            return null;
+          }
+        });
+        const globalResults = await Promise.all(globalPromises);
+        results.push(...globalResults.filter((r): r is { opp: Opportunity, candles: Candle[] } => r !== null));
       }
 
-      const interval = config.scan_interval || '1m';
-      const scanPromises = symbols.map(async (symbol) => {
-        try {
-          return await this.scanSymbol(symbol, interval, config);
-        } catch (error) {
-          this.logger.debug(`Scan error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
-          return null;
-        }
-      });
+      // 2. Single Symbol Monitors
+      if (config.single_symbol_configs && config.single_symbol_configs.length > 0) {
+        const singlePromises = config.single_symbol_configs
+          .filter(sc => sc.enabled)
+          .map(async (sc) => {
+            try {
+              const symbolConfig = sc.use_custom_config && sc.custom_config
+                ? { ...config, ...sc.custom_config }
+                : config;
+              const interval = symbolConfig.scan_interval || '1m';
+              return await this.scanSymbol(sc.symbol, interval, symbolConfig);
+            } catch (error) {
+              this.logger.debug(`Single symbol scan error for ${sc.symbol}: ${error instanceof Error ? error.message : String(error)}`);
+              return null;
+            }
+          });
+        const singleResults = await Promise.all(singlePromises);
 
-      const results = await Promise.all(scanPromises);
+        // Use a map to prevent duplicate symbols if they are in both global and single
+        const resultMap = new Map(results.map(r => [r.opp.symbol, r]));
+        for (const r of singleResults) {
+          if (r) resultMap.set(r.opp.symbol, r);
+        }
+
+        results.length = 0;
+        results.push(...resultMap.values());
+      }
       const tempResults = results.filter((r): r is { opp: Opportunity, candles: Candle[] } => r !== null);
 
       // Sort by score descending and take top 15

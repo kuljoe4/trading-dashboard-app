@@ -206,13 +206,16 @@ export class TradingSessionService {
     const prevGateState = this.gateState;
     const isInsideWindow = this.isInsideTradingWindow();
 
-    if (!isInsideWindow) {
+    // Check if any single symbol monitors ignore the window
+    const hasUnscheduledMonitors = this.config.single_symbol_configs?.some(sc => sc.enabled && sc.follow_schedule === false);
+
+    if (!isInsideWindow && !hasUnscheduledMonitors) {
       this.gateState = 'sleeping';
       const activeTradesCount = this.positionTracker.activeList().length;
       if (activeTradesCount === 0 && !this.sleepMode) {
         this.enterSleepMode();
       }
-    } else if (this.sleepMode) {
+    } else if (this.sleepMode && (isInsideWindow || hasUnscheduledMonitors)) {
       this.exitSleepMode();
       this.gateState = null;
     } else if (!riskResult.canEnter) {
@@ -311,10 +314,30 @@ export class TradingSessionService {
   }
 
   private async processEntries(opportunities: any[]) {
+    const isInsideWindow = this.isInsideTradingWindow();
+
     for (const opp of opportunities) {
       if (this.positionTracker.hasSymbol(opp.symbol)) continue;
 
-      const signalResult = await this.signalEngine.checkEntry(opp.symbol, this.config!, this.config!.scan_interval || '1m');
+      // Determine the config for this symbol (global or single symbol override)
+      let symbolConfig = this.config!;
+      const singleSymbol = this.config?.single_symbol_configs?.find(sc => sc.symbol === opp.symbol && sc.enabled);
+
+      if (singleSymbol) {
+        // If it's a single symbol monitor, check if it should follow schedule
+        if (!isInsideWindow && singleSymbol.follow_schedule !== false) {
+          continue; // Outside window and following schedule
+        }
+
+        if (singleSymbol.use_custom_config && singleSymbol.custom_config) {
+          symbolConfig = { ...this.config!, ...singleSymbol.custom_config };
+        }
+      } else {
+        // Global scanner symbol
+        if (!isInsideWindow) continue;
+      }
+
+      const signalResult = await this.signalEngine.checkEntry(opp.symbol, symbolConfig, symbolConfig.scan_interval || '1m');
       if (!signalResult.allFired) continue;
 
       this.logger.log(`${opp.symbol}: ALL SIGNALS FIRED! Proceeding to risk checks...`);
@@ -325,7 +348,7 @@ export class TradingSessionService {
         this.closedTrades,
         this.getBalance(),
         opp.symbol,
-        this.config!,
+        symbolConfig,
         this.positionTracker.totalRisk(),
       );
 
@@ -346,13 +369,13 @@ export class TradingSessionService {
       const price = await this.tickerCache.getPrice(opp.symbol);
       if (!price) continue;
 
-      const lookback = await this.klineStore.getLookbackExtremes(opp.symbol, this.config!.sl_lookback_timeframe || '1m', this.config!.sl_lookback_period || 20);
-      const slPrice = await this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, this.config!, lookback.lows, lookback.highs);
-      const qty = await this.riskEngine.computePositionSize(this.getBalance(), price, slPrice, opp.direction.toUpperCase() as any, this.config!);
+      const lookback = await this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
+      const slPrice = await this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.lows, lookback.highs);
+      const qty = await this.riskEngine.computePositionSize(this.getBalance(), price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
       
       if (qty <= 0) continue;
 
-      const tpPrice = await this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, this.config!);
+      const tpPrice = await this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
 
       this.logger.log(`${opp.symbol}: Sending ${opp.direction} order (Qty: ${qty.toFixed(4)})`);
       
@@ -362,7 +385,7 @@ export class TradingSessionService {
         this.positionTracker.addTrade(trade);
         this.broadcast('trade_event', { 
           event: 'opened', 
-          symbol: opp.symbol, // Fix: Added symbol for frontend log
+          symbol: opp.symbol,
           trade: this.serializeTrade(trade, price) 
         });
       }

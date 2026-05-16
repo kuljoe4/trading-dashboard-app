@@ -64,9 +64,19 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused }) => {
             {tradingMode === 'live' && <LiveBadge />}
           </div>
           <div className="text-[17px] font-bold">Momentum Strategy</div>
-          <div className="text-[11px] text-dim mt-1.5 font-bold uppercase tracking-wider flex items-center gap-2">
-            <Zap size={12} className="text-accent" />
-            {config.scan_interval} · {config.scan_pct_threshold}% threshold
+          <div className="text-[11px] text-dim mt-1.5 font-bold uppercase tracking-wider flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <Zap size={12} className={cn("text-accent", config.global_scanner_enabled === false && "text-dim")} />
+              <span className={cn(config.global_scanner_enabled === false && "line-through decoration-red/40 decoration-2")}>
+                {config.scan_interval} · {config.scan_pct_threshold}% threshold
+              </span>
+            </div>
+            {(config.single_symbol_configs || []).filter(sc => sc.enabled).length > 0 && (
+              <div className="flex items-center gap-2">
+                <ShieldCheck size={12} className="text-accent" />
+                <span>{config.single_symbol_configs.filter(sc => sc.enabled).length} Symbol Monitors Active</span>
+              </div>
+            )}
           </div>
         </div>
         <div className="text-right shrink-0">

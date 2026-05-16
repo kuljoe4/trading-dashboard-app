@@ -2,7 +2,7 @@ import React from 'react'
 import { fmtVol } from '../lib/theme'
 import { PulseDot, Sparkline, cn } from './ui/primitives'
 import { useTradingStore } from '../store/trading'
-import { X } from 'lucide-react'
+import { X, Search, ShieldCheck } from 'lucide-react'
 
 export const ScannerOverlay = React.memo(({ onClose }) => {
   const { scannerResults, activeWindows, config, scannerPaused, gateState } = useTradingStore(state => ({
@@ -62,16 +62,27 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
             const passing = Math.abs(opp.pct) >= threshold
             const dir = (opp.dir || opp.direction || '').toLowerCase()
             const isLong = dir ? dir === 'long' : opp.pct >= 0
+            const isSingleMonitor = config?.single_symbol_configs?.some(sc => sc.symbol === opp.symbol && sc.enabled)
+
             return (
               <div key={opp.symbol}
                 className={cn(
                   "grid grid-cols-[30px_100px_1fr_60px_1fr_1fr_50px] items-center px-4 py-3 border-b border-border/50 transition-opacity h-[56px]",
-                  !passing && "opacity-45"
+                  !passing && "opacity-45",
+                  isSingleMonitor && "bg-accent/5"
                 )}>
                 <span className="text-[11px] text-dim font-mono">#{i + 1}</span>
-                <div className="flex items-baseline gap-0.5 overflow-hidden">
-                  <span className="text-[13px] font-bold font-mono truncate">{opp.symbol.replace("USDT", "")}</span>
-                  <span className="text-[9px] text-dim font-mono">/U</span>
+                <div className="flex flex-col justify-center overflow-hidden">
+                   <div className="flex items-baseline gap-0.5">
+                     <span className="text-[13px] font-bold font-mono truncate">{opp.symbol.replace("USDT", "")}</span>
+                     <span className="text-[9px] text-dim font-mono">/U</span>
+                   </div>
+                   {isSingleMonitor && (
+                     <div className="flex items-center gap-1">
+                        <ShieldCheck size={10} className="text-accent" />
+                        <span className="text-[8px] font-bold text-accent uppercase tracking-tighter">Monitor</span>
+                     </div>
+                   )}
                 </div>
                 <span className={cn(
                   "text-[14px] font-bold font-mono text-right",

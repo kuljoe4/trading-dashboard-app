@@ -149,7 +149,7 @@ const ExitMonitor = React.memo(({ status, logic }) => {
   );
 });
 
-export const ActiveTradeBar = React.memo(({ trade, compact = false }) => {
+export const ActiveTradeBar = React.memo(({ trade, config, compact = false }) => {
   const [isClosing, setIsClosing] = useState(false)
   const [isExpanded, setIsExpanded] = useState(false)
 
@@ -196,7 +196,17 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false }) => {
       <div className="flex flex-col sm:flex-row justify-between gap-5 mb-8">
         <div className="flex flex-wrap items-center gap-3">
           <PulseDot color={isWinning ? "bg-green" : "bg-red"} />
-          <span className="text-xl font-bold font-mono tracking-tight">{trade.symbol}</span>
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2">
+              <span className="text-xl font-bold font-mono tracking-tight">{trade.symbol}</span>
+              {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
+                <ShieldCheck size={16} className="text-accent" />
+              )}
+            </div>
+            {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
+              <span className="text-[9px] font-bold text-accent uppercase tracking-tighter -mt-0.5">Monitored Symbol</span>
+            )}
+          </div>
           <Pill className={isLong ? "text-green bg-green/10 border-green/20" : "text-red bg-red/10 border-red/20"}>
             {direction}
           </Pill>

@@ -1,6 +1,40 @@
-import { IsString, IsNumber, IsOptional, IsEnum, IsArray, IsBoolean, Min, Max, IsObject } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsEnum, IsArray, IsBoolean, Min, Max, IsObject, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class SingleSymbolConfig {
+  @IsString()
+  symbol: string = "";
+
+  @IsBoolean()
+  @IsOptional()
+  enabled: boolean = true;
+
+  @IsBoolean()
+  @IsOptional()
+  follow_schedule: boolean = true;
+
+  @IsBoolean()
+  @IsOptional()
+  use_custom_config: boolean = false;
+
+  @IsObject()
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SessionConfig)
+  custom_config?: Partial<SessionConfig>;
+}
 
 export class SessionConfig {
+  @IsBoolean()
+  @IsOptional()
+  global_scanner_enabled: boolean = true;
+
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => SingleSymbolConfig)
+  single_symbol_configs: SingleSymbolConfig[] = [];
+
   @IsString()
   @IsOptional()
   scan_interval: string = "5m";

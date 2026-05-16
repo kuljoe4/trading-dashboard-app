@@ -38,11 +38,10 @@ export class MarketFeedService {
   private running = false;
   private miniTickerWs: WebSocket | null = null;
   private combinedKlineWsList: WebSocket[] = [];
-  private activeWatchlist: string[] = [];
+  private activeWatchlist: Map<string, Set<string>> = new Map(); // symbol -> Set of intervals
   private subscriptionTasks: any[] = [];
   private onCandeClose: ((symbol: string) => Promise<void>) | null = null;
   private watchlistInterval: NodeJS.Timeout | null = null;
-  private currentInterval = '1m';
 
   constructor(
     private tickerCache: TickerCacheService,
@@ -58,7 +57,6 @@ export class MarketFeedService {
 
   async start(config: SessionConfig) {
     this.running = true;
-    this.currentInterval = config.scan_interval || '1m';
     this.logger.log('MarketFeed starting');
 
     // Start !miniTicker@arr stream first
@@ -183,31 +181,66 @@ export class MarketFeedService {
       if (!this.running) return;
 
       try {
-        let symbols: string[];
-        if (config.symbols && config.symbols.length > 0) {
-          symbols = config.symbols;
-        } else {
-          const top = await this.tickerCache.topByVolume(
-            config.watchlist_size || 50,
-            config.excluded_symbols || [],
-          );
-          symbols = top.map((t: any) => t.symbol);
+        const newWatchlist = new Map<string, Set<string>>();
+
+        // 1. Global Scanner Symbols
+        if (config.global_scanner_enabled !== false) {
+          let symbols: string[];
+          if (config.symbols && config.symbols.length > 0) {
+            symbols = config.symbols;
+          } else {
+            const top = await this.tickerCache.topByVolume(
+              config.watchlist_size || 50,
+              config.excluded_symbols || [],
+            );
+            symbols = top.map((t: any) => t.symbol);
+          }
+          const globalInterval = config.scan_interval || '1m';
+          for (const s of symbols) {
+            if (!newWatchlist.has(s)) newWatchlist.set(s, new Set());
+            newWatchlist.get(s)!.add(globalInterval);
+          }
         }
 
-        // Check if symbols changed
-        const changed = symbols.length !== this.activeWatchlist.length || 
-                        symbols.some(s => !this.activeWatchlist.includes(s));
+        // 2. Single Symbol Monitor Symbols
+        if (config.single_symbol_configs) {
+          for (const sc of config.single_symbol_configs) {
+            if (!sc.enabled) continue;
+            if (!newWatchlist.has(sc.symbol)) newWatchlist.set(sc.symbol, new Set());
+
+            const interval = sc.use_custom_config && sc.custom_config?.scan_interval
+              ? sc.custom_config.scan_interval
+              : config.scan_interval || '1m';
+
+            newWatchlist.get(sc.symbol)!.add(interval);
+          }
+        }
+
+        // Check if watchlist changed
+        let changed = newWatchlist.size !== this.activeWatchlist.size;
+        if (!changed) {
+          for (const [symbol, intervals] of newWatchlist) {
+            const oldIntervals = this.activeWatchlist.get(symbol);
+            if (!oldIntervals || oldIntervals.size !== intervals.size || [...intervals].some(i => !oldIntervals.has(i))) {
+              changed = true;
+              break;
+            }
+          }
+        }
 
         if (changed) {
-          this.logger.log(`Watchlist changed. Rebuilding combined kline streams for ${symbols.length} symbols.`);
-          const oldWatchlist = [...this.activeWatchlist];
-          this.activeWatchlist = symbols;
+          this.logger.log(`Watchlist changed. Rebuilding combined kline streams for ${newWatchlist.size} symbols.`);
+          const prevWatchlist = this.activeWatchlist;
+          this.activeWatchlist = newWatchlist;
           await this.rebuildCombinedKlineStream();
           
-          // Backfill new symbols
-          for (const symbol of symbols) {
-            if (!oldWatchlist.includes(symbol)) {
-              await this.backfillKlines(symbol, this.currentInterval);
+          // Backfill new symbol/interval combinations
+          for (const [symbol, intervals] of newWatchlist) {
+            for (const interval of intervals) {
+              const oldIntervals = prevWatchlist.get(symbol);
+              if (!oldIntervals || !oldIntervals.has(interval)) {
+                await this.backfillKlines(symbol, interval);
+              }
             }
           }
         }
@@ -226,22 +259,27 @@ export class MarketFeedService {
     }
     this.combinedKlineWsList = [];
 
-    if (this.activeWatchlist.length === 0) return;
+    if (this.activeWatchlist.size === 0) return;
 
-    // Split watchlist into chunks of 20 to avoid URL length issues
+    // Flatten watchlist to streams
+    const allStreams: string[] = [];
+    for (const [symbol, intervals] of this.activeWatchlist) {
+      for (const interval of intervals) {
+        allStreams.push(`${symbol.toLowerCase()}@kline_${interval}`);
+      }
+    }
+
+    // Split streams into chunks of 20 to avoid URL length issues
     const CHUNK_SIZE = 20;
     const chunks = [];
-    for (let i = 0; i < this.activeWatchlist.length; i += CHUNK_SIZE) {
-      chunks.push(this.activeWatchlist.slice(i, i + CHUNK_SIZE));
+    for (let i = 0; i < allStreams.length; i += CHUNK_SIZE) {
+      chunks.push(allStreams.slice(i, i + CHUNK_SIZE));
     }
     
-    this.logger.log(`Creating ${chunks.length} kline streams for ${this.activeWatchlist.length} symbols.`);
+    this.logger.log(`Creating ${chunks.length} kline streams for ${allStreams.length} symbol-interval pairs.`);
 
     for (const chunk of chunks) {
-      const streams = chunk
-        .map(s => `${s.toLowerCase()}@kline_${this.currentInterval}`)
-        .join('/');
-      
+      const streams = chunk.join('/');
       const url = `${BINANCE_WS_BASE}/stream?streams=${streams}`;
       
       const connect = () => {
@@ -260,7 +298,8 @@ export class MarketFeedService {
             const kline = msg.data?.k;
             if (kline) {
               const symbol = kline.s;
-              await this.klineStore.upsertCandle(symbol, this.currentInterval, kline);
+              const interval = kline.i;
+              await this.klineStore.upsertCandle(symbol, interval, kline);
               
               // Pro: Immediate price propagation to ticker cache
               // BOLT: Only update price to preserve accurate 24h volume from miniTicker stream

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { X, Plus, Trash2, Save, FolderOpen } from 'lucide-react'
+import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, AlertCircle } from 'lucide-react'
 import { cn, Btn } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 
@@ -12,7 +12,7 @@ const SIGNALS = [
 ]
 
 const Toggle = ({ value, onChange, label, color = "bg-accent" }) => (
-  <div className="flex items-center gap-3">
+  <label className="flex items-center gap-3 cursor-pointer group">
     <Switch.Root
       checked={value}
       onCheckedChange={onChange}
@@ -28,8 +28,8 @@ const Toggle = ({ value, onChange, label, color = "bg-accent" }) => (
         )}
       />
     </Switch.Root>
-    <span className={cn("text-sm font-bold", value ? "text-text" : "text-dim")}>{label}</span>
-  </div>
+    {label && <span className={cn("text-sm font-bold transition-colors", value ? "text-text" : "text-dim group-hover:text-dim/80")}>{label}</span>}
+  </label>
 )
 
 const Chip = ({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10" }) => (
@@ -107,16 +107,25 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     return live.map((trigger, i) => [trigger, exits[i] ?? 0])
   }, [cfg.live_rr_sequence, cfg.exit_rr_sequence])
 
-  function field(label, key, type = 'number', opts = null, attrs = {}) {
+  function field(label, key, type = 'number', opts = null, attrs = {}, customPath = null) {
     const id = `config-${key}`
+    const val = customPath ? customPath[key] : cfg[key]
+    const onChange = (v) => {
+      if (customPath) {
+        attrs.onCustomChange(key, v)
+      } else {
+        setField(key, v)
+      }
+    }
+
     return (
       <div className="flex flex-col gap-1.5">
         <label htmlFor={id} className="text-[10px] text-dim font-bold tracking-widest uppercase">{label}</label>
         {opts ? (
           <select
             id={id}
-            value={cfg[key] ?? ''}
-            onChange={(e) => setField(key, e.target.value)}
+            value={val ?? ''}
+            onChange={(e) => onChange(e.target.value)}
             className="bg-surface border border-border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent"
           >
             {opts.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -125,11 +134,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
           <input
             id={id}
             type={type}
-            value={cfg[key] ?? ''}
+            value={val ?? ''}
             min={attrs.min}
             max={attrs.max}
             step={attrs.step}
-            onChange={(e) => setField(key, type === 'number' ? Number(e.target.value) : e.target.value)}
+            onChange={(e) => onChange(type === 'number' ? Number(e.target.value) : e.target.value)}
             className="bg-surface border border-border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent"
           />
         )}
@@ -164,6 +173,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     }))
   }
 
+  const [symbolSearch, setSymbolSearch] = useState('')
+  const [editingSingleSymbolIndex, setEditingSingleSymbolIndex] = useState(null)
+
   return (
     <div className="flex flex-col h-full bg-surface text-text overflow-hidden">
       <div className="p-5 border-b border-border flex justify-between items-center shrink-0">
@@ -178,7 +190,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
 
       <div className="flex gap-2 p-4 overflow-x-auto no-scrollbar shrink-0 border-b border-border">
         {[
-          ['scan', 'Scan'],
+          ['scan', 'Global Scan'],
+          ['monitors', 'Single Symbols'],
           ['signals', 'Signals'],
           ['exit', 'Exit'],
           ['risk', 'Risk'],
@@ -193,7 +206,24 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
       <div className="flex-1 overflow-y-auto p-5">
         {section === 'scan' && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="p-4 bg-accent/5 border border-accent/20 rounded-xl flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center">
+                  <Search size={20} className="text-accent" />
+                </div>
+                <div>
+                  <div className="text-sm font-bold">Broad Market Scanner</div>
+                  <div className="text-[10px] text-dim font-medium">Auto-discover top volume opportunities</div>
+                </div>
+              </div>
+              <Toggle
+                value={cfg.global_scanner_enabled !== false}
+                onChange={(v) => setField('global_scanner_enabled', v)}
+                label={cfg.global_scanner_enabled !== false ? "ON" : "OFF"}
+              />
+            </div>
+
+            <div className={cn("grid grid-cols-1 md:grid-cols-2 gap-5 transition-opacity", cfg.global_scanner_enabled === false && "opacity-40 pointer-events-none")}>
               {field('Interval', 'scan_interval', 'text', ['1m', '5m', '15m', '1h'])}
               {field('Lookback candles', 'scan_lookback', 'number', null, { min: 1, max: 20 })}
               {field('% threshold', 'scan_pct_threshold', 'number', null, { min: 0.1, step: 0.1 })}
@@ -217,6 +247,187 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                 {field('Check interval sec', 'scan_check_interval_sec', 'number', null, { min: 2, max: 60 })}
               </div>
             )}
+          </div>
+        )}
+
+        {section === 'monitors' && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
+            <div className="space-y-4">
+              <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Add Symbol Monitor</div>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim" />
+                  <input
+                    type="text"
+                    placeholder="Search symbol (e.g. BTCUSDT)"
+                    value={symbolSearch}
+                    onChange={(e) => setSymbolSearch(e.target.value.toUpperCase())}
+                    className="w-full bg-surface border border-border rounded-md pl-10 pr-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && symbolSearch) {
+                        const existing = (cfg.single_symbol_configs || []).find(s => s.symbol === symbolSearch)
+                        if (!existing) {
+                          setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), {
+                            symbol: symbolSearch,
+                            enabled: true,
+                            follow_schedule: true,
+                            use_custom_config: false
+                          }])
+                        }
+                        setSymbolSearch('')
+                      }
+                    }}
+                  />
+                </div>
+                <Btn
+                  variant="primary"
+                  onClick={() => {
+                    if (!symbolSearch) return
+                    const existing = (cfg.single_symbol_configs || []).find(s => s.symbol === symbolSearch)
+                    if (!existing) {
+                      setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), {
+                        symbol: symbolSearch,
+                        enabled: true,
+                        follow_schedule: true,
+                        use_custom_config: false
+                      }])
+                    }
+                    setSymbolSearch('')
+                  }}
+                  className="px-4"
+                >
+                  <Plus size={18} />
+                </Btn>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Active Monitors</div>
+              {(cfg.single_symbol_configs || []).length === 0 ? (
+                <div className="p-10 border border-dashed border-border rounded-xl text-center">
+                  <div className="w-12 h-12 bg-background rounded-full flex items-center justify-center mx-auto mb-3">
+                    <ShieldCheck size={24} className="text-dim/40" />
+                  </div>
+                  <span className="text-xs text-dim">No specific symbols monitored yet</span>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {(cfg.single_symbol_configs || []).map((sc, i) => (
+                    <div key={sc.symbol} className="flex flex-col gap-3 p-4 bg-background border border-border rounded-xl">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <Toggle
+                            value={sc.enabled}
+                            onChange={(v) => {
+                              const next = [...cfg.single_symbol_configs]
+                              next[i] = { ...sc, enabled: v }
+                              setField('single_symbol_configs', next)
+                            }}
+                            label=""
+                          />
+                          <div className="flex flex-col">
+                            <span className="text-sm font-bold">{sc.symbol}</span>
+                            <div className="flex items-center gap-2">
+                               <span className={cn("text-[9px] font-bold uppercase", sc.follow_schedule ? "text-dim" : "text-amber")}>
+                                 {sc.follow_schedule ? "Following Schedule" : "Always Active"}
+                               </span>
+                               {sc.use_custom_config && (
+                                 <span className="text-[9px] font-bold uppercase text-accent">Custom Config</span>
+                               )}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setEditingSingleSymbolIndex(editingSingleSymbolIndex === i ? null : i)}
+                            className={cn("p-2 rounded-lg transition-colors", editingSingleSymbolIndex === i ? "bg-accent/20 text-accent" : "text-dim hover:bg-white/5 hover:text-text")}
+                          >
+                            <Settings2 size={16} />
+                          </button>
+                          <button
+                            onClick={() => setField('single_symbol_configs', cfg.single_symbol_configs.filter((_, idx) => idx !== i))}
+                            className="p-2 text-dim hover:text-red transition-colors"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {editingSingleSymbolIndex === i && (
+                        <div className="pt-4 border-t border-border mt-1 space-y-4 animate-in slide-in-from-top-2">
+                          <div className="grid grid-cols-2 gap-4">
+                            <Toggle
+                              label="Respect Schedule"
+                              value={sc.follow_schedule !== false}
+                              onChange={(v) => {
+                                const next = [...cfg.single_symbol_configs]
+                                next[i] = { ...sc, follow_schedule: v }
+                                setField('single_symbol_configs', next)
+                              }}
+                              color="bg-dim"
+                            />
+                            <Toggle
+                              label="Custom Strategy"
+                              value={sc.use_custom_config}
+                              onChange={(v) => {
+                                const next = [...cfg.single_symbol_configs]
+                                next[i] = { ...sc, use_custom_config: v, custom_config: v ? (sc.custom_config || { ...cfg, single_symbol_configs: [] }) : sc.custom_config }
+                                setField('single_symbol_configs', next)
+                              }}
+                              color="bg-accent"
+                            />
+                          </div>
+
+                          {sc.use_custom_config && (
+                            <div className="space-y-5 p-4 bg-surface rounded-lg border border-accent/20">
+                              <div className="text-[9px] text-accent font-bold uppercase tracking-widest flex items-center gap-2">
+                                <Settings2 size={12} /> Symbol Specific Overrides
+                              </div>
+                              <div className="grid grid-cols-2 gap-4">
+                                {field('Interval', 'scan_interval', 'text', ['1m', '5m', '15m', '1h'], {
+                                  onCustomChange: (k, v) => {
+                                    const next = [...cfg.single_symbol_configs]
+                                    next[i] = { ...sc, custom_config: { ...sc.custom_config, [k]: v } }
+                                    setField('single_symbol_configs', next)
+                                  }
+                                }, sc.custom_config)}
+                                {field('TP Ratio', 'tp_ratio', 'number', null, {
+                                  min: 0.1, step: 0.1,
+                                  onCustomChange: (k, v) => {
+                                    const next = [...cfg.single_symbol_configs]
+                                    next[i] = { ...sc, custom_config: { ...sc.custom_config, [k]: v } }
+                                    setField('single_symbol_configs', next)
+                                  }
+                                }, sc.custom_config)}
+                                {field('SL Pct', 'sl_distance_pct', 'number', null, {
+                                  min: 0.05, step: 0.05,
+                                  onCustomChange: (k, v) => {
+                                    const next = [...cfg.single_symbol_configs]
+                                    next[i] = { ...sc, custom_config: { ...sc.custom_config, [k]: v } }
+                                    setField('single_symbol_configs', next)
+                                  }
+                                }, sc.custom_config)}
+                                {field('Risk %', 'risk_pct_per_trade', 'number', null, {
+                                  min: 0.1, max: 100, step: 0.1,
+                                  onCustomChange: (k, v) => {
+                                    const next = [...cfg.single_symbol_configs]
+                                    next[i] = { ...sc, custom_config: { ...sc.custom_config, [k]: v } }
+                                    setField('single_symbol_configs', next)
+                                  }
+                                }, sc.custom_config)}
+                              </div>
+                              <div className="text-[9px] text-dim font-medium italic">
+                                * Overrides only the basic parameters for now. Other settings are inherited from global.
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 

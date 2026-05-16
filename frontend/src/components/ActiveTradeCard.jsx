@@ -1,8 +1,9 @@
 import React, { useState } from 'react'
 import { C, fmtUSD, pnlColor } from '../lib/theme'
 import { sessionAPI } from '../api/client'
+import { ShieldCheck } from 'lucide-react'
 
-export const ActiveTradeCard = ({ trade, onTradeClose }) => {
+export const ActiveTradeCard = ({ trade, config, onTradeClose }) => {
   const [isClosing, setIsClosing] = useState(false)
 
   const handleClose = async () => {
@@ -24,8 +25,18 @@ export const ActiveTradeCard = ({ trade, onTradeClose }) => {
     <div className="bg-surface border border-border rounded-2xl p-5 flex flex-col gap-4 w-full flex-1 shadow-sm">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2 text-sm font-bold">
-          <span>{trade.symbol || '---'}</span>
-          <span className={trade.direction === 'LONG' ? 'text-green' : 'text-red'}>{trade.direction || '---'}</span>
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2">
+              <span>{trade.symbol || '---'}</span>
+              <span className={trade.direction === 'LONG' ? 'text-green' : 'text-red'}>{trade.direction || '---'}</span>
+            </div>
+            {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
+              <div className="flex items-center gap-1 mt-0.5">
+                <ShieldCheck size={10} className="text-accent" />
+                <span className="text-[9px] font-bold text-accent uppercase tracking-tighter">Monitored Symbol</span>
+              </div>
+            )}
+          </div>
         </div>
         <div className={`text-lg font-bold ${trade.pnl != null ? pnlColor(trade.pnl) : 'text-dim'}`}>
           {trade.pnl != null ? fmtUSD(trade.pnl) : '---'}

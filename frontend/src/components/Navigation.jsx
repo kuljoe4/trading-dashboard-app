@@ -1,10 +1,22 @@
 import React, { useState } from 'react'
-import { LayoutDashboard, History, Settings as SettingsIcon, Activity, Zap, ChevronLeft, ChevronRight } from 'lucide-react'
+import { LayoutDashboard, History, Settings as SettingsIcon, Activity, Zap, ChevronLeft, ChevronRight, Cpu, HardDrive, Clock } from 'lucide-react'
 import { useTradingStore } from '../store/trading'
 import { cn, PulseDot } from './ui/primitives'
 
+const SidebarMetric = ({ icon: Icon, label, value, colorClass, collapsed }) => (
+  <div className={cn("flex items-center gap-3", collapsed && "justify-center")} title={collapsed ? `${label}: ${value}` : undefined}>
+    <Icon size={14} className={cn("shrink-0", colorClass || "text-dim")} />
+    {!collapsed && (
+      <div className="flex-1 flex justify-between items-baseline gap-2">
+        <span className="text-[10px] text-dim font-bold uppercase tracking-wider">{label}</span>
+        <span className={cn("text-[11px] font-mono font-bold", colorClass || "text-text")}>{value}</span>
+      </div>
+    )}
+  </div>
+)
+
 export const Sidebar = ({ selected }) => {
-  const { wsStatus, sidebarCollapsed: collapsed, toggleSidebar } = useTradingStore()
+  const { wsStatus, sidebarCollapsed: collapsed, toggleSidebar, monitoring, rateLimit } = useTradingStore()
   
   const isActive = (path) => {
     if (path === '/') return !selected && window.location.hash === '#/'
@@ -70,21 +82,59 @@ export const Sidebar = ({ selected }) => {
         {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
       </button>
 
-      {!collapsed && (
-        <div className="pt-6 border-t border-border/50">
-          <div className="flex items-center gap-3 p-4 bg-background/50 rounded-2xl border border-border">
-            <div className="flex-1">
-              <div className="text-[10px] text-dim font-bold uppercase tracking-widest mb-1">Live Status</div>
-              <div className="flex items-center gap-2">
-                <PulseDot color={wsStatus === 'live' ? "bg-green" : "bg-amber"} />
-                <span className={cn("text-xs font-bold", wsStatus === 'live' ? "text-green" : "text-amber")}>
-                  {wsStatus === 'live' ? 'Connected' : 'Offline'}
-                </span>
-              </div>
-            </div>
-          </div>
+      <div className={cn(
+        "pt-6 border-t border-border/50 space-y-4",
+        collapsed ? "px-0" : "px-2"
+      )}>
+        {/* Rate Limit */}
+        {rateLimit && (
+          <SidebarMetric
+            icon={Activity}
+            label="Weight"
+            value={`${rateLimit.used_weight_1m}/${rateLimit.limit}`}
+            colorClass={rateLimit.used_weight_1m > rateLimit.limit * 0.8 ? "text-red" : rateLimit.used_weight_1m > rateLimit.limit * 0.5 ? "text-amber" : "text-green"}
+            collapsed={collapsed}
+          />
+        )}
+
+        {/* System Health */}
+        {monitoring?.system && (
+          <>
+            <SidebarMetric
+              icon={Cpu}
+              label="CPU"
+              value={`${monitoring.system.cpu_usage}%`}
+              colorClass={monitoring.system.cpu_usage > 50 ? "text-red" : "text-amber"}
+              collapsed={collapsed}
+            />
+            <SidebarMetric
+              icon={HardDrive}
+              label="RAM"
+              value={`${monitoring.system.memory_heap_used}MB`}
+              collapsed={collapsed}
+            />
+            <SidebarMetric
+              icon={Clock}
+              label="Lag"
+              value={`${monitoring.system.event_loop_lag}ms`}
+              colorClass={monitoring.system.event_loop_lag > 50 ? "text-red" : "text-green"}
+              collapsed={collapsed}
+            />
+          </>
+        )}
+
+        <div className={cn(
+          "flex items-center gap-3 p-3 bg-background/40 rounded-xl border border-border/50",
+          collapsed && "justify-center p-2"
+        )}>
+          <PulseDot color={wsStatus === 'live' ? "bg-green" : "bg-amber"} />
+          {!collapsed && (
+            <span className={cn("text-[10px] font-bold uppercase tracking-widest", wsStatus === 'live' ? "text-green" : "text-amber")}>
+              {wsStatus === 'live' ? 'Live' : 'Offline'}
+            </span>
+          )}
         </div>
-      )}
+      </div>
     </div>
   )
 }

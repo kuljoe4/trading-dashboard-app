@@ -3,7 +3,6 @@ import { pnlColor, fmtUSD, C } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
 import { sessionAPI } from '../api/client'
 import { ActiveTradeBar } from '../components/ActiveTradeBar'
-import { SystemHealth } from '../components/SystemHealth'
 import * as Dialog from '@radix-ui/react-dialog'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { 
@@ -31,6 +30,7 @@ const LoadingFallback = () => (
   </div>
 )
 
+// --- Strategy Card ---
 // --- Strategy Card ---
 const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused }) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -139,35 +139,6 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused }) => {
       </AnimatePresence>
     </motion.div>
   );
-}
-
-const RateLimitStrip = ({ rateLimit }) => {
-  const used = rateLimit?.used_weight_1m || 0
-  const limit = rateLimit?.limit || 1200
-  const pct = Math.min((used / limit) * 100, 100)
-  const colorClass = pct >= 90 ? 'bg-red' : pct >= 70 ? 'bg-amber' : 'bg-green'
-  const textColorClass = pct >= 90 ? 'text-red' : pct >= 70 ? 'text-amber' : 'text-green'
-
-  return (
-    <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 p-4 bg-surface/50 border border-border rounded-xl mb-6">
-      <span className="text-[10px] text-dim font-bold tracking-widest uppercase flex items-center gap-2">
-        <Activity size={12} /> API WEIGHT
-      </span>
-      <div className="flex-1 flex items-center gap-4">
-        <strong className={cn("text-xs font-mono min-w-[70px]", textColorClass)}>{used}/{limit}</strong>
-        <div className="flex-1 h-1.5 bg-border rounded-full overflow-hidden">
-          <motion.div
-            initial={{ width: 0 }}
-            animate={{ width: `${pct}%` }}
-            className={cn("h-full transition-all duration-500", colorClass)}
-          />
-        </div>
-      </div>
-      <em className={cn("text-[10px] font-bold tracking-widest uppercase text-right", textColorClass)}>
-        {pct >= 90 ? 'CRITICAL' : pct >= 70 ? 'WARNING' : 'STABLE'}
-      </em>
-    </div>
-  )
 }
 
 const GateBanner = ({ gateState, scannerPaused }) => {
@@ -279,9 +250,9 @@ export function DashboardView() {
   
   const {
     sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
-    totalSlUsed, activeTrades, config, healthEnabled, setSessionActive,
-    updateConfig, scannerResults, activeWindows, gateState,
-    scannerPaused, rateLimit, monitoring, sessionList, fetchSessions, wsStatus,
+    totalSlUsed, activeTrades, config, setSessionActive,
+    updateConfig, gateState,
+    scannerPaused, sessionList, fetchSessions, wsStatus,
     sidebarCollapsed
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
@@ -293,15 +264,10 @@ export function DashboardView() {
     totalSlUsed: state.totalSlUsed,
     activeTrades: state.activeTrades,
     config: state.config,
-    healthEnabled: state.healthEnabled,
     setSessionActive: state.setSessionActive,
     updateConfig: state.updateConfig,
-    scannerResults: state.scannerResults,
-    activeWindows: state.activeWindows,
     gateState: state.gateState,
     scannerPaused: state.scannerPaused,
-    rateLimit: state.rateLimit,
-    monitoring: state.monitoring,
     sessionList: state.sessionList,
     fetchSessions: state.fetchSessions,
     wsStatus: state.wsStatus,
@@ -448,8 +414,6 @@ export function DashboardView() {
           </div>
         </motion.div>
 
-        <RateLimitStrip rateLimit={rateLimit} />
-        {healthEnabled && <SystemHealth monitoring={monitoring} />}
         <GateBanner gateState={gateState} scannerPaused={scannerPaused} />
 
         {/* Global Metrics */}
@@ -568,8 +532,6 @@ export function DashboardView() {
             transition={{ delay: 0.5 }}
             className="space-y-10"
           >
-            {/* ScannerPreview removed */}
-
             <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col h-[450px] shadow-sm">
               <SectionLabel className="mb-4">
                 <Activity size={14} className="text-accent" /> Session Logs

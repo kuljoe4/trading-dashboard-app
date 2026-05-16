@@ -149,9 +149,9 @@ const ExitMonitor = React.memo(({ status, logic }) => {
   );
 });
 
-export const ActiveTradeBar = React.memo(({ trade, compact = false }) => {
+export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpanded = false }) => {
   const [isClosing, setIsClosing] = useState(false)
-  const [isExpanded, setIsExpanded] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(initialExpanded)
 
   const handleClose = async () => {
     setIsClosing(true)

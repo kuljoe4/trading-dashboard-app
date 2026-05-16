@@ -195,15 +195,14 @@ export function SettingsView() {
                         type={showLiveSecret ? "text" : "password"}
                         value={apiSecret}
                         onChange={e => setApiSecret(e.target.value)}
-                        className="w-full bg-background border border-border focus:border-accent focus:outline-none rounded-xl px-4 pl-4 pr-12 py-3 text-sm font-mono text-text transition-all"
+                        className="w-full bg-background border border-border focus:border-accent focus:outline-none rounded-xl px-4 py-3 pr-12 text-sm font-mono text-text transition-all"
                         placeholder="••••••••••••••••"
                       />
                       <button
                         type="button"
                         onClick={() => setShowLiveSecret(!showLiveSecret)}
+                        aria-label={showLiveSecret ? "Hide secret" : "Show secret"}
                         className="absolute right-4 top-1/2 -translate-y-1/2 text-dim hover:text-accent transition-colors"
-                        aria-label={showLiveSecret ? "Hide API secret" : "Show API secret"}
-                        title={showLiveSecret ? "Hide API secret" : "Show API secret"}
                       >
                         {showLiveSecret ? <EyeOff size={18} /> : <Eye size={18} />}
                       </button>
@@ -250,15 +249,14 @@ export function SettingsView() {
                         type={showTestnetSecret ? "text" : "password"}
                         value={testnetApiSecret}
                         onChange={e => setTestnetApiSecret(e.target.value)}
-                        className="w-full bg-background border border-border focus:border-purple focus:outline-none rounded-xl px-4 pl-4 pr-12 py-3 text-sm font-mono text-text transition-all"
+                        className="w-full bg-background border border-border focus:border-purple focus:outline-none rounded-xl px-4 py-3 pr-12 text-sm font-mono text-text transition-all"
                         placeholder="••••••••••••••••"
                       />
                       <button
                         type="button"
                         onClick={() => setShowTestnetSecret(!showTestnetSecret)}
+                        aria-label={showTestnetSecret ? "Hide secret" : "Show secret"}
                         className="absolute right-4 top-1/2 -translate-y-1/2 text-dim hover:text-purple transition-colors"
-                        aria-label={showTestnetSecret ? "Hide API secret" : "Show API secret"}
-                        title={showTestnetSecret ? "Hide API secret" : "Show API secret"}
                       >
                         {showTestnetSecret ? <EyeOff size={18} /> : <Eye size={18} />}
                       </button>

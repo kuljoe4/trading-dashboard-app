@@ -333,7 +333,13 @@ export class TradingSessionService {
     for (const opp of opportunities) {
       if (this.positionTracker.hasSymbol(opp.symbol)) continue;
 
-      const signalResult = await this.signalEngine.checkEntry(opp.symbol, this.config!, this.config!.scan_interval || '1m');
+      const signalResult = await this.signalEngine.checkEntry(
+        opp.symbol,
+        this.config!,
+        this.config!.scan_interval || '1m',
+        opp.direction.toUpperCase() as any,
+        'entry'
+      );
       if (!signalResult.allFired) continue;
 
       this.logger.log(`${opp.symbol}: ALL SIGNALS FIRED! Proceeding to risk checks...`);

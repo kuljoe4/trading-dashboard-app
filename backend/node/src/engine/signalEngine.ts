@@ -24,14 +24,18 @@ export class SignalEngineService {
 
   private readonly signalHandlers: Record<
     string,
-    (symbol: string, config: any, interval: string) => Promise<SignalDetail>
+    (symbol: string, config: any, interval: string, side?: 'LONG' | 'SHORT', purpose?: 'entry' | 'exit') => Promise<boolean>
   > = {
     momentum_pct: this.momentumPctSignal.bind(this),
+    breakback_hl: this.breakoutHlSignal.bind(this), // Typo in existing code? It's breakout_hl
     breakout_hl: this.breakoutHlSignal.bind(this),
     engulfing: this.engulfingSignal.bind(this),
     ma: this.maSignal.bind(this),
     ema: this.emaSignal.bind(this),
     ema_cross: this.emaSignal.bind(this),
+    ema_price_cross: this.emaSignal.bind(this),
+    ema_dual_cross: this.emaDualCrossSignal.bind(this),
+    ema_close: this.emaCloseSignal.bind(this),
   };
 
   constructor(private readonly klineStore: KlineStoreService) {}
@@ -40,19 +44,19 @@ export class SignalEngineService {
     symbol: string,
     config: SessionConfig,
     interval: string = '1m',
-  ): Promise<SignalEntryResult> {
+    side?: 'LONG' | 'SHORT',
+    purpose: 'entry' | 'exit' = 'entry',
+  ): Promise<{ allFired: boolean; firedSignals: string[]; reason: string }> {
     if (!config.enabled_signals || config.enabled_signals.length === 0) {
       return {
         allFired: false,
         firedSignals: [],
         reason: 'No signals enabled',
-        details: {},
       };
     }
 
     const firedSignals: string[] = [];
     const failedSignals: string[] = [];
-    const details: Record<string, SignalDetail> = {};
 
     for (const signalType of config.enabled_signals) {
       const handler = this.signalHandlers[signalType];
@@ -62,9 +66,8 @@ export class SignalEngineService {
       }
 
       try {
-        const detail = await handler(symbol, config, interval);
-        details[signalType] = detail;
-        if (detail.fired) {
+        const fired = await handler(symbol, config, interval, side, purpose);
+        if (fired) {
           firedSignals.push(signalType);
         } else {
           failedSignals.push(signalType);
@@ -84,7 +87,7 @@ export class SignalEngineService {
       (firedSignals.length > 0 ? ` (${firedSignals.join(', ')})` : '') +
       (failedSignals.length > 0 ? `; Failed: ${failedSignals.join(', ')}` : '');
 
-    return { allFired, firedSignals, reason, details };
+    return { allFired, firedSignals, reason };
   }
 
   private async momentumPctSignal(
@@ -269,9 +272,19 @@ export class SignalEngineService {
     symbol: string,
     config: any,
     interval: string,
+<<<<<<< HEAD
   ): Promise<SignalDetail> {
+=======
+    side?: 'LONG' | 'SHORT',
+    purpose: 'entry' | 'exit' = 'entry',
+  ): Promise<boolean> {
+>>>>>>> origin/feat-advanced-ema-signals-4129875549209421020
     try {
-      const period = parseInt(config.signal_params?.ema_period || '12', 10);
+      const params = config.signal_params || {};
+      const period = purpose === 'exit'
+        ? parseInt(params.exit_ema_period || params.ema_period || '12', 10)
+        : parseInt(params.entry_ema_period || params.ema_period || '12', 10);
+
       const candles = await this.klineStore.getRecentCandles(
         symbol,
         interval,
@@ -295,6 +308,7 @@ export class SignalEngineService {
       const prevDiff = prevClose - ema;
       const fired = (prevDiff <= 0 && diff > 0) || (prevDiff >= 0 && diff < 0);
 
+<<<<<<< HEAD
       return {
         fired,
         value: diff,
@@ -303,6 +317,19 @@ export class SignalEngineService {
         metric: 'EMA Cross',
         description: `Close − EMA = ${diff.toFixed(2)}`,
       };
+=======
+      if (purpose === 'entry') {
+        if (side === 'LONG') return prevClose <= ema && currClose > ema;
+        if (side === 'SHORT') return prevClose >= ema && currClose < ema;
+        // If side not specified, allow both
+        return (prevClose <= ema && currClose > ema) || (prevClose >= ema && currClose < ema);
+      } else {
+        // Exit logic: cross opposite way of position
+        if (side === 'LONG') return prevClose >= ema && currClose < ema;
+        if (side === 'SHORT') return prevClose <= ema && currClose > ema;
+        return false;
+      }
+>>>>>>> origin/feat-advanced-ema-signals-4129875549209421020
     } catch (error) {
       this.logger.debug(`EMA signal error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
       return {
@@ -314,6 +341,108 @@ export class SignalEngineService {
         description: 'Signal error',
       };
     }
+  }
+
+  private async emaDualCrossSignal(
+    symbol: string,
+    config: any,
+    interval: string,
+    side?: 'LONG' | 'SHORT',
+    purpose: 'entry' | 'exit' = 'entry',
+  ): Promise<boolean> {
+    try {
+      const params = config.signal_params || {};
+      const fastPeriod = purpose === 'exit'
+        ? parseInt(params.exit_ema_fast || '9', 10)
+        : parseInt(params.entry_ema_fast || '9', 10);
+      const slowPeriod = purpose === 'exit'
+        ? parseInt(params.exit_ema_slow || '21', 10)
+        : parseInt(params.entry_ema_slow || '21', 10);
+
+      const maxPeriod = Math.max(fastPeriod, slowPeriod);
+      const candles = await this.klineStore.getRecentCandles(
+        symbol,
+        interval,
+        maxPeriod + 2,
+      );
+      if (candles.length < maxPeriod + 1) return false;
+
+      const fastEmas = this.calculateEMASeries(candles, fastPeriod);
+      const slowEmas = this.calculateEMASeries(candles, slowPeriod);
+
+      if (fastEmas.length < 2 || slowEmas.length < 2) return false;
+
+      const prevFast = fastEmas[fastEmas.length - 2];
+      const currFast = fastEmas[fastEmas.length - 1];
+      const prevSlow = slowEmas[slowEmas.length - 2];
+      const currSlow = slowEmas[slowEmas.length - 1];
+
+      if (purpose === 'entry') {
+        if (side === 'LONG') return prevFast <= prevSlow && currFast > currSlow;
+        if (side === 'SHORT') return prevFast >= prevSlow && currFast < currSlow;
+        return (prevFast <= prevSlow && currFast > currSlow) || (prevFast >= prevSlow && currFast < currSlow);
+      } else {
+        if (side === 'LONG') return prevFast >= prevSlow && currFast < currSlow;
+        if (side === 'SHORT') return prevFast <= prevSlow && currFast > currSlow;
+        return false;
+      }
+    } catch (error) {
+      this.logger.debug(`EMA Dual Cross signal error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
+  }
+
+  private async emaCloseSignal(
+    symbol: string,
+    config: any,
+    interval: string,
+    side?: 'LONG' | 'SHORT',
+    purpose: 'entry' | 'exit' = 'entry',
+  ): Promise<boolean> {
+    try {
+      const params = config.signal_params || {};
+      const period = purpose === 'exit'
+        ? parseInt(params.exit_ema_period || params.ema_period || '12', 10)
+        : parseInt(params.entry_ema_period || params.ema_period || '12', 10);
+
+      const candles = await this.klineStore.getRecentCandles(
+        symbol,
+        interval,
+        period + 1,
+      );
+      if (candles.length < period + 1) return false;
+
+      const ema = this.calculateEMA(candles, period);
+      const currClose = candles[candles.length - 1].close;
+
+      if (purpose === 'entry') {
+        if (side === 'LONG') return currClose > ema;
+        if (side === 'SHORT') return currClose < ema;
+        return true; // Already on some side
+      } else {
+        // Exit if closed on the wrong side
+        if (side === 'LONG') return currClose < ema;
+        if (side === 'SHORT') return currClose > ema;
+        return false;
+      }
+    } catch (error) {
+      this.logger.debug(`EMA Close signal error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
+  }
+
+  private calculateEMASeries(candles: any[], period: number): number[] {
+    if (candles.length < period) return [];
+    const multiplier = 2 / (period + 1);
+    const result: number[] = [];
+
+    let ema = this.calculateSMA(candles, 0, period);
+    // Note: This is a simplified series calculation for the tail of the candles
+    for (let i = period; i < candles.length; i++) {
+      ema = candles[i].close * multiplier + ema * (1 - multiplier);
+      result.push(ema);
+    }
+    return result;
   }
 
   private calculateSMA(candles: any[], start: number, end: number): number {

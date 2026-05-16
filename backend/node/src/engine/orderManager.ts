@@ -180,9 +180,14 @@ export class OrderManagerService {
           enabled_signals: [exitSignal],
         };
 
-        const result = await this.signalEngine.checkEntry(symbol, tempConfig, interval);
-        const detail = result.details?.[exitSignal];
-        const isFired = detail?.fired ?? result.allFired;
+        const result = await this.signalEngine.checkEntry(
+          symbol,
+          tempConfig,
+          interval,
+          trade.direction,
+          'exit'
+        );
+        const isFired = result.allFired;
 
         statuses[exitSignal] = {
           fired: isFired,

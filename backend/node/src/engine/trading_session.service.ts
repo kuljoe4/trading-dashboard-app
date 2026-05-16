@@ -338,6 +338,8 @@ export class TradingSessionService {
     for (const opp of opportunities) {
       if (this.positionTracker.hasSymbol(opp.symbol)) continue;
 
+      const symbolConfig = (this.config!.single_symbol_configs.find(c => c.symbol === opp.symbol)?.custom_config || this.config!) as SessionConfig;
+
       const signalResult = await this.signalEngine.checkEntry(
         opp.symbol,
         this.config!,

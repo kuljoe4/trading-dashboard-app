@@ -4,6 +4,7 @@ import { PulseDot, PaperBadge, ConditionWidget, cn } from './ui/primitives'
 import { Info, TrendingUp, ShieldAlert, Target, Activity, Zap, XCircle, ShieldCheck, Clock } from 'lucide-react'
 import { sessionAPI } from '../api/client'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useTradingStore } from '../store/trading'
 
 const price = (value) => {
   if (value == null || Number.isNaN(Number(value))) return 'None'
@@ -175,6 +176,7 @@ const ExitMonitor = React.memo(({ status, logic }) => {
 });
 
 export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpanded = false }) => {
+  const config = useTradingStore((state) => state.config)
 
   const [isClosing, setIsClosing] = useState(false)
   const [isExpanded, setIsExpanded] = useState(initialExpanded)

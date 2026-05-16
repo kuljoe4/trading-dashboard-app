@@ -61,7 +61,20 @@ export class SessionService implements OnModuleInit {
     });
   }
 
+  private validateTrade(trade: any): boolean {
+    return (
+      trade.symbol != null &&
+      trade.entry_price != null && !isNaN(Number(trade.entry_price)) &&
+      trade.qty != null && !isNaN(Number(trade.qty)) &&
+      trade.status != null
+    );
+  }
+
   async saveTrade(trade: any) {
+    if (!this.validateTrade(trade)) {
+      this.logger.warn(`Attempted to save invalid trade ${trade.symbol}, skipping.`);
+      return;
+    }
     try {
       const tradeEntity = this.tradeRepository.create({
         ...trade,
@@ -74,10 +87,74 @@ export class SessionService implements OnModuleInit {
     }
   }
 
+  private validateConfig(config: SessionConfig) {
+    if (!config) throw new Error('Configuration is required');
+
+    // 1. Scan Mode Dependencies
+    if (config.scan_mode === 'active_window') {
+      if (!config.scan_window_duration_sec) throw new Error('Window duration is required for Active Window mode');
+      if (!config.scan_check_interval_sec) throw new Error('Check interval is required for Active Window mode');
+    }
+
+    // 2. Stop Loss Dependencies
+    if (config.sl_type === 'lookback_low/high') {
+      if (!config.sl_lookback_period || config.sl_lookback_period < 1) {
+        throw new Error('Valid lookback period is required for Lookback SL type');
+      }
+    }
+
+    // 3. Take Profit Dependencies
+    if (config.tp_mode === 'exp_rr_seq') {
+      if (!config.live_rr_sequence || config.live_rr_sequence.length === 0) {
+        throw new Error('Live RR sequence is required for Exponential RR mode');
+      }
+      if (!config.exit_rr_sequence || config.exit_rr_sequence.length !== config.live_rr_sequence.length) {
+        throw new Error('Exit RR sequence must match Live RR sequence length');
+      }
+    }
+
+    // 4. Signal Parameter Dependencies
+    let signalParams;
+    try {
+      signalParams = typeof config.signal_params === 'string' 
+        ? JSON.parse(config.signal_params || '{}') 
+        : config.signal_params || {};
+    } catch (e) {
+      throw new Error('Invalid signal_params format. Must be a valid JSON string or object.');
+    }
+    
+    const allEnabled = [...(config.enabled_signals || []), ...(config.exit_signals || [])];
+
+    if (allEnabled.includes('ema_dual_cross')) {
+      const fast = parseInt(signalParams.entry_ema_fast || signalParams.exit_ema_fast || '0', 10);
+      const slow = parseInt(signalParams.entry_ema_slow || signalParams.exit_ema_slow || '0', 10);
+      if (fast <= 0 || slow <= 0) throw new Error('EMA Dual Cross requires both fast and slow periods (e.g., 9 and 21)');
+      if (fast >= slow) throw new Error('EMA Dual Cross: Fast period must be less than slow period');
+    }
+
+    if (allEnabled.includes('ma') && !signalParams.ma_period) {
+      throw new Error('MA Cross signal requires ma_period in signal_params');
+    }
+
+    if ((allEnabled.includes('ema') || allEnabled.includes('ema_close')) && !signalParams.ema_period && !signalParams.entry_ema_period && !signalParams.exit_ema_period) {
+       throw new Error('EMA signals require an EMA period to be defined');
+    }
+
+    // 5. Risk Constraints
+    const riskPerTrade = config.risk_pct_per_trade ?? 0;
+    const maxTotalRisk = config.max_total_risk_pct ?? 100;
+    if (riskPerTrade > maxTotalRisk) {
+      throw new Error('Risk per trade cannot exceed maximum total risk');
+    }
+  }
+
   async startSession(config: SessionConfig, paperMode: boolean, sessionId?: string) {
     if (this.sessionRunning) {
       throw new Error('Session already running');
     }
+
+    // Deep validation of dependent fields
+    this.validateConfig(config);
 
     let session;
     if (sessionId) {
@@ -124,6 +201,11 @@ export class SessionService implements OnModuleInit {
       take: 200,
     });
 
+    // Load potentially orphaned open trades for reconciliation
+    const openTrades = await this.tradeRepository.find({
+      where: { status: 'OPEN' as any }
+    });
+
     // Instantiate Binance client if not in paper mode
     let binanceClient = null;
     const mode = config.trading_mode || (paperMode ? 'paper' : 'live');
@@ -141,6 +223,44 @@ export class SessionService implements OnModuleInit {
 
       binanceClient = BinanceClientFactory.createClient(key, decrypt(secret), isTestnet);
     }
+      
+    // Reconciliation for Paper Mode: Mark open trades as orphaned if their session is not running
+    if (mode === 'paper') {
+      for (const trade of openTrades) {
+        let isOrphaned = false;
+        if (trade.sessionId) {
+          const session = await this.sessionRepository.findOne({ where: { id: trade.sessionId } });
+          if (!session || !session.running) {
+            isOrphaned = true;
+          }
+        } else {
+          // If no sessionId, default to time-based fallback for safety
+          const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+          if (Date.now() - (trade.entry_ts ? new Date(trade.entry_ts).getTime() : 0) > STALE_THRESHOLD_MS) {
+            isOrphaned = true;
+          }
+        }
+
+        if (isOrphaned) {
+          this.logger.log(`Paper trade ${trade.symbol} (Session: ${trade.sessionId}) is orphaned. Marking as closed.`);
+          await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date() });
+        }
+      }
+    } else if (binanceClient) {
+      // Reconciliation: Check if persistent open trades still exist on the exchange
+      for (const trade of openTrades) {
+        try {
+          const orders = await binanceClient.restAPI.tradeApi.getOpenOrders(trade.symbol);
+          const hasOrder = Array.isArray(orders) && orders.some(o => o.orderId == trade.binance_order_id || o.orderId == trade.binance_stop_order_id);
+          if (!hasOrder) {
+            this.logger.log(`Trade ${trade.symbol} not found on exchange. Marking as closed (orphaned).`);
+            await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date() });
+          }
+        } catch (e) {
+          this.logger.warn(`Failed to reconcile trade ${trade.symbol}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    }
 
     // Start the actual trading engine
     await this.tradingSessionService.start(config, binanceClient, this.currentSessionId, initialHistory as any);
@@ -150,9 +270,9 @@ export class SessionService implements OnModuleInit {
   }
 
   async updateSession(id: string, config: SessionConfig) {
-    // Ensure we pass a plain object for the config column to avoid TypeORM issues with class instances
-    await this.sessionRepository.update(id, { config: Object.assign({}, config) as any });
-
+   this.validateConfig(config);
+   // Ensure we pass a plain object for the config column to avoid TypeORM issues with class instances
+   await this.sessionRepository.update(id, { config: Object.assign({}, config) as any });
     // If this is the active session, hot-reload the config in the engine
     if (this.sessionRunning && this.currentSessionId === id) {
       this.tradingSessionService.updateConfig(config);
@@ -215,7 +335,10 @@ export class SessionService implements OnModuleInit {
     if (!session) return { running: false };
 
     const engineStatus: any = this.tradingSessionService.getStatus();
-    const activeTrades = await this.tradeRepository.find({ where: { status: 'OPEN' } });
+    const activeTrades = (await this.tradeRepository.find({ where: { status: 'OPEN' } })).filter(trade => 
+      trade.entry_price != null && !isNaN(Number(trade.entry_price)) && 
+      trade.qty != null && !isNaN(Number(trade.qty))
+    );
 
     const logs = await this.logRepository.find({
       where: { sessionId: session.id },

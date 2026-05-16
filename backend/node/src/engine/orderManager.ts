@@ -188,6 +188,7 @@ export class OrderManagerService {
           'exit'
         );
         const isFired = result.allFired;
+        const detail = result.details ? result.details[exitSignal] : null;
 
         statuses[exitSignal] = {
           fired: isFired,
@@ -197,7 +198,7 @@ export class OrderManagerService {
           value: detail?.value ?? (isFired ? 1 : 0),
           threshold: detail?.threshold ?? 1,
           unit: detail?.unit ?? '%',
-          description: detail?.description,
+          description: detail?.description || `Signal ${exitSignal} ${isFired ? 'fired' : 'not fired'}`,
         };
 
         if (isFired && isActive) {

@@ -52,6 +52,50 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
   const [section, setSection] = useState('scan')
   const [presets, setPresets] = useState([])
   const [presetName, setPresetName] = useState('')
+  const [errors, setErrors] = useState({})
+
+  const validate = (currentCfg) => {
+    const errs = {}
+    
+    // Scan Section
+    if (!currentCfg.scan_interval) errs.scan_interval = 'Required'
+    if (currentCfg.scan_lookback < 1) errs.scan_lookback = 'Min 1'
+    if (currentCfg.scan_mode === 'active_window') {
+      if (!currentCfg.scan_window_duration_sec) errs.scan_window_duration_sec = 'Required'
+      if (!currentCfg.scan_check_interval_sec) errs.scan_check_interval_sec = 'Required'
+    }
+
+    // Signals Section
+    const allEnabled = [...(currentCfg.enabled_signals || []), ...(currentCfg.exit_signals || [])]
+    if (allEnabled.includes('ma') && !currentCfg.signal_params_ma_period) errs.signal_params_ma_period = 'Required'
+    if (allEnabled.includes('ema_close') || allEnabled.includes('ema_price_cross')) {
+      if (!currentCfg.signal_params_entry_ema_period) errs.signal_params_entry_ema_period = 'Required'
+      if (currentCfg.exit_signals?.includes('ema_close') && !currentCfg.signal_params_exit_ema_period) errs.signal_params_exit_ema_period = 'Required'
+    }
+    if (allEnabled.includes('ema_dual_cross')) {
+      if (!currentCfg.signal_params_entry_ema_fast) errs.signal_params_entry_ema_fast = 'Required'
+      if (!currentCfg.signal_params_entry_ema_slow) errs.signal_params_entry_ema_slow = 'Required'
+      if (currentCfg.signal_params_entry_ema_fast >= currentCfg.signal_params_entry_ema_slow) {
+        errs.signal_params_entry_ema_fast = 'Must be < slow'
+      }
+    }
+
+    // Exit Section
+    if (currentCfg.sl_type === 'lookback_low/high') {
+      if (!currentCfg.sl_lookback_period) errs.sl_lookback_period = 'Required'
+    }
+    if (currentCfg.tp_mode === 'exp_rr_seq') {
+      if (!currentCfg.live_rr_sequence?.length) errs.tp_mode = 'Sequence required'
+    }
+
+    // Risk Section
+    if (currentCfg.risk_pct_per_trade > currentCfg.max_total_risk_pct) {
+      errs.risk_pct_per_trade = 'Exceeds max total risk'
+    }
+
+    setErrors(errs)
+    return Object.keys(errs).length === 0
+  }
 
   const generatedPresetName = useMemo(() => {
     const interval = cfg.scan_interval || 'Custom'
@@ -102,9 +146,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     }
   }, [initialConfig])
 
-  const setField = (key, value) => setCfg((prev) => ({ ...prev, [key]: value }))
+  const setField = (key, value) => {
+    const next = { ...cfg, [key]: value };
+    setCfg(next);
+    if (Object.keys(errors).length > 0) validate(next);
+  }
 
   const savePreset = () => {
+    if (!validate(cfg)) return;
     const name = presetName.trim() || generatedPresetName
     if (!name) return
     const next = [...presets.filter(p => p.name !== name), { name, config: cfg }]
@@ -116,6 +165,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
   const loadPreset = (p) => {
     setCfg({ ...p.config })
     setSection('scan')
+    setErrors({})
   }
 
   const deletePreset = (e, name) => {
@@ -137,15 +187,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
 
   function field(label, key, type = 'number', opts = null, attrs = {}) {
     const id = `config-${key}`
+    const hasError = !!errors[key]
+    
     return (
       <div className="flex flex-col gap-1.5">
-        <label htmlFor={id} className="text-[10px] text-dim font-bold tracking-widest uppercase">{label}</label>
+        <div className="flex justify-between items-center">
+          <label htmlFor={id} className="text-[10px] text-dim font-bold tracking-widest uppercase">{label}</label>
+          {hasError && <span className="text-[9px] text-red font-bold uppercase">{errors[key]}</span>}
+        </div>
         {opts ? (
           <select
             id={id}
             value={cfg[key] ?? ''}
             onChange={(e) => setField(key, e.target.value)}
-            className="bg-surface border border-border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent"
+            className={cn(
+              "bg-surface border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent transition-colors",
+              hasError ? "border-red/50 bg-red/5" : "border-border"
+            )}
           >
             {opts.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
@@ -158,7 +216,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
             max={attrs.max}
             step={attrs.step}
             onChange={(e) => setField(key, type === 'number' ? Number(e.target.value) : e.target.value)}
-            className="bg-surface border border-border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent"
+            className={cn(
+              "bg-surface border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent transition-colors",
+              hasError ? "border-red/50 bg-red/5" : "border-border"
+            )}
           />
         )}
       </div>
@@ -643,6 +704,18 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
       <div className="p-5 border-t border-border bg-surface flex gap-3 shrink-0">
         <Btn variant="ghost" onClick={onClose} className="flex-1">Cancel</Btn>
         <Btn variant="primary" onClick={() => {
+          if (!validate(cfg)) {
+             // Find the first section with an error and switch to it
+             const firstErrorKey = Object.keys(errors)[0];
+             if (firstErrorKey) {
+                if (['scan_interval', 'scan_lookback', 'scan_window_duration_sec', 'scan_check_interval_sec'].includes(firstErrorKey)) setSection('scan');
+                else if (firstErrorKey.startsWith('signal_params')) setSection('signals');
+                else if (['sl_lookback_period', 'tp_mode'].includes(firstErrorKey)) setSection('exit');
+                else if (['risk_pct_per_trade'].includes(firstErrorKey)) setSection('risk');
+             }
+             return;
+          }
+
           const configToSave = { ...cfg };
           // Serialize signal parameters
           const signalParams = {

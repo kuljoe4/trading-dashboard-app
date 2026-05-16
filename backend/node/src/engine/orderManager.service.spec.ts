@@ -134,9 +134,44 @@ describe('OrderManagerService', () => {
         'MARKET',
         expect.objectContaining({
           quantity: 0.1,
-          reduceOnly: 'true',
+          reduceOnly: true,
         })
       );
+    });
+  });
+
+  describe('checkExitSignals', () => {
+    it('returns exitTriggered false when no exit signals are configured', async () => {
+      const trade = { symbol: 'BTCUSDT' } as any;
+      const config = { exit_signals: [] } as any;
+      
+      const result = await service.checkExitSignals('BTCUSDT', trade, config);
+      expect(result.exitTriggered).toBe(false);
+    });
+
+    it('correctly identifies triggered exit signals', async () => {
+      const trade = { 
+        symbol: 'BTCUSDT', 
+        direction: 'LONG',
+        entry_ts: new Date(Date.now() - 10000).toISOString() // 10s ago
+      } as any;
+      
+      const config = { 
+        exit_signals: ['ema_close'],
+        exit_signal_logic: 'any'
+      } as any;
+
+      mockSignalEngine.checkEntry.mockResolvedValue({
+        allFired: true,
+        firedSignals: ['ema_close'],
+        reason: 'EMA close fired'
+      });
+
+      const result = await service.checkExitSignals('BTCUSDT', trade, config);
+      
+      expect(result.exitTriggered).toBe(true);
+      expect(result.exitSignalType).toBe('ema_close');
+      expect(trade.exit_signals_status?.ema_close.fired).toBe(true);
     });
   });
 });

@@ -187,8 +187,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
 
   function field(label, key, type = 'number', opts = null, attrs = {}, customPath = null) {
     const id = `config-${key}`
-<<<<<<< HEAD
     const val = customPath ? customPath[key] : cfg[key]
+    const hasError = !!errors[key]
+    
     const onChange = (v) => {
       if (customPath) {
         attrs.onCustomChange(key, v)
@@ -197,10 +198,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
       }
     }
 
-=======
-    const hasError = !!errors[key]
-    
->>>>>>> master
     return (
       <div className="flex flex-col gap-1.5">
         <div className="flex justify-between items-center">
@@ -210,18 +207,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
         {opts ? (
           <select
             id={id}
-<<<<<<< HEAD
             value={val ?? ''}
             onChange={(e) => onChange(e.target.value)}
-            className="bg-surface border border-border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent"
-=======
-            value={cfg[key] ?? ''}
-            onChange={(e) => setField(key, e.target.value)}
             className={cn(
               "bg-surface border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent transition-colors",
               hasError ? "border-red/50 bg-red/5" : "border-border"
             )}
->>>>>>> master
           >
             {opts.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
@@ -233,16 +224,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
             min={attrs.min}
             max={attrs.max}
             step={attrs.step}
-<<<<<<< HEAD
             onChange={(e) => onChange(type === 'number' ? Number(e.target.value) : e.target.value)}
-            className="bg-surface border border-border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent"
-=======
-            onChange={(e) => setField(key, type === 'number' ? Number(e.target.value) : e.target.value)}
             className={cn(
               "bg-surface border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent transition-colors",
               hasError ? "border-red/50 bg-red/5" : "border-border"
             )}
->>>>>>> master
           />
         )}
       </div>

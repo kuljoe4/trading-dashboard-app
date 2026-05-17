@@ -41,7 +41,7 @@ export class TradeEntity {
 
   @Index()
   @Column()
-  status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL';
+  status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL' | 'CLOSED_ORPHANED';
 
   @Index()
   @Column({ nullable: true })

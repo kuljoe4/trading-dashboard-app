@@ -205,6 +205,7 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
   const direction = trade.direction?.toUpperCase()
   const isLong = direction === 'LONG'
   const isExpRR = trade.tp_mode === 'exp_rr_seq'
+  const strategyLabel = trade.strategyLabel || 'Default'
   const slDist = trade.entry_price ? ((Math.abs(trade.entry_price - trade.sl_price) / trade.entry_price) * 100).toFixed(2) : '0.00'
   const pctChange = trade.entry_price && trade.current_price
     ? ((trade.current_price - trade.entry_price) / trade.entry_price * 100).toFixed(2)
@@ -233,6 +234,9 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
               {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
                 <ShieldCheck size={16} className="text-accent" />
               )}
+              <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-accent/10 text-accent uppercase tracking-widest border border-accent/20">
+                {strategyLabel}
+              </span>
             </div>
             {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
               <span className="text-[9px] font-bold text-accent uppercase tracking-tighter -mt-0.5">Monitored Symbol</span>

@@ -13,6 +13,47 @@ const SIGNALS = [
   ['engulfing', 'Engulfing'],
 ]
 
+const STRATEGY_TEMPLATES = [
+  {
+    label: 'Momentum Scalper',
+    enabled_signals: ['momentum_pct'],
+    signal_logic: 'all',
+    signal_params: JSON.stringify({ entry_ema_period: 12 }),
+    max_open_trades: 2,
+    priority: 10,
+    risk_pct_per_trade: 1.0,
+    tp_mode: 'fixed',
+    tp_ratio: 2.0,
+    sl_type: 'pct',
+    sl_distance_pct: 0.8
+  },
+  {
+    label: 'EMA Trend Follower',
+    enabled_signals: ['ema_dual_cross', 'ema_close'],
+    signal_logic: 'all',
+    signal_params: JSON.stringify({ entry_ema_fast: 9, entry_ema_slow: 21, entry_ema_period: 21 }),
+    max_open_trades: 2,
+    priority: 8,
+    risk_pct_per_trade: 0.5,
+    tp_mode: 'fixed',
+    tp_ratio: 3.0,
+    sl_type: 'lookback_low/high',
+    sl_distance_pct: 1.2
+  },
+  {
+    label: 'Breakout Hunter',
+    enabled_signals: ['breakout_hl'],
+    signal_logic: 'all',
+    max_open_trades: 1,
+    priority: 5,
+    risk_pct_per_trade: 1.5,
+    tp_mode: 'fixed',
+    tp_ratio: 2.5,
+    sl_type: 'pct',
+    sl_distance_pct: 1.0
+  }
+]
+
 const Toggle = ({ value, onChange, label, color = "bg-accent" }) => (
   <label className="flex items-center gap-3 cursor-pointer group">
     <Switch.Root
@@ -48,8 +89,11 @@ const Chip = ({ active, onClick, children, activeClass = "border-accent text-acc
 )
 
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) => {
-  const [cfg, setCfg] = useState({ ...initialConfig })
-  const [section, setSection] = useState('scan')
+  const [cfg, setCfg] = useState({
+    strategies: [],
+    ...initialConfig
+  })
+  const [section, setSection] = useState('strategies')
   const [presets, setPresets] = useState([])
   const [presetName, setPresetName] = useState('')
   const [errors, setErrors] = useState({})
@@ -279,11 +323,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
 
       <div className="flex gap-2 p-4 overflow-x-auto no-scrollbar shrink-0 border-b border-border">
         {[
+          ['strategies', 'Strategies'],
           ['scan', 'Global Scan'],
           ['monitors', 'Single Symbols'],
-          ['signals', 'Signals'],
-          ['exit', 'Exit'],
-          ['risk', 'Risk'],
+          ['signals', 'Global Signals'],
+          ['exit', 'Global Exit'],
+          ['risk', 'Global Risk'],
           ['schedule', 'Schedule'],
           ['mode', 'Mode'],
           ['presets', 'Presets'],
@@ -293,6 +338,127 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
       </div>
 
       <div className="flex-1 overflow-y-auto p-5">
+        {section === 'strategies' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Active Strategies</div>
+              <div className="flex gap-2">
+                <select
+                  className="bg-surface border border-border rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wider"
+                  onChange={(e) => {
+                    const template = STRATEGY_TEMPLATES.find(t => t.label === e.target.value);
+                    if (template) {
+                      const id = Math.random().toString(36).substring(7);
+                      setField('strategies', [...(cfg.strategies || []), { ...template, id, enabled: true }]);
+                    }
+                    e.target.value = "";
+                  }}
+                >
+                  <option value="">+ Add From Template</option>
+                  {STRATEGY_TEMPLATES.map(t => <option key={t.label} value={t.label}>{t.label}</option>)}
+                </select>
+                <button
+                  onClick={() => {
+                    const id = Math.random().toString(36).substring(7);
+                    setField('strategies', [...(cfg.strategies || []), {
+                      id,
+                      label: 'New Strategy',
+                      enabled: true,
+                      priority: 0,
+                      enabled_signals: ['momentum_pct'],
+                      signal_logic: 'all'
+                    }]);
+                  }}
+                  className="bg-accent/10 text-accent px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider"
+                >+ Blank</button>
+              </div>
+            </div>
+
+            {(cfg.strategies || []).length === 0 ? (
+              <div className="p-16 border border-dashed border-border rounded-2xl text-center space-y-4">
+                <div className="w-16 h-16 bg-background rounded-full flex items-center justify-center mx-auto">
+                  <Settings2 size={32} className="text-dim/20" />
+                </div>
+                <div className="text-sm font-bold text-dim">No strategies defined</div>
+                <p className="text-xs text-dim/60 max-w-[200px] mx-auto">Add at least one strategy to start scanning the market.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {(cfg.strategies || []).map((s, idx) => (
+                  <div key={s.id} className="p-4 bg-background border border-border rounded-2xl space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Toggle
+                          value={s.enabled}
+                          onChange={(v) => {
+                            const next = [...cfg.strategies];
+                            next[idx] = { ...s, enabled: v };
+                            setField('strategies', next);
+                          }}
+                        />
+                        <input
+                          type="text"
+                          value={s.label}
+                          onChange={(e) => {
+                            const next = [...cfg.strategies];
+                            next[idx] = { ...s, label: e.target.value };
+                            setField('strategies', next);
+                          }}
+                          className="bg-transparent border-none text-sm font-bold focus:ring-0 p-0 w-32"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5 px-2 py-1 bg-surface rounded border border-border">
+                          <span className="text-[9px] text-dim font-bold uppercase">Priority</span>
+                          <input
+                            type="number"
+                            value={s.priority}
+                            onChange={(e) => {
+                              const next = [...cfg.strategies];
+                              next[idx] = { ...s, priority: Number(e.target.value) };
+                              setField('strategies', next);
+                            }}
+                            className="w-8 bg-transparent border-none text-[10px] font-mono font-bold text-accent p-0 text-center"
+                          />
+                        </div>
+                        <button
+                          onClick={() => setField('strategies', cfg.strategies.filter((_, i) => i !== idx))}
+                          className="p-1.5 text-dim hover:text-red transition-colors"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[9px] text-dim font-bold uppercase">Signals</span>
+                        <div className="flex flex-wrap gap-1">
+                          {s.enabled_signals?.map(sig => (
+                            <span key={sig} className="px-1.5 py-0.5 bg-accent/10 text-accent text-[8px] font-bold rounded uppercase">
+                              {SIGNALS.find(ss => ss[0] === sig)?.[1] || sig}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1 text-right">
+                        <span className="text-[9px] text-dim font-bold uppercase">Risk</span>
+                        <span className="text-[10px] font-mono font-bold">{s.risk_pct_per_trade || cfg.risk_pct_per_trade}% · {s.max_open_trades || 1} trades</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="p-4 bg-accent/5 border border-accent/10 rounded-xl">
+               <p className="text-[10px] text-dim/80 leading-relaxed italic">
+                 Strategies share the same account balance and global risk gates. Priority score determines which strategy 'wins' if multiple trigger on the same symbol.
+               </p>
+            </div>
+          </div>
+        )}
+
         {section === 'scan' && (
           <div className="space-y-6">
             <div className="p-4 bg-accent/5 border border-accent/20 rounded-xl flex items-center justify-between">

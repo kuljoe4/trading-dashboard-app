@@ -12,6 +12,13 @@ export interface AnalyticsResult {
     total: number;
     winRate: number;
   }[];
+  byStrategy: Record<string, {
+    label: string;
+    pnl: number;
+    wins: number;
+    total: number;
+    winRate: number;
+  }>;
   totalTrades: number;
   overallWinRate: number;
 }
@@ -70,6 +77,31 @@ export class AnalyticsService {
       winRate: stats.total > 0 ? (stats.wins / stats.total) * 100 : 0,
     }));
 
+    // Strategy analysis
+    const strategyMap = new Map<string, { label: string; pnl: number; wins: number; total: number }>();
+
+    sortedTrades.forEach((t) => {
+      const sid = t.strategyId || 'default';
+      const label = t.strategyLabel || (t as any).strategyLabel || sid;
+
+      if (!strategyMap.has(sid)) {
+        strategyMap.set(sid, { label, pnl: 0, wins: 0, total: 0 });
+      }
+
+      const stats = strategyMap.get(sid)!;
+      stats.pnl += Number(t.pnl || 0);
+      stats.total += 1;
+      if (Number(t.pnl || 0) > 0) stats.wins += 1;
+    });
+
+    const byStrategy: Record<string, any> = {};
+    strategyMap.forEach((stats, sid) => {
+      byStrategy[sid] = {
+        ...stats,
+        winRate: stats.total > 0 ? (stats.wins / stats.total) * 100 : 0,
+      };
+    });
+
     const totalTrades = sortedTrades.length;
     const totalWins = sortedTrades.filter(t => Number(t.pnl || 0) > 0).length;
 
@@ -78,6 +110,7 @@ export class AnalyticsService {
       maxDrawdown: maxDD,
       maxDrawdownPct: maxDDPct,
       timeOfDay,
+      byStrategy,
       totalTrades,
       overallWinRate: totalTrades > 0 ? (totalWins / totalTrades) * 100 : 0,
     };

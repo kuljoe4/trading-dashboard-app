@@ -85,6 +85,11 @@ const SessionGroup = ({ session, trades }) => {
                             <span className={cn("text-[8px] font-bold px-1 py-0 rounded border uppercase", trade.direction?.toLowerCase() === 'long' ? "text-green border-green/20" : "text-red border-red/20")}>
                               {trade.direction}
                             </span>
+                            {trade.strategyLabel && (
+                              <span className="text-[8px] font-bold px-1 py-0 rounded bg-accent/5 text-accent border border-accent/10 uppercase tracking-tighter">
+                                {trade.strategyLabel}
+                              </span>
+                            )}
                           </div>
                           <span className="text-[9px] text-dim font-mono">{new Date(trade.entry_ts || trade.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         </div>
@@ -271,6 +276,11 @@ export const HistoryView = () => {
                                 <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase", trade.direction?.toLowerCase() === 'long' ? "text-green border-green/20 bg-green/5" : "text-red border-red/20 bg-red/5")}>
                                   {trade.direction}
                                 </span>
+                                {trade.strategyLabel && (
+                                  <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-accent/5 text-accent border border-accent/10 uppercase tracking-tighter">
+                                    {trade.strategyLabel}
+                                  </span>
+                                )}
                               </div>
                               <span className="text-[10px] text-dim font-mono font-medium">{trade.id?.substring(0, 8)}</span>
                             </div>

@@ -7,12 +7,13 @@ import {
   StatCard, SectionLabel, StatusBadge, PaperBadge, DemoBadge, LiveBadge,
   ConditionWidget, PnLBars, cn
 } from '../components/ui/primitives'
+import { EquityCurve, TODPerformance } from '../components/Analytics'
 import {
-  ChevronLeft, Activity, BarChart3
+  ChevronLeft, Activity, BarChart3, TrendingUp
 } from 'lucide-react'
 
 const StrategyDetailView = ({ s, onBack }) => {
-  const { config, scannerResults } = useTradingStore()
+  const { config, scannerResults, analytics } = useTradingStore()
   const bestOpp = scannerResults[0] || { symbol: '---', pct: 0, dir: '---' }
   const scanMet = Math.abs(bestOpp.pct) >= config.scan_pct_threshold
   const entryMet = scanMet && s.activeTrades.length > 0
@@ -79,8 +80,17 @@ const StrategyDetailView = ({ s, onBack }) => {
       </div>
 
       {/* Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-        <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col h-[450px] shadow-sm">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 mb-10">
+        <div className="space-y-6">
+          <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
+            <EquityCurve data={analytics?.cumulativePnL || []} />
+          </div>
+          <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
+            <TODPerformance data={analytics?.timeOfDay || []} />
+          </div>
+        </div>
+
+        <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col h-[435px] shadow-sm">
           <SectionLabel className="mb-4">
             <Activity size={14} className="text-accent" /> Intelligence Log
           </SectionLabel>
@@ -88,19 +98,40 @@ const StrategyDetailView = ({ s, onBack }) => {
             <DecisionLog />
           </div>
         </div>
+      </div>
 
-        <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col h-[450px] shadow-sm">
-          <SectionLabel className="mb-4">
-            <BarChart3 size={14} className="text-accent" /> Equity Performance
-          </SectionLabel>
-          <div className="flex-1 flex flex-col justify-center">
-            <PnLBars trades={s.activeTrades} />
-            <div className="mt-10 text-[10px] text-dim font-bold text-center uppercase tracking-widest opacity-40">
-              Live Equity Curve Tracking
-            </div>
+      {analytics?.byStrategy && Object.keys(analytics.byStrategy).length > 0 && (
+        <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm mb-10">
+          <div className="flex items-center gap-3 mb-6">
+            <BarChart3 size={18} className="text-accent" />
+            <span className="text-xs font-bold uppercase tracking-widest text-dim">Performance by Strategy</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {Object.entries(analytics.byStrategy).map(([id, stats]) => (
+              <div key={id} className="p-4 bg-background border border-border rounded-xl flex flex-col gap-3">
+                <div className="flex justify-between items-start">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-accent bg-accent/5 px-2 py-0.5 rounded border border-accent/10">
+                    {stats.label}
+                  </span>
+                  <span className={cn("text-sm font-mono font-bold", stats.pnl >= 0 ? "text-green" : "text-red")}>
+                    {fmtUSD(stats.pnl)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-end">
+                  <div className="flex flex-col">
+                    <span className="text-[9px] text-dim font-bold uppercase tracking-tighter">Win Rate</span>
+                    <span className="text-xs font-mono font-bold">{stats.winRate.toFixed(1)}%</span>
+                  </div>
+                  <div className="flex flex-col text-right">
+                    <span className="text-[9px] text-dim font-bold uppercase tracking-tighter">Total Trades</span>
+                    <span className="text-xs font-mono font-bold">{stats.total}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

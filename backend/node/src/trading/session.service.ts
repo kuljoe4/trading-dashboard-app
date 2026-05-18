@@ -133,7 +133,7 @@ export class SessionService implements OnModuleInit {
       if (fast >= slow) throw new Error('EMA Dual Cross: Fast period must be less than slow period');
     }
 
-    if (allEnabled.includes('ma') && !signalParams.ma_period) {
+    if (allEnabled.includes('ma') && !signalParams.ma_period && !config.strategies?.some(s => s.enabled_signals?.includes('ma'))) {
       throw new Error('MA Cross signal requires ma_period in signal_params');
     }
 
@@ -251,7 +251,7 @@ export class SessionService implements OnModuleInit {
       // Reconciliation: Check if persistent open trades still exist on the exchange
       for (const trade of openTrades) {
         try {
-          const orders = await binanceClient.restAPI.tradeApi.getOpenOrders(trade.symbol);
+          const orders = await (binanceClient.restAPI as any).tradeApi.getOpenOrders(trade.symbol);
           const hasOrder = Array.isArray(orders) && orders.some(o => o.orderId == trade.binance_order_id || o.orderId == trade.binance_stop_order_id);
           if (!hasOrder) {
             this.logger.log(`Trade ${trade.symbol} not found on exchange. Marking as closed (orphaned).`);
@@ -392,7 +392,7 @@ export class SessionService implements OnModuleInit {
 
     // Only fetch minimal columns for analytics to save memory
     const trades = await this.tradeRepository.find({
-      select: ['pnl', 'exit_ts', 'status'],
+      select: ['pnl', 'exit_ts', 'status', 'strategyId', 'strategyLabel'],
       where: [
         { status: 'CLOSED' as any },
         { status: 'CLOSED_SL' },

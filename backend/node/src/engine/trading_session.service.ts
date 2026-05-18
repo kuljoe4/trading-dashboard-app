@@ -340,9 +340,13 @@ export class TradingSessionService {
 
       const symbolConfig = (this.config!.single_symbol_configs.find(c => c.symbol === opp.symbol)?.custom_config || this.config!) as SessionConfig;
 
+      // Determine which config to use for signal check (Strategy-specific or Global)
+      const strategy = this.config!.strategies?.find(s => s.id === opp.strategyId);
+      const signalConfig = strategy || this.config!;
+
       const signalResult = await this.signalEngine.checkEntry(
         opp.symbol,
-        this.config!,
+        signalConfig,
         this.config!.scan_interval || '1m',
         opp.direction.toUpperCase() as any,
         'entry'
@@ -353,6 +357,23 @@ export class TradingSessionService {
       this.logger.log(`${opp.symbol}: ALL SIGNALS FIRED! Proceeding to risk checks...`);
 
       const activeTrades = this.positionTracker.activeList();
+      // 1. Check Strategy-specific Risk Limits
+      if (strategy) {
+        const stratRiskResult = await this.riskEngine.canEnter(
+          activeTrades,
+          this.closedTrades,
+          this.getBalance(),
+          opp.symbol,
+          strategy,
+          this.positionTracker.totalRisk(),
+        );
+        if (!stratRiskResult.canEnter) {
+          this.logger.warn(`${opp.symbol}: Strategy risk gate blocked - ${stratRiskResult.reason}`);
+          continue;
+        }
+      }
+
+      // 2. Check Global Session Risk Limits
       const riskResult = await this.riskEngine.canEnter(
         activeTrades,
         this.closedTrades,
@@ -379,19 +400,30 @@ export class TradingSessionService {
       const price = await this.tickerCache.getPrice(opp.symbol);
       if (!price) continue;
 
-      const lookback = await this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
-      const slPrice = await this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.lows, lookback.highs);
-      const qty = await this.riskEngine.computePositionSize(this.getBalance(), price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
+      // Use strategy-specific SL/TP if defined, otherwise fallback to global/symbol config
+      const executionConfig = {
+        ...symbolConfig,
+        ...(strategy || {})
+      } as SessionConfig;
+
+      const lookback = await this.klineStore.getLookbackExtremes(opp.symbol, executionConfig.sl_lookback_timeframe || '1m', executionConfig.sl_lookback_period || 20);
+      const slPrice = await this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, executionConfig, lookback.lows, lookback.highs);
+      const qty = await this.riskEngine.computePositionSize(this.getBalance(), price, slPrice, opp.direction.toUpperCase() as any, executionConfig);
       
       if (qty <= 0) continue;
 
-      const tpPrice = await this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
+      const tpPrice = await this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, executionConfig);
 
       this.logger.log(`${opp.symbol}: Sending ${opp.direction} order (Qty: ${qty.toFixed(4)})`);
       
       const trade = await this.orderManager.enter(this.sessionId || uuid().substring(0, 8), opp.symbol, opp.direction.toUpperCase() as any, price, qty, slPrice, tpPrice);
 
       if (trade) {
+        if (opp.strategyId) {
+          trade.strategyId = opp.strategyId;
+          const strat = this.config!.strategies?.find(s => s.id === opp.strategyId);
+          if (strat) trade.strategyLabel = strat.label || strat.id;
+        }
         this.positionTracker.addTrade(trade);
         if (this.onTradeUpdate) this.onTradeUpdate(trade);
         this.broadcast('trade_event', { 

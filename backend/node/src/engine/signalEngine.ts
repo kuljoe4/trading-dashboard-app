@@ -35,12 +35,13 @@ export class SignalEngineService {
 
   async checkEntry(
     symbol: string,
-    config: SessionConfig,
+    config: SessionConfig | any, // Can be SessionConfig or StrategyConfig
     interval: string = '1m',
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
   ): Promise<{ allFired: boolean; firedSignals: string[]; reason: string; details?: Record<string, SignalDetail> }> {
-    if (!config.enabled_signals || config.enabled_signals.length === 0) {
+    const enabledSignals = config.enabled_signals || [];
+    if (enabledSignals.length === 0) {
       return {
         allFired: false,
         firedSignals: [],
@@ -52,7 +53,7 @@ export class SignalEngineService {
     const failedSignals: string[] = [];
     const details: Record<string, SignalDetail> = {};
 
-    for (const signalType of config.enabled_signals) {
+    for (const signalType of enabledSignals) {
       const handler = this.signalHandlers[signalType];
       if (!handler) {
         failedSignals.push(signalType);

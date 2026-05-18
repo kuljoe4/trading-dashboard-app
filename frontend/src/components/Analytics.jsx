@@ -50,10 +50,10 @@ export const EquityCurve = ({ data = [], height = 180 }) => {
   const areaD = `${pathD} L 100 100 L 0 100 Z`;
 
   return (
-    <div className="relative group" role="img" aria-label={`Cumulative profit and loss chart, latest value ${fmtUSD(data[data.length-1].pnl)}.`}>
-      <div className="absolute top-2 left-2 flex flex-col gap-0.5 z-10 pointer-events-none">
-        <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Cumulative P&L</span>
-        <span className={cn("text-lg font-bold font-mono tracking-tighter", data[data.length-1].pnl >= 0 ? "text-green" : "text-red")}>
+    <div className="relative group bg-surface/5 rounded-2xl p-4 border border-border/20 shadow-lg" role="img" aria-label={`Cumulative profit and loss chart, latest value ${fmtUSD(data[data.length-1].pnl)}.`}>
+      <div className="absolute top-6 left-6 flex flex-col gap-0.5 z-10 pointer-events-none">
+        <span className="text-[10px] text-dim font-bold uppercase tracking-widest opacity-80">Equity Evolution</span>
+        <span className={cn("text-2xl font-bold font-mono tracking-tighter drop-shadow-sm", data[data.length-1].pnl >= 0 ? "text-green" : "text-red")}>
           {fmtUSD(data[data.length-1].pnl)}
         </span>
       </div>
@@ -66,11 +66,11 @@ export const EquityCurve = ({ data = [], height = 180 }) => {
       >
         <defs>
           <linearGradient id="curveGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.2" />
-            <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+            <stop offset="0%" stopColor="#5B6FFF" stopOpacity="0.3" />
+            <stop offset="100%" stopColor="#5B6FFF" stopOpacity="0" />
           </linearGradient>
-          <filter id="glow">
-            <feGaussianBlur stdDeviation="1.5" result="blur" />
+          <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="1.2" result="blur" />
             <feComposite in="SourceGraphic" in2="blur" operator="over" />
           </filter>
         </defs>
@@ -91,20 +91,22 @@ export const EquityCurve = ({ data = [], height = 180 }) => {
         <path
           d={pathD}
           fill="none"
-          stroke="var(--accent)"
-          strokeWidth="2"
+          stroke="#5B6FFF"
+          strokeWidth="2.5"
           strokeLinecap="round"
           strokeLinejoin="round"
           filter="url(#glow)"
-          className="transition-all duration-500"
+          className="transition-all duration-700 ease-out"
         />
 
         {/* Current Value Dot */}
         <circle
           cx={points[points.length-1].x}
           cy={points[points.length-1].y}
-          r="2"
-          fill="var(--accent)"
+          r="2.5"
+          fill="#5B6FFF"
+          stroke="white"
+          strokeWidth="1"
           filter="url(#glow)"
         />
       </svg>

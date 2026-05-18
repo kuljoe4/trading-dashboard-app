@@ -41,7 +41,7 @@ export class TradeEntity {
 
   @Index()
   @Column()
-  status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL';
+  status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL' | 'CLOSED_ORPHANED';
 
   @Index()
   @Column({ nullable: true })
@@ -71,6 +71,12 @@ export class TradeEntity {
   @Index()
   @Column({ nullable: true })
   sessionId: string;
+
+  @Column({ nullable: true })
+  strategyId: string;
+
+  @Column({ nullable: true })
+  strategyLabel: string;
 
   @ManyToOne(() => Session)
   @JoinColumn({ name: 'sessionId' })

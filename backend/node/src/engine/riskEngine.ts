@@ -15,21 +15,32 @@ export class RiskEngineService {
     closedTrades: Trade[],
     balance: number,
     symbol: string,
-    config: SessionConfig,
+    config: SessionConfig | any, // Can be SessionConfig or StrategyConfig
     totalSlUsed: number
   ): Promise<{ canEnter: boolean; reason: string }> {
-    // Check global max open trades
-    const maxOpenTrades = config.max_open_trades ?? 5;
-    const maxOpenTradesPerSymbol = config.max_open_trades_per_symbol ?? 1;
-    const maxTotalRiskPct = config.max_total_risk_pct ?? 5.0;
-    const totalSlGuardUsdt = config.total_sl_guard_usdt ?? 200.0;
+    // Check if this is a sub-strategy check or global check
+    const isStrategyCheck = !!config.id;
 
-    if (activeTrades.length >= maxOpenTrades) {
+    // Check global/strategy max open trades
+    const maxOpenTrades = config.max_open_trades ?? 5;
+    const currentActiveForScope = isStrategyCheck
+      ? activeTrades.filter(t => t.strategyId === config.id).length
+      : activeTrades.length;
+
+    if (currentActiveForScope >= maxOpenTrades) {
       return {
         canEnter: false,
-        reason: `Global max open trades (${maxOpenTrades}) reached`
+        reason: isStrategyCheck
+          ? `Strategy '${config.label || config.id}' max open trades reached (${maxOpenTrades})`
+          : `Global max open trades (${maxOpenTrades}) reached`
       };
     }
+
+    // From here on, if it's a strategy check, we should potentially skip global checks
+    // IF those global checks are already handled by a master call.
+    // However, for robustness, we'll keep them but use global config values for them.
+    const maxTotalRiskPct = config.max_total_risk_pct ?? 5.0;
+    const totalSlGuardUsdt = config.total_sl_guard_usdt ?? 200.0;
 
     // Check max trades per period (sliding window)
     const maxTradesPeriod = config.max_trades_per_period ?? 0;
@@ -69,6 +80,8 @@ export class RiskEngineService {
         };
       }
     }
+
+    const maxOpenTradesPerSymbol = config.max_open_trades_per_symbol ?? 1;
 
     // Check per-symbol max open trades
     const symbolTradeCount = activeTrades.filter(t => t.symbol === symbol).length;

@@ -11,6 +11,8 @@ export interface Opportunity {
   score: number; // 0-100 opportunity score
   direction: 'LONG' | 'SHORT';
   history?: number[]; // Recent close prices for sparkline
+  strategyId?: string;
+  priority?: number;
 }
 
 @Injectable()
@@ -51,65 +53,111 @@ export class MomentumScannerService {
     try {
       const results: { opp: Opportunity; candles: Candle[] }[] = [];
 
-      // 1. Global Scan (if enabled)
-      if (config.global_scanner_enabled !== false) {
-        let symbols: string[];
-        if (config.symbols && config.symbols.length > 0) {
-          symbols = config.symbols;
-        } else {
-          const topByVolume = await this.tickerCache.topByVolume(
-            config.watchlist_size || 10,
-            config.excluded_symbols || [],
-          );
-          symbols = topByVolume.map((t: any) => t.symbol);
-        }
+      // Determine which strategy configurations to use
+      // If multi-strategies are defined, we scan for EACH strategy
+      const strategies = (config.strategies && config.strategies.length > 0)
+        ? config.strategies.filter(s => s.enabled)
+        : [{
+            id: 'default',
+            enabled_signals: config.enabled_signals,
+            signal_logic: config.signal_logic,
+            signal_params: config.signal_params,
+            priority: 0
+          }];
 
-        const interval = config.scan_interval || '1m';
-        const globalPromises = symbols.map(async (symbol) => {
-          try {
-            return await this.scanSymbol(symbol, interval, config);
-          } catch (error) {
-            this.logger.debug(`Global scan error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
-            return null;
+      for (const strat of strategies) {
+        const stratResults: { opp: Opportunity; candles: Candle[] }[] = [];
+
+        // 1. Global Scan (if enabled)
+        if (config.global_scanner_enabled !== false) {
+          let symbols: string[];
+          if (config.symbols && config.symbols.length > 0) {
+            symbols = config.symbols;
+          } else {
+            const topByVolume = await this.tickerCache.topByVolume(
+              config.watchlist_size || 10,
+              config.excluded_symbols || [],
+            );
+            symbols = topByVolume.map((t: any) => t.symbol);
           }
-        });
-        const globalResults = await Promise.all(globalPromises);
-        results.push(...globalResults.filter((r): r is { opp: Opportunity, candles: Candle[] } => r !== null));
-      }
 
-      // 2. Single Symbol Monitors
-      if (config.single_symbol_configs && config.single_symbol_configs.length > 0) {
-        const singlePromises = config.single_symbol_configs
-          .filter(sc => sc.enabled)
-          .map(async (sc) => {
+          const interval = config.scan_interval || '1m';
+          const globalPromises = symbols.map(async (symbol) => {
             try {
-              const symbolConfig = sc.use_custom_config && sc.custom_config
-                ? { ...config, ...sc.custom_config }
-                : config;
-              const interval = symbolConfig.scan_interval || '1m';
-              return await this.scanSymbol(sc.symbol, interval, symbolConfig);
+              // Create a merged config for this strategy to pass into scan logic
+              const mergedConfig = { ...config, ...strat } as any;
+              const res = await this.scanSymbol(symbol, interval, mergedConfig);
+              if (res) {
+                res.opp.strategyId = strat.id;
+                res.opp.priority = strat.priority;
+              }
+              return res;
             } catch (error) {
-              this.logger.debug(`Single symbol scan error for ${sc.symbol}: ${error instanceof Error ? error.message : String(error)}`);
+              this.logger.debug(`Global scan error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
               return null;
             }
           });
-        const singleResults = await Promise.all(singlePromises);
-
-        // Use a map to prevent duplicate symbols if they are in both global and single
-        const resultMap = new Map(results.map(r => [r.opp.symbol, r]));
-        for (const r of singleResults) {
-          if (r) resultMap.set(r.opp.symbol, r);
+          const globalResults = await Promise.all(globalPromises);
+          stratResults.push(...globalResults.filter((r): r is { opp: Opportunity, candles: Candle[] } => r !== null));
         }
 
-        results.length = 0;
-        results.push(...resultMap.values());
+        // 2. Single Symbol Monitors
+        if (config.single_symbol_configs && config.single_symbol_configs.length > 0) {
+          const singlePromises = config.single_symbol_configs
+            .filter(sc => sc.enabled)
+            .map(async (sc) => {
+              try {
+                const symbolConfig = sc.use_custom_config && sc.custom_config
+                  ? { ...config, ...sc.custom_config }
+                  : config;
+                const interval = symbolConfig.scan_interval || '1m';
+                const res = await this.scanSymbol(sc.symbol, interval, symbolConfig);
+                if (res) {
+                  res.opp.strategyId = strat.id;
+                  res.opp.priority = strat.priority;
+                }
+                return res;
+              } catch (error) {
+                this.logger.debug(`Single symbol scan error for ${sc.symbol}: ${error instanceof Error ? error.message : String(error)}`);
+                return null;
+              }
+            });
+          const singleResults = await Promise.all(singlePromises);
+
+          // Use a map to prevent duplicate symbols for THIS strategy
+          const resultMap = new Map(stratResults.map(r => [r.opp.symbol, r]));
+          for (const r of singleResults) {
+            if (r) resultMap.set(r.opp.symbol, r);
+          }
+
+          stratResults.length = 0;
+          stratResults.push(...resultMap.values());
+        }
+
+        results.push(...stratResults);
       }
+
       const tempResults = results.filter((r): r is { opp: Opportunity, candles: Candle[] } => r !== null);
 
-      // Sort by score descending and take top 15
-      tempResults.sort((a, b) => b.opp.score - a.opp.score);
+      // Sort by priority (desc) then by score (desc)
+      tempResults.sort((a, b) => {
+        if ((b.opp.priority || 0) !== (a.opp.priority || 0)) {
+          return (b.opp.priority || 0) - (a.opp.priority || 0);
+        }
+        return b.opp.score - a.opp.score;
+      });
 
-      const topResults = tempResults.slice(0, 15);
+      // To handle coordination (A): Only keep the highest priority strategy for each symbol
+      const coordinatedResults: { opp: Opportunity; candles: Candle[] }[] = [];
+      const seenSymbols = new Set<string>();
+      for (const res of tempResults) {
+        if (!seenSymbols.has(res.opp.symbol)) {
+          coordinatedResults.push(res);
+          seenSymbols.add(res.opp.symbol);
+        }
+      }
+
+      const topResults = coordinatedResults.slice(0, 15);
 
       // BOLT OPTIMIZATION: Only map history for the final top 15 results
       return topResults.map(({ opp, candles }) => ({

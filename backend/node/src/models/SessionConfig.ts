@@ -24,6 +24,65 @@ export class SingleSymbolConfig {
   custom_config?: Partial<SessionConfig>;
 }
 
+export class StrategyConfig {
+  @IsString()
+  id: string = "";
+
+  @IsString()
+  @IsOptional()
+  label: string = "";
+
+  @IsBoolean()
+  @IsOptional()
+  enabled: boolean = true;
+
+  @IsNumber()
+  @IsOptional()
+  priority: number = 0;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  enabled_signals?: string[];
+
+  @IsEnum(['any', 'all'])
+  @IsOptional()
+  signal_logic?: 'any' | 'all';
+
+  @IsString()
+  @IsOptional()
+  signal_params?: string;
+
+  // Strategy specific risk sub-limits
+  @IsNumber()
+  @Min(1)
+  @IsOptional()
+  max_open_trades?: number;
+
+  @IsNumber()
+  @Min(0.01)
+  @Max(100)
+  @IsOptional()
+  risk_pct_per_trade?: number;
+
+  // Strategy specific SL/TP overrides
+  @IsEnum(['pct', 'lookback_low/high'])
+  @IsOptional()
+  sl_type?: 'pct' | 'lookback_low/high';
+
+  @IsNumber()
+  @IsOptional()
+  sl_distance_pct?: number;
+
+  @IsEnum(['fixed', 'exp_rr_seq'])
+  @IsOptional()
+  tp_mode?: 'fixed' | 'exp_rr_seq';
+
+  @IsNumber()
+  @IsOptional()
+  tp_ratio?: number;
+}
+
 export class SessionConfig {
   @IsBoolean()
   @IsOptional()
@@ -34,6 +93,12 @@ export class SessionConfig {
   @ValidateNested({ each: true })
   @Type(() => SingleSymbolConfig)
   single_symbol_configs: SingleSymbolConfig[] = [];
+
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => StrategyConfig)
+  strategies: StrategyConfig[] = [];
 
   @IsString()
   @IsOptional()

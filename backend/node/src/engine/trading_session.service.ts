@@ -41,6 +41,11 @@ export class TradingSessionService {
   private listenKey: string | null = null;
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
 
+  // Analytics Caching State
+  private lastAnalyticsResult: any = null;
+  private lastAnalyticsTradeCount = -1;
+  private lastAnalyticsStartingBalance = -1;
+
   constructor(
     private readonly tickerCache: TickerCacheService,
     private readonly klineStore: KlineStoreService,
@@ -550,8 +555,17 @@ export class TradingSessionService {
     const totalPnl = realizedPnl + activePnl;
     const totalRiskUsdt = this.positionTracker.totalRisk();
 
-    // Include basic live analytics in tick
-    const analytics = this.analyticsService.calculateAnalytics(this.closedTrades as any, startingBalance);
+    // BOLT OPTIMIZATION: Cache analytics results to avoid O(N log N) sorting in the 1s hot loop.
+    // Recalculate only when the number of closed trades or starting balance changes.
+    if (!this.lastAnalyticsResult ||
+        this.closedTrades.length !== this.lastAnalyticsTradeCount ||
+        startingBalance !== this.lastAnalyticsStartingBalance) {
+
+      this.lastAnalyticsResult = this.analyticsService.calculateAnalytics(this.closedTrades as any, startingBalance);
+      this.lastAnalyticsTradeCount = this.closedTrades.length;
+      this.lastAnalyticsStartingBalance = startingBalance || 0;
+    }
+
     const monitoring = this.monitoringService.getMetrics();
 
     const tickData = {
@@ -567,10 +581,10 @@ export class TradingSessionService {
       rateLimit: this.getBinanceRateLimit(),
       monitoring,
       analytics: {
-        maxDrawdown: analytics.maxDrawdown,
-        maxDrawdownPct: analytics.maxDrawdownPct,
-        overallWinRate: analytics.overallWinRate,
-        cumulativePnL: analytics.cumulativePnL.slice(-20),
+        maxDrawdown: this.lastAnalyticsResult.maxDrawdown,
+        maxDrawdownPct: this.lastAnalyticsResult.maxDrawdownPct,
+        overallWinRate: this.lastAnalyticsResult.overallWinRate,
+        cumulativePnL: this.lastAnalyticsResult.cumulativePnL.slice(-20),
       },
     };
 

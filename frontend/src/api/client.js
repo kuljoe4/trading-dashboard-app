@@ -7,6 +7,8 @@ const api = axios.create({
 })
 
 const sessionConfigAllowedKeys = [
+  'strategy_label',
+  'strategy_variants',
   'scan_interval',
   'scan_lookback',
   'scan_pct_threshold',

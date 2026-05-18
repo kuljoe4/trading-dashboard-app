@@ -182,6 +182,7 @@ export class SessionService implements OnModuleInit {
         paperMode,
         tradingMode: config.trading_mode || (paperMode ? 'paper' : 'live'),
         balance: paperMode ? (config.paper_starting_balance || 10000.0) : (config.live_starting_balance || 10000.0),
+        strategyLabel: config.strategy_label || 'Momentum Strategy',
         config,
       });
       session = await this.sessionRepository.save(session);
@@ -251,7 +252,7 @@ export class SessionService implements OnModuleInit {
       // Reconciliation: Check if persistent open trades still exist on the exchange
       for (const trade of openTrades) {
         try {
-          const orders = await binanceClient.restAPI.tradeApi.getOpenOrders(trade.symbol);
+          const orders = await (binanceClient.restAPI as any).tradeApi.getOpenOrders(trade.symbol);
           const hasOrder = Array.isArray(orders) && orders.some(o => o.orderId == trade.binance_order_id || o.orderId == trade.binance_stop_order_id);
           if (!hasOrder) {
             this.logger.log(`Trade ${trade.symbol} not found on exchange. Marking as closed (orphaned).`);

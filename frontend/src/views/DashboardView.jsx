@@ -32,7 +32,7 @@ const LoadingFallback = () => (
 
 // --- Strategy Card ---
 // --- Strategy Card ---
-const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused }) => {
+const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused, scannerResults }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
@@ -63,7 +63,7 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused }) => {
             {tradingMode === 'testnet' && <DemoBadge />}
             {tradingMode === 'live' && <LiveBadge />}
           </div>
-          <div className="text-[17px] font-bold">Momentum Strategy</div>
+          <div className="text-[17px] font-bold">{s.strategy_label}</div>
           <div className="text-[11px] text-dim mt-1.5 font-bold uppercase tracking-wider flex flex-col gap-1">
             <div className="flex items-center gap-2">
               <Zap size={12} className={cn("text-accent", config.global_scanner_enabled === false && "text-dim")} />
@@ -131,7 +131,7 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused }) => {
                 <span className="flex items-center gap-1.5"><ShieldCheck size={12} /> SL GUARD</span>
                 <span className={slPct > 70 ? "text-red" : "text-dim"}>${s.totalSlUsed.toFixed(0)} / ${config.total_sl_guard_usdt}</span>
               </div>
-              <div className="h-1.5 bg-border rounded-full overflow-hidden">
+              <div className="h-1.5 bg-border rounded-full overflow-hidden mb-4">
                 <div
                   className={cn(
                     "h-full transition-all duration-700",
@@ -143,6 +143,7 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused }) => {
                   style={{ width: `${slPct}%` }}
                 />
               </div>
+              <ScannerPreview scannerResults={scannerResults || []} config={config} onOpen={() => {}} />
             </div>
           </motion.div>
         )}
@@ -257,13 +258,14 @@ export function DashboardView() {
   const [showConfig, setShowConfig] = useState(false)
   const [showScanner, setShowScanner] = useState(false)
   const [isEditMode, setIsEditMode] = useState(false)
+  const [selectedConfig, setSelectedConfig] = useState(null)
   
   const {
     sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
     totalSlUsed, activeTrades, config, setSessionActive,
     updateConfig, gateState,
     scannerPaused, sessionList, fetchSessions, wsStatus,
-    sidebarCollapsed
+    sidebarCollapsed, variantScannerResults
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -281,7 +283,8 @@ export function DashboardView() {
     sessionList: state.sessionList,
     fetchSessions: state.fetchSessions,
     wsStatus: state.wsStatus,
-    sidebarCollapsed: state.sidebarCollapsed
+    sidebarCollapsed: state.sidebarCollapsed,
+    variantScannerResults: state.variantScannerResults
   }))
 
   const logs = useTradingStore(state => state.logs)
@@ -452,14 +455,48 @@ export function DashboardView() {
               <SectionLabel>Active Strategy</SectionLabel>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {sessionActive ? (
-                  <StrategyCard
-                    s={currentStrategy}
-                    config={config}
-                    paused={sessionPaused}
-                    onPause={togglePause}
-                    onEdit={() => { setIsEditMode(true); setShowConfig(true); }}
-                    onClick={() => setSelected(true)}
-                  />
+                  <>
+                    <StrategyCard
+                      s={{
+                        ...currentStrategy,
+                        totalPnl: activeTrades.reduce((sum, t) => {
+                          const match = t.strategy_label === currentStrategy.strategy_label;
+                          return match ? sum + (t.pnl || 0) : sum;
+                        }, 0),
+                        activeTrades: activeTrades.filter(t => t.strategy_label === currentStrategy.strategy_label)
+                      }}
+                      scannerResults={variantScannerResults[currentStrategy.strategy_label]}
+                      config={config}
+                      paused={sessionPaused}
+                      onPause={togglePause}
+                      onEdit={() => { setIsEditMode(true); setSelectedConfig(config); setShowConfig(true); }}
+                      onClick={() => setSelected(true)}
+                    />
+                    {(config.strategy_variants || []).filter(v => v.enabled !== false).map((variant, i) => {
+                      const label = variant.strategy_label || `Variant ${i + 1}`;
+                      const variantConfig = { ...config, ...variant };
+                      return (
+                        <StrategyCard
+                          key={i}
+                          s={{
+                            ...currentStrategy,
+                            strategy_label: label,
+                            totalPnl: activeTrades.reduce((sum, t) => {
+                              const match = t.strategy_label === label;
+                              return match ? sum + (t.pnl || 0) : sum;
+                            }, 0),
+                            activeTrades: activeTrades.filter(t => t.strategy_label === label)
+                          }}
+                          scannerResults={variantScannerResults[label]}
+                          config={variantConfig}
+                          paused={sessionPaused}
+                          onPause={togglePause}
+                          onEdit={() => { setIsEditMode(true); setSelectedConfig(variantConfig); setShowConfig(true); }}
+                          onClick={() => setSelected(true)}
+                        />
+                      );
+                    })}
+                  </>
                 ) : (
                   <button
                     onClick={() => { setIsEditMode(false); setShowConfig(true); }}
@@ -569,7 +606,7 @@ export function DashboardView() {
               </div>
               <div className="flex-1 overflow-y-auto">
                 <Suspense fallback={<LoadingFallback />}>
-                  <ConfigModal initialConfig={config} onSave={handleConfigSave} onClose={() => setShowConfig(false)} isEdit={isEditMode} />
+                  <ConfigModal initialConfig={selectedConfig || config} onSave={handleConfigSave} onClose={() => setShowConfig(false)} isEdit={isEditMode} />
                 </Suspense>
               </div>
             </Drawer.Content>

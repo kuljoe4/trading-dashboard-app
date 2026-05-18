@@ -41,6 +41,42 @@ export class TradingSessionService {
   private listenKey: string | null = null;
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
 
+  private getStrategyLabel(config: Partial<SessionConfig> | null | undefined, index = 0): string {
+    const label = (config?.strategy_label || (index === 0 ? 'Momentum Strategy' : `Strategy ${index + 1}`)).toString();
+    console.log(`[DEBUG] getStrategyLabel config: ${JSON.stringify(config?.strategy_label)}, index: ${index}, result: ${label}`);
+    return label;
+  }
+
+  private getStrategyConfigs(): SessionConfig[] {
+    if (!this.config) return [];
+    const base = { ...this.config, strategy_label: this.getStrategyLabel(this.config, 0), strategy_variants: [] } as SessionConfig;
+    const variants = (this.config.strategy_variants || [])
+      .filter((variant: any) => variant && variant.enabled !== false)
+      .map((variant, index) => ({
+        ...this.config,
+        ...variant,
+        strategy_label: this.getStrategyLabel(variant, index + 1),
+        strategy_variants: [],
+      } as SessionConfig));
+    return [base, ...variants];
+  }
+
+  private scanSignature(config: SessionConfig): string {
+    return JSON.stringify({
+      global_scanner_enabled: config.global_scanner_enabled,
+      scan_interval: config.scan_interval,
+      scan_lookback: config.scan_lookback,
+      scan_pct_threshold: config.scan_pct_threshold,
+      scan_min_volume_usdt: config.scan_min_volume_usdt,
+      scan_mode: config.scan_mode,
+      watchlist_size: config.watchlist_size,
+      entry_side: config.entry_side,
+      excluded_symbols: config.excluded_symbols,
+      symbols: config.symbols,
+      single_symbol_configs: config.single_symbol_configs,
+    });
+  }
+
   constructor(
     private readonly tickerCache: TickerCacheService,
     private readonly klineStore: KlineStoreService,
@@ -265,16 +301,38 @@ export class TradingSessionService {
 
     const start = performance.now();
     try {
-      const opportunities = await this.momentumScanner.scan(this.config);
-      this.updateScannerResults(opportunities);
+      const strategyConfigs = this.getStrategyConfigs();
+      const opportunitiesBySignature = new Map<string, any[]>();
+      let primaryOpportunities: any[] = [];
+
+      for (const strategyConfig of strategyConfigs) {
+        const signature = this.scanSignature(strategyConfig);
+        if (!opportunitiesBySignature.has(signature)) {
+          opportunitiesBySignature.set(signature, await this.momentumScanner.scan(strategyConfig));
+        }
+        if (primaryOpportunities.length === 0) {
+          primaryOpportunities = opportunitiesBySignature.get(signature) || [];
+        }
+      }
+
+      const scannerData = strategyConfigs.map(config => ({
+        strategy_label: config.strategy_label,
+        opportunities: opportunitiesBySignature.get(this.scanSignature(config)) || [],
+      }));
+
+      this.updateScannerResults(primaryOpportunities);
       
       this.broadcast('scanner', {
         count: this.lastScannerResults.length,
         opportunities: this.lastScannerResults,
+        variant_opportunities: scannerData,
         activeWindows: this.getActiveWindows(),
       });
 
-      await this.processEntries(opportunities);
+      for (const strategyConfig of strategyConfigs) {
+        const opportunities = opportunitiesBySignature.get(this.scanSignature(strategyConfig)) || [];
+        await this.processEntries(opportunities, strategyConfig);
+      }
       this.monitoringService.recordMainLoop(performance.now() - start);
     } catch (error) {
       this.logger.debug(`Main loop error: ${error instanceof Error ? error.message : String(error)}`);
@@ -288,13 +346,14 @@ export class TradingSessionService {
       if (!currentPrice) continue;
 
       // 1. Ratchet SL if applicable
-      await this.positionTracker.checkRrSequenceAdjustments(trade.symbol, currentPrice, this.config!);
+      const tradeConfig = { ...this.config!, ...((trade as any).strategy_config || {}) } as SessionConfig;
+      await this.positionTracker.checkRrSequenceAdjustments(trade.symbol, currentPrice, tradeConfig);
 
       // 2. Check Exit Conditions (SL/TP/Signals)
-      const exitCondition = await this.positionTracker.checkExitConditions(trade.symbol, currentPrice, this.config!);
+      const exitCondition = await this.positionTracker.checkExitConditions(trade.symbol, currentPrice, tradeConfig);
 
       if (exitCondition?.exitOccurred) {
-        const result = await this.positionTracker.closeTrade(trade.symbol, currentPrice, exitCondition.exitReason, this.config!);
+        const result = await this.positionTracker.closeTrade(trade.symbol, currentPrice, exitCondition.exitReason, tradeConfig);
         if (result.exitOccurred && result.trade) {
           this.updateBalance(result.trade);
           this.closedTrades.unshift(result.trade);
@@ -332,25 +391,26 @@ export class TradingSessionService {
     this.refreshActiveWindows(this.lastScannerResults);
   }
 
-  private async processEntries(opportunities: any[]) {
-    const isInsideWindow = this.isInsideTradingWindow();
+  private async processEntries(opportunities: any[], strategyConfig: SessionConfig = this.config!) {
+    const strategyLabel = this.getStrategyLabel(strategyConfig);
+    console.log(`[DEBUG] Processing entries. Label: ${strategyLabel}, Config Label: ${strategyConfig.strategy_label}`);
 
     for (const opp of opportunities) {
       if (this.positionTracker.hasSymbol(opp.symbol)) continue;
 
-      const symbolConfig = (this.config!.single_symbol_configs.find(c => c.symbol === opp.symbol)?.custom_config || this.config!) as SessionConfig;
+      const symbolConfig = (strategyConfig.single_symbol_configs?.find(c => c.symbol === opp.symbol)?.custom_config || strategyConfig) as SessionConfig;
 
       const signalResult = await this.signalEngine.checkEntry(
         opp.symbol,
-        this.config!,
-        this.config!.scan_interval || '1m',
+        strategyConfig,
+        strategyConfig.scan_interval || '1m',
         opp.direction.toUpperCase() as any,
         'entry'
       );
 
       if (!signalResult.allFired) continue;
 
-      this.logger.log(`${opp.symbol}: ALL SIGNALS FIRED! Proceeding to risk checks...`);
+      this.logger.log(`${strategyLabel} | ${opp.symbol}: ALL SIGNALS FIRED! Proceeding to risk checks...`);
 
       const activeTrades = this.positionTracker.activeList();
       const riskResult = await this.riskEngine.canEnter(
@@ -389,7 +449,19 @@ export class TradingSessionService {
 
       this.logger.log(`${opp.symbol}: Sending ${opp.direction} order (Qty: ${qty.toFixed(4)})`);
       
-      const trade = await this.orderManager.enter(this.sessionId || uuid().substring(0, 8), opp.symbol, opp.direction.toUpperCase() as any, price, qty, slPrice, tpPrice);
+      const trade = await this.orderManager.enter(
+        this.sessionId || uuid().substring(0, 8),
+        opp.symbol,
+        opp.direction.toUpperCase() as any,
+        price,
+        qty,
+        slPrice,
+        tpPrice,
+        {
+          strategy_label: strategyLabel,
+          strategy_config: strategyConfig,
+        },
+      );
 
       if (trade) {
         this.positionTracker.addTrade(trade);
@@ -514,11 +586,13 @@ export class TradingSessionService {
       paper_mode: this.config?.paper_mode,
       trading_mode: this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live'),
       max_rr: anyTrade.max_rr_achieved ?? anyTrade.max_rr ?? 0,
-      live_rr_sequence: this.config?.live_rr_sequence || [],
-      exit_rr_sequence: this.config?.exit_rr_sequence || [],
-      exit_signal_logic: this.config?.exit_signal_logic || 'any',
-      tp_mode: this.config?.tp_mode || 'fixed',
-      tp_ratio: this.config?.tp_ratio || 2,
+      strategy_label: anyTrade.strategy_label || this.getStrategyLabel(anyTrade.strategy_config || this.config),
+      strategy_config: anyTrade.strategy_config,
+      live_rr_sequence: anyTrade.strategy_config?.live_rr_sequence || this.config?.live_rr_sequence || [],
+      exit_rr_sequence: anyTrade.strategy_config?.exit_rr_sequence || this.config?.exit_rr_sequence || [],
+      exit_signal_logic: anyTrade.strategy_config?.exit_signal_logic || this.config?.exit_signal_logic || 'any',
+      tp_mode: anyTrade.strategy_config?.tp_mode || this.config?.tp_mode || 'fixed',
+      tp_ratio: anyTrade.strategy_config?.tp_ratio || this.config?.tp_ratio || 2,
     };
   }
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { pnlColor, fmtUSD, fmt, C } from '../lib/theme'
 import { PulseDot, PaperBadge, cn } from './ui/primitives'
 import { Info, TrendingUp, ShieldAlert, Target, Activity, Zap, XCircle, ShieldCheck, Clock, CheckCircle2, AlertCircle } from 'lucide-react'
@@ -229,6 +229,15 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
 
   const [isClosing, setIsClosing] = useState(false)
   const [isExpanded, setIsExpanded] = useState(initialExpanded)
+  const [confirmClose, setConfirmClose] = useState(false)
+
+  useEffect(() => {
+    let timer;
+    if (confirmClose) {
+      timer = setTimeout(() => setConfirmClose(false), 3000);
+    }
+    return () => clearTimeout(timer);
+  }, [confirmClose]);
 
   const handleClose = async () => {
     setIsClosing(true)
@@ -372,7 +381,13 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
                 </span>
               </div>
 
-              <div className="h-3 bg-border rounded-full relative overflow-hidden shadow-inner">
+              <div
+                role="progressbar"
+                aria-valuenow={progress}
+                aria-valuemin="0"
+                aria-valuemax="100"
+                className="h-3 bg-border rounded-full relative overflow-hidden shadow-inner"
+              >
                 <div className="absolute inset-0 bg-gradient-to-r from-red/10 via-background/0 to-green/10" />
                 <div
                   className={cn("absolute h-full transition-all duration-1000 ease-out", isWinning ? "bg-green/40 shadow-[0_0_15px_rgba(0,229,160,0.4)]" : "bg-red/40")}
@@ -404,7 +419,7 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
               </div>
               <div className="flex justify-between text-[9px] text-dim font-bold uppercase tracking-tighter mt-1 px-0.5">
                 <span>Entry → Current: <span className={cn("font-bold", Number(pctChange) >= 0 ? "text-green" : "text-red")}>{Number(pctChange) >= 0 ? '+' : ''}{pctChange}%</span></span>
-                <span>SL Distance: <span className="font-bold text-amber">{slDist}%</span></span>
+                <span className="text-dim/40 italic">Live Tracking</span>
               </div>
             </div>
 
@@ -423,12 +438,16 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
           {isExpanded ? 'Hide Details' : 'View Details'}
         </button>
         <button
-          onClick={handleClose}
+          onClick={() => confirmClose ? handleClose() : setConfirmClose(true)}
           disabled={isClosing}
-          className="flex-1 px-4 py-3 bg-red hover:bg-red/80 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+          className={cn(
+            "flex-1 px-4 py-3 text-white rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2",
+            confirmClose ? "bg-red/90 ring-2 ring-red/40 ring-offset-2 ring-offset-background animate-pulse" : "bg-red hover:bg-red/80",
+            isClosing && "opacity-50 cursor-not-allowed"
+          )}
         >
           <XCircle size={16} />
-          {isClosing ? 'Closing...' : 'Close Position'}
+          {isClosing ? 'Closing...' : confirmClose ? 'Confirm?' : 'Close Position'}
         </button>
       </div>
     </div>

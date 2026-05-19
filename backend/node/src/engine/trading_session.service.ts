@@ -31,6 +31,9 @@ export class TradingSessionService {
   private onTradeUpdate: ((trade: Trade) => void) | null = null;
   private lastScannerResults: any[] = [];
   private closedTrades: Trade[] = [];
+  private lastAnalyticsResult: any = null;
+  private lastAnalyticsTradeCount = -1;
+  private lastAnalyticsStartingBalance = -1;
   private gateState: string | null = null;
   private sleepMode = false;
   private activeWindows: Map<string, any> = new Map();
@@ -624,8 +627,22 @@ export class TradingSessionService {
     const totalPnl = realizedPnl + activePnl;
     const totalRiskUsdt = this.positionTracker.totalRisk();
 
-    // Include basic live analytics in tick
-    const analytics = this.analyticsService.calculateAnalytics(this.closedTrades as any, startingBalance);
+    // BOLT OPTIMIZATION: Cache analytics result to avoid redundant expensive calculations in hot loop
+    let analytics = this.lastAnalyticsResult;
+    if (
+      !analytics ||
+      this.closedTrades.length !== this.lastAnalyticsTradeCount ||
+      startingBalance !== this.lastAnalyticsStartingBalance
+    ) {
+      analytics = this.analyticsService.calculateAnalytics(
+        this.closedTrades as any,
+        startingBalance,
+      );
+      this.lastAnalyticsResult = analytics;
+      this.lastAnalyticsTradeCount = this.closedTrades.length;
+      this.lastAnalyticsStartingBalance = startingBalance ?? -1;
+    }
+
     const monitoring = this.monitoringService.getMetrics();
 
     const tickData = {

@@ -25,6 +25,14 @@ export class SingleSymbolConfig {
 }
 
 export class SessionConfig {
+  @IsString()
+  @IsOptional()
+  strategy_label?: string = "Momentum Strategy";
+
+  @IsArray()
+  @IsOptional()
+  strategy_variants?: Partial<SessionConfig>[] = [];
+
   @IsBoolean()
   @IsOptional()
   global_scanner_enabled: boolean = true;

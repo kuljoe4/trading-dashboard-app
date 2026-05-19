@@ -228,6 +228,7 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
   const config = useTradingStore((state) => state.config)
 
   const [isClosing, setIsClosing] = useState(false)
+  const [confirmClose, setConfirmClose] = useState(false)
   const [isExpanded, setIsExpanded] = useState(initialExpanded)
   const [confirmClose, setConfirmClose] = useState(false)
 
@@ -239,7 +240,20 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
     return () => clearTimeout(timer);
   }, [confirmClose]);
 
+  useEffect(() => {
+    let timer
+    if (confirmClose) {
+      timer = setTimeout(() => setConfirmClose(false), 3000)
+    }
+    return () => clearTimeout(timer)
+  }, [confirmClose])
+
   const handleClose = async () => {
+    if (!confirmClose) {
+      setConfirmClose(true)
+      return
+    }
+
     setIsClosing(true)
     try {
       await sessionAPI.closeTrade(trade.symbol)
@@ -248,6 +262,7 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
       alert(`Error closing trade: ${error.message}`)
     } finally {
       setIsClosing(false)
+      setConfirmClose(false)
     }
   }
 
@@ -440,14 +455,16 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
         <button
           onClick={() => confirmClose ? handleClose() : setConfirmClose(true)}
           disabled={isClosing}
+          aria-label={confirmClose ? "Confirm close position" : "Close position"}
           className={cn(
-            "flex-1 px-4 py-3 text-white rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2",
-            confirmClose ? "bg-red/90 ring-2 ring-red/40 ring-offset-2 ring-offset-background animate-pulse" : "bg-red hover:bg-red/80",
-            isClosing && "opacity-50 cursor-not-allowed"
+            "flex-1 px-4 py-3 text-white rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed",
+            confirmClose ? "bg-red/80 animate-pulse" : "bg-red hover:bg-red/80"
           )}
         >
           <XCircle size={16} />
-          {isClosing ? 'Closing...' : confirmClose ? 'Confirm?' : 'Close Position'}
+          <span aria-live="polite">
+            {isClosing ? 'Closing...' : confirmClose ? 'Confirm?' : 'Close Position'}
+          </span>
         </button>
       </div>
     </div>

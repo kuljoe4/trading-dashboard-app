@@ -212,7 +212,10 @@ export class SessionService implements OnModuleInit {
     let binanceClient = null;
     const mode = config.trading_mode || (paperMode ? 'paper' : 'live');
     if (mode !== 'paper') {
-      const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+      const settings = await this.settingsRepository.findOne({
+        where: { id: 'default' },
+        select: ['id', 'binance_api_key', 'binance_api_secret', 'binance_testnet_api_key', 'binance_testnet_api_secret'],
+      });
       if (!settings) throw new Error('Settings not found. Please configure API keys first.');
 
       const isTestnet = mode === 'testnet';

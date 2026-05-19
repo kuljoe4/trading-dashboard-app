@@ -230,7 +230,6 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
   const [isClosing, setIsClosing] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
   const [isExpanded, setIsExpanded] = useState(initialExpanded)
-  const [confirmClose, setConfirmClose] = useState(false)
 
   useEffect(() => {
     let timer;

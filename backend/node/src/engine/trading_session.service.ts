@@ -44,6 +44,10 @@ export class TradingSessionService {
   private listenKey: string | null = null;
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
 
+  // Analytics Caching State
+  private lastAnalyticsResult: any = null;
+  private lastAnalyticsTradeCount = -1;
+  private lastAnalyticsStartingBalance = -1;
   private getStrategyLabel(config: Partial<SessionConfig> | null | undefined, index = 0): string {
     const label = (config?.strategy_label || (index === 0 ? 'Momentum Strategy' : `Strategy ${index + 1}`)).toString();
     console.log(`[DEBUG] getStrategyLabel config: ${JSON.stringify(config?.strategy_label)}, index: ${index}, result: ${label}`);
@@ -627,20 +631,15 @@ export class TradingSessionService {
     const totalPnl = realizedPnl + activePnl;
     const totalRiskUsdt = this.positionTracker.totalRisk();
 
-    // BOLT OPTIMIZATION: Cache analytics result to avoid redundant expensive calculations in hot loop
-    let analytics = this.lastAnalyticsResult;
-    if (
-      !analytics ||
-      this.closedTrades.length !== this.lastAnalyticsTradeCount ||
-      startingBalance !== this.lastAnalyticsStartingBalance
-    ) {
-      analytics = this.analyticsService.calculateAnalytics(
-        this.closedTrades as any,
-        startingBalance,
-      );
-      this.lastAnalyticsResult = analytics;
+    // BOLT OPTIMIZATION: Cache analytics results to avoid O(N log N) sorting in the 1s hot loop.
+    // Recalculate only when the number of closed trades or starting balance changes.
+    if (!this.lastAnalyticsResult ||
+        this.closedTrades.length !== this.lastAnalyticsTradeCount ||
+        startingBalance !== this.lastAnalyticsStartingBalance) {
+
+      this.lastAnalyticsResult = this.analyticsService.calculateAnalytics(this.closedTrades as any, startingBalance);
       this.lastAnalyticsTradeCount = this.closedTrades.length;
-      this.lastAnalyticsStartingBalance = startingBalance ?? -1;
+      this.lastAnalyticsStartingBalance = startingBalance || 0;
     }
 
     const monitoring = this.monitoringService.getMetrics();
@@ -658,10 +657,10 @@ export class TradingSessionService {
       rateLimit: this.getBinanceRateLimit(),
       monitoring,
       analytics: {
-        maxDrawdown: analytics.maxDrawdown,
-        maxDrawdownPct: analytics.maxDrawdownPct,
-        overallWinRate: analytics.overallWinRate,
-        cumulativePnL: analytics.cumulativePnL.slice(-20),
+        maxDrawdown: this.lastAnalyticsResult.maxDrawdown,
+        maxDrawdownPct: this.lastAnalyticsResult.maxDrawdownPct,
+        overallWinRate: this.lastAnalyticsResult.overallWinRate,
+        cumulativePnL: this.lastAnalyticsResult.cumulativePnL.slice(-20),
       },
     };
 

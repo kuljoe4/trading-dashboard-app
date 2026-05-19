@@ -20,6 +20,10 @@ export interface AnalyticsResult {
 export class AnalyticsService {
   private readonly logger = new Logger(AnalyticsService.name);
 
+  /**
+   * BOLT OPTIMIZATION: Optimized to single-pass processing with minimal allocations.
+   * Reduces GC pressure in the engine hot loop.
+   */
   calculateAnalytics(trades: TradeEntity[], startingBalance: number = 10000): AnalyticsResult {
     // BOLT OPTIMIZATION: Combine multiple iterations into a single-pass loop
     // 1. Initial filter and sort (necessary for equity curve)
@@ -27,22 +31,26 @@ export class AnalyticsService {
       .filter(t => t.status !== 'OPEN' && t.exit_ts)
       .sort((a, b) => a.exit_ts!.getTime() - b.exit_ts!.getTime());
 
+    const totalTrades = sortedTrades.length;
+    let totalWins = 0;
     let currentPnL = 0;
     let maxPnL = 0;
     let maxDD = 0;
     let maxDDPct = 0;
     let totalWins = 0;
 
-    const cumulativePnL: { ts: string; pnl: number }[] = [];
+    const cumulativePnL: { ts: string; pnl: number }[] = new Array(totalTrades);
 
-    // TOD Optimization: Use fixed-size array instead of Map
+    // Time of day analysis (0-23 hours) - Fixed size array for better performance
     const todStats = Array.from({ length: 24 }, () => ({ pnl: 0, wins: 0, total: 0 }));
 
-    for (const t of sortedTrades) {
+    // BOLT OPTIMIZATION: Single-pass calculation for all metrics to avoid multiple array iterations
+    for (let i = 0; i < totalTrades; i++) {
+      const t = sortedTrades[i];
       const pnl = Number(t.pnl || 0);
-      currentPnL += pnl;
 
-      // Equity curve
+      // Equity curve & Drawdown
+      currentPnL += pnl;
       if (currentPnL > maxPnL) maxPnL = currentPnL;
 
       // Drawdown tracking
@@ -53,20 +61,21 @@ export class AnalyticsService {
       const ddPct = peakBalance > 0 ? (dd / peakBalance) * 100 : 0;
       if (ddPct > maxDDPct) maxDDPct = ddPct;
 
-      cumulativePnL.push({
+      cumulativePnL[i] = {
         ts: t.exit_ts!.toISOString(),
-        pnl: currentPnL,
-      });
+        pnl: Number(currentPnL.toFixed(2)),
+      };
 
-      // TOD stats
+      // Time of Day
       const hour = t.exit_ts!.getUTCHours();
       const stats = todStats[hour];
       stats.pnl += pnl;
       stats.total += 1;
 
+      // Wins
       if (pnl > 0) {
         stats.wins += 1;
-        totalWins++;
+        totalWins += 1;
       }
     }
 
@@ -76,12 +85,10 @@ export class AnalyticsService {
       winRate: stats.total > 0 ? (stats.wins / stats.total) * 100 : 0,
     }));
 
-    const totalTrades = sortedTrades.length;
-
     return {
       cumulativePnL,
-      maxDrawdown: maxDD,
-      maxDrawdownPct: maxDDPct,
+      maxDrawdown: Number(maxDD.toFixed(2)),
+      maxDrawdownPct: Number(maxDDPct.toFixed(2)),
       timeOfDay,
       totalTrades,
       overallWinRate: totalTrades > 0 ? (totalWins / totalTrades) * 100 : 0,

@@ -25,7 +25,8 @@ export class AnalyticsService {
    * Reduces GC pressure in the engine hot loop.
    */
   calculateAnalytics(trades: TradeEntity[], startingBalance: number = 10000): AnalyticsResult {
-    // Sort trades by exit timestamp to build chronological equity curve
+    // BOLT OPTIMIZATION: Combine multiple iterations into a single-pass loop
+    // 1. Initial filter and sort (necessary for equity curve)
     const sortedTrades = [...trades]
       .filter(t => t.status !== 'OPEN' && t.exit_ts)
       .sort((a, b) => a.exit_ts!.getTime() - b.exit_ts!.getTime());
@@ -36,6 +37,7 @@ export class AnalyticsService {
     let maxPnL = 0;
     let maxDD = 0;
     let maxDDPct = 0;
+    let totalWins = 0;
 
     const cumulativePnL: { ts: string; pnl: number }[] = new Array(totalTrades);
 
@@ -51,6 +53,7 @@ export class AnalyticsService {
       currentPnL += pnl;
       if (currentPnL > maxPnL) maxPnL = currentPnL;
 
+      // Drawdown tracking
       const dd = maxPnL - currentPnL;
       if (dd > maxDD) maxDD = dd;
 

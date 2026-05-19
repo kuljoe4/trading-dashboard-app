@@ -14,14 +14,26 @@ const price = (value) => {
   return n >= 100 ? `$${n.toFixed(2)}` : `$${n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}`
 }
 
-const SessionGroup = ({ session, trades }) => {
+const strategyLabel = (item = {}) => item.strategy_label || item.strategyLabel || item.config?.strategy_label || 'Momentum Strategy'
+
+const buildCurve = (trades = []) => {
+  let pnl = 0
+  return [...trades].reverse().map((trade) => {
+    pnl += Number(trade.pnl || 0)
+    return { ts: trade.exit_ts || trade.entry_ts || trade.createdAt, pnl }
+  })
+}
+
+const SessionGroup = ({ session, trades, colorDrawdown }) => {
   const [expanded, setExpanded] = useState(false)
   const pnl = trades.reduce((sum, t) => sum + (t.pnl || 0), 0)
   const wins = trades.filter(t => (t.pnl || 0) > 0).length
   const winRate = trades.length ? Math.round((wins / trades.length) * 100) : 0
+  const curve = useMemo(() => buildCurve(trades), [trades])
+  const label = strategyLabel(session)
 
   return (
-    <div className="bg-surface border border-border rounded-2xl overflow-hidden mb-4 shadow-sm transition-all hover:border-border-hover">
+    <div id={`session-${session.id}`} className="bg-surface border border-border rounded-2xl overflow-hidden mb-4 shadow-sm transition-all hover:border-border-hover scroll-mt-8">
       <div
         onClick={() => setExpanded(!expanded)}
         className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 cursor-pointer select-none bg-surface/30"
@@ -32,7 +44,10 @@ const SessionGroup = ({ session, trades }) => {
           </div>
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-sm font-bold tracking-tight">Session {session.id.substring(0, 8)}</span>
+              <a href={`#/history?session=${session.id}`} onClick={(e) => e.stopPropagation()} className="text-sm font-bold tracking-tight hover:text-accent transition-colors">
+                {label}
+              </a>
+              <span className="text-[10px] text-dim font-mono">#{session.id.substring(0, 8)}</span>
               {session.paperMode && <PaperBadge />}
             </div>
             <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2">
@@ -42,6 +57,9 @@ const SessionGroup = ({ session, trades }) => {
         </div>
 
         <div className="flex flex-wrap items-center gap-6 md:gap-10">
+          <div className="hidden lg:block w-44">
+            <EquityCurve data={curve} height={54} colorDrawdown={colorDrawdown} />
+          </div>
           <div className="flex flex-col">
             <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-1">Config</span>
             <span className="text-xs font-bold text-dim uppercase tracking-tight flex items-center gap-1.5">
@@ -71,6 +89,11 @@ const SessionGroup = ({ session, trades }) => {
             className="overflow-hidden border-t border-border/40"
           >
             <div className="p-4 space-y-2 bg-background/30">
+              {curve.length >= 2 && (
+                <div className="bg-surface border border-border/60 rounded-xl p-4 mb-3">
+                  <EquityCurve data={curve} height={150} colorDrawdown={colorDrawdown} />
+                </div>
+              )}
               {trades.length === 0 ? (
                 <div className="py-8 text-center text-[11px] text-dim font-bold uppercase tracking-widest">No trades recorded for this session</div>
               ) : (
@@ -82,6 +105,9 @@ const SessionGroup = ({ session, trades }) => {
                         <div className="flex flex-col">
                           <div className="flex items-center gap-2 mb-0.5">
                             <span className="text-xs font-bold font-mono">{trade.symbol}</span>
+                            <a href={`#/history?session=${trade.sessionId || session.id}`} className="text-[8px] font-bold px-1.5 py-0.5 rounded border border-accent/20 bg-accent/10 text-accent uppercase">
+                              {strategyLabel(trade)}
+                            </a>
                             <span className={cn("text-[8px] font-bold px-1 py-0 rounded border uppercase", trade.direction?.toLowerCase() === 'long' ? "text-green border-green/20" : "text-red border-red/20")}>
                               {trade.direction}
                             </span>
@@ -120,6 +146,7 @@ export const HistoryView = () => {
   const [fullAnalytics, setFullAnalytics] = useState(null)
   const [loading, setLoading] = useState(true)
   const [visibleSessions, setVisibleSessions] = useState(PAGE_SIZE)
+  const [colorDrawdown, setColorDrawdown] = useState(true)
 
   const allSessionsWithTrades = useMemo(() => {
     return sessionList.map(session => ({
@@ -155,6 +182,15 @@ export const HistoryView = () => {
     }).finally(() => setLoading(false))
   }, [updateStats, fetchSessions])
 
+  useEffect(() => {
+    if (loading) return
+    const params = new URLSearchParams((window.location.hash.split('?')[1] || '').split('#')[0])
+    const sessionId = params.get('session')
+    if (sessionId) {
+      document.getElementById(`session-${sessionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [loading, sessionsToRender.length])
+
   return (
     <div className={cn(
       "min-h-screen transition-all duration-300",
@@ -186,7 +222,18 @@ export const HistoryView = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
           <div className="lg:col-span-2 bg-surface border border-border rounded-2xl p-6 shadow-sm overflow-hidden relative">
-             <EquityCurve data={fullAnalytics?.cumulativePnL || analytics?.cumulativePnL || []} />
+             <div className="flex items-center justify-end mb-2">
+               <button
+                 onClick={() => setColorDrawdown(v => !v)}
+                 className={cn(
+                   "px-3 py-1.5 rounded-md border text-[9px] font-bold uppercase tracking-widest transition-colors",
+                   colorDrawdown ? "border-red/30 bg-red/10 text-red" : "border-border text-dim hover:text-accent"
+                 )}
+               >
+                 Drawdown Colors
+               </button>
+             </div>
+             <EquityCurve data={fullAnalytics?.cumulativePnL || analytics?.cumulativePnL || []} colorDrawdown={colorDrawdown} />
           </div>
           <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
              <TODPerformance data={fullAnalytics?.timeOfDay || []} />
@@ -231,7 +278,7 @@ export const HistoryView = () => {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: Math.min(i * 0.05, 0.5) }}
                   >
-                    <SessionGroup session={s} trades={s.trades} />
+                    <SessionGroup session={s} trades={s.trades} colorDrawdown={colorDrawdown} />
                   </motion.div>
                 ))}
 
@@ -268,6 +315,9 @@ export const HistoryView = () => {
                             <div className="flex flex-col">
                               <div className="flex items-center gap-2 mb-1">
                                 <span className="text-sm font-bold font-mono tracking-tight">{trade.symbol}</span>
+                                <a href={`#/history?session=${trade.sessionId || trade.id}`} className="text-[9px] font-bold px-1.5 py-0.5 rounded border border-accent/20 bg-accent/10 text-accent uppercase">
+                                  {strategyLabel(trade)}
+                                </a>
                                 <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase", trade.direction?.toLowerCase() === 'long' ? "text-green border-green/20 bg-green/5" : "text-red border-red/20 bg-red/5")}>
                                   {trade.direction}
                                 </span>

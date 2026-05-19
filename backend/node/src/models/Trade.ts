@@ -23,7 +23,7 @@ export class Trade {
 
   pnl: number = 0;
 
-  status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL' = 'OPEN';
+  status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL' | 'CLOSED_ORPHANED' = 'OPEN';
 
   exit_ts?: Date;
 
@@ -72,4 +72,8 @@ export class Trade {
   binance_stop_order_id?: string;
 
   sessionId?: string;
+
+  strategy_label?: string;
+
+  strategy_config?: Partial<import('./SessionConfig').SessionConfig>;
 }

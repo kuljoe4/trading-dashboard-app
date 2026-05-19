@@ -14,7 +14,10 @@ export class SettingsController {
 
   @Get('keys')
   async getKeys() {
-    const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+    const settings = await this.settingsRepository.findOne({
+      where: { id: 'default' },
+      select: ['id', 'binance_api_key', 'binance_testnet_api_key']
+    });
     return {
       api_key: settings?.binance_api_key
         ? `${settings.binance_api_key.slice(0, 4)}...${settings.binance_api_key.slice(-4)}`
@@ -27,7 +30,10 @@ export class SettingsController {
 
   @Post('keys')
   async updateKeys(@Body() body: UpdateKeysDto) {
-    let settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+    let settings = await this.settingsRepository.findOne({
+      where: { id: 'default' },
+      select: ['id', 'binance_api_key', 'binance_api_secret', 'binance_testnet_api_key', 'binance_testnet_api_secret']
+    });
     if (!settings) {
       settings = this.settingsRepository.create({ id: 'default' });
     }

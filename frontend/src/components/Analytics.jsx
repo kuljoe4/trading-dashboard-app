@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useId, useMemo } from 'react';
 import { fmtUSD } from '../lib/theme';
 import { cn } from '../components/ui/primitives';
 
@@ -16,7 +16,9 @@ const downsample = (data, threshold = 100) => {
   return result;
 };
 
-export const EquityCurve = ({ data = [], height = 180 }) => {
+export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) => {
+  const gradientId = useId().replace(/:/g, '')
+  const glowId = `${gradientId}-glow`
   const points = useMemo(() => {
     const downsampled = downsample(data);
     if (!downsampled || downsampled.length < 2) return [];
@@ -37,6 +39,17 @@ export const EquityCurve = ({ data = [], height = 180 }) => {
       return { x, y, pnl: d.pnl };
     });
   }, [data]);
+
+  const drawdownSegments = useMemo(() => {
+    if (!colorDrawdown || points.length < 2) return [];
+    let peak = points[0]?.pnl ?? 0;
+    return points.slice(1).map((point, index) => {
+      peak = Math.max(peak, points[index].pnl);
+      const previous = points[index];
+      const inDrawdown = point.pnl < peak || previous.pnl < peak;
+      return { previous, point, inDrawdown };
+    });
+  }, [colorDrawdown, points]);
 
   if (data.length < 2) {
     return (
@@ -65,15 +78,19 @@ export const EquityCurve = ({ data = [], height = 180 }) => {
         style={{ height: `${height}px` }}
       >
         <defs>
-          <linearGradient id="curveGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.2" />
+          <linearGradient id={`${gradientId}-area`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.32" />
             <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
           </linearGradient>
-          <filter id="glow">
+          <filter id={glowId}>
             <feGaussianBlur stdDeviation="1.5" result="blur" />
             <feComposite in="SourceGraphic" in2="blur" operator="over" />
           </filter>
         </defs>
+
+        <line x1="0" y1="25" x2="100" y2="25" stroke="currentColor" className="text-border/70" strokeWidth="0.25" strokeDasharray="1,3" />
+        <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" className="text-border/70" strokeWidth="0.25" strokeDasharray="1,3" />
+        <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" className="text-border/70" strokeWidth="0.25" strokeDasharray="1,3" />
 
         {/* Baseline (0 PnL) */}
         {(() => {
@@ -87,17 +104,32 @@ export const EquityCurve = ({ data = [], height = 180 }) => {
            return <line x1="0" y1={zeroY} x2="100" y2={zeroY} stroke="currentColor" className="text-border" strokeWidth="0.5" strokeDasharray="2,2" />;
         })()}
 
-        <path d={areaD} fill="url(#curveGradient)" />
-        <path
-          d={pathD}
-          fill="none"
-          stroke="var(--accent)"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          filter="url(#glow)"
-          className="transition-all duration-500"
-        />
+        <path d={areaD} fill={`url(#${gradientId}-area)`} />
+        {colorDrawdown ? (
+          drawdownSegments.map(({ previous, point, inDrawdown }, index) => (
+            <path
+              key={index}
+              d={`M ${previous.x} ${previous.y} L ${point.x} ${point.y}`}
+              fill="none"
+              stroke={inDrawdown ? "var(--color-red)" : "var(--color-green)"}
+              strokeWidth="2.25"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              filter={`url(#${glowId})`}
+            />
+          ))
+        ) : (
+          <path
+            d={pathD}
+            fill="none"
+            stroke="var(--accent)"
+            strokeWidth="2.25"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            filter={`url(#${glowId})`}
+            className="transition-all duration-500"
+          />
+        )}
 
         {/* Current Value Dot */}
         <circle
@@ -105,7 +137,7 @@ export const EquityCurve = ({ data = [], height = 180 }) => {
           cy={points[points.length-1].y}
           r="2"
           fill="var(--accent)"
-          filter="url(#glow)"
+          filter={`url(#${glowId})`}
         />
       </svg>
     </div>

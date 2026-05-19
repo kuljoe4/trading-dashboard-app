@@ -1,19 +1,8 @@
 import React, { useState } from 'react'
-import { LayoutDashboard, History, Settings as SettingsIcon, Activity, Zap, ChevronLeft, ChevronRight, Cpu, HardDrive, Clock } from 'lucide-react'
+import { SystemMetrics } from './SystemMetrics'
+import { LayoutDashboard, History, Settings as SettingsIcon, ChevronLeft, ChevronRight, Zap } from 'lucide-react'
 import { useTradingStore } from '../store/trading'
-import { cn, PulseDot } from './ui/primitives'
-
-const SidebarMetric = ({ icon: Icon, label, value, colorClass, collapsed }) => (
-  <div className={cn("flex items-center gap-3", collapsed && "justify-center")} title={collapsed ? `${label}: ${value}` : undefined}>
-    <Icon size={14} className={cn("shrink-0", colorClass || "text-dim")} />
-    {!collapsed && (
-      <div className="flex-1 flex justify-between items-baseline gap-2">
-        <span className="text-[10px] text-dim font-bold uppercase tracking-wider">{label}</span>
-        <span className={cn("text-[11px] font-mono font-bold", colorClass || "text-text")}>{value}</span>
-      </div>
-    )}
-  </div>
-)
+import { cn } from './ui/primitives'
 
 export const Sidebar = ({ selected }) => {
   const { wsStatus, sidebarCollapsed: collapsed, toggleSidebar, monitoring, rateLimit } = useTradingStore()
@@ -83,91 +72,50 @@ export const Sidebar = ({ selected }) => {
       </button>
 
       <div className={cn(
-        "pt-6 border-t border-border/50 space-y-4",
+        "pt-6 border-t border-border/50",
         collapsed ? "px-0" : "px-2"
       )}>
-        {/* Rate Limit */}
-        {rateLimit && (
-          <SidebarMetric
-            icon={Activity}
-            label="Weight"
-            value={`${rateLimit.used_weight_1m}/${rateLimit.limit}`}
-            colorClass={rateLimit.used_weight_1m > rateLimit.limit * 0.8 ? "text-red" : rateLimit.used_weight_1m > rateLimit.limit * 0.5 ? "text-amber" : "text-green"}
-            collapsed={collapsed}
-          />
-        )}
-
-        {/* System Health */}
-        {monitoring?.system && (
-          <>
-            <SidebarMetric
-              icon={Cpu}
-              label="CPU"
-              value={`${monitoring.system.cpu_usage}%`}
-              colorClass={monitoring.system.cpu_usage > 50 ? "text-red" : "text-amber"}
-              collapsed={collapsed}
-            />
-            <SidebarMetric
-              icon={HardDrive}
-              label="RAM"
-              value={`${monitoring.system.memory_heap_used}MB`}
-              collapsed={collapsed}
-            />
-            <SidebarMetric
-              icon={Clock}
-              label="Lag"
-              value={`${monitoring.system.event_loop_lag}ms`}
-              colorClass={monitoring.system.event_loop_lag > 50 ? "text-red" : "text-green"}
-              collapsed={collapsed}
-            />
-          </>
-        )}
-
-        <div className={cn(
-          "flex items-center gap-3 p-3 bg-background/40 rounded-xl border border-border/50",
-          collapsed && "justify-center p-2"
-        )}>
-          <PulseDot color={wsStatus === 'live' ? "bg-green" : "bg-amber"} />
-          {!collapsed && (
-            <span className={cn("text-[10px] font-bold uppercase tracking-widest", wsStatus === 'live' ? "text-green" : "text-amber")}>
-              {wsStatus === 'live' ? 'Live' : 'Offline'}
-            </span>
-          )}
-        </div>
+        <SystemMetrics monitoring={monitoring} rateLimit={rateLimit} wsStatus={wsStatus} compact={collapsed} />
       </div>
     </div>
   )
 }
 
 export const BottomNav = ({ selected }) => {
+  const { wsStatus, monitoring, rateLimit } = useTradingStore()
   const isActive = (path) => {
     if (path === '/') return !selected && window.location.hash === '#/'
     return window.location.hash.startsWith(`#${path}`)
   }
 
   return (
-    <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-surface/90 backdrop-blur-md border-t border-border px-8 py-5 flex justify-around items-center z-40">
-      <button 
-        onClick={() => window.location.hash = '#/'}
-        aria-label="Cockpit"
-        className={cn("flex flex-col items-center gap-2", isActive('/') ? "text-accent" : "text-dim hover:text-text")}
-      >
-        <LayoutDashboard size={24} />
-      </button>
-      <button 
-        onClick={() => window.location.hash = '#/history'}
-        aria-label="History"
-        className={cn("flex flex-col items-center gap-2", isActive('/history') ? "text-accent" : "text-dim hover:text-text")}
-      >
-        <History size={24} />
-      </button>
-      <button 
-        onClick={() => window.location.hash = '#/settings'}
-        aria-label="Settings"
-        className={cn("flex flex-col items-center gap-2", isActive('/settings') ? "text-accent" : "text-dim hover:text-text")}
-      >
-        <SettingsIcon size={24} />
-      </button>
+    <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-surface/90 backdrop-blur-md border-t border-border z-40">
+      <div className="flex justify-around items-center px-8 py-5">
+        <button 
+          onClick={() => window.location.hash = '#/'}
+          aria-label="Cockpit"
+          className={cn("flex flex-col items-center gap-2", isActive('/') ? "text-accent" : "text-dim hover:text-text")}
+        >
+          <LayoutDashboard size={24} />
+        </button>
+        <button 
+          onClick={() => window.location.hash = '#/history'}
+          aria-label="History"
+          className={cn("flex flex-col items-center gap-2", isActive('/history') ? "text-accent" : "text-dim hover:text-text")}
+        >
+          <History size={24} />
+        </button>
+        <button 
+          onClick={() => window.location.hash = '#/settings'}
+          aria-label="Settings"
+          className={cn("flex flex-col items-center gap-2", isActive('/settings') ? "text-accent" : "text-dim hover:text-text")}
+        >
+          <SettingsIcon size={24} />
+        </button>
+      </div>
+      <div className="px-4 pb-2 border-t border-border/40 flex justify-center pt-2">
+        <SystemMetrics monitoring={monitoring} rateLimit={rateLimit} wsStatus={wsStatus} compact={true} />
+      </div>
     </div>
   )
 }

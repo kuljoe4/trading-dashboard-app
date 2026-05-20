@@ -11,7 +11,11 @@ Ensure all latest changes (including `railway.json` and `Dockerfile`s) are pushe
 1.  Log in to [Railway.app](https://railway.app/).
 2.  Click **"New Project"** -> **"Deploy from GitHub repo"**.
 3.  Select your repository.
-4.  Railway will automatically detect the `railway.json` file and create two services: `backend` and `frontend`.
+4.  Railway should automatically detect the `railway.json` file and create two services: `backend` and `frontend`.
+    *   **Troubleshooting:** If Railway fails to detect the services and tries to build from the repo root (giving a "Railpack fails" error), you may need to:
+        1.  **Manually create services:** In the Railway dashboard, click **"New"** -> **"Empty Service"** for both `frontend` and `backend`.
+        2.  **Set Root Directory:** Go to each service's **Settings** tab -> **Build** section and manually set the **Root Directory** to `frontend` and `backend/node` respectively.
+        3.  **Connect Repo:** Under **Settings** -> **General**, connect the service to your GitHub repository.
 
 ### 1.3 Add PostgreSQL
 1.  In your project dashboard, click **"New"** -> **"Database"** -> **"Add PostgreSQL"**.

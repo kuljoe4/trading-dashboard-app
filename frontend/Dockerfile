@@ -20,12 +20,13 @@ FROM nginx:alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Add a basic nginx config if needed, but default is fine for SPA if we add a fallback
+# Nginx config
 RUN echo 'server { \
     listen 80; \
+    server_name localhost; \
+    root /usr/share/nginx/html; \
+    index index.html; \
     location / { \
-        root /usr/share/nginx/html; \
-        index index.html index.htm; \
         try_files $uri $uri/ /index.html; \
     } \
     location /health { \

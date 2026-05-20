@@ -44,11 +44,8 @@ export class TradingSessionService {
   private listenKey: string | null = null;
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
 
-  // Analytics Caching State
-  private lastAnalyticsResult: any = null;
-  private lastAnalyticsTradeCount = -1;
-  private lastAnalyticsStartingBalance = -1;
   private getStrategyLabel(config: Partial<SessionConfig> | null | undefined, index = 0): string {
+
     const label = (config?.strategy_label || (index === 0 ? 'Momentum Strategy' : `Strategy ${index + 1}`)).toString();
     console.log(`[DEBUG] getStrategyLabel config: ${JSON.stringify(config?.strategy_label)}, index: ${index}, result: ${label}`);
     return label;

@@ -20,7 +20,7 @@ FROM nginx:alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Nginx config with verbose logging
+# Debugging: Nginx config with explicit paths and debug logging
 RUN echo 'error_log /var/log/nginx/error.log debug; \
 server { \
     listen 80; \
@@ -28,7 +28,7 @@ server { \
     root /usr/share/nginx/html; \
     index index.html; \
     location / { \
-        try_files $uri $uri/ /index.html; \
+        try_files $uri $uri/ =404; \
     } \
     location /health { \
         access_log off; \
@@ -39,4 +39,4 @@ server { \
 
 EXPOSE 80
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["nginx -g \"daemon off;\""]

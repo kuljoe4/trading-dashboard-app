@@ -20,8 +20,9 @@ FROM nginx:alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Nginx config
-RUN echo 'server { \
+# Nginx config with verbose logging
+RUN echo 'error_log /var/log/nginx/error.log debug; \
+server { \
     listen 80; \
     server_name localhost; \
     root /usr/share/nginx/html; \

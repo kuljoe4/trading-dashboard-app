@@ -48,109 +48,11 @@ async function bootstrap() {
     res.status(200).send({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  const port = configService.get<number>('PORT') || 3000;
-  await app.listen(port);
+  const port = process.env.PORT || configService.get<number>('PORT') || 3000;
+  await app.listen(port, '0.0.0.0');
 
   const httpServer = app.getHttpServer();
-  const sessionService = app.get(SessionService);
-  const monitoringService = app.get(MonitoringService);
-  const wss = new WebSocketServer({
-    server: httpServer,
-    path: '/session/ws',
-    verifyClient: (info, done) => {
-      const origin = info.origin;
-      const isAllowed = allowedOrigins.includes(origin);
-      if (!isAllowed) {
-        console.warn(`Blocked WebSocket connection from unauthorized origin: ${origin}`);
-      }
-      done(isAllowed);
-    },
-  });
-
-  const updateMonitoringSuppression = () => {
-    const anyActive = Array.from(wss.clients).some((c: any) => c.monitoringEnabled !== false);
-    monitoringService.setEnabled(anyActive);
-  };
-
-  sessionService.setBroadcaster((data: any) => {
-    const basePayload = typeof data === 'string' ? JSON.parse(data) : data;
-    
-    wss.clients.forEach((client: any) => {
-      if (client.readyState !== client.OPEN) return;
-
-      // Focus Mode: Suppress scanner updates to save bandwidth/CPU when user is in Detail View
-      if (basePayload.type === 'scanner' && client.focusMode === true) {
-        return;
-      }
-
-      // Suppress monitoring data if client has it disabled
-      if (basePayload.type === 'tick' && client.monitoringEnabled === false) {
-        const stripped = { ...basePayload };
-        delete stripped.monitoring;
-        client.send(JSON.stringify(stripped));
-        return;
-      }
-
-      if (basePayload.type === 'log' && client.logFilters) {
-        if (client.logFilters[basePayload.level] === false) return;
-      }
-
-      if (basePayload.type === 'status' && client.logFilters && Array.isArray(basePayload.logLines)) {
-        const filteredPayload = {
-          ...basePayload,
-          logLines: basePayload.logLines.filter((log: any) => client.logFilters[log.level] !== false),
-        };
-        client.send(JSON.stringify(filteredPayload));
-        return;
-      }
-
-      client.send(JSON.stringify(basePayload));
-    });
-  });
-
-  wss.on('connection', async (socket: any) => {
-    socket.monitoringEnabled = true; // Default to enabled
-    socket.focusMode = false; // Default to disabled
-    socket.logFilters = { info: true, warn: true, error: true };
-    updateMonitoringSuppression();
-    
-    socket.on('message', (message: string) => {
-      try {
-        // Limit message size to prevent DoS via large JSON payloads
-        if (message.length > 1000) return;
-
-        const data = JSON.parse(message);
-        if (data.type === 'set_monitoring') {
-          // Strict boolean check for security
-          socket.monitoringEnabled = data.enabled === true;
-          console.log(`Client monitoring preference updated: ${socket.monitoringEnabled}`);
-          updateMonitoringSuppression();
-        }
-
-        if (data.type === 'set_focus_mode') {
-          socket.focusMode = data.enabled === true;
-          console.log(`Client focus mode updated: ${socket.focusMode}`);
-        }
-
-        if (data.type === 'set_log_filters' && typeof data.filters === 'object' && data.filters !== null) {
-          socket.logFilters = {
-            info: data.filters.info === true,
-            warn: data.filters.warn === true,
-            error: data.filters.error === true,
-          };
-          console.log(`Client log filter preferences updated: ${JSON.stringify(socket.logFilters)}`);
-        }
-      } catch (e) {}
-    });
-
-    socket.on('close', () => {
-      updateMonitoringSuppression();
-    });
-
-    socket.send(JSON.stringify({ type: 'status', ...(await sessionService.getStatus()) }));
-  });
-
-  console.log(`✨ Trading Dashboard Backend running on http://localhost:${port}`);
+  console.log(`✨ Trading Dashboard Backend running on port ${port}`);
   console.log(`📡 WebSocket endpoint: ws://localhost:${port}/session/ws`);
 }
 

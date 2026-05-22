@@ -306,10 +306,6 @@ export function DashboardView() {
   }, [selected, setFocusMode])
 
   useEffect(() => {
-    sessionAPI.rateLimit()
-      .then((res) => updateStats({ rateLimit: res.data }))
-      .catch((e) => console.error('RateLimit fetch failed:', e))
-    
     fetchSessions();
 
     const openScanner = () => setShowScanner(true);

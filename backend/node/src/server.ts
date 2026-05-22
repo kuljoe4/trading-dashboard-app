@@ -82,8 +82,13 @@ async function bootstrap() {
   });
 
   const updateMonitoringSuppression = () => {
-    const anyActive = Array.from(wss.clients).some((c: any) => c.monitoringEnabled !== false);
+    const clients = Array.from(wss.clients);
+    const anyActive = clients.some((c: any) => c.monitoringEnabled !== false);
     monitoringService.setEnabled(anyActive);
+    
+    // Synchronize listener count for loop optimization
+    const tradingSessionService = app.get(TradingSessionService);
+    tradingSessionService.setListenerCount(clients.length);
   };
 
   sessionService.setBroadcaster((data: any) => {

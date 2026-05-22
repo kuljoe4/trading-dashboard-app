@@ -20,23 +20,23 @@ FROM nginx:alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Debugging: Nginx config with explicit paths and debug logging
-RUN echo 'error_log /var/log/nginx/error.log debug; \
-server { \
-    listen 80; \
+# Use a script to replace the port in the nginx config before starting
+# This ensures compatibility with Railway's dynamic port assignment
+RUN echo 'server { \
+    listen ${PORT}; \
     server_name localhost; \
     root /usr/share/nginx/html; \
     index index.html; \
     location / { \
-        try_files $uri $uri/ =404; \
+        try_files $uri $uri/ /index.html; \
     } \
     location /health { \
         access_log off; \
         add_header Content-Type text/plain; \
         return 200 "OK"; \
     } \
-}' > /etc/nginx/conf.d/default.conf
+}' > /etc/nginx/conf.d/default.conf.template
 
 EXPOSE 80
 
-CMD ["nginx -g \"daemon off;\""]
+CMD ["/bin/sh", "-c", "envsubst '${PORT}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]

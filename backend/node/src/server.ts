@@ -25,7 +25,21 @@ async function bootstrap() {
     'https://frontend-production-9bcd.up.railway.app', // Adding your specific frontend domain
   ];
 
+  const nodeEnv = configService.get<string>('NODE_ENV');
   console.log(`🔒 Allowed Origins: ${allowedOrigins.join(', ')}`);
+
+  // Security Headers Middleware
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none';");
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    if (nodeEnv === 'production') {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+    next();
+  });
 
   // Enable CORS for frontend
   app.enableCors({

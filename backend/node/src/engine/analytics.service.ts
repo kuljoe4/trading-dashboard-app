@@ -37,7 +37,6 @@ export class AnalyticsService {
     let maxPnL = 0;
     let maxDD = 0;
     let maxDDPct = 0;
-    let totalWins = 0;
 
     const cumulativePnL: { ts: string; pnl: number }[] = new Array(totalTrades);
 

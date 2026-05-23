@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { fmtUSD, pnlColor } from '../lib/theme'
 import { sessionAPI } from '../api/client'
 import { ShieldCheck } from 'lucide-react'
@@ -36,8 +36,17 @@ const duration = (entryTs) => {
 
 export const ActiveTradeCard = ({ trade, config, onTradeClose }) => {
   const [isClosing, setIsClosing] = useState(false)
+  const [confirmClose, setConfirmClose] = useState(false)
+
+  useEffect(() => {
+    if (confirmClose) {
+      const timer = setTimeout(() => setConfirmClose(false), 3000)
+      return () => clearTimeout(timer)
+    }
+  }, [confirmClose])
 
   const handleClose = async () => {
+    setConfirmClose(false)
     setIsClosing(true)
     try {
       await sessionAPI.closeTrade(trade.symbol)
@@ -114,11 +123,17 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose }) => {
         </div>
       </div>
       <button
-        onClick={handleClose}
+        onClick={() => {
+          if (confirmClose) {
+            handleClose()
+          } else {
+            setConfirmClose(true)
+          }
+        }}
         disabled={isClosing}
-        className="mt-2 px-4 py-2 bg-red hover:bg-red/80 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-colors"
+        className={`mt-2 px-4 py-2 bg-red hover:bg-red/80 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-all ${confirmClose ? 'animate-pulse ring-2 ring-red ring-offset-2 ring-offset-surface' : ''}`}
       >
-        {isClosing ? 'Closing...' : 'Close Position'}
+        {isClosing ? 'Closing...' : confirmClose ? 'Confirm?' : 'Close Position'}
       </button>
     </div>
 )

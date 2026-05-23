@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { pnlColor, fmtUSD, fmt, C } from '../lib/theme'
 import { PulseDot, PaperBadge, ConditionWidget, cn } from './ui/primitives'
 import { Info, TrendingUp, ShieldAlert, Target, Activity, Zap, XCircle, ShieldCheck, Clock } from 'lucide-react'
@@ -180,8 +180,17 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
 
   const [isClosing, setIsClosing] = useState(false)
   const [isExpanded, setIsExpanded] = useState(initialExpanded)
+  const [confirmClose, setConfirmClose] = useState(false)
+
+  useEffect(() => {
+    if (confirmClose) {
+      const timer = setTimeout(() => setConfirmClose(false), 3000)
+      return () => clearTimeout(timer)
+    }
+  }, [confirmClose])
 
   const handleClose = async () => {
+    setConfirmClose(false)
     setIsClosing(true)
     try {
       await sessionAPI.closeTrade(trade.symbol)
@@ -374,12 +383,21 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
           {isExpanded ? 'Hide Details' : 'View Details'}
         </button>
         <button
-          onClick={handleClose}
+          onClick={() => {
+            if (confirmClose) {
+              handleClose()
+            } else {
+              setConfirmClose(true)
+            }
+          }}
           disabled={isClosing}
-          className="flex-1 px-4 py-3 bg-red hover:bg-red/80 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+          className={cn(
+            "flex-1 px-4 py-3 bg-red hover:bg-red/80 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2",
+            confirmClose && "animate-pulse ring-2 ring-red ring-offset-2 ring-offset-surface"
+          )}
         >
           <XCircle size={16} />
-          {isClosing ? 'Closing...' : 'Close Position'}
+          {isClosing ? 'Closing...' : confirmClose ? 'Confirm?' : 'Close Position'}
         </button>
       </div>
     </div>

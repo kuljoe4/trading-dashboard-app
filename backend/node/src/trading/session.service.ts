@@ -214,7 +214,7 @@ export class SessionService implements OnModuleInit {
     if (mode !== 'paper') {
       const settings = await this.settingsRepository.findOne({
         where: { id: 'default' },
-        select: ['id', 'binance_api_key', 'binance_api_secret', 'binance_testnet_api_key', 'binance_testnet_api_secret'],
+        select: ['id', 'binance_api_key', 'binance_api_secret', 'binance_testnet_api_key', 'binance_testnet_api_secret']
       });
       if (!settings) throw new Error('Settings not found. Please configure API keys first.');
 
@@ -256,7 +256,7 @@ export class SessionService implements OnModuleInit {
       for (const trade of openTrades) {
         try {
           const orders = await (binanceClient.restAPI as any).tradeApi.getOpenOrders(trade.symbol);
-          const hasOrder = Array.isArray(orders) && orders.some(o => o.orderId == trade.binance_order_id || o.orderId == trade.binance_stop_order_id);
+          const hasOrder = Array.isArray(orders) && orders.some(o => (o as any).orderId == trade.binance_order_id || (o as any).orderId == trade.binance_stop_order_id);
           if (!hasOrder) {
             this.logger.log(`Trade ${trade.symbol} not found on exchange. Marking as closed (orphaned).`);
             await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date() });

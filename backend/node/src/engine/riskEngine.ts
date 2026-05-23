@@ -131,13 +131,14 @@ export class RiskEngineService {
 
   /**
    * Calculate stop loss price based on SL type configuration
+   * BOLT OPTIMIZATION: Accept scalar min/max extremes instead of arrays to reduce memory churn.
    */
   async computeSl(
     entryPrice: number,
     direction: 'LONG' | 'SHORT',
     config: SessionConfig,
-    lookbackLows?: number[],
-    lookbackHighs?: number[]
+    minLow?: number,
+    maxHigh?: number
   ): Promise<number> {
     if (config.sl_type === 'pct') {
       // Simple percentage-based SL
@@ -147,7 +148,7 @@ export class RiskEngineService {
 
     // SL based on lookback period extremes
     if (config.sl_type === 'lookback_low/high') {
-      if (!lookbackLows || !lookbackHighs) {
+      if (minLow === undefined || maxHigh === undefined || minLow === Infinity || maxHigh === -Infinity) {
         // Fallback to percentage if lookback data not available
         return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' });
       }
@@ -158,13 +159,13 @@ export class RiskEngineService {
       const maxDistance = entryPrice * (maxPct / 100);
 
       if (direction === 'LONG') {
-        const structuralSl = Math.min(...lookbackLows);
+        const structuralSl = minLow;
         const rawDistance = Math.abs(entryPrice - structuralSl);
         const clampedDistance = Math.min(Math.max(rawDistance, minDistance), maxDistance);
         return entryPrice - clampedDistance;
       }
 
-      const structuralSl = Math.max(...lookbackHighs);
+      const structuralSl = maxHigh;
       const rawDistance = Math.abs(structuralSl - entryPrice);
       const clampedDistance = Math.min(Math.max(rawDistance, minDistance), maxDistance);
       return entryPrice + clampedDistance;

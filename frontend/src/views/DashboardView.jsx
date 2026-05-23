@@ -83,27 +83,34 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
           <div className="flex gap-2 mb-2 relative z-20">
             <button
               onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
+              aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
+              aria-expanded={isExpanded}
               className={cn(
                 "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95",
                 isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
               )}
+              aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
               title={isExpanded ? "Hide Details" : "Show Details"}
             >
               <Activity size={14} />
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); onEdit(); }}
+              aria-label="Edit strategy configuration"
               className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95"
+              aria-label="Edit strategy configuration"
               title="Edit Config"
             >
               <Edit3 size={14} />
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); onPause(); }}
+              aria-label={paused ? "Resume session" : "Pause session"}
               className={cn(
                 "p-2 border rounded-lg transition-all active:scale-95",
                 paused ? "bg-green/10 border-green/20 text-green hover:bg-green/20" : "bg-amber/10 border-amber/20 text-amber hover:bg-amber/20"
               )}
+              aria-label={paused ? "Resume strategy session" : "Pause strategy session"}
               title={paused ? "Resume Session" : "Pause Session"}
             >
               {paused ? <Play size={14} fill="currentColor" /> : <Pause size={14} fill="currentColor" />}
@@ -259,7 +266,8 @@ export function DashboardView() {
   const [showScanner, setShowScanner] = useState(false)
   const [isEditMode, setIsEditMode] = useState(false)
   const [selectedConfig, setSelectedConfig] = useState(null)
-  
+  const [confirmStop, setConfirmStop] = useState(false)
+
   const {
     sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
     totalSlUsed, activeTrades, config, setSessionActive,
@@ -296,6 +304,14 @@ export function DashboardView() {
   }), shallow)
 
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    let timer;
+    if (confirmStop) {
+      timer = setTimeout(() => setConfirmStop(false), 3000);
+    }
+    return () => clearTimeout(timer);
+  }, [confirmStop]);
 
   const currentStrategy = useMemo(() => ({
     sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount
@@ -345,6 +361,11 @@ export function DashboardView() {
   }
 
   async function handleStop() {
+    if (!confirmStop) {
+      setConfirmStop(true)
+      return
+    }
+
     setLoading(true)
     try {
       await sessionAPI.stop()
@@ -355,6 +376,7 @@ export function DashboardView() {
       await fetchSessions()
     } finally {
       setLoading(false)
+      setConfirmStop(false)
     }
   }
 
@@ -418,8 +440,17 @@ export function DashboardView() {
                 <Plus size={16} className="mr-2" /> New Session
               </Btn>
             ) : (
-              <Btn variant="danger" onClick={handleStop} disabled={loading} className="flex-1 sm:flex-none">
-                <XCircle size={16} className="mr-2" /> Terminate Session
+              <Btn
+                variant="danger"
+                onClick={handleStop}
+                disabled={loading}
+                aria-label={confirmStop ? "Confirm terminate session" : "Terminate session"}
+                className={cn("flex-1 sm:flex-none transition-all duration-300", confirmStop && "bg-red/80 animate-pulse")}
+              >
+                <XCircle size={16} className="mr-2" />
+                <span aria-live="polite">
+                  {loading ? 'Terminating...' : confirmStop ? 'Confirm?' : 'Terminate Session'}
+                </span>
               </Btn>
             )}
           </div>
@@ -636,6 +667,8 @@ export function DashboardView() {
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={() => setShowScanner(true)}
+          aria-label="Open Market Scanner"
+          title="Open Market Scanner"
           className="lg:hidden fixed bottom-24 right-6 w-16 h-16 rounded-full bg-accent text-white shadow-2xl flex items-center justify-center z-40 animate-in fade-in zoom-in duration-500"
         >
           <Zap size={28} />

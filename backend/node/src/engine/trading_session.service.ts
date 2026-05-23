@@ -444,7 +444,7 @@ export class TradingSessionService {
       if (!price) continue;
 
       const lookback = await this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
-      const slPrice = await this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.lows, lookback.highs);
+      const slPrice = await this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.minLow, lookback.maxHigh);
       const qty = await this.riskEngine.computePositionSize(this.getBalance(), price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
       
       if (qty <= 0) continue;

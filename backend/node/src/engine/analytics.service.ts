@@ -32,7 +32,6 @@ export class AnalyticsService {
       .sort((a, b) => a.exit_ts!.getTime() - b.exit_ts!.getTime());
 
     const totalTrades = sortedTrades.length;
-    let totalPnL = 0;
     let currentPnL = 0;
     let maxPnL = 0;
     let maxDD = 0;

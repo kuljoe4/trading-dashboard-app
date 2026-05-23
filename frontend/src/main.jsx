@@ -5,6 +5,13 @@ import { sessionAPI } from './api/client';
 import { useVisibility } from './hooks/useVisibility';
 import './index.css';
 
+import eruda from 'eruda';
+
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('debug') === 'true') {
+  eruda.init();
+}
+
 const DashboardView = lazy(() => import('./views/DashboardView').then(m => ({ default: m.DashboardView })));
 const SettingsView = lazy(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })));
 const HistoryView = lazy(() => import('./views/HistoryView').then(m => ({ default: m.HistoryView })));
@@ -32,9 +39,11 @@ const App = () => {
   const [view, setView] = useState('cockpit');
 
   useEffect(() => {
+    const controller = new AbortController();
+    
     async function checkStatus() {
       try {
-        const res = await sessionAPI.status();
+        const res = await sessionAPI.status({ signal: controller.signal });
         if (res.data.running) {
           setSessionActive(true, res.data.strategyId || res.data.strategy_id);
         }
@@ -49,18 +58,24 @@ const App = () => {
           config: res.data.config ? { ...config, ...res.data.config } : config,
         });
       } catch (e) {
-        console.error("Failed to fetch session status", e);
+        if (e.name !== 'CanceledError') {
+          console.error("Failed to fetch session status", e);
+        }
       }
     }
     checkStatus();
 
     const handleHashChange = () => {
-      const hash = window.location.hash.replace('#/', '') || 'cockpit';
+      const hash = (window.location.hash.replace('#/', '') || 'cockpit').split('?')[0];
       setView(hash === 'dashboard' ? 'cockpit' : hash);
     };
     window.addEventListener('hashchange', handleHashChange);
     handleHashChange();
-    return () => window.removeEventListener('hashchange', handleHashChange);
+
+    return () => {
+      controller.abort();
+      window.removeEventListener('hashchange', handleHashChange);
+    };
   }, [setSessionActive, balance, totalRiskPct, config, updateStats]);
 
   const renderView = () => {

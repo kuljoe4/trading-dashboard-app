@@ -43,13 +43,9 @@ export class TradingSessionService {
   private userDataWs: any = null;
   private listenKey: string | null = null;
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
-  private listenerCount = 0;
 
   private getStrategyLabel(config: Partial<SessionConfig> | null | undefined, index = 0): string {
-
-    const label = (config?.strategy_label || (index === 0 ? 'Momentum Strategy' : `Strategy ${index + 1}`)).toString();
-    console.log(`[DEBUG] getStrategyLabel config: ${JSON.stringify(config?.strategy_label)}, index: ${index}, result: ${label}`);
-    return label;
+    return (config?.strategy_label || (index === 0 ? 'Momentum Strategy' : `Strategy ${index + 1}`)).toString();
   }
 
   private getStrategyConfigs(): SessionConfig[] {
@@ -217,6 +213,7 @@ export class TradingSessionService {
         trade.exit_ts = new Date();
         trade.exit_reason = 'SESSION_TERMINATED';
         this.closedTrades.push(trade);
+        if (this.onTradeUpdate) this.onTradeUpdate(trade);
         this.positionTracker.removeTrade(trade.symbol);
       }
     }
@@ -449,7 +446,7 @@ export class TradingSessionService {
       if (!price) continue;
 
       const lookback = await this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
-      const slPrice = await this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.lows, lookback.highs);
+      const slPrice = await this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.minLow, lookback.maxHigh);
       const qty = await this.riskEngine.computePositionSize(this.getBalance(), price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
       
       if (qty <= 0) continue;
@@ -610,12 +607,21 @@ export class TradingSessionService {
 
   private async broadcastTick() {
     const activeTrades = this.positionTracker.activeList();
+
+    // BOLT OPTIMIZATION: Index last tick data for O(1) lookup during price fallbacks
+    const prevTickMap = new Map<string, any>();
+    if (this.lastTickData?.trades) {
+      for (const t of this.lastTickData.trades) {
+        prevTickMap.set(t.symbol, t);
+      }
+    }
+
     const trades = await Promise.all(activeTrades.map(async (trade) => {
       let current = await this.tickerCache.getPrice(trade.symbol);
       
       // Fallback to previous price if cache miss to prevent PnL flickering
-      if (current === null && this.lastTickData) {
-        const prevTrade = this.lastTickData.trades?.find((t: any) => t.symbol === trade.symbol);
+      if (current === null) {
+        const prevTrade = prevTickMap.get(trade.symbol);
         if (prevTrade) {
           current = prevTrade.current_price;
         }

@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 
 export class SingleSymbolConfig {
   @IsString()
+  @MaxLength(20)
   symbol: string = "";
 
   @IsBoolean()
@@ -50,6 +51,7 @@ export class SessionConfig {
 
   @IsString()
   @IsOptional()
+  @MaxLength(10)
   scan_interval: string = "5m";
 
   @IsNumber()
@@ -106,6 +108,7 @@ export class SessionConfig {
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
+  @ArrayMaxSize(20)
   enabled_signals?: string[] = ['momentum_pct'];
 
   @IsEnum(['any', 'all'])
@@ -135,6 +138,7 @@ export class SessionConfig {
 
   @IsString()
   @IsOptional()
+  @MaxLength(10)
   sl_lookback_timeframe?: string = "5m";
 
   @IsNumber()
@@ -165,17 +169,20 @@ export class SessionConfig {
   @IsArray()
   @IsNumber({}, { each: true })
   @IsOptional()
+  @ArrayMaxSize(10)
   live_rr_sequence?: number[] = [1.0, 2.0, 4.0];
 
   @IsArray()
   @IsNumber({}, { each: true })
   @IsOptional()
+  @ArrayMaxSize(10)
   exit_rr_sequence?: number[] = [0.0, 1.0, 2.0];
 
   // Exit Signal Configuration - ANY exit signal fires close
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
+  @ArrayMaxSize(20)
   exit_signals?: string[] = [];
 
   @IsEnum(['any', 'all'])
@@ -251,6 +258,7 @@ export class SessionConfig {
   // Schedule & Advanced Risk
   @IsArray()
   @IsOptional()
+  @ArrayMaxSize(10)
   @IsObject({ each: true })
   trading_windows?: { start: string; end: string }[] = [];
 

@@ -280,7 +280,19 @@ export const useTradingStore = create((set, get) => ({
     if (get().ws) return
     set({ wsStatus: 'connecting' })
 
-    const wsUrl = import.meta.env.VITE_WS_URL || (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + (window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '')) + '/session/ws'
+    let wsUrl = import.meta.env.VITE_WS_URL;
+    
+    if (wsUrl) {
+      // Ensure the URL ends with /session/ws
+      if (!wsUrl.endsWith('/session/ws')) {
+        wsUrl = wsUrl.replace(/\/$/, '') + '/session/ws';
+      }
+    } else {
+      const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+      const host = window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '');
+      wsUrl = `${protocol}${host}/session/ws`;
+    }
+
     const ws = new WebSocket(wsUrl)
 
     ws.onopen = () => {

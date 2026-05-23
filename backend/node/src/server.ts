@@ -71,6 +71,21 @@ async function bootstrap() {
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/session/ws',
+    perMessageDeflate: {
+      zlibDeflateOptions: {
+        chunkSize: 1024,
+        memLevel: 7,
+        level: 3,
+      },
+      zlibInflateOptions: {
+        chunkSize: 10 * 1024
+      },
+      clientNoContextTakeover: true,
+      serverNoContextTakeover: true,
+      serverMaxWindowBits: 10,
+      concurrencyLimit: 10,
+      threshold: 1024,
+    },
     verifyClient: (info, done) => {
       const origin = info.origin ? info.origin.replace(/\/$/, '') : null;
       const isAllowed = !origin || allowedOrigins.some(o => o.replace(/\/$/, '') === origin) || nodeEnv !== 'production';
@@ -89,7 +104,8 @@ async function bootstrap() {
     
     // Synchronize listener count for loop optimization
     const tradingSessionService = app.get(TradingSessionService);
-    tradingSessionService.setListenerCount(clients.length);
+    const activeCount = clients.filter((c: any) => c.isActive !== false).length;
+    tradingSessionService.setListenerCount(activeCount);
   };
 
   sessionService.setBroadcaster((data: any) => {
@@ -97,6 +113,11 @@ async function bootstrap() {
     
     wss.clients.forEach((client: any) => {
       if (client.readyState !== client.OPEN) return;
+
+      // Optimization: Skip ticks, scanner, and logs for inactive (background) clients to save network egress
+      if (client.isActive === false && (basePayload.type === 'tick' || basePayload.type === 'scanner' || basePayload.type === 'log')) {
+        return;
+      }
 
       if (basePayload.type === 'scanner' && client.focusMode === true) return;
 
@@ -127,10 +148,11 @@ async function bootstrap() {
   wss.on('connection', async (socket: any) => {
     socket.monitoringEnabled = true;
     socket.focusMode = false;
+    socket.isActive = true; // Default to active on connect
     socket.logFilters = { info: true, warn: true, error: true };
     updateMonitoringSuppression();
     
-    socket.on('message', (message: string) => {
+    socket.on('message', async (message: string) => {
       try {
         if (message.length > 1000) return;
         const data = JSON.parse(message);
@@ -140,6 +162,18 @@ async function bootstrap() {
         }
         if (data.type === 'set_focus_mode') {
           socket.focusMode = data.enabled === true;
+        }
+        if (data.type === 'set_active') {
+          const wasActive = socket.isActive;
+          socket.isActive = data.active === true;
+          // If state changed, update backend listener count for loop optimization
+          if (wasActive !== socket.isActive) {
+            updateMonitoringSuppression();
+          }
+          // If becoming active again, send full status to sync state
+          if (!wasActive && socket.isActive) {
+             socket.send(JSON.stringify({ type: 'status', ...(await sessionService.getStatus()) }));
+          }
         }
         if (data.type === 'set_log_filters' && typeof data.filters === 'object' && data.filters !== null) {
           socket.logFilters = {

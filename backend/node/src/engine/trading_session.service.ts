@@ -40,6 +40,7 @@ export class TradingSessionService {
   private mainLoopInterval: NodeJS.Timeout | null = null;
   private hotLoopInterval: NodeJS.Timeout | null = null;
   private balancePollInterval: NodeJS.Timeout | null = null;
+  private lastScannerFullBroadcast = 0;
   private userDataWs: any = null;
   private listenKey: string | null = null;
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
@@ -326,12 +327,30 @@ export class TradingSessionService {
         opportunities: opportunitiesBySignature.get(this.scanSignature(config)) || [],
       }));
 
-      this.updateScannerResults(primaryOpportunities);
+      // BOLT: Only update scanner results for UI if there are active listeners
+      if (this.listenerCount > 0) {
+        this.updateScannerResults(primaryOpportunities);
+      }
       
+      const now = Date.now();
+      const isFullBroadcast = now - this.lastScannerFullBroadcast > 30000;
+      if (isFullBroadcast) this.lastScannerFullBroadcast = now;
+
       this.broadcast('scanner', {
         count: this.lastScannerResults.length,
-        opportunities: this.lastScannerResults,
-        variant_opportunities: scannerData,
+        opportunities: this.lastScannerResults.slice(0, 5).map(o => {
+          if (isFullBroadcast) return o;
+          const { history, ...rest } = o; // Skip history (sparkline data) in delta updates
+          return rest;
+        }),
+        variant_opportunities: scannerData.map(v => ({
+          ...v,
+          opportunities: v.opportunities.slice(0, 5).map((o: any) => {
+             if (isFullBroadcast) return o;
+             const { history, ...rest } = o;
+             return rest;
+          })
+        })),
         activeWindows: this.getActiveWindows(),
       });
 
@@ -561,7 +580,7 @@ export class TradingSessionService {
     return 'risk';
   }
 
-  private serializeTrade(trade: Trade, currentPrice?: number) {
+  private serializeTrade(trade: Trade, currentPrice?: number, minimal = false) {
     const anyTrade = trade as any;
     const direction = (anyTrade.direction || anyTrade.side || 'LONG').toString().toUpperCase();
     const entry = anyTrade.entry_price ?? anyTrade.entry ?? 0;
@@ -579,6 +598,19 @@ export class TradingSessionService {
       pnl = (direction === 'LONG' ? (current - entry) * (anyTrade.qty ?? 0) : (entry - current) * (anyTrade.qty ?? 0));
       const risk = Math.abs(entry - (anyTrade.initial_sl ?? anyTrade.current_sl ?? anyTrade.sl_price ?? anyTrade.sl ?? entry)) || 1;
       rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / risk;
+    }
+
+    if (minimal) {
+      return {
+        id: trade.id,
+        symbol: trade.symbol,
+        current_price: current ?? entry,
+        sl_price: anyTrade.current_sl ?? anyTrade.sl_price,
+        pnl: pnl !== undefined && Number.isFinite(pnl) ? pnl : undefined,
+        rr: rrValue !== undefined && Number.isFinite(rrValue) ? rrValue : undefined,
+        max_rr: anyTrade.max_rr_achieved ?? anyTrade.max_rr ?? 0,
+        _delta: true,
+      };
     }
 
     return {
@@ -627,7 +659,8 @@ export class TradingSessionService {
         }
       }
       
-      return this.serializeTrade(trade, current ?? undefined);
+      // BOLT: Use minimal serialization for ticks (delta updates) to save network egress
+      return this.serializeTrade(trade, current ?? undefined, true);
     }));
     const activePnl = trades.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
     const balance = this.getBalance();

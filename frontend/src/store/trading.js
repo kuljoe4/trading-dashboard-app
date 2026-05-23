@@ -50,6 +50,20 @@ const normalizeTrade = (trade = {}, prevTrade = null) => {
   if (!trade || typeof trade !== 'object') return null;
 
   const prev = prevTrade || {};
+
+  // If this is a delta update, merge it with previous state
+  if (trade._delta) {
+    return {
+      ...prev,
+      ...trade,
+      pnl: trade.pnl !== undefined ? toNumber(trade.pnl) : prev.pnl,
+      rr: trade.rr !== undefined ? toNumber(trade.rr) : prev.rr,
+      current_price: trade.current_price !== undefined ? toNumber(trade.current_price) : prev.current_price,
+      sl_price: trade.sl_price !== undefined ? toNumber(trade.sl_price) : prev.sl_price,
+      max_rr: trade.max_rr !== undefined ? toNumber(trade.max_rr) : prev.max_rr,
+    };
+  }
+
   // Preserve existing values when websocket data is partial to avoid flicker
   const entry_price = toNumber(trade.entry_price ?? trade.entry ?? prev.entry_price);
   const current_price = toNumber(
@@ -200,6 +214,10 @@ export const useTradingStore = create((set, get) => ({
   
   setThrottled: (isThrottled) => {
     set({ isThrottled })
+    const ws = get().ws
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'set_active', active: !isThrottled }))
+    }
   },
 
   setHealthEnabled: (enabled) => {
@@ -300,6 +318,7 @@ export const useTradingStore = create((set, get) => ({
       // Send current health preference on open
       ws.send(JSON.stringify({ type: 'set_monitoring', enabled: get().healthEnabled }))
       ws.send(JSON.stringify({ type: 'set_log_filters', filters: get().logFilters }))
+      ws.send(JSON.stringify({ type: 'set_active', active: !get().isThrottled }))
     }
 
     // Throttled scanner update to prevent React choking on high-freq updates
@@ -412,10 +431,32 @@ export const useTradingStore = create((set, get) => ({
             });
           }
 
-          set({
-            scannerResults: (data.opportunities || []).map(normalizeOpportunity),
-            variantScannerResults: variantResults,
-            activeWindows: (data.activeWindows || []).map(normalizeWindow),
+          set((state) => {
+            const nextResults = (data.opportunities || []).map(o => {
+              const normalized = normalizeOpportunity(o);
+              const prev = state.scannerResults.find(p => p.symbol === normalized.symbol);
+              if (prev && normalized.history === undefined) {
+                normalized.history = prev.history;
+              }
+              return normalized;
+            });
+
+            const nextVariantResults = {};
+            Object.keys(variantResults).forEach(label => {
+              nextVariantResults[label] = variantResults[label].map(o => {
+                const prev = state.variantScannerResults[label]?.find(p => p.symbol === o.symbol);
+                if (prev && o.history === undefined) {
+                  o.history = prev.history;
+                }
+                return o;
+              });
+            });
+
+            return {
+              scannerResults: nextResults,
+              variantScannerResults: nextVariantResults,
+              activeWindows: (data.activeWindows || []).map(normalizeWindow),
+            };
           })
           lastScannerUpdate = now;
         }

@@ -259,7 +259,8 @@ export function DashboardView() {
   const [showScanner, setShowScanner] = useState(false)
   const [isEditMode, setIsEditMode] = useState(false)
   const [selectedConfig, setSelectedConfig] = useState(null)
-  
+  const [confirmStop, setConfirmStop] = useState(false)
+
   const {
     sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
     totalSlUsed, activeTrades, config, setSessionActive,
@@ -294,6 +295,14 @@ export function DashboardView() {
   }))
 
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    let timer;
+    if (confirmStop) {
+      timer = setTimeout(() => setConfirmStop(false), 3000);
+    }
+    return () => clearTimeout(timer);
+  }, [confirmStop]);
 
   const currentStrategy = useMemo(() => ({
     sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, logs
@@ -347,6 +356,11 @@ export function DashboardView() {
   }
 
   async function handleStop() {
+    if (!confirmStop) {
+      setConfirmStop(true)
+      return
+    }
+
     setLoading(true)
     try {
       await sessionAPI.stop()
@@ -357,6 +371,7 @@ export function DashboardView() {
       await fetchSessions()
     } finally {
       setLoading(false)
+      setConfirmStop(false)
     }
   }
 
@@ -420,8 +435,17 @@ export function DashboardView() {
                 <Plus size={16} className="mr-2" /> New Session
               </Btn>
             ) : (
-              <Btn variant="danger" onClick={handleStop} disabled={loading} className="flex-1 sm:flex-none">
-                <XCircle size={16} className="mr-2" /> Terminate Session
+              <Btn
+                variant="danger"
+                onClick={handleStop}
+                disabled={loading}
+                aria-label={confirmStop ? "Confirm terminate session" : "Terminate session"}
+                className={cn("flex-1 sm:flex-none transition-all duration-300", confirmStop && "bg-red/80 animate-pulse")}
+              >
+                <XCircle size={16} className="mr-2" />
+                <span aria-live="polite">
+                  {loading ? 'Terminating...' : confirmStop ? 'Confirm?' : 'Terminate Session'}
+                </span>
               </Btn>
             )}
           </div>

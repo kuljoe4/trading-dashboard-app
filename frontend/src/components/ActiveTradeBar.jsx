@@ -239,14 +239,6 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
     return () => clearTimeout(timer);
   }, [confirmClose]);
 
-  useEffect(() => {
-    let timer
-    if (confirmClose) {
-      timer = setTimeout(() => setConfirmClose(false), 3000)
-    }
-    return () => clearTimeout(timer)
-  }, [confirmClose])
-
   const handleClose = async () => {
     if (!confirmClose) {
       setConfirmClose(true)

@@ -36,13 +36,18 @@ export const DecisionLog = React.memo(() => {
 
   return (
     <div className="flex flex-col gap-3 max-h-[400px] overflow-hidden">
-      <div className="flex flex-wrap gap-2 items-center">
+      <div
+        role="group"
+        aria-label="Filter logs by level"
+        className="flex flex-wrap gap-2 items-center"
+      >
         {filterButtons.map((filter) => {
           const active = logFilters[filter.level]
           return (
             <button
               key={filter.level}
               type="button"
+              aria-pressed={active}
               onClick={() => toggleLogFilter(filter.level)}
               aria-pressed={active}
               className={cn(

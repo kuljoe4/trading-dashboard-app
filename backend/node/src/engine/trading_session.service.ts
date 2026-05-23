@@ -97,7 +97,7 @@ export class TradingSessionService {
   }
 
   setListenerCount(count: number) {
-    this.listenerCount = count;
+    // this.listenerCount = count;
   }
 
   setBalanceUpdateCallback(cb: (balance: number, pnl: number) => void) {
@@ -328,9 +328,7 @@ export class TradingSessionService {
       }));
 
       // BOLT: Only update scanner results for UI if there are active listeners
-      if (this.listenerCount > 0) {
-        this.updateScannerResults(primaryOpportunities);
-      }
+      this.updateScannerResults(primaryOpportunities);
       
       const now = Date.now();
       const isFullBroadcast = now - this.lastScannerFullBroadcast > 30000;
@@ -710,7 +708,6 @@ export class TradingSessionService {
     
     // Optimization: Only broadcast if significant data changed or as a heartbeat
     // BOLT OPTIMIZATION: Skip construction and broadcast if no one is listening
-    if (this.listenerCount === 0) return;
 
     let shouldBroadcast = !this.lastTickData || (now - this.lastTickTime > 10000); // Heartbeat every 10s (was 5s)
 

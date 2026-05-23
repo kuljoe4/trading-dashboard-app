@@ -170,11 +170,11 @@ export class SessionService implements OnModuleInit {
       config = session.config;
       paperMode = session.paperMode;
       
-      // Update config with current session balance so engine starts with correct funds
+      // Preserving starting balance if it exists in the config to maintain correct PnL calculation across restarts
       if (paperMode) {
-        config.paper_starting_balance = Number(session.balance);
+        config.paper_starting_balance = config.paper_starting_balance || Number(session.balance);
       } else {
-        config.live_starting_balance = Number(session.balance);
+        config.live_starting_balance = config.live_starting_balance || Number(session.balance);
       }
     } else {
       session = this.sessionRepository.create({
@@ -194,10 +194,10 @@ export class SessionService implements OnModuleInit {
     // Load initial history for TOD risk context
     const initialHistory = await this.tradeRepository.find({
       where: [
-        { status: 'CLOSED' as any },
-        { status: 'CLOSED_SL' },
-        { status: 'CLOSED_TP' },
-        { status: 'CLOSED_SIGNAL' },
+        { status: 'CLOSED' as any, sessionId: this.currentSessionId },
+        { status: 'CLOSED_SL', sessionId: this.currentSessionId },
+        { status: 'CLOSED_TP', sessionId: this.currentSessionId },
+        { status: 'CLOSED_SIGNAL', sessionId: this.currentSessionId },
       ],
       order: { exit_ts: 'DESC' },
       take: 200,
@@ -340,7 +340,7 @@ export class SessionService implements OnModuleInit {
     if (!session) return { running: false };
 
     const engineStatus: any = this.tradingSessionService.getStatus();
-    const activeTrades = (await this.tradeRepository.find({ where: { status: 'OPEN' } })).filter(trade => 
+    const activeTrades = (await this.tradeRepository.find({ where: { status: 'OPEN', sessionId: session.id } })).filter(trade =>
       trade.entry_price != null && !isNaN(Number(trade.entry_price)) && 
       trade.qty != null && !isNaN(Number(trade.qty))
     );
@@ -375,7 +375,12 @@ export class SessionService implements OnModuleInit {
 
   async getHistory() {
     const closedTrades = await this.tradeRepository.find({
-      where: [
+      where: this.currentSessionId ? [
+        { status: 'CLOSED' as any, sessionId: this.currentSessionId },
+        { status: 'CLOSED_SL', sessionId: this.currentSessionId },
+        { status: 'CLOSED_TP', sessionId: this.currentSessionId },
+        { status: 'CLOSED_SIGNAL', sessionId: this.currentSessionId },
+      ] : [
         { status: 'CLOSED' as any },
         { status: 'CLOSED_SL' },
         { status: 'CLOSED_TP' },
@@ -397,7 +402,12 @@ export class SessionService implements OnModuleInit {
     // Only fetch minimal columns for analytics to save memory
     const trades = await this.tradeRepository.find({
       select: ['pnl', 'exit_ts', 'status'],
-      where: [
+      where: this.currentSessionId ? [
+        { status: 'CLOSED' as any, sessionId: this.currentSessionId },
+        { status: 'CLOSED_SL', sessionId: this.currentSessionId },
+        { status: 'CLOSED_TP', sessionId: this.currentSessionId },
+        { status: 'CLOSED_SIGNAL', sessionId: this.currentSessionId },
+      ] : [
         { status: 'CLOSED' as any },
         { status: 'CLOSED_SL' },
         { status: 'CLOSED_TP' },

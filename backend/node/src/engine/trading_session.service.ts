@@ -217,6 +217,7 @@ export class TradingSessionService {
         trade.exit_ts = new Date();
         trade.exit_reason = 'SESSION_TERMINATED';
         this.closedTrades.push(trade);
+        if (this.onTradeUpdate) this.onTradeUpdate(trade);
         this.positionTracker.removeTrade(trade.symbol);
       }
     }

@@ -44,7 +44,7 @@ export class SessionConfig {
 
   @IsArray()
   @IsOptional()
-  @ArrayMaxSize(200)
+  @ArrayMaxSize(100)
   @ValidateNested({ each: true })
   @Type(() => SingleSymbolConfig)
   single_symbol_configs: SingleSymbolConfig[] = [];
@@ -96,13 +96,13 @@ export class SessionConfig {
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
-  @ArrayMaxSize(200)
+  @ArrayMaxSize(100)
   excluded_symbols?: string[];
 
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
-  @ArrayMaxSize(200)
+  @ArrayMaxSize(100)
   symbols?: string[];
 
   @IsArray()
@@ -258,7 +258,7 @@ export class SessionConfig {
   // Schedule & Advanced Risk
   @IsArray()
   @IsOptional()
-  @ArrayMaxSize(24)
+  @ArrayMaxSize(10)
   @IsObject({ each: true })
   trading_windows?: { start: string; end: string }[] = [];
 

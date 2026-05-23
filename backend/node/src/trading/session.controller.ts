@@ -1,7 +1,8 @@
 import { Controller, Post, Get, Body, Patch, Delete, Param, ParseUUIDPipe } from '@nestjs/common';
 import { SessionService } from './session.service';
 import { SessionConfig } from '../models/SessionConfig';
-import { StartSessionDto, UpdateSessionDto, PauseSessionDto } from './dto/session.dto';
+import { StartSessionDto, UpdateSessionDto } from './dto/session.dto';
+import { PauseSessionDto } from './dto/pause-session.dto';
 
 @Controller('session')
 export class SessionController {

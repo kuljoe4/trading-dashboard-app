@@ -161,7 +161,7 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
 })
 
 // --- P&L Bars ---
-export const PnLBars = ({ trades }) => {
+export const PnLBars = React.memo(({ trades }) => {
   if (!trades || trades.length === 0) return <div className="h-[60px] flex items-center justify-center text-[10px] text-dim font-bold uppercase tracking-widest">No Trade Data</div>
   const max = Math.max(...trades.map(t => Math.abs(t.pnl || 0)), 1);
   return (
@@ -174,7 +174,7 @@ export const PnLBars = ({ trades }) => {
         const pnl = t.pnl || 0;
         const h = Math.max(4, (Math.abs(pnl) / max) * 52);
         return (
-          <div key={i} title={`${t.symbol}: ${pnl}`} className={cn(
+          <div key={t.id || `${t.symbol}-${i}`} title={`${t.symbol}: ${pnl}`} className={cn(
             "flex-1 rounded-t-sm transition-all duration-300 hover:scale-y-110",
             pnl >= 0 ? "bg-green shadow-[0_0_10px_rgba(0,229,160,0.2)]" : "bg-red shadow-[0_0_10px_rgba(255,68,102,0.2)]"
           )} style={{ height: `${h}px` }} />
@@ -182,7 +182,7 @@ export const PnLBars = ({ trades }) => {
       })}
     </div>
   );
-}
+})
 
 // --- Sparkline ---
 export const Sparkline = SparklineChart;

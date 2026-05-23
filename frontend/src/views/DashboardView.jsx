@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, lazy, Suspense } from 'react'
+import { shallow } from 'zustand/shallow'
 import { pnlColor, fmtUSD, C } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
 import { sessionAPI } from '../api/client'
@@ -31,8 +32,7 @@ const LoadingFallback = () => (
 )
 
 // --- Strategy Card ---
-// --- Strategy Card ---
-const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused, scannerResults }) => {
+const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
@@ -113,7 +113,7 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused, scannerResu
             {fmtUSD(s.totalPnl)}
           </div>
           <div className="text-[10px] text-dim font-bold uppercase tracking-widest mt-1">
-            {s.logs.filter(l => l.msg.includes('Entry')).length} ENTRIES
+            {s.entryCount} ENTRIES
           </div>
         </div>
       </div>
@@ -150,7 +150,7 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused, scannerResu
       </AnimatePresence>
     </motion.div>
   );
-}
+})
 
 const GateBanner = ({ gateState, scannerPaused }) => {
   if (!gateState && !scannerPaused) return null
@@ -285,19 +285,21 @@ export function DashboardView() {
     wsStatus: state.wsStatus,
     sidebarCollapsed: state.sidebarCollapsed,
     variantScannerResults: state.variantScannerResults
-  }))
+  }), shallow)
 
-  const logs = useTradingStore(state => state.logs)
+  // BOLT OPTIMIZATION: Select only entry count to avoid Dashboard re-rendering on every log
+  const entryCount = useTradingStore(state => state.logs.filter(l => l.msg.includes('Entry')).length)
+
   const { updateStats, setFocusMode } = useTradingStore(state => ({
     updateStats: state.updateStats,
     setFocusMode: state.setFocusMode
-  }))
+  }), shallow)
 
   const [loading, setLoading] = useState(false)
 
   const currentStrategy = useMemo(() => ({
-    sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, logs
-  }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, logs])
+    sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount
+  }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount])
 
   const maxRR = useMemo(() => activeTrades.reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
 

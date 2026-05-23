@@ -27,3 +27,6 @@
 ## 2026-05-20 - [Detail Toggle Accessibility & Logic Refinement]
 **Learning:** Collapsible detail sections in dashboards (like trade bars and strategy cards) require `aria-expanded` on the trigger button to effectively communicate their state to screen readers. Furthermore, duplicate logic in state-management hooks (e.g., multiple `useEffect` blocks for the same timer) can accrue during rapid iterations and should be consolidated to improve maintainability.
 **Action:** Always accompany collapsible triggers with `aria-expanded` and perform periodic logic audits to eliminate redundant effects.
+## 2026-05-20 - [Standardizing Destructive Confirmation UX]
+**Learning:** Applying a consistent two-stage "Click to Confirm" pattern across all destructive session-level actions (not just individual trades) prevents catastrophic accidental data loss or session termination. Using `aria-live="polite"` and updating `aria-label` ensures the state change is accessible to screen readers.
+**Action:** Always implement confirmation gates for destructive buttons (Terminate, Delete, Clear) using a timed auto-reset pattern with clear visual and audible feedback.

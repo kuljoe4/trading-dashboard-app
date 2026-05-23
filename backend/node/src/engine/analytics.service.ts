@@ -32,14 +32,13 @@ export class AnalyticsService {
       .sort((a, b) => a.exit_ts!.getTime() - b.exit_ts!.getTime());
 
     const totalTrades = sortedTrades.length;
-    let totalWins = 0;
     let currentPnL = 0;
     let maxPnL = 0;
     let maxDD = 0;
     let maxDDPct = 0;
+    let totalWins = 0;
 
     const cumulativePnL: { ts: string; pnl: number }[] = new Array(totalTrades);
-
     // Time of day analysis (0-23 hours) - Fixed size array for better performance
     const todStats = Array.from({ length: 24 }, () => ({ pnl: 0, wins: 0, total: 0 }));
 

@@ -83,6 +83,8 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused, scannerResu
           <div className="flex gap-2 mb-2 relative z-20">
             <button
               onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
+              aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
+              aria-expanded={isExpanded}
               className={cn(
                 "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95",
                 isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
@@ -93,6 +95,7 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused, scannerResu
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); onEdit(); }}
+              aria-label="Edit strategy configuration"
               className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95"
               title="Edit Config"
             >
@@ -100,6 +103,7 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused, scannerResu
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); onPause(); }}
+              aria-label={paused ? "Resume session" : "Pause session"}
               className={cn(
                 "p-2 border rounded-lg transition-all active:scale-95",
                 paused ? "bg-green/10 border-green/20 text-green hover:bg-green/20" : "bg-amber/10 border-amber/20 text-amber hover:bg-amber/20"

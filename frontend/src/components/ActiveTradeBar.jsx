@@ -239,14 +239,6 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
     return () => clearTimeout(timer);
   }, [confirmClose]);
 
-  useEffect(() => {
-    let timer
-    if (confirmClose) {
-      timer = setTimeout(() => setConfirmClose(false), 3000)
-    }
-    return () => clearTimeout(timer)
-  }, [confirmClose])
-
   const handleClose = async () => {
     if (!confirmClose) {
       setConfirmClose(true)
@@ -447,6 +439,7 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
       <div className="mt-6 flex gap-3">
         <button
           onClick={() => setIsExpanded(!isExpanded)}
+          aria-expanded={isExpanded}
           className="flex-1 px-4 py-3 bg-surface border border-border hover:border-accent/40 text-text rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2"
         >
           {isExpanded ? 'Hide Details' : 'View Details'}

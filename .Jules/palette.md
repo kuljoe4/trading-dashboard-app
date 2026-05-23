@@ -23,3 +23,7 @@
 ## 2026-05-18 - [Destructive Action Confirmation]
 **Learning:** For high-stakes destructive actions like closing a trade, a two-stage "Click to Confirm" pattern provides a lightweight but effective safety net. Adding an `animate-pulse` effect and a 3-second auto-reset ensures the state change is visually obvious and self-correcting. Using `aria-live="polite"` ensures accessibility for screen readers during the state transition.
 **Action:** Implement two-stage confirmation for destructive UI actions, ensuring clear visual feedback, auto-reset timeouts, and accessible status announcements.
+
+## 2026-05-20 - [Detail Toggle Accessibility & Logic Refinement]
+**Learning:** Collapsible detail sections in dashboards (like trade bars and strategy cards) require `aria-expanded` on the trigger button to effectively communicate their state to screen readers. Furthermore, duplicate logic in state-management hooks (e.g., multiple `useEffect` blocks for the same timer) can accrue during rapid iterations and should be consolidated to improve maintainability.
+**Action:** Always accompany collapsible triggers with `aria-expanded` and perform periodic logic audits to eliminate redundant effects.

@@ -420,6 +420,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                     }
                     setSymbolSearch('')
                   }}
+                  aria-label="Add symbol monitor"
+                  title="Add symbol monitor"
                   className="px-4"
                 >
                   <Plus size={18} />
@@ -466,12 +468,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                         <div className="flex items-center gap-1">
                           <button
                             onClick={() => setEditingSingleSymbolIndex(editingSingleSymbolIndex === i ? null : i)}
+                            aria-label={editingSingleSymbolIndex === i ? "Close symbol settings" : "Open symbol settings"}
+                            aria-expanded={editingSingleSymbolIndex === i}
+                            title="Symbol Settings"
                             className={cn("p-2 rounded-lg transition-colors", editingSingleSymbolIndex === i ? "bg-accent/20 text-accent" : "text-dim hover:bg-white/5 hover:text-text")}
                           >
                             <Settings2 size={16} />
                           </button>
                           <button
                             onClick={() => setField('single_symbol_configs', cfg.single_symbol_configs.filter((_, idx) => idx !== i))}
+                            aria-label={`Delete monitor for ${sc.symbol}`}
+                            title="Delete Monitor"
                             className="p-2 text-dim hover:text-red transition-colors"
                           >
                             <Trash2 size={16} />
@@ -821,7 +828,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                              setField('trading_windows', next);
                           }} className="bg-surface border border-border rounded px-2 py-1 text-xs font-mono" />
                        </div>
-                       <button onClick={() => setField('trading_windows', cfg.trading_windows.filter((_, idx) => idx !== i))} className="text-red/60 hover:text-red p-2">
+                       <button
+                         onClick={() => setField('trading_windows', cfg.trading_windows.filter((_, idx) => idx !== i))}
+                         aria-label={`Delete trading window ${w.start} to ${w.end}`}
+                         title="Delete Window"
+                         className="text-red/60 hover:text-red p-2"
+                        >
                           <Trash2 size={16} />
                        </button>
                     </div>
@@ -849,6 +861,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                 <button
                   onClick={savePreset}
                   disabled={!presetName && !generatedPresetName}
+                  aria-label="Save current configuration as preset"
+                  title="Save Preset"
                   className="bg-accent/10 border border-accent/20 text-accent px-4 py-2 rounded-md hover:bg-accent/20 disabled:opacity-50 transition-colors"
                 >
                   <Save size={18} />
@@ -898,6 +912,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                         </button>
                         <button
                           onClick={(e) => deletePreset(e, p.name)}
+                          aria-label={`Delete preset ${p.name}`}
+                          title="Delete Preset"
                           className="p-2 text-dim hover:text-red transition-colors opacity-0 group-hover:opacity-100"
                         >
                           <Trash2 size={16} />

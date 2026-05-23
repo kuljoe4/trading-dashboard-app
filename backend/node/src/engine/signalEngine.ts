@@ -299,17 +299,15 @@ export class SignalEngineService {
         return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Dual', description: 'Insufficient data' };
       }
 
-      const fastEmas = this.calculateEMASeries(candles, fastPeriod);
-      const slowEmas = this.calculateEMASeries(candles, slowPeriod);
+      const fastEmas = this.calculateEMALastTwo(candles, fastPeriod);
+      const slowEmas = this.calculateEMALastTwo(candles, slowPeriod);
 
-      if (fastEmas.length < 2 || slowEmas.length < 2) {
+      if (!fastEmas || !slowEmas) {
         return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Dual', description: 'Insufficient EMA data' };
       }
 
-      const prevFast = fastEmas[fastEmas.length - 2];
-      const currFast = fastEmas[fastEmas.length - 1];
-      const prevSlow = slowEmas[slowEmas.length - 2];
-      const currSlow = slowEmas[slowEmas.length - 1];
+      const [prevFast, currFast] = fastEmas;
+      const [prevSlow, currSlow] = slowEmas;
 
       let fired = false;
       if (purpose === 'entry') {
@@ -396,17 +394,24 @@ export class SignalEngineService {
     }
   }
 
-  private calculateEMASeries(candles: any[], period: number): number[] {
-    if (candles.length < period) return [];
+  /**
+   * BOLT OPTIMIZATION: Returns only the last two EMA values [previous, current]
+   * to avoid large array allocations in the hot scanner path.
+   */
+  private calculateEMALastTwo(candles: any[], period: number): [number, number] | null {
+    if (candles.length < period + 1) return null;
     const multiplier = 2 / (period + 1);
-    const result: number[] = [];
 
+    let prevEma = NaN;
     let ema = this.calculateSMA(candles, 0, period);
+
     for (let i = period; i < candles.length; i++) {
+      prevEma = ema;
       ema = candles[i].close * multiplier + ema * (1 - multiplier);
-      result.push(ema);
     }
-    return result;
+
+    if (Number.isNaN(prevEma)) return null;
+    return [prevEma, ema];
   }
 
   private calculateSMA(candles: any[], start: number, end: number): number {

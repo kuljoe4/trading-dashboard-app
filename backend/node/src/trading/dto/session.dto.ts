@@ -1,3 +1,4 @@
+import { IsOptional, IsBoolean, IsString, ValidateNested, IsUUID } from 'class-validator';
 import { IsOptional, IsBoolean, IsString, ValidateNested, IsUUID, IsNotEmpty } from 'class-validator';
 import { Type } from 'class-transformer';
 import { SessionConfig } from '../../models/SessionConfig';

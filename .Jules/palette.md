@@ -23,3 +23,7 @@
 ## 2026-05-18 - [Destructive Action Confirmation]
 **Learning:** For high-stakes destructive actions like closing a trade, a two-stage "Click to Confirm" pattern provides a lightweight but effective safety net. Adding an `animate-pulse` effect and a 3-second auto-reset ensures the state change is visually obvious and self-correcting. Using `aria-live="polite"` ensures accessibility for screen readers during the state transition.
 **Action:** Implement two-stage confirmation for destructive UI actions, ensuring clear visual feedback, auto-reset timeouts, and accessible status announcements.
+
+## 2026-05-23 - [Contextual Empty States & Transition Accessibility]
+**Learning:** Empty states in active dashboards (like Decision Logs) are often static and unhelpful. Adding contextual icons (distinguishing "no data" vs "no results matching filters") and using smooth `framer-motion` transitions makes the UI feel alive. Additionally, toggled filters must use `aria-pressed` to communicate state to screen readers.
+**Action:** Always design empty states with contextual icons and helpful guidance. Use `aria-pressed` for filter buttons and `AnimatePresence` for smooth list transitions.

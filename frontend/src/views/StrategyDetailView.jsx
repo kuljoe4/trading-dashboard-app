@@ -8,11 +8,12 @@ import {
   ConditionWidget, PnLBars, cn
 } from '../components/ui/primitives'
 import {
-  ChevronLeft, Activity, BarChart3
+  ChevronLeft, Activity, BarChart3, TrendingUp
 } from 'lucide-react'
+import { EquityCurve } from '../components/Analytics'
 
 const StrategyDetailView = ({ s, onBack }) => {
-  const { config, scannerResults } = useTradingStore()
+  const { config, scannerResults, analytics } = useTradingStore()
   const bestOpp = scannerResults[0] || { symbol: '---', pct: 0, dir: '---' }
   const scanMet = Math.abs(bestOpp.pct) >= config.scan_pct_threshold
   const entryMet = scanMet && s.activeTrades.length > 0
@@ -91,13 +92,17 @@ const StrategyDetailView = ({ s, onBack }) => {
 
         <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col h-[450px] shadow-sm">
           <SectionLabel className="mb-4">
-            <BarChart3 size={14} className="text-accent" /> Equity Performance
+            <TrendingUp size={14} className="text-accent" /> Equity Curve
           </SectionLabel>
           <div className="flex-1 flex flex-col justify-center">
+             <EquityCurve
+               data={analytics?.cumulativePnL || []}
+               height={280}
+             />
+          </div>
+          <div className="mt-6 pt-6 border-t border-border/40">
+            <SectionLabel className="mb-2 text-[10px]">Recent Trade Distribution</SectionLabel>
             <PnLBars trades={s.activeTrades} />
-            <div className="mt-10 text-[10px] text-dim font-bold text-center uppercase tracking-widest opacity-40">
-              Live Equity Curve Tracking
-            </div>
           </div>
         </div>
       </div>

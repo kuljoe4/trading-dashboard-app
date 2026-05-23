@@ -263,6 +263,7 @@ export function DashboardView() {
   const [showScanner, setShowScanner] = useState(false)
   const [isEditMode, setIsEditMode] = useState(false)
   const [selectedConfig, setSelectedConfig] = useState(null)
+  const [editingVariantIndex, setEditingVariantIndex] = useState(null)
   const [confirmStop, setConfirmStop] = useState(false)
 
   const {
@@ -311,8 +312,9 @@ export function DashboardView() {
   }, [confirmStop]);
 
   const currentStrategy = useMemo(() => ({
-    sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount
-  }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount])
+    sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount,
+    strategy_label: config.strategy_label || 'Momentum Strategy'
+  }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, config.strategy_label])
 
   const maxRR = useMemo(() => activeTrades.reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
 
@@ -332,12 +334,19 @@ export function DashboardView() {
     setLoading(true)
     setShowConfig(false)
     try {
+      let finalConfig = newConfig;
+      if (editingVariantIndex !== null) {
+        const variants = [...(config.strategy_variants || [])];
+        variants[editingVariantIndex] = { ...newConfig, strategy_label: newConfig.strategy_label };
+        finalConfig = { ...config, strategy_variants: variants };
+      }
+
       if (isEditMode && strategyId) {
-        await sessionAPI.update(strategyId, newConfig)
-        updateConfig(newConfig)
+        await sessionAPI.update(strategyId, finalConfig)
+        updateConfig(finalConfig)
       } else {
-        updateConfig(newConfig)
-        const res = await sessionAPI.start(newConfig, newConfig.paper_mode)
+        updateConfig(finalConfig)
+        const res = await sessionAPI.start(finalConfig, finalConfig.paper_mode)
         setSessionActive(true, res.data.strategyId || res.data.strategy_id)
       }
       await fetchSessions()
@@ -346,6 +355,7 @@ export function DashboardView() {
     } finally {
       setLoading(false)
       setIsEditMode(false)
+      setEditingVariantIndex(null)
     }
   }
 
@@ -433,7 +443,7 @@ export function DashboardView() {
 
           <div className="flex gap-4">
             {!sessionActive ? (
-              <Btn variant="success" onClick={() => { setIsEditMode(false); setShowConfig(true); }} disabled={loading} className="flex-1 sm:flex-none">
+              <Btn variant="success" onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }} disabled={loading} className="flex-1 sm:flex-none">
                 <Plus size={16} className="mr-2" /> New Session
               </Btn>
             ) : (
@@ -495,7 +505,7 @@ export function DashboardView() {
                       config={config}
                       paused={sessionPaused}
                       onPause={togglePause}
-                      onEdit={() => { setIsEditMode(true); setSelectedConfig(config); setShowConfig(true); }}
+                      onEdit={() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }}
                       onClick={() => setSelected(true)}
                     />
                     {(config.strategy_variants || []).filter(v => v.enabled !== false).map((variant, i) => {
@@ -517,7 +527,7 @@ export function DashboardView() {
                           config={variantConfig}
                           paused={sessionPaused}
                           onPause={togglePause}
-                          onEdit={() => { setIsEditMode(true); setSelectedConfig(variantConfig); setShowConfig(true); }}
+                          onEdit={() => { setIsEditMode(true); setSelectedConfig(variantConfig); setEditingVariantIndex(i); setShowConfig(true); }}
                           onClick={() => setSelected(true)}
                         />
                       );
@@ -525,7 +535,7 @@ export function DashboardView() {
                   </>
                 ) : (
                   <button
-                    onClick={() => { setIsEditMode(false); setShowConfig(true); }}
+                    onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
                     className="bg-background border-2 border-dashed border-border rounded-2xl p-10 flex flex-col items-center justify-center gap-4 text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all group h-[256px]"
                   >
                     <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">

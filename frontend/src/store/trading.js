@@ -200,6 +200,10 @@ export const useTradingStore = create((set, get) => ({
   
   setThrottled: (isThrottled) => {
     set({ isThrottled })
+    const ws = get().ws
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'set_active', active: !isThrottled }))
+    }
   },
 
   setHealthEnabled: (enabled) => {
@@ -300,6 +304,7 @@ export const useTradingStore = create((set, get) => ({
       // Send current health preference on open
       ws.send(JSON.stringify({ type: 'set_monitoring', enabled: get().healthEnabled }))
       ws.send(JSON.stringify({ type: 'set_log_filters', filters: get().logFilters }))
+      ws.send(JSON.stringify({ type: 'set_active', active: !get().isThrottled }))
     }
 
     // Throttled scanner update to prevent React choking on high-freq updates

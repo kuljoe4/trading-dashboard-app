@@ -330,12 +330,18 @@ export class TradingSessionService {
         opportunities: opportunitiesBySignature.get(this.scanSignature(config)) || [],
       }));
 
-      this.updateScannerResults(primaryOpportunities);
+      // BOLT: Only update scanner results for UI if there are active listeners
+      if (this.listenerCount > 0) {
+        this.updateScannerResults(primaryOpportunities);
+      }
       
       this.broadcast('scanner', {
         count: this.lastScannerResults.length,
-        opportunities: this.lastScannerResults,
-        variant_opportunities: scannerData,
+        opportunities: this.lastScannerResults.slice(0, 5), // Reduced from all to top 5 to save egress
+        variant_opportunities: scannerData.map(v => ({
+          ...v,
+          opportunities: v.opportunities.slice(0, 5)
+        })),
         activeWindows: this.getActiveWindows(),
       });
 

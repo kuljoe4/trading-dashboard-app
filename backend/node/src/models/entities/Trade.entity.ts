@@ -72,6 +72,13 @@ export class TradeEntity {
   @Column({ nullable: true })
   sessionId: string;
 
+  @Index()
+  @Column({ nullable: true })
+  strategy_label: string;
+
+  @Column('jsonb', { nullable: true })
+  strategy_config: any;
+
   @ManyToOne(() => Session)
   @JoinColumn({ name: 'sessionId' })
   session: Session;

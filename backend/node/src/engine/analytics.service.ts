@@ -20,63 +20,75 @@ export interface AnalyticsResult {
 export class AnalyticsService {
   private readonly logger = new Logger(AnalyticsService.name);
 
+  /**
+   * BOLT OPTIMIZATION: Optimized to single-pass processing with minimal allocations.
+   * Reduces GC pressure in the engine hot loop.
+   */
   calculateAnalytics(trades: TradeEntity[], startingBalance: number = 10000): AnalyticsResult {
-    // Sort trades by exit timestamp to build chronological equity curve
+    // BOLT OPTIMIZATION: Combine multiple iterations into a single-pass loop
+    // 1. Initial filter and sort (necessary for equity curve)
     const sortedTrades = [...trades]
       .filter(t => t.status !== 'OPEN' && t.exit_ts)
-      .sort((a, b) => new Date(a.exit_ts!).getTime() - new Date(b.exit_ts!).getTime());
+      .sort((a, b) => a.exit_ts!.getTime() - b.exit_ts!.getTime());
 
+    const totalTrades = sortedTrades.length;
+    let totalPnL = 0;
     let currentPnL = 0;
     let maxPnL = 0;
     let maxDD = 0;
     let maxDDPct = 0;
+    let winCount = 0;
+    let totalWins = 0;
 
-    const cumulativePnL = sortedTrades.map((t) => {
-      currentPnL += Number(t.pnl || 0);
+    const cumulativePnL: { ts: string; pnl: number }[] = new Array(totalTrades);
+    // Time of day analysis (0-23 hours) - Fixed size array for better performance
+    const todStats = Array.from({ length: 24 }, () => ({ pnl: 0, wins: 0, total: 0 }));
+
+    // BOLT OPTIMIZATION: Single-pass calculation for all metrics to avoid multiple array iterations
+    for (let i = 0; i < totalTrades; i++) {
+      const t = sortedTrades[i];
+      const pnl = Number(t.pnl || 0);
+
+      // Equity curve & Drawdown
+      currentPnL += pnl;
       if (currentPnL > maxPnL) maxPnL = currentPnL;
 
+      // Drawdown tracking
       const dd = maxPnL - currentPnL;
       if (dd > maxDD) maxDD = dd;
 
-      const currentBalance = startingBalance + currentPnL;
       const peakBalance = startingBalance + maxPnL;
       const ddPct = peakBalance > 0 ? (dd / peakBalance) * 100 : 0;
       if (ddPct > maxDDPct) maxDDPct = ddPct;
 
-      return {
+      cumulativePnL[i] = {
         ts: t.exit_ts!.toISOString(),
-        pnl: currentPnL,
+        pnl: Number(currentPnL.toFixed(2)),
       };
-    });
 
-    // Time of day analysis (0-23 hours)
-    const todMap = new Map<number, { pnl: number; wins: number; total: number }>();
-    for (let i = 0; i < 24; i++) {
-      todMap.set(i, { pnl: 0, wins: 0, total: 0 });
+      // Time of Day
+      const hour = t.exit_ts!.getUTCHours();
+      const stats = todStats[hour];
+      stats.pnl += pnl;
+      stats.total += 1;
+
+      // Wins
+      if (pnl > 0) {
+        stats.wins += 1;
+        totalWins += 1;
+      }
     }
 
-    sortedTrades.forEach((t) => {
-      const exitDate = new Date(t.exit_ts!);
-      const hour = exitDate.getUTCHours();
-      const stats = todMap.get(hour)!;
-      stats.pnl += Number(t.pnl || 0);
-      stats.total += 1;
-      if (Number(t.pnl || 0) > 0) stats.wins += 1;
-    });
-
-    const timeOfDay = Array.from(todMap.entries()).map(([hour, stats]) => ({
+    const timeOfDay = todStats.map((stats, hour) => ({
       hour,
       ...stats,
       winRate: stats.total > 0 ? (stats.wins / stats.total) * 100 : 0,
     }));
 
-    const totalTrades = sortedTrades.length;
-    const totalWins = sortedTrades.filter(t => Number(t.pnl || 0) > 0).length;
-
     return {
       cumulativePnL,
-      maxDrawdown: maxDD,
-      maxDrawdownPct: maxDDPct,
+      maxDrawdown: Number(maxDD.toFixed(2)),
+      maxDrawdownPct: Number(maxDDPct.toFixed(2)),
       timeOfDay,
       totalTrades,
       overallWinRate: totalTrades > 0 ? (totalWins / totalTrades) * 100 : 0,

@@ -1,5 +1,5 @@
 # Build stage
-FROM node:18-alpine AS build
+FROM node:20-alpine AS build
 
 WORKDIR /app
 
@@ -20,12 +20,14 @@ FROM nginx:alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Add a basic nginx config if needed, but default is fine for SPA if we add a fallback
+# Use a script to replace the port in the nginx config before starting
+# This ensures compatibility with Railway's dynamic port assignment
 RUN echo 'server { \
-    listen 80; \
+    listen ${PORT}; \
+    server_name localhost; \
+    root /usr/share/nginx/html; \
+    index index.html; \
     location / { \
-        root /usr/share/nginx/html; \
-        index index.html index.htm; \
         try_files $uri $uri/ /index.html; \
     } \
     location /health { \
@@ -33,8 +35,8 @@ RUN echo 'server { \
         add_header Content-Type text/plain; \
         return 200 "OK"; \
     } \
-}' > /etc/nginx/conf.d/default.conf
+}' > /etc/nginx/conf.d/default.conf.template
 
 EXPOSE 80
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["/bin/sh", "-c", "envsubst '${PORT}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]

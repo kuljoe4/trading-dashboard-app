@@ -67,6 +67,7 @@ const normalizeTrade = (trade = {}, prevTrade = null) => {
   return {
     ...trade,
     symbol: trade.symbol ?? prev.symbol ?? '---',
+    strategy_label: trade.strategy_label ?? prev.strategy_label ?? 'Momentum Strategy',
     direction: (trade.direction ?? trade.side ?? prev.direction ?? '').toString().toUpperCase(),
     entry_price,
     current_price,
@@ -125,6 +126,8 @@ const normalizeWindow = (window = {}) => ({
 
 const defaultConfig = {
   paper_mode: true,
+  strategy_label: 'Momentum Strategy',
+  strategy_variants: [],
   max_total_risk_pct: 5,
   total_sl_guard_usdt: 200,
   scan_interval: '5m',
@@ -165,6 +168,7 @@ export const useTradingStore = create((set, get) => ({
   activeTrades: [],
   logs: [],
   scannerResults: [],
+  variantScannerResults: {},
   activeWindows: [],
   tradeHistory: [],
   gateState: null,
@@ -276,7 +280,19 @@ export const useTradingStore = create((set, get) => ({
     if (get().ws) return
     set({ wsStatus: 'connecting' })
 
-    const wsUrl = import.meta.env.VITE_WS_URL || (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + (window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '')) + '/session/ws'
+    let wsUrl = import.meta.env.VITE_WS_URL;
+    
+    if (wsUrl) {
+      // Ensure the URL ends with /session/ws
+      if (!wsUrl.endsWith('/session/ws')) {
+        wsUrl = wsUrl.replace(/\/$/, '') + '/session/ws';
+      }
+    } else {
+      const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+      const host = window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '');
+      wsUrl = `${protocol}${host}/session/ws`;
+    }
+
     const ws = new WebSocket(wsUrl)
 
     ws.onopen = () => {
@@ -389,8 +405,16 @@ export const useTradingStore = create((set, get) => ({
       } else if (data.type === 'scanner') {
         const now = Date.now();
         if (now - lastScannerUpdate >= SCANNER_THROTTLE_MS) {
+          const variantResults = {};
+          if (data.variant_opportunities) {
+            data.variant_opportunities.forEach(v => {
+               variantResults[v.strategy_label] = (v.opportunities || []).map(normalizeOpportunity);
+            });
+          }
+
           set({
             scannerResults: (data.opportunities || []).map(normalizeOpportunity),
+            variantScannerResults: variantResults,
             activeWindows: (data.activeWindows || []).map(normalizeWindow),
           })
           lastScannerUpdate = now;

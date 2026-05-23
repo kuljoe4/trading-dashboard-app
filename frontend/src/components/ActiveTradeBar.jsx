@@ -1,7 +1,7 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { pnlColor, fmtUSD, fmt, C } from '../lib/theme'
-import { PulseDot, PaperBadge, ConditionWidget, cn } from './ui/primitives'
-import { Info, TrendingUp, ShieldAlert, Target, Activity, Zap, XCircle, ShieldCheck, Clock } from 'lucide-react'
+import { PulseDot, PaperBadge, cn } from './ui/primitives'
+import { Info, TrendingUp, ShieldAlert, Target, Activity, Zap, XCircle, ShieldCheck, Clock, CheckCircle2, AlertCircle } from 'lucide-react'
 import { sessionAPI } from '../api/client'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
@@ -140,6 +140,9 @@ const RRLadder = React.memo(({ trade }) => {
 
 const ExitMonitor = React.memo(({ status, logic }) => {
   if (!status || Object.keys(status).length === 0) return null;
+  const entries = Object.entries(status)
+  const activeCount = entries.filter(([, s]) => s.active).length
+  const firedCount = entries.filter(([, s]) => s.active && s.fired).length
 
   return (
     <div className="bg-red/5 border border-red/20 rounded-2xl p-5 mt-5 shadow-[0_0_20px_rgba(255,68,102,0.03)]">
@@ -151,25 +154,71 @@ const ExitMonitor = React.memo(({ status, logic }) => {
           <span className="text-[11px] text-red font-bold tracking-widest uppercase">Exit Protection</span>
         </div>
         <div className="text-[9px] text-dim font-bold uppercase tracking-widest opacity-60 px-2 py-0.5 bg-surface border border-border rounded-md">
-          Logic: {logic === 'all' ? 'Require All' : 'Allow Any'}
+          {logic === 'all' ? `${firedCount}/${entries.length} required` : `${firedCount} armed`}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {Object.entries(status).map(([key, s]) => {
+      <div className="space-y-3">
+        {entries.map(([key, s]) => {
           const label = key.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+          const value = Number.isFinite(Number(s.value)) ? Number(s.value) : 0
+          const threshold = Math.max(Math.abs(Number(s.threshold) || 1), 0.0001)
+          const progress = s.active ? Math.min((Math.abs(value) / threshold) * 100, 100) : Math.max(0, 100 - ((s.remaining_delay || 0) / Math.max((s.remaining_delay || 0) + 1, 1)) * 100)
           return (
-            <ConditionWidget
-              key={key}
-              label={label}
-              value={s.active ? s.value : s.remaining_delay}
-              threshold={s.active ? s.threshold : 0}
-              unit={s.active ? s.unit : "s"}
-              satisfied={s.fired && s.active}
-              sublabel={s.active ? (s.fired ? "Signal Firing" : s.description || "Monitoring...") : `Activating in ${Math.round(s.remaining_delay)}s`}
-            />
+            <div key={key} className={cn(
+              "p-4 rounded-xl border bg-surface/70 transition-colors",
+              s.fired && s.active ? "border-red/40" : s.active ? "border-border" : "border-amber/20"
+            )}>
+              <div className="flex items-start justify-between gap-4 mb-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={cn(
+                    "w-8 h-8 rounded-lg border flex items-center justify-center shrink-0",
+                    s.fired && s.active ? "bg-red/10 border-red/20 text-red" : s.active ? "bg-surface border-border text-dim" : "bg-amber/10 border-amber/20 text-amber"
+                  )}>
+                    {s.fired && s.active ? <CheckCircle2 size={16} /> : s.active ? <AlertCircle size={16} /> : <Clock size={16} />}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold truncate">{s.label || label}</div>
+                    <div className="text-[10px] text-dim font-bold uppercase tracking-tight truncate">
+                      {s.active ? (s.description || 'Monitoring condition') : `Delay: ${Math.ceil(s.remaining_delay || 0)}s remaining`}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className={cn("text-sm font-bold font-mono", s.fired && s.active ? "text-red" : s.active ? "text-text" : "text-amber")}>
+                    {s.active ? `${value.toFixed(2)}${s.unit || ''}` : `${Math.ceil(s.remaining_delay || 0)}s`}
+                  </div>
+                  <div className="text-[9px] text-dim font-bold uppercase tracking-widest">
+                    {s.active ? `Target ${Number(s.threshold || 0).toFixed(2)}${s.unit || ''}` : 'Arming'}
+                  </div>
+                </div>
+              </div>
+              <div className="h-2 bg-background rounded-full overflow-hidden border border-border/60">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all duration-500",
+                    s.fired && s.active ? "bg-red" : s.active ? "bg-accent" : "bg-amber"
+                  )}
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            </div>
           );
         })}
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-lg border border-border bg-background/40 p-2">
+          <div className="text-[9px] text-dim font-bold uppercase tracking-widest">Active</div>
+          <div className="text-sm font-bold font-mono">{activeCount}/{entries.length}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-background/40 p-2">
+          <div className="text-[9px] text-dim font-bold uppercase tracking-widest">Fired</div>
+          <div className="text-sm font-bold font-mono text-red">{firedCount}</div>
+        </div>
+        <div className="rounded-lg border border-border bg-background/40 p-2">
+          <div className="text-[9px] text-dim font-bold uppercase tracking-widest">Logic</div>
+          <div className="text-sm font-bold uppercase">{logic === 'all' ? 'All' : 'Any'}</div>
+        </div>
       </div>
     </div>
   );
@@ -179,9 +228,35 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
   const config = useTradingStore((state) => state.config)
 
   const [isClosing, setIsClosing] = useState(false)
+  const [confirmClose, setConfirmClose] = useState(false)
   const [isExpanded, setIsExpanded] = useState(initialExpanded)
+  const [confirmClose, setConfirmClose] = useState(false)
+
+  useEffect(() => {
+    if (confirmClose) {
+      const timer = setTimeout(() => setConfirmClose(false), 3000)
+      return () => clearTimeout(timer)
+    }
+  }, [confirmClose])
+
+  useEffect(() => {
+    let timer;
+    if (confirmClose) {
+      timer = setTimeout(() => setConfirmClose(false), 3000);
+    }
+    return () => clearTimeout(timer);
+  }, [confirmClose]);
+
+  useEffect(() => {
+    let timer
+    if (confirmClose) {
+      timer = setTimeout(() => setConfirmClose(false), 3000)
+    }
+    return () => clearTimeout(timer)
+  }, [confirmClose])
 
   const handleClose = async () => {
+    setConfirmClose(false)
     setIsClosing(true)
     try {
       await sessionAPI.closeTrade(trade.symbol)
@@ -190,6 +265,7 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
       alert(`Error closing trade: ${error.message}`)
     } finally {
       setIsClosing(false)
+      setConfirmClose(false)
     }
   }
 
@@ -323,7 +399,13 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
                 </span>
               </div>
 
-              <div className="h-3 bg-border rounded-full relative overflow-hidden shadow-inner">
+              <div
+                role="progressbar"
+                aria-valuenow={progress}
+                aria-valuemin="0"
+                aria-valuemax="100"
+                className="h-3 bg-border rounded-full relative overflow-hidden shadow-inner"
+              >
                 <div className="absolute inset-0 bg-gradient-to-r from-red/10 via-background/0 to-green/10" />
                 <div
                   className={cn("absolute h-full transition-all duration-1000 ease-out", isWinning ? "bg-green/40 shadow-[0_0_15px_rgba(0,229,160,0.4)]" : "bg-red/40")}
@@ -355,7 +437,7 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
               </div>
               <div className="flex justify-between text-[9px] text-dim font-bold uppercase tracking-tighter mt-1 px-0.5">
                 <span>Entry → Current: <span className={cn("font-bold", Number(pctChange) >= 0 ? "text-green" : "text-red")}>{Number(pctChange) >= 0 ? '+' : ''}{pctChange}%</span></span>
-                <span>SL Distance: <span className="font-bold text-amber">{slDist}%</span></span>
+                <span className="text-dim/40 italic">Live Tracking</span>
               </div>
             </div>
 
@@ -374,12 +456,21 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
           {isExpanded ? 'Hide Details' : 'View Details'}
         </button>
         <button
-          onClick={handleClose}
+          onClick={() => {
+            if (confirmClose) {
+              handleClose()
+            } else {
+              setConfirmClose(true)
+            }
+          }}
           disabled={isClosing}
-          className="flex-1 px-4 py-3 bg-red hover:bg-red/80 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+          className={cn(
+            "flex-1 px-4 py-3 bg-red hover:bg-red/80 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2",
+            confirmClose && "animate-pulse ring-2 ring-red ring-offset-2 ring-offset-surface"
+          )}
         >
           <XCircle size={16} />
-          {isClosing ? 'Closing...' : 'Close Position'}
+          {isClosing ? 'Closing...' : confirmClose ? 'Confirm?' : 'Close Position'}
         </button>
       </div>
     </div>

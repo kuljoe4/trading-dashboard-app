@@ -43,6 +43,7 @@ export class TradingSessionService {
   private userDataWs: any = null;
   private listenKey: string | null = null;
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
+
   private getStrategyLabel(config: Partial<SessionConfig> | null | undefined, index = 0): string {
 
     const label = (config?.strategy_label || (index === 0 ? 'Momentum Strategy' : `Strategy ${index + 1}`)).toString();

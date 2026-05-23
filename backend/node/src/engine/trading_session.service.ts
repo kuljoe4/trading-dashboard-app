@@ -45,10 +45,7 @@ export class TradingSessionService {
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
 
   private getStrategyLabel(config: Partial<SessionConfig> | null | undefined, index = 0): string {
-
-    const label = (config?.strategy_label || (index === 0 ? 'Momentum Strategy' : `Strategy ${index + 1}`)).toString();
-    console.log(`[DEBUG] getStrategyLabel config: ${JSON.stringify(config?.strategy_label)}, index: ${index}, result: ${label}`);
-    return label;
+    return (config?.strategy_label || (index === 0 ? 'Momentum Strategy' : `Strategy ${index + 1}`)).toString();
   }
 
   private getStrategyConfigs(): SessionConfig[] {
@@ -610,12 +607,21 @@ export class TradingSessionService {
 
   private async broadcastTick() {
     const activeTrades = this.positionTracker.activeList();
+
+    // BOLT OPTIMIZATION: Index last tick data for O(1) lookup during price fallbacks
+    const prevTickMap = new Map<string, any>();
+    if (this.lastTickData?.trades) {
+      for (const t of this.lastTickData.trades) {
+        prevTickMap.set(t.symbol, t);
+      }
+    }
+
     const trades = await Promise.all(activeTrades.map(async (trade) => {
       let current = await this.tickerCache.getPrice(trade.symbol);
       
       // Fallback to previous price if cache miss to prevent PnL flickering
-      if (current === null && this.lastTickData) {
-        const prevTrade = this.lastTickData.trades?.find((t: any) => t.symbol === trade.symbol);
+      if (current === null) {
+        const prevTrade = prevTickMap.get(trade.symbol);
         if (prevTrade) {
           current = prevTrade.current_price;
         }

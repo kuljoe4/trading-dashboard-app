@@ -21,6 +21,9 @@ export class Session {
   @Column('decimal', { precision: 20, scale: 8, default: 0 })
   totalPnl: number;
 
+  @Column({ nullable: true })
+  strategyLabel: string;
+
   @CreateDateColumn()
   startTime: Date;
 

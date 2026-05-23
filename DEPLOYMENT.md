@@ -7,11 +7,21 @@ This guide provides a walkthrough for deploying the Momentum Engine monorepo to 
 ### 1.1 Push Changes
 Ensure all latest changes (including `railway.json` and `Dockerfile`s) are pushed to your GitHub repository.
 
-### 1.2 Connect to Railway
-1.  Log in to [Railway.app](https://railway.app/).
-2.  Click **"New Project"** -> **"Deploy from GitHub repo"**.
-3.  Select your repository.
-4.  Railway will automatically detect the `railway.json` file and create two services: `backend` and `frontend`.
+## 1.2 Monorepo Deployment Strategy (Railway)
+
+Railway treats each service as an independent build unit. Because this is a monorepo, you must manually separate the frontend and backend into their own services:
+
+1.  **Create Services**: In your project dashboard, click **"New"** -> **"GitHub Repo"** -> Select your repository. **Do this twice** (once for Frontend, once for Backend).
+2.  **Assign Roles**: Name one service `frontend` and the other `backend`.
+3.  **Set Root Directory** (Crucial):
+    *   Open the `frontend` service -> **Settings** -> **Build** -> **Root Directory**: Set to `frontend`.
+    *   Open the `backend` service -> **Settings** -> **Build** -> **Root Directory**: Set to `backend/node`.
+4.  **Watch Paths** (Optional but Recommended):
+    *   In the same **Settings** -> **Build** tab, set **Watch Paths** to only trigger builds when files in those directories change:
+        *   Frontend: `frontend/**`
+        *   Backend: `backend/node/**`
+
+By setting the **Root Directory**, Railway treats that folder as the "project root," allowing it to correctly detect the `Dockerfile` and `package.json` inside each subdirectory without needing a root-level `package.json`.
 
 ### 1.3 Add PostgreSQL
 1.  In your project dashboard, click **"New"** -> **"Database"** -> **"Add PostgreSQL"**.

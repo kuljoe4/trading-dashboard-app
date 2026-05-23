@@ -19,3 +19,7 @@
 ## 2026-05-15 - [Custom Switch Accessibility]
 **Learning:** Custom toggle switches implemented as standard buttons lack the necessary semantic meaning for screen readers. Without `role="switch"` and `aria-checked`, users of assistive technology cannot perceive the component's state or purpose.
 **Action:** Always accompany custom-styled toggle buttons with `role="switch"`, `aria-checked`, and a descriptive `aria-label`.
+
+## 2026-05-18 - [Destructive Action Confirmation]
+**Learning:** For high-stakes destructive actions like closing a trade, a two-stage "Click to Confirm" pattern provides a lightweight but effective safety net. Adding an `animate-pulse` effect and a 3-second auto-reset ensures the state change is visually obvious and self-correcting. Using `aria-live="polite"` ensures accessibility for screen readers during the state transition.
+**Action:** Implement two-stage confirmation for destructive UI actions, ensuring clear visual feedback, auto-reset timeouts, and accessible status announcements.

@@ -156,7 +156,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     if (!validate(cfg)) return;
     const name = presetName.trim() || generatedPresetName
     if (!name) return
-    const next = [...presets.filter(p => p.name !== name), { name, config: cfg }]
+    const { strategy_variants, ...presetConfig } = cfg
+    const next = [...presets.filter(p => p.name !== name), { name, config: { ...presetConfig, strategy_label: name } }]
     setPresets(next)
     localStorage.setItem('strategy_presets', JSON.stringify(next))
     setPresetName('')
@@ -173,6 +174,38 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     const next = presets.filter(p => p.name !== name)
     setPresets(next)
     localStorage.setItem('strategy_presets', JSON.stringify(next))
+  }
+
+  const toggleVariant = (e, preset) => {
+    e.stopPropagation()
+    const variants = cfg.strategy_variants || []
+    const exists = variants.some((variant) => variant.strategy_label === preset.name)
+    setField('strategy_variants', exists
+      ? variants.filter((variant) => variant.strategy_label !== preset.name)
+      : [...variants, { ...preset.config, strategy_label: preset.name }])
+  }
+
+  const buildConfigToSave = () => {
+    const configToSave = { ...cfg, strategy_label: (cfg.strategy_label || presetName || generatedPresetName || 'Momentum Strategy').trim() };
+    const signalParams = {
+      ...(typeof cfg.signal_params === 'string' ? JSON.parse(cfg.signal_params || '{}') : cfg.signal_params || {})
+    };
+    if (cfg.signal_params_ma_period) signalParams.ma_period = cfg.signal_params_ma_period;
+    if (cfg.signal_params_ema_period) signalParams.ema_period = cfg.signal_params_ema_period;
+    if (cfg.signal_params_entry_ema_period) signalParams.entry_ema_period = cfg.signal_params_entry_ema_period;
+    if (cfg.signal_params_exit_ema_period) signalParams.exit_ema_period = cfg.signal_params_exit_ema_period;
+    if (cfg.signal_params_entry_ema_fast) signalParams.entry_ema_fast = cfg.signal_params_entry_ema_fast;
+    if (cfg.signal_params_entry_ema_slow) signalParams.entry_ema_slow = cfg.signal_params_entry_ema_slow;
+    if (cfg.signal_params_exit_ema_fast) signalParams.exit_ema_fast = cfg.signal_params_exit_ema_fast;
+    if (cfg.signal_params_exit_ema_slow) signalParams.exit_ema_slow = cfg.signal_params_exit_ema_slow;
+
+    configToSave.signal_params = JSON.stringify(signalParams);
+    configToSave.strategy_variants = (cfg.strategy_variants || []).map((variant) => ({
+      ...variant,
+      strategy_label: variant.strategy_label || 'Strategy Variant',
+      strategy_variants: [],
+    }));
+    return configToSave;
   }
 
   const riskAmount = ((cfg.paper_starting_balance || 10000) * ((cfg.risk_pct_per_trade || 0) / 100))
@@ -295,6 +328,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
       <div className="flex-1 overflow-y-auto p-5">
         {section === 'scan' && (
           <div className="space-y-6">
+            <div className="grid grid-cols-1">
+              {field('Strategy label', 'strategy_label', 'text', null, { })}
+            </div>
+
             <div className="p-4 bg-accent/5 border border-accent/20 rounded-xl flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center">
@@ -821,13 +858,20 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
 
             <div className="space-y-3">
               <label className="text-[10px] text-dim font-bold tracking-widest uppercase">Saved Library</label>
+              {(cfg.strategy_variants || []).length > 0 && (
+                <div className="p-3 bg-accent/5 border border-accent/20 rounded-xl text-[11px] text-accent font-bold uppercase tracking-widest">
+                  Running together: {cfg.strategy_label || generatedPresetName} + {(cfg.strategy_variants || []).map(v => v.strategy_label).join(', ')}
+                </div>
+              )}
               {presets.length === 0 ? (
                 <div className="p-10 border border-dashed border-border rounded-xl text-center text-dim text-xs font-medium">
                   No presets saved yet
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-3">
-                  {presets.map((p) => (
+                  {presets.map((p) => {
+                    const selectedForBatch = (cfg.strategy_variants || []).some((variant) => variant.strategy_label === p.name)
+                    return (
                     <div
                       key={p.name}
                       onClick={() => loadPreset(p)}
@@ -842,14 +886,25 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                           <div className="text-[10px] text-dim font-mono">{p.config.scan_interval} · {p.config.scan_pct_threshold}% · {p.config.risk_pct_per_trade}% Risk</div>
                         </div>
                       </div>
-                      <button
-                        onClick={(e) => deletePreset(e, p.name)}
-                        className="p-2 text-dim hover:text-red transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => toggleVariant(e, p)}
+                          className={cn(
+                            "px-3 py-1.5 rounded-md border text-[9px] font-bold uppercase tracking-widest transition-colors",
+                            selectedForBatch ? "border-accent/40 bg-accent/10 text-accent" : "border-border text-dim hover:text-accent"
+                          )}
+                        >
+                          {selectedForBatch ? 'Queued' : 'Run With'}
+                        </button>
+                        <button
+                          onClick={(e) => deletePreset(e, p.name)}
+                          className="p-2 text-dim hover:text-red transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </div>
-                  ))}
+                  )})}
                 </div>
               )}
             </div>
@@ -927,22 +982,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
              return;
           }
 
-          const configToSave = { ...cfg };
-          // Serialize signal parameters
-          const signalParams = {
-            ...(typeof cfg.signal_params === 'string' ? JSON.parse(cfg.signal_params || '{}') : cfg.signal_params || {})
-          };
-          if (cfg.signal_params_ma_period) signalParams.ma_period = cfg.signal_params_ma_period;
-          if (cfg.signal_params_ema_period) signalParams.ema_period = cfg.signal_params_ema_period;
-          if (cfg.signal_params_entry_ema_period) signalParams.entry_ema_period = cfg.signal_params_entry_ema_period;
-          if (cfg.signal_params_exit_ema_period) signalParams.exit_ema_period = cfg.signal_params_exit_ema_period;
-          if (cfg.signal_params_entry_ema_fast) signalParams.entry_ema_fast = cfg.signal_params_entry_ema_fast;
-          if (cfg.signal_params_entry_ema_slow) signalParams.entry_ema_slow = cfg.signal_params_entry_ema_slow;
-          if (cfg.signal_params_exit_ema_fast) signalParams.exit_ema_fast = cfg.signal_params_exit_ema_fast;
-          if (cfg.signal_params_exit_ema_slow) signalParams.exit_ema_slow = cfg.signal_params_exit_ema_slow;
-
-          configToSave.signal_params = JSON.stringify(signalParams);
-          onSave(configToSave);
+          onSave(buildConfigToSave());
         }} className="flex-[2]">
           {isEdit ? 'Apply Changes' : 'Start Session'}
         </Btn>

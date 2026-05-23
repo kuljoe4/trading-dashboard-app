@@ -1,23 +1,14 @@
 import React, { useState } from 'react'
-import { LayoutDashboard, History, Settings as SettingsIcon, Activity, Zap, ChevronLeft, ChevronRight, Cpu, HardDrive, Clock } from 'lucide-react'
+import { SystemMetrics } from './SystemMetrics'
+import { LayoutDashboard, History, Settings as SettingsIcon, ChevronLeft, ChevronRight, Zap } from 'lucide-react'
 import { useTradingStore } from '../store/trading'
-import { cn, PulseDot } from './ui/primitives'
-
-const SidebarMetric = ({ icon: Icon, label, value, colorClass, collapsed }) => (
-  <div className={cn("flex items-center gap-3", collapsed && "justify-center")} title={collapsed ? `${label}: ${value}` : undefined}>
-    <Icon size={14} className={cn("shrink-0", colorClass || "text-dim")} />
-    {!collapsed && (
-      <div className="flex-1 flex justify-between items-baseline gap-2">
-        <span className="text-[10px] text-dim font-bold uppercase tracking-wider">{label}</span>
-        <span className={cn("text-[11px] font-mono font-bold", colorClass || "text-text")}>{value}</span>
-      </div>
-    )}
-  </div>
-)
+import { cn } from './ui/primitives'
 
 export const Sidebar = ({ selected }) => {
   const { wsStatus, sidebarCollapsed: collapsed, toggleSidebar, monitoring, rateLimit } = useTradingStore()
-  
+  const [isHovered, setIsHovered] = React.useState(false)
+  const isExpanded = !collapsed || isHovered
+
   const isActive = (path) => {
     if (path === '/') return !selected && window.location.hash === '#/'
     return window.location.hash.startsWith(`#${path}`)
@@ -26,15 +17,19 @@ export const Sidebar = ({ selected }) => {
   const triggerScanner = () => window.dispatchEvent(new Event('open-scanner'))
 
   return (
-    <div className={cn(
-      "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 bg-surface border-r border-border z-50 transition-all duration-300",
-      collapsed ? "w-[80px] p-4" : "w-[260px] p-6"
-    )}>
-      <div className={cn("flex items-center gap-3 mb-12", collapsed && "justify-center")}>
+    <div 
+      onMouseEnter={() => collapsed && setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      className={cn(
+        "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 bg-surface border-r border-border z-50 transition-all duration-300 overflow-hidden",
+        isExpanded ? "w-[260px] p-6" : "w-[80px] p-4"
+      )}
+    >
+      <div className={cn("flex items-center gap-3 mb-12", !isExpanded && "justify-center")}>
         <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center shadow-lg shadow-accent/20 shrink-0">
           <LayoutDashboard size={24} className="text-white" />
         </div>
-        {!collapsed && <span className="text-xl font-black tracking-tighter uppercase italic text-text whitespace-nowrap">Momentum</span>}
+        {isExpanded && <span className="text-xl font-black tracking-tighter uppercase italic text-text whitespace-nowrap">Momentum</span>}
       </div>
 
       <nav className="flex-1 space-y-2">
@@ -47,29 +42,29 @@ export const Sidebar = ({ selected }) => {
             key={item.path}
             onClick={() => window.location.hash = `#${item.path}`}
             aria-label={item.label}
-            title={collapsed ? item.label : undefined}
+            title={!isExpanded ? item.label : undefined}
             className={cn(
               "w-full flex items-center gap-3 py-3 rounded-xl font-bold text-[13px] transition-all",
-              collapsed ? "justify-center px-0" : "px-4",
+              !isExpanded ? "justify-center px-0" : "px-4",
               isActive(item.path) ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:bg-white/5 hover:text-text"
             )}
           >
             <item.icon size={20} className="shrink-0" />
-            {!collapsed && <span>{item.label}</span>}
+            {isExpanded && <span>{item.label}</span>}
           </button>
         ))}
         
         <button 
           onClick={triggerScanner}
           aria-label="Market Scanner"
-          title={collapsed ? "Market Scanner" : undefined}
+          title={!isExpanded ? "Market Scanner" : undefined}
           className={cn(
             "w-full flex items-center gap-3 py-3 rounded-xl font-bold text-[13px] transition-all text-accent hover:bg-accent/10",
-            collapsed ? "justify-center px-0" : "px-4"
+            !isExpanded ? "justify-center px-0" : "px-4"
           )}
         >
           <Zap size={20} className="shrink-0" />
-          {!collapsed && <span>Scanner</span>}
+          {isExpanded && <span>Scanner</span>}
         </button>
       </nav>
 
@@ -77,97 +72,56 @@ export const Sidebar = ({ selected }) => {
         onClick={toggleSidebar}
         aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        className="absolute -right-3 top-8 w-6 h-6 bg-surface border border-border rounded-full flex items-center justify-center text-dim hover:text-text z-50"
+        className="absolute -right-4 top-8 w-8 h-8 bg-surface border border-border rounded-full flex items-center justify-center text-dim hover:text-text z-50 shadow-md"
       >
-        {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+        {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
       </button>
 
       <div className={cn(
-        "pt-6 border-t border-border/50 space-y-4",
-        collapsed ? "px-0" : "px-2"
+        "pt-6 border-t border-border/50",
+        !isExpanded ? "px-0" : "px-2"
       )}>
-        {/* Rate Limit */}
-        {rateLimit && (
-          <SidebarMetric
-            icon={Activity}
-            label="Weight"
-            value={`${rateLimit.used_weight_1m}/${rateLimit.limit}`}
-            colorClass={rateLimit.used_weight_1m > rateLimit.limit * 0.8 ? "text-red" : rateLimit.used_weight_1m > rateLimit.limit * 0.5 ? "text-amber" : "text-green"}
-            collapsed={collapsed}
-          />
-        )}
-
-        {/* System Health */}
-        {monitoring?.system && (
-          <>
-            <SidebarMetric
-              icon={Cpu}
-              label="CPU"
-              value={`${monitoring.system.cpu_usage}%`}
-              colorClass={monitoring.system.cpu_usage > 50 ? "text-red" : "text-amber"}
-              collapsed={collapsed}
-            />
-            <SidebarMetric
-              icon={HardDrive}
-              label="RAM"
-              value={`${monitoring.system.memory_heap_used}MB`}
-              collapsed={collapsed}
-            />
-            <SidebarMetric
-              icon={Clock}
-              label="Lag"
-              value={`${monitoring.system.event_loop_lag}ms`}
-              colorClass={monitoring.system.event_loop_lag > 50 ? "text-red" : "text-green"}
-              collapsed={collapsed}
-            />
-          </>
-        )}
-
-        <div className={cn(
-          "flex items-center gap-3 p-3 bg-background/40 rounded-xl border border-border/50",
-          collapsed && "justify-center p-2"
-        )}>
-          <PulseDot color={wsStatus === 'live' ? "bg-green" : "bg-amber"} />
-          {!collapsed && (
-            <span className={cn("text-[10px] font-bold uppercase tracking-widest", wsStatus === 'live' ? "text-green" : "text-amber")}>
-              {wsStatus === 'live' ? 'Live' : 'Offline'}
-            </span>
-          )}
-        </div>
+        <SystemMetrics monitoring={monitoring} rateLimit={rateLimit} wsStatus={wsStatus} compact={!isExpanded} />
       </div>
     </div>
   )
 }
 
 export const BottomNav = ({ selected }) => {
+  const { wsStatus, monitoring, rateLimit } = useTradingStore()
   const isActive = (path) => {
     if (path === '/') return !selected && window.location.hash === '#/'
     return window.location.hash.startsWith(`#${path}`)
   }
 
   return (
-    <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-surface/90 backdrop-blur-md border-t border-border px-8 py-5 flex justify-around items-center z-40">
-      <button 
-        onClick={() => window.location.hash = '#/'}
-        aria-label="Cockpit"
-        className={cn("flex flex-col items-center gap-2", isActive('/') ? "text-accent" : "text-dim hover:text-text")}
-      >
-        <LayoutDashboard size={24} />
-      </button>
-      <button 
-        onClick={() => window.location.hash = '#/history'}
-        aria-label="History"
-        className={cn("flex flex-col items-center gap-2", isActive('/history') ? "text-accent" : "text-dim hover:text-text")}
-      >
-        <History size={24} />
-      </button>
-      <button 
-        onClick={() => window.location.hash = '#/settings'}
-        aria-label="Settings"
-        className={cn("flex flex-col items-center gap-2", isActive('/settings') ? "text-accent" : "text-dim hover:text-text")}
-      >
-        <SettingsIcon size={24} />
-      </button>
+    <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-surface/90 backdrop-blur-md border-t border-border z-40">
+      <div className="flex justify-around items-center px-8 py-5">
+        <button 
+          onClick={() => window.location.hash = '#/'}
+          aria-label="Cockpit"
+          className={cn("flex flex-col items-center gap-2", isActive('/') ? "text-accent" : "text-dim hover:text-text")}
+        >
+          <LayoutDashboard size={24} />
+        </button>
+        <button 
+          onClick={() => window.location.hash = '#/history'}
+          aria-label="History"
+          className={cn("flex flex-col items-center gap-2", isActive('/history') ? "text-accent" : "text-dim hover:text-text")}
+        >
+          <History size={24} />
+        </button>
+        <button 
+          onClick={() => window.location.hash = '#/settings'}
+          aria-label="Settings"
+          className={cn("flex flex-col items-center gap-2", isActive('/settings') ? "text-accent" : "text-dim hover:text-text")}
+        >
+          <SettingsIcon size={24} />
+        </button>
+      </div>
+      <div className="px-4 pb-2 border-t border-border/40 flex justify-center pt-2">
+        <SystemMetrics monitoring={monitoring} rateLimit={rateLimit} wsStatus={wsStatus} compact={true} />
+      </div>
     </div>
   )
 }

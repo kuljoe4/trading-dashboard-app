@@ -26,6 +26,7 @@ export class OrderManagerService {
     qty: number,
     slPrice: number,
     tpPrice: number | null,
+    metadata: Pick<Trade, 'strategy_label' | 'strategy_config'> = {},
   ): Promise<Trade | null> {
     try {
       const trade = {
@@ -47,6 +48,8 @@ export class OrderManagerService {
         pnl: 0,
         pnl_pct: 0,
         sessionId,
+        strategy_label: metadata.strategy_label,
+        strategy_config: metadata.strategy_config,
       } as Trade;
 
       // In live mode, attempt to place actual order

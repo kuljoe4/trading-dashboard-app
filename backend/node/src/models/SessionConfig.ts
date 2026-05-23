@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional, IsEnum, IsArray, IsBoolean, Min, Max, IsObject, ValidateNested } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsEnum, IsArray, IsBoolean, Min, Max, IsObject, ValidateNested, MaxLength, ArrayMaxSize } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class SingleSymbolConfig {
@@ -27,10 +27,14 @@ export class SingleSymbolConfig {
 export class SessionConfig {
   @IsString()
   @IsOptional()
+  @MaxLength(100)
   strategy_label?: string = "Momentum Strategy";
 
   @IsArray()
   @IsOptional()
+  @ArrayMaxSize(10)
+  @ValidateNested({ each: true })
+  @Type(() => SessionConfig)
   strategy_variants?: Partial<SessionConfig>[] = [];
 
   @IsBoolean()
@@ -39,6 +43,7 @@ export class SessionConfig {
 
   @IsArray()
   @IsOptional()
+  @ArrayMaxSize(100)
   @ValidateNested({ each: true })
   @Type(() => SingleSymbolConfig)
   single_symbol_configs: SingleSymbolConfig[] = [];
@@ -89,11 +94,13 @@ export class SessionConfig {
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
+  @ArrayMaxSize(100)
   excluded_symbols?: string[];
 
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
+  @ArrayMaxSize(100)
   symbols?: string[];
 
   @IsArray()
@@ -107,6 +114,7 @@ export class SessionConfig {
 
   @IsString()
   @IsOptional()
+  @MaxLength(2000)
   signal_params?: string;
 
   // Stop Loss Configuration

@@ -89,6 +89,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
                 "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95",
                 isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
               )}
+              aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
               title={isExpanded ? "Hide Details" : "Show Details"}
             >
               <Activity size={14} />
@@ -97,6 +98,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
               onClick={(e) => { e.stopPropagation(); onEdit(); }}
               aria-label="Edit strategy configuration"
               className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95"
+              aria-label="Edit strategy configuration"
               title="Edit Config"
             >
               <Edit3 size={14} />
@@ -108,6 +110,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
                 "p-2 border rounded-lg transition-all active:scale-95",
                 paused ? "bg-green/10 border-green/20 text-green hover:bg-green/20" : "bg-amber/10 border-amber/20 text-amber hover:bg-amber/20"
               )}
+              aria-label={paused ? "Resume strategy session" : "Pause strategy session"}
               title={paused ? "Resume Session" : "Pause Session"}
             >
               {paused ? <Play size={14} fill="currentColor" /> : <Pause size={14} fill="currentColor" />}
@@ -664,6 +667,8 @@ export function DashboardView() {
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={() => setShowScanner(true)}
+          aria-label="Open Market Scanner"
+          title="Open Market Scanner"
           className="lg:hidden fixed bottom-24 right-6 w-16 h-16 rounded-full bg-accent text-white shadow-2xl flex items-center justify-center z-40 animate-in fade-in zoom-in duration-500"
         >
           <Zap size={28} />

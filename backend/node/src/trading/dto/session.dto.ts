@@ -1,4 +1,4 @@
-import { IsOptional, IsBoolean, IsString, ValidateNested } from 'class-validator';
+import { IsOptional, IsBoolean, IsString, ValidateNested, IsUUID } from 'class-validator';
 import { Type } from 'class-transformer';
 import { SessionConfig } from '../../models/SessionConfig';
 
@@ -13,7 +13,7 @@ export class StartSessionDto {
   paper_mode?: boolean;
 
   @IsOptional()
-  @IsString()
+  @IsUUID()
   sessionId?: string;
 }
 

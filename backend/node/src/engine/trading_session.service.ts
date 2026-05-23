@@ -95,6 +95,10 @@ export class TradingSessionService {
     this.wsBroadcaster = cb;
   }
 
+  setListenerCount(count: number) {
+    this.listenerCount = count;
+  }
+
   setBalanceUpdateCallback(cb: (balance: number, pnl: number) => void) {
     this.onBalanceUpdate = cb;
   }
@@ -209,6 +213,7 @@ export class TradingSessionService {
         trade.exit_ts = new Date();
         trade.exit_reason = 'SESSION_TERMINATED';
         this.closedTrades.push(trade);
+        if (this.onTradeUpdate) this.onTradeUpdate(trade);
         this.positionTracker.removeTrade(trade.symbol);
       }
     }
@@ -671,7 +676,10 @@ export class TradingSessionService {
     const hasActiveTrades = trades.length > 0;
     
     // Optimization: Only broadcast if significant data changed or as a heartbeat
-    let shouldBroadcast = !this.lastTickData || (now - this.lastTickTime > 5000); // Heartbeat every 5s
+    // BOLT OPTIMIZATION: Skip construction and broadcast if no one is listening
+    if (this.listenerCount === 0) return;
+
+    let shouldBroadcast = !this.lastTickData || (now - this.lastTickTime > 10000); // Heartbeat every 10s (was 5s)
 
     if (!shouldBroadcast) {
       const prevTrades = this.lastTickData?.trades || [];

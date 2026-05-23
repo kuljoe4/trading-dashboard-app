@@ -23,3 +23,7 @@
 ## 2026-05-18 - [Destructive Action Confirmation]
 **Learning:** For high-stakes destructive actions like closing a trade, a two-stage "Click to Confirm" pattern provides a lightweight but effective safety net. Adding an `animate-pulse` effect and a 3-second auto-reset ensures the state change is visually obvious and self-correcting. Using `aria-live="polite"` ensures accessibility for screen readers during the state transition.
 **Action:** Implement two-stage confirmation for destructive UI actions, ensuring clear visual feedback, auto-reset timeouts, and accessible status announcements.
+
+## 2026-05-20 - [Standardizing Destructive Confirmation UX]
+**Learning:** Applying a consistent two-stage "Click to Confirm" pattern across all destructive session-level actions (not just individual trades) prevents catastrophic accidental data loss or session termination. Using `aria-live="polite"` and updating `aria-label` ensures the state change is accessible to screen readers.
+**Action:** Always implement confirmation gates for destructive buttons (Terminate, Delete, Clear) using a timed auto-reset pattern with clear visual and audible feedback.

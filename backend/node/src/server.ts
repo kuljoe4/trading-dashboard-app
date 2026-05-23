@@ -6,6 +6,7 @@ import { WebSocketServer } from 'ws';
 import { AppModule } from './app.module';
 import { SessionService } from './trading/session.service';
 import { MonitoringService } from './engine/monitoring.service';
+import { TradingSessionService } from './engine/trading_session.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -22,9 +23,11 @@ async function bootstrap() {
   const allowedOrigins = configService.get<string>('ALLOWED_ORIGINS')?.split(',').map((o) => o.trim()) || [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
+    'https://frontend-production-9bcd.up.railway.app', // Adding your specific frontend domain
   ];
 
   const nodeEnv = configService.get<string>('NODE_ENV');
+  console.log(`🔒 Allowed Origins: ${allowedOrigins.join(', ')}`);
 
   // Security Headers Middleware
   app.use((req: Request, res: Response, next: NextFunction) => {
@@ -41,7 +44,17 @@ async function bootstrap() {
 
   // Enable CORS for frontend
   app.enableCors({
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl)
+      if (!origin) return callback(null, true);
+      
+      if (allowedOrigins.indexOf(origin) !== -1 || nodeEnv !== 'production') {
+        callback(null, true);
+      } else {
+        console.warn(`CORS blocked for origin: ${origin}`);
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
   });
 
@@ -50,28 +63,33 @@ async function bootstrap() {
     res.status(200).send({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  const port = configService.get<number>('PORT') || 3000;
-  await app.listen(port);
-
+  await app.init();
   const httpServer = app.getHttpServer();
   const sessionService = app.get(SessionService);
   const monitoringService = app.get(MonitoringService);
+
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/session/ws',
     verifyClient: (info, done) => {
-      const origin = info.origin;
-      const isAllowed = allowedOrigins.includes(origin);
+      const origin = info.origin ? info.origin.replace(/\/$/, '') : null;
+      const isAllowed = !origin || allowedOrigins.some(o => o.replace(/\/$/, '') === origin) || nodeEnv !== 'production';
+      
       if (!isAllowed) {
-        console.warn(`Blocked WebSocket connection from unauthorized origin: ${origin}`);
+        console.warn(`Blocked WebSocket connection from unauthorized origin: ${info.origin}`);
       }
       done(isAllowed);
     },
   });
 
   const updateMonitoringSuppression = () => {
-    const anyActive = Array.from(wss.clients).some((c: any) => c.monitoringEnabled !== false);
+    const clients = Array.from(wss.clients);
+    const anyActive = clients.some((c: any) => c.monitoringEnabled !== false);
     monitoringService.setEnabled(anyActive);
+    
+    // Synchronize listener count for loop optimization
+    const tradingSessionService = app.get(TradingSessionService);
+    tradingSessionService.setListenerCount(clients.length);
   };
 
   sessionService.setBroadcaster((data: any) => {
@@ -80,12 +98,8 @@ async function bootstrap() {
     wss.clients.forEach((client: any) => {
       if (client.readyState !== client.OPEN) return;
 
-      // Focus Mode: Suppress scanner updates to save bandwidth/CPU when user is in Detail View
-      if (basePayload.type === 'scanner' && client.focusMode === true) {
-        return;
-      }
+      if (basePayload.type === 'scanner' && client.focusMode === true) return;
 
-      // Suppress monitoring data if client has it disabled
       if (basePayload.type === 'tick' && client.monitoringEnabled === false) {
         const stripped = { ...basePayload };
         delete stripped.monitoring;
@@ -111,36 +125,28 @@ async function bootstrap() {
   });
 
   wss.on('connection', async (socket: any) => {
-    socket.monitoringEnabled = true; // Default to enabled
-    socket.focusMode = false; // Default to disabled
+    socket.monitoringEnabled = true;
+    socket.focusMode = false;
     socket.logFilters = { info: true, warn: true, error: true };
     updateMonitoringSuppression();
     
     socket.on('message', (message: string) => {
       try {
-        // Limit message size to prevent DoS via large JSON payloads
         if (message.length > 1000) return;
-
         const data = JSON.parse(message);
         if (data.type === 'set_monitoring') {
-          // Strict boolean check for security
           socket.monitoringEnabled = data.enabled === true;
-          console.log(`Client monitoring preference updated: ${socket.monitoringEnabled}`);
           updateMonitoringSuppression();
         }
-
         if (data.type === 'set_focus_mode') {
           socket.focusMode = data.enabled === true;
-          console.log(`Client focus mode updated: ${socket.focusMode}`);
         }
-
         if (data.type === 'set_log_filters' && typeof data.filters === 'object' && data.filters !== null) {
           socket.logFilters = {
             info: data.filters.info === true,
             warn: data.filters.warn === true,
             error: data.filters.error === true,
           };
-          console.log(`Client log filter preferences updated: ${JSON.stringify(socket.logFilters)}`);
         }
       } catch (e) {}
     });
@@ -152,8 +158,11 @@ async function bootstrap() {
     socket.send(JSON.stringify({ type: 'status', ...(await sessionService.getStatus()) }));
   });
 
-  console.log(`✨ Trading Dashboard Backend running on http://localhost:${port}`);
-  console.log(`📡 WebSocket endpoint: ws://localhost:${port}/session/ws`);
+  const port = process.env.PORT || configService.get<number>('PORT') || 3000;
+  await app.listen(port, '0.0.0.0');
+
+  console.log(`✨ Trading Dashboard Backend running on port ${port}`);
+  console.log(`📡 WebSocket endpoint: ws://0.0.0.0:${port}/session/ws`);
 }
 
 bootstrap().catch((err) => {

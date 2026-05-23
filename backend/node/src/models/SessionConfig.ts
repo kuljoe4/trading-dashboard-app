@@ -31,6 +31,8 @@ export class SessionConfig {
 
   @IsArray()
   @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => SessionConfig)
   strategy_variants?: Partial<SessionConfig>[] = [];
 
   @IsBoolean()

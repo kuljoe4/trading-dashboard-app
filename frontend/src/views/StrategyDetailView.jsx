@@ -45,7 +45,7 @@ const StrategyDetailView = ({ s, onBack }) => {
       {/* Summary Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
         <StatCard label="Total P&L" value={fmtUSD(s.totalPnl)} color={s.totalPnl >= 0 ? "text-green" : "text-red"} />
-        <StatCard label="Hit Count" value={s.logs.filter(l => l.msg.includes('Entry')).length.toString()} color="text-accent" />
+        <StatCard label="Hit Count" value={(s.entryCount ?? 0).toString()} color="text-accent" />
         <StatCard label="SL Budget" value={`$${s.totalSlUsed.toFixed(0)} / $${config.total_sl_guard_usdt}`} color={s.totalSlUsed > config.total_sl_guard_usdt * 0.7 ? "text-amber" : "text-text"} />
         <StatCard label="Active Risk" value={`${s.totalRiskPct.toFixed(1)}%`} color={s.totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
       </div>

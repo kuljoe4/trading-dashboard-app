@@ -986,9 +986,48 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
       <div className="p-5 border-t border-border bg-surface flex gap-3 shrink-0">
         <Btn variant="ghost" onClick={onClose} className="flex-1">Cancel</Btn>
         <Btn variant="primary" onClick={() => {
-          if (!validate(cfg)) {
-             // Find the first section with an error and switch to it
-             const firstErrorKey = Object.keys(errors)[0];
+          const errs = {}
+
+          // Scan Section
+          if (!cfg.scan_interval) errs.scan_interval = 'Required'
+          if (cfg.scan_lookback < 1) errs.scan_lookback = 'Min 1'
+          if (cfg.scan_mode === 'active_window') {
+            if (!cfg.scan_window_duration_sec) errs.scan_window_duration_sec = 'Required'
+            if (!cfg.scan_check_interval_sec) errs.scan_check_interval_sec = 'Required'
+          }
+
+          // Signals Section
+          const allEnabled = [...(cfg.enabled_signals || []), ...(cfg.exit_signals || [])]
+          if (allEnabled.includes('ma') && !cfg.signal_params_ma_period) errs.signal_params_ma_period = 'Required'
+          if (allEnabled.includes('ema_close') || allEnabled.includes('ema_price_cross')) {
+            if (!cfg.signal_params_entry_ema_period) errs.signal_params_entry_ema_period = 'Required'
+            if (cfg.exit_signals?.includes('ema_close') && !cfg.signal_params_exit_ema_period) errs.signal_params_exit_ema_period = 'Required'
+          }
+          if (allEnabled.includes('ema_dual_cross')) {
+            if (!cfg.signal_params_entry_ema_fast) errs.signal_params_entry_ema_fast = 'Required'
+            if (!cfg.signal_params_entry_ema_slow) errs.signal_params_entry_ema_slow = 'Required'
+            if (cfg.signal_params_entry_ema_fast >= cfg.signal_params_entry_ema_slow) {
+              errs.signal_params_entry_ema_fast = 'Must be < slow'
+            }
+          }
+
+          // Exit Section
+          if (cfg.sl_type === 'lookback_low/high') {
+            if (!cfg.sl_lookback_period) errs.sl_lookback_period = 'Required'
+          }
+          if (cfg.tp_mode === 'exp_rr_seq') {
+            if (!cfg.live_rr_sequence?.length) errs.tp_mode = 'Sequence required'
+          }
+
+          // Risk Section
+          if (cfg.risk_pct_per_trade > cfg.max_total_risk_pct) {
+            errs.risk_pct_per_trade = 'Exceeds max total risk'
+          }
+
+          setErrors(errs)
+
+          if (Object.keys(errs).length > 0) {
+             const firstErrorKey = Object.keys(errs)[0];
              if (firstErrorKey) {
                 if (['scan_interval', 'scan_lookback', 'scan_window_duration_sec', 'scan_check_interval_sec'].includes(firstErrorKey)) setSection('scan');
                 else if (firstErrorKey.startsWith('signal_params')) setSection('signals');

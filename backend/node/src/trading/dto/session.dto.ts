@@ -31,3 +31,8 @@ export class UpdateSessionDto {
   @Type(() => SessionConfig)
   config: SessionConfig;
 }
+
+export class PauseSessionDto {
+  @IsBoolean()
+  paused: boolean;
+}

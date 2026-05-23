@@ -1,7 +1,8 @@
-import { Controller, Post, Get, Body, Patch, Delete, Param } from '@nestjs/common';
+import { Controller, Post, Get, Body, Patch, Delete, Param, ParseUUIDPipe } from '@nestjs/common';
 import { SessionService } from './session.service';
 import { SessionConfig } from '../models/SessionConfig';
 import { StartSessionDto, UpdateSessionDto } from './dto/session.dto';
+import { PauseSessionDto } from './dto/pause-session.dto';
 
 @Controller('session')
 export class SessionController {
@@ -37,7 +38,7 @@ export class SessionController {
   }
 
   @Patch(':id')
-  async updateSession(@Param('id') id: string, @Body() body: UpdateSessionDto) {
+  async updateSession(@Param('id', ParseUUIDPipe) id: string, @Body() body: UpdateSessionDto) {
     const config = Object.assign(new SessionConfig(), body.config);
     
     // Parse signal_params if it's a JSON string
@@ -53,12 +54,12 @@ export class SessionController {
   }
 
   @Post('pause')
-  async pauseSession(@Body() body: { paused: boolean }) {
+  async pauseSession(@Body() body: PauseSessionDto) {
     return this.sessionService.pauseSession(body.paused);
   }
 
   @Delete(':id')
-  async deleteSession(@Param('id') id: string) {
+  async deleteSession(@Param('id', ParseUUIDPipe) id: string) {
     return this.sessionService.deleteSession(id);
   }
 

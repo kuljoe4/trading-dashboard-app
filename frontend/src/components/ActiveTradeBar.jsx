@@ -232,27 +232,14 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
   const [isExpanded, setIsExpanded] = useState(initialExpanded)
 
   useEffect(() => {
-    let timer;
     if (confirmClose) {
-      timer = setTimeout(() => setConfirmClose(false), 3000);
+      const timer = setTimeout(() => setConfirmClose(false), 3000)
+      return () => clearTimeout(timer)
     }
-    return () => clearTimeout(timer);
-  }, [confirmClose]);
-
-  useEffect(() => {
-    let timer
-    if (confirmClose) {
-      timer = setTimeout(() => setConfirmClose(false), 3000)
-    }
-    return () => clearTimeout(timer)
   }, [confirmClose])
 
   const handleClose = async () => {
-    if (!confirmClose) {
-      setConfirmClose(true)
-      return
-    }
-
+    setConfirmClose(false)
     setIsClosing(true)
     try {
       await sessionAPI.closeTrade(trade.symbol)
@@ -447,23 +434,27 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
       <div className="mt-6 flex gap-3">
         <button
           onClick={() => setIsExpanded(!isExpanded)}
+          aria-expanded={isExpanded}
           className="flex-1 px-4 py-3 bg-surface border border-border hover:border-accent/40 text-text rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2"
         >
           {isExpanded ? 'Hide Details' : 'View Details'}
         </button>
         <button
-          onClick={() => confirmClose ? handleClose() : setConfirmClose(true)}
+          onClick={() => {
+            if (confirmClose) {
+              handleClose()
+            } else {
+              setConfirmClose(true)
+            }
+          }}
           disabled={isClosing}
-          aria-label={confirmClose ? "Confirm close position" : "Close position"}
           className={cn(
-            "flex-1 px-4 py-3 text-white rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed",
-            confirmClose ? "bg-red/80 animate-pulse" : "bg-red hover:bg-red/80"
+            "flex-1 px-4 py-3 bg-red hover:bg-red/80 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2",
+            confirmClose && "animate-pulse ring-2 ring-red ring-offset-2 ring-offset-surface"
           )}
         >
           <XCircle size={16} />
-          <span aria-live="polite">
-            {isClosing ? 'Closing...' : confirmClose ? 'Confirm?' : 'Close Position'}
-          </span>
+          {isClosing ? 'Closing...' : confirmClose ? 'Confirm?' : 'Close Position'}
         </button>
       </div>
     </div>

@@ -5,6 +5,10 @@ import { sessionAPI } from './api/client';
 import { useVisibility } from './hooks/useVisibility';
 import './index.css';
 
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('debug') === 'true') {
+  import('eruda').then(m => m.default.init());
+}
 
 const DashboardView = lazy(() => import('./views/DashboardView').then(m => ({ default: m.DashboardView })));
 const SettingsView = lazy(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })));

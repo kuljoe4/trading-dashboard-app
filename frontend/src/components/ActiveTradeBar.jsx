@@ -230,7 +230,6 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
   const [isClosing, setIsClosing] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
   const [isExpanded, setIsExpanded] = useState(initialExpanded)
-  const [confirmClose, setConfirmClose] = useState(false)
 
   useEffect(() => {
     if (confirmClose) {
@@ -238,14 +237,6 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
       return () => clearTimeout(timer)
     }
   }, [confirmClose])
-
-  useEffect(() => {
-    let timer;
-    if (confirmClose) {
-      timer = setTimeout(() => setConfirmClose(false), 3000);
-    }
-    return () => clearTimeout(timer);
-  }, [confirmClose]);
 
   const handleClose = async () => {
     setConfirmClose(false)

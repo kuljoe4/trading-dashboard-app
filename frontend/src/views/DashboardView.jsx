@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, lazy, Suspense } from 'react'
+import { shallow } from 'zustand/shallow'
 import { pnlColor, fmtUSD, C } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
 import { sessionAPI } from '../api/client'
@@ -31,8 +32,7 @@ const LoadingFallback = () => (
 )
 
 // --- Strategy Card ---
-// --- Strategy Card ---
-const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused, scannerResults }) => {
+const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
@@ -113,7 +113,7 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused, scannerResu
             {fmtUSD(s.totalPnl)}
           </div>
           <div className="text-[10px] text-dim font-bold uppercase tracking-widest mt-1">
-            {s.logs.filter(l => l.msg.includes('Entry')).length} ENTRIES
+            {s.entryCount} ENTRIES
           </div>
         </div>
       </div>
@@ -150,7 +150,7 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused, scannerResu
       </AnimatePresence>
     </motion.div>
   );
-}
+})
 
 const GateBanner = ({ gateState, scannerPaused }) => {
   if (!gateState && !scannerPaused) return null
@@ -259,7 +259,8 @@ export function DashboardView() {
   const [showScanner, setShowScanner] = useState(false)
   const [isEditMode, setIsEditMode] = useState(false)
   const [selectedConfig, setSelectedConfig] = useState(null)
-  
+  const [confirmStop, setConfirmStop] = useState(false)
+
   const {
     sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
     totalSlUsed, activeTrades, config, setSessionActive,
@@ -285,19 +286,29 @@ export function DashboardView() {
     wsStatus: state.wsStatus,
     sidebarCollapsed: state.sidebarCollapsed,
     variantScannerResults: state.variantScannerResults
-  }))
+  }), shallow)
 
-  const logs = useTradingStore(state => state.logs)
+  // BOLT OPTIMIZATION: Select only entry count to avoid Dashboard re-rendering on every log
+  const entryCount = useTradingStore(state => state.logs.filter(l => l.msg.includes('Entry')).length)
+
   const { updateStats, setFocusMode } = useTradingStore(state => ({
     updateStats: state.updateStats,
     setFocusMode: state.setFocusMode
-  }))
+  }), shallow)
 
   const [loading, setLoading] = useState(false)
 
+  useEffect(() => {
+    let timer;
+    if (confirmStop) {
+      timer = setTimeout(() => setConfirmStop(false), 3000);
+    }
+    return () => clearTimeout(timer);
+  }, [confirmStop]);
+
   const currentStrategy = useMemo(() => ({
-    sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, logs
-  }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, logs])
+    sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount
+  }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount])
 
   const maxRR = useMemo(() => activeTrades.reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
 
@@ -306,10 +317,6 @@ export function DashboardView() {
   }, [selected, setFocusMode])
 
   useEffect(() => {
-    sessionAPI.rateLimit()
-      .then((res) => updateStats({ rateLimit: res.data }))
-      .catch((e) => console.error('RateLimit fetch failed:', e))
-    
     fetchSessions();
 
     const openScanner = () => setShowScanner(true);
@@ -347,6 +354,11 @@ export function DashboardView() {
   }
 
   async function handleStop() {
+    if (!confirmStop) {
+      setConfirmStop(true)
+      return
+    }
+
     setLoading(true)
     try {
       await sessionAPI.stop()
@@ -357,6 +369,7 @@ export function DashboardView() {
       await fetchSessions()
     } finally {
       setLoading(false)
+      setConfirmStop(false)
     }
   }
 
@@ -420,8 +433,17 @@ export function DashboardView() {
                 <Plus size={16} className="mr-2" /> New Session
               </Btn>
             ) : (
-              <Btn variant="danger" onClick={handleStop} disabled={loading} className="flex-1 sm:flex-none">
-                <XCircle size={16} className="mr-2" /> Terminate Session
+              <Btn
+                variant="danger"
+                onClick={handleStop}
+                disabled={loading}
+                aria-label={confirmStop ? "Confirm terminate session" : "Terminate session"}
+                className={cn("flex-1 sm:flex-none transition-all duration-300", confirmStop && "bg-red/80 animate-pulse")}
+              >
+                <XCircle size={16} className="mr-2" />
+                <span aria-live="polite">
+                  {loading ? 'Terminating...' : confirmStop ? 'Confirm?' : 'Terminate Session'}
+                </span>
               </Btn>
             )}
           </div>

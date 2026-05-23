@@ -17,6 +17,13 @@
 **Learning:** Signal processing logic (MA, EMA, Breakout) often requires windows of data. Mapping full candle objects to price arrays (`candles.map(c => c.close)`) inside the scanner loop creates thousands of short-lived objects per minute.
 **Action:** Refactor math helpers (SMA/EMA) to accept the source object array and index ranges instead of pre-processed primitive arrays to achieve zero-allocation data windowing.
 
+## 2026-05-16 - [Optimization] Decoupling Logs from Main Dashboard Hot Path
+**Learning:** Selecting a large array (like logs) in a root-level view causes the entire component tree to re-render on every array mutation, even if the view only uses a derived property (like length). Zustand's 'shallow' comparison and targeted derived selectors are critical for stable UI in high-frequency data environments.
+**Action:** Always extract derived metrics into targeted selectors or use memoized computations to prevent 'God Object' selectors from triggering unnecessary global re-renders.
 ## 2026-05-18 - [Optimization] Hot-Loop Analytics Caching
 **Learning:** Recalculating full session analytics (O(N log N) sort + O(N) passes) in a 1s hot loop is a major CPU sink. Since analytics only change when a trade closes or the balance is updated, they can be cached and only invalidated on those specific events.
 **Action:** In high-frequency UI/State loops, always gate expensive calculations behind state-change checks (e.g., length of input arrays or key numeric property changes) to achieve near-zero cost for idle ticks.
+
+## 2026-05-20 - [Optimization] Ticker Stream Allocation Cleanup
+**Learning:** High-frequency ticker streams (300+ symbols every second) can generate thousands of short-lived objects if the cache isn't optimized for reuse. This triggers aggressive GC that stalls the trading loop. Reusing objects in the internal Map and skipping redundant parseFloat calls provides a major efficiency win.
+**Action:** For high-volume stream handlers, implement object reuse and defensive type checks to ensure the hot path is as allocation-free as possible.

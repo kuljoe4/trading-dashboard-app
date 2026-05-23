@@ -25,11 +25,17 @@ export class TickerCacheService {
         const price = priceStr !== undefined ? parseFloat(priceStr) : existing?.price || 0;
         const volume = volumeStr !== undefined ? parseFloat(volumeStr) : existing?.volume_24h || 0;
 
-        this.tickers.set(symbol, {
-          symbol,
-          price,
-          volume_24h: volume,
-        });
+        if (existing) {
+          // BOLT OPTIMIZATION: Update existing object to avoid GC pressure from frequent allocations
+          existing.price = price;
+          existing.volume_24h = volume;
+        } else {
+          this.tickers.set(symbol, {
+            symbol,
+            price,
+            volume_24h: volume,
+          });
+        }
       }
     }
   }

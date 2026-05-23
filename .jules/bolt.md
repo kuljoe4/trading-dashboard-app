@@ -20,3 +20,7 @@
 ## 2026-05-18 - [Optimization] Hot-Loop Analytics Caching
 **Learning:** Recalculating full session analytics (O(N log N) sort + O(N) passes) in a 1s hot loop is a major CPU sink. Since analytics only change when a trade closes or the balance is updated, they can be cached and only invalidated on those specific events.
 **Action:** In high-frequency UI/State loops, always gate expensive calculations behind state-change checks (e.g., length of input arrays or key numeric property changes) to achieve near-zero cost for idle ticks.
+
+## 2026-05-21 - [Optimization] Hot-Path Engine Cleanup
+**Learning:** Even a single 'JSON.stringify' or 'console.log' in a 1s hot loop (like 'getStrategyLabel') can cause measurable CPU spikes when scaled across multiple strategies and trades. Similarly, functional 'find' on arrays in the hot path should be replaced with pre-indexed Map lookups.
+**Action:** Audit all methods called within 1s intervals for any stringification or linear searches. Transition signal math from 'Series' based returns to 'LastN' based returns to eliminate intermediate array allocations.

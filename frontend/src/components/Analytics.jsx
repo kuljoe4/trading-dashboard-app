@@ -1,5 +1,5 @@
-import React, { useId, useMemo } from 'react';
-import { fmtUSD } from '../lib/theme';
+import React, { useId, useMemo, useState, useRef, useEffect } from 'react';
+import { fmtUSD, solveSmoothing } from '../lib/theme';
 import { cn } from '../components/ui/primitives';
 
 const downsample = (data, threshold = 100) => {
@@ -19,37 +19,60 @@ const downsample = (data, threshold = 100) => {
 export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) => {
   const gradientId = useId().replace(/:/g, '')
   const glowId = `${gradientId}-glow`
-  const points = useMemo(() => {
+  const containerRef = useRef(null);
+  const [hoverData, setHoverData] = useState(null);
+
+  const { points, viewMin, viewMax, viewRange } = useMemo(() => {
     const downsampled = downsample(data);
-    if (!downsampled || downsampled.length < 2) return [];
+    if (!downsampled || downsampled.length < 2) return { points: [], viewMin: 0, viewMax: 0.1, viewRange: 0.1 };
 
     const values = downsampled.map(d => d.pnl);
     const min = Math.min(0, ...values);
     const max = Math.max(0.1, ...values);
     const range = max - min;
-    const padding = range * 0.1;
+    const padding = range * 0.15; // Slightly more padding
 
-    const viewMin = min - padding;
-    const viewMax = max + padding;
-    const viewRange = viewMax - viewMin;
+    const vMin = min - padding;
+    const vMax = max + padding;
+    const vRange = vMax - vMin;
 
-    return downsampled.map((d, i) => {
+    const pts = downsampled.map((d, i) => {
       const x = (i / (downsampled.length - 1)) * 100;
-      const y = 100 - ((d.pnl - viewMin) / viewRange) * 100;
-      return { x, y, pnl: d.pnl };
+      const y = 100 - ((d.pnl - vMin) / vRange) * 100;
+      return { x, y, pnl: d.pnl, ts: d.ts };
     });
+
+    return { points: pts, viewMin: vMin, viewMax: vMax, viewRange: vRange };
   }, [data]);
 
-  const drawdownSegments = useMemo(() => {
-    if (!colorDrawdown || points.length < 2) return [];
-    let peak = points[0]?.pnl ?? 0;
-    return points.slice(1).map((point, index) => {
-      peak = Math.max(peak, points[index].pnl);
-      const previous = points[index];
-      const inDrawdown = point.pnl < peak || previous.pnl < peak;
-      return { previous, point, inDrawdown };
-    });
-  }, [colorDrawdown, points]);
+  const pathD = useMemo(() => solveSmoothing(points), [points]);
+  const areaD = points.length >= 2 ? `${pathD} L 100 100 L 0 100 Z` : '';
+
+  const zeroY = useMemo(() => {
+    return 100 - ((0 - viewMin) / viewRange) * 100;
+  }, [viewMin, viewRange]);
+
+  const handleMouseMove = (e) => {
+    if (!containerRef.current || points.length < 2) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const xPct = ((e.clientX - rect.left) / rect.width) * 100;
+
+    // Find closest point
+    let closest = points[0];
+    let minDiff = Math.abs(points[0].x - xPct);
+
+    for (const p of points) {
+      const diff = Math.abs(p.x - xPct);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = p;
+      }
+    }
+
+    setHoverData({ ...closest, clientX: e.clientX, clientY: rect.top + (closest.y * rect.height / 100) });
+  };
+
+  const handleMouseLeave = () => setHoverData(null);
 
   if (data.length < 2) {
     return (
@@ -59,16 +82,31 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
     );
   }
 
-  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-  const areaD = `${pathD} L 100 100 L 0 100 Z`;
-
   return (
-    <div className="relative group" role="img" aria-label={`Cumulative profit and loss chart, latest value ${fmtUSD(data[data.length-1].pnl)}.`}>
+    <div
+      ref={containerRef}
+      className="relative group cursor-crosshair select-none"
+      role="img"
+      aria-label={`Cumulative profit and loss chart, latest value ${fmtUSD(data[data.length-1].pnl)}.`}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+    >
       <div className="absolute top-2 left-2 flex flex-col gap-0.5 z-10 pointer-events-none">
         <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Cumulative P&L</span>
         <span className={cn("text-lg font-bold font-mono tracking-tighter", data[data.length-1].pnl >= 0 ? "text-green" : "text-red")}>
-          {fmtUSD(data[data.length-1].pnl)}
+          {fmtUSD(hoverData ? hoverData.pnl : data[data.length-1].pnl)}
         </span>
+        {hoverData?.ts && (
+          <span className="text-[8px] text-dim font-mono uppercase">
+            {new Date(hoverData.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          </span>
+        )}
+      </div>
+
+      <div className="absolute top-2 right-2 flex flex-col items-end gap-1 z-10 pointer-events-none opacity-40">
+        <span className="text-[8px] text-dim font-mono">{fmtUSD(viewMax)}</span>
+        <div className="h-20" />
+        <span className="text-[8px] text-dim font-mono">{fmtUSD(viewMin)}</span>
       </div>
 
       <svg
@@ -79,7 +117,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
       >
         <defs>
           <linearGradient id={`${gradientId}-area`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.32" />
+            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.25" />
             <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
           </linearGradient>
           <filter id={glowId}>
@@ -88,57 +126,55 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
           </filter>
         </defs>
 
-        <line x1="0" y1="25" x2="100" y2="25" stroke="currentColor" className="text-border/70" strokeWidth="0.25" strokeDasharray="1,3" />
-        <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" className="text-border/70" strokeWidth="0.25" strokeDasharray="1,3" />
-        <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" className="text-border/70" strokeWidth="0.25" strokeDasharray="1,3" />
+        {/* Grid Lines */}
+        <line x1="0" y1="25" x2="100" y2="25" stroke="currentColor" className="text-border/40" strokeWidth="0.2" strokeDasharray="1,2" />
+        <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" className="text-border/40" strokeWidth="0.2" strokeDasharray="1,2" />
+        <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" className="text-border/40" strokeWidth="0.2" strokeDasharray="1,2" />
 
-        {/* Baseline (0 PnL) */}
-        {(() => {
-           const values = data.map(d => d.pnl);
-           const min = Math.min(0, ...values);
-           const max = Math.max(0.1, ...values);
-           const padding = (max - min) * 0.1;
-           const viewMin = min - padding;
-           const viewMax = max + padding;
-           const zeroY = 100 - ((0 - viewMin) / (viewMax - viewMin)) * 100;
-           return <line x1="0" y1={zeroY} x2="100" y2={zeroY} stroke="currentColor" className="text-border" strokeWidth="0.5" strokeDasharray="2,2" />;
-        })()}
+        {/* Zero Baseline */}
+        <line x1="0" y1={zeroY} x2="100" y2={zeroY} stroke="currentColor" className="text-border/80" strokeWidth="0.4" strokeDasharray="2,2" />
 
-        <path d={areaD} fill={`url(#${gradientId}-area)`} />
-        {colorDrawdown ? (
-          drawdownSegments.map(({ previous, point, inDrawdown }, index) => (
-            <path
-              key={index}
-              d={`M ${previous.x} ${previous.y} L ${point.x} ${point.y}`}
-              fill="none"
-              stroke={inDrawdown ? "var(--color-red)" : "var(--color-green)"}
-              strokeWidth="2.25"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              filter={`url(#${glowId})`}
+        <path d={areaD} fill={`url(#${gradientId}-area)`} className="transition-all duration-700" />
+
+        <path
+          d={pathD}
+          fill="none"
+          stroke="var(--accent)"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          filter={`url(#${glowId})`}
+          className="transition-all duration-700"
+        />
+
+        {/* Interaction Crosshair */}
+        {hoverData && (
+          <g>
+            <line
+              x1={hoverData.x} y1="0" x2={hoverData.x} y2="100"
+              stroke="var(--accent)" strokeWidth="0.5" strokeDasharray="2,2" className="opacity-50"
             />
-          ))
-        ) : (
-          <path
-            d={pathD}
-            fill="none"
-            stroke="var(--accent)"
-            strokeWidth="2.25"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            filter={`url(#${glowId})`}
-            className="transition-all duration-500"
-          />
+            <circle
+              cx={hoverData.x}
+              cy={hoverData.y}
+              r="2.5"
+              fill="var(--accent)"
+              filter={`url(#${glowId})`}
+              className="animate-pulse"
+            />
+          </g>
         )}
 
-        {/* Current Value Dot */}
-        <circle
-          cx={points[points.length-1].x}
-          cy={points[points.length-1].y}
-          r="2"
-          fill="var(--accent)"
-          filter={`url(#${glowId})`}
-        />
+        {/* Current Value Dot (if not hovering) */}
+        {!hoverData && points.length > 0 && (
+          <circle
+            cx={points[points.length-1].x}
+            cy={points[points.length-1].y}
+            r="2"
+            fill="var(--accent)"
+            filter={`url(#${glowId})`}
+          />
+        )}
       </svg>
     </div>
   );

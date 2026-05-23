@@ -19,7 +19,6 @@ import { SessionController } from './session.controller';
 import { SettingsController } from './settings.controller';
 import { MonitoringController } from './monitoring.controller';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
-import { DataInjectorService } from '../engine/data_injector.service';
 import { MonitoringService } from '../engine/monitoring.service';
 import { AnalyticsService } from '../engine/analytics.service';
 
@@ -40,7 +39,6 @@ import { AnalyticsService } from '../engine/analytics.service';
     MomentumScannerService,
     KlineStoreService,
     SessionService,
-    DataInjectorService,
     MonitoringService,
     AnalyticsService,
   ],

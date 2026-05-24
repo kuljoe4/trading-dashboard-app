@@ -164,6 +164,7 @@ export class PositionTrackerService {
     symbol: string,
     currentPrice: number,
     config: SessionConfig,
+    interval: string = '1m',
   ): Promise<{ exitOccurred: boolean; exitType: string; exitReason: string } | null> {
     const trade = this.trades.get(symbol);
     if (!trade || trade.status !== 'OPEN') return null;
@@ -207,6 +208,7 @@ export class PositionTrackerService {
       symbol,
       trade,
       config,
+      interval,
     );
 
     if (exitTriggered) {

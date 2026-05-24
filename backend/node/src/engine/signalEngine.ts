@@ -9,6 +9,7 @@ interface SignalDetail {
   unit: string;
   metric: string;
   description: string;
+  insufficientData?: boolean;
 }
 
 @Injectable()
@@ -107,6 +108,7 @@ export class SignalEngineService {
         unit: '%',
         metric: 'Momentum',
         description: 'Insufficient candle data',
+        insufficientData: true,
       };
     }
 
@@ -141,6 +143,7 @@ export class SignalEngineService {
         unit: 'price',
         metric: 'Breakout',
         description: 'Insufficient candle data',
+        insufficientData: true,
       };
     }
 
@@ -176,7 +179,7 @@ export class SignalEngineService {
     try {
       const candles = await this.klineStore.getRecentCandles(symbol, interval, 2);
       if (candles.length < 2) {
-        return { fired: false, value: 0, threshold: 0, unit: 'bool', metric: 'Engulfing', description: 'Insufficient data' };
+        return { fired: false, value: 0, threshold: 0, unit: 'bool', metric: 'Engulfing', description: 'Insufficient data', insufficientData: true };
       }
 
       const prevCandle = candles[0];
@@ -206,7 +209,7 @@ export class SignalEngineService {
       const period = parseInt(config.signal_params?.ma_period || '20', 10);
       const candles = await this.klineStore.getRecentCandles(symbol, interval, period + 1);
       if (candles.length < period + 1) {
-        return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'MA Cross', description: 'Insufficient data' };
+        return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'MA Cross', description: 'Insufficient data', insufficientData: true };
       }
 
       const ma = this.calculateSMA(candles, 0, period);
@@ -245,7 +248,7 @@ export class SignalEngineService {
 
       const candles = await this.klineStore.getRecentCandles(symbol, interval, period + 1);
       if (candles.length < period + 1) {
-        return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Cross', description: 'Insufficient data' };
+        return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Cross', description: 'Insufficient data', insufficientData: true };
       }
 
       const ema = this.calculateEMA(candles, period);
@@ -296,14 +299,14 @@ export class SignalEngineService {
       const maxPeriod = Math.max(fastPeriod, slowPeriod);
       const candles = await this.klineStore.getRecentCandles(symbol, interval, maxPeriod + 2);
       if (candles.length < maxPeriod + 1) {
-        return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Dual', description: 'Insufficient data' };
+        return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Dual', description: 'Insufficient data', insufficientData: true };
       }
 
       const fastEmas = this.calculateEMALastTwo(candles, fastPeriod);
       const slowEmas = this.calculateEMALastTwo(candles, slowPeriod);
 
       if (!fastEmas || !slowEmas) {
-        return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Dual', description: 'Insufficient EMA data' };
+        return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Dual', description: 'Insufficient EMA data', insufficientData: true };
       }
 
       const [prevFast, currFast] = fastEmas;
@@ -356,6 +359,7 @@ export class SignalEngineService {
           unit: 'price',
           metric: 'EMA Close',
           description: 'Insufficient candle data',
+          insufficientData: true,
         };
       }
 

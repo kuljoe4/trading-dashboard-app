@@ -163,7 +163,7 @@ export class OrderManagerService {
       ? (Date.now() - new Date(trade.entry_ts).getTime()) / 1000
       : 0;
 
-    const statuses: Record<string, { fired: boolean, active: boolean, remaining_delay: number, label: string, value: number, threshold: number, unit: string, description?: string }> = {};
+    const statuses: Record<string, { fired: boolean, active: boolean, remaining_delay: number, label: string, value: number, threshold: number, unit: string, description?: string, insufficientData?: boolean }> = {};
     const delays = config.exit_signal_delays || {};
     const logic = config.exit_signal_logic || 'any';
 
@@ -202,6 +202,7 @@ export class OrderManagerService {
           threshold: detail?.threshold ?? 1,
           unit: detail?.unit ?? '%',
           description: detail?.description || `Signal ${exitSignal} ${isFired ? 'fired' : 'not fired'}`,
+          insufficientData: detail?.insufficientData,
         };
 
         if (isFired && isActive) {

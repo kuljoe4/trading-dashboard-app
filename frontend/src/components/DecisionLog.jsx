@@ -49,7 +49,6 @@ export const DecisionLog = React.memo(() => {
               type="button"
               aria-pressed={active}
               onClick={() => toggleLogFilter(filter.level)}
-              aria-pressed={active}
               className={cn(
                 "px-3 py-1 rounded-full border text-[11px] font-bold transition-all",
                 active ? "bg-surface border-border opacity-100" : "bg-transparent border-border/50 opacity-55 hover:opacity-80",

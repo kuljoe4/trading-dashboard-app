@@ -23,4 +23,8 @@ export class BalanceHistory {
 
   @Column({ nullable: true })
   tradeId: string;
+
+  @Column({ type: 'varchar', default: 'paper' })
+  @Index()
+  tradingMode: 'paper' | 'testnet' | 'live';
 }

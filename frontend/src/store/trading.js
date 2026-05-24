@@ -276,9 +276,9 @@ export const useTradingStore = create((set, get) => ({
     }
   },
 
-  fetchLifetimeAnalytics: async () => {
+  fetchLifetimeAnalytics: async (mode = 'paper') => {
     try {
-      const res = await sessionAPI.getLifetimeAnalytics()
+      const res = await sessionAPI.getLifetimeAnalytics(mode)
       set({ lifetimeAnalytics: res.data })
     } catch (e) {
       console.error('tradingStore: fetchLifetimeAnalytics error:', e);

@@ -112,12 +112,16 @@ export class SessionService implements OnModuleInit {
         totalPnl: parseFloat(sum || '0')
       });
 
-      // 3. Update Global Settings for Paper Mode and record History
+      // 3. Update Global Settings and record History for all modes
       const session = await queryRunner.manager.findOne(SessionEntity, { where: { id: sessionId } });
-      if (session && session.paperMode) {
-        await queryRunner.manager.update(SettingsEntity, 'default', {
-          paper_balance: balance
-        });
+      if (session) {
+        const mode = session.tradingMode || (session.paperMode ? 'paper' : 'live');
+        const updateData: any = {};
+        if (mode === 'paper') updateData.paper_balance = balance;
+        else if (mode === 'testnet') updateData.testnet_balance = balance;
+        else if (mode === 'live') updateData.live_balance = balance;
+
+        await queryRunner.manager.update(SettingsEntity, 'default', updateData);
 
         // Record Balance Snapshot
         const snapshot = this.balanceHistoryRepository.create({
@@ -126,7 +130,8 @@ export class SessionService implements OnModuleInit {
           pnl: trade.pnl || 0,
           type: 'TRADE_CLOSE',
           sessionId: sessionId,
-          tradeId: trade.id
+          tradeId: trade.id,
+          tradingMode: mode as any
         });
         await queryRunner.manager.save(BalanceHistoryEntity, snapshot);
       }
@@ -566,10 +571,10 @@ export class SessionService implements OnModuleInit {
     return { status: 'reset', balance: defaultBalance };
   }
 
-  async getLifetimeAnalytics() {
-    // 1. Fetch all closed trades across all sessions
+  async getLifetimeAnalytics(mode: 'paper' | 'testnet' | 'live' = 'paper') {
+    // 1. Fetch all closed trades across all sessions for the specific mode
     const trades = await this.tradeRepository.find({
-      select: ['pnl', 'exit_ts', 'status'],
+      select: ['pnl', 'exit_ts', 'status', 'strategy_config'],
       where: [
         { status: 'CLOSED' as any },
         { status: 'CLOSED_SL' },
@@ -579,20 +584,29 @@ export class SessionService implements OnModuleInit {
       order: { exit_ts: 'ASC' }
     });
 
+    // Filter trades by mode
+    const filteredTrades = trades.filter(t => {
+        const tConfig = t.strategy_config || {};
+        const tMode = tConfig.trading_mode || (tConfig.paper_mode !== false ? 'paper' : 'live');
+        return tMode === mode;
+    });
+
     // 2. Fetch balance history snapshots for high-fidelity curve
     const history = await this.balanceHistoryRepository.find({
+      where: { tradingMode: mode },
       order: { timestamp: 'ASC' }
     });
 
     // 3. Calculate analytics using the full trade set
-    // We assume the very first starting balance was 10000
-    const analytics = this.analyticsService.calculateAnalytics(trades as any, 10000);
+    // We assume the very first starting balance was 10000 for paper, and 0 (initial tracking) for real
+    const startingBalance = mode === 'paper' ? 10000 : (history.length > 0 ? Number(history[0].balance) - Number(history[0].pnl) : 0);
+    const analytics = this.analyticsService.calculateAnalytics(filteredTrades as any, startingBalance);
 
     // 4. Override cumulative PnL with balance history for better accuracy if available
     if (history.length > 0) {
       analytics.cumulativePnL = history.map(h => ({
         ts: h.timestamp.toISOString(),
-        pnl: Number(h.balance) - 10000 // Cumulative PnL relative to initial 10k
+        pnl: Number(h.balance) - startingBalance
       }));
     }
 

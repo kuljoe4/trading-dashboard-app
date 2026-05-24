@@ -19,4 +19,10 @@ export class Settings {
 
   @Column('decimal', { precision: 20, scale: 8, default: 10000.0 })
   paper_balance: number;
+
+  @Column('decimal', { precision: 20, scale: 8, default: 0 })
+  testnet_balance: number;
+
+  @Column('decimal', { precision: 20, scale: 8, default: 0 })
+  live_balance: number;
 }

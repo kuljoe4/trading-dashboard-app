@@ -189,6 +189,7 @@ export const HistoryView = () => {
   const { tradeHistory, updateStats, sessionSummary, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics } = useTradingStore()
   const [fullAnalytics, setFullAnalytics] = useState(null)
   const [isLifetime, setIsLifetime] = useState(false)
+  const [lifetimeMode, setLifetimeMode] = useState('paper')
   const [loading, setLoading] = useState(true)
   const [visibleSessions, setVisibleSessions] = useState(PAGE_SIZE)
   const [colorDrawdown, setColorDrawdown] = useState(true)
@@ -222,13 +223,13 @@ export const HistoryView = () => {
     Promise.all([
       sessionAPI.history(),
       sessionAPI.analytics(),
-      fetchLifetimeAnalytics(),
+      fetchLifetimeAnalytics(lifetimeMode),
       fetchSessions()
     ]).then(([historyRes, analyticsRes]) => {
       updateStats({ tradeHistory: historyRes.data.trades || [] })
       setFullAnalytics(analyticsRes.data)
     }).finally(() => setLoading(false))
-  }, [updateStats, fetchSessions, fetchLifetimeAnalytics])
+  }, [updateStats, fetchSessions, fetchLifetimeAnalytics, lifetimeMode])
 
   useEffect(() => {
     if (loading) return
@@ -256,25 +257,51 @@ export const HistoryView = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 p-1 bg-surface border border-border rounded-xl w-fit mb-8">
-          <button
-            onClick={() => setIsLifetime(false)}
-            className={cn(
-              "px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
-              !isLifetime ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:text-text"
+        <div className="flex flex-col md:flex-row md:items-center gap-4 mb-8">
+          <div className="flex items-center gap-2 p-1 bg-surface border border-border rounded-xl w-fit">
+            <button
+              onClick={() => setIsLifetime(false)}
+              className={cn(
+                "px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
+                !isLifetime ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:text-text"
+              )}
+            >
+              Current Session
+            </button>
+            <button
+              onClick={() => setIsLifetime(true)}
+              className={cn(
+                "px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
+                isLifetime ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:text-text"
+              )}
+            >
+              Lifetime Performance
+            </button>
+          </div>
+
+          <AnimatePresence>
+            {isLifetime && (
+              <motion.div
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -10 }}
+                className="flex items-center gap-2 p-1 bg-surface border border-border rounded-xl w-fit"
+              >
+                {['paper', 'testnet', 'live'].map(m => (
+                  <button
+                    key={m}
+                    onClick={() => setLifetimeMode(m)}
+                    className={cn(
+                      "px-3 py-2 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all",
+                      lifetimeMode === m ? "bg-surface-lighter border border-accent/20 text-accent" : "text-dim hover:text-text"
+                    )}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </motion.div>
             )}
-          >
-            Current Session
-          </button>
-          <button
-            onClick={() => setIsLifetime(true)}
-            className={cn(
-              "px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
-              isLifetime ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:text-text"
-            )}
-          >
-            Lifetime Performance
-          </button>
+          </AnimatePresence>
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">

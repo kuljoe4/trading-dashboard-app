@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Patch, Delete, Param, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Post, Get, Body, Patch, Delete, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { SessionService } from './session.service';
 import { SessionConfig } from '../models/SessionConfig';
 import { StartSessionDto, UpdateSessionDto } from './dto/session.dto';
@@ -89,8 +89,8 @@ export class SessionController {
   }
 
   @Get('lifetime-analytics')
-  async getLifetimeAnalytics() {
-    return this.sessionService.getLifetimeAnalytics();
+  async getLifetimeAnalytics(@Query('mode') mode: 'paper' | 'testnet' | 'live') {
+    return this.sessionService.getLifetimeAnalytics(mode || 'paper');
   }
 
   @Post('reset-paper-balance')

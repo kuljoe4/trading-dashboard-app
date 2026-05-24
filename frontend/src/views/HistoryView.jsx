@@ -24,13 +24,82 @@ const buildCurve = (trades = []) => {
   })
 }
 
-const SessionGroup = ({ session, trades, colorDrawdown }) => {
+const TradeItem = React.memo(({ trade, session = {} }) => {
+  const isWin = (trade.pnl || 0) >= 0
+  const durationMs = trade.exit_ts && trade.entry_ts ? new Date(trade.exit_ts).getTime() - new Date(trade.entry_ts).getTime() : 0
+  const durationStr = durationMs ? (durationMs / 60000).toFixed(1) + 'm' : 'N/A'
+
+  return (
+    <div className="flex items-center justify-between p-4 bg-surface border border-border/60 rounded-xl hover:border-border-hover transition-colors group/trade">
+      <div className="flex items-center gap-4">
+        <div className="flex flex-col">
+          <div className="flex items-center gap-2 mb-0.5">
+            <span className="text-xs font-bold font-mono">{trade.symbol}</span>
+            <a href={`#/history?session=${trade.sessionId || session?.id}`} className="text-[8px] font-bold px-1.5 py-0.5 rounded border border-accent/20 bg-accent/10 text-accent uppercase">
+              {strategyLabel(trade)}
+            </a>
+            <span className={cn("text-[8px] font-bold px-1 py-0 rounded border uppercase", trade.direction?.toLowerCase() === 'long' ? "text-green border-green/20" : "text-red border-red/20")}>
+              {trade.direction}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] text-dim font-mono">{new Date(trade.entry_ts || trade.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            <span className="text-[9px] text-dim/40 font-mono">·</span>
+            <span className="text-[9px] text-dim font-mono flex items-center gap-1">
+              <Clock size={8} /> {durationStr}
+            </span>
+          </div>
+        </div>
+      </div>
+      <div className="flex gap-6 md:gap-10 text-right items-center">
+        <div className="hidden xl:flex flex-col">
+          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Entry/Exit</span>
+          <span className="text-[10px] font-bold text-dim font-mono">{price(trade.entry_price)} → {price(trade.exit_price)}</span>
+        </div>
+        <div className="hidden md:flex flex-col">
+          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Size</span>
+          <span className="text-[10px] font-bold text-dim font-mono">{trade.qty?.toFixed(2) || '0.00'}</span>
+        </div>
+        <div className="hidden sm:flex flex-col">
+          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Max RR</span>
+          <span className="text-[10px] font-bold text-accent font-mono">{(trade.max_rr_achieved || 0).toFixed(2)}R</span>
+        </div>
+        <div className="hidden sm:flex flex-col">
+          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Trigger</span>
+          <span className="text-[10px] font-bold text-dim/80 uppercase">
+            {trade.exit_signal_type ? (
+              <span className="flex flex-col items-end">
+                <span className="text-accent">{trade.exit_signal_type.replace(/_/g, ' ')}</span>
+                <span className="text-[8px] text-dim/60 normal-case">{trade.exit_reason || trade.exit_signal_reason}</span>
+              </span>
+            ) : (
+              trade.exit_reason || 'Manual'
+            )}
+          </span>
+        </div>
+        <div className="flex flex-col min-w-[70px]">
+          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Result</span>
+          <span className={cn("text-xs font-bold font-mono", isWin ? "text-green" : "text-red")}>
+            {fmtUSD(trade.pnl || 0)}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+})
+
+const SessionGroup = React.memo(({ session, trades, colorDrawdown }) => {
   const [expanded, setExpanded] = useState(false)
   const pnl = trades.reduce((sum, t) => sum + (t.pnl || 0), 0)
   const wins = trades.filter(t => (t.pnl || 0) > 0).length
   const winRate = trades.length ? Math.round((wins / trades.length) * 100) : 0
   const curve = useMemo(() => buildCurve(trades), [trades])
   const label = strategyLabel(session)
+
+  const avgWin = wins > 0 ? trades.filter(t => (t.pnl || 0) > 0).reduce((sum, t) => sum + (t.pnl || 0), 0) / wins : 0
+  const losses = trades.length - wins
+  const avgLoss = losses > 0 ? Math.abs(trades.filter(t => (t.pnl || 0) < 0).reduce((sum, t) => sum + (t.pnl || 0), 0)) / losses : 0
+  const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) : '∞'
 
   return (
     <div id={`session-${session.id}`} className="bg-surface border border-border rounded-2xl overflow-hidden mb-4 shadow-sm transition-all hover:border-border-hover scroll-mt-8">
@@ -71,6 +140,10 @@ const SessionGroup = ({ session, trades, colorDrawdown }) => {
             <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-1">Win Rate</span>
             <span className="text-xs font-bold font-mono">{winRate}% ({wins}/{trades.length})</span>
           </div>
+          <div className="hidden sm:flex flex-col">
+            <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-1">W/L Ratio</span>
+            <span className="text-xs font-bold font-mono text-accent">{winLossRatio}</span>
+          </div>
           <div className="flex flex-col items-end min-w-[100px]">
             <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-1">Session P&L</span>
             <span className={cn("text-base font-bold font-mono tracking-tighter", pnl >= 0 ? "text-green" : "text-red")}>
@@ -97,39 +170,9 @@ const SessionGroup = ({ session, trades, colorDrawdown }) => {
               {trades.length === 0 ? (
                 <div className="py-8 text-center text-[11px] text-dim font-bold uppercase tracking-widest">No trades recorded for this session</div>
               ) : (
-                trades.map((trade, i) => {
-                  const isWin = (trade.pnl || 0) >= 0
-                  return (
-                    <div key={trade.id} className="flex items-center justify-between p-4 bg-surface border border-border/60 rounded-xl">
-                      <div className="flex items-center gap-4">
-                        <div className="flex flex-col">
-                          <div className="flex items-center gap-2 mb-0.5">
-                            <span className="text-xs font-bold font-mono">{trade.symbol}</span>
-                            <a href={`#/history?session=${trade.sessionId || session.id}`} className="text-[8px] font-bold px-1.5 py-0.5 rounded border border-accent/20 bg-accent/10 text-accent uppercase">
-                              {strategyLabel(trade)}
-                            </a>
-                            <span className={cn("text-[8px] font-bold px-1 py-0 rounded border uppercase", trade.direction?.toLowerCase() === 'long' ? "text-green border-green/20" : "text-red border-red/20")}>
-                              {trade.direction}
-                            </span>
-                          </div>
-                          <span className="text-[9px] text-dim font-mono">{new Date(trade.entry_ts || trade.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        </div>
-                      </div>
-                      <div className="flex gap-8 text-right items-center">
-                        <div className="hidden sm:flex flex-col">
-                          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Reason</span>
-                          <span className="text-[10px] font-bold text-dim/80">{trade.exit_reason || 'Manual'}</span>
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Result</span>
-                          <span className={cn("text-xs font-bold font-mono", isWin ? "text-green" : "text-red")}>
-                            {fmtUSD(trade.pnl || 0)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })
+                trades.map((trade) => (
+                  <TradeItem key={trade.id} trade={trade} session={session} />
+                ))
               )}
             </div>
           </motion.div>
@@ -138,6 +181,7 @@ const SessionGroup = ({ session, trades, colorDrawdown }) => {
     </div>
   )
 }
+)
 
 const PAGE_SIZE = 5
 
@@ -208,7 +252,7 @@ export const HistoryView = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
           <StatCard label="Total Performance" value={fmtUSD(totalPnl)} color={totalPnl >= 0 ? "text-green" : "text-red"} />
           <StatCard label="Win Rate" value={`${winRate}%`} color="text-accent" subValue={`${wins} Wins / ${totalTrades - wins} Losses`} />
           <StatCard
@@ -217,7 +261,9 @@ export const HistoryView = () => {
             color="text-red"
             subValue={fullAnalytics ? `${fullAnalytics.maxDrawdownPct.toFixed(1)}% Peak-to-Valley` : (analytics?.maxDrawdownPct ? `${analytics.maxDrawdownPct.toFixed(1)}%` : '0%')}
           />
-          <StatCard label="Average Trade" value={fmtUSD(avgPnl)} color={avgPnl >= 0 ? "text-green" : "text-red"} />
+          <StatCard label="Avg Win" value={fmtUSD(fullAnalytics?.avgWin || 0)} color="text-green" />
+          <StatCard label="Avg Loss" value={fmtUSD(-(fullAnalytics?.avgLoss || 0))} color="text-red" />
+          <StatCard label="W/L Ratio" value={fullAnalytics?.avgWinLossRatio?.toFixed(2) || '0.00'} color="text-accent" />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
@@ -305,46 +351,9 @@ export const HistoryView = () => {
                   >
                     <SectionLabel className="mt-10 mb-6">Uncategorized Trades</SectionLabel>
                     <div className="space-y-3">
-                      {orphans.map((trade, i) => {
-                        const isWin = (trade.pnl || 0) >= 0
-                        return (
-                          <div
-                            key={trade.id || i}
-                            className="grid grid-cols-2 md:grid-cols-5 items-center gap-4 p-5 bg-surface border border-border rounded-2xl hover:border-border-hover transition-colors shadow-sm group"
-                          >
-                            <div className="flex flex-col">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="text-sm font-bold font-mono tracking-tight">{trade.symbol}</span>
-                                <a href={`#/history?session=${trade.sessionId || trade.id}`} className="text-[9px] font-bold px-1.5 py-0.5 rounded border border-accent/20 bg-accent/10 text-accent uppercase">
-                                  {strategyLabel(trade)}
-                                </a>
-                                <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase", trade.direction?.toLowerCase() === 'long' ? "text-green border-green/20 bg-green/5" : "text-red border-red/20 bg-red/5")}>
-                                  {trade.direction}
-                                </span>
-                              </div>
-                              <span className="text-[10px] text-dim font-mono font-medium">{trade.id?.substring(0, 8)}</span>
-                            </div>
-                            <div className="hidden md:flex flex-col">
-                              <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-1">Entry</span>
-                              <span className="text-xs font-bold font-mono">{price(trade.entry_price)}</span>
-                            </div>
-                            <div className="hidden md:flex flex-col">
-                              <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-1">Exit</span>
-                              <span className="text-xs font-bold font-mono">{price(trade.exit_price)}</span>
-                            </div>
-                            <div className="hidden md:flex flex-col">
-                              <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-1">Reason</span>
-                              <span className="text-xs font-bold uppercase tracking-tight text-dim/80">{trade.exit_reason || 'Manual'}</span>
-                            </div>
-                            <div className="flex flex-col items-end min-w-[100px]">
-                              <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-1">Result</span>
-                              <span className={cn("text-base font-bold font-mono tracking-tighter", isWin ? "text-green" : "text-red")}>
-                                {fmtUSD(trade.pnl || 0)}
-                              </span>
-                            </div>
-                          </div>
-                        )
-                      })}
+                      {orphans.map((trade) => (
+                        <TradeItem key={trade.id} trade={trade} />
+                      ))}
                     </div>
                   </motion.div>
                 )}

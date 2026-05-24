@@ -39,12 +39,16 @@ export class PositionTrackerService {
     return Array.from(this.trades.values());
   }
 
+  /**
+   * BOLT OPTIMIZATION: Use direct loop over Map values instead of creating an array.
+   * Eliminates O(N) allocation in the 1s hot loop and 2s main loop.
+   */
   totalRisk(): number {
-    return this.activeList().reduce(
-      (sum, trade) =>
-        sum + Math.abs(trade.entry_price - trade.current_sl) * trade.qty,
-      0,
-    );
+    let sum = 0;
+    for (const trade of this.trades.values()) {
+      sum += Math.abs(trade.entry_price - trade.current_sl) * trade.qty;
+    }
+    return sum;
   }
 
   addTrade(trade: Trade): void {

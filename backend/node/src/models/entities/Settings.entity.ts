@@ -16,4 +16,7 @@ export class Settings {
 
   @Column({ nullable: true, select: false })
   binance_testnet_api_secret: string;
+
+  @Column('decimal', { precision: 20, scale: 8, default: 10000.0 })
+  paper_balance: number;
 }

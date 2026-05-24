@@ -87,4 +87,14 @@ export class SessionController {
   async getAnalytics() {
     return this.sessionService.getAnalytics();
   }
+
+  @Get('lifetime-analytics')
+  async getLifetimeAnalytics() {
+    return this.sessionService.getLifetimeAnalytics();
+  }
+
+  @Post('reset-paper-balance')
+  async resetPaperBalance() {
+    return this.sessionService.resetPaperBalance();
+  }
 }

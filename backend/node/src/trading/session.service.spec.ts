@@ -40,6 +40,7 @@ describe('SessionService Validation', () => {
       mockTradeRepository,
       mockRepository,
       mockRepository,
+      mockRepository,
       mockTradingSessionService,
       mockAnalyticsService
     );
@@ -120,6 +121,7 @@ describe('SessionService Validation', () => {
         mockTradeRepository, // Trade
         mockLogRepository, // Log
         mockRepository, // Settings
+        mockRepository, // BalanceHistory
         mockTradingSessionService,
         mockAnalyticsService
       );
@@ -156,6 +158,7 @@ describe('SessionService Validation', () => {
 
     it('initializes starting balance in config for new sessions', async () => {
       mockRepository.save.mockResolvedValue({ id: 'new-uuid', balance: 10000, running: true });
+      mockRepository.findOne.mockResolvedValue({ paper_balance: 10000.0 }); // Settings mock
 
       const config = new SessionConfig();
       config.paper_starting_balance = undefined;
@@ -181,6 +184,8 @@ describe('SessionService Validation', () => {
           save: jest.fn(),
           increment: jest.fn(),
           update: jest.fn(),
+          findOne: jest.fn(),
+          createQueryBuilder: jest.fn(),
         },
       };
       mockRepository.manager = {
@@ -212,6 +217,7 @@ describe('SessionService Validation', () => {
         getRawOne: jest.fn().mockResolvedValue({ sum: '100' }),
       };
       mockQueryRunner.manager.createQueryBuilder = jest.fn().mockReturnValue(mockQueryBuilder);
+      mockQueryRunner.manager.findOne.mockResolvedValue({ id: 'session-123', paperMode: true });
 
       await service.saveTradeAtomic(trade, 10100);
 
@@ -232,13 +238,14 @@ describe('SessionService Validation', () => {
         getRawOne: jest.fn().mockResolvedValue({ sum: '100' }),
       };
       mockQueryRunner.manager.createQueryBuilder = jest.fn().mockReturnValue(mockQueryBuilder);
+      mockQueryRunner.manager.findOne.mockResolvedValue({ id: 'session-123', paperMode: true });
 
       // Call twice
       await service.saveTradeAtomic(trade, 10100);
       await service.saveTradeAtomic(trade, 10100);
 
       // totalPnl should still be 100 because it's recomputed from the database SUM
-      expect(mockQueryRunner.manager.update).toHaveBeenLastCalledWith(SessionEntity, 'session-123', {
+      expect(mockQueryRunner.manager.update).toHaveBeenCalledWith(SessionEntity, 'session-123', {
         balance: 10100,
         totalPnl: 100
       });

@@ -13,7 +13,7 @@ import {
 import {
   ChevronLeft, Plus, Trash2, LayoutDashboard, History,
   Settings as SettingsIcon, Activity, Zap, ShieldCheck,
-  BarChart3, XCircle, Pause, Play, Edit3
+  BarChart3, XCircle, Pause, Play, Edit3, RefreshCw
 } from 'lucide-react'
 import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -367,6 +367,20 @@ export function DashboardView() {
     }
   }
 
+  async function handleResumeLast() {
+    if (sessionList.length === 0) return;
+    const last = sessionList[0];
+    setLoading(true);
+    try {
+      const res = await sessionAPI.start(last.config, last.paperMode, last.id);
+      setSessionActive(true, res.data.strategyId || res.data.strategy_id);
+    } catch (e) {
+      alert('Failed to resume session');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleStop() {
     if (!confirmStop) {
       setConfirmStop(true)
@@ -549,11 +563,25 @@ export function DashboardView() {
                   .filter(s => s.id !== strategyId)
                   .slice(0, 1)
                   .map(s => (
-                  <div key={s.id} className="bg-surface/40 border border-border/60 rounded-2xl p-6 flex flex-col gap-6 opacity-80 h-[256px]">
-                     <div className="flex justify-between items-start">
+                  <div key={s.id} className="bg-surface/40 border border-border/60 rounded-2xl p-6 flex flex-col gap-6 opacity-90 h-[256px] relative group/prev">
+                    {!sessionActive && (
+                      <div className="absolute inset-0 bg-accent/5 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center opacity-0 group-hover/prev:opacity-100 transition-opacity">
+                        <button
+                          onClick={handleResumeLast}
+                          disabled={loading}
+                          className="bg-accent text-white px-6 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-xl active:scale-95 transition-transform"
+                        >
+                          <RefreshCw size={14} className={cn(loading && "animate-spin")} /> Resume Session
+                        </button>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-start">
                       <div>
                         <div className="text-[10px] text-dim font-bold tracking-widest uppercase mb-2">Previous Session</div>
-                        <div className="text-base font-bold">{s.config?.scan_interval} Momentum</div>
+                        <div className="text-base font-bold">{s.config?.strategy_label || 'Momentum Strategy'}</div>
+                        <div className="text-[10px] text-dim font-bold uppercase mt-1 tracking-tight">
+                          {s.config?.scan_interval} · {s.config?.scan_pct_threshold}% threshold
+                        </div>
                       </div>
                       <div className="text-right">
                         <div className={cn("text-xl font-bold font-mono", s.totalPnl >= 0 ? "text-green" : "text-red")}>
@@ -561,7 +589,7 @@ export function DashboardView() {
                         </div>
                       </div>
                     </div>
-                    <div className="mt-auto pt-5 border-t border-border/20 flex justify-between items-center">
+                    <div className="mt-auto pt-5 border-t border-border/20 flex justify-between items-center relative z-20">
                       <span className="text-[10px] text-dim font-bold font-mono">ID: {s.id.substring(0, 8)}</span>
                       <button
                         onClick={async () => { if(confirm('Delete?')) { setLoading(true); await sessionAPI.delete(s.id); await fetchSessions(); setLoading(false); }}}

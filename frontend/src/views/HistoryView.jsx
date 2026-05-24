@@ -186,8 +186,9 @@ const SessionGroup = React.memo(({ session, trades, colorDrawdown }) => {
 const PAGE_SIZE = 5
 
 export const HistoryView = () => {
-  const { tradeHistory, updateStats, sessionSummary, sidebarCollapsed, sessionList, fetchSessions, analytics } = useTradingStore()
+  const { tradeHistory, updateStats, sessionSummary, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics } = useTradingStore()
   const [fullAnalytics, setFullAnalytics] = useState(null)
+  const [isLifetime, setIsLifetime] = useState(false)
   const [loading, setLoading] = useState(true)
   const [visibleSessions, setVisibleSessions] = useState(PAGE_SIZE)
   const [colorDrawdown, setColorDrawdown] = useState(true)
@@ -208,10 +209,12 @@ export const HistoryView = () => {
     return tradeHistory.filter(t => !t.sessionId || !sessionIds.has(t.sessionId))
   }, [sessionList, tradeHistory])
 
-  const totalPnl = fullAnalytics?.cumulativePnL?.length ? fullAnalytics.cumulativePnL[fullAnalytics.cumulativePnL.length - 1].pnl : tradeHistory.reduce((sum, trade) => sum + (trade.pnl || 0), 0)
-  const totalTrades = fullAnalytics?.totalTrades || tradeHistory.length
-  const wins = fullAnalytics ? Math.round((fullAnalytics.overallWinRate / 100) * totalTrades) : tradeHistory.filter((trade) => (trade.pnl || 0) > 0).length
-  const winRate = fullAnalytics ? Math.round(fullAnalytics.overallWinRate) : (tradeHistory.length ? Math.round((wins / tradeHistory.length) * 100) : 0)
+  const currentAnalytics = isLifetime ? lifetimeAnalytics : fullAnalytics
+
+  const totalPnl = currentAnalytics?.cumulativePnL?.length ? currentAnalytics.cumulativePnL[currentAnalytics.cumulativePnL.length - 1].pnl : (isLifetime ? 0 : tradeHistory.reduce((sum, trade) => sum + (trade.pnl || 0), 0))
+  const totalTrades = currentAnalytics?.totalTrades || (isLifetime ? 0 : tradeHistory.length)
+  const wins = currentAnalytics ? Math.round((currentAnalytics.overallWinRate / 100) * totalTrades) : tradeHistory.filter((trade) => (trade.pnl || 0) > 0).length
+  const winRate = currentAnalytics ? Math.round(currentAnalytics.overallWinRate) : (tradeHistory.length ? Math.round((wins / tradeHistory.length) * 100) : 0)
   const avgPnl = totalTrades ? totalPnl / totalTrades : 0
 
   useEffect(() => {
@@ -219,12 +222,13 @@ export const HistoryView = () => {
     Promise.all([
       sessionAPI.history(),
       sessionAPI.analytics(),
+      fetchLifetimeAnalytics(),
       fetchSessions()
     ]).then(([historyRes, analyticsRes]) => {
       updateStats({ tradeHistory: historyRes.data.trades || [] })
       setFullAnalytics(analyticsRes.data)
     }).finally(() => setLoading(false))
-  }, [updateStats, fetchSessions])
+  }, [updateStats, fetchSessions, fetchLifetimeAnalytics])
 
   useEffect(() => {
     if (loading) return
@@ -252,18 +256,39 @@ export const HistoryView = () => {
           </div>
         </div>
 
+        <div className="flex items-center gap-2 p-1 bg-surface border border-border rounded-xl w-fit mb-8">
+          <button
+            onClick={() => setIsLifetime(false)}
+            className={cn(
+              "px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
+              !isLifetime ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:text-text"
+            )}
+          >
+            Current Session
+          </button>
+          <button
+            onClick={() => setIsLifetime(true)}
+            className={cn(
+              "px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
+              isLifetime ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:text-text"
+            )}
+          >
+            Lifetime Performance
+          </button>
+        </div>
+
         <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
           <StatCard label="Total Performance" value={fmtUSD(totalPnl)} color={totalPnl >= 0 ? "text-green" : "text-red"} />
           <StatCard label="Win Rate" value={`${winRate}%`} color="text-accent" subValue={`${wins} Wins / ${totalTrades - wins} Losses`} />
           <StatCard
             label="Max Drawdown"
-            value={fullAnalytics ? fmtUSD(-fullAnalytics.maxDrawdown) : (analytics?.maxDrawdown ? fmtUSD(-analytics.maxDrawdown) : '$0.00')}
+            value={currentAnalytics ? fmtUSD(-currentAnalytics.maxDrawdown) : '$0.00'}
             color="text-red"
-            subValue={fullAnalytics ? `${fullAnalytics.maxDrawdownPct.toFixed(1)}% Peak-to-Valley` : (analytics?.maxDrawdownPct ? `${analytics.maxDrawdownPct.toFixed(1)}%` : '0%')}
+            subValue={currentAnalytics ? `${currentAnalytics.maxDrawdownPct.toFixed(1)}% Peak-to-Valley` : '0%'}
           />
-          <StatCard label="Avg Win" value={fmtUSD(fullAnalytics?.avgWin || 0)} color="text-green" />
-          <StatCard label="Avg Loss" value={fmtUSD(-(fullAnalytics?.avgLoss || 0))} color="text-red" />
-          <StatCard label="W/L Ratio" value={fullAnalytics?.avgWinLossRatio?.toFixed(2) || '0.00'} color="text-accent" />
+          <StatCard label="Avg Win" value={fmtUSD(currentAnalytics?.avgWin || 0)} color="text-green" />
+          <StatCard label="Avg Loss" value={fmtUSD(-(currentAnalytics?.avgLoss || 0))} color="text-red" />
+          <StatCard label="W/L Ratio" value={currentAnalytics?.avgWinLossRatio?.toFixed(2) || '0.00'} color="text-accent" />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
@@ -279,10 +304,10 @@ export const HistoryView = () => {
                  Drawdown Colors
                </button>
              </div>
-             <EquityCurve data={fullAnalytics?.cumulativePnL || analytics?.cumulativePnL || []} colorDrawdown={colorDrawdown} />
+             <EquityCurve data={currentAnalytics?.cumulativePnL || []} colorDrawdown={colorDrawdown} />
           </div>
           <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
-             <TODPerformance data={fullAnalytics?.timeOfDay || []} />
+             <TODPerformance data={currentAnalytics?.timeOfDay || []} />
           </div>
         </div>
 

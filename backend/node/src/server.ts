@@ -150,10 +150,21 @@ async function bootstrap() {
     socket.focusMode = false;
     socket.isActive = true; // Default to active on connect
     socket.logFilters = { info: true, warn: true, error: true };
+    socket.msgCount = 0;
+    socket.lastReset = Date.now();
     updateMonitoringSuppression();
     
     socket.on('message', async (message: string) => {
       try {
+        // Rate limiting: max 20 messages per second
+        const now = Date.now();
+        if (now - socket.lastReset > 1000) {
+          socket.msgCount = 0;
+          socket.lastReset = now;
+        }
+        socket.msgCount++;
+        if (socket.msgCount > 20) return;
+
         if (message.length > 1000) return;
         const data = JSON.parse(message);
         if (data.type === 'set_monitoring') {

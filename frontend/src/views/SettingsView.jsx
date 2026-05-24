@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import { settingsAPI } from '../api/client'
 import { SectionLabel, Btn, StatCard, cn } from '../components/ui/primitives'
-import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap, Eye, EyeOff } from 'lucide-react'
+import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap, Eye, EyeOff, RotateCcw } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
 import { Sidebar, BottomNav } from '../components/Navigation'
 
 export function SettingsView() {
-  const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, sidebarCollapsed, logFilters, toggleLogFilter } = useTradingStore()
+  const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, sidebarCollapsed, logFilters, toggleLogFilter, resetPaperBalance } = useTradingStore()
   const [apiKey, setApiKey] = useState('')
   const [apiSecret, setApiSecret] = useState('')
   const [showLiveSecret, setShowLiveSecret] = useState(false)
@@ -30,6 +30,33 @@ export function SettingsView() {
       setMaskedTestnetKey(res.data.testnet_api_key)
     } catch (e) {
       console.error('Failed to load keys', e)
+    }
+  }
+
+  const [resetConfirm, setResetConfirm] = useState(false)
+  const [resetting, setResetting] = useState(false)
+
+  useEffect(() => {
+    if (resetConfirm) {
+      const timer = setTimeout(() => setResetConfirm(false), 3000)
+      return () => clearTimeout(timer)
+    }
+  }, [resetConfirm])
+
+  async function handleResetBalance() {
+    if (!resetConfirm) {
+      setResetConfirm(true)
+      return
+    }
+    setResetting(true)
+    try {
+      await resetPaperBalance()
+      setStatus({ type: 'success', msg: 'Paper balance reset to $10,000' })
+    } catch (e) {
+      setStatus({ type: 'error', msg: 'Failed to reset balance' })
+    } finally {
+      setResetting(false)
+      setResetConfirm(false)
     }
   }
 
@@ -286,6 +313,35 @@ export function SettingsView() {
                     Apply All Credentials
                   </Btn>
                 </div>
+              </div>
+            </div>
+          </section>
+
+          <section>
+            <SectionLabel className="mb-6">Account Maintenance</SectionLabel>
+            <div className="bg-surface border border-border rounded-2xl p-6 md:p-8 shadow-sm">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-red/10 flex items-center justify-center">
+                    <RotateCcw size={20} className="text-red" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold uppercase tracking-tight text-red">Reset Paper Balance</h3>
+                    <p className="text-[11px] text-dim font-medium uppercase mt-1">Reset your global paper trading balance to $10,000.00</p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleResetBalance}
+                  disabled={resetting}
+                  className={cn(
+                    "px-6 py-3 rounded-xl text-[11px] font-bold uppercase tracking-widest transition-all",
+                    resetConfirm
+                      ? "bg-red text-white animate-pulse shadow-lg shadow-red/20"
+                      : "bg-surface border border-border text-dim hover:text-red hover:border-red"
+                  )}
+                >
+                  {resetting ? "Resetting..." : resetConfirm ? "Confirm Reset?" : "Reset Balance"}
+                </button>
               </div>
             </div>
           </section>

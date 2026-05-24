@@ -5,6 +5,7 @@ import { Session as SessionEntity } from '../models/entities/Session.entity';
 import { TradeEntity } from '../models/entities/Trade.entity';
 import { Log as LogEntity } from '../models/entities/Log.entity';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
+import { BalanceHistory as BalanceHistoryEntity } from '../models/entities/BalanceHistory.entity';
 import { SignalEngineService } from '../engine/signalEngine';
 import { RiskEngineService } from '../engine/riskEngine';
 import { PositionTrackerService } from '../engine/positionTracker';
@@ -25,7 +26,7 @@ import { AnalyticsService } from '../engine/analytics.service';
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([SessionEntity, TradeEntity, LogEntity, SettingsEntity]),
+    TypeOrmModule.forFeature([SessionEntity, TradeEntity, LogEntity, SettingsEntity, BalanceHistoryEntity]),
   ],
   controllers: [SessionController, SettingsController, MonitoringController],
   providers: [

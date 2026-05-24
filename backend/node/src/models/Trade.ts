@@ -46,6 +46,7 @@ export class Trade {
     threshold: number;
     unit: string;
     description?: string;
+    insufficientData?: boolean;
   }>;
 
   entry_signal_type?: string;

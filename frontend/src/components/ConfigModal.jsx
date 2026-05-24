@@ -716,20 +716,28 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
               ) : (
                 <div className="space-y-3">
                   {sequence.map(([trigger, exit], i) => (
-                    <div key={i} className="flex items-center gap-3 p-3 bg-background rounded-lg border border-border">
-                      <span className="text-[11px] text-dim font-bold w-4">{i + 1}</span>
-                      <div className="flex-1 flex flex-col gap-1">
-                        <span className="text-[9px] text-dim uppercase font-bold">Trigger RR</span>
-                        <input type="number" value={trigger} min="0.5" step="0.5" onChange={(e) => updateSequence(i, 0, e.target.value)} className="bg-surface border border-border rounded px-2 py-1 text-xs font-mono" />
+                    <div key={i} className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 bg-background rounded-lg border border-border">
+                      <div className="flex items-center justify-between sm:justify-start gap-3">
+                        <span className="text-[11px] text-dim font-bold w-4">{i + 1}</span>
+                        <div className="flex-1 sm:hidden text-center text-xs font-bold font-mono px-2 py-1 bg-surface border border-border rounded">
+                          {exit === 0 ? 'BE' : `${exit}R`}
+                        </div>
+                        <button onClick={() => removeStep(i)} className="sm:hidden text-red/60 hover:text-red p-1"><Trash2 size={16} /></button>
                       </div>
-                      <div className="flex-1 flex flex-col gap-1">
-                        <span className="text-[9px] text-dim uppercase font-bold">Exit RR</span>
-                        <input type="number" value={exit} min="-1" step="0.5" onChange={(e) => updateSequence(i, 1, e.target.value)} className="bg-surface border border-border rounded px-2 py-1 text-xs font-mono" />
+                      <div className="flex gap-2 flex-1">
+                        <div className="flex-1 flex flex-col gap-1">
+                          <span className="text-[9px] text-dim uppercase font-bold">Trigger RR</span>
+                          <input type="number" value={trigger} min="0.5" step="0.5" onChange={(e) => updateSequence(i, 0, e.target.value)} className="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-accent" />
+                        </div>
+                        <div className="flex-1 flex flex-col gap-1">
+                          <span className="text-[9px] text-dim uppercase font-bold">Exit RR</span>
+                          <input type="number" value={exit} min="-1" step="0.5" onChange={(e) => updateSequence(i, 1, e.target.value)} className="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-accent" />
+                        </div>
                       </div>
-                      <div className="w-10 text-center text-xs font-bold font-mono">
+                      <div className="hidden sm:block w-12 text-center text-xs font-bold font-mono">
                         {exit === 0 ? 'BE' : `${exit}R`}
                       </div>
-                      <button onClick={() => removeStep(i)} className="text-red/60 hover:text-red p-1"><Trash2 size={16} /></button>
+                      <button onClick={() => removeStep(i)} className="hidden sm:block text-red/60 hover:text-red p-1"><Trash2 size={16} /></button>
                     </div>
                   ))}
                   <button onClick={addStep} className="w-full py-2 border border-dashed border-border rounded-lg text-[11px] font-bold text-dim hover:text-accent hover:border-accent transition-all flex items-center justify-center gap-1.5">

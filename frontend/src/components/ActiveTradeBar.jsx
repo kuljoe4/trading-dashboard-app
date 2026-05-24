@@ -163,7 +163,7 @@ const ExitMonitor = React.memo(({ status, logic }) => {
           const label = key.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
           const value = Number.isFinite(Number(s.value)) ? Number(s.value) : 0
           const threshold = Math.max(Math.abs(Number(s.threshold) || 1), 0.0001)
-          const progress = s.active ? Math.min((Math.abs(value) / threshold) * 100, 100) : Math.max(0, 100 - ((s.remaining_delay || 0) / Math.max((s.remaining_delay || 0) + 1, 1)) * 100)
+          const progress = s.active ? (s.insufficientData ? 0 : Math.min((Math.abs(value) / threshold) * 100, 100)) : Math.max(0, 100 - ((s.remaining_delay || 0) / Math.max((s.remaining_delay || 0) + 1, 1)) * 100)
           return (
             <div key={key} className={cn(
               "p-4 rounded-xl border bg-surface/70 transition-colors",
@@ -186,10 +186,10 @@ const ExitMonitor = React.memo(({ status, logic }) => {
                 </div>
                 <div className="text-right shrink-0">
                   <div className={cn("text-sm font-bold font-mono", s.fired && s.active ? "text-red" : s.active ? "text-text" : "text-amber")}>
-                    {s.active ? `${value.toFixed(2)}${s.unit || ''}` : `${Math.ceil(s.remaining_delay || 0)}s`}
+                    {s.insufficientData ? 'n/a' : s.active ? `${value.toFixed(2)}${s.unit || ''}` : `${Math.ceil(s.remaining_delay || 0)}s`}
                   </div>
                   <div className="text-[9px] text-dim font-bold uppercase tracking-widest">
-                    {s.active ? `Target ${Number(s.threshold || 0).toFixed(2)}${s.unit || ''}` : 'Arming'}
+                    {s.insufficientData ? 'Insufficient Data' : s.active ? `Target ${Number(s.threshold || 0).toFixed(2)}${s.unit || ''}` : 'Arming'}
                   </div>
                 </div>
               </div>
@@ -264,7 +264,9 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
   const direction = trade.direction?.toUpperCase()
   const isLong = direction === 'LONG'
   const isExpRR = trade.tp_mode === 'exp_rr_seq'
-  const slDist = trade.entry_price ? ((Math.abs(trade.entry_price - trade.sl_price) / trade.entry_price) * 100).toFixed(2) : '0.00'
+  const initialSlDist = trade.entry_price ? ((Math.abs(trade.entry_price - trade.initial_sl) / trade.entry_price) * 100).toFixed(2) : '0.00'
+  const liveSlDist = trade.entry_price ? ((Math.abs(trade.entry_price - trade.sl_price) / trade.entry_price) * 100).toFixed(2) : '0.00'
+  const slDist = initialSlDist
   const pctChange = trade.entry_price && trade.current_price
     ? ((trade.current_price - trade.entry_price) / trade.entry_price * 100).toFixed(2)
     : '0.00'
@@ -337,7 +339,7 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
         </div>
         <div className="flex flex-col gap-1">
           <span className="text-[9px] text-dim font-bold uppercase tracking-widest">SL Dist</span>
-          <span className="text-sm font-bold font-mono text-amber">{slDist}%</span>
+          <span className="text-sm font-bold font-mono text-amber" title={`Initial: ${initialSlDist}% | Live: ${liveSlDist}%`}>{slDist}%</span>
         </div>
         <div className="flex flex-col gap-1">
           <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Duration</span>
@@ -353,12 +355,12 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="grid grid-cols-4 gap-6 mb-8 p-5 bg-surface/50 rounded-2xl border border-border/50">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 mb-8 p-5 bg-surface/50 rounded-2xl border border-border/50">
               {[
-                ['ENTRY', price(trade.entry_price), <Activity size={14} className="text-dim" />],
-                ['CURRENT', price(trade.current_price), <TrendingUp size={14} className="text-accent" />],
                 ['QTY', trade.qty != null ? `${trade.qty}` : '---', <Target size={14} className="text-dim" />],
                 ['OPENED', entryTime ? new Date(entryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '---', <Clock size={14} className="text-accent" />],
+                ['INITIAL SL', price(trade.initial_sl), <ShieldAlert size={14} className="text-red/60" />],
+                ['LIVE SL', price(trade.sl_price), <ShieldAlert size={14} className="text-red" />],
               ].map(([k, v, icon]) => (
                 <div key={k} className="flex flex-col gap-2">
                   <div className="flex items-center gap-2">
@@ -407,19 +409,11 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
               </div>
 
               <div className="flex justify-between text-[9px] text-dim font-bold uppercase tracking-tighter opacity-50 px-0.5">
-                <span>{slDist}% RISK</span>
+                <span>{slDist}% INITIAL RISK</span>
                 <span>POTENTIAL TARGET</span>
               </div>
               <div className="flex justify-between text-[9px] text-dim font-bold uppercase tracking-tighter mt-0.5 px-0.5">
-                <span>Opened: {entryTime ? new Date(entryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '---'}</span>
-                <span>Duration: <span className="font-bold text-accent">{duration(entryTime)}</span></span>
-              </div>
-              <div className="flex justify-between text-[9px] text-dim font-bold uppercase tracking-tighter mt-0.5 px-0.5">
                 <span>Time Ago: <span className="font-bold text-text">{timeSince(entryTime)}</span></span>
-                <span>SL Distance: <span className="font-bold text-amber">{slDist}%</span></span>
-              </div>
-              <div className="flex justify-between text-[9px] text-dim font-bold uppercase tracking-tighter mt-1 px-0.5">
-                <span>Entry → Current: <span className={cn("font-bold", Number(pctChange) >= 0 ? "text-green" : "text-red")}>{Number(pctChange) >= 0 ? '+' : ''}{pctChange}%</span></span>
                 <span className="text-dim/40 italic">Live Tracking</span>
               </div>
             </div>

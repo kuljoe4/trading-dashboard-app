@@ -46,11 +46,13 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
   }, [data]);
 
   const pathD = useMemo(() => solveSmoothing(points), [points]);
-  const areaD = points.length >= 2 ? `${pathD} L 100 100 L 0 100 Z` : '';
 
   const zeroY = useMemo(() => {
     return 100 - ((0 - viewMin) / viewRange) * 100;
   }, [viewMin, viewRange]);
+
+  const areaAboveD = points.length >= 2 ? `${pathD} L 100 ${zeroY} L 0 ${zeroY} Z` : '';
+  const areaBelowD = points.length >= 2 ? `${pathD} L 100 ${zeroY} L 0 ${zeroY} Z` : '';
 
   const handleMouseMove = (e) => {
     if (!containerRef.current || points.length < 2) return;
@@ -116,33 +118,62 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
         style={{ height: `${height}px` }}
       >
         <defs>
-          <linearGradient id={`${gradientId}-area`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.25" />
-            <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+          <linearGradient id={`${gradientId}-area-above`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--green)" stopOpacity="0.15" />
+            <stop offset="100%" stopColor="var(--green)" stopOpacity="0" />
           </linearGradient>
+          <linearGradient id={`${gradientId}-area-below`} x1="0" y1="1" x2="0" y2="0">
+            <stop offset="0%" stopColor="var(--red)" stopOpacity="0.15" />
+            <stop offset="100%" stopColor="var(--red)" stopOpacity="0" />
+          </linearGradient>
+
+          <clipPath id={`${gradientId}-clip-above`}>
+            <rect x="0" y="0" width="100" height={zeroY} />
+          </clipPath>
+          <clipPath id={`${gradientId}-clip-below`}>
+            <rect x="0" y={zeroY} width="100" height={100 - zeroY} />
+          </clipPath>
+
           <filter id={glowId}>
-            <feGaussianBlur stdDeviation="1.5" result="blur" />
+            <feGaussianBlur stdDeviation="2" result="blur" />
             <feComposite in="SourceGraphic" in2="blur" operator="over" />
           </filter>
         </defs>
 
         {/* Grid Lines */}
-        <line x1="0" y1="25" x2="100" y2="25" stroke="currentColor" className="text-border/40" strokeWidth="0.2" strokeDasharray="1,2" />
-        <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" className="text-border/40" strokeWidth="0.2" strokeDasharray="1,2" />
-        <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" className="text-border/40" strokeWidth="0.2" strokeDasharray="1,2" />
+        <line x1="0" y1="25" x2="100" y2="25" stroke="currentColor" className="text-border/20" strokeWidth="0.15" />
+        <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" className="text-border/20" strokeWidth="0.15" />
+        <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" className="text-border/20" strokeWidth="0.15" />
 
         {/* Zero Baseline */}
-        <line x1="0" y1={zeroY} x2="100" y2={zeroY} stroke="currentColor" className="text-border/80" strokeWidth="0.4" strokeDasharray="2,2" />
+        <line x1="0" y1={zeroY} x2="100" y2={zeroY} stroke="currentColor" className="text-border/60" strokeWidth="0.5" strokeDasharray="1,2" />
 
-        <path d={areaD} fill={`url(#${gradientId}-area)`} className="transition-all duration-700" />
+        {/* Areas */}
+        <path d={areaAboveD} fill={`url(#${gradientId}-area-above)`} clipPath={`url(#${gradientId}-clip-above)`} className="transition-all duration-700" />
+        <path d={areaBelowD} fill={`url(#${gradientId}-area-below)`} clipPath={`url(#${gradientId}-clip-below)`} className="transition-all duration-700" />
 
+        {/* Main Line - Positive */}
         <path
           d={pathD}
           fill="none"
-          stroke="var(--accent)"
-          strokeWidth="2"
+          stroke="var(--green)"
+          strokeWidth="2.5"
           strokeLinecap="round"
           strokeLinejoin="round"
+          clipPath={`url(#${gradientId}-clip-above)`}
+          filter={`url(#${glowId})`}
+          className="transition-all duration-700"
+        />
+
+        {/* Main Line - Negative */}
+        <path
+          d={pathD}
+          fill="none"
+          stroke="var(--red)"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          clipPath={`url(#${gradientId}-clip-below)`}
           filter={`url(#${glowId})`}
           className="transition-all duration-700"
         />
@@ -184,13 +215,13 @@ export const TODPerformance = ({ data = [] }) => {
   const maxPnl = Math.max(1, ...data.map(d => Math.abs(d.pnl)));
 
   return (
-    <div className="space-y-4" role="region" aria-label="Time of day performance histogram">
+    <div className="space-y-6" role="region" aria-label="Time of day performance histogram">
       <div className="flex items-center justify-between">
-        <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Time-of-Day Performance</span>
+        <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Time-of-Day Performance (Local)</span>
         <div className="flex gap-4" aria-hidden="true">
           <div className="flex items-center gap-1.5">
              <div className="w-1.5 h-1.5 rounded-full bg-green" />
-             <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Win</span>
+             <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Profit</span>
           </div>
           <div className="flex items-center gap-1.5">
              <div className="w-1.5 h-1.5 rounded-full bg-red" />
@@ -199,28 +230,47 @@ export const TODPerformance = ({ data = [] }) => {
         </div>
       </div>
 
-      <div className="flex items-end justify-between gap-1 h-[100px]">
+      <div className="relative h-[120px] flex items-center justify-between gap-0.5">
+        {/* Zero baseline */}
+        <div className="absolute left-0 right-0 h-px bg-border/40 z-0 top-1/2" />
+
         {data.map((h) => {
-          const height = (Math.abs(h.pnl) / maxPnl) * 100;
+          const isPos = h.pnl >= 0;
+          const absPnl = Math.abs(h.pnl);
+          // Non-linear scaling to ensure small but non-zero values are visible
+          // We use square root scaling for the height calculation
+          const scaleFactor = Math.sqrt(absPnl) / Math.sqrt(maxPnl);
+          const heightPct = absPnl === 0 ? 0 : Math.max(6, scaleFactor * 50);
+
           return (
-            <div key={h.hour} className="flex-1 flex flex-col items-center gap-1.5 group relative">
-              <div
-                role="img"
-                aria-label={`${h.hour}:00 hour, ${h.pnl >= 0 ? 'positive' : 'negative'} performance, ${fmtUSD(h.pnl)} PnL, ${h.winRate.toFixed(0)}% win rate over ${h.total} trades`}
-                className={cn(
-                  "w-full rounded-t-sm transition-all duration-300 hover:opacity-80",
-                  h.pnl >= 0 ? "bg-green/40 border-t border-green/60" : "bg-red/40 border-t border-red/60"
-                )}
-                style={{ height: `${Math.max(4, height)}%` }}
-              >
-                {/* Tooltip */}
-                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-surface border border-border p-2 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none min-w-[80px]" aria-hidden="true">
-                   <div className="text-[8px] text-dim font-bold uppercase tracking-widest mb-1">{h.hour}:00</div>
-                   <div className={cn("text-[10px] font-mono font-bold", h.pnl >= 0 ? "text-green" : "text-red")}>{fmtUSD(h.pnl)}</div>
-                   <div className="text-[9px] text-dim font-mono">{h.winRate.toFixed(0)}% WR ({h.wins}/{h.total})</div>
+            <div key={h.hour} className="flex-1 h-full flex flex-col group relative z-10">
+              <div className="flex-1 relative">
+                <div
+                  role="img"
+                  aria-label={`${h.hour}:00, ${isPos ? 'positive' : 'negative'} performance, ${fmtUSD(h.pnl)} PnL, ${h.winRate.toFixed(0)}% win rate`}
+                  className={cn(
+                    "absolute left-0 right-0 transition-all duration-300 hover:opacity-100 opacity-60",
+                    isPos
+                      ? "bg-green border-t border-green/40 rounded-t-[2px]"
+                      : "bg-red border-b border-red/40 rounded-b-[2px]"
+                  )}
+                  style={{
+                    height: `${heightPct}%`,
+                    [isPos ? 'bottom' : 'top']: '50%'
+                  }}
+                >
+                  {/* Tooltip */}
+                  <div className={cn(
+                    "absolute left-1/2 -translate-x-1/2 bg-surface border border-border p-2 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none min-w-[80px]",
+                    isPos ? "bottom-full mb-2" : "top-full mt-2"
+                  )} aria-hidden="true">
+                     <div className="text-[8px] text-dim font-bold uppercase tracking-widest mb-1">{h.hour}:00</div>
+                     <div className={cn("text-[10px] font-mono font-bold", isPos ? "text-green" : "text-red")}>{fmtUSD(h.pnl)}</div>
+                     <div className="text-[9px] text-dim font-mono">{h.winRate.toFixed(0)}% WR ({h.wins}/{h.total})</div>
+                  </div>
                 </div>
               </div>
-              <span className="text-[8px] text-dim font-mono font-bold">{h.hour}</span>
+              <span className="text-[7px] text-dim font-mono font-bold text-center mt-auto py-1">{h.hour}</span>
             </div>
           );
         })}

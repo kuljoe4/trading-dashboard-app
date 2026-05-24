@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Session as SessionEntity } from '../models/entities/Session.entity';
 import { TradeEntity } from '../models/entities/Trade.entity';
 import { Log as LogEntity } from '../models/entities/Log.entity';
+import { BalanceHistory as BalanceHistoryEntity } from '../models/entities/BalanceHistory.entity';
 import { SessionConfig } from '../models/SessionConfig';
 import { TradingSessionService } from '../engine/trading_session.service';
 import { Trade } from '../models/Trade';
@@ -33,6 +34,8 @@ export class SessionService implements OnModuleInit {
     private logRepository: Repository<LogEntity>,
     @InjectRepository(SettingsEntity)
     private settingsRepository: Repository<SettingsEntity>,
+    @InjectRepository(BalanceHistoryEntity)
+    private balanceHistoryRepository: Repository<BalanceHistoryEntity>,
     private tradingSessionService: TradingSessionService,
     private analyticsService: AnalyticsService,
   ) {}
@@ -108,6 +111,30 @@ export class SessionService implements OnModuleInit {
         balance,
         totalPnl: parseFloat(sum || '0')
       });
+
+      // 3. Update Global Settings and record History for all modes
+      const session = await queryRunner.manager.findOne(SessionEntity, { where: { id: sessionId } });
+      if (session) {
+        const mode = session.tradingMode || (session.paperMode ? 'paper' : 'live');
+        const updateData: any = {};
+        if (mode === 'paper') updateData.paper_balance = balance;
+        else if (mode === 'testnet') updateData.testnet_balance = balance;
+        else if (mode === 'live') updateData.live_balance = balance;
+
+        await queryRunner.manager.update(SettingsEntity, 'default', updateData);
+
+        // Record Balance Snapshot
+        const snapshot = this.balanceHistoryRepository.create({
+          timestamp: new Date(),
+          balance: balance,
+          pnl: trade.pnl || 0,
+          type: 'TRADE_CLOSE',
+          sessionId: sessionId,
+          tradeId: trade.id,
+          tradingMode: mode as any
+        });
+        await queryRunner.manager.save(BalanceHistoryEntity, snapshot);
+      }
 
       await queryRunner.commitTransaction();
       this.logger.debug(`Transaction committed: Saved trade ${trade.symbol} (${trade.status}) and updated session ${sessionId}`);
@@ -216,7 +243,11 @@ export class SessionService implements OnModuleInit {
     } else {
       // Ensure starting balance is explicitly in the config for new sessions
       if (paperMode) {
-        config.paper_starting_balance = config.paper_starting_balance || 10000.0;
+        // Inherit from settings if not explicitly provided
+        if (!config.paper_starting_balance) {
+          const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+          config.paper_starting_balance = settings ? Number(settings.paper_balance) : 10000.0;
+        }
       } else {
         config.live_starting_balance = config.live_starting_balance || 10000.0;
       }
@@ -510,5 +541,75 @@ export class SessionService implements OnModuleInit {
       level,
       msg,
     });
+  }
+
+  async resetPaperBalance() {
+    const defaultBalance = 10000.0;
+
+    await this.settingsRepository.update('default', {
+      paper_balance: defaultBalance
+    });
+
+    // Record reset in history
+    await this.balanceHistoryRepository.save({
+      timestamp: new Date(),
+      balance: defaultBalance,
+      pnl: 0,
+      type: 'RESET'
+    });
+
+    // If a session is running and it's paper mode, we might want to update it,
+    // but usually, a reset is done when no session is active or as a hard override.
+    if (this.sessionRunning) {
+      const session = await this.sessionRepository.findOne({ where: { id: this.currentSessionId! } });
+      if (session && session.paperMode) {
+        // Hot update the engine if running
+        // Note: This is a bit aggressive, usually user stops session, resets, then starts.
+      }
+    }
+
+    return { status: 'reset', balance: defaultBalance };
+  }
+
+  async getLifetimeAnalytics(mode: 'paper' | 'testnet' | 'live' = 'paper') {
+    // 1. Fetch all closed trades across all sessions for the specific mode
+    const trades = await this.tradeRepository.find({
+      select: ['pnl', 'exit_ts', 'status', 'strategy_config'],
+      where: [
+        { status: 'CLOSED' as any },
+        { status: 'CLOSED_SL' },
+        { status: 'CLOSED_TP' },
+        { status: 'CLOSED_SIGNAL' },
+      ],
+      order: { exit_ts: 'ASC' }
+    });
+
+    // Filter trades by mode
+    const filteredTrades = trades.filter(t => {
+        const tConfig = t.strategy_config || {};
+        const tMode = tConfig.trading_mode || (tConfig.paper_mode !== false ? 'paper' : 'live');
+        return tMode === mode;
+    });
+
+    // 2. Fetch balance history snapshots for high-fidelity curve
+    const history = await this.balanceHistoryRepository.find({
+      where: { tradingMode: mode },
+      order: { timestamp: 'ASC' }
+    });
+
+    // 3. Calculate analytics using the full trade set
+    // We assume the very first starting balance was 10000 for paper, and 0 (initial tracking) for real
+    const startingBalance = mode === 'paper' ? 10000 : (history.length > 0 ? Number(history[0].balance) - Number(history[0].pnl) : 0);
+    const analytics = this.analyticsService.calculateAnalytics(filteredTrades as any, startingBalance);
+
+    // 4. Override cumulative PnL with balance history for better accuracy if available
+    if (history.length > 0) {
+      analytics.cumulativePnL = history.map(h => ({
+        ts: h.timestamp.toISOString(),
+        pnl: Number(h.balance) - startingBalance
+      }));
+    }
+
+    return analytics;
   }
 }

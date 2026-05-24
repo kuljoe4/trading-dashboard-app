@@ -185,6 +185,7 @@ export const useTradingStore = create((set, get) => ({
   variantScannerResults: {},
   activeWindows: [],
   tradeHistory: [],
+  lifetimeAnalytics: null,
   gateState: null,
   scannerPaused: false,
   wsStatus: 'offline',
@@ -272,6 +273,26 @@ export const useTradingStore = create((set, get) => ({
       set({ sessionList: res.data })
     } catch (e) {
       console.error('tradingStore: fetchSessions error:', e);
+    }
+  },
+
+  fetchLifetimeAnalytics: async (mode = 'paper') => {
+    try {
+      const res = await sessionAPI.getLifetimeAnalytics(mode)
+      set({ lifetimeAnalytics: res.data })
+    } catch (e) {
+      console.error('tradingStore: fetchLifetimeAnalytics error:', e);
+    }
+  },
+
+  resetPaperBalance: async () => {
+    try {
+      await sessionAPI.resetPaperBalance()
+      await get().fetchLifetimeAnalytics()
+      return true
+    } catch (e) {
+      console.error('tradingStore: resetPaperBalance error:', e);
+      return false
     }
   },
 

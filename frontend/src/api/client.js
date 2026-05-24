@@ -88,6 +88,8 @@ export const createSessionAPI = (apiInstance = api) => ({
   history: () => apiInstance.get('/session/history'),
   closeTrade: (symbol) => apiInstance.post(`/session/trade/${symbol}/close`),
   analytics: () => apiInstance.get('/session/analytics'),
+  getLifetimeAnalytics: (mode) => apiInstance.get('/session/lifetime-analytics', { params: { mode } }),
+  resetPaperBalance: () => apiInstance.post('/session/reset-paper-balance'),
 })
 
 export const sessionAPI = createSessionAPI()

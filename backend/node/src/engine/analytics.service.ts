@@ -14,6 +14,9 @@ export interface AnalyticsResult {
   }[];
   totalTrades: number;
   overallWinRate: number;
+  avgWin: number;
+  avgLoss: number;
+  avgWinLossRatio: number;
 }
 
 @Injectable()
@@ -37,6 +40,9 @@ export class AnalyticsService {
     let maxDD = 0;
     let maxDDPct = 0;
     let totalWins = 0;
+    let totalLosses = 0;
+    let grossProfit = 0;
+    let grossLoss = 0;
 
     const cumulativePnL: { ts: string; pnl: number }[] = new Array(totalTrades);
     // Time of day analysis (0-23 hours) - Fixed size array for better performance
@@ -65,7 +71,7 @@ export class AnalyticsService {
       };
 
       // Time of Day
-      const hour = t.exit_ts!.getUTCHours();
+      const hour = t.exit_ts!.getHours();
       const stats = todStats[hour];
       stats.pnl += pnl;
       stats.total += 1;
@@ -74,6 +80,10 @@ export class AnalyticsService {
       if (pnl > 0) {
         stats.wins += 1;
         totalWins += 1;
+        grossProfit += pnl;
+      } else if (pnl < 0) {
+        totalLosses += 1;
+        grossLoss += Math.abs(pnl);
       }
     }
 
@@ -83,6 +93,10 @@ export class AnalyticsService {
       winRate: stats.total > 0 ? (stats.wins / stats.total) * 100 : 0,
     }));
 
+    const avgWin = totalWins > 0 ? grossProfit / totalWins : 0;
+    const avgLoss = totalLosses > 0 ? grossLoss / totalLosses : 0;
+    const avgWinLossRatio = avgLoss > 0 ? avgWin / avgLoss : 0;
+
     return {
       cumulativePnL,
       maxDrawdown: Number(maxDD.toFixed(2)),
@@ -90,6 +104,9 @@ export class AnalyticsService {
       timeOfDay,
       totalTrades,
       overallWinRate: totalTrades > 0 ? (totalWins / totalTrades) * 100 : 0,
+      avgWin: Number(avgWin.toFixed(2)),
+      avgLoss: Number(avgLoss.toFixed(2)),
+      avgWinLossRatio: Number(avgWinLossRatio.toFixed(2)),
     };
   }
 }

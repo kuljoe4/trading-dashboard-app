@@ -71,7 +71,7 @@ export class AnalyticsService {
       };
 
       // Time of Day
-      const hour = t.exit_ts!.getUTCHours();
+      const hour = t.exit_ts!.getHours();
       const stats = todStats[hour];
       stats.pnl += pnl;
       stats.total += 1;

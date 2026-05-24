@@ -27,8 +27,8 @@ export class TradingSessionService {
   private lastRateLimitCheck = 0;
   private binanceRateLimit: Record<string, any> = {};
   private wsBroadcaster: ((data: any) => void) | null = null;
-  private onBalanceUpdate: ((balance: number, pnl: number) => void) | null = null;
-  private onTradeUpdate: ((trade: Trade) => void) | null = null;
+  private onBalanceUpdate: ((balance: number, pnl: number) => Promise<void> | void) | null = null;
+  private onTradeUpdate: ((trade: Trade, balance: number) => Promise<void>) | null = null;
   private lastScannerResults: any[] = [];
   private closedTrades: Trade[] = [];
   private lastAnalyticsResult: any = null;
@@ -101,11 +101,11 @@ export class TradingSessionService {
     // this.listenerCount = count;
   }
 
-  setBalanceUpdateCallback(cb: (balance: number, pnl: number) => void) {
+  setBalanceUpdateCallback(cb: (balance: number, pnl: number) => Promise<void> | void) {
     this.onBalanceUpdate = cb;
   }
 
-  setTradeUpdateCallback(cb: (trade: Trade) => void) {
+  setTradeUpdateCallback(cb: (trade: Trade, balance: number) => Promise<void>) {
     this.onTradeUpdate = cb;
   }
 
@@ -131,8 +131,9 @@ export class TradingSessionService {
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
     this.orderManager.setBinanceClient(binanceClient, mode === 'paper');
     this.marketFeed.setCandeCloseCallback(this.onCandleClose.bind(this));
-    this.positionTracker.setTradeUpdateCallback((trade) => {
-      if (this.onTradeUpdate) this.onTradeUpdate(trade);
+    // Persistence for SL adjustments and other internal trade state changes
+    this.positionTracker.setTradeUpdateCallback(async (trade) => {
+      if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
     });
 
     // Fetch live balance
@@ -207,15 +208,15 @@ export class TradingSessionService {
       const result = await this.positionTracker.closeTrade(trade.symbol, exitPrice, 'SESSION_TERMINATED', this.config!);
       if (result.exitOccurred && result.trade) {
         this.closedTrades.push(result.trade);
-        if (this.onTradeUpdate) this.onTradeUpdate(result.trade);
         await this.updateBalance(result.trade);
+        if (this.onTradeUpdate) await this.onTradeUpdate(result.trade, this.getBalance());
       } else {
         // Fallback if the engine could not close trade normally
         trade.status = 'CLOSED';
         trade.exit_ts = new Date();
         trade.exit_reason = 'SESSION_TERMINATED';
         this.closedTrades.push(trade);
-        if (this.onTradeUpdate) this.onTradeUpdate(trade);
+        if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
         this.positionTracker.removeTrade(trade.symbol);
       }
     }
@@ -379,9 +380,9 @@ export class TradingSessionService {
       if (exitCondition?.exitOccurred) {
         const result = await this.positionTracker.closeTrade(trade.symbol, currentPrice, exitCondition.exitReason, tradeConfig);
         if (result.exitOccurred && result.trade) {
-          this.updateBalance(result.trade);
+          await this.updateBalance(result.trade);
           this.closedTrades.unshift(result.trade);
-          if (this.onTradeUpdate) this.onTradeUpdate(result.trade);
+          if (this.onTradeUpdate) await this.onTradeUpdate(result.trade, this.getBalance());
           this.broadcast('trade_event', {
             event: 'closed',
             symbol: result.trade.symbol, // Fix: Added symbol for frontend log
@@ -489,7 +490,7 @@ export class TradingSessionService {
 
       if (trade) {
         this.positionTracker.addTrade(trade);
-        if (this.onTradeUpdate) this.onTradeUpdate(trade);
+        if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
         this.broadcast('trade_event', { 
           event: 'opened', 
           symbol: opp.symbol,
@@ -801,7 +802,7 @@ export class TradingSessionService {
 
       this.userDataWs = await this.binanceClient.websocketStreams.connect();
 
-      this.userDataWs.on('message', (msg: any) => {
+      this.userDataWs.on('message', async (msg: any) => {
         try {
           const data = typeof msg === 'string' ? JSON.parse(msg) : msg;
 
@@ -813,7 +814,7 @@ export class TradingSessionService {
               this.logger.log(`[WS] Account Balance Update: ${newBalance}`);
               this.balanceLive = newBalance;
               this.balancePaper = newBalance;
-              if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), 0);
+              if (this.onBalanceUpdate) await this.onBalanceUpdate(this.getBalance(), 0);
             }
           }
         } catch (err) {
@@ -914,9 +915,9 @@ export class TradingSessionService {
     const result = await this.positionTracker.closeTrade(symbol, currentPrice, 'MANUAL_CLOSE', this.config!);
     
     if (result.exitOccurred && result.trade) {
-      this.updateBalance(result.trade);
+      await this.updateBalance(result.trade);
       this.closedTrades.unshift(result.trade);
-      if (this.onTradeUpdate) this.onTradeUpdate(result.trade);
+      if (this.onTradeUpdate) await this.onTradeUpdate(result.trade, this.getBalance());
       
       this.broadcast('trade_event', {
         event: 'closed',

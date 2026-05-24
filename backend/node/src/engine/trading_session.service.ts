@@ -30,6 +30,7 @@ export class TradingSessionService {
   private onBalanceUpdate: ((balance: number, pnl: number) => Promise<void> | void) | null = null;
   private onTradeUpdate: ((trade: Trade, balance: number) => Promise<void>) | null = null;
   private lastScannerResults: any[] = [];
+  private lastVariantScannerResults: any[] = [];
   private closedTrades: Trade[] = [];
   private lastAnalyticsResult: any = null;
   private lastAnalyticsTradeCount = -1;
@@ -253,7 +254,7 @@ export class TradingSessionService {
    * Handles lower-frequency tasks: Market scanning and trade entry
    */
   private async mainLoop() {
-    if (!this.running || !this.config || this.paused) return;
+    if (!this.running || !this.config) return;
 
     // Evaluate risk gates before scanning
     const activeTrades = this.positionTracker.activeList();
@@ -297,12 +298,31 @@ export class TradingSessionService {
         scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period'
       });
     }
+
+    const isGated = this.paused || this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period' || this.gateState === 'sleeping';
     
-    // Check if scanner should be paused based on gate state
-    if (this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period') {
+    if (isGated) {
+      // BOLT OPTIMIZATION: Skip heavy scanning logic when gated or paused to save resources (CPU/API weight).
+      // Still broadcast cached results to keep UI from flickering/clearing.
+      const now = Date.now();
+      const isFullBroadcast = now - this.lastScannerFullBroadcast > 30000;
+      if (isFullBroadcast) this.lastScannerFullBroadcast = now;
+
       this.broadcast('scanner', {
-        count: 0,
-        opportunities: [],
+        count: this.lastScannerResults.length,
+        opportunities: this.lastScannerResults.slice(0, 5).map(o => {
+          if (isFullBroadcast) return o;
+          const { history, ...rest } = o;
+          return rest;
+        }),
+        variant_opportunities: this.lastVariantScannerResults.map(v => ({
+          ...v,
+          opportunities: v.opportunities.slice(0, 5).map((o: any) => {
+             if (isFullBroadcast) return o;
+             const { history, ...rest } = o;
+             return rest;
+          })
+        })),
         activeWindows: this.getActiveWindows(),
       });
       return;
@@ -331,6 +351,7 @@ export class TradingSessionService {
 
       // BOLT: Only update scanner results for UI if there are active listeners
       this.updateScannerResults(primaryOpportunities);
+      this.lastVariantScannerResults = scannerData;
       
       const now = Date.now();
       const isFullBroadcast = now - this.lastScannerFullBroadcast > 30000;
@@ -343,7 +364,7 @@ export class TradingSessionService {
           const { history, ...rest } = o; // Skip history (sparkline data) in delta updates
           return rest;
         }),
-        variant_opportunities: scannerData.map(v => ({
+        variant_opportunities: this.lastVariantScannerResults.map(v => ({
           ...v,
           opportunities: v.opportunities.slice(0, 5).map((o: any) => {
              if (isFullBroadcast) return o;
@@ -375,7 +396,8 @@ export class TradingSessionService {
       await this.positionTracker.checkRrSequenceAdjustments(trade.symbol, currentPrice, tradeConfig);
 
       // 2. Check Exit Conditions (SL/TP/Signals)
-      const exitCondition = await this.positionTracker.checkExitConditions(trade.symbol, currentPrice, tradeConfig);
+      const exitInterval = tradeConfig.scan_interval || '1m';
+      const exitCondition = await this.positionTracker.checkExitConditions(trade.symbol, currentPrice, tradeConfig, exitInterval);
 
       if (exitCondition?.exitOccurred) {
         const result = await this.positionTracker.closeTrade(trade.symbol, currentPrice, exitCondition.exitReason, tradeConfig);
@@ -383,6 +405,10 @@ export class TradingSessionService {
           await this.updateBalance(result.trade);
           this.closedTrades.unshift(result.trade);
           if (this.onTradeUpdate) await this.onTradeUpdate(result.trade, this.getBalance());
+
+          // Trigger watchlist update to potentially remove closed trade symbol
+          this.marketFeed.updateWatchlist(tradeConfig).catch(() => {});
+
           this.broadcast('trade_event', {
             event: 'closed',
             symbol: result.trade.symbol, // Fix: Added symbol for frontend log
@@ -491,6 +517,10 @@ export class TradingSessionService {
       if (trade) {
         this.positionTracker.addTrade(trade);
         if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
+
+        // Trigger watchlist update to ensure kline stream for new trade
+        this.marketFeed.updateWatchlist(strategyConfig).catch(() => {});
+
         this.broadcast('trade_event', { 
           event: 'opened', 
           symbol: opp.symbol,
@@ -918,6 +948,9 @@ export class TradingSessionService {
       await this.updateBalance(result.trade);
       this.closedTrades.unshift(result.trade);
       if (this.onTradeUpdate) await this.onTradeUpdate(result.trade, this.getBalance());
+
+      // Trigger watchlist update
+      this.marketFeed.updateWatchlist(this.config!).catch(() => {});
       
       this.broadcast('trade_event', {
         event: 'closed',

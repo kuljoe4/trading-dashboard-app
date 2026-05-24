@@ -1,0 +1,24 @@
+{
+  "short_name": "Momentum",
+  "name": "Momentum Engine",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#080b0f",
+  "display": "standalone",
+  "scope": "/",
+  "theme_color": "#5b6fff",
+  "description": "Momentum Strategy Trading Engine Dashboard"
+}

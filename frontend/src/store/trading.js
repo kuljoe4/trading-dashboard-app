@@ -353,10 +353,13 @@ export const useTradingStore = create((set, get) => ({
       if (data.type === 'status') {
         set((state) => {
           const stopped = data.running === false
-          const nextTrades = stopped ? [] : (data.activeTrades?.map(t => {
-            const prev = state.activeTrades.find(p => p.symbol === t.symbol);
-            return normalizeTrade(t, prev);
-          }).filter(Boolean) || state.activeTrades);
+          let nextTrades = state.activeTrades;
+          if (stopped) {
+            nextTrades = [];
+          } else if (data.activeTrades) {
+            const prevMap = new Map(state.activeTrades.map(t => [t.symbol, t]));
+            nextTrades = data.activeTrades.map(t => normalizeTrade(t, prevMap.get(t.symbol))).filter(Boolean);
+          }
 
           return {
             sessionActive: data.running,
@@ -382,10 +385,13 @@ export const useTradingStore = create((set, get) => ({
       } else if (data.type === 'session') {
         set((state) => {
           const stopped = data.status === 'stopped'
-          const nextTrades = stopped ? [] : (data.activeTrades?.map(t => {
-            const prev = state.activeTrades.find(p => p.symbol === t.symbol);
-            return normalizeTrade(t, prev);
-          }).filter(Boolean) || state.activeTrades);
+          let nextTrades = state.activeTrades;
+          if (stopped) {
+            nextTrades = [];
+          } else if (data.activeTrades) {
+            const prevMap = new Map(state.activeTrades.map(t => [t.symbol, t]));
+            nextTrades = data.activeTrades.map(t => normalizeTrade(t, prevMap.get(t.symbol))).filter(Boolean);
+          }
 
           return {
             sessionActive: data.running ?? data.status === 'started',
@@ -413,10 +419,11 @@ export const useTradingStore = create((set, get) => ({
         })
       } else if (data.type === 'tick') {
         set((state) => {
-          const nextTrades = data.trades ? (data.trades || []).map(t => {
-            const prev = state.activeTrades.find(p => p.symbol === t.symbol);
-            return normalizeTrade(t, prev);
-          }).filter(Boolean) : state.activeTrades;
+          let nextTrades = state.activeTrades;
+          if (data.trades) {
+            const prevMap = new Map(state.activeTrades.map(t => [t.symbol, t]));
+            nextTrades = data.trades.map(t => normalizeTrade(t, prevMap.get(t.symbol))).filter(Boolean);
+          }
 
           // Only update activeTrades if reference should change (data changed)
           // We still allow PnL changes to trigger updates, but we avoid re-creating 

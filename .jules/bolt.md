@@ -41,3 +41,7 @@
 ## 2026-05-24 - [Optimization] Direct Map Iteration for Risk Calculation
 **Learning:** Calling 'Array.from(map.values())' in high-frequency loops (like a 1s hot loop) creates unnecessary O(N) array allocations that increase GC pressure.
 **Action:** Use direct 'for...of' loops over 'Map.values()' or 'Map.entries()' when calculating aggregates in hot paths to achieve zero-allocation processing.
+
+## 2026-05-24 - [Optimization] Map-based O(1) Lookup for Trade Normalization
+**Learning:** Performing a 'find' on an array of active trades (O(N)) during every WebSocket 'tick' (O(M)) results in O(N*M) complexity in the frontend state store. While N (trades) and M (incoming updates) are small, this pattern scales poorly and increases JS execution time on low-end mobile devices.
+**Action:** Use a temporary Map to achieve O(1) lookup during batch normalization of trades in the WebSocket handler, reducing complexity to O(N + M).

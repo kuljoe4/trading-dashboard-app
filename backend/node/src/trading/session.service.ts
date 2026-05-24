@@ -39,12 +39,10 @@ export class SessionService implements OnModuleInit {
 
   async onModuleInit() {
     // Cleanup any sessions marked as running in the database on startup
-    const runningSessions = await this.sessionRepository.find({ where: { running: true } });
-    if (runningSessions.length > 0) {
-      this.logger.log(`Cleaning up ${runningSessions.length} stale running sessions`);
-      for (const session of runningSessions) {
-        await this.sessionRepository.update(session.id, { running: false });
-      }
+    // BOLT: Optimize startup cleanup with a single bulk update instead of a loop
+    const updateResult = await this.sessionRepository.update({ running: true }, { running: false });
+    if (updateResult.affected && updateResult.affected > 0) {
+      this.logger.log(`Cleaned up ${updateResult.affected} stale running sessions`);
     }
 
     // Wire balance updates to persistence
@@ -172,16 +170,23 @@ export class SessionService implements OnModuleInit {
       
       // Preserving starting balance if it exists in the config to maintain correct PnL calculation across restarts
       if (paperMode) {
-        config.paper_starting_balance = config.paper_starting_balance || Number(session.balance);
+        config.paper_starting_balance = config.paper_starting_balance || (Number(session.balance) - Number(session.totalPnl));
       } else {
-        config.live_starting_balance = config.live_starting_balance || Number(session.balance);
+        config.live_starting_balance = config.live_starting_balance || (Number(session.balance) - Number(session.totalPnl));
       }
     } else {
+      // Ensure starting balance is explicitly in the config for new sessions
+      if (paperMode) {
+        config.paper_starting_balance = config.paper_starting_balance || 10000.0;
+      } else {
+        config.live_starting_balance = config.live_starting_balance || 10000.0;
+      }
+
       session = this.sessionRepository.create({
         running: true,
         paperMode,
         tradingMode: config.trading_mode || (paperMode ? 'paper' : 'live'),
-        balance: paperMode ? (config.paper_starting_balance || 10000.0) : (config.live_starting_balance || 10000.0),
+        balance: paperMode ? config.paper_starting_balance : config.live_starting_balance,
         strategyLabel: config.strategy_label || 'Momentum Strategy',
         config,
       });

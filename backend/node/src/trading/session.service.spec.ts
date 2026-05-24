@@ -1,5 +1,6 @@
 import { SessionService } from './session.service';
 import { SessionConfig } from '../models/SessionConfig';
+import { Session as SessionEntity } from '../models/entities/Session.entity';
 
 describe('SessionService Validation', () => {
   let service: SessionService;
@@ -163,6 +164,84 @@ describe('SessionService Validation', () => {
 
       const startCall = mockTradingSessionService.start.mock.calls[mockTradingSessionService.start.mock.calls.length - 1];
       expect(startCall[0].paper_starting_balance).toBe(10000);
+    });
+  });
+
+  describe('saveTradeAtomic', () => {
+    let mockQueryRunner: any;
+
+    beforeEach(() => {
+      mockQueryRunner = {
+        connect: jest.fn().mockResolvedValue(undefined),
+        startTransaction: jest.fn().mockResolvedValue(undefined),
+        commitTransaction: jest.fn().mockResolvedValue(undefined),
+        rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+        release: jest.fn().mockResolvedValue(undefined),
+        manager: {
+          save: jest.fn(),
+          increment: jest.fn(),
+          update: jest.fn(),
+        },
+      };
+      mockRepository.manager = {
+        connection: {
+          createQueryRunner: jest.fn().mockReturnValue(mockQueryRunner),
+        },
+      };
+    });
+
+    it('should rollback transaction if trade save fails', async () => {
+      const trade = { symbol: 'BTCUSDT', status: 'CLOSED', entry_price: 50000, qty: 1, pnl: 100 } as any;
+      mockQueryRunner.manager.save.mockRejectedValue(new Error('DB SAVE FAILED'));
+      (service as any).currentSessionId = 'session-123';
+
+      await service.saveTradeAtomic(trade, 10100);
+
+      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
+      expect(mockQueryRunner.commitTransaction).not.toHaveBeenCalled();
+      expect(mockQueryRunner.manager.increment).not.toHaveBeenCalled();
+    });
+
+    it('should commit transaction if all steps succeed', async () => {
+      const trade = { symbol: 'BTCUSDT', status: 'CLOSED', entry_price: 50000, qty: 1, pnl: 100 } as any;
+      (service as any).currentSessionId = 'session-123';
+
+      const mockQueryBuilder = {
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getRawOne: jest.fn().mockResolvedValue({ sum: '100' }),
+      };
+      mockQueryRunner.manager.createQueryBuilder = jest.fn().mockReturnValue(mockQueryBuilder);
+
+      await service.saveTradeAtomic(trade, 10100);
+
+      expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
+      expect(mockQueryRunner.manager.update).toHaveBeenCalledWith(SessionEntity, 'session-123', {
+        balance: 10100,
+        totalPnl: 100
+      });
+    });
+
+    it('should be idempotent and not double count PnL if called twice', async () => {
+      const trade = { symbol: 'BTCUSDT', status: 'CLOSED', entry_price: 50000, qty: 1, pnl: 100 } as any;
+      (service as any).currentSessionId = 'session-123';
+
+      const mockQueryBuilder = {
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getRawOne: jest.fn().mockResolvedValue({ sum: '100' }),
+      };
+      mockQueryRunner.manager.createQueryBuilder = jest.fn().mockReturnValue(mockQueryBuilder);
+
+      // Call twice
+      await service.saveTradeAtomic(trade, 10100);
+      await service.saveTradeAtomic(trade, 10100);
+
+      // totalPnl should still be 100 because it's recomputed from the database SUM
+      expect(mockQueryRunner.manager.update).toHaveBeenLastCalledWith(SessionEntity, 'session-123', {
+        balance: 10100,
+        totalPnl: 100
+      });
     });
   });
 });

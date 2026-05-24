@@ -45,18 +45,21 @@ export class SessionService implements OnModuleInit {
       this.logger.log(`Cleaned up ${updateResult.affected} stale running sessions`);
     }
 
-    // Wire balance updates to persistence
+    // Wire balance updates to persistence (legacy/standalone updates)
     this.tradingSessionService.setBalanceUpdateCallback(async (balance, pnl) => {
       const sessionId = this.currentSessionId;
       if (sessionId) {
-        await this.sessionRepository.increment({ id: sessionId }, 'totalPnl', pnl);
-        await this.sessionRepository.update(sessionId, { balance });
+        // standalone balance sync (e.g. from Binance WS)
+        if (pnl === 0) {
+          await this.sessionRepository.update(sessionId, { balance });
+        }
+        // Non-zero PnL updates are handled atomically in tradeUpdateCallback (saveTradeAtomic)
       }
     });
 
     // Wire trade updates to persistence
-    this.tradingSessionService.setTradeUpdateCallback(async (trade) => {
-      await this.saveTrade(trade);
+    this.tradingSessionService.setTradeUpdateCallback(async (trade, balance) => {
+      await this.saveTradeAtomic(trade, balance);
     });
   }
 
@@ -69,21 +72,57 @@ export class SessionService implements OnModuleInit {
     );
   }
 
-  async saveTrade(trade: any) {
+  async saveTradeAtomic(trade: any, balance: number) {
     if (!this.validateTrade(trade)) {
       this.logger.warn(`Attempted to save invalid trade ${trade.symbol}, skipping.`);
       return;
     }
+
+    const sessionId = this.currentSessionId || trade.sessionId;
+    if (!sessionId) {
+      this.logger.warn(`Cannot save trade ${trade.symbol}: No sessionId found.`);
+      return;
+    }
+
+    const queryRunner = this.sessionRepository.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
     try {
+      // 1. Save Trade record
       const tradeEntity = this.tradeRepository.create({
         ...trade,
-        sessionId: this.currentSessionId || trade.sessionId,
+        sessionId,
       });
-      await this.tradeRepository.save(tradeEntity);
-      this.logger.debug(`Saved trade ${trade.symbol} (${trade.status}) to database`);
+      await queryRunner.manager.save(TradeEntity, tradeEntity);
+
+      // 2. Update Session PnL and Balance
+      // BOLT: Recomputing totalPnl from sum of trades ensures idempotency and prevents double-counting
+      const { sum } = await queryRunner.manager
+        .createQueryBuilder(TradeEntity, 'trade')
+        .select('SUM(trade.pnl)', 'sum')
+        .where('trade.sessionId = :sessionId', { sessionId })
+        .getRawOne();
+
+      await queryRunner.manager.update(SessionEntity, sessionId, {
+        balance,
+        totalPnl: parseFloat(sum || '0')
+      });
+
+      await queryRunner.commitTransaction();
+      this.logger.debug(`Transaction committed: Saved trade ${trade.symbol} (${trade.status}) and updated session ${sessionId}`);
     } catch (error) {
-      this.logger.error(`Failed to save trade ${trade.symbol}: ${error instanceof Error ? error.message : String(error)}`);
+      await queryRunner.rollbackTransaction();
+      this.logger.error(`Transaction rolled back: Failed to save trade ${trade.symbol}: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      await queryRunner.release();
     }
+  }
+
+  async saveTrade(trade: any) {
+    // Legacy method, keeping for compatibility if needed, but routing to atomic
+    const status = await this.getStatus();
+    await this.saveTradeAtomic(trade, status.balance);
   }
 
   private validateConfig(config: SessionConfig) {

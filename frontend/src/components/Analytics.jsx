@@ -215,13 +215,13 @@ export const TODPerformance = ({ data = [] }) => {
   const maxPnl = Math.max(1, ...data.map(d => Math.abs(d.pnl)));
 
   return (
-    <div className="space-y-4" role="region" aria-label="Time of day performance histogram">
+    <div className="space-y-6" role="region" aria-label="Time of day performance histogram">
       <div className="flex items-center justify-between">
-        <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Time-of-Day Performance</span>
+        <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Time-of-Day Performance (Local)</span>
         <div className="flex gap-4" aria-hidden="true">
           <div className="flex items-center gap-1.5">
              <div className="w-1.5 h-1.5 rounded-full bg-green" />
-             <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Win</span>
+             <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Profit</span>
           </div>
           <div className="flex items-center gap-1.5">
              <div className="w-1.5 h-1.5 rounded-full bg-red" />
@@ -230,28 +230,47 @@ export const TODPerformance = ({ data = [] }) => {
         </div>
       </div>
 
-      <div className="flex items-end justify-between gap-1 h-[100px]">
+      <div className="relative h-[120px] flex items-center justify-between gap-0.5">
+        {/* Zero baseline */}
+        <div className="absolute left-0 right-0 h-px bg-border/40 z-0 top-1/2" />
+
         {data.map((h) => {
-          const height = (Math.abs(h.pnl) / maxPnl) * 100;
+          const isPos = h.pnl >= 0;
+          const absPnl = Math.abs(h.pnl);
+          // Non-linear scaling to ensure small but non-zero values are visible
+          // We use square root scaling for the height calculation
+          const scaleFactor = Math.sqrt(absPnl) / Math.sqrt(maxPnl);
+          const heightPct = absPnl === 0 ? 0 : Math.max(6, scaleFactor * 50);
+
           return (
-            <div key={h.hour} className="flex-1 flex flex-col items-center gap-1.5 group relative">
-              <div
-                role="img"
-                aria-label={`${h.hour}:00 hour, ${h.pnl >= 0 ? 'positive' : 'negative'} performance, ${fmtUSD(h.pnl)} PnL, ${h.winRate.toFixed(0)}% win rate over ${h.total} trades`}
-                className={cn(
-                  "w-full rounded-t-sm transition-all duration-300 hover:opacity-80",
-                  h.pnl >= 0 ? "bg-green/40 border-t border-green/60" : "bg-red/40 border-t border-red/60"
-                )}
-                style={{ height: `${Math.max(4, height)}%` }}
-              >
-                {/* Tooltip */}
-                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-surface border border-border p-2 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none min-w-[80px]" aria-hidden="true">
-                   <div className="text-[8px] text-dim font-bold uppercase tracking-widest mb-1">{h.hour}:00</div>
-                   <div className={cn("text-[10px] font-mono font-bold", h.pnl >= 0 ? "text-green" : "text-red")}>{fmtUSD(h.pnl)}</div>
-                   <div className="text-[9px] text-dim font-mono">{h.winRate.toFixed(0)}% WR ({h.wins}/{h.total})</div>
+            <div key={h.hour} className="flex-1 h-full flex flex-col group relative z-10">
+              <div className="flex-1 relative">
+                <div
+                  role="img"
+                  aria-label={`${h.hour}:00, ${isPos ? 'positive' : 'negative'} performance, ${fmtUSD(h.pnl)} PnL, ${h.winRate.toFixed(0)}% win rate`}
+                  className={cn(
+                    "absolute left-0 right-0 transition-all duration-300 hover:opacity-100 opacity-60",
+                    isPos
+                      ? "bg-green border-t border-green/40 rounded-t-[2px]"
+                      : "bg-red border-b border-red/40 rounded-b-[2px]"
+                  )}
+                  style={{
+                    height: `${heightPct}%`,
+                    [isPos ? 'bottom' : 'top']: '50%'
+                  }}
+                >
+                  {/* Tooltip */}
+                  <div className={cn(
+                    "absolute left-1/2 -translate-x-1/2 bg-surface border border-border p-2 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none min-w-[80px]",
+                    isPos ? "bottom-full mb-2" : "top-full mt-2"
+                  )} aria-hidden="true">
+                     <div className="text-[8px] text-dim font-bold uppercase tracking-widest mb-1">{h.hour}:00</div>
+                     <div className={cn("text-[10px] font-mono font-bold", isPos ? "text-green" : "text-red")}>{fmtUSD(h.pnl)}</div>
+                     <div className="text-[9px] text-dim font-mono">{h.winRate.toFixed(0)}% WR ({h.wins}/{h.total})</div>
+                  </div>
                 </div>
               </div>
-              <span className="text-[8px] text-dim font-mono font-bold">{h.hour}</span>
+              <span className="text-[7px] text-dim font-mono font-bold text-center mt-auto py-1">{h.hour}</span>
             </div>
           );
         })}

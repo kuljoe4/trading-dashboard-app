@@ -163,21 +163,43 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
 // --- P&L Bars ---
 export const PnLBars = React.memo(({ trades }) => {
   if (!trades || trades.length === 0) return <div className="h-[60px] flex items-center justify-center text-[10px] text-dim font-bold uppercase tracking-widest">No Trade Data</div>
+
   const max = Math.max(...trades.map(t => Math.abs(t.pnl || 0)), 1);
+
   return (
     <div
       role="img"
       aria-label="Profit and Loss performance chart"
-      className="flex items-end gap-1.5 h-[60px] px-1"
+      className="relative flex items-center gap-1 h-[60px] px-1"
     >
+      {/* Zero baseline */}
+      <div className="absolute left-0 right-0 h-px bg-border/40 z-0 top-1/2" />
+
       {trades.map((t, i) => {
         const pnl = t.pnl || 0;
-        const h = Math.max(4, (Math.abs(pnl) / max) * 52);
+        const isPos = pnl >= 0;
+        const absPnl = Math.abs(pnl);
+
+        // Non-linear scaling (sqrt) to prevent flat bars for small values
+        const scaleFactor = Math.sqrt(absPnl) / Math.sqrt(max);
+        const h = absPnl === 0 ? 0 : Math.max(3, scaleFactor * 28); // Max half-height is ~30px
+
         return (
-          <div key={t.id || `${t.symbol}-${i}`} title={`${t.symbol}: ${pnl}`} className={cn(
-            "flex-1 rounded-t-sm transition-all duration-300 hover:scale-y-110",
-            pnl >= 0 ? "bg-green shadow-[0_0_10px_rgba(0,229,160,0.2)]" : "bg-red shadow-[0_0_10px_rgba(255,68,102,0.2)]"
-          )} style={{ height: `${h}px` }} />
+          <div
+            key={t.id || `${t.symbol}-${i}`}
+            title={`${t.symbol}: ${pnl.toFixed(2)}`}
+            className={cn(
+              "flex-1 transition-all duration-300 hover:opacity-100 opacity-80 z-10",
+              isPos
+                ? "bg-green rounded-t-[1px] shadow-[0_0_10px_rgba(0,229,160,0.1)]"
+                : "bg-red rounded-b-[1px] shadow-[0_0_10px_rgba(255,68,102,0.1)]"
+            )}
+            style={{
+              height: `${h}px`,
+              transform: `translateY(${isPos ? -50 : 50}%)`,
+              alignSelf: 'center'
+            }}
+          />
         );
       })}
     </div>

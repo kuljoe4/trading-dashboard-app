@@ -64,6 +64,24 @@ export class MonitoringService {
   }
 
   getMetrics() {
+    // BOLT OPTIMIZATION: Skip expensive syscalls and aggregations if monitoring is disabled
+    if (!this.enabled) {
+      return {
+        system: {
+          cpu_usage: 0,
+          memory_rss: 0,
+          memory_heap_used: 0,
+          uptime: Math.floor(process.uptime()),
+          event_loop_lag: 0,
+        },
+        application: {
+          hot_loop_ms: 0,
+          main_loop_ms: 0,
+          api_requests_total: this.apiRequestCount,
+        }
+      };
+    }
+
     const mem = process.memoryUsage();
 
     return {

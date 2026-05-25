@@ -14,3 +14,8 @@
 **Vulnerability:** Sensitive Binance API credentials in the `Settings` entity were missing the `select: false` attribute, making them susceptible to accidental exposure in generic TypeORM queries (e.g., `repository.find()`).
 **Learning:** Defense-in-depth requires that secrets are not only encrypted but also excluded from default data retrieval paths. Relying on manual field filtering in controllers is error-prone.
 **Prevention:** Always mark sensitive columns with `select: false` in TypeORM entities and explicitly select them only in the specific services or controllers where they are required for functional operations.
+
+## 2026-05-25 - Robust WebSocket Parsing and Origin Warnings
+**Vulnerability:** The WebSocket message handler lacked a `try-catch` around `JSON.parse` and a type check for the resulting data, making it vulnerable to process crashes via malformed JSON or "null" payloads. Additionally, development origin bypasses were silent.
+**Learning:** WebSocket handlers in Node.js must be extremely defensive as they are long-lived. A single malformed message can crash the entire connection or even the process if not handled. Development fallbacks for security features (like CORS/Origin) should always log warnings to prevent them from being forgotten in production-like environments.
+**Prevention:** Always wrap `JSON.parse` in `try-catch` within socket message handlers. Log prominent security warnings when falling back to loose origin verification in non-production environments to maintain visibility.

@@ -48,7 +48,13 @@ async function bootstrap() {
       // Allow requests with no origin (like mobile apps or curl)
       if (!origin) return callback(null, true);
       
-      if (allowedOrigins.indexOf(origin) !== -1 || nodeEnv !== 'production') {
+      const isAllowed = allowedOrigins.indexOf(origin) !== -1;
+      const isDevFallback = !isAllowed && nodeEnv !== 'production';
+
+      if (isAllowed || isDevFallback) {
+        if (isDevFallback) {
+          console.warn(`⚠️  Security Warning: Allowing unauthorized origin "${origin}" due to non-production environment.`);
+        }
         callback(null, true);
       } else {
         console.warn(`CORS blocked for origin: ${origin}`);
@@ -88,12 +94,15 @@ async function bootstrap() {
     },
     verifyClient: (info, done) => {
       const origin = info.origin ? info.origin.replace(/\/$/, '') : null;
-      const isAllowed = !origin || allowedOrigins.some(o => o.replace(/\/$/, '') === origin) || nodeEnv !== 'production';
-      
-      if (!isAllowed) {
+      const isAllowed = !origin || allowedOrigins.some(o => o.replace(/\/$/, '') === origin);
+      const isDevFallback = !isAllowed && nodeEnv !== 'production';
+
+      if (!isAllowed && !isDevFallback) {
         console.warn(`Blocked WebSocket connection from unauthorized origin: ${info.origin}`);
+      } else if (isDevFallback) {
+        console.warn(`⚠️  Security Warning: Allowing unauthorized WebSocket origin "${info.origin}" due to non-production environment.`);
       }
-      done(isAllowed);
+      done(isAllowed || isDevFallback);
     },
   });
 
@@ -166,7 +175,17 @@ async function bootstrap() {
         if (socket.msgCount > 20) return;
 
         if (message.length > 1000) return;
-        const data = JSON.parse(message);
+
+        let data;
+        try {
+          data = JSON.parse(message);
+        } catch (e) {
+          console.warn('Received malformed WebSocket JSON payload');
+          return;
+        }
+
+        if (!data || typeof data !== 'object') return;
+
         if (data.type === 'set_monitoring') {
           socket.monitoringEnabled = data.enabled === true;
           updateMonitoringSuppression();

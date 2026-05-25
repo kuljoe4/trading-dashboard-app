@@ -80,6 +80,10 @@ export class SessionController {
 
   @Post('trade/:symbol/close')
   async closeTradeManually(@Param('symbol') symbol: string) {
+    // Basic input hardening: ensure symbol matches expected Binance format
+    if (!/^[A-Z0-9]{3,20}$/.test(symbol)) {
+      throw new Error('Invalid symbol format');
+    }
     return this.sessionService.closeTradeManually(symbol);
   }
 

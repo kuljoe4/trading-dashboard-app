@@ -95,6 +95,8 @@ export class SessionService implements OnModuleInit {
       // 1. Save Trade record
       const tradeEntity = this.tradeRepository.create({
         ...trade,
+        exit_signal_type: trade.exit_signal_type,
+        exit_signal_reason: trade.exit_signal_reason,
         sessionId,
       });
       await queryRunner.manager.save(TradeEntity, tradeEntity);

@@ -53,6 +53,12 @@ export class TradeEntity {
   @Column({ nullable: true })
   exit_reason: string;
 
+  @Column({ nullable: true })
+  exit_signal_type: string;
+
+  @Column({ nullable: true })
+  exit_signal_reason: string;
+
   @Column('jsonb', { default: [] })
   sl_adjustments: any[];
 

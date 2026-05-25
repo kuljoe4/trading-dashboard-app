@@ -351,7 +351,11 @@ export function DashboardView() {
       }
       await fetchSessions()
     } catch (e) {
-      alert(e?.response?.data?.detail || 'Failed to save config')
+      const isNetworkError = e.message === 'Network Error' || e.code === 'ERR_NETWORK';
+      const msg = isNetworkError
+        ? 'Network Error: Failed to reach backend. Check your internet or CORS settings.'
+        : (e?.response?.data?.detail || e?.response?.data?.message || 'Failed to save config');
+      alert(msg)
     } finally {
       setLoading(false)
       setIsEditMode(false)

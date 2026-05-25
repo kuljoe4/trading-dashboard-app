@@ -33,3 +33,7 @@
 ## 2026-05-20 - [Standardizing Destructive Confirmation UX]
 **Learning:** Applying a consistent two-stage "Click to Confirm" pattern across all destructive session-level actions (not just individual trades) prevents catastrophic accidental data loss or session termination. Using `aria-live="polite"` and updating `aria-label` ensures the state change is accessible to screen readers.
 **Action:** Always implement confirmation gates for destructive buttons (Terminate, Delete, Clear) using a timed auto-reset pattern with clear visual and audible feedback.
+
+## 2026-05-25 - [Actionable Network Error Reporting]
+**Learning:** Generic 'Network Error' alerts in single-page applications are unhelpful for diagnosing specific failures like CORS blocking or backend unavailability. Providing more descriptive error messages that hint at root causes (e.g., CORS, connectivity) significantly reduces user frustration during environment-specific issues.
+**Action:** Always differentiate network-level errors from API response errors and provide actionable feedback that suggests potential resolutions (e.g., "Check CORS settings").

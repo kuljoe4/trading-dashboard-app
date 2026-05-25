@@ -49,6 +49,14 @@ const sessionConfigAllowedKeys = [
   'paper_starting_balance',
   'live_starting_balance',
   'track_binance_rate_limits',
+  'global_scanner_enabled',
+  'single_symbol_configs',
+  'trading_windows',
+  'risk_use_tod_stats',
+  'tod_min_winrate',
+  'hot_loop_interval_ms',
+  'main_loop_interval_ms',
+  'debug_mode',
 ]
 
 const sanitizeSessionConfig = (config) => {

@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, LogLevel } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { WebSocketServer } from 'ws';
@@ -9,7 +9,16 @@ import { MonitoringService } from './engine/monitoring.service';
 import { TradingSessionService } from './engine/trading_session.service';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const isProduction = process.env.NODE_ENV === 'production';
+  const forceDebug = process.env.DEBUG === 'true';
+
+  const logLevels: LogLevel[] = isProduction && !forceDebug
+    ? ['log', 'warn', 'error']
+    : ['log', 'error', 'warn', 'debug', 'verbose'];
+
+  const app = await NestFactory.create(AppModule, {
+    logger: logLevels,
+  });
   const configService = app.get(ConfigService);
 
   app.useGlobalPipes(

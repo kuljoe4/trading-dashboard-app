@@ -269,4 +269,19 @@ export class SessionConfig {
   @IsNumber()
   @IsOptional()
   tod_min_winrate?: number = 40.0;
+
+  // Performance & Debug
+  @IsNumber()
+  @IsOptional()
+  @Min(500)
+  hot_loop_interval_ms?: number = 2000;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(1000)
+  main_loop_interval_ms?: number = 5000;
+
+  @IsBoolean()
+  @IsOptional()
+  debug_mode?: boolean = false;
 }

@@ -183,13 +183,15 @@ export class TradingSessionService {
     await this.momentumScanner.start(config);
 
     // Pro Loop Architecture
-    // 1. Hot Loop (1000ms): Exit monitoring & PnL updates
-    this.hotLoopInterval = setInterval(() => this.hotLoop(), 1000);
+    // 1. Hot Loop: Exit monitoring & PnL updates
+    const hotInterval = config.hot_loop_interval_ms || 2000;
+    this.hotLoopInterval = setInterval(() => this.hotLoop(), hotInterval);
 
-    // 2. Main Loop (2000ms): Scanning & Entry
-    this.mainLoopInterval = setInterval(() => this.mainLoop(), 2000);
+    // 2. Main Loop: Scanning & Entry
+    const mainInterval = config.main_loop_interval_ms || 5000;
+    this.mainLoopInterval = setInterval(() => this.mainLoop(), mainInterval);
 
-    this.logger.log(`Session started | mode=${config.paper_mode ? 'PAPER' : 'LIVE'} | balance=${this.getBalance()}`);
+    this.logger.log(`Session started | mode=${config.paper_mode ? 'PAPER' : 'LIVE'} | balance=${this.getBalance()} | hot=${hotInterval}ms | main=${mainInterval}ms`);
     this.broadcastSnapshot('started');
 
     return { status: 'started' };
@@ -261,7 +263,9 @@ export class TradingSessionService {
       await this.broadcastTick();
       this.monitoringService.recordHotLoop(performance.now() - start);
     } catch (error) {
-      this.logger.debug(`Hot loop error: ${error instanceof Error ? error.message : String(error)}`);
+      if (this.config.debug_mode) {
+        this.logger.debug(`Hot loop error: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
 
@@ -405,7 +409,9 @@ export class TradingSessionService {
       }
       this.monitoringService.recordMainLoop(performance.now() - start);
     } catch (error) {
-      this.logger.debug(`Main loop error: ${error instanceof Error ? error.message : String(error)}`);
+      if (this.config.debug_mode) {
+        this.logger.debug(`Main loop error: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
 
@@ -447,7 +453,9 @@ export class TradingSessionService {
 
   private async onCandleClose(symbol: string) {
     if (!this.running || !this.config) return;
-    this.logger.debug(`Candle closed for ${symbol}`);
+    if (this.config.debug_mode) {
+      this.logger.debug(`Candle closed for ${symbol}`);
+    }
   }
 
   private updateScannerResults(opportunities: any[]) {
@@ -468,7 +476,9 @@ export class TradingSessionService {
 
   private async processEntries(opportunities: any[], strategyConfig: SessionConfig = this.config!) {
     const strategyLabel = this.getStrategyLabel(strategyConfig);
-    console.log(`[DEBUG] Processing entries. Label: ${strategyLabel}, Config Label: ${strategyConfig.strategy_label}`);
+    if (this.config?.debug_mode) {
+      this.logger.debug(`Processing entries. Label: ${strategyLabel}, Config Label: ${strategyConfig.strategy_label}`);
+    }
 
     for (const opp of opportunities) {
       if (this.positionTracker.hasSymbol(opp.symbol)) continue;
@@ -485,7 +495,9 @@ export class TradingSessionService {
 
       if (!signalResult.allFired) continue;
 
-      this.logger.log(`${strategyLabel} | ${opp.symbol}: ALL SIGNALS FIRED! Proceeding to risk checks...`);
+      if (this.config?.debug_mode) {
+        this.logger.log(`${strategyLabel} | ${opp.symbol}: ALL SIGNALS FIRED! Proceeding to risk checks...`);
+      }
 
       const activeTrades = this.positionTracker.activeList();
       const riskResult = await this.riskEngine.canEnter(
@@ -924,10 +936,26 @@ export class TradingSessionService {
   }
 
   updateConfig(config: SessionConfig) {
+    const prevConfig = this.config;
     this.config = config;
     this.cachedStrategyConfigs = null;
     this.cachedScanSignatures.clear();
     this.logger.log('Session config updated (hot-reload)');
+
+    // If loop intervals changed, restart them
+    if (prevConfig && (
+      prevConfig.hot_loop_interval_ms !== config.hot_loop_interval_ms ||
+      prevConfig.main_loop_interval_ms !== config.main_loop_interval_ms
+    )) {
+      this.logger.log(`Restarting loops with new intervals: hot=${config.hot_loop_interval_ms}ms, main=${config.main_loop_interval_ms}ms`);
+
+      if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
+      if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
+
+      this.hotLoopInterval = setInterval(() => this.hotLoop(), config.hot_loop_interval_ms || 2000);
+      this.mainLoopInterval = setInterval(() => this.mainLoop(), config.main_loop_interval_ms || 5000);
+    }
+
     this.broadcast('tick', { config: this.config });
   }
 

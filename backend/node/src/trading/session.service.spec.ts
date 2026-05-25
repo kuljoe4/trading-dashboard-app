@@ -1,6 +1,7 @@
 import { SessionService } from './session.service';
 import { SessionConfig } from '../models/SessionConfig';
 import { Session as SessionEntity } from '../models/entities/Session.entity';
+import { TradeEntity } from '../models/entities/Trade.entity';
 
 describe('SessionService Validation', () => {
   let service: SessionService;
@@ -249,6 +250,36 @@ describe('SessionService Validation', () => {
         balance: 10100,
         totalPnl: 100
       });
+    });
+
+    it('should persist exit_signal_type and exit_signal_reason', async () => {
+      const trade = {
+        symbol: 'BTCUSDT',
+        status: 'CLOSED_SIGNAL',
+        entry_price: 50000,
+        qty: 1,
+        pnl: 100,
+        exit_signal_type: 'EMA_CROSS',
+        exit_signal_reason: 'Fast EMA crossed below slow EMA'
+      } as any;
+      (service as any).currentSessionId = 'session-123';
+
+      mockTradeRepository.create.mockImplementation((d: any) => d);
+
+      const mockQueryBuilder = {
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getRawOne: jest.fn().mockResolvedValue({ sum: '100' }),
+      };
+      mockQueryRunner.manager.createQueryBuilder = jest.fn().mockReturnValue(mockQueryBuilder);
+      mockQueryRunner.manager.findOne.mockResolvedValue({ id: 'session-123', paperMode: true });
+
+      await service.saveTradeAtomic(trade, 10100);
+
+      expect(mockQueryRunner.manager.save).toHaveBeenCalledWith(TradeEntity, expect.objectContaining({
+        exit_signal_type: 'EMA_CROSS',
+        exit_signal_reason: 'Fast EMA crossed below slow EMA'
+      }));
     });
   });
 });

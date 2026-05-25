@@ -268,6 +268,16 @@ export class OrderManagerService {
       trade.pnl_pct = pnlPct;
       trade.exit_reason = exitReason;
 
+      // Ensure exit signal type and reason are passed through to persistence
+      // if they weren't already set by PositionTracker (e.g. for simple SL/TP/Manual)
+      if (!trade.exit_signal_type) {
+        if (exitReason === 'SL_HIT') trade.exit_signal_type = 'STOP_LOSS';
+        else if (exitReason === 'TP_HIT') trade.exit_signal_type = 'TAKE_PROFIT';
+        else if (exitReason === 'MANUAL_CLOSE') trade.exit_signal_type = 'MANUAL';
+        else if (exitReason === 'SESSION_TERMINATED') trade.exit_signal_type = 'SESSION_TERMINATED';
+        else trade.exit_signal_type = 'SIGNAL';
+      }
+
       // Determine status
       if (exitReason.includes('SL')) {
         trade.status = 'CLOSED_SL';

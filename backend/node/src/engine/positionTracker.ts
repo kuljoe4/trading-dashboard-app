@@ -39,6 +39,10 @@ export class PositionTrackerService {
     return Array.from(this.trades.values());
   }
 
+  activeCount(): number {
+    return this.trades.size;
+  }
+
   /**
    * BOLT OPTIMIZATION: Use direct loop over Map values instead of creating an array.
    * Eliminates O(N) allocation in the 1s hot loop and 2s main loop.

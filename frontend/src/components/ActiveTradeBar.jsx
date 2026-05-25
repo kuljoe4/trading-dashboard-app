@@ -164,12 +164,26 @@ const ExitMonitor = React.memo(({ status, logic }) => {
           const value = Number.isFinite(Number(s.value)) ? Number(s.value) : 0
           const threshold = Math.max(Math.abs(Number(s.threshold) || 1), 0.0001)
           const progress = s.active ? (s.insufficientData ? 0 : Math.min((Math.abs(value) / threshold) * 100, 100)) : Math.max(0, 100 - ((s.remaining_delay || 0) / Math.max((s.remaining_delay || 0) + 1, 1)) * 100)
+
+          const isPrice = s.unit === 'price' || s.unit === 'dist';
+          const displayValue = isPrice ? price(value) : `${value.toFixed(2)}${s.unit || ''}`;
+          const displayThreshold = isPrice ? price(s.threshold) : `${Number(s.threshold || 0).toFixed(2)}${s.unit || ''}`;
+
           return (
             <div key={key} className={cn(
-              "p-4 rounded-xl border bg-surface/70 transition-colors",
+              "p-4 rounded-xl border bg-surface/70 transition-colors relative overflow-hidden",
               s.fired && s.active ? "border-red/40" : s.active ? "border-border" : "border-amber/20"
             )}>
-              <div className="flex items-start justify-between gap-4 mb-3">
+              {/* Background progress bar for a more professional look */}
+              <div
+                className={cn(
+                  "absolute inset-0 opacity-5 transition-all duration-700",
+                  s.fired && s.active ? "bg-red" : s.active ? "bg-accent" : "bg-amber"
+                )}
+                style={{ width: `${progress}%` }}
+              />
+
+              <div className="flex items-start justify-between gap-4 mb-3 relative z-10">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className={cn(
                     "w-8 h-8 rounded-lg border flex items-center justify-center shrink-0",
@@ -186,14 +200,14 @@ const ExitMonitor = React.memo(({ status, logic }) => {
                 </div>
                 <div className="text-right shrink-0">
                   <div className={cn("text-sm font-bold font-mono", s.fired && s.active ? "text-red" : s.active ? "text-text" : "text-amber")}>
-                    {s.insufficientData ? 'n/a' : s.active ? `${value.toFixed(2)}${s.unit || ''}` : `${Math.ceil(s.remaining_delay || 0)}s`}
+                    {s.insufficientData ? 'n/a' : s.active ? displayValue : `${Math.ceil(s.remaining_delay || 0)}s`}
                   </div>
                   <div className="text-[9px] text-dim font-bold uppercase tracking-widest">
-                    {s.insufficientData ? 'Insufficient Data' : s.active ? `Target ${Number(s.threshold || 0).toFixed(2)}${s.unit || ''}` : 'Arming'}
+                    {s.insufficientData ? 'Insufficient Data' : s.active ? `Target ${displayThreshold}` : 'Arming'}
                   </div>
                 </div>
               </div>
-              <div className="h-2 bg-background rounded-full overflow-hidden border border-border/60">
+              <div className="h-1.5 bg-background rounded-full overflow-hidden border border-border/60 relative z-10">
                 <div
                   className={cn(
                     "h-full rounded-full transition-all duration-500",
@@ -337,9 +351,15 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
             {Number(pctChange) >= 0 ? '+' : ''}{pctChange}%
           </span>
         </div>
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1 relative group">
           <span className="text-[9px] text-dim font-bold uppercase tracking-widest">SL Dist</span>
-          <span className="text-sm font-bold font-mono text-amber" title={`Initial: ${initialSlDist}% | Live: ${liveSlDist}%`}>{slDist}%</span>
+          <span className="text-sm font-bold font-mono text-amber cursor-help" title={`Initial: ${initialSlDist}% | Live: ${liveSlDist}%`}>
+            {slDist}%
+          </span>
+          {/* Micro-UX: Visual hint for dynamic SL */}
+          {initialSlDist !== liveSlDist && (
+            <div className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+          )}
         </div>
         <div className="flex flex-col gap-1">
           <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Duration</span>

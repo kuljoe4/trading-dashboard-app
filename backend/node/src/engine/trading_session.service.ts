@@ -47,12 +47,18 @@ export class TradingSessionService {
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
   private listenerCount = 0;
 
+  // BOLT OPTIMIZATION: Cache for strategy configurations and signatures to avoid redundant allocations/stringifications
+  private cachedStrategyConfigs: SessionConfig[] | null = null;
+  private cachedScanSignatures: Map<SessionConfig, string> = new Map();
+
   private getStrategyLabel(config: Partial<SessionConfig> | null | undefined, index = 0): string {
     return (config?.strategy_label || (index === 0 ? 'Momentum Strategy' : `Strategy ${index + 1}`)).toString();
   }
 
   private getStrategyConfigs(): SessionConfig[] {
+    if (this.cachedStrategyConfigs) return this.cachedStrategyConfigs;
     if (!this.config) return [];
+
     const base = { ...this.config, strategy_label: this.getStrategyLabel(this.config, 0), strategy_variants: [] } as SessionConfig;
     const variants = (this.config.strategy_variants || [])
       .filter((variant: any) => variant && variant.enabled !== false)
@@ -62,11 +68,16 @@ export class TradingSessionService {
         strategy_label: this.getStrategyLabel(variant, index + 1),
         strategy_variants: [],
       } as SessionConfig));
-    return [base, ...variants];
+
+    this.cachedStrategyConfigs = [base, ...variants];
+    return this.cachedStrategyConfigs;
   }
 
   private scanSignature(config: SessionConfig): string {
-    return JSON.stringify({
+    let signature = this.cachedScanSignatures.get(config);
+    if (signature) return signature;
+
+    signature = JSON.stringify({
       global_scanner_enabled: config.global_scanner_enabled,
       scan_interval: config.scan_interval,
       scan_lookback: config.scan_lookback,
@@ -79,6 +90,9 @@ export class TradingSessionService {
       symbols: config.symbols,
       single_symbol_configs: config.single_symbol_configs,
     });
+
+    this.cachedScanSignatures.set(config, signature);
+    return signature;
   }
 
   constructor(
@@ -99,7 +113,7 @@ export class TradingSessionService {
   }
 
   setListenerCount(count: number) {
-    // this.listenerCount = count;
+    this.listenerCount = count;
   }
 
   setBalanceUpdateCallback(cb: (balance: number, pnl: number) => Promise<void> | void) {
@@ -121,6 +135,8 @@ export class TradingSessionService {
     this.paused = false;
     this.sessionId = sessionId || null;
     this.config = config;
+    this.cachedStrategyConfigs = null;
+    this.cachedScanSignatures.clear();
     this.binanceClient = binanceClient;
     this.balancePaper = config.paper_starting_balance || 1000;
     this.balanceLive = config.live_starting_balance || 0;
@@ -303,28 +319,30 @@ export class TradingSessionService {
     
     if (isGated) {
       // BOLT OPTIMIZATION: Skip heavy scanning logic when gated or paused to save resources (CPU/API weight).
-      // Still broadcast cached results to keep UI from flickering/clearing.
-      const now = Date.now();
-      const isFullBroadcast = now - this.lastScannerFullBroadcast > 30000;
-      if (isFullBroadcast) this.lastScannerFullBroadcast = now;
+      // Still broadcast cached results to keep UI from flickering/clearing if listeners are active.
+      if (this.listenerCount > 0) {
+        const now = Date.now();
+        const isFullBroadcast = now - this.lastScannerFullBroadcast > 30000;
+        if (isFullBroadcast) this.lastScannerFullBroadcast = now;
 
-      this.broadcast('scanner', {
-        count: this.lastScannerResults.length,
-        opportunities: this.lastScannerResults.slice(0, 5).map(o => {
-          if (isFullBroadcast) return o;
-          const { history, ...rest } = o;
-          return rest;
-        }),
-        variant_opportunities: this.lastVariantScannerResults.map(v => ({
-          ...v,
-          opportunities: v.opportunities.slice(0, 5).map((o: any) => {
-             if (isFullBroadcast) return o;
-             const { history, ...rest } = o;
-             return rest;
-          })
-        })),
-        activeWindows: this.getActiveWindows(),
-      });
+        this.broadcast('scanner', {
+          count: this.lastScannerResults.length,
+          opportunities: this.lastScannerResults.slice(0, 5).map(o => {
+            if (isFullBroadcast) return o;
+            const { history, ...rest } = o;
+            return rest;
+          }),
+          variant_opportunities: this.lastVariantScannerResults.map(v => ({
+            ...v,
+            opportunities: v.opportunities.slice(0, 5).map((o: any) => {
+               if (isFullBroadcast) return o;
+               const { history, ...rest } = o;
+               return rest;
+            })
+          })),
+          activeWindows: this.getActiveWindows(),
+        });
+      }
       return;
     }
 
@@ -349,31 +367,37 @@ export class TradingSessionService {
         opportunities: opportunitiesBySignature.get(this.scanSignature(config)) || [],
       }));
 
-      // BOLT: Only update scanner results for UI if there are active listeners
-      this.updateScannerResults(primaryOpportunities);
-      this.lastVariantScannerResults = scannerData;
-      
-      const now = Date.now();
-      const isFullBroadcast = now - this.lastScannerFullBroadcast > 30000;
-      if (isFullBroadcast) this.lastScannerFullBroadcast = now;
+      // BOLT OPTIMIZATION: Only update and broadcast scanner results for UI if there are active listeners
+      if (this.listenerCount > 0) {
+        this.updateScannerResults(primaryOpportunities);
+        this.lastVariantScannerResults = scannerData;
 
-      this.broadcast('scanner', {
-        count: this.lastScannerResults.length,
-        opportunities: this.lastScannerResults.slice(0, 5).map(o => {
-          if (isFullBroadcast) return o;
-          const { history, ...rest } = o; // Skip history (sparkline data) in delta updates
-          return rest;
-        }),
-        variant_opportunities: this.lastVariantScannerResults.map(v => ({
-          ...v,
-          opportunities: v.opportunities.slice(0, 5).map((o: any) => {
-             if (isFullBroadcast) return o;
-             const { history, ...rest } = o;
-             return rest;
-          })
-        })),
-        activeWindows: this.getActiveWindows(),
-      });
+        const now = Date.now();
+        const isFullBroadcast = now - this.lastScannerFullBroadcast > 30000;
+        if (isFullBroadcast) this.lastScannerFullBroadcast = now;
+
+        this.broadcast('scanner', {
+          count: this.lastScannerResults.length,
+          opportunities: this.lastScannerResults.slice(0, 5).map(o => {
+            if (isFullBroadcast) return o;
+            const { history, ...rest } = o; // Skip history (sparkline data) in delta updates
+            return rest;
+          }),
+          variant_opportunities: this.lastVariantScannerResults.map(v => ({
+            ...v,
+            opportunities: v.opportunities.slice(0, 5).map((o: any) => {
+               if (isFullBroadcast) return o;
+               const { history, ...rest } = o;
+               return rest;
+            })
+          })),
+          activeWindows: this.getActiveWindows(),
+        });
+      } else {
+        // Still update internal state for history tracking if needed,
+        // but we can skip the expensive formatting and broadcasting
+        this.refreshActiveWindows(primaryOpportunities);
+      }
 
       for (const strategyConfig of strategyConfigs) {
         const opportunities = opportunitiesBySignature.get(this.scanSignature(strategyConfig)) || [];
@@ -668,6 +692,9 @@ export class TradingSessionService {
   private lastTickTime = 0;
 
   private async broadcastTick() {
+    // BOLT OPTIMIZATION: Skip heavy tick data construction and broadcast if no one is listening
+    if (this.listenerCount === 0) return;
+
     const activeTrades = this.positionTracker.activeList();
 
     // BOLT OPTIMIZATION: Index last tick data for O(1) lookup during price fallbacks
@@ -898,6 +925,8 @@ export class TradingSessionService {
 
   updateConfig(config: SessionConfig) {
     this.config = config;
+    this.cachedStrategyConfigs = null;
+    this.cachedScanSignatures.clear();
     this.logger.log('Session config updated (hot-reload)');
     this.broadcast('tick', { config: this.config });
   }

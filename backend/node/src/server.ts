@@ -32,7 +32,8 @@ async function bootstrap() {
   const allowedOrigins = configService.get<string>('ALLOWED_ORIGINS')?.split(',').map((o) => o.trim()) || [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
-    'https://frontend-production-9bcd.up.railway.app', // Adding your specific frontend domain
+    'https://frontend-production-9bcd.up.railway.app',
+    'https://frontend-staging-f45a.up.railway.app',
   ];
 
   const nodeEnv = configService.get<string>('NODE_ENV');
@@ -56,8 +57,10 @@ async function bootstrap() {
     origin: (origin, callback) => {
       // Allow requests with no origin (like mobile apps or curl)
       if (!origin) return callback(null, true);
-      
-      const isAllowed = allowedOrigins.indexOf(origin) !== -1;
+
+      const normalizedOrigin = origin.replace(/\/$/, '');
+      const isAllowed = allowedOrigins.some(o => o.replace(/\/$/, '') === normalizedOrigin) ||
+                       normalizedOrigin.endsWith('.up.railway.app');
       const isDevFallback = !isAllowed && nodeEnv !== 'production';
 
       if (isAllowed || isDevFallback) {
@@ -103,7 +106,9 @@ async function bootstrap() {
     },
     verifyClient: (info, done) => {
       const origin = info.origin ? info.origin.replace(/\/$/, '') : null;
-      const isAllowed = !origin || allowedOrigins.some(o => o.replace(/\/$/, '') === origin);
+      const isAllowed = !origin ||
+                       allowedOrigins.some(o => o.replace(/\/$/, '') === origin) ||
+                       origin.endsWith('.up.railway.app');
       const isDevFallback = !isAllowed && nodeEnv !== 'production';
 
       if (!isAllowed && !isDevFallback) {

@@ -169,6 +169,9 @@ const defaultConfig = {
   max_open_trades: 5,
   paper_starting_balance: 10000,
   live_starting_balance: 10000,
+  hot_loop_interval_ms: 2000,
+  main_loop_interval_ms: 5000,
+  debug_mode: false,
 }
 
 export const useTradingStore = create((set, get) => ({
@@ -311,7 +314,7 @@ export const useTradingStore = create((set, get) => ({
     const normalized = normalizeLog(log)
     if (!normalized.msg) return {}
     if (state.logs.length > 0 && state.logs[0].level === normalized.level && state.logs[0].msg === normalized.msg) return {}
-    return { logs: [normalized, ...state.logs].slice(0, 100) }
+    return { logs: [normalized, ...state.logs].slice(0, 2000) }
   }),
 
   ws: null,
@@ -367,7 +370,7 @@ export const useTradingStore = create((set, get) => ({
             totalRiskPct: data.totalRiskPct ?? state.totalRiskPct,
             totalSlUsed: data.totalSlUsed ?? state.totalSlUsed,
             activeTrades: nextTrades,
-            logs: data.logLines ? uniqueLogs(data.logLines).slice(0, 100) : state.logs,
+            logs: data.logLines ? uniqueLogs(data.logLines).slice(0, 2000) : state.logs,
             scannerResults: data.scannerResults?.map(normalizeOpportunity) || state.scannerResults,
             activeWindows: data.activeWindows?.map(normalizeWindow) || state.activeWindows,
             tradeHistory: data.history?.map(t => {

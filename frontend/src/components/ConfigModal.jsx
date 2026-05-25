@@ -328,6 +328,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
           ['risk', 'Risk'],
           ['schedule', 'Schedule'],
           ['mode', 'Mode'],
+          ['performance', 'Performance'],
           ['presets', 'Presets'],
         ].map(([id, label]) => (
           <Chip key={id} active={section === id} onClick={() => setSection(id)}>{label}</Chip>
@@ -860,6 +861,32 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
             <p className="text-[10px] text-dim/60 leading-relaxed italic">
                Note: System will enter 'Sleep Mode' outside these windows if no positions are open, reducing API consumption and CPU usage.
             </p>
+          </div>
+        )}
+
+        {section === 'performance' && (
+          <div className="space-y-6">
+            <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Engine Optimization</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {field('Hot Loop (ms)', 'hot_loop_interval_ms', 'number', null, { min: 500, step: 100 })}
+              {field('Main Loop (ms)', 'main_loop_interval_ms', 'number', null, { min: 1000, step: 100 })}
+            </div>
+            <div className="p-4 bg-background border border-border rounded-xl space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-bold">Debug Mode</div>
+                  <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Verbose backend logging</div>
+                </div>
+                <Toggle
+                  value={cfg.debug_mode === true}
+                  onChange={(v) => setField('debug_mode', v)}
+                  color="bg-amber"
+                />
+              </div>
+              <p className="text-[10px] text-dim/60 italic leading-relaxed">
+                * Note: Increasing loop intervals drastically reduces Railway resource usage and API weight. Default is 2000ms/5000ms.
+              </p>
+            </div>
           </div>
         )}
 

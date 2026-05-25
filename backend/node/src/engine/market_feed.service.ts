@@ -57,7 +57,9 @@ export class MarketFeedService {
 
   async start(config: SessionConfig) {
     this.running = true;
-    this.logger.log('MarketFeed starting');
+    if (config.debug_mode) {
+      this.logger.log('MarketFeed starting');
+    }
 
     // Start !miniTicker@arr stream first
     this.startMiniTickerStream();
@@ -149,7 +151,9 @@ export class MarketFeedService {
       const ws = new WebSocket(url, { handshakeTimeout: 15000 });
 
       ws.on('open', () => {
-        this.logger.log('miniTicker stream connected');
+        if ((this.tradingSession as any).config?.debug_mode) {
+          this.logger.log('miniTicker stream connected');
+        }
       });
 
       ws.on('message', async (data: Buffer) => {
@@ -249,7 +253,9 @@ export class MarketFeedService {
       }
 
       if (changed) {
-        this.logger.log(`Watchlist changed. Rebuilding combined kline streams for ${newWatchlist.size} symbols.`);
+        if (config.debug_mode) {
+          this.logger.log(`Watchlist changed. Rebuilding combined kline streams for ${newWatchlist.size} symbols.`);
+        }
         const prevWatchlist = this.activeWatchlist;
         this.activeWatchlist = newWatchlist;
         await this.rebuildCombinedKlineStream();
@@ -305,7 +311,9 @@ export class MarketFeedService {
         let backoff = 2000;
 
         ws.on('open', () => {
-          this.logger.log(`Combined kline stream connected for ${chunk.length} symbols`);
+          if ((this.tradingSession as any).config?.debug_mode) {
+            this.logger.log(`Combined kline stream connected for ${chunk.length} symbols`);
+          }
         });
 
         ws.on('message', async (data: Buffer) => {
@@ -372,10 +380,11 @@ export class MarketFeedService {
       const isStale = Date.now() - lastCandle.time > intervalMs * 2;
 
       if (!isStale) {
-        this.logger.debug(`Skipping backfill for ${symbol}/${interval}: Data is fresh`);
         return;
       }
-      this.logger.log(`Backfilling ${symbol}/${interval}: Existing data is stale`);
+        if ((this.tradingSession as any).config?.debug_mode) {
+          this.logger.log(`Backfilling ${symbol}/${interval}: Existing data is stale`);
+        }
     }
 
     // Basic concurrency limit for backfills: random delay to spread requests

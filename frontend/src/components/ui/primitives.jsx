@@ -2,7 +2,7 @@ import React from 'react'
 import { clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 import * as ProgressPrimitive from "@radix-ui/react-progress"
-import { CheckCircle2, AlertCircle, Loader2, Zap } from 'lucide-react'
+import { CheckCircle2, AlertCircle, Loader2, Zap, Copy } from 'lucide-react'
 import { Sparkline as SparklineChart } from '../DataCharts'
 
 export function cn(...inputs) {
@@ -205,6 +205,37 @@ export const PnLBars = React.memo(({ trades }) => {
     </div>
   );
 })
+
+// --- Copy Button ---
+export const CopyButton = ({ value, className }) => {
+  const [copied, setCopied] = React.useState(false)
+
+  const handleCopy = async (e) => {
+    e.stopPropagation()
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.error('Failed to copy text: ', err)
+    }
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      className={cn(
+        "p-1.5 rounded-md transition-all active:scale-90",
+        copied ? "text-green bg-green/10" : "text-dim hover:text-text hover:bg-white/5",
+        className
+      )}
+      aria-label={copied ? "Copied to clipboard" : "Copy to clipboard"}
+      title={copied ? "Copied!" : "Copy"}
+    >
+      {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+    </button>
+  )
+}
 
 // --- Sparkline ---
 export const Sparkline = SparklineChart;

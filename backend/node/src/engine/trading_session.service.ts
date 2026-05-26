@@ -293,13 +293,16 @@ export class TradingSessionService {
     // Check if any single symbol monitors ignore the window
     const hasUnscheduledMonitors = this.config.single_symbol_configs?.some(sc => sc.enabled && sc.follow_schedule === false);
 
+    const activeTradesCount = activeTrades.length;
+    const isPersistentGate = this.gateState === 'max_trades_period' || this.gateState === 'tod_risk' || this.gateState === 'sl_guard';
+
     if (!isInsideWindow && !hasUnscheduledMonitors) {
       this.gateState = 'sleeping';
-      const activeTradesCount = this.positionTracker.activeList().length;
       if (activeTradesCount === 0 && !this.sleepMode) {
         this.enterSleepMode();
       }
-    } else if (this.sleepMode && (isInsideWindow || hasUnscheduledMonitors)) {
+    } else if (this.sleepMode && (isInsideWindow || hasUnscheduledMonitors) && !isPersistentGate) {
+      // Exit sleep mode if window active AND no persistent gate is blocking us
       this.exitSleepMode();
       this.gateState = null;
     } else if (!riskResult.canEnter) {
@@ -309,6 +312,15 @@ export class TradingSessionService {
       }
     } else {
       this.gateState = null;
+      if (this.sleepMode && (isInsideWindow || hasUnscheduledMonitors)) {
+        this.exitSleepMode();
+      }
+    }
+
+    // BOLT: "Standby Mode" - If we are gated by a persistent risk limit and have no active trades,
+    // stop the market feed and scanner to save significant egress and CPU.
+    if (isPersistentGate && activeTradesCount === 0 && !this.sleepMode) {
+      this.enterSleepMode();
     }
 
     if (this.gateState !== prevGateState) {
@@ -326,29 +338,23 @@ export class TradingSessionService {
       // If gated due to 'sleeping' (outside windows), the market feed and scanner are fully stopped.
       // This saves CPU cycles, memory allocations from new candle data, and Binance API weight.
 
-      // Still broadcast cached results to keep UI from flickering/clearing if listeners are active.
+      // Still broadcast cached results during heartbeat (30s) to keep UI from flickering/clearing if listeners are active.
       if (this.listenerCount > 0) {
         const now = Date.now();
         const isFullBroadcast = now - this.lastScannerFullBroadcast > 30000;
-        if (isFullBroadcast) this.lastScannerFullBroadcast = now;
 
-        this.broadcast('scanner', {
-          count: this.lastScannerResults.length,
-          opportunities: this.lastScannerResults.slice(0, 5).map(o => {
-            if (isFullBroadcast) return o;
-            const { history, ...rest } = o;
-            return rest;
-          }),
-          variant_opportunities: this.lastVariantScannerResults.map(v => ({
-            ...v,
-            opportunities: v.opportunities.slice(0, 5).map((o: any) => {
-               if (isFullBroadcast) return o;
-               const { history, ...rest } = o;
-               return rest;
-            })
-          })),
-          activeWindows: this.getActiveWindows(),
-        });
+        if (isFullBroadcast) {
+          this.lastScannerFullBroadcast = now;
+          this.broadcast('scanner', {
+            count: this.lastScannerResults.length,
+            opportunities: this.lastScannerResults.slice(0, 5),
+            variant_opportunities: this.lastVariantScannerResults.map(v => ({
+              ...v,
+              opportunities: v.opportunities.slice(0, 5)
+            })),
+            activeWindows: this.getActiveWindows(),
+          });
+        }
       }
       return;
     }
@@ -376,30 +382,44 @@ export class TradingSessionService {
 
       // BOLT OPTIMIZATION: Only update and broadcast scanner results for UI if there are active listeners
       if (this.listenerCount > 0) {
+        const prevResultsJson = JSON.stringify(this.lastScannerResults.map(o => o.symbol));
         this.updateScannerResults(primaryOpportunities);
+        const nextResultsJson = JSON.stringify(this.lastScannerResults.map(o => o.symbol));
+
         this.lastVariantScannerResults = scannerData;
 
         const now = Date.now();
         const isFullBroadcast = now - this.lastScannerFullBroadcast > 30000;
-        if (isFullBroadcast) this.lastScannerFullBroadcast = now;
+        const resultsChanged = prevResultsJson !== nextResultsJson;
 
-        this.broadcast('scanner', {
-          count: this.lastScannerResults.length,
-          opportunities: this.lastScannerResults.slice(0, 5).map(o => {
-            if (isFullBroadcast) return o;
-            const { history, ...rest } = o; // Skip history (sparkline data) in delta updates
-            return rest;
-          }),
-          variant_opportunities: this.lastVariantScannerResults.map(v => ({
-            ...v,
-            opportunities: v.opportunities.slice(0, 5).map((o: any) => {
-               if (isFullBroadcast) return o;
-               const { history, ...rest } = o;
-               return rest;
-            })
-          })),
-          activeWindows: this.getActiveWindows(),
+        // BOLT: Only broadcast scanner results if they changed or during heartbeat
+        // We also check for significant price changes to keep opportunities "realtime"
+        const priceChanged = this.lastScannerResults.some((o, i) => {
+          const prev = (this.lastTickData as any)?.scannerResults?.[i];
+          return prev && Math.abs(o.price - prev.price) / prev.price > 0.001; // 0.1% change
         });
+
+        if (isFullBroadcast || resultsChanged || priceChanged) {
+          if (isFullBroadcast) this.lastScannerFullBroadcast = now;
+
+          this.broadcast('scanner', {
+            count: this.lastScannerResults.length,
+            opportunities: this.lastScannerResults.slice(0, 5).map(o => {
+              if (isFullBroadcast) return o;
+              const { history, ...rest } = o; // Skip history (sparkline data) in delta updates
+              return rest;
+            }),
+            variant_opportunities: this.lastVariantScannerResults.map(v => ({
+              ...v,
+              opportunities: v.opportunities.slice(0, 5).map((o: any) => {
+                 if (isFullBroadcast) return o;
+                 const { history, ...rest } = o;
+                 return rest;
+              })
+            })),
+            activeWindows: this.getActiveWindows(),
+          });
+        }
       } else {
         // Still update internal state for history tracking if needed,
         // but we can skip the expensive formatting and broadcasting
@@ -722,7 +742,13 @@ export class TradingSessionService {
     // This is the primary driver of egress savings when the tab is in the background.
     if (this.listenerCount === 0) return;
 
+    const now = Date.now();
     const activeTrades = this.positionTracker.activeList();
+
+    // Optimization: Only broadcast if significant data changed or as a heartbeat
+    // HEARTBEAT interval increased to 20s to reduce background idle egress
+    const HEARTBEAT_MS = 20000;
+    const isHeartbeat = !this.lastTickData || (now - this.lastTickTime >= HEARTBEAT_MS);
 
     // BOLT OPTIMIZATION: Index last tick data for O(1) lookup during price fallbacks
     const prevTickMap = new Map<string, any>();
@@ -736,16 +762,27 @@ export class TradingSessionService {
       let current = await this.tickerCache.getPrice(trade.symbol);
       
       // Fallback to previous price if cache miss to prevent PnL flickering
-      if (current === null) {
-        const prevTrade = prevTickMap.get(trade.symbol);
-        if (prevTrade) {
-          current = prevTrade.current_price;
-        }
+      const prevTrade = prevTickMap.get(trade.symbol);
+      if (current === null && prevTrade) {
+        current = prevTrade.current_price;
       }
       
       // BOLT: Use minimal serialization for ticks (delta updates) to save network egress
-      return this.serializeTrade(trade, current ?? undefined, true);
+      const serialized = this.serializeTrade(trade, current ?? undefined, true);
+
+      // DELTA OPTIMIZATION: Only send sl_price and max_rr if they actually changed since last tick
+      if (prevTrade && !isHeartbeat) {
+        if (serialized.sl_price === prevTrade.sl_price) delete serialized.sl_price;
+        if (serialized.max_rr === prevTrade.max_rr) delete serialized.max_rr;
+        // Even RR can be omitted if it hasn't moved significantly
+        if (serialized.rr !== undefined && prevTrade.rr !== undefined && Math.abs(serialized.rr - prevTrade.rr) < 0.01) {
+           delete serialized.rr;
+        }
+      }
+
+      return serialized;
     }));
+
     const activePnl = trades.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
     const balance = this.getBalance();
     const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
@@ -755,65 +792,95 @@ export class TradingSessionService {
     const realizedPnl = balance - (startingBalance ?? balance);
     const totalPnl = realizedPnl + activePnl;
     const totalRiskUsdt = this.positionTracker.totalRisk();
-
-    // BOLT OPTIMIZATION: Cache analytics results to avoid O(N log N) sorting in the 1s hot loop.
-    // Recalculate only when the number of closed trades or starting balance changes.
-    if (!this.lastAnalyticsResult ||
-        this.closedTrades.length !== this.lastAnalyticsTradeCount ||
-        startingBalance !== this.lastAnalyticsStartingBalance) {
-
-      this.lastAnalyticsResult = this.analyticsService.calculateAnalytics(this.closedTrades as any, startingBalance);
-      this.lastAnalyticsTradeCount = this.closedTrades.length;
-      this.lastAnalyticsStartingBalance = startingBalance || 0;
-    }
-
-    const monitoring = this.monitoringService.getMetrics();
-
-    const tickData = {
-      balance,
-      total_pnl: totalPnl,
-      total_risk_pct: balance > 0 ? (totalRiskUsdt / balance) * 100 : 0,
-      total_sl_used: totalRiskUsdt,
-      trades,
-      gateState: this.gateState,
-      paused: this.paused,
-      scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period' || this.paused,
-      activeWindows: this.getActiveWindows(),
-      rateLimit: this.getBinanceRateLimit(),
-      monitoring,
-      analytics: {
-        maxDrawdown: this.lastAnalyticsResult.maxDrawdown,
-        maxDrawdownPct: this.lastAnalyticsResult.maxDrawdownPct,
-        overallWinRate: this.lastAnalyticsResult.overallWinRate,
-        cumulativePnL: this.lastAnalyticsResult.cumulativePnL.slice(-20),
-      },
-    };
-
-    const now = Date.now();
-    const hasActiveTrades = trades.length > 0;
     
-    // Optimization: Only broadcast if significant data changed or as a heartbeat
-    // BOLT OPTIMIZATION: Skip construction and broadcast if no one is listening
-
-    let shouldBroadcast = !this.lastTickData || (now - this.lastTickTime > 10000); // Heartbeat every 10s (was 5s)
+    let shouldBroadcast = isHeartbeat;
 
     if (!shouldBroadcast) {
       const prevTrades = this.lastTickData?.trades || [];
+      // Higher threshold for PnL change (0.2 USDT instead of 0.1) to suppress micro-fluctuation egress
       const tradesChanged = trades.length !== prevTrades.length || 
-                            trades.some((t, i) => t.symbol !== prevTrades[i]?.symbol || Math.abs((t.pnl || 0) - (prevTrades[i]?.pnl || 0)) > 0.1);
+                            trades.some((t, i) => t.symbol !== prevTrades[i]?.symbol || Math.abs((t.pnl || 0) - (prevTrades[i]?.pnl || 0)) > 0.2);
       
-      const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) > 0.05;
-      const monitoringChanged = Math.abs((monitoring?.system?.cpu_usage || 0) - (this.lastTickData?.monitoring?.system?.cpu_usage || 0)) > 5;
-      const gateChanged = tickData.gateState !== this.lastTickData?.gateState;
+      const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) > 0.1; // Increased from 0.05
+      const gateChanged = this.gateState !== this.lastTickData?.gateState || this.paused !== this.lastTickData?.paused;
 
-      if (tradesChanged || pnlChanged || monitoringChanged || gateChanged) {
+      if (tradesChanged || pnlChanged || gateChanged) {
         shouldBroadcast = true;
       }
     }
 
     if (shouldBroadcast) {
+      // BOLT OPTIMIZATION: Only include heavy monitoring and analytics in heartbeats (every 20s)
+      // This saves significant egress when multiple trades are active.
+      let monitoring = undefined;
+      let analytics = undefined;
+      let rateLimit = undefined;
+
+      if (isHeartbeat) {
+        monitoring = this.monitoringService.getMetrics();
+        rateLimit = this.getBinanceRateLimit();
+
+        if (!this.lastAnalyticsResult ||
+            this.closedTrades.length !== this.lastAnalyticsTradeCount ||
+            startingBalance !== this.lastAnalyticsStartingBalance) {
+          this.lastAnalyticsResult = this.analyticsService.calculateAnalytics(this.closedTrades as any, startingBalance);
+          this.lastAnalyticsTradeCount = this.closedTrades.length;
+          this.lastAnalyticsStartingBalance = startingBalance || 0;
+        }
+
+        analytics = {
+          maxDrawdown: this.lastAnalyticsResult.maxDrawdown,
+          maxDrawdownPct: this.lastAnalyticsResult.maxDrawdownPct,
+          overallWinRate: this.lastAnalyticsResult.overallWinRate,
+          cumulativePnL: this.lastAnalyticsResult.cumulativePnL.slice(-20),
+        };
+      }
+
+      const tickData: any = {
+        balance,
+        total_pnl: totalPnl,
+        total_risk_pct: balance > 0 ? (totalRiskUsdt / balance) * 100 : 0,
+        total_sl_used: totalRiskUsdt,
+        trades,
+        _isHeartbeat: isHeartbeat,
+      };
+
+      // Only send state fields if they changed or it's a heartbeat
+      if (isHeartbeat || this.gateState !== this.lastTickData?.gateState) {
+        tickData.gateState = this.gateState;
+      }
+      if (isHeartbeat || this.paused !== this.lastTickData?.paused) {
+        tickData.paused = this.paused;
+      }
+      const scannerPaused = this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period' || this.paused;
+      if (isHeartbeat || scannerPaused !== this.lastTickData?.scannerPaused) {
+        tickData.scannerPaused = scannerPaused;
+      }
+
+      if (monitoring) tickData.monitoring = monitoring;
+      if (analytics) tickData.analytics = analytics;
+      if (rateLimit) tickData.rateLimit = rateLimit;
+
+      // Conditional activeWindows: Only send if it's a heartbeat to save egress.
+      // Main scanner loop already sends activeWindows when scanning.
+      if (isHeartbeat) {
+        tickData.activeWindows = this.getActiveWindows();
+      }
+
       this.broadcast('tick', tickData);
-      this.lastTickData = tickData;
+
+      // BOLT: Ensure lastTickData contains the FULL state for future comparisons,
+      // not just the delta that was broadcast.
+      this.lastTickData = {
+        ...this.lastTickData,
+        ...tickData,
+        trades: activeTrades.map(trade => this.serializeTrade(trade, undefined, true)), // Store full serialized trades
+        scannerResults: this.lastScannerResults,
+        total_pnl: totalPnl,
+        gateState: this.gateState,
+        paused: this.paused,
+        scannerPaused: scannerPaused
+      };
       this.lastTickTime = now;
     }
   }
@@ -949,6 +1016,19 @@ export class TradingSessionService {
   }
 
   getStatus() {
+    const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
+    const startingBalance = (mode === 'paper')
+      ? this.config?.paper_starting_balance
+      : this.config?.live_starting_balance;
+
+    if (!this.lastAnalyticsResult ||
+        this.closedTrades.length !== this.lastAnalyticsTradeCount ||
+        startingBalance !== this.lastAnalyticsStartingBalance) {
+      this.lastAnalyticsResult = this.analyticsService.calculateAnalytics(this.closedTrades as any, startingBalance);
+      this.lastAnalyticsTradeCount = this.closedTrades.length;
+      this.lastAnalyticsStartingBalance = startingBalance || 0;
+    }
+
     return {
       running: this.running,
       paused: this.paused,
@@ -963,6 +1043,13 @@ export class TradingSessionService {
       gateState: this.gateState,
       scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period',
       history: this.closedTrades.slice(0, 50).map((trade) => this.serializeTrade(trade, trade.exit_price)),
+      monitoring: this.monitoringService.getMetrics(),
+      analytics: {
+        maxDrawdown: this.lastAnalyticsResult.maxDrawdown,
+        maxDrawdownPct: this.lastAnalyticsResult.maxDrawdownPct,
+        overallWinRate: this.lastAnalyticsResult.overallWinRate,
+        cumulativePnL: this.lastAnalyticsResult.cumulativePnL.slice(-20),
+      },
     };
   }
 

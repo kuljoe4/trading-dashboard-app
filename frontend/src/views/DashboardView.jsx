@@ -8,7 +8,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { 
   StatCard, SectionLabel, Btn, StatusBadge, PaperBadge, DemoBadge, LiveBadge,
-  ConditionWidget, PulseDot, Sparkline, PnLBars, cn
+  ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn
 } from '../components/ui/primitives'
 import {
   ChevronLeft, Plus, Trash2, LayoutDashboard, History,
@@ -594,7 +594,10 @@ export function DashboardView() {
                       </div>
                     </div>
                     <div className="mt-auto pt-5 border-t border-border/20 flex justify-between items-center relative z-20">
-                      <span className="text-[10px] text-dim font-bold font-mono">ID: {s.id.substring(0, 8)}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-dim font-bold font-mono">ID: {s.id.substring(0, 8)}</span>
+                        <CopyButton value={s.id} className="p-1" />
+                      </div>
                       <button
                         onClick={async () => { if(confirm('Delete?')) { setLoading(true); await sessionAPI.delete(s.id); await fetchSessions(); setLoading(false); }}}
                         aria-label="Delete session history"

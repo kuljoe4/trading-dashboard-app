@@ -166,7 +166,7 @@ const ExitMonitor = React.memo(({ status, logic }) => {
           const progress = s.active ? (s.insufficientData ? 0 : Math.min((Math.abs(value) / threshold) * 100, 100)) : Math.max(0, 100 - ((s.remaining_delay || 0) / Math.max((s.remaining_delay || 0) + 1, 1)) * 100)
 
           const isPrice = s.unit === 'price' || s.unit === 'dist';
-          const displayValue = isPrice ? price(value) : `${value.toFixed(2)}${s.unit || ''}`;
+          const displayValue = isPrice ? price(value) : `${Number(value || 0).toFixed(2)}${s.unit || ''}`;
           const displayThreshold = isPrice ? price(s.threshold) : `${Number(s.threshold || 0).toFixed(2)}${s.unit || ''}`;
 
           return (

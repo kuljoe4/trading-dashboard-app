@@ -247,7 +247,7 @@ export const TODPerformance = ({ data = [] }) => {
               <div className="flex-1 relative">
                 <div
                   role="img"
-                  aria-label={`${h.hour}:00, ${isPos ? 'positive' : 'negative'} performance, ${fmtUSD(h.pnl)} PnL, ${h.winRate.toFixed(0)}% win rate`}
+                  aria-label={`${h.hour}:00, ${isPos ? 'positive' : 'negative'} performance, ${fmtUSD(h.pnl)} PnL, ${Number(h.winRate || 0).toFixed(0)}% win rate`}
                   className={cn(
                     "absolute left-0 right-0 transition-all duration-300 hover:opacity-100 opacity-60",
                     isPos
@@ -266,7 +266,7 @@ export const TODPerformance = ({ data = [] }) => {
                   )} aria-hidden="true">
                      <div className="text-[8px] text-dim font-bold uppercase tracking-widest mb-1">{h.hour}:00</div>
                      <div className={cn("text-[10px] font-mono font-bold", isPos ? "text-green" : "text-red")}>{fmtUSD(h.pnl)}</div>
-                     <div className="text-[9px] text-dim font-mono">{h.winRate.toFixed(0)}% WR ({h.wins}/{h.total})</div>
+                     <div className="text-[9px] text-dim font-mono">{Number(h.winRate || 0).toFixed(0)}% WR ({h.wins}/{h.total})</div>
                   </div>
                 </div>
               </div>

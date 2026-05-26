@@ -63,6 +63,7 @@ The application has been optimized to run efficiently on the Railway $5/month Ho
 - `DATABASE_URL`: (Automatic via Postgres service)
 - `PORT`: 3000 (Default)
 - `NODE_ENV`: `production`
+- `ALLOWED_ORIGINS`: Comma-separated list of allowed frontend URLs (e.g., `https://your-frontend.up.railway.app`).
 
 ### Frontend (`frontend`)
 - `VITE_API_URL`: The public URL of the backend.

@@ -1106,6 +1106,10 @@ export class TradingSessionService {
     this.broadcast('tick', { config: this.config });
   }
 
+  async fetchTickerPrice(symbol: string): Promise<number | null> {
+    return this.tickerCache.getPrice(symbol);
+  }
+
   updateRateLimit(used1m: number) {
     this.binanceRateLimit.used_1m = used1m;
   }

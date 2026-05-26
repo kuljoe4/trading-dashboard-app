@@ -63,10 +63,10 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose }) => {
 
   const entryTime = trade.entry_ts || trade.entry_time
   const pctChange = trade.entry_price && trade.current_price
-    ? ((trade.current_price - trade.entry_price) / trade.entry_price * 100).toFixed(2)
+    ? Number((trade.current_price - trade.entry_price) / trade.entry_price * 100).toFixed(2)
     : null
   const slDist = trade.entry_price && trade.sl_price
-    ? ((Math.abs(trade.entry_price - trade.sl_price) / trade.entry_price) * 100).toFixed(2)
+    ? Number((Math.abs(trade.entry_price - trade.sl_price) / trade.entry_price) * 100).toFixed(2)
     : null
 
   return (

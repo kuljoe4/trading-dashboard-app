@@ -88,7 +88,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                   "text-[14px] font-bold font-mono text-right",
                   isLong ? "text-green" : "text-red"
                 )}>
-                  {isLong ? "▲" : "▼"}{Math.abs(opp.pct).toFixed(1)}%
+                  {isLong ? "▲" : "▼"}{Number(Math.abs(opp.pct || 0)).toFixed(1)}%
                 </span>
                 <div className="flex justify-center">
                   <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={40} height={16} />
@@ -96,9 +96,9 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                 <span className="text-[11px] text-dim font-mono text-right">{fmtVol(opp.vol)}</span>
                 <div className="flex items-center gap-2 px-2 overflow-hidden">
                   <div className="flex-1 h-1 bg-border rounded-full overflow-hidden min-w-[20px]">
-                    <div className="h-full bg-accent rounded-full" style={{ width: `${(opp.score / 10) * 100}%` }} />
+                    <div className="h-full bg-accent rounded-full" style={{ width: `${(Number(opp.score || 0) / 10) * 100}%` }} />
                   </div>
-                  <span className="text-[10px] text-dim font-mono whitespace-nowrap">{opp.score.toFixed(1)}</span>
+                  <span className="text-[10px] text-dim font-mono whitespace-nowrap">{Number(opp.score || 0).toFixed(1)}</span>
                 </div>
                 {passing
                   ? <span className="text-[10px] font-bold text-green text-center">PASS</span>

@@ -100,7 +100,8 @@ const normalizeTrade = (trade = {}, prevTrade = null) => {
     exit_reason: trade.exit_reason ?? prev.exit_reason,
     exit_price: trade.exit_price == null ? (prev.exit_price == null ? undefined : toNumber(prev.exit_price)) : toNumber(trade.exit_price),
     paper_mode: trade.paper_mode ?? prev.paper_mode ?? true,
-    qty: trade.qty ?? trade.quantity ?? prev.qty ?? 0,
+    qty: toNumber(trade.qty ?? trade.quantity ?? prev.qty ?? 0),
+    max_rr_achieved: toNumber(trade.max_rr_achieved ?? trade.max_rr ?? prev.max_rr_achieved ?? 0),
   };
 }
 

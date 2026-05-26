@@ -781,15 +781,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
             <div className="grid grid-cols-3 gap-3 p-4 bg-background rounded-xl border border-border">
               <div className="flex flex-col gap-1">
                 <span className="text-[9px] text-dim uppercase font-bold">Risk amount</span>
-                <span className="text-sm font-bold font-mono text-amber">${riskAmount.toFixed(2)}</span>
+                <span className="text-sm font-bold font-mono text-amber">${Number(riskAmount || 0).toFixed(2)}</span>
               </div>
               <div className="flex flex-col gap-1">
                 <span className="text-[9px] text-dim uppercase font-bold">SL @ $100</span>
-                <span className="text-sm font-bold font-mono text-red">{slDistance.toFixed(2)}</span>
+                <span className="text-sm font-bold font-mono text-red">{Number(slDistance || 0).toFixed(2)}</span>
               </div>
               <div className="flex flex-col gap-1 text-right">
                 <span className="text-[9px] text-dim uppercase font-bold">Est. qty</span>
-                <span className="text-sm font-bold font-mono text-accent">{estimatedQty.toFixed(1)}</span>
+                <span className="text-sm font-bold font-mono text-accent">{Number(estimatedQty || 0).toFixed(1)}</span>
               </div>
             </div>
 

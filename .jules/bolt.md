@@ -56,3 +56,6 @@
 ## 2026-05-26 - [Optimization] Promise Overhead & Syscall Throttling
 **Learning:** Purely synchronous memory operations (Map/Array) should not be marked 'async'. In high-frequency streams (hundreds/sec), Promise object allocation and micro-task queue overhead accumulate. Similarly, system calls like 'process.memoryUsage()' are expensive; throttling them and returning cached metrics in hot paths significantly reduces engine latency.
 **Action:** converted leaf data ingestion methods to synchronous and implemented system metric caching to avoid redundant syscalls in the 2s broadcast loop.
+## 2026-05-26 - Optimize Session-Trade Join
+**Learning:** O(N*M) array filtering in useMemo can become a bottleneck as trade history grows.
+**Action:** Use a lookup map (O(N+M)) to join related entities in the frontend store or views.

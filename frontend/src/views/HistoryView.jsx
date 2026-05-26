@@ -45,7 +45,10 @@ const TradeItem = React.memo(({ trade, session = {} }) => {
           <div className="flex items-center gap-2">
             <span className="text-[9px] text-dim font-mono">{new Date(trade.entry_ts || trade.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
             <span className="text-[9px] text-dim/40 font-mono">·</span>
-            <span className="text-[9px] text-dim font-mono flex items-center gap-1">
+            <span
+              className="text-[9px] text-dim font-mono flex items-center gap-1 cursor-help"
+              title={`Entry: ${new Date(trade.entry_ts || trade.createdAt).toLocaleString()}\nExit: ${trade.exit_ts ? new Date(trade.exit_ts).toLocaleString() : 'Open'}`}
+            >
               <Clock size={8} /> {durationStr}
             </span>
           </div>
@@ -58,11 +61,11 @@ const TradeItem = React.memo(({ trade, session = {} }) => {
         </div>
         <div className="hidden md:flex flex-col">
           <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Size</span>
-          <span className="text-[10px] font-bold text-dim font-mono">{trade.qty?.toFixed(2) || '0.00'}</span>
+          <span className="text-[10px] font-bold text-dim font-mono">{Number(trade.qty || 0).toFixed(2)}</span>
         </div>
         <div className="hidden sm:flex flex-col">
           <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Max RR</span>
-          <span className="text-[10px] font-bold text-accent font-mono">{(trade.max_rr_achieved || 0).toFixed(2)}R</span>
+          <span className="text-[10px] font-bold text-accent font-mono">{Number(trade.max_rr_achieved || 0).toFixed(2)}R</span>
         </div>
         <div className="hidden sm:flex flex-col">
           <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Trigger</span>
@@ -195,10 +198,18 @@ export const HistoryView = () => {
   const [colorDrawdown, setColorDrawdown] = useState(true)
 
   const allSessionsWithTrades = useMemo(() => {
+    // BOLT: Optimize O(N*M) join to O(N+M) using a lookup object
+    const tradesBySession = tradeHistory.reduce((acc, t) => {
+      if (!t.sessionId) return acc;
+      if (!acc[t.sessionId]) acc[t.sessionId] = [];
+      acc[t.sessionId].push(t);
+      return acc;
+    }, {});
+
     return sessionList.map(session => ({
       ...session,
-      trades: tradeHistory.filter(t => t.sessionId === session.id)
-    })).sort((a, b) => new Date(b.startTime) - new Date(a.startTime))
+      trades: tradesBySession[session.id] || []
+    })).sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
   }, [sessionList, tradeHistory])
 
   const sessionsToRender = useMemo(() => {
@@ -311,11 +322,11 @@ export const HistoryView = () => {
             label="Max Drawdown"
             value={currentAnalytics ? fmtUSD(-currentAnalytics.maxDrawdown) : '$0.00'}
             color="text-red"
-            subValue={currentAnalytics ? `${currentAnalytics.maxDrawdownPct.toFixed(1)}% Peak-to-Valley` : '0%'}
+            subValue={currentAnalytics ? `${Number(currentAnalytics.maxDrawdownPct || 0).toFixed(1)}% Peak-to-Valley` : '0%'}
           />
           <StatCard label="Avg Win" value={fmtUSD(currentAnalytics?.avgWin || 0)} color="text-green" />
           <StatCard label="Avg Loss" value={fmtUSD(-(currentAnalytics?.avgLoss || 0))} color="text-red" />
-          <StatCard label="W/L Ratio" value={currentAnalytics?.avgWinLossRatio?.toFixed(2) || '0.00'} color="text-accent" />
+          <StatCard label="W/L Ratio" value={Number(currentAnalytics?.avgWinLossRatio || 0).toFixed(2)} color="text-accent" />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">

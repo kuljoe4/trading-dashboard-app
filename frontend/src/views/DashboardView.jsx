@@ -133,7 +133,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
             <div className="mb-2 mt-4 pt-4 border-t border-border/20">
               <div className="flex justify-between text-[10px] text-dim font-bold tracking-widest mb-2 uppercase">
                 <span className="flex items-center gap-1.5"><ShieldCheck size={12} /> SL GUARD</span>
-                <span className={slPct > 70 ? "text-red" : "text-dim"}>${s.totalSlUsed.toFixed(0)} / ${config.total_sl_guard_usdt}</span>
+                <span className={slPct > 70 ? "text-red" : "text-dim"}>${Number(s.totalSlUsed || 0).toFixed(0)} / ${config.total_sl_guard_usdt}</span>
               </div>
               <div className="h-1.5 bg-border rounded-full overflow-hidden mb-4">
                 <div
@@ -229,7 +229,7 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
                       <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={48} height={20} />
                     </div>
                     <em className={cn("text-xs font-bold font-mono w-16 text-right", colorClass)}>
-                      {opp.pct >= 0 ? '+' : ''}{opp.pct.toFixed(2)}%
+                      {opp.pct >= 0 ? '+' : ''}{Number(opp.pct || 0).toFixed(2)}%
                     </em>
                     <b className={cn("text-[10px] font-bold w-12 text-right uppercase tracking-wider", passing ? "text-green" : "text-dim")}>
                       {passing ? 'PASS' : 'WAIT'}
@@ -492,8 +492,8 @@ export function DashboardView() {
         >
           <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} />
           <StatCard label="Session P&L" value={fmtUSD(totalPnl)} color={totalPnl >= 0 ? "text-green" : "text-red"} />
-          <StatCard label="Live Risk" value={`${totalRiskPct.toFixed(1)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
-          <StatCard label="Peak RR" value={`+${maxRR.toFixed(2)}`} color="text-accent" />
+          <StatCard label="Live Risk" value={`${Number(totalRiskPct || 0).toFixed(1)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
+          <StatCard label="Peak RR" value={`+${Number(maxRR || 0).toFixed(2)}`} color="text-accent" />
         </motion.div>
 
         {/* Main Grid */}

@@ -117,7 +117,7 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
   const textColorClass = satisfied ? "text-green" : "text-amber";
   const borderColorClass = satisfied ? "border-green/30 shadow-[0_0_15px_rgba(0,229,160,0.05)]" : "border-border";
 
-  const formattedValue = Number.isFinite(value) ? `${value > 0 ? "+" : ""}${value.toFixed(2)}${unit}` : `N/A ${unit}`;
+  const formattedValue = Number.isFinite(value) ? `${value > 0 ? "+" : ""}${Number(value).toFixed(2)}${unit}` : `N/A ${unit}`;
   const thresholdText = threshold !== 0 ? `≥ ${threshold}${unit}` : "Trigger: 0";
 
   return (
@@ -187,7 +187,7 @@ export const PnLBars = React.memo(({ trades }) => {
         return (
           <div
             key={t.id || `${t.symbol}-${i}`}
-            title={`${t.symbol}: ${pnl.toFixed(2)}`}
+            title={`${t.symbol}: ${Number(pnl).toFixed(2)}`}
             className={cn(
               "flex-1 transition-all duration-300 hover:opacity-100 opacity-80 z-10",
               isPos

@@ -45,7 +45,7 @@ export class TickerCacheService {
     }
   }
 
-  async getPrice(symbol: string): Promise<number | null> {
+  getPrice(symbol: string): number | null {
     const ticker = this.tickers.get(symbol);
     return ticker ? ticker.price : null;
   }
@@ -53,7 +53,7 @@ export class TickerCacheService {
   /**
    * Get full ticker data for a symbol in O(1)
    */
-  async getTicker(symbol: string): Promise<Ticker | null> {
+  getTicker(symbol: string): Ticker | null {
     return this.tickers.get(symbol) || null;
   }
 

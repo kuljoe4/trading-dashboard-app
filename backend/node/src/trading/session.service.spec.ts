@@ -196,12 +196,12 @@ describe('SessionService Validation', () => {
       };
     });
 
-    it('should rollback transaction if trade save fails', async () => {
+    it('should rollback transaction and throw error if trade save fails', async () => {
       const trade = { symbol: 'BTCUSDT', status: 'CLOSED', entry_price: 50000, qty: 1, pnl: 100 } as any;
       mockQueryRunner.manager.save.mockRejectedValue(new Error('DB SAVE FAILED'));
       (service as any).currentSessionId = 'session-123';
 
-      await service.saveTradeAtomic(trade, 10100);
+      await expect(service.saveTradeAtomic(trade, 10100)).rejects.toThrow('DB SAVE FAILED');
 
       expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
       expect(mockQueryRunner.commitTransaction).not.toHaveBeenCalled();

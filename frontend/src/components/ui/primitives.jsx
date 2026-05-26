@@ -2,7 +2,7 @@ import React from 'react'
 import { clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 import * as ProgressPrimitive from "@radix-ui/react-progress"
-import { CheckCircle2, AlertCircle, Loader2, Zap } from 'lucide-react'
+import { CheckCircle2, AlertCircle, Loader2, Zap, Copy } from 'lucide-react'
 import { Sparkline as SparklineChart } from '../DataCharts'
 
 export function cn(...inputs) {
@@ -117,7 +117,7 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
   const textColorClass = satisfied ? "text-green" : "text-amber";
   const borderColorClass = satisfied ? "border-green/30 shadow-[0_0_15px_rgba(0,229,160,0.05)]" : "border-border";
 
-  const formattedValue = Number.isFinite(value) ? `${value > 0 ? "+" : ""}${value.toFixed(2)}${unit}` : `N/A ${unit}`;
+  const formattedValue = Number.isFinite(value) ? `${value > 0 ? "+" : ""}${Number(value).toFixed(2)}${unit}` : `N/A ${unit}`;
   const thresholdText = threshold !== 0 ? `≥ ${threshold}${unit}` : "Trigger: 0";
 
   return (
@@ -161,27 +161,80 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
 })
 
 // --- P&L Bars ---
-export const PnLBars = ({ trades }) => {
+export const PnLBars = React.memo(({ trades }) => {
   if (!trades || trades.length === 0) return <div className="h-[60px] flex items-center justify-center text-[10px] text-dim font-bold uppercase tracking-widest">No Trade Data</div>
+
   const max = Math.max(...trades.map(t => Math.abs(t.pnl || 0)), 1);
+
   return (
     <div
       role="img"
       aria-label="Profit and Loss performance chart"
-      className="flex items-end gap-1.5 h-[60px] px-1"
+      className="relative flex items-center gap-1 h-[60px] px-1"
     >
+      {/* Zero baseline */}
+      <div className="absolute left-0 right-0 h-px bg-border/40 z-0 top-1/2" />
+
       {trades.map((t, i) => {
         const pnl = t.pnl || 0;
-        const h = Math.max(4, (Math.abs(pnl) / max) * 52);
+        const isPos = pnl >= 0;
+        const absPnl = Math.abs(pnl);
+
+        // Non-linear scaling (sqrt) to prevent flat bars for small values
+        const scaleFactor = Math.sqrt(absPnl) / Math.sqrt(max);
+        const h = absPnl === 0 ? 0 : Math.max(3, scaleFactor * 28); // Max half-height is ~30px
+
         return (
-          <div key={i} title={`${t.symbol}: ${pnl}`} className={cn(
-            "flex-1 rounded-t-sm transition-all duration-300 hover:scale-y-110",
-            pnl >= 0 ? "bg-green shadow-[0_0_10px_rgba(0,229,160,0.2)]" : "bg-red shadow-[0_0_10px_rgba(255,68,102,0.2)]"
-          )} style={{ height: `${h}px` }} />
+          <div
+            key={t.id || `${t.symbol}-${i}`}
+            title={`${t.symbol}: ${Number(pnl).toFixed(2)}`}
+            className={cn(
+              "flex-1 transition-all duration-300 hover:opacity-100 opacity-80 z-10",
+              isPos
+                ? "bg-green rounded-t-[1px] shadow-[0_0_10px_rgba(0,229,160,0.1)]"
+                : "bg-red rounded-b-[1px] shadow-[0_0_10px_rgba(255,68,102,0.1)]"
+            )}
+            style={{
+              height: `${h}px`,
+              transform: `translateY(${isPos ? -50 : 50}%)`,
+              alignSelf: 'center'
+            }}
+          />
         );
       })}
     </div>
   );
+})
+
+// --- Copy Button ---
+export const CopyButton = ({ value, className }) => {
+  const [copied, setCopied] = React.useState(false)
+
+  const handleCopy = async (e) => {
+    e.stopPropagation()
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.error('Failed to copy text: ', err)
+    }
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      className={cn(
+        "p-1.5 rounded-md transition-all active:scale-90",
+        copied ? "text-green bg-green/10" : "text-dim hover:text-text hover:bg-white/5",
+        className
+      )}
+      aria-label={copied ? "Copied to clipboard" : "Copy to clipboard"}
+      title={copied ? "Copied!" : "Copy"}
+    >
+      {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+    </button>
+  )
 }
 
 // --- Sparkline ---

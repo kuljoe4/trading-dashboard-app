@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Cpu, HardDrive, Clock } from 'lucide-react';
+import { Activity, Cpu, HardDrive, Clock, Zap } from 'lucide-react';
 import { cn, PulseDot } from './ui/primitives';
 
 export const SystemMetric = ({ icon: Icon, label, value, colorClass, compact = false }) => (
@@ -23,18 +23,28 @@ export const SystemMetrics = ({ monitoring, rateLimit, wsStatus, compact = false
       )}
     </div>
     
+    {rateLimit && (
+      <SystemMetric
+        icon={Activity}
+        label="Rate"
+        value={`${rateLimit.used_weight_1m}/${rateLimit.limit}`}
+        colorClass={rateLimit.used_weight_1m > rateLimit.limit * 0.8 ? "text-red" : rateLimit.used_weight_1m > rateLimit.limit * 0.5 ? "text-amber" : "text-green"}
+        compact={compact}
+      />
+    )}
+
+    {monitoring?.application && (
+      <SystemMetric
+        icon={Zap}
+        label="REST API"
+        value={monitoring.application.api_requests_total}
+        colorClass="text-accent"
+        compact={compact}
+      />
+    )}
+
     {!compact && (
       <>
-        {rateLimit && (
-          <SystemMetric
-            icon={Activity}
-            label="Rate"
-            value={`${rateLimit.used_weight_1m}/${rateLimit.limit}`}
-            colorClass={rateLimit.used_weight_1m > rateLimit.limit * 0.8 ? "text-red" : rateLimit.used_weight_1m > rateLimit.limit * 0.5 ? "text-amber" : "text-green"}
-            compact={compact}
-          />
-        )}
-
         {monitoring?.system && (
           <>
             <SystemMetric

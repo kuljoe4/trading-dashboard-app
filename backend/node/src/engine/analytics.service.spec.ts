@@ -23,6 +23,9 @@ describe('AnalyticsService', () => {
     expect(result.cumulativePnL[2].pnl).toBe(25);
     expect(result.totalTrades).toBe(3);
     expect(result.overallWinRate).toBeCloseTo(66.67, 1);
+    expect(result.avgWin).toBe(15); // (10 + 20) / 2
+    expect(result.avgLoss).toBe(5);  // |-5| / 1
+    expect(result.avgWinLossRatio).toBe(3); // 15 / 5
   });
 
   it('calculates max drawdown correctly', () => {

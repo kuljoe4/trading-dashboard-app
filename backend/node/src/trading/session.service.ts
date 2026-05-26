@@ -1,9 +1,10 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Session as SessionEntity } from '../models/entities/Session.entity';
 import { TradeEntity } from '../models/entities/Trade.entity';
 import { Log as LogEntity } from '../models/entities/Log.entity';
+import { BalanceHistory as BalanceHistoryEntity } from '../models/entities/BalanceHistory.entity';
 import { SessionConfig } from '../models/SessionConfig';
 import { TradingSessionService } from '../engine/trading_session.service';
 import { Trade } from '../models/Trade';
@@ -33,32 +34,35 @@ export class SessionService implements OnModuleInit {
     private logRepository: Repository<LogEntity>,
     @InjectRepository(SettingsEntity)
     private settingsRepository: Repository<SettingsEntity>,
+    @InjectRepository(BalanceHistoryEntity)
+    private balanceHistoryRepository: Repository<BalanceHistoryEntity>,
     private tradingSessionService: TradingSessionService,
     private analyticsService: AnalyticsService,
   ) {}
 
   async onModuleInit() {
     // Cleanup any sessions marked as running in the database on startup
-    const runningSessions = await this.sessionRepository.find({ where: { running: true } });
-    if (runningSessions.length > 0) {
-      this.logger.log(`Cleaning up ${runningSessions.length} stale running sessions`);
-      for (const session of runningSessions) {
-        await this.sessionRepository.update(session.id, { running: false });
-      }
+    // BOLT: Optimize startup cleanup with a single bulk update instead of a loop
+    const updateResult = await this.sessionRepository.update({ running: true }, { running: false });
+    if (updateResult.affected && updateResult.affected > 0) {
+      this.logger.log(`Cleaned up ${updateResult.affected} stale running sessions`);
     }
 
-    // Wire balance updates to persistence
+    // Wire balance updates to persistence (legacy/standalone updates)
     this.tradingSessionService.setBalanceUpdateCallback(async (balance, pnl) => {
       const sessionId = this.currentSessionId;
       if (sessionId) {
-        await this.sessionRepository.increment({ id: sessionId }, 'totalPnl', pnl);
-        await this.sessionRepository.update(sessionId, { balance });
+        // standalone balance sync (e.g. from Binance WS)
+        if (pnl === 0) {
+          await this.sessionRepository.update(sessionId, { balance });
+        }
+        // Non-zero PnL updates are handled atomically in tradeUpdateCallback (saveTradeAtomic)
       }
     });
 
     // Wire trade updates to persistence
-    this.tradingSessionService.setTradeUpdateCallback(async (trade) => {
-      await this.saveTrade(trade);
+    this.tradingSessionService.setTradeUpdateCallback(async (trade, balance) => {
+      await this.saveTradeAtomic(trade, balance);
     });
   }
 
@@ -71,46 +75,109 @@ export class SessionService implements OnModuleInit {
     );
   }
 
-  async saveTrade(trade: any) {
+  async saveTradeAtomic(trade: any, balance: number) {
     if (!this.validateTrade(trade)) {
       this.logger.warn(`Attempted to save invalid trade ${trade.symbol}, skipping.`);
       return;
     }
+
+    const sessionId = this.currentSessionId || trade.sessionId;
+    if (!sessionId) {
+      this.logger.warn(`Cannot save trade ${trade.symbol}: No sessionId found.`);
+      return;
+    }
+
+    const queryRunner = this.sessionRepository.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
     try {
+      // 1. Save Trade record
       const tradeEntity = this.tradeRepository.create({
         ...trade,
-        sessionId: this.currentSessionId || trade.sessionId,
+        exit_signal_type: trade.exit_signal_type,
+        exit_signal_reason: trade.exit_signal_reason,
+        sessionId,
       });
-      await this.tradeRepository.save(tradeEntity);
-      this.logger.debug(`Saved trade ${trade.symbol} (${trade.status}) to database`);
+      await queryRunner.manager.save(TradeEntity, tradeEntity);
+
+      // 2. Update Session PnL and Balance
+      // BOLT: Recomputing totalPnl from sum of trades ensures idempotency and prevents double-counting
+      const { sum } = await queryRunner.manager
+        .createQueryBuilder(TradeEntity, 'trade')
+        .select('SUM(trade.pnl)', 'sum')
+        .where('trade.sessionId = :sessionId', { sessionId })
+        .getRawOne();
+
+      await queryRunner.manager.update(SessionEntity, sessionId, {
+        balance,
+        totalPnl: parseFloat(sum || '0')
+      });
+
+      // 3. Update Global Settings and record History for all modes
+      const session = await queryRunner.manager.findOne(SessionEntity, { where: { id: sessionId } });
+      if (session) {
+        const mode = session.tradingMode || (session.paperMode ? 'paper' : 'live');
+        const updateData: any = {};
+        if (mode === 'paper') updateData.paper_balance = balance;
+        else if (mode === 'testnet') updateData.testnet_balance = balance;
+        else if (mode === 'live') updateData.live_balance = balance;
+
+        await queryRunner.manager.update(SettingsEntity, 'default', updateData);
+
+        // Record Balance Snapshot
+        const snapshot = this.balanceHistoryRepository.create({
+          timestamp: new Date(),
+          balance: balance,
+          pnl: trade.pnl || 0,
+          type: 'TRADE_CLOSE',
+          sessionId: sessionId,
+          tradeId: trade.id,
+          tradingMode: mode as any
+        });
+        await queryRunner.manager.save(BalanceHistoryEntity, snapshot);
+      }
+
+      await queryRunner.commitTransaction();
+      this.logger.debug(`Transaction committed: Saved trade ${trade.symbol} (${trade.status}) and updated session ${sessionId}`);
     } catch (error) {
-      this.logger.error(`Failed to save trade ${trade.symbol}: ${error instanceof Error ? error.message : String(error)}`);
+      await queryRunner.rollbackTransaction();
+      this.logger.error(`Transaction rolled back: Failed to save trade ${trade.symbol}: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
   }
 
+  async saveTrade(trade: any) {
+    // Legacy method, keeping for compatibility if needed, but routing to atomic
+    const status = await this.getStatus();
+    await this.saveTradeAtomic(trade, status.balance);
+  }
+
   private validateConfig(config: SessionConfig) {
-    if (!config) throw new Error('Configuration is required');
+    if (!config) throw new BadRequestException('Configuration is required');
 
     // 1. Scan Mode Dependencies
     if (config.scan_mode === 'active_window') {
-      if (!config.scan_window_duration_sec) throw new Error('Window duration is required for Active Window mode');
-      if (!config.scan_check_interval_sec) throw new Error('Check interval is required for Active Window mode');
+      if (!config.scan_window_duration_sec) throw new BadRequestException('Window duration is required for Active Window mode');
+      if (!config.scan_check_interval_sec) throw new BadRequestException('Check interval is required for Active Window mode');
     }
 
     // 2. Stop Loss Dependencies
     if (config.sl_type === 'lookback_low/high') {
       if (!config.sl_lookback_period || config.sl_lookback_period < 1) {
-        throw new Error('Valid lookback period is required for Lookback SL type');
+        throw new BadRequestException('Valid lookback period is required for Lookback SL type');
       }
     }
 
     // 3. Take Profit Dependencies
     if (config.tp_mode === 'exp_rr_seq') {
       if (!config.live_rr_sequence || config.live_rr_sequence.length === 0) {
-        throw new Error('Live RR sequence is required for Exponential RR mode');
+        throw new BadRequestException('Live RR sequence is required for Exponential RR mode');
       }
       if (!config.exit_rr_sequence || config.exit_rr_sequence.length !== config.live_rr_sequence.length) {
-        throw new Error('Exit RR sequence must match Live RR sequence length');
+        throw new BadRequestException('Exit RR sequence must match Live RR sequence length');
       }
     }
 
@@ -121,7 +188,7 @@ export class SessionService implements OnModuleInit {
         ? JSON.parse(config.signal_params || '{}') 
         : config.signal_params || {};
     } catch (e) {
-      throw new Error('Invalid signal_params format. Must be a valid JSON string or object.');
+      throw new BadRequestException('Invalid signal_params format. Must be a valid JSON string or object.');
     }
     
     const allEnabled = [...(config.enabled_signals || []), ...(config.exit_signals || [])];
@@ -129,29 +196,29 @@ export class SessionService implements OnModuleInit {
     if (allEnabled.includes('ema_dual_cross')) {
       const fast = parseInt(signalParams.entry_ema_fast || signalParams.exit_ema_fast || '0', 10);
       const slow = parseInt(signalParams.entry_ema_slow || signalParams.exit_ema_slow || '0', 10);
-      if (fast <= 0 || slow <= 0) throw new Error('EMA Dual Cross requires both fast and slow periods (e.g., 9 and 21)');
-      if (fast >= slow) throw new Error('EMA Dual Cross: Fast period must be less than slow period');
+      if (fast <= 0 || slow <= 0) throw new BadRequestException('EMA Dual Cross requires both fast and slow periods (e.g., 9 and 21)');
+      if (fast >= slow) throw new BadRequestException('EMA Dual Cross: Fast period must be less than slow period');
     }
 
     if (allEnabled.includes('ma') && !signalParams.ma_period) {
-      throw new Error('MA Cross signal requires ma_period in signal_params');
+      throw new BadRequestException('MA Cross signal requires ma_period in signal_params');
     }
 
     if ((allEnabled.includes('ema') || allEnabled.includes('ema_close')) && !signalParams.ema_period && !signalParams.entry_ema_period && !signalParams.exit_ema_period) {
-       throw new Error('EMA signals require an EMA period to be defined');
+       throw new BadRequestException('EMA signals require an EMA period to be defined');
     }
 
     // 5. Risk Constraints
     const riskPerTrade = config.risk_pct_per_trade ?? 0;
     const maxTotalRisk = config.max_total_risk_pct ?? 100;
     if (riskPerTrade > maxTotalRisk) {
-      throw new Error('Risk per trade cannot exceed maximum total risk');
+      throw new BadRequestException('Risk per trade cannot exceed maximum total risk');
     }
   }
 
   async startSession(config: SessionConfig, paperMode: boolean, sessionId?: string) {
     if (this.sessionRunning) {
-      throw new Error('Session already running');
+      throw new ConflictException('Session already running');
     }
 
     // Deep validation of dependent fields
@@ -160,7 +227,7 @@ export class SessionService implements OnModuleInit {
     let session;
     if (sessionId) {
       session = await this.sessionRepository.findOne({ where: { id: sessionId } });
-      if (!session) throw new Error('Session not found');
+      if (!session) throw new NotFoundException('Session not found');
       
       // Update session to running
       session.running = true;
@@ -170,18 +237,29 @@ export class SessionService implements OnModuleInit {
       config = session.config;
       paperMode = session.paperMode;
       
-      // Update config with current session balance so engine starts with correct funds
+      // Preserving starting balance if it exists in the config to maintain correct PnL calculation across restarts
       if (paperMode) {
-        config.paper_starting_balance = Number(session.balance);
+        config.paper_starting_balance = config.paper_starting_balance || (Number(session.balance) - Number(session.totalPnl));
       } else {
-        config.live_starting_balance = Number(session.balance);
+        config.live_starting_balance = config.live_starting_balance || (Number(session.balance) - Number(session.totalPnl));
       }
     } else {
+      // Ensure starting balance is explicitly in the config for new sessions
+      if (paperMode) {
+        // Inherit from settings if not explicitly provided
+        if (!config.paper_starting_balance) {
+          const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+          config.paper_starting_balance = settings ? Number(settings.paper_balance) : 10000.0;
+        }
+      } else {
+        config.live_starting_balance = config.live_starting_balance || 10000.0;
+      }
+
       session = this.sessionRepository.create({
         running: true,
         paperMode,
         tradingMode: config.trading_mode || (paperMode ? 'paper' : 'live'),
-        balance: paperMode ? (config.paper_starting_balance || 10000.0) : (config.live_starting_balance || 10000.0),
+        balance: paperMode ? config.paper_starting_balance : config.live_starting_balance,
         strategyLabel: config.strategy_label || 'Momentum Strategy',
         config,
       });
@@ -194,10 +272,10 @@ export class SessionService implements OnModuleInit {
     // Load initial history for TOD risk context
     const initialHistory = await this.tradeRepository.find({
       where: [
-        { status: 'CLOSED' as any },
-        { status: 'CLOSED_SL' },
-        { status: 'CLOSED_TP' },
-        { status: 'CLOSED_SIGNAL' },
+        { status: 'CLOSED' as any, sessionId: this.currentSessionId },
+        { status: 'CLOSED_SL', sessionId: this.currentSessionId },
+        { status: 'CLOSED_TP', sessionId: this.currentSessionId },
+        { status: 'CLOSED_SIGNAL', sessionId: this.currentSessionId },
       ],
       order: { exit_ts: 'DESC' },
       take: 200,
@@ -214,16 +292,16 @@ export class SessionService implements OnModuleInit {
     if (mode !== 'paper') {
       const settings = await this.settingsRepository.findOne({
         where: { id: 'default' },
-        select: ['id', 'binance_api_key', 'binance_api_secret', 'binance_testnet_api_key', 'binance_testnet_api_secret'],
+        select: ['id', 'binance_api_key', 'binance_api_secret', 'binance_testnet_api_key', 'binance_testnet_api_secret']
       });
-      if (!settings) throw new Error('Settings not found. Please configure API keys first.');
+      if (!settings) throw new NotFoundException('Settings not found. Please configure API keys first.');
 
       const isTestnet = mode === 'testnet';
       const key = isTestnet ? settings.binance_testnet_api_key : settings.binance_api_key;
       const secret = isTestnet ? settings.binance_testnet_api_secret : settings.binance_api_secret;
 
       if (!key || !secret) {
-        throw new Error(`Binance ${isTestnet ? 'Testnet' : 'Live'} API keys are not configured.`);
+        throw new BadRequestException(`Binance ${isTestnet ? 'Testnet' : 'Live'} API keys are not configured.`);
       }
 
       binanceClient = BinanceClientFactory.createClient(key, decrypt(secret), isTestnet);
@@ -256,7 +334,7 @@ export class SessionService implements OnModuleInit {
       for (const trade of openTrades) {
         try {
           const orders = await (binanceClient.restAPI as any).tradeApi.getOpenOrders(trade.symbol);
-          const hasOrder = Array.isArray(orders) && orders.some(o => o.orderId == trade.binance_order_id || o.orderId == trade.binance_stop_order_id);
+          const hasOrder = Array.isArray(orders) && orders.some(o => (o as any).orderId == trade.binance_order_id || (o as any).orderId == trade.binance_stop_order_id);
           if (!hasOrder) {
             this.logger.log(`Trade ${trade.symbol} not found on exchange. Marking as closed (orphaned).`);
             await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date() });
@@ -287,12 +365,16 @@ export class SessionService implements OnModuleInit {
   }
 
   async pauseSession(paused: boolean) {
-    if (!this.sessionRunning) throw new Error('No session running');
+    if (!this.sessionRunning) throw new ConflictException('No session running');
     this.tradingSessionService.setPaused(paused);
     return { status: paused ? 'paused' : 'resumed' };
   }
 
   async deleteSession(id: string) {
+    // Security: Prevent deleting the active session
+    if (this.sessionRunning && this.currentSessionId === id) {
+      throw new ConflictException('Cannot delete an active trading session. Stop it first.');
+    }
     // Manually delete session, ensuring no cascade to trades (as there is no FK link in the current entity model)
     await this.sessionRepository.delete(id);
     return { status: 'deleted' };
@@ -307,7 +389,7 @@ export class SessionService implements OnModuleInit {
 
   async stopSession() {
     if (!this.sessionRunning || !this.currentSessionId) {
-      throw new Error('No session running');
+      throw new ConflictException('No session running');
     }
 
     await this.sessionRepository.update(this.currentSessionId, { running: false });
@@ -340,7 +422,7 @@ export class SessionService implements OnModuleInit {
     if (!session) return { running: false };
 
     const engineStatus: any = this.tradingSessionService.getStatus();
-    const activeTrades = (await this.tradeRepository.find({ where: { status: 'OPEN' } })).filter(trade => 
+    const activeTrades = (await this.tradeRepository.find({ where: { status: 'OPEN', sessionId: session.id } })).filter(trade =>
       trade.entry_price != null && !isNaN(Number(trade.entry_price)) && 
       trade.qty != null && !isNaN(Number(trade.qty))
     );
@@ -375,7 +457,12 @@ export class SessionService implements OnModuleInit {
 
   async getHistory() {
     const closedTrades = await this.tradeRepository.find({
-      where: [
+      where: this.currentSessionId ? [
+        { status: 'CLOSED' as any, sessionId: this.currentSessionId },
+        { status: 'CLOSED_SL', sessionId: this.currentSessionId },
+        { status: 'CLOSED_TP', sessionId: this.currentSessionId },
+        { status: 'CLOSED_SIGNAL', sessionId: this.currentSessionId },
+      ] : [
         { status: 'CLOSED' as any },
         { status: 'CLOSED_SL' },
         { status: 'CLOSED_TP' },
@@ -397,7 +484,12 @@ export class SessionService implements OnModuleInit {
     // Only fetch minimal columns for analytics to save memory
     const trades = await this.tradeRepository.find({
       select: ['pnl', 'exit_ts', 'status'],
-      where: [
+      where: this.currentSessionId ? [
+        { status: 'CLOSED' as any, sessionId: this.currentSessionId },
+        { status: 'CLOSED_SL', sessionId: this.currentSessionId },
+        { status: 'CLOSED_TP', sessionId: this.currentSessionId },
+        { status: 'CLOSED_SIGNAL', sessionId: this.currentSessionId },
+      ] : [
         { status: 'CLOSED' as any },
         { status: 'CLOSED_SL' },
         { status: 'CLOSED_TP' },
@@ -434,7 +526,7 @@ export class SessionService implements OnModuleInit {
   // Manually close a trade
   async closeTradeManually(symbol: string) {
     if (!this.sessionRunning) {
-      throw new Error('No session running');
+      throw new ConflictException('No session running');
     }
 
     const result = await this.tradingSessionService.closeTradeManually(symbol);
@@ -456,5 +548,75 @@ export class SessionService implements OnModuleInit {
       level,
       msg,
     });
+  }
+
+  async resetPaperBalance() {
+    const defaultBalance = 10000.0;
+
+    await this.settingsRepository.update('default', {
+      paper_balance: defaultBalance
+    });
+
+    // Record reset in history
+    await this.balanceHistoryRepository.save({
+      timestamp: new Date(),
+      balance: defaultBalance,
+      pnl: 0,
+      type: 'RESET'
+    });
+
+    // If a session is running and it's paper mode, we might want to update it,
+    // but usually, a reset is done when no session is active or as a hard override.
+    if (this.sessionRunning) {
+      const session = await this.sessionRepository.findOne({ where: { id: this.currentSessionId! } });
+      if (session && session.paperMode) {
+        // Hot update the engine if running
+        // Note: This is a bit aggressive, usually user stops session, resets, then starts.
+      }
+    }
+
+    return { status: 'reset', balance: defaultBalance };
+  }
+
+  async getLifetimeAnalytics(mode: 'paper' | 'testnet' | 'live' = 'paper') {
+    // 1. Fetch all closed trades across all sessions for the specific mode
+    const trades = await this.tradeRepository.find({
+      select: ['pnl', 'exit_ts', 'status', 'strategy_config'],
+      where: [
+        { status: 'CLOSED' as any },
+        { status: 'CLOSED_SL' },
+        { status: 'CLOSED_TP' },
+        { status: 'CLOSED_SIGNAL' },
+      ],
+      order: { exit_ts: 'ASC' }
+    });
+
+    // Filter trades by mode
+    const filteredTrades = trades.filter(t => {
+        const tConfig = t.strategy_config || {};
+        const tMode = tConfig.trading_mode || (tConfig.paper_mode !== false ? 'paper' : 'live');
+        return tMode === mode;
+    });
+
+    // 2. Fetch balance history snapshots for high-fidelity curve
+    const history = await this.balanceHistoryRepository.find({
+      where: { tradingMode: mode },
+      order: { timestamp: 'ASC' }
+    });
+
+    // 3. Calculate analytics using the full trade set
+    // We assume the very first starting balance was 10000 for paper, and 0 (initial tracking) for real
+    const startingBalance = mode === 'paper' ? 10000 : (history.length > 0 ? Number(history[0].balance) - Number(history[0].pnl) : 0);
+    const analytics = this.analyticsService.calculateAnalytics(filteredTrades as any, startingBalance);
+
+    // 4. Override cumulative PnL with balance history for better accuracy if available
+    if (history.length > 0) {
+      analytics.cumulativePnL = history.map(h => ({
+        ts: h.timestamp.toISOString(),
+        pnl: Number(h.balance) - startingBalance
+      }));
+    }
+
+    return analytics;
   }
 }

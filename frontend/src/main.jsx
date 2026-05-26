@@ -5,11 +5,9 @@ import { sessionAPI } from './api/client';
 import { useVisibility } from './hooks/useVisibility';
 import './index.css';
 
-import eruda from 'eruda';
-
 const urlParams = new URLSearchParams(window.location.search);
 if (urlParams.get('debug') === 'true') {
-  eruda.init();
+  import('eruda').then(m => m.default.init());
 }
 
 const DashboardView = lazy(() => import('./views/DashboardView').then(m => ({ default: m.DashboardView })));
@@ -100,4 +98,13 @@ const container = document.getElementById('root');
 if (container) {
   const root = createRoot(container);
   root.render(<App />);
+
+  // Register service worker
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(err => {
+        console.error('SW registration failed: ', err);
+      });
+    });
+  }
 }

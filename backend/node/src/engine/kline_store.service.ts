@@ -15,7 +15,7 @@ export class KlineStoreService {
   private klines: Map<string, Candle[]> = new Map();
   private readonly MAX_CANDLES = 500;
 
-  async upsertCandle(symbol: string, interval: string, kline: any) {
+  upsertCandle(symbol: string, interval: string, kline: any) {
     const key = `${symbol}_${interval}`;
     let existing = this.klines.get(key);
     if (!existing) {
@@ -89,20 +89,32 @@ export class KlineStoreService {
     return candles.slice(-count);
   }
 
+  /**
+   * BOLT OPTIMIZATION: Calculate min/max extremes in a single pass without array allocations (slice/map).
+   */
   async getLookbackExtremes(
     symbol: string,
     interval: string,
     period: number,
-  ): Promise<{ lows: number[]; highs: number[] }> {
-    const candles = await this.getRecentCandles(symbol, interval, period);
+  ): Promise<{ minLow: number; maxHigh: number }> {
+    const key = `${symbol}_${interval}`;
+    const candles = this.klines.get(key) || [];
+
     if (candles.length === 0) {
-      return { lows: [], highs: [] };
+      return { minLow: 0, maxHigh: 0 };
     }
 
-    const lows = candles.map((c) => c.low);
-    const highs = candles.map((c) => c.high);
+    const startIdx = Math.max(0, candles.length - period);
+    let minLow = Infinity;
+    let maxHigh = -Infinity;
 
-    return { lows, highs };
+    for (let i = startIdx; i < candles.length; i++) {
+      const candle = candles[i];
+      if (candle.low < minLow) minLow = candle.low;
+      if (candle.high > maxHigh) maxHigh = candle.high;
+    }
+
+    return { minLow, maxHigh };
   }
 
   async seedFromRest(symbol: string, interval: string, klines: any[]) {

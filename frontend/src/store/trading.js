@@ -50,6 +50,20 @@ const normalizeTrade = (trade = {}, prevTrade = null) => {
   if (!trade || typeof trade !== 'object') return null;
 
   const prev = prevTrade || {};
+
+  // If this is a delta update, merge it with previous state
+  if (trade._delta) {
+    return {
+      ...prev,
+      ...trade,
+      pnl: trade.pnl !== undefined ? toNumber(trade.pnl) : prev.pnl,
+      rr: trade.rr !== undefined ? toNumber(trade.rr) : prev.rr,
+      current_price: trade.current_price !== undefined ? toNumber(trade.current_price) : prev.current_price,
+      sl_price: trade.sl_price !== undefined ? toNumber(trade.sl_price) : prev.sl_price,
+      max_rr: trade.max_rr !== undefined ? toNumber(trade.max_rr) : prev.max_rr,
+    };
+  }
+
   // Preserve existing values when websocket data is partial to avoid flicker
   const entry_price = toNumber(trade.entry_price ?? trade.entry ?? prev.entry_price);
   const current_price = toNumber(
@@ -86,7 +100,8 @@ const normalizeTrade = (trade = {}, prevTrade = null) => {
     exit_reason: trade.exit_reason ?? prev.exit_reason,
     exit_price: trade.exit_price == null ? (prev.exit_price == null ? undefined : toNumber(prev.exit_price)) : toNumber(trade.exit_price),
     paper_mode: trade.paper_mode ?? prev.paper_mode ?? true,
-    qty: trade.qty ?? trade.quantity ?? prev.qty ?? 0,
+    qty: toNumber(trade.qty ?? trade.quantity ?? prev.qty ?? 0),
+    max_rr_achieved: toNumber(trade.max_rr_achieved ?? trade.max_rr ?? prev.max_rr_achieved ?? 0),
   };
 }
 
@@ -155,6 +170,9 @@ const defaultConfig = {
   max_open_trades: 5,
   paper_starting_balance: 10000,
   live_starting_balance: 10000,
+  hot_loop_interval_ms: 2000,
+  main_loop_interval_ms: 5000,
+  debug_mode: false,
 }
 
 export const useTradingStore = create((set, get) => ({
@@ -171,6 +189,7 @@ export const useTradingStore = create((set, get) => ({
   variantScannerResults: {},
   activeWindows: [],
   tradeHistory: [],
+  lifetimeAnalytics: null,
   gateState: null,
   scannerPaused: false,
   wsStatus: 'offline',
@@ -200,6 +219,10 @@ export const useTradingStore = create((set, get) => ({
   
   setThrottled: (isThrottled) => {
     set({ isThrottled })
+    const ws = get().ws
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'set_active', active: !isThrottled }))
+    }
   },
 
   setHealthEnabled: (enabled) => {
@@ -257,6 +280,26 @@ export const useTradingStore = create((set, get) => ({
     }
   },
 
+  fetchLifetimeAnalytics: async (mode = 'paper') => {
+    try {
+      const res = await sessionAPI.getLifetimeAnalytics(mode)
+      set({ lifetimeAnalytics: res.data })
+    } catch (e) {
+      console.error('tradingStore: fetchLifetimeAnalytics error:', e);
+    }
+  },
+
+  resetPaperBalance: async () => {
+    try {
+      await sessionAPI.resetPaperBalance()
+      await get().fetchLifetimeAnalytics()
+      return true
+    } catch (e) {
+      console.error('tradingStore: resetPaperBalance error:', e);
+      return false
+    }
+  },
+
   updateStats: (stats) => set((state) => ({ ...state, ...stats })),
   updateConfig: (newConfig) => set((state) => ({ config: { ...state.config, ...newConfig } })),
   toggleLogFilter: (level) => set((state) => {
@@ -271,8 +314,31 @@ export const useTradingStore = create((set, get) => ({
   addLog: (log) => set((state) => {
     const normalized = normalizeLog(log)
     if (!normalized.msg) return {}
+    // Avoid exact duplicates back-to-back
     if (state.logs.length > 0 && state.logs[0].level === normalized.level && state.logs[0].msg === normalized.msg) return {}
-    return { logs: [normalized, ...state.logs].slice(0, 100) }
+    return { logs: [normalized, ...state.logs].slice(0, 2000) }
+  }),
+
+  mergeLogs: (incomingLogs) => set((state) => {
+    if (!incomingLogs || incomingLogs.length === 0) return {}
+
+    // Create a set of existing log IDs to prevent duplicates
+    const existingIds = new Set(state.logs.map(l => l.id))
+    const newLogs = incomingLogs
+      .map(normalizeLog)
+      .filter(l => l.msg && !existingIds.has(l.id))
+
+    if (newLogs.length === 0) return {}
+
+    // Combine and sort by timestamp (descending)
+    const combined = [...newLogs, ...state.logs]
+      .sort((a, b) => {
+         // Try to parse ts if possible, otherwise keep original order
+         return 0; // Keeping it simple: status logs are usually prepended
+      })
+      .slice(0, 2000)
+
+    return { logs: uniqueLogs(combined) }
   }),
 
   ws: null,
@@ -300,6 +366,7 @@ export const useTradingStore = create((set, get) => ({
       // Send current health preference on open
       ws.send(JSON.stringify({ type: 'set_monitoring', enabled: get().healthEnabled }))
       ws.send(JSON.stringify({ type: 'set_log_filters', filters: get().logFilters }))
+      ws.send(JSON.stringify({ type: 'set_active', active: !get().isThrottled }))
     }
 
     // Throttled scanner update to prevent React choking on high-freq updates
@@ -311,12 +378,20 @@ export const useTradingStore = create((set, get) => ({
       const data = JSON.parse(event.data)
 
       if (data.type === 'status') {
+        // First merge logs to ensure persistence
+        if (data.logLines) {
+          get().mergeLogs(data.logLines)
+        }
+
         set((state) => {
           const stopped = data.running === false
-          const nextTrades = stopped ? [] : (data.activeTrades?.map(t => {
-            const prev = state.activeTrades.find(p => p.symbol === t.symbol);
-            return normalizeTrade(t, prev);
-          }).filter(Boolean) || state.activeTrades);
+          let nextTrades = state.activeTrades;
+          if (stopped) {
+            nextTrades = [];
+          } else if (data.activeTrades) {
+            const prevMap = new Map(state.activeTrades.map(t => [t.symbol, t]));
+            nextTrades = data.activeTrades.map(t => normalizeTrade(t, prevMap.get(t.symbol))).filter(Boolean);
+          }
 
           return {
             sessionActive: data.running,
@@ -327,7 +402,7 @@ export const useTradingStore = create((set, get) => ({
             totalRiskPct: data.totalRiskPct ?? state.totalRiskPct,
             totalSlUsed: data.totalSlUsed ?? state.totalSlUsed,
             activeTrades: nextTrades,
-            logs: data.logLines ? uniqueLogs(data.logLines).slice(0, 100) : state.logs,
+            // Logs are handled via mergeLogs above
             scannerResults: data.scannerResults?.map(normalizeOpportunity) || state.scannerResults,
             activeWindows: data.activeWindows?.map(normalizeWindow) || state.activeWindows,
             tradeHistory: data.history?.map(t => {
@@ -342,10 +417,13 @@ export const useTradingStore = create((set, get) => ({
       } else if (data.type === 'session') {
         set((state) => {
           const stopped = data.status === 'stopped'
-          const nextTrades = stopped ? [] : (data.activeTrades?.map(t => {
-            const prev = state.activeTrades.find(p => p.symbol === t.symbol);
-            return normalizeTrade(t, prev);
-          }).filter(Boolean) || state.activeTrades);
+          let nextTrades = state.activeTrades;
+          if (stopped) {
+            nextTrades = [];
+          } else if (data.activeTrades) {
+            const prevMap = new Map(state.activeTrades.map(t => [t.symbol, t]));
+            nextTrades = data.activeTrades.map(t => normalizeTrade(t, prevMap.get(t.symbol))).filter(Boolean);
+          }
 
           return {
             sessionActive: data.running ?? data.status === 'started',
@@ -373,10 +451,11 @@ export const useTradingStore = create((set, get) => ({
         })
       } else if (data.type === 'tick') {
         set((state) => {
-          const nextTrades = data.trades ? (data.trades || []).map(t => {
-            const prev = state.activeTrades.find(p => p.symbol === t.symbol);
-            return normalizeTrade(t, prev);
-          }).filter(Boolean) : state.activeTrades;
+          let nextTrades = state.activeTrades;
+          if (data.trades) {
+            const prevMap = new Map(state.activeTrades.map(t => [t.symbol, t]));
+            nextTrades = data.trades.map(t => normalizeTrade(t, prevMap.get(t.symbol))).filter(Boolean);
+          }
 
           // Only update activeTrades if reference should change (data changed)
           // We still allow PnL changes to trigger updates, but we avoid re-creating 
@@ -412,10 +491,32 @@ export const useTradingStore = create((set, get) => ({
             });
           }
 
-          set({
-            scannerResults: (data.opportunities || []).map(normalizeOpportunity),
-            variantScannerResults: variantResults,
-            activeWindows: (data.activeWindows || []).map(normalizeWindow),
+          set((state) => {
+            const nextResults = (data.opportunities || []).map(o => {
+              const normalized = normalizeOpportunity(o);
+              const prev = state.scannerResults.find(p => p.symbol === normalized.symbol);
+              if (prev && normalized.history === undefined) {
+                normalized.history = prev.history;
+              }
+              return normalized;
+            });
+
+            const nextVariantResults = {};
+            Object.keys(variantResults).forEach(label => {
+              nextVariantResults[label] = variantResults[label].map(o => {
+                const prev = state.variantScannerResults[label]?.find(p => p.symbol === o.symbol);
+                if (prev && o.history === undefined) {
+                  o.history = prev.history;
+                }
+                return o;
+              });
+            });
+
+            return {
+              scannerResults: nextResults,
+              variantScannerResults: nextVariantResults,
+              activeWindows: (data.activeWindows || []).map(normalizeWindow),
+            };
           })
           lastScannerUpdate = now;
         }

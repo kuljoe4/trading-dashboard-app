@@ -5,14 +5,15 @@ import { ActiveTradeBar } from '../components/ActiveTradeBar'
 import { DecisionLog } from '../components/DecisionLog'
 import { 
   StatCard, SectionLabel, StatusBadge, PaperBadge, DemoBadge, LiveBadge,
-  ConditionWidget, PnLBars, cn
+  ConditionWidget, PnLBars, CopyButton, cn
 } from '../components/ui/primitives'
 import {
-  ChevronLeft, Activity, BarChart3
+  ChevronLeft, Activity, BarChart3, TrendingUp
 } from 'lucide-react'
+import { EquityCurve } from '../components/Analytics'
 
 const StrategyDetailView = ({ s, onBack }) => {
-  const { config, scannerResults } = useTradingStore()
+  const { config, scannerResults, analytics } = useTradingStore()
   const bestOpp = scannerResults[0] || { symbol: '---', pct: 0, dir: '---' }
   const scanMet = Math.abs(bestOpp.pct) >= config.scan_pct_threshold
   const entryMet = scanMet && s.activeTrades.length > 0
@@ -38,6 +39,7 @@ const StrategyDetailView = ({ s, onBack }) => {
           </div>
           <div className="text-[11px] text-dim mt-1.5 font-bold uppercase tracking-widest flex items-center gap-2">
             <Activity size={12} /> Loop Monitoring · {s.strategyId?.substring(0, 8)}
+            <CopyButton value={s.strategyId} className="p-1" />
           </div>
         </div>
       </div>
@@ -45,9 +47,9 @@ const StrategyDetailView = ({ s, onBack }) => {
       {/* Summary Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
         <StatCard label="Total P&L" value={fmtUSD(s.totalPnl)} color={s.totalPnl >= 0 ? "text-green" : "text-red"} />
-        <StatCard label="Hit Count" value={s.logs.filter(l => l.msg.includes('Entry')).length.toString()} color="text-accent" />
-        <StatCard label="SL Budget" value={`$${s.totalSlUsed.toFixed(0)} / $${config.total_sl_guard_usdt}`} color={s.totalSlUsed > config.total_sl_guard_usdt * 0.7 ? "text-amber" : "text-text"} />
-        <StatCard label="Active Risk" value={`${s.totalRiskPct.toFixed(1)}%`} color={s.totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
+        <StatCard label="Hit Count" value={(s.entryCount ?? 0).toString()} color="text-accent" />
+        <StatCard label="SL Budget" value={`$${Number(s.totalSlUsed || 0).toFixed(0)} / $${config.total_sl_guard_usdt}`} color={s.totalSlUsed > config.total_sl_guard_usdt * 0.7 ? "text-amber" : "text-text"} />
+        <StatCard label="Active Risk" value={`${Number(s.totalRiskPct || 0).toFixed(1)}%`} color={s.totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
       </div>
 
       {/* Condition Widgets */}
@@ -91,13 +93,17 @@ const StrategyDetailView = ({ s, onBack }) => {
 
         <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col h-[450px] shadow-sm">
           <SectionLabel className="mb-4">
-            <BarChart3 size={14} className="text-accent" /> Equity Performance
+            <TrendingUp size={14} className="text-accent" /> Equity Curve
           </SectionLabel>
           <div className="flex-1 flex flex-col justify-center">
+             <EquityCurve
+               data={analytics?.cumulativePnL || []}
+               height={280}
+             />
+          </div>
+          <div className="mt-6 pt-6 border-t border-border/40">
+            <SectionLabel className="mb-2 text-[10px]">Recent Trade Distribution</SectionLabel>
             <PnLBars trades={s.activeTrades} />
-            <div className="mt-10 text-[10px] text-dim font-bold text-center uppercase tracking-widest opacity-40">
-              Live Equity Curve Tracking
-            </div>
           </div>
         </div>
       </div>

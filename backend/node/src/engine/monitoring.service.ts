@@ -6,6 +6,13 @@ export class MonitoringService {
   private lastCpuUsage = process.cpuUsage();
   private lastCpuTime = Date.now();
   private currentCpuPercent = 0;
+  private cachedSystemMetrics: any = {
+    cpu_usage: 0,
+    memory_rss: 0,
+    memory_heap_used: 0,
+    uptime: 0,
+    event_loop_lag: 0,
+  };
 
   private hotLoopExecutionTime = 0;
   private mainLoopExecutionTime = 0;
@@ -61,19 +68,39 @@ export class MonitoringService {
 
     this.lastCpuUsage = process.cpuUsage();
     this.lastCpuTime = now;
+
+    // BOLT OPTIMIZATION: Update cached system metrics here to avoid syscalls in getMetrics()
+    const mem = process.memoryUsage();
+    this.cachedSystemMetrics = {
+      cpu_usage: Number(this.currentCpuPercent.toFixed(2)),
+      memory_rss: Number((mem.rss / 1024 / 1024).toFixed(2)),
+      memory_heap_used: Number((mem.heapUsed / 1024 / 1024).toFixed(2)),
+      uptime: Math.floor(process.uptime()),
+      event_loop_lag: this.eventLoopLag,
+    };
   }
 
   getMetrics() {
-    const mem = process.memoryUsage();
+    // BOLT OPTIMIZATION: Return cached metrics to avoid expensive syscalls in high-freq tick loop
+    if (!this.enabled) {
+      return {
+        system: {
+          cpu_usage: 0,
+          memory_rss: 0,
+          memory_heap_used: 0,
+          uptime: Math.floor(process.uptime()),
+          event_loop_lag: 0,
+        },
+        application: {
+          hot_loop_ms: 0,
+          main_loop_ms: 0,
+          api_requests_total: this.apiRequestCount,
+        }
+      };
+    }
 
     return {
-      system: {
-        cpu_usage: Number(this.currentCpuPercent.toFixed(2)),
-        memory_rss: Number((mem.rss / 1024 / 1024).toFixed(2)),
-        memory_heap_used: Number((mem.heapUsed / 1024 / 1024).toFixed(2)),
-        uptime: Math.floor(process.uptime()),
-        event_loop_lag: this.eventLoopLag,
-      },
+      system: this.cachedSystemMetrics,
       application: {
         hot_loop_ms: this.hotLoopExecutionTime,
         main_loop_ms: this.mainLoopExecutionTime,

@@ -57,7 +57,9 @@ export class MarketFeedService {
 
   async start(config: SessionConfig) {
     this.running = true;
-    this.logger.log('MarketFeed starting');
+    if (config.debug_mode) {
+      this.logger.log('MarketFeed starting');
+    }
 
     // Start !miniTicker@arr stream first
     this.startMiniTickerStream();
@@ -110,7 +112,7 @@ export class MarketFeedService {
         const tickers = await response.json();
         if (Array.isArray(tickers)) {
           const usdtTickers = tickers.filter(t => t.symbol.endsWith('USDT'));
-          await this.tickerCache.bulkUpdate(usdtTickers);
+          this.tickerCache.bulkUpdate(usdtTickers);
           this.logger.log(`Seeded ${usdtTickers.length} USDT tickers from REST API`);
         }
       }
@@ -149,15 +151,17 @@ export class MarketFeedService {
       const ws = new WebSocket(url, { handshakeTimeout: 15000 });
 
       ws.on('open', () => {
-        this.logger.log('miniTicker stream connected');
+        if ((this.tradingSession as any).config?.debug_mode) {
+          this.logger.log('miniTicker stream connected');
+        }
       });
 
-      ws.on('message', async (data: Buffer) => {
+      ws.on('message', (data: Buffer) => {
         try {
           const msg = JSON.parse(data.toString());
           let tickers: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
           if (tickers.length > 0) {
-            await this.tickerCache.bulkUpdate(tickers);
+            this.tickerCache.bulkUpdate(tickers);
           }
         } catch (err) {
           this.logger.warn(`miniTicker parse error: ${err instanceof Error ? err.message : String(err)}`);
@@ -177,80 +181,98 @@ export class MarketFeedService {
   }
 
   private startWatchlistManager(config: SessionConfig) {
-    const updateWatchlist = async () => {
-      if (!this.running) return;
+    this.updateWatchlist(config);
+    this.watchlistInterval = setInterval(() => this.updateWatchlist(config), 60000);
+  }
 
-      try {
-        const newWatchlist = new Map<string, Set<string>>();
+  async updateWatchlist(config: SessionConfig = (this.tradingSession as any).config) {
+    if (!this.running || !config) return;
 
-        // 1. Global Scanner Symbols
-        if (config.global_scanner_enabled !== false) {
-          let symbols: string[];
-          if (config.symbols && config.symbols.length > 0) {
-            symbols = config.symbols;
-          } else {
-            const top = await this.tickerCache.topByVolume(
-              config.watchlist_size || 50,
-              config.excluded_symbols || [],
-            );
-            symbols = top.map((t: any) => t.symbol);
-          }
-          const globalInterval = config.scan_interval || '1m';
-          for (const s of symbols) {
-            if (!newWatchlist.has(s)) newWatchlist.set(s, new Set());
-            newWatchlist.get(s)!.add(globalInterval);
-          }
+    try {
+      const newWatchlist = new Map<string, Set<string>>();
+
+      // 1. Global Scanner Symbols
+      if (config.global_scanner_enabled !== false) {
+        let symbols: string[];
+        if (config.symbols && config.symbols.length > 0) {
+          symbols = config.symbols;
+        } else {
+          const top = await this.tickerCache.topByVolume(
+            config.watchlist_size || 50,
+            config.excluded_symbols || [],
+          );
+          symbols = top.map((t: any) => t.symbol);
         }
-
-        // 2. Single Symbol Monitor Symbols
-        if (config.single_symbol_configs) {
-          for (const sc of config.single_symbol_configs) {
-            if (!sc.enabled) continue;
-            if (!newWatchlist.has(sc.symbol)) newWatchlist.set(sc.symbol, new Set());
-
-            const interval = sc.use_custom_config && sc.custom_config?.scan_interval
-              ? sc.custom_config.scan_interval
-              : config.scan_interval || '1m';
-
-            newWatchlist.get(sc.symbol)!.add(interval);
-          }
+        const globalInterval = config.scan_interval || '1m';
+        for (const s of symbols) {
+          if (!newWatchlist.has(s)) newWatchlist.set(s, new Set());
+          newWatchlist.get(s)!.add(globalInterval);
         }
-
-        // Check if watchlist changed
-        let changed = newWatchlist.size !== this.activeWatchlist.size;
-        if (!changed) {
-          for (const [symbol, intervals] of newWatchlist) {
-            const oldIntervals = this.activeWatchlist.get(symbol);
-            if (!oldIntervals || oldIntervals.size !== intervals.size || [...intervals].some(i => !oldIntervals.has(i))) {
-              changed = true;
-              break;
-            }
-          }
-        }
-
-        if (changed) {
-          this.logger.log(`Watchlist changed. Rebuilding combined kline streams for ${newWatchlist.size} symbols.`);
-          const prevWatchlist = this.activeWatchlist;
-          this.activeWatchlist = newWatchlist;
-          await this.rebuildCombinedKlineStream();
-          
-          // Backfill new symbol/interval combinations
-          for (const [symbol, intervals] of newWatchlist) {
-            for (const interval of intervals) {
-              const oldIntervals = prevWatchlist.get(symbol);
-              if (!oldIntervals || !oldIntervals.has(interval)) {
-                await this.backfillKlines(symbol, interval);
-              }
-            }
-          }
-        }
-      } catch (err) {
-        this.logger.warn(`Watchlist update error: ${err instanceof Error ? err.message : String(err)}`);
       }
-    };
 
-    updateWatchlist();
-    this.watchlistInterval = setInterval(updateWatchlist, 60000);
+      // 2. Single Symbol Monitor Symbols
+      if (config.single_symbol_configs) {
+        for (const sc of config.single_symbol_configs) {
+          if (!sc.enabled) continue;
+          if (!newWatchlist.has(sc.symbol)) newWatchlist.set(sc.symbol, new Set());
+
+          const interval = sc.use_custom_config && sc.custom_config?.scan_interval
+            ? sc.custom_config.scan_interval
+            : config.scan_interval || '1m';
+
+          newWatchlist.get(sc.symbol)!.add(interval);
+        }
+      }
+
+      // 3. Active Trade Symbols (CRITICAL for exit signals)
+      const activeTrades = this.tradingSession.getStatus().activeTrades;
+      for (const trade of activeTrades) {
+        const t = trade as any;
+        if (!newWatchlist.has(t.symbol)) newWatchlist.set(t.symbol, new Set());
+
+        // Add both 1m (default) and strategy interval
+        newWatchlist.get(t.symbol)!.add('1m');
+        if (config.scan_interval) {
+          newWatchlist.get(t.symbol)!.add(config.scan_interval);
+        }
+        if (t.strategy_config?.scan_interval) {
+          newWatchlist.get(t.symbol)!.add(t.strategy_config.scan_interval);
+        }
+      }
+
+      // Check if watchlist changed
+      let changed = newWatchlist.size !== this.activeWatchlist.size;
+      if (!changed) {
+        for (const [symbol, intervals] of newWatchlist) {
+          const oldIntervals = this.activeWatchlist.get(symbol);
+          if (!oldIntervals || oldIntervals.size !== intervals.size || [...intervals].some(i => !oldIntervals.has(i))) {
+            changed = true;
+            break;
+          }
+        }
+      }
+
+      if (changed) {
+        if (config.debug_mode) {
+          this.logger.log(`Watchlist changed. Rebuilding combined kline streams for ${newWatchlist.size} symbols.`);
+        }
+        const prevWatchlist = this.activeWatchlist;
+        this.activeWatchlist = newWatchlist;
+        await this.rebuildCombinedKlineStream();
+
+        // Backfill new symbol/interval combinations
+        for (const [symbol, intervals] of newWatchlist) {
+          for (const interval of intervals) {
+            const oldIntervals = prevWatchlist.get(symbol);
+            if (!oldIntervals || !oldIntervals.has(interval)) {
+              await this.backfillKlines(symbol, interval);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`Watchlist update error: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   private async rebuildCombinedKlineStream() {
@@ -289,27 +311,31 @@ export class MarketFeedService {
         let backoff = 2000;
 
         ws.on('open', () => {
-          this.logger.log(`Combined kline stream connected for ${chunk.length} symbols`);
+          if ((this.tradingSession as any).config?.debug_mode) {
+            this.logger.log(`Combined kline stream connected for ${chunk.length} symbols`);
+          }
         });
 
-        ws.on('message', async (data: Buffer) => {
+        ws.on('message', (data: Buffer) => {
           try {
             const msg: BinanceKline = JSON.parse(data.toString());
             const kline = msg.data?.k;
             if (kline) {
               const symbol = kline.s;
               const interval = kline.i;
-              await this.klineStore.upsertCandle(symbol, interval, kline);
+              this.klineStore.upsertCandle(symbol, interval, kline);
               
               // Pro: Immediate price propagation to ticker cache
               // BOLT: Only update price to preserve accurate 24h volume from miniTicker stream
-              await this.tickerCache.bulkUpdate([{
+              this.tickerCache.bulkUpdate([{
                 s: symbol,
                 c: kline.c
               }]);
 
               if (kline.x && this.onCandeClose) {
-                await this.onCandeClose(symbol);
+                this.onCandeClose(symbol).catch(err => {
+                  this.logger.warn(`Candle close callback error for ${symbol}: ${err.message}`);
+                });
               }
             }
           } catch (err) {
@@ -356,17 +382,18 @@ export class MarketFeedService {
       const isStale = Date.now() - lastCandle.time > intervalMs * 2;
 
       if (!isStale) {
-        this.logger.debug(`Skipping backfill for ${symbol}/${interval}: Data is fresh`);
         return;
       }
-      this.logger.log(`Backfilling ${symbol}/${interval}: Existing data is stale`);
+        if ((this.tradingSession as any).config?.debug_mode) {
+          this.logger.log(`Backfilling ${symbol}/${interval}: Existing data is stale`);
+        }
     }
 
     // Basic concurrency limit for backfills: random delay to spread requests
     await new Promise(resolve => setTimeout(resolve, Math.random() * 2000));
 
     try {
-      const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=100`;
+      const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=500`;
       this.monitoringService.incrementApiRequests();
       const response = await fetch(url);
       this.updateWeight(response.headers);

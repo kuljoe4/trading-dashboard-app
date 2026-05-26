@@ -39,12 +39,20 @@ export class PositionTrackerService {
     return Array.from(this.trades.values());
   }
 
+  activeCount(): number {
+    return this.trades.size;
+  }
+
+  /**
+   * BOLT OPTIMIZATION: Use direct loop over Map values instead of creating an array.
+   * Eliminates O(N) allocation in the 1s hot loop and 2s main loop.
+   */
   totalRisk(): number {
-    return this.activeList().reduce(
-      (sum, trade) =>
-        sum + Math.abs(trade.entry_price - trade.current_sl) * trade.qty,
-      0,
-    );
+    let sum = 0;
+    for (const trade of this.trades.values()) {
+      sum += Math.abs(trade.entry_price - trade.current_sl) * trade.qty;
+    }
+    return sum;
   }
 
   addTrade(trade: Trade): void {
@@ -160,12 +168,15 @@ export class PositionTrackerService {
     symbol: string,
     currentPrice: number,
     config: SessionConfig,
+    interval: string = '1m',
   ): Promise<{ exitOccurred: boolean; exitType: string; exitReason: string } | null> {
     const trade = this.trades.get(symbol);
     if (!trade || trade.status !== 'OPEN') return null;
 
     // Check SL hit
     if (trade.direction === 'LONG' && currentPrice <= trade.current_sl) {
+      trade.exit_signal_type = 'STOP_LOSS';
+      trade.exit_signal_reason = `Price ${currentPrice} <= SL ${trade.current_sl}`;
       return {
         exitOccurred: true,
         exitType: 'CLOSED_SL',
@@ -174,6 +185,8 @@ export class PositionTrackerService {
     }
 
     if (trade.direction === 'SHORT' && currentPrice >= trade.current_sl) {
+      trade.exit_signal_type = 'STOP_LOSS';
+      trade.exit_signal_reason = `Price ${currentPrice} >= SL ${trade.current_sl}`;
       return {
         exitOccurred: true,
         exitType: 'CLOSED_SL',
@@ -183,6 +196,8 @@ export class PositionTrackerService {
 
     // Check TP hit
     if (trade.tp != null && trade.direction === 'LONG' && currentPrice >= trade.tp) {
+      trade.exit_signal_type = 'TAKE_PROFIT';
+      trade.exit_signal_reason = `Price ${currentPrice} >= TP ${trade.tp}`;
       return {
         exitOccurred: true,
         exitType: 'CLOSED_TP',
@@ -191,6 +206,8 @@ export class PositionTrackerService {
     }
 
     if (trade.tp != null && trade.direction === 'SHORT' && currentPrice <= trade.tp) {
+      trade.exit_signal_type = 'TAKE_PROFIT';
+      trade.exit_signal_reason = `Price ${currentPrice} <= TP ${trade.tp}`;
       return {
         exitOccurred: true,
         exitType: 'CLOSED_TP',
@@ -203,9 +220,18 @@ export class PositionTrackerService {
       symbol,
       trade,
       config,
+      interval,
     );
 
     if (exitTriggered) {
+      trade.exit_signal_type = exitSignalType;
+      if (exitSignalType === 'combined') {
+        trade.exit_signal_reason = `All signals fired: ${config.exit_signals?.join(', ')}`;
+      } else {
+        const status = trade.exit_signals_status?.[exitSignalType || ''];
+        trade.exit_signal_reason = status?.description || `Signal ${exitSignalType} fired`;
+      }
+
       return {
         exitOccurred: true,
         exitType: 'CLOSED_SIGNAL',
@@ -225,6 +251,14 @@ export class PositionTrackerService {
     const trade = this.trades.get(symbol);
     if (!trade || trade.status !== 'OPEN') {
       return { trade: null, exitOccurred: false };
+    }
+
+    if (exitReason === 'MANUAL_CLOSE') {
+      trade.exit_signal_type = 'MANUAL';
+      trade.exit_signal_reason = 'User manually closed position';
+    } else if (exitReason === 'SESSION_TERMINATED') {
+      trade.exit_signal_type = 'SESSION_TERMINATED';
+      trade.exit_signal_reason = 'Trading session was stopped by user';
     }
 
     const result = await this.orderManager.closeTrade(symbol, trade, exitPrice, exitReason);

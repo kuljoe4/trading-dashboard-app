@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, lazy, Suspense } from 'react'
+import { shallow } from 'zustand/shallow'
 import { pnlColor, fmtUSD, C } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
 import { sessionAPI } from '../api/client'
@@ -7,12 +8,12 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { 
   StatCard, SectionLabel, Btn, StatusBadge, PaperBadge, DemoBadge, LiveBadge,
-  ConditionWidget, PulseDot, Sparkline, PnLBars, cn
+  ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn
 } from '../components/ui/primitives'
 import {
   ChevronLeft, Plus, Trash2, LayoutDashboard, History,
   Settings as SettingsIcon, Activity, Zap, ShieldCheck,
-  BarChart3, XCircle, Pause, Play, Edit3
+  BarChart3, XCircle, Pause, Play, Edit3, RefreshCw
 } from 'lucide-react'
 import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -31,8 +32,7 @@ const LoadingFallback = () => (
 )
 
 // --- Strategy Card ---
-// --- Strategy Card ---
-const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused, scannerResults }) => {
+const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
@@ -83,6 +83,8 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused, scannerResu
           <div className="flex gap-2 mb-2 relative z-20">
             <button
               onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
+              aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
+              aria-expanded={isExpanded}
               className={cn(
                 "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95",
                 isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
@@ -94,6 +96,7 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused, scannerResu
             <button
               onClick={(e) => { e.stopPropagation(); onEdit(); }}
               className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95"
+              aria-label="Edit strategy configuration"
               title="Edit Config"
             >
               <Edit3 size={14} />
@@ -104,6 +107,7 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused, scannerResu
                 "p-2 border rounded-lg transition-all active:scale-95",
                 paused ? "bg-green/10 border-green/20 text-green hover:bg-green/20" : "bg-amber/10 border-amber/20 text-amber hover:bg-amber/20"
               )}
+              aria-label={paused ? "Resume strategy session" : "Pause strategy session"}
               title={paused ? "Resume Session" : "Pause Session"}
             >
               {paused ? <Play size={14} fill="currentColor" /> : <Pause size={14} fill="currentColor" />}
@@ -113,7 +117,7 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused, scannerResu
             {fmtUSD(s.totalPnl)}
           </div>
           <div className="text-[10px] text-dim font-bold uppercase tracking-widest mt-1">
-            {s.logs.filter(l => l.msg.includes('Entry')).length} ENTRIES
+            {s.entryCount} ENTRIES
           </div>
         </div>
       </div>
@@ -129,7 +133,7 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused, scannerResu
             <div className="mb-2 mt-4 pt-4 border-t border-border/20">
               <div className="flex justify-between text-[10px] text-dim font-bold tracking-widest mb-2 uppercase">
                 <span className="flex items-center gap-1.5"><ShieldCheck size={12} /> SL GUARD</span>
-                <span className={slPct > 70 ? "text-red" : "text-dim"}>${s.totalSlUsed.toFixed(0)} / ${config.total_sl_guard_usdt}</span>
+                <span className={slPct > 70 ? "text-red" : "text-dim"}>${Number(s.totalSlUsed || 0).toFixed(0)} / ${config.total_sl_guard_usdt}</span>
               </div>
               <div className="h-1.5 bg-border rounded-full overflow-hidden mb-4">
                 <div
@@ -150,7 +154,7 @@ const StrategyCard = ({ s, config, onClick, onPause, onEdit, paused, scannerResu
       </AnimatePresence>
     </motion.div>
   );
-}
+})
 
 const GateBanner = ({ gateState, scannerPaused }) => {
   if (!gateState && !scannerPaused) return null
@@ -225,7 +229,7 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
                       <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={48} height={20} />
                     </div>
                     <em className={cn("text-xs font-bold font-mono w-16 text-right", colorClass)}>
-                      {opp.pct >= 0 ? '+' : ''}{opp.pct.toFixed(2)}%
+                      {opp.pct >= 0 ? '+' : ''}{Number(opp.pct || 0).toFixed(2)}%
                     </em>
                     <b className={cn("text-[10px] font-bold w-12 text-right uppercase tracking-wider", passing ? "text-green" : "text-dim")}>
                       {passing ? 'PASS' : 'WAIT'}
@@ -259,7 +263,9 @@ export function DashboardView() {
   const [showScanner, setShowScanner] = useState(false)
   const [isEditMode, setIsEditMode] = useState(false)
   const [selectedConfig, setSelectedConfig] = useState(null)
-  
+  const [editingVariantIndex, setEditingVariantIndex] = useState(null)
+  const [confirmStop, setConfirmStop] = useState(false)
+
   const {
     sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
     totalSlUsed, activeTrades, config, setSessionActive,
@@ -285,19 +291,30 @@ export function DashboardView() {
     wsStatus: state.wsStatus,
     sidebarCollapsed: state.sidebarCollapsed,
     variantScannerResults: state.variantScannerResults
-  }))
+  }), shallow)
 
-  const logs = useTradingStore(state => state.logs)
+  // BOLT OPTIMIZATION: Select only entry count to avoid Dashboard re-rendering on every log
+  const entryCount = useTradingStore(state => state.logs.filter(l => l.msg.includes('Entry')).length)
+
   const { updateStats, setFocusMode } = useTradingStore(state => ({
     updateStats: state.updateStats,
     setFocusMode: state.setFocusMode
-  }))
+  }), shallow)
 
   const [loading, setLoading] = useState(false)
 
+  useEffect(() => {
+    let timer;
+    if (confirmStop) {
+      timer = setTimeout(() => setConfirmStop(false), 3000);
+    }
+    return () => clearTimeout(timer);
+  }, [confirmStop]);
+
   const currentStrategy = useMemo(() => ({
-    sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, logs
-  }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, logs])
+    sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount,
+    strategy_label: config.strategy_label || 'Momentum Strategy'
+  }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, config.strategy_label])
 
   const maxRR = useMemo(() => activeTrades.reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
 
@@ -317,20 +334,32 @@ export function DashboardView() {
     setLoading(true)
     setShowConfig(false)
     try {
+      let finalConfig = newConfig;
+      if (editingVariantIndex !== null) {
+        const variants = [...(config.strategy_variants || [])];
+        variants[editingVariantIndex] = { ...newConfig, strategy_label: newConfig.strategy_label };
+        finalConfig = { ...config, strategy_variants: variants };
+      }
+
       if (isEditMode && strategyId) {
-        await sessionAPI.update(strategyId, newConfig)
-        updateConfig(newConfig)
+        await sessionAPI.update(strategyId, finalConfig)
+        updateConfig(finalConfig)
       } else {
-        updateConfig(newConfig)
-        const res = await sessionAPI.start(newConfig, newConfig.paper_mode)
+        updateConfig(finalConfig)
+        const res = await sessionAPI.start(finalConfig, finalConfig.paper_mode)
         setSessionActive(true, res.data.strategyId || res.data.strategy_id)
       }
       await fetchSessions()
     } catch (e) {
-      alert(e?.response?.data?.detail || 'Failed to save config')
+      const isNetworkError = e.message === 'Network Error' || e.code === 'ERR_NETWORK';
+      const msg = isNetworkError
+        ? 'Network Error: Failed to reach backend. Check your internet or CORS settings.'
+        : (e?.response?.data?.detail || e?.response?.data?.message || 'Failed to save config');
+      alert(msg)
     } finally {
       setLoading(false)
       setIsEditMode(false)
+      setEditingVariantIndex(null)
     }
   }
 
@@ -342,7 +371,26 @@ export function DashboardView() {
     }
   }
 
+  async function handleResumeLast() {
+    if (sessionList.length === 0) return;
+    const last = sessionList[0];
+    setLoading(true);
+    try {
+      const res = await sessionAPI.start(last.config, last.paperMode, last.id);
+      setSessionActive(true, res.data.strategyId || res.data.strategy_id);
+    } catch (e) {
+      alert('Failed to resume session');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleStop() {
+    if (!confirmStop) {
+      setConfirmStop(true)
+      return
+    }
+
     setLoading(true)
     try {
       await sessionAPI.stop()
@@ -353,6 +401,7 @@ export function DashboardView() {
       await fetchSessions()
     } finally {
       setLoading(false)
+      setConfirmStop(false)
     }
   }
 
@@ -412,12 +461,21 @@ export function DashboardView() {
 
           <div className="flex gap-4">
             {!sessionActive ? (
-              <Btn variant="success" onClick={() => { setIsEditMode(false); setShowConfig(true); }} disabled={loading} className="flex-1 sm:flex-none">
+              <Btn variant="success" onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }} disabled={loading} className="flex-1 sm:flex-none">
                 <Plus size={16} className="mr-2" /> New Session
               </Btn>
             ) : (
-              <Btn variant="danger" onClick={handleStop} disabled={loading} className="flex-1 sm:flex-none">
-                <XCircle size={16} className="mr-2" /> Terminate Session
+              <Btn
+                variant="danger"
+                onClick={handleStop}
+                disabled={loading}
+                aria-label={confirmStop ? "Confirm terminate session" : "Terminate session"}
+                className={cn("flex-1 sm:flex-none transition-all duration-300", confirmStop && "bg-red/80 animate-pulse")}
+              >
+                <XCircle size={16} className="mr-2" />
+                <span aria-live="polite">
+                  {loading ? 'Terminating...' : confirmStop ? 'Confirm?' : 'Terminate Session'}
+                </span>
               </Btn>
             )}
           </div>
@@ -434,8 +492,8 @@ export function DashboardView() {
         >
           <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} />
           <StatCard label="Session P&L" value={fmtUSD(totalPnl)} color={totalPnl >= 0 ? "text-green" : "text-red"} />
-          <StatCard label="Live Risk" value={`${totalRiskPct.toFixed(1)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
-          <StatCard label="Peak RR" value={`+${maxRR.toFixed(2)}`} color="text-accent" />
+          <StatCard label="Live Risk" value={`${Number(totalRiskPct || 0).toFixed(1)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
+          <StatCard label="Peak RR" value={`+${Number(maxRR || 0).toFixed(2)}`} color="text-accent" />
         </motion.div>
 
         {/* Main Grid */}
@@ -465,7 +523,7 @@ export function DashboardView() {
                       config={config}
                       paused={sessionPaused}
                       onPause={togglePause}
-                      onEdit={() => { setIsEditMode(true); setSelectedConfig(config); setShowConfig(true); }}
+                      onEdit={() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }}
                       onClick={() => setSelected(true)}
                     />
                     {(config.strategy_variants || []).filter(v => v.enabled !== false).map((variant, i) => {
@@ -487,7 +545,7 @@ export function DashboardView() {
                           config={variantConfig}
                           paused={sessionPaused}
                           onPause={togglePause}
-                          onEdit={() => { setIsEditMode(true); setSelectedConfig(variantConfig); setShowConfig(true); }}
+                          onEdit={() => { setIsEditMode(true); setSelectedConfig(variantConfig); setEditingVariantIndex(i); setShowConfig(true); }}
                           onClick={() => setSelected(true)}
                         />
                       );
@@ -495,7 +553,7 @@ export function DashboardView() {
                   </>
                 ) : (
                   <button
-                    onClick={() => { setIsEditMode(false); setShowConfig(true); }}
+                    onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
                     className="bg-background border-2 border-dashed border-border rounded-2xl p-10 flex flex-col items-center justify-center gap-4 text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all group h-[256px]"
                   >
                     <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
@@ -509,11 +567,25 @@ export function DashboardView() {
                   .filter(s => s.id !== strategyId)
                   .slice(0, 1)
                   .map(s => (
-                  <div key={s.id} className="bg-surface/40 border border-border/60 rounded-2xl p-6 flex flex-col gap-6 opacity-80 h-[256px]">
-                     <div className="flex justify-between items-start">
+                  <div key={s.id} className="bg-surface/40 border border-border/60 rounded-2xl p-6 flex flex-col gap-6 opacity-90 h-[256px] relative group/prev">
+                    {!sessionActive && (
+                      <div className="absolute inset-0 bg-accent/5 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center opacity-0 group-hover/prev:opacity-100 transition-opacity">
+                        <button
+                          onClick={handleResumeLast}
+                          disabled={loading}
+                          className="bg-accent text-white px-6 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-xl active:scale-95 transition-transform"
+                        >
+                          <RefreshCw size={14} className={cn(loading && "animate-spin")} /> Resume Session
+                        </button>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-start">
                       <div>
                         <div className="text-[10px] text-dim font-bold tracking-widest uppercase mb-2">Previous Session</div>
-                        <div className="text-base font-bold">{s.config?.scan_interval} Momentum</div>
+                        <div className="text-base font-bold">{s.config?.strategy_label || 'Momentum Strategy'}</div>
+                        <div className="text-[10px] text-dim font-bold uppercase mt-1 tracking-tight">
+                          {s.config?.scan_interval} · {s.config?.scan_pct_threshold}% threshold
+                        </div>
                       </div>
                       <div className="text-right">
                         <div className={cn("text-xl font-bold font-mono", s.totalPnl >= 0 ? "text-green" : "text-red")}>
@@ -521,8 +593,11 @@ export function DashboardView() {
                         </div>
                       </div>
                     </div>
-                    <div className="mt-auto pt-5 border-t border-border/20 flex justify-between items-center">
-                      <span className="text-[10px] text-dim font-bold font-mono">ID: {s.id.substring(0, 8)}</span>
+                    <div className="mt-auto pt-5 border-t border-border/20 flex justify-between items-center relative z-20">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-dim font-bold font-mono">ID: {s.id.substring(0, 8)}</span>
+                        <CopyButton value={s.id} className="p-1" />
+                      </div>
                       <button
                         onClick={async () => { if(confirm('Delete?')) { setLoading(true); await sessionAPI.delete(s.id); await fetchSessions(); setLoading(false); }}}
                         aria-label="Delete session history"
@@ -634,6 +709,8 @@ export function DashboardView() {
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
           onClick={() => setShowScanner(true)}
+          aria-label="Open Market Scanner"
+          title="Open Market Scanner"
           className="lg:hidden fixed bottom-24 right-6 w-16 h-16 rounded-full bg-accent text-white shadow-2xl flex items-center justify-center z-40 animate-in fade-in zoom-in duration-500"
         >
           <Zap size={28} />

@@ -34,14 +34,16 @@ const Toggle = ({ value, onChange, label, color = "bg-accent" }) => (
   </label>
 )
 
-const Chip = ({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10" }) => (
+const Chip = ({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10", ...props }) => (
   <button
     type="button"
     onClick={onClick}
+    aria-pressed={active}
     className={cn(
       "px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all",
       active ? activeClass : "border-border text-dim hover:border-dim/50"
     )}
+    {...props}
   >
     {children}
   </button>
@@ -53,6 +55,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
   const [presets, setPresets] = useState([])
   const [presetName, setPresetName] = useState('')
   const [errors, setErrors] = useState({})
+  const [saveSuccess, setSaveSuccess] = useState(false)
 
   const validate = (currentCfg) => {
     const errs = {}
@@ -161,6 +164,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     setPresets(next)
     localStorage.setItem('strategy_presets', JSON.stringify(next))
     setPresetName('')
+    setSaveSuccess(true)
+    setTimeout(() => setSaveSuccess(false), 2000)
   }
 
   const loadPreset = (p) => {
@@ -235,12 +240,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
       <div className="flex flex-col gap-1.5">
         <div className="flex justify-between items-center">
           <label htmlFor={id} className="text-[10px] text-dim font-bold tracking-widest uppercase">{label}</label>
-          {hasError && <span className="text-[9px] text-red font-bold uppercase">{errors[key]}</span>}
+          {hasError && <span id={`${id}-error`} role="alert" className="text-[9px] text-red font-bold uppercase">{errors[key]}</span>}
         </div>
         {opts ? (
           <select
             id={id}
             value={val ?? ''}
+            aria-invalid={hasError}
+            aria-describedby={hasError ? `${id}-error` : undefined}
             onChange={(e) => onChange(e.target.value)}
             className={cn(
               "bg-surface border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent transition-colors",
@@ -254,6 +261,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
             id={id}
             type={type}
             value={val ?? ''}
+            aria-invalid={hasError}
+            aria-describedby={hasError ? `${id}-error` : undefined}
             min={attrs.min}
             max={attrs.max}
             step={attrs.step}
@@ -319,6 +328,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
           ['risk', 'Risk'],
           ['schedule', 'Schedule'],
           ['mode', 'Mode'],
+          ['performance', 'Performance'],
           ['presets', 'Presets'],
         ].map(([id, label]) => (
           <Chip key={id} active={section === id} onClick={() => setSection(id)}>{label}</Chip>
@@ -420,6 +430,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                     }
                     setSymbolSearch('')
                   }}
+                  aria-label="Add symbol monitor"
+                  title="Add symbol monitor"
                   className="px-4"
                 >
                   <Plus size={18} />
@@ -466,12 +478,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                         <div className="flex items-center gap-1">
                           <button
                             onClick={() => setEditingSingleSymbolIndex(editingSingleSymbolIndex === i ? null : i)}
+                            aria-label={editingSingleSymbolIndex === i ? "Close symbol settings" : "Open symbol settings"}
+                            aria-expanded={editingSingleSymbolIndex === i}
+                            title="Symbol Settings"
                             className={cn("p-2 rounded-lg transition-colors", editingSingleSymbolIndex === i ? "bg-accent/20 text-accent" : "text-dim hover:bg-white/5 hover:text-text")}
                           >
                             <Settings2 size={16} />
                           </button>
                           <button
                             onClick={() => setField('single_symbol_configs', cfg.single_symbol_configs.filter((_, idx) => idx !== i))}
+                            aria-label={`Delete monitor for ${sc.symbol}`}
+                            title="Delete Monitor"
                             className="p-2 text-dim hover:text-red transition-colors"
                           >
                             <Trash2 size={16} />
@@ -700,20 +717,28 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
               ) : (
                 <div className="space-y-3">
                   {sequence.map(([trigger, exit], i) => (
-                    <div key={i} className="flex items-center gap-3 p-3 bg-background rounded-lg border border-border">
-                      <span className="text-[11px] text-dim font-bold w-4">{i + 1}</span>
-                      <div className="flex-1 flex flex-col gap-1">
-                        <span className="text-[9px] text-dim uppercase font-bold">Trigger RR</span>
-                        <input type="number" value={trigger} min="0.5" step="0.5" onChange={(e) => updateSequence(i, 0, e.target.value)} className="bg-surface border border-border rounded px-2 py-1 text-xs font-mono" />
+                    <div key={i} className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 bg-background rounded-lg border border-border">
+                      <div className="flex items-center justify-between sm:justify-start gap-3">
+                        <span className="text-[11px] text-dim font-bold w-4">{i + 1}</span>
+                        <div className="flex-1 sm:hidden text-center text-xs font-bold font-mono px-2 py-1 bg-surface border border-border rounded">
+                          {exit === 0 ? 'BE' : `${exit}R`}
+                        </div>
+                        <button onClick={() => removeStep(i)} className="sm:hidden text-red/60 hover:text-red p-1"><Trash2 size={16} /></button>
                       </div>
-                      <div className="flex-1 flex flex-col gap-1">
-                        <span className="text-[9px] text-dim uppercase font-bold">Exit RR</span>
-                        <input type="number" value={exit} min="-1" step="0.5" onChange={(e) => updateSequence(i, 1, e.target.value)} className="bg-surface border border-border rounded px-2 py-1 text-xs font-mono" />
+                      <div className="flex gap-2 flex-1">
+                        <div className="flex-1 flex flex-col gap-1">
+                          <span className="text-[9px] text-dim uppercase font-bold">Trigger RR</span>
+                          <input type="number" value={trigger} min="0.5" step="0.5" onChange={(e) => updateSequence(i, 0, e.target.value)} className="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-accent" />
+                        </div>
+                        <div className="flex-1 flex flex-col gap-1">
+                          <span className="text-[9px] text-dim uppercase font-bold">Exit RR</span>
+                          <input type="number" value={exit} min="-1" step="0.5" onChange={(e) => updateSequence(i, 1, e.target.value)} className="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-accent" />
+                        </div>
                       </div>
-                      <div className="w-10 text-center text-xs font-bold font-mono">
+                      <div className="hidden sm:block w-12 text-center text-xs font-bold font-mono">
                         {exit === 0 ? 'BE' : `${exit}R`}
                       </div>
-                      <button onClick={() => removeStep(i)} className="text-red/60 hover:text-red p-1"><Trash2 size={16} /></button>
+                      <button onClick={() => removeStep(i)} className="hidden sm:block text-red/60 hover:text-red p-1"><Trash2 size={16} /></button>
                     </div>
                   ))}
                   <button onClick={addStep} className="w-full py-2 border border-dashed border-border rounded-lg text-[11px] font-bold text-dim hover:text-accent hover:border-accent transition-all flex items-center justify-center gap-1.5">
@@ -756,15 +781,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
             <div className="grid grid-cols-3 gap-3 p-4 bg-background rounded-xl border border-border">
               <div className="flex flex-col gap-1">
                 <span className="text-[9px] text-dim uppercase font-bold">Risk amount</span>
-                <span className="text-sm font-bold font-mono text-amber">${riskAmount.toFixed(2)}</span>
+                <span className="text-sm font-bold font-mono text-amber">${Number(riskAmount || 0).toFixed(2)}</span>
               </div>
               <div className="flex flex-col gap-1">
                 <span className="text-[9px] text-dim uppercase font-bold">SL @ $100</span>
-                <span className="text-sm font-bold font-mono text-red">{slDistance.toFixed(2)}</span>
+                <span className="text-sm font-bold font-mono text-red">{Number(slDistance || 0).toFixed(2)}</span>
               </div>
               <div className="flex flex-col gap-1 text-right">
                 <span className="text-[9px] text-dim uppercase font-bold">Est. qty</span>
-                <span className="text-sm font-bold font-mono text-accent">{estimatedQty.toFixed(1)}</span>
+                <span className="text-sm font-bold font-mono text-accent">{Number(estimatedQty || 0).toFixed(1)}</span>
               </div>
             </div>
 
@@ -821,7 +846,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                              setField('trading_windows', next);
                           }} className="bg-surface border border-border rounded px-2 py-1 text-xs font-mono" />
                        </div>
-                       <button onClick={() => setField('trading_windows', cfg.trading_windows.filter((_, idx) => idx !== i))} className="text-red/60 hover:text-red p-2">
+                       <button
+                         onClick={() => setField('trading_windows', cfg.trading_windows.filter((_, idx) => idx !== i))}
+                         aria-label={`Delete trading window ${w.start} to ${w.end}`}
+                         title="Delete Window"
+                         className="text-red/60 hover:text-red p-2"
+                        >
                           <Trash2 size={16} />
                        </button>
                     </div>
@@ -831,6 +861,32 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
             <p className="text-[10px] text-dim/60 leading-relaxed italic">
                Note: System will enter 'Sleep Mode' outside these windows if no positions are open, reducing API consumption and CPU usage.
             </p>
+          </div>
+        )}
+
+        {section === 'performance' && (
+          <div className="space-y-6">
+            <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Engine Optimization</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {field('Hot Loop (ms)', 'hot_loop_interval_ms', 'number', null, { min: 500, step: 100 })}
+              {field('Main Loop (ms)', 'main_loop_interval_ms', 'number', null, { min: 1000, step: 100 })}
+            </div>
+            <div className="p-4 bg-background border border-border rounded-xl space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-bold">Debug Mode</div>
+                  <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Verbose backend logging</div>
+                </div>
+                <Toggle
+                  value={cfg.debug_mode === true}
+                  onChange={(v) => setField('debug_mode', v)}
+                  color="bg-amber"
+                />
+              </div>
+              <p className="text-[10px] text-dim/60 italic leading-relaxed">
+                * Note: Increasing loop intervals drastically reduces Railway resource usage and API weight. Default is 2000ms/5000ms.
+              </p>
+            </div>
           </div>
         )}
 
@@ -849,9 +905,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                 <button
                   onClick={savePreset}
                   disabled={!presetName && !generatedPresetName}
-                  className="bg-accent/10 border border-accent/20 text-accent px-4 py-2 rounded-md hover:bg-accent/20 disabled:opacity-50 transition-colors"
+                  aria-label="Save current configuration as preset"
+                  title="Save Preset"
+                  className={cn(
+                    "px-4 py-2 rounded-md disabled:opacity-50 transition-all duration-300",
+                    saveSuccess
+                      ? "bg-green/20 border border-green/40 text-green"
+                      : "bg-accent/10 border border-accent/20 text-accent hover:bg-accent/20"
+                  )}
                 >
-                  <Save size={18} />
+                  {saveSuccess ? <CheckCircle2 size={18} className="animate-in zoom-in duration-300" /> : <Save size={18} />}
                 </button>
               </div>
             </div>
@@ -898,6 +961,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                         </button>
                         <button
                           onClick={(e) => deletePreset(e, p.name)}
+                          aria-label={`Delete preset ${p.name}`}
+                          title="Delete Preset"
                           className="p-2 text-dim hover:text-red transition-colors opacity-0 group-hover:opacity-100"
                         >
                           <Trash2 size={16} />
@@ -970,9 +1035,48 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
       <div className="p-5 border-t border-border bg-surface flex gap-3 shrink-0">
         <Btn variant="ghost" onClick={onClose} className="flex-1">Cancel</Btn>
         <Btn variant="primary" onClick={() => {
-          if (!validate(cfg)) {
-             // Find the first section with an error and switch to it
-             const firstErrorKey = Object.keys(errors)[0];
+          const errs = {}
+
+          // Scan Section
+          if (!cfg.scan_interval) errs.scan_interval = 'Required'
+          if (cfg.scan_lookback < 1) errs.scan_lookback = 'Min 1'
+          if (cfg.scan_mode === 'active_window') {
+            if (!cfg.scan_window_duration_sec) errs.scan_window_duration_sec = 'Required'
+            if (!cfg.scan_check_interval_sec) errs.scan_check_interval_sec = 'Required'
+          }
+
+          // Signals Section
+          const allEnabled = [...(cfg.enabled_signals || []), ...(cfg.exit_signals || [])]
+          if (allEnabled.includes('ma') && !cfg.signal_params_ma_period) errs.signal_params_ma_period = 'Required'
+          if (allEnabled.includes('ema_close') || allEnabled.includes('ema_price_cross')) {
+            if (!cfg.signal_params_entry_ema_period) errs.signal_params_entry_ema_period = 'Required'
+            if (cfg.exit_signals?.includes('ema_close') && !cfg.signal_params_exit_ema_period) errs.signal_params_exit_ema_period = 'Required'
+          }
+          if (allEnabled.includes('ema_dual_cross')) {
+            if (!cfg.signal_params_entry_ema_fast) errs.signal_params_entry_ema_fast = 'Required'
+            if (!cfg.signal_params_entry_ema_slow) errs.signal_params_entry_ema_slow = 'Required'
+            if (cfg.signal_params_entry_ema_fast >= cfg.signal_params_entry_ema_slow) {
+              errs.signal_params_entry_ema_fast = 'Must be < slow'
+            }
+          }
+
+          // Exit Section
+          if (cfg.sl_type === 'lookback_low/high') {
+            if (!cfg.sl_lookback_period) errs.sl_lookback_period = 'Required'
+          }
+          if (cfg.tp_mode === 'exp_rr_seq') {
+            if (!cfg.live_rr_sequence?.length) errs.tp_mode = 'Sequence required'
+          }
+
+          // Risk Section
+          if (cfg.risk_pct_per_trade > cfg.max_total_risk_pct) {
+            errs.risk_pct_per_trade = 'Exceeds max total risk'
+          }
+
+          setErrors(errs)
+
+          if (Object.keys(errs).length > 0) {
+             const firstErrorKey = Object.keys(errs)[0];
              if (firstErrorKey) {
                 if (['scan_interval', 'scan_lookback', 'scan_window_duration_sec', 'scan_check_interval_sec'].includes(firstErrorKey)) setSection('scan');
                 else if (firstErrorKey.startsWith('signal_params')) setSection('signals');

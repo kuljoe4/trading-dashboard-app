@@ -1,5 +1,5 @@
-import React, { useId, useMemo } from 'react';
-import { fmtUSD } from '../lib/theme';
+import React, { useId, useMemo, useState, useRef, useEffect } from 'react';
+import { fmtUSD, solveSmoothing } from '../lib/theme';
 import { cn } from '../components/ui/primitives';
 
 const downsample = (data, threshold = 100) => {
@@ -19,37 +19,62 @@ const downsample = (data, threshold = 100) => {
 export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) => {
   const gradientId = useId().replace(/:/g, '')
   const glowId = `${gradientId}-glow`
-  const points = useMemo(() => {
+  const containerRef = useRef(null);
+  const [hoverData, setHoverData] = useState(null);
+
+  const { points, viewMin, viewMax, viewRange } = useMemo(() => {
     const downsampled = downsample(data);
-    if (!downsampled || downsampled.length < 2) return [];
+    if (!downsampled || downsampled.length < 2) return { points: [], viewMin: 0, viewMax: 0.1, viewRange: 0.1 };
 
     const values = downsampled.map(d => d.pnl);
     const min = Math.min(0, ...values);
     const max = Math.max(0.1, ...values);
     const range = max - min;
-    const padding = range * 0.1;
+    const padding = range * 0.15; // Slightly more padding
 
-    const viewMin = min - padding;
-    const viewMax = max + padding;
-    const viewRange = viewMax - viewMin;
+    const vMin = min - padding;
+    const vMax = max + padding;
+    const vRange = vMax - vMin;
 
-    return downsampled.map((d, i) => {
+    const pts = downsampled.map((d, i) => {
       const x = (i / (downsampled.length - 1)) * 100;
-      const y = 100 - ((d.pnl - viewMin) / viewRange) * 100;
-      return { x, y, pnl: d.pnl };
+      const y = 100 - ((d.pnl - vMin) / vRange) * 100;
+      return { x, y, pnl: d.pnl, ts: d.ts };
     });
+
+    return { points: pts, viewMin: vMin, viewMax: vMax, viewRange: vRange };
   }, [data]);
 
-  const drawdownSegments = useMemo(() => {
-    if (!colorDrawdown || points.length < 2) return [];
-    let peak = points[0]?.pnl ?? 0;
-    return points.slice(1).map((point, index) => {
-      peak = Math.max(peak, points[index].pnl);
-      const previous = points[index];
-      const inDrawdown = point.pnl < peak || previous.pnl < peak;
-      return { previous, point, inDrawdown };
-    });
-  }, [colorDrawdown, points]);
+  const pathD = useMemo(() => solveSmoothing(points), [points]);
+
+  const zeroY = useMemo(() => {
+    return 100 - ((0 - viewMin) / viewRange) * 100;
+  }, [viewMin, viewRange]);
+
+  const areaAboveD = points.length >= 2 ? `${pathD} L 100 ${zeroY} L 0 ${zeroY} Z` : '';
+  const areaBelowD = points.length >= 2 ? `${pathD} L 100 ${zeroY} L 0 ${zeroY} Z` : '';
+
+  const handleMouseMove = (e) => {
+    if (!containerRef.current || points.length < 2) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const xPct = ((e.clientX - rect.left) / rect.width) * 100;
+
+    // Find closest point
+    let closest = points[0];
+    let minDiff = Math.abs(points[0].x - xPct);
+
+    for (const p of points) {
+      const diff = Math.abs(p.x - xPct);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = p;
+      }
+    }
+
+    setHoverData({ ...closest, clientX: e.clientX, clientY: rect.top + (closest.y * rect.height / 100) });
+  };
+
+  const handleMouseLeave = () => setHoverData(null);
 
   if (data.length < 2) {
     return (
@@ -59,16 +84,31 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
     );
   }
 
-  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-  const areaD = `${pathD} L 100 100 L 0 100 Z`;
-
   return (
-    <div className="relative group" role="img" aria-label={`Cumulative profit and loss chart, latest value ${fmtUSD(data[data.length-1].pnl)}.`}>
+    <div
+      ref={containerRef}
+      className="relative group cursor-crosshair select-none"
+      role="img"
+      aria-label={`Cumulative profit and loss chart, latest value ${fmtUSD(data[data.length-1].pnl)}.`}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+    >
       <div className="absolute top-2 left-2 flex flex-col gap-0.5 z-10 pointer-events-none">
         <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Cumulative P&L</span>
         <span className={cn("text-lg font-bold font-mono tracking-tighter", data[data.length-1].pnl >= 0 ? "text-green" : "text-red")}>
-          {fmtUSD(data[data.length-1].pnl)}
+          {fmtUSD(hoverData ? hoverData.pnl : data[data.length-1].pnl)}
         </span>
+        {hoverData?.ts && (
+          <span className="text-[8px] text-dim font-mono uppercase">
+            {new Date(hoverData.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          </span>
+        )}
+      </div>
+
+      <div className="absolute top-2 right-2 flex flex-col items-end gap-1 z-10 pointer-events-none opacity-40">
+        <span className="text-[8px] text-dim font-mono">{fmtUSD(viewMax)}</span>
+        <div className="h-20" />
+        <span className="text-[8px] text-dim font-mono">{fmtUSD(viewMin)}</span>
       </div>
 
       <svg
@@ -78,67 +118,94 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
         style={{ height: `${height}px` }}
       >
         <defs>
-          <linearGradient id={`${gradientId}-area`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.32" />
-            <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+          <linearGradient id={`${gradientId}-area-above`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--green)" stopOpacity="0.15" />
+            <stop offset="100%" stopColor="var(--green)" stopOpacity="0" />
           </linearGradient>
+          <linearGradient id={`${gradientId}-area-below`} x1="0" y1="1" x2="0" y2="0">
+            <stop offset="0%" stopColor="var(--red)" stopOpacity="0.15" />
+            <stop offset="100%" stopColor="var(--red)" stopOpacity="0" />
+          </linearGradient>
+
+          <clipPath id={`${gradientId}-clip-above`}>
+            <rect x="0" y="0" width="100" height={zeroY} />
+          </clipPath>
+          <clipPath id={`${gradientId}-clip-below`}>
+            <rect x="0" y={zeroY} width="100" height={100 - zeroY} />
+          </clipPath>
+
           <filter id={glowId}>
-            <feGaussianBlur stdDeviation="1.5" result="blur" />
+            <feGaussianBlur stdDeviation="2" result="blur" />
             <feComposite in="SourceGraphic" in2="blur" operator="over" />
           </filter>
         </defs>
 
-        <line x1="0" y1="25" x2="100" y2="25" stroke="currentColor" className="text-border/70" strokeWidth="0.25" strokeDasharray="1,3" />
-        <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" className="text-border/70" strokeWidth="0.25" strokeDasharray="1,3" />
-        <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" className="text-border/70" strokeWidth="0.25" strokeDasharray="1,3" />
+        {/* Grid Lines */}
+        <line x1="0" y1="25" x2="100" y2="25" stroke="currentColor" className="text-border/20" strokeWidth="0.15" />
+        <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" className="text-border/20" strokeWidth="0.15" />
+        <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" className="text-border/20" strokeWidth="0.15" />
 
-        {/* Baseline (0 PnL) */}
-        {(() => {
-           const values = data.map(d => d.pnl);
-           const min = Math.min(0, ...values);
-           const max = Math.max(0.1, ...values);
-           const padding = (max - min) * 0.1;
-           const viewMin = min - padding;
-           const viewMax = max + padding;
-           const zeroY = 100 - ((0 - viewMin) / (viewMax - viewMin)) * 100;
-           return <line x1="0" y1={zeroY} x2="100" y2={zeroY} stroke="currentColor" className="text-border" strokeWidth="0.5" strokeDasharray="2,2" />;
-        })()}
+        {/* Zero Baseline */}
+        <line x1="0" y1={zeroY} x2="100" y2={zeroY} stroke="currentColor" className="text-border/60" strokeWidth="0.5" strokeDasharray="1,2" />
 
-        <path d={areaD} fill={`url(#${gradientId}-area)`} />
-        {colorDrawdown ? (
-          drawdownSegments.map(({ previous, point, inDrawdown }, index) => (
-            <path
-              key={index}
-              d={`M ${previous.x} ${previous.y} L ${point.x} ${point.y}`}
-              fill="none"
-              stroke={inDrawdown ? "var(--color-red)" : "var(--color-green)"}
-              strokeWidth="2.25"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              filter={`url(#${glowId})`}
+        {/* Areas */}
+        <path d={areaAboveD} fill={`url(#${gradientId}-area-above)`} clipPath={`url(#${gradientId}-clip-above)`} className="transition-all duration-700" />
+        <path d={areaBelowD} fill={`url(#${gradientId}-area-below)`} clipPath={`url(#${gradientId}-clip-below)`} className="transition-all duration-700" />
+
+        {/* Main Line - Positive */}
+        <path
+          d={pathD}
+          fill="none"
+          stroke="var(--green)"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          clipPath={`url(#${gradientId}-clip-above)`}
+          filter={`url(#${glowId})`}
+          className="transition-all duration-700"
+        />
+
+        {/* Main Line - Negative */}
+        <path
+          d={pathD}
+          fill="none"
+          stroke="var(--red)"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          clipPath={`url(#${gradientId}-clip-below)`}
+          filter={`url(#${glowId})`}
+          className="transition-all duration-700"
+        />
+
+        {/* Interaction Crosshair */}
+        {hoverData && (
+          <g>
+            <line
+              x1={hoverData.x} y1="0" x2={hoverData.x} y2="100"
+              stroke="var(--accent)" strokeWidth="0.5" strokeDasharray="2,2" className="opacity-50"
             />
-          ))
-        ) : (
-          <path
-            d={pathD}
-            fill="none"
-            stroke="var(--accent)"
-            strokeWidth="2.25"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            filter={`url(#${glowId})`}
-            className="transition-all duration-500"
-          />
+            <circle
+              cx={hoverData.x}
+              cy={hoverData.y}
+              r="2.5"
+              fill="var(--accent)"
+              filter={`url(#${glowId})`}
+              className="animate-pulse"
+            />
+          </g>
         )}
 
-        {/* Current Value Dot */}
-        <circle
-          cx={points[points.length-1].x}
-          cy={points[points.length-1].y}
-          r="2"
-          fill="var(--accent)"
-          filter={`url(#${glowId})`}
-        />
+        {/* Current Value Dot (if not hovering) */}
+        {!hoverData && points.length > 0 && (
+          <circle
+            cx={points[points.length-1].x}
+            cy={points[points.length-1].y}
+            r="2"
+            fill="var(--accent)"
+            filter={`url(#${glowId})`}
+          />
+        )}
       </svg>
     </div>
   );
@@ -148,13 +215,13 @@ export const TODPerformance = ({ data = [] }) => {
   const maxPnl = Math.max(1, ...data.map(d => Math.abs(d.pnl)));
 
   return (
-    <div className="space-y-4" role="region" aria-label="Time of day performance histogram">
+    <div className="space-y-6" role="region" aria-label="Time of day performance histogram">
       <div className="flex items-center justify-between">
-        <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Time-of-Day Performance</span>
+        <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Time-of-Day Performance (Local)</span>
         <div className="flex gap-4" aria-hidden="true">
           <div className="flex items-center gap-1.5">
              <div className="w-1.5 h-1.5 rounded-full bg-green" />
-             <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Win</span>
+             <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Profit</span>
           </div>
           <div className="flex items-center gap-1.5">
              <div className="w-1.5 h-1.5 rounded-full bg-red" />
@@ -163,28 +230,47 @@ export const TODPerformance = ({ data = [] }) => {
         </div>
       </div>
 
-      <div className="flex items-end justify-between gap-1 h-[100px]">
+      <div className="relative h-[120px] flex items-center justify-between gap-0.5">
+        {/* Zero baseline */}
+        <div className="absolute left-0 right-0 h-px bg-border/40 z-0 top-1/2" />
+
         {data.map((h) => {
-          const height = (Math.abs(h.pnl) / maxPnl) * 100;
+          const isPos = h.pnl >= 0;
+          const absPnl = Math.abs(h.pnl);
+          // Non-linear scaling to ensure small but non-zero values are visible
+          // We use square root scaling for the height calculation
+          const scaleFactor = Math.sqrt(absPnl) / Math.sqrt(maxPnl);
+          const heightPct = absPnl === 0 ? 0 : Math.max(6, scaleFactor * 50);
+
           return (
-            <div key={h.hour} className="flex-1 flex flex-col items-center gap-1.5 group relative">
-              <div
-                role="img"
-                aria-label={`${h.hour}:00 hour, ${h.pnl >= 0 ? 'positive' : 'negative'} performance, ${fmtUSD(h.pnl)} PnL, ${h.winRate.toFixed(0)}% win rate over ${h.total} trades`}
-                className={cn(
-                  "w-full rounded-t-sm transition-all duration-300 hover:opacity-80",
-                  h.pnl >= 0 ? "bg-green/40 border-t border-green/60" : "bg-red/40 border-t border-red/60"
-                )}
-                style={{ height: `${Math.max(4, height)}%` }}
-              >
-                {/* Tooltip */}
-                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-surface border border-border p-2 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none min-w-[80px]" aria-hidden="true">
-                   <div className="text-[8px] text-dim font-bold uppercase tracking-widest mb-1">{h.hour}:00</div>
-                   <div className={cn("text-[10px] font-mono font-bold", h.pnl >= 0 ? "text-green" : "text-red")}>{fmtUSD(h.pnl)}</div>
-                   <div className="text-[9px] text-dim font-mono">{h.winRate.toFixed(0)}% WR ({h.wins}/{h.total})</div>
+            <div key={h.hour} className="flex-1 h-full flex flex-col group relative z-10">
+              <div className="flex-1 relative">
+                <div
+                  role="img"
+                  aria-label={`${h.hour}:00, ${isPos ? 'positive' : 'negative'} performance, ${fmtUSD(h.pnl)} PnL, ${Number(h.winRate || 0).toFixed(0)}% win rate`}
+                  className={cn(
+                    "absolute left-0 right-0 transition-all duration-300 hover:opacity-100 opacity-60",
+                    isPos
+                      ? "bg-green border-t border-green/40 rounded-t-[2px]"
+                      : "bg-red border-b border-red/40 rounded-b-[2px]"
+                  )}
+                  style={{
+                    height: `${heightPct}%`,
+                    [isPos ? 'bottom' : 'top']: '50%'
+                  }}
+                >
+                  {/* Tooltip */}
+                  <div className={cn(
+                    "absolute left-1/2 -translate-x-1/2 bg-surface border border-border p-2 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none min-w-[80px]",
+                    isPos ? "bottom-full mb-2" : "top-full mt-2"
+                  )} aria-hidden="true">
+                     <div className="text-[8px] text-dim font-bold uppercase tracking-widest mb-1">{h.hour}:00</div>
+                     <div className={cn("text-[10px] font-mono font-bold", isPos ? "text-green" : "text-red")}>{fmtUSD(h.pnl)}</div>
+                     <div className="text-[9px] text-dim font-mono">{Number(h.winRate || 0).toFixed(0)}% WR ({h.wins}/{h.total})</div>
+                  </div>
                 </div>
               </div>
-              <span className="text-[8px] text-dim font-mono font-bold">{h.hour}</span>
+              <span className="text-[7px] text-dim font-mono font-bold text-center mt-auto py-1">{h.hour}</span>
             </div>
           );
         })}

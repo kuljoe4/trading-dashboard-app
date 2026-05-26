@@ -6,6 +6,7 @@ import { Session } from './models/entities/Session.entity';
 import { TradeEntity } from './models/entities/Trade.entity';
 import { Settings } from './models/entities/Settings.entity';
 import { Log } from './models/entities/Log.entity';
+import { BalanceHistory } from './models/entities/BalanceHistory.entity';
 
 @Module({
   imports: [
@@ -18,7 +19,7 @@ import { Log } from './models/entities/Log.entity';
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
         url: configService.get<string>('DATABASE_URL'),
-        entities: [Session, TradeEntity, Settings, Log],
+        entities: [Session, TradeEntity, Settings, Log, BalanceHistory],
         synchronize: configService.get<string>('NODE_ENV') !== 'production', // Disable sync in production for safety
         ssl: configService.get<string>('NODE_ENV') === 'production' ? { rejectUnauthorized: false } : false,
       }),

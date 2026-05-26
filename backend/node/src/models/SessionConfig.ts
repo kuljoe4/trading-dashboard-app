@@ -1,8 +1,9 @@
-import { IsString, IsNumber, IsOptional, IsEnum, IsArray, IsBoolean, Min, Max, IsObject, ValidateNested } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsEnum, IsArray, IsBoolean, Min, Max, IsObject, ValidateNested, MaxLength, ArrayMaxSize } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class SingleSymbolConfig {
   @IsString()
+  @MaxLength(20)
   symbol: string = "";
 
   @IsBoolean()
@@ -27,10 +28,14 @@ export class SingleSymbolConfig {
 export class SessionConfig {
   @IsString()
   @IsOptional()
+  @MaxLength(100)
   strategy_label?: string = "Momentum Strategy";
 
   @IsArray()
   @IsOptional()
+  @ArrayMaxSize(10)
+  @ValidateNested({ each: true })
+  @Type(() => SessionConfig)
   strategy_variants?: Partial<SessionConfig>[] = [];
 
   @IsBoolean()
@@ -39,12 +44,14 @@ export class SessionConfig {
 
   @IsArray()
   @IsOptional()
+  @ArrayMaxSize(100)
   @ValidateNested({ each: true })
   @Type(() => SingleSymbolConfig)
   single_symbol_configs: SingleSymbolConfig[] = [];
 
   @IsString()
   @IsOptional()
+  @MaxLength(10)
   scan_interval: string = "5m";
 
   @IsNumber()
@@ -89,16 +96,19 @@ export class SessionConfig {
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
+  @ArrayMaxSize(100)
   excluded_symbols?: string[];
 
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
+  @ArrayMaxSize(100)
   symbols?: string[];
 
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
+  @ArrayMaxSize(20)
   enabled_signals?: string[] = ['momentum_pct'];
 
   @IsEnum(['any', 'all'])
@@ -107,6 +117,7 @@ export class SessionConfig {
 
   @IsString()
   @IsOptional()
+  @MaxLength(2000)
   signal_params?: string;
 
   // Stop Loss Configuration
@@ -127,6 +138,7 @@ export class SessionConfig {
 
   @IsString()
   @IsOptional()
+  @MaxLength(10)
   sl_lookback_timeframe?: string = "5m";
 
   @IsNumber()
@@ -157,17 +169,20 @@ export class SessionConfig {
   @IsArray()
   @IsNumber({}, { each: true })
   @IsOptional()
+  @ArrayMaxSize(10)
   live_rr_sequence?: number[] = [1.0, 2.0, 4.0];
 
   @IsArray()
   @IsNumber({}, { each: true })
   @IsOptional()
+  @ArrayMaxSize(10)
   exit_rr_sequence?: number[] = [0.0, 1.0, 2.0];
 
   // Exit Signal Configuration - ANY exit signal fires close
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
+  @ArrayMaxSize(20)
   exit_signals?: string[] = [];
 
   @IsEnum(['any', 'all'])
@@ -243,6 +258,7 @@ export class SessionConfig {
   // Schedule & Advanced Risk
   @IsArray()
   @IsOptional()
+  @ArrayMaxSize(10)
   @IsObject({ each: true })
   trading_windows?: { start: string; end: string }[] = [];
 
@@ -253,4 +269,19 @@ export class SessionConfig {
   @IsNumber()
   @IsOptional()
   tod_min_winrate?: number = 40.0;
+
+  // Performance & Debug
+  @IsNumber()
+  @IsOptional()
+  @Min(500)
+  hot_loop_interval_ms?: number = 2000;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(1000)
+  main_loop_interval_ms?: number = 5000;
+
+  @IsBoolean()
+  @IsOptional()
+  debug_mode?: boolean = false;
 }

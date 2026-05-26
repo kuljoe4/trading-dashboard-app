@@ -1,7 +1,8 @@
-import { Controller, Post, Get, Body, Patch, Delete, Param } from '@nestjs/common';
+import { Controller, Post, Get, Body, Patch, Delete, Param, ParseUUIDPipe, Query, BadRequestException } from '@nestjs/common';
 import { SessionService } from './session.service';
 import { SessionConfig } from '../models/SessionConfig';
 import { StartSessionDto, UpdateSessionDto } from './dto/session.dto';
+import { PauseSessionDto } from './dto/pause-session.dto';
 
 @Controller('session')
 export class SessionController {
@@ -37,7 +38,7 @@ export class SessionController {
   }
 
   @Patch(':id')
-  async updateSession(@Param('id') id: string, @Body() body: UpdateSessionDto) {
+  async updateSession(@Param('id', ParseUUIDPipe) id: string, @Body() body: UpdateSessionDto) {
     const config = Object.assign(new SessionConfig(), body.config);
     
     // Parse signal_params if it's a JSON string
@@ -53,12 +54,12 @@ export class SessionController {
   }
 
   @Post('pause')
-  async pauseSession(@Body() body: { paused: boolean }) {
+  async pauseSession(@Body() body: PauseSessionDto) {
     return this.sessionService.pauseSession(body.paused);
   }
 
   @Delete(':id')
-  async deleteSession(@Param('id') id: string) {
+  async deleteSession(@Param('id', ParseUUIDPipe) id: string) {
     return this.sessionService.deleteSession(id);
   }
 
@@ -79,11 +80,25 @@ export class SessionController {
 
   @Post('trade/:symbol/close')
   async closeTradeManually(@Param('symbol') symbol: string) {
+    // Basic input hardening: ensure symbol matches expected Binance format
+    if (!/^[A-Z0-9]{3,20}$/.test(symbol)) {
+      throw new BadRequestException('Invalid symbol format');
+    }
     return this.sessionService.closeTradeManually(symbol);
   }
 
   @Get('analytics')
   async getAnalytics() {
     return this.sessionService.getAnalytics();
+  }
+
+  @Get('lifetime-analytics')
+  async getLifetimeAnalytics(@Query('mode') mode: 'paper' | 'testnet' | 'live') {
+    return this.sessionService.getLifetimeAnalytics(mode || 'paper');
+  }
+
+  @Post('reset-paper-balance')
+  async resetPaperBalance() {
+    return this.sessionService.resetPaperBalance();
   }
 }

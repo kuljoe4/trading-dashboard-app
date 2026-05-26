@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, LogLevel } from '@nestjs/common';
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response, NextFunction, json, urlencoded } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { WebSocketServer } from 'ws';
 import { AppModule } from './app.module';
@@ -18,7 +18,13 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule, {
     logger: logLevels,
+    bodyParser: false, // Disable default body parser to configure limits manually
   });
+
+  // Security: Limit JSON and URL-encoded payload size to prevent DoS attacks
+  app.use(json({ limit: '50kb' }));
+  app.use(urlencoded({ limit: '50kb', extended: true }));
+
   const configService = app.get(ConfigService);
 
   app.useGlobalPipes(
@@ -43,9 +49,11 @@ async function bootstrap() {
   app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
     res.setHeader('Referrer-Policy', 'no-referrer');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none';");
-    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests;");
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
     if (nodeEnv === 'production') {
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     }

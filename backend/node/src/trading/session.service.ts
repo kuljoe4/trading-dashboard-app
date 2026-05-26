@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Session as SessionEntity } from '../models/entities/Session.entity';
@@ -155,28 +155,28 @@ export class SessionService implements OnModuleInit {
   }
 
   private validateConfig(config: SessionConfig) {
-    if (!config) throw new Error('Configuration is required');
+    if (!config) throw new BadRequestException('Configuration is required');
 
     // 1. Scan Mode Dependencies
     if (config.scan_mode === 'active_window') {
-      if (!config.scan_window_duration_sec) throw new Error('Window duration is required for Active Window mode');
-      if (!config.scan_check_interval_sec) throw new Error('Check interval is required for Active Window mode');
+      if (!config.scan_window_duration_sec) throw new BadRequestException('Window duration is required for Active Window mode');
+      if (!config.scan_check_interval_sec) throw new BadRequestException('Check interval is required for Active Window mode');
     }
 
     // 2. Stop Loss Dependencies
     if (config.sl_type === 'lookback_low/high') {
       if (!config.sl_lookback_period || config.sl_lookback_period < 1) {
-        throw new Error('Valid lookback period is required for Lookback SL type');
+        throw new BadRequestException('Valid lookback period is required for Lookback SL type');
       }
     }
 
     // 3. Take Profit Dependencies
     if (config.tp_mode === 'exp_rr_seq') {
       if (!config.live_rr_sequence || config.live_rr_sequence.length === 0) {
-        throw new Error('Live RR sequence is required for Exponential RR mode');
+        throw new BadRequestException('Live RR sequence is required for Exponential RR mode');
       }
       if (!config.exit_rr_sequence || config.exit_rr_sequence.length !== config.live_rr_sequence.length) {
-        throw new Error('Exit RR sequence must match Live RR sequence length');
+        throw new BadRequestException('Exit RR sequence must match Live RR sequence length');
       }
     }
 
@@ -187,7 +187,7 @@ export class SessionService implements OnModuleInit {
         ? JSON.parse(config.signal_params || '{}') 
         : config.signal_params || {};
     } catch (e) {
-      throw new Error('Invalid signal_params format. Must be a valid JSON string or object.');
+      throw new BadRequestException('Invalid signal_params format. Must be a valid JSON string or object.');
     }
     
     const allEnabled = [...(config.enabled_signals || []), ...(config.exit_signals || [])];
@@ -195,29 +195,29 @@ export class SessionService implements OnModuleInit {
     if (allEnabled.includes('ema_dual_cross')) {
       const fast = parseInt(signalParams.entry_ema_fast || signalParams.exit_ema_fast || '0', 10);
       const slow = parseInt(signalParams.entry_ema_slow || signalParams.exit_ema_slow || '0', 10);
-      if (fast <= 0 || slow <= 0) throw new Error('EMA Dual Cross requires both fast and slow periods (e.g., 9 and 21)');
-      if (fast >= slow) throw new Error('EMA Dual Cross: Fast period must be less than slow period');
+      if (fast <= 0 || slow <= 0) throw new BadRequestException('EMA Dual Cross requires both fast and slow periods (e.g., 9 and 21)');
+      if (fast >= slow) throw new BadRequestException('EMA Dual Cross: Fast period must be less than slow period');
     }
 
     if (allEnabled.includes('ma') && !signalParams.ma_period) {
-      throw new Error('MA Cross signal requires ma_period in signal_params');
+      throw new BadRequestException('MA Cross signal requires ma_period in signal_params');
     }
 
     if ((allEnabled.includes('ema') || allEnabled.includes('ema_close')) && !signalParams.ema_period && !signalParams.entry_ema_period && !signalParams.exit_ema_period) {
-       throw new Error('EMA signals require an EMA period to be defined');
+       throw new BadRequestException('EMA signals require an EMA period to be defined');
     }
 
     // 5. Risk Constraints
     const riskPerTrade = config.risk_pct_per_trade ?? 0;
     const maxTotalRisk = config.max_total_risk_pct ?? 100;
     if (riskPerTrade > maxTotalRisk) {
-      throw new Error('Risk per trade cannot exceed maximum total risk');
+      throw new BadRequestException('Risk per trade cannot exceed maximum total risk');
     }
   }
 
   async startSession(config: SessionConfig, paperMode: boolean, sessionId?: string) {
     if (this.sessionRunning) {
-      throw new Error('Session already running');
+      throw new ConflictException('Session already running');
     }
 
     // Deep validation of dependent fields
@@ -226,7 +226,7 @@ export class SessionService implements OnModuleInit {
     let session;
     if (sessionId) {
       session = await this.sessionRepository.findOne({ where: { id: sessionId } });
-      if (!session) throw new Error('Session not found');
+      if (!session) throw new NotFoundException('Session not found');
       
       // Update session to running
       session.running = true;
@@ -293,14 +293,14 @@ export class SessionService implements OnModuleInit {
         where: { id: 'default' },
         select: ['id', 'binance_api_key', 'binance_api_secret', 'binance_testnet_api_key', 'binance_testnet_api_secret']
       });
-      if (!settings) throw new Error('Settings not found. Please configure API keys first.');
+      if (!settings) throw new NotFoundException('Settings not found. Please configure API keys first.');
 
       const isTestnet = mode === 'testnet';
       const key = isTestnet ? settings.binance_testnet_api_key : settings.binance_api_key;
       const secret = isTestnet ? settings.binance_testnet_api_secret : settings.binance_api_secret;
 
       if (!key || !secret) {
-        throw new Error(`Binance ${isTestnet ? 'Testnet' : 'Live'} API keys are not configured.`);
+        throw new BadRequestException(`Binance ${isTestnet ? 'Testnet' : 'Live'} API keys are not configured.`);
       }
 
       binanceClient = BinanceClientFactory.createClient(key, decrypt(secret), isTestnet);
@@ -364,12 +364,16 @@ export class SessionService implements OnModuleInit {
   }
 
   async pauseSession(paused: boolean) {
-    if (!this.sessionRunning) throw new Error('No session running');
+    if (!this.sessionRunning) throw new ConflictException('No session running');
     this.tradingSessionService.setPaused(paused);
     return { status: paused ? 'paused' : 'resumed' };
   }
 
   async deleteSession(id: string) {
+    // Security: Prevent deleting the active session
+    if (this.sessionRunning && this.currentSessionId === id) {
+      throw new ConflictException('Cannot delete an active trading session. Stop it first.');
+    }
     // Manually delete session, ensuring no cascade to trades (as there is no FK link in the current entity model)
     await this.sessionRepository.delete(id);
     return { status: 'deleted' };
@@ -384,7 +388,7 @@ export class SessionService implements OnModuleInit {
 
   async stopSession() {
     if (!this.sessionRunning || !this.currentSessionId) {
-      throw new Error('No session running');
+      throw new ConflictException('No session running');
     }
 
     await this.sessionRepository.update(this.currentSessionId, { running: false });
@@ -521,7 +525,7 @@ export class SessionService implements OnModuleInit {
   // Manually close a trade
   async closeTradeManually(symbol: string) {
     if (!this.sessionRunning) {
-      throw new Error('No session running');
+      throw new ConflictException('No session running');
     }
 
     const result = await this.tradingSessionService.closeTradeManually(symbol);

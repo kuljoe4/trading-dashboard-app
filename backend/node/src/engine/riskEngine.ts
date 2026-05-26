@@ -148,7 +148,7 @@ export class RiskEngineService {
 
     // SL based on lookback period extremes
     if (config.sl_type === 'lookback_low/high') {
-      if (minLow === undefined || maxHigh === undefined || minLow === Infinity || maxHigh === -Infinity) {
+      if (minLow === undefined || maxHigh === undefined || minLow === 0 || maxHigh === 0 || minLow === Infinity || maxHigh === -Infinity) {
         // Fallback to percentage if lookback data not available
         return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' });
       }

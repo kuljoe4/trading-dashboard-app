@@ -16,7 +16,14 @@ const StrategyDetailView = ({ s, onBack }) => {
   const { config, scannerResults, analytics } = useTradingStore()
   const bestOpp = scannerResults[0] || { symbol: '---', pct: 0, dir: '---' }
   const scanMet = Math.abs(bestOpp.pct) >= config.scan_pct_threshold
-  const entryMet = scanMet && s.activeTrades.length > 0
+
+  // Real signal check from backend
+  const signalResult = bestOpp.signalResult || { allFired: false, firedSignals: [] }
+  const entryMet = scanMet && signalResult.allFired
+
+  const signalsCount = config.enabled_signals?.length || 0
+  const firedCount = signalResult.firedSignals?.length || 0
+  const signalLogic = config.signal_logic || 'all'
 
   return (
     <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -64,12 +71,12 @@ const StrategyDetailView = ({ s, onBack }) => {
             sublabel={`Top Opp: ${bestOpp.symbol} ${bestOpp.dir.toUpperCase()}`}
           />
           <ConditionWidget
-            label="Entry Authorization"
-            value={entryMet ? config.scan_pct_threshold + 0.3 : config.scan_pct_threshold - 0.5}
-            threshold={config.scan_pct_threshold}
-            unit=" conf"
+            label="Signal Authorization"
+            value={firedCount}
+            threshold={signalLogic === 'all' ? signalsCount : 1}
+            unit={`/${signalsCount} signals`}
             satisfied={entryMet}
-            sublabel="Waiting for structural signal"
+            sublabel={signalResult.reason || "Waiting for structural signal"}
           />
         </div>
       </div>

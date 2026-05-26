@@ -32,3 +32,7 @@
 **Vulnerability:** Runtime crash due to unexpected string types from database/API.
 **Learning:** TypeORM decimal fields often return as strings in Node.js to preserve precision.
 **Prevention:** Always use explicit Number() conversion or specialized numeric helpers before calling toFixed() or performing arithmetic.
+## 2024-05-26 - [Structural Zero Price Hardening]
+**Vulnerability:** Risk calculations using structural lows of '0' (from missing candle data) result in extremely wide SL distances that could lead to oversized positions if not clamped, or misleading behavior.
+**Learning:** Structural price data must be validated against zero, not just undefined/null.
+**Prevention:** Explicitly check for zero values in structural price data and implement safe fallbacks to standard risk parameters.

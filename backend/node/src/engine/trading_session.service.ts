@@ -376,7 +376,19 @@ export class TradingSessionService {
 
       // BOLT OPTIMIZATION: Only update and broadcast scanner results for UI if there are active listeners
       if (this.listenerCount > 0) {
-        this.updateScannerResults(primaryOpportunities);
+        const baseConfig = strategyConfigs[0];
+        const opportunitiesWithSignals = await Promise.all(primaryOpportunities.slice(0, 10).map(async (opp) => {
+          const signalResult = await this.signalEngine.checkEntry(
+            opp.symbol,
+            baseConfig,
+            baseConfig.scan_interval || '1m',
+            opp.direction.toUpperCase() as any,
+            'entry'
+          );
+          return { ...opp, signalResult };
+        }));
+
+        this.updateScannerResults(opportunitiesWithSignals);
         this.lastVariantScannerResults = scannerData;
 
         const now = Date.now();
@@ -483,6 +495,7 @@ export class TradingSessionService {
       volume_usdt: o.volume_24h,
       score: Number((o.score / 10).toFixed(1)),
       history: o.history,
+      signalResult: o.signalResult,
     }));
     this.refreshActiveWindows(this.lastScannerResults);
   }

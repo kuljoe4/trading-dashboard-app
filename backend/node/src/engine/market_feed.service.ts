@@ -112,7 +112,7 @@ export class MarketFeedService {
         const tickers = await response.json();
         if (Array.isArray(tickers)) {
           const usdtTickers = tickers.filter(t => t.symbol.endsWith('USDT'));
-          await this.tickerCache.bulkUpdate(usdtTickers);
+          this.tickerCache.bulkUpdate(usdtTickers);
           this.logger.log(`Seeded ${usdtTickers.length} USDT tickers from REST API`);
         }
       }
@@ -161,7 +161,7 @@ export class MarketFeedService {
           const msg = JSON.parse(data.toString());
           let tickers: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
           if (tickers.length > 0) {
-            await this.tickerCache.bulkUpdate(tickers);
+            this.tickerCache.bulkUpdate(tickers);
           }
         } catch (err) {
           this.logger.warn(`miniTicker parse error: ${err instanceof Error ? err.message : String(err)}`);
@@ -323,11 +323,11 @@ export class MarketFeedService {
             if (kline) {
               const symbol = kline.s;
               const interval = kline.i;
-              await this.klineStore.upsertCandle(symbol, interval, kline);
+              this.klineStore.upsertCandle(symbol, interval, kline);
               
               // Pro: Immediate price propagation to ticker cache
               // BOLT: Only update price to preserve accurate 24h volume from miniTicker stream
-              await this.tickerCache.bulkUpdate([{
+              this.tickerCache.bulkUpdate([{
                 s: symbol,
                 c: kline.c
               }]);

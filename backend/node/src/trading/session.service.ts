@@ -143,6 +143,7 @@ export class SessionService implements OnModuleInit {
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`Transaction rolled back: Failed to save trade ${trade.symbol}: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
     } finally {
       await queryRunner.release();
     }

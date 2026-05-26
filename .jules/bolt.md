@@ -49,3 +49,6 @@
 ## 2026-05-25 - [Optimization] Engine Loop Suppression & Memoization
 **Learning:** Constructing complex UI payloads (ticks, scanner results) and performing expensive syscalls (memory usage) in high-frequency loops (1s/2s) consumes significant CPU even when no users are watching. Memoizing static configuration signatures and short-circuiting UI logic based on active listener counts drastically reduces idle overhead.
 **Action:** Always gate UI-only data construction and broadcasts behind listener checks. Memoize JSON signatures of configurations to avoid redundant 'JSON.stringify' calls in hot loops.
+## 2026-05-26 - [Sync Hot Paths]
+**Learning:** Core data ingestion methods in `TickerCacheService` and `KlineStoreService` were `async` without containing any `await` calls. This introduced significant Promise allocation overhead and GC pressure in high-frequency WebSocket streams.
+**Action:** Convert purely synchronous data management methods to sync signatures to eliminate Promise overhead in hot paths.

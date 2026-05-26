@@ -15,7 +15,7 @@ export class KlineStoreService {
   private klines: Map<string, Candle[]> = new Map();
   private readonly MAX_CANDLES = 500;
 
-  async upsertCandle(symbol: string, interval: string, kline: any) {
+  upsertCandle(symbol: string, interval: string, kline: any) {
     const key = `${symbol}_${interval}`;
     let existing = this.klines.get(key);
     if (!existing) {

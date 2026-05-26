@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Patch, Delete, Param, ParseUUIDPipe, Query } from '@nestjs/common';
+import { Controller, Post, Get, Body, Patch, Delete, Param, ParseUUIDPipe, Query, BadRequestException } from '@nestjs/common';
 import { SessionService } from './session.service';
 import { SessionConfig } from '../models/SessionConfig';
 import { StartSessionDto, UpdateSessionDto } from './dto/session.dto';
@@ -82,7 +82,7 @@ export class SessionController {
   async closeTradeManually(@Param('symbol') symbol: string) {
     // Basic input hardening: ensure symbol matches expected Binance format
     if (!/^[A-Z0-9]{3,20}$/.test(symbol)) {
-      throw new Error('Invalid symbol format');
+      throw new BadRequestException('Invalid symbol format');
     }
     return this.sessionService.closeTradeManually(symbol);
   }

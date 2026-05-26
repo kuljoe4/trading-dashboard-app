@@ -437,20 +437,28 @@ export class TradingSessionService {
       if (exitCondition?.exitOccurred) {
         const result = await this.positionTracker.closeTrade(trade.symbol, currentPrice, exitCondition.exitReason, tradeConfig);
         if (result.exitOccurred && result.trade) {
-          await this.updateBalance(result.trade);
-          this.closedTrades.unshift(result.trade);
-          if (this.onTradeUpdate) await this.onTradeUpdate(result.trade, this.getBalance());
+          const prevBalancePaper = this.balancePaper;
+          const prevBalanceLive = this.balanceLive;
+          try {
+            await this.updateBalance(result.trade);
+            this.closedTrades.unshift(result.trade);
+            if (this.onTradeUpdate) await this.onTradeUpdate(result.trade, this.getBalance());
 
-          // Trigger watchlist update to potentially remove closed trade symbol
-          this.marketFeed.updateWatchlist(tradeConfig).catch(() => {});
+            // Trigger watchlist update to potentially remove closed trade symbol
+            this.marketFeed.updateWatchlist(tradeConfig).catch(() => {});
 
-          this.broadcast('trade_event', {
-            event: 'closed',
-            symbol: result.trade.symbol, // Fix: Added symbol for frontend log
-            reason: exitCondition.exitReason,
-            trade: this.serializeTrade(result.trade, currentPrice),
-            pnl: result.trade.pnl,
-          });
+            this.broadcast('trade_event', {
+              event: 'closed',
+              symbol: result.trade.symbol, // Fix: Added symbol for frontend log
+              reason: exitCondition.exitReason,
+              trade: this.serializeTrade(result.trade, currentPrice),
+              pnl: result.trade.pnl,
+            });
+          } catch (err) {
+            this.logger.error(`Failed to persist closed trade ${trade.symbol}: ${err instanceof Error ? err.message : String(err)}`);
+            await this.rollbackTradeClosure(result.trade, prevBalancePaper, prevBalanceLive);
+            throw err;
+          }
         }
       }
     }
@@ -868,6 +876,28 @@ export class TradingSessionService {
     return this.config?.paper_mode ? this.balancePaper : this.balanceLive;
   }
 
+  private async rollbackTradeClosure(trade: Trade, prevBalancePaper: number, prevBalanceLive: number) {
+    this.logger.warn(`Rolling back trade closure for ${trade.symbol} due to persistence failure.`);
+
+    // 1. Restore balance
+    this.balancePaper = prevBalancePaper;
+    this.balanceLive = prevBalanceLive;
+
+    // 2. Remove from closed trades if it was unshifted
+    if (this.closedTrades[0] && this.closedTrades[0].id === trade.id) {
+      this.closedTrades.shift();
+    }
+
+    // 3. Re-add to position tracker
+    trade.status = 'OPEN';
+    this.positionTracker.addTrade(trade);
+
+    // 4. Notify UI of balance revert
+    if (this.onBalanceUpdate) {
+      await this.onBalanceUpdate(this.getBalance(), 0);
+    }
+  }
+
   private async startUserDataStream() {
     if (!this.binanceClient) return;
 
@@ -1009,22 +1039,30 @@ export class TradingSessionService {
     const result = await this.positionTracker.closeTrade(symbol, currentPrice, 'MANUAL_CLOSE', this.config!);
     
     if (result.exitOccurred && result.trade) {
-      await this.updateBalance(result.trade);
-      this.closedTrades.unshift(result.trade);
-      if (this.onTradeUpdate) await this.onTradeUpdate(result.trade, this.getBalance());
+      const prevBalancePaper = this.balancePaper;
+      const prevBalanceLive = this.balanceLive;
+      try {
+        await this.updateBalance(result.trade);
+        this.closedTrades.unshift(result.trade);
+        if (this.onTradeUpdate) await this.onTradeUpdate(result.trade, this.getBalance());
 
-      // Trigger watchlist update
-      this.marketFeed.updateWatchlist(this.config!).catch(() => {});
-      
-      this.broadcast('trade_event', {
-        event: 'closed',
-        symbol: result.trade.symbol,
-        reason: 'MANUAL_CLOSE',
-        trade: this.serializeTrade(result.trade, currentPrice),
-        pnl: result.trade.pnl,
-      });
+        // Trigger watchlist update
+        this.marketFeed.updateWatchlist(this.config!).catch(() => {});
 
-      return { success: true, trade: result.trade };
+        this.broadcast('trade_event', {
+          event: 'closed',
+          symbol: result.trade.symbol,
+          reason: 'MANUAL_CLOSE',
+          trade: this.serializeTrade(result.trade, currentPrice),
+          pnl: result.trade.pnl,
+        });
+
+        return { success: true, trade: result.trade };
+      } catch (err) {
+        this.logger.error(`Failed to persist manual trade closure for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
+        await this.rollbackTradeClosure(result.trade, prevBalancePaper, prevBalanceLive);
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
     }
 
     return { success: false, error: 'Failed to close trade' };

@@ -16,7 +16,7 @@ export class TickerCacheService {
    * BOLT OPTIMIZATION: Optimized to use object reuse and avoid redundant parseFloat.
    * Reduces GC pressure by avoiding ~18,000 object allocations per minute in the hot loop.
    */
-  async bulkUpdate(tickers: any[]) {
+  bulkUpdate(tickers: any[]) {
     // BOLT OPTIMIZATION: Use index-based loop for performance and object reuse to reduce GC pressure
     const len = tickers.length;
     for (let i = 0; i < len; i++) {
@@ -44,7 +44,7 @@ export class TickerCacheService {
     }
   }
 
-  async getPrice(symbol: string): Promise<number | null> {
+  getPrice(symbol: string): number | null {
     const ticker = this.tickers.get(symbol);
     return ticker ? ticker.price : null;
   }
@@ -52,7 +52,7 @@ export class TickerCacheService {
   /**
    * Get full ticker data for a symbol in O(1)
    */
-  async getTicker(symbol: string): Promise<Ticker | null> {
+  getTicker(symbol: string): Ticker | null {
     return this.tickers.get(symbol) || null;
   }
 

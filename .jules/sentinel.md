@@ -19,3 +19,8 @@
 **Vulnerability:** The WebSocket message handler lacked a `try-catch` around `JSON.parse` and a type check for the resulting data, making it vulnerable to process crashes via malformed JSON or "null" payloads. Additionally, development origin bypasses were silent.
 **Learning:** WebSocket handlers in Node.js must be extremely defensive as they are long-lived. A single malformed message can crash the entire connection or even the process if not handled. Development fallbacks for security features (like CORS/Origin) should always log warnings to prevent them from being forgotten in production-like environments.
 **Prevention:** Always wrap `JSON.parse` in `try-catch` within socket message handlers. Log prominent security warnings when falling back to loose origin verification in non-production environments to maintain visibility.
+
+## 2026-05-26 - HTTP Payload Limits and Semantic Exception Handling
+**Vulnerability:** The application lacked explicit HTTP payload size limits, leaving it vulnerable to DoS attacks via massive JSON bodies. Additionally, generic error throws resulted in 500 status codes and potential info leakage.
+**Learning:** NestJS/Express default limits might be too permissive for small, dedicated services. Standardizing on semantic exceptions (BadRequest, Conflict) not only improves API quality but also hardens the error boundary against internal detail exposure.
+**Prevention:** Always configure `json` and `urlencoded` middleware with strict `limit` values (e.g., 50kb). Prefer specific NestJS HTTP exceptions over generic `Error` objects in controllers and services.

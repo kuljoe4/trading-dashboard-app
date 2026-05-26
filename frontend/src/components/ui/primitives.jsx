@@ -117,8 +117,14 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
   const textColorClass = satisfied ? "text-green" : "text-amber";
   const borderColorClass = satisfied ? "border-green/30 shadow-[0_0_15px_rgba(0,229,160,0.05)]" : "border-border";
 
-  const formattedValue = Number.isFinite(value) ? `${value > 0 ? "+" : ""}${Number(value).toFixed(2)}${unit}` : `N/A ${unit}`;
-  const thresholdText = threshold !== 0 ? `≥ ${threshold}${unit}` : "Trigger: 0";
+  const isCount = unit.includes('/') || unit.includes('signals');
+  const formattedValue = Number.isFinite(value)
+    ? `${!isCount && value > 0 ? "+" : ""}${isCount ? Math.round(value) : Number(value).toFixed(2)}${unit}`
+    : `N/A ${unit}`;
+
+  const thresholdText = threshold !== 0
+    ? `${isCount ? "" : "≥ "}${isCount ? Math.round(threshold) : threshold}${unit}`
+    : "Trigger: 0";
 
   return (
     <div className={cn(

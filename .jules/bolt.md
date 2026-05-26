@@ -59,3 +59,6 @@
 ## 2026-05-26 - Optimize Session-Trade Join
 **Learning:** O(N*M) array filtering in useMemo can become a bottleneck as trade history grows.
 **Action:** Use a lookup map (O(N+M)) to join related entities in the frontend store or views.
+## 2024-05-26 - [Scanner Signal Gating]
+**Learning:** Performing full signal evaluations on a large watchlist (50+ symbols) every few seconds can significantly spike CPU usage and GC pressure.
+**Action:** Limit high-complexity operations like signal checks to only the top N (e.g., 10) results that are actually relevant for the UI or immediate entry consideration.

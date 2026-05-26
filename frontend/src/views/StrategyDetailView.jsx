@@ -5,7 +5,7 @@ import { ActiveTradeBar } from '../components/ActiveTradeBar'
 import { DecisionLog } from '../components/DecisionLog'
 import { 
   StatCard, SectionLabel, StatusBadge, PaperBadge, DemoBadge, LiveBadge,
-  ConditionWidget, PnLBars, cn
+  ConditionWidget, PnLBars, CopyButton, cn
 } from '../components/ui/primitives'
 import {
   ChevronLeft, Activity, BarChart3, TrendingUp
@@ -39,6 +39,7 @@ const StrategyDetailView = ({ s, onBack }) => {
           </div>
           <div className="text-[11px] text-dim mt-1.5 font-bold uppercase tracking-widest flex items-center gap-2">
             <Activity size={12} /> Loop Monitoring · {s.strategyId?.substring(0, 8)}
+            <CopyButton value={s.strategyId} className="p-1" />
           </div>
         </div>
       </div>

@@ -23,3 +23,8 @@
 **Vulnerability:** Use of generic `Error` objects in controllers can leak internal implementation details and result in incorrect HTTP 500 status codes for client-side input errors.
 **Learning:** NestJS provides specific exceptions (`BadRequestException`) that ensure correct 400-series status codes and sanitize the error response.
 **Prevention:** Always use NestJS-specific exceptions for input validation in controllers.
+
+## 2026-05-26 - HTTP Payload Limits and Semantic Exception Handling
+**Vulnerability:** The application lacked explicit HTTP payload size limits, leaving it vulnerable to DoS attacks via massive JSON bodies. Additionally, generic error throws resulted in 500 status codes and potential info leakage.
+**Learning:** NestJS/Express default limits might be too permissive for small, dedicated services. Standardizing on semantic exceptions (BadRequest, Conflict) not only improves API quality but also hardens the error boundary against internal detail exposure.
+**Prevention:** Always configure `json` and `urlencoded` middleware with strict `limit` values (e.g., 50kb). Prefer specific NestJS HTTP exceptions over generic `Error` objects in controllers and services.

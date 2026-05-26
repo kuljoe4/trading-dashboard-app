@@ -156,7 +156,7 @@ export class MarketFeedService {
         }
       });
 
-      ws.on('message', async (data: Buffer) => {
+      ws.on('message', (data: Buffer) => {
         try {
           const msg = JSON.parse(data.toString());
           let tickers: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
@@ -316,7 +316,7 @@ export class MarketFeedService {
           }
         });
 
-        ws.on('message', async (data: Buffer) => {
+        ws.on('message', (data: Buffer) => {
           try {
             const msg: BinanceKline = JSON.parse(data.toString());
             const kline = msg.data?.k;
@@ -333,7 +333,9 @@ export class MarketFeedService {
               }]);
 
               if (kline.x && this.onCandeClose) {
-                await this.onCandeClose(symbol);
+                this.onCandeClose(symbol).catch(err => {
+                  this.logger.warn(`Candle close callback error for ${symbol}: ${err.message}`);
+                });
               }
             }
           } catch (err) {

@@ -41,6 +41,18 @@ export class SessionService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
+    // Ensure default settings exist
+    const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+    if (!settings) {
+      this.logger.log('Initializing default settings...');
+      await this.settingsRepository.save(this.settingsRepository.create({
+        id: 'default',
+        paper_balance: 10000.0,
+        testnet_balance: 0,
+        live_balance: 0
+      }));
+    }
+
     // Cleanup any sessions marked as running in the database on startup
     // BOLT: Optimize startup cleanup with a single bulk update instead of a loop
     const updateResult = await this.sessionRepository.update({ running: true }, { running: false });
@@ -55,6 +67,17 @@ export class SessionService implements OnModuleInit {
         // standalone balance sync (e.g. from Binance WS)
         if (pnl === 0) {
           await this.sessionRepository.update(sessionId, { balance });
+
+          // Also update global settings for standalone balance sync to ensure persistence across restarts
+          const session = await this.sessionRepository.findOne({ where: { id: sessionId } });
+          if (session) {
+            const mode = session.tradingMode || (session.paperMode ? 'paper' : 'live');
+            const updateData: any = {};
+            if (mode === 'paper') updateData.paper_balance = balance;
+            else if (mode === 'testnet') updateData.testnet_balance = balance;
+            else if (mode === 'live') updateData.live_balance = balance;
+            await this.settingsRepository.update('default', updateData);
+          }
         }
         // Non-zero PnL updates are handled atomically in tradeUpdateCallback (saveTradeAtomic)
       }
@@ -115,7 +138,12 @@ export class SessionService implements OnModuleInit {
       });
 
       // 3. Update Global Settings and record History for all modes
-      const session = await queryRunner.manager.findOne(SessionEntity, { where: { id: sessionId } });
+      // BOLT: Fetching only required columns and avoiding extra lookups if session ID is known
+      const session = await queryRunner.manager.findOne(SessionEntity, {
+        where: { id: sessionId },
+        select: ['tradingMode', 'paperMode']
+      });
+
       if (session) {
         const mode = session.tradingMode || (session.paperMode ? 'paper' : 'live');
         const updateData: any = {};
@@ -247,12 +275,15 @@ export class SessionService implements OnModuleInit {
       // Ensure starting balance is explicitly in the config for new sessions
       if (paperMode) {
         // Inherit from settings if not explicitly provided
-        if (!config.paper_starting_balance) {
+        if (config.paper_starting_balance === undefined || config.paper_starting_balance === null) {
           const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
           config.paper_starting_balance = settings ? Number(settings.paper_balance) : 10000.0;
         }
       } else {
-        config.live_starting_balance = config.live_starting_balance || 10000.0;
+        if (config.live_starting_balance === undefined || config.live_starting_balance === null) {
+          const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+          config.live_starting_balance = settings ? Number(settings.live_balance) : 10000.0;
+        }
       }
 
       session = this.sessionRepository.create({
@@ -282,9 +313,12 @@ export class SessionService implements OnModuleInit {
     });
 
     // Load potentially orphaned open trades for reconciliation
+    // For the active session, we'll resume these trades in the engine
     const openTrades = await this.tradeRepository.find({
       where: { status: 'OPEN' as any }
     });
+
+    const sessionOpenTrades = openTrades.filter(t => t.sessionId === this.currentSessionId);
 
     // Instantiate Binance client if not in paper mode
     let binanceClient = null;
@@ -345,8 +379,14 @@ export class SessionService implements OnModuleInit {
       }
     }
 
+    // Fetch current global balance to ensure risk engine uses real-time account state
+    const currentSettings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+    const currentGlobalBalance = currentSettings
+      ? (mode === 'paper' ? Number(currentSettings.paper_balance) : (mode === 'testnet' ? Number(currentSettings.testnet_balance) : Number(currentSettings.live_balance)))
+      : undefined;
+
     // Start the actual trading engine
-    await this.tradingSessionService.start(config, binanceClient, this.currentSessionId, initialHistory as any);
+    await this.tradingSessionService.start(config, binanceClient, this.currentSessionId, initialHistory as any, currentGlobalBalance, sessionOpenTrades as any);
 
     this.logger.log(`Session ${this.currentSessionId} ${sessionId ? 'restarted' : 'started'} in ${mode} mode`);
     return { strategyId: this.currentSessionId, status: 'started' };
@@ -406,15 +446,37 @@ export class SessionService implements OnModuleInit {
 
   async getStatus() {
     if (!this.currentSessionId) {
-      const lastSession = await this.sessionRepository.findOne({
+      const activeSession = await this.sessionRepository.findOne({
         where: { running: true },
         order: { startTime: 'DESC' }
       });
-      if (lastSession) {
-        this.currentSessionId = lastSession.id;
+      if (activeSession) {
+        this.currentSessionId = activeSession.id;
         this.sessionRunning = true;
       } else {
-        return { running: false };
+        // No active session, but we want to return the last known state and global balance
+        const lastSession = await this.sessionRepository.findOne({
+          where: {},
+          order: { startTime: 'DESC' }
+        });
+        const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+
+        // Determine which balance to show based on last session mode, defaulting to paper
+        const mode = lastSession?.tradingMode || (lastSession?.paperMode === false ? 'live' : 'paper');
+        let balance = 10000;
+        if (settings) {
+          if (mode === 'paper') balance = Number(settings.paper_balance);
+          else if (mode === 'testnet') balance = Number(settings.testnet_balance);
+          else if (mode === 'live') balance = Number(settings.live_balance);
+        }
+
+        return {
+          running: false,
+          balance,
+          tradingMode: mode,
+          paperMode: mode === 'paper',
+          config: lastSession?.config || null,
+        };
       }
     }
     

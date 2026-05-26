@@ -130,7 +130,7 @@ export class TradingSessionService {
     }
   }
 
-  async start(config: SessionConfig, binanceClient?: any, sessionId?: string, initialHistory: Trade[] = []) {
+  async start(config: SessionConfig, binanceClient?: any, sessionId?: string, initialHistory: Trade[] = [], currentBalance?: number, openTrades: Trade[] = []) {
     this.running = true;
     this.paused = false;
     this.sessionId = sessionId || null;
@@ -138,14 +138,37 @@ export class TradingSessionService {
     this.cachedStrategyConfigs = null;
     this.cachedScanSignatures.clear();
     this.binanceClient = binanceClient;
-    this.balancePaper = config.paper_starting_balance || 1000;
-    this.balanceLive = config.live_starting_balance || 0;
+
+    const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
+
+    if (currentBalance !== undefined) {
+      if (mode === 'paper') {
+        this.balancePaper = currentBalance;
+        // Also initialize live balance for consistency in UI toggles, but separate from paper
+        this.balanceLive = config.live_starting_balance || 0;
+      } else {
+        this.balanceLive = currentBalance;
+        this.balancePaper = config.paper_starting_balance || 10000;
+      }
+    } else {
+      this.balancePaper = config.paper_starting_balance || 10000;
+      this.balanceLive = config.live_starting_balance || 0;
+    }
+
     this.closedTrades = initialHistory;
+
+    // Load resumed open trades into the position tracker
+    if (openTrades.length > 0) {
+      this.logger.log(`Resuming ${openTrades.length} open trades into the position tracker.`);
+      for (const trade of openTrades) {
+        this.positionTracker.addTrade(trade);
+      }
+    }
+
     this.gateState = null;
     this.activeWindows.clear();
 
     // Wire services
-    const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
     this.orderManager.setBinanceClient(binanceClient, mode === 'paper');
     this.marketFeed.setCandeCloseCallback(this.onCandleClose.bind(this));
     // Persistence for SL adjustments and other internal trade state changes

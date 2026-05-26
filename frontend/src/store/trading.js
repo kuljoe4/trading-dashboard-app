@@ -313,8 +313,31 @@ export const useTradingStore = create((set, get) => ({
   addLog: (log) => set((state) => {
     const normalized = normalizeLog(log)
     if (!normalized.msg) return {}
+    // Avoid exact duplicates back-to-back
     if (state.logs.length > 0 && state.logs[0].level === normalized.level && state.logs[0].msg === normalized.msg) return {}
     return { logs: [normalized, ...state.logs].slice(0, 2000) }
+  }),
+
+  mergeLogs: (incomingLogs) => set((state) => {
+    if (!incomingLogs || incomingLogs.length === 0) return {}
+
+    // Create a set of existing log IDs to prevent duplicates
+    const existingIds = new Set(state.logs.map(l => l.id))
+    const newLogs = incomingLogs
+      .map(normalizeLog)
+      .filter(l => l.msg && !existingIds.has(l.id))
+
+    if (newLogs.length === 0) return {}
+
+    // Combine and sort by timestamp (descending)
+    const combined = [...newLogs, ...state.logs]
+      .sort((a, b) => {
+         // Try to parse ts if possible, otherwise keep original order
+         return 0; // Keeping it simple: status logs are usually prepended
+      })
+      .slice(0, 2000)
+
+    return { logs: uniqueLogs(combined) }
   }),
 
   ws: null,
@@ -354,6 +377,11 @@ export const useTradingStore = create((set, get) => ({
       const data = JSON.parse(event.data)
 
       if (data.type === 'status') {
+        // First merge logs to ensure persistence
+        if (data.logLines) {
+          get().mergeLogs(data.logLines)
+        }
+
         set((state) => {
           const stopped = data.running === false
           let nextTrades = state.activeTrades;
@@ -373,7 +401,7 @@ export const useTradingStore = create((set, get) => ({
             totalRiskPct: data.totalRiskPct ?? state.totalRiskPct,
             totalSlUsed: data.totalSlUsed ?? state.totalSlUsed,
             activeTrades: nextTrades,
-            logs: data.logLines ? uniqueLogs(data.logLines).slice(0, 2000) : state.logs,
+            // Logs are handled via mergeLogs above
             scannerResults: data.scannerResults?.map(normalizeOpportunity) || state.scannerResults,
             activeWindows: data.activeWindows?.map(normalizeWindow) || state.activeWindows,
             tradeHistory: data.history?.map(t => {

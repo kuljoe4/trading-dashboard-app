@@ -322,7 +322,10 @@ export class TradingSessionService {
     const isGated = this.paused || this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period' || this.gateState === 'sleeping';
     
     if (isGated) {
-      // BOLT OPTIMIZATION: Skip heavy scanning logic when gated or paused to save resources (CPU/API weight).
+      // RESOURCE REDUCTION: When gated or paused, we completely skip the momentum scan and entry processing.
+      // If gated due to 'sleeping' (outside windows), the market feed and scanner are fully stopped.
+      // This saves CPU cycles, memory allocations from new candle data, and Binance API weight.
+
       // Still broadcast cached results to keep UI from flickering/clearing if listeners are active.
       if (this.listenerCount > 0) {
         const now = Date.now();
@@ -416,6 +419,8 @@ export class TradingSessionService {
   }
 
   private async checkExits() {
+    if (this.positionTracker.activeCount() === 0) return;
+
     const activeTrades = this.positionTracker.activeList();
     for (const trade of activeTrades) {
       const currentPrice = await this.tickerCache.getPrice(trade.symbol);
@@ -620,7 +625,8 @@ export class TradingSessionService {
   }
 
   private async enterSleepMode() {
-    this.logger.log('Entering SLEEP MODE (Outside trading windows)');
+    // MAXIMUM RESOURCE REDUCTION: Stop all high-frequency data streams and scanning
+    this.logger.log('Entering SLEEP MODE (Outside trading windows) - Stopping Market Feed & Scanner');
     this.sleepMode = true;
     await this.marketFeed.stop();
     await this.momentumScanner.stop();
@@ -628,7 +634,7 @@ export class TradingSessionService {
   }
 
   private async exitSleepMode() {
-    this.logger.log('Exiting SLEEP MODE (Trading window active)');
+    this.logger.log('Exiting SLEEP MODE (Trading window active) - Restarting Market Feed & Scanner');
     this.sleepMode = false;
     if (this.config) {
       await this.marketFeed.start(this.config);
@@ -704,7 +710,8 @@ export class TradingSessionService {
   private lastTickTime = 0;
 
   private async broadcastTick() {
-    // BOLT OPTIMIZATION: Skip heavy tick data construction and broadcast if no one is listening
+    // RESOURCE REDUCTION: Skip heavy tick data construction and broadcast if no one is listening.
+    // This is the primary driver of egress savings when the tab is in the background.
     if (this.listenerCount === 0) return;
 
     const activeTrades = this.positionTracker.activeList();

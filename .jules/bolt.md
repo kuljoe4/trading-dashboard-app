@@ -49,3 +49,7 @@
 ## 2026-05-25 - [Optimization] Engine Loop Suppression & Memoization
 **Learning:** Constructing complex UI payloads (ticks, scanner results) and performing expensive syscalls (memory usage) in high-frequency loops (1s/2s) consumes significant CPU even when no users are watching. Memoizing static configuration signatures and short-circuiting UI logic based on active listener counts drastically reduces idle overhead.
 **Action:** Always gate UI-only data construction and broadcasts behind listener checks. Memoize JSON signatures of configurations to avoid redundant 'JSON.stringify' calls in hot loops.
+
+## 2026-05-26 - [Optimization] Promise Overhead & Syscall Throttling
+**Learning:** Purely synchronous memory operations (Map/Array) should not be marked 'async'. In high-frequency streams (hundreds/sec), Promise object allocation and micro-task queue overhead accumulate. Similarly, system calls like 'process.memoryUsage()' are expensive; throttling them and returning cached metrics in hot paths significantly reduces engine latency.
+**Action:** converted leaf data ingestion methods to synchronous and implemented system metric caching to avoid redundant syscalls in the 2s broadcast loop.

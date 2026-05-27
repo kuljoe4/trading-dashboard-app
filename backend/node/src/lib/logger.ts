@@ -1,4 +1,24 @@
-import { Logger, LogLevel } from '@nestjs/common';
+import { ConsoleLogger, LogLevel } from '@nestjs/common';
+
+export class DynamicLogger extends ConsoleLogger {
+  private static instance: DynamicLogger;
+
+  constructor() {
+    super();
+    DynamicLogger.instance = this;
+  }
+
+  static getInstance(): DynamicLogger {
+    if (!DynamicLogger.instance) {
+      DynamicLogger.instance = new DynamicLogger();
+    }
+    return DynamicLogger.instance;
+  }
+
+  setLogLevels(levels: LogLevel[]) {
+    this.options.logLevels = levels;
+  }
+}
 
 export function updateLogLevels(debugMode: boolean) {
   const forceDebug = process.env.DEBUG === 'true';
@@ -12,5 +32,5 @@ export function updateLogLevels(debugMode: boolean) {
     levels = ['log', 'warn', 'error'];
   }
 
-  (Logger as any).overrideLogLevels?.(levels);
+  DynamicLogger.getInstance().setLogLevels(levels);
 }

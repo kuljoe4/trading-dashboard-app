@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, LogLevel } from '@nestjs/common';
 import { Request, Response, NextFunction, json, urlencoded } from 'express';
+import { DynamicLogger } from './lib/logger';
 import { ConfigService } from '@nestjs/config';
 import { WebSocketServer } from 'ws';
 import { AppModule } from './app.module';
@@ -16,8 +17,11 @@ async function bootstrap() {
     ? ['log', 'warn', 'error']
     : ['log', 'error', 'warn', 'debug', 'verbose'];
 
+  const logger = DynamicLogger.getInstance();
+  logger.setLogLevels(logLevels);
+
   const app = await NestFactory.create(AppModule, {
-    logger: logLevels,
+    logger,
     bodyParser: false, // Disable default body parser to configure limits manually
   });
 

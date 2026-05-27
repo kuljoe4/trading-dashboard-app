@@ -436,14 +436,14 @@ export class TradingSessionService {
 
           this.broadcast('scanner', {
             count: this.lastScannerResults.length,
-            opportunities: this.lastScannerResults.slice(0, 5).map(o => {
+            opportunities: this.lastScannerResults.map(o => {
               if (isFullBroadcast) return o;
               const { history, ...rest } = o; // Skip history (sparkline data) in delta updates
               return rest;
             }),
             variant_opportunities: this.lastVariantScannerResults.map(v => ({
               ...v,
-              opportunities: v.opportunities.slice(0, 5).map((o: any) => {
+              opportunities: v.opportunities.map((o: any) => {
                  if (isFullBroadcast) return o;
                  const { history, ...rest } = o;
                  return rest;

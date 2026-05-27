@@ -13,9 +13,11 @@ async function bootstrap() {
   const isProduction = process.env.NODE_ENV === 'production';
   const forceDebug = process.env.DEBUG === 'true';
 
-  const logLevels: LogLevel[] = (isProduction && !forceDebug)
-    ? ['log', 'warn', 'error']
-    : ['log', 'error', 'warn', 'debug', 'verbose'];
+  // Default to quiet logs even in dev, unless forceDebug is set.
+  // DynamicLogger will upgrade these levels at runtime if a session starts with debug_mode: true.
+  const logLevels: LogLevel[] = forceDebug
+    ? ['log', 'error', 'warn', 'debug', 'verbose']
+    : ['log', 'warn', 'error'];
 
   const logger = DynamicLogger.getInstance();
   logger.setLogLevels(logLevels);
@@ -50,7 +52,8 @@ async function bootstrap() {
   ];
 
   const nodeEnv = configService.get<string>('NODE_ENV');
-  console.log(`🔒 Allowed Origins: ${allowedOrigins.join(', ')}`);
+  const serverLogger = new Logger('Server');
+  serverLogger.log(`🔒 Allowed Origins: ${allowedOrigins.join(', ')}`);
 
   // Security Headers Middleware
   app.use((req: Request, res: Response, next: NextFunction) => {
@@ -80,11 +83,11 @@ async function bootstrap() {
 
       if (isAllowed || isDevFallback) {
         if (isDevFallback) {
-          console.warn(`⚠️  Security Warning: Allowing unauthorized origin "${origin}" due to non-production environment.`);
+          serverLogger.warn(`⚠️  Security Warning: Allowing unauthorized origin "${origin}" due to non-production environment.`);
         }
         callback(null, true);
       } else {
-        console.warn(`CORS blocked for origin: ${origin}`);
+        serverLogger.warn(`CORS blocked for origin: ${origin}`);
         callback(new Error('Not allowed by CORS'));
       }
     },
@@ -127,9 +130,9 @@ async function bootstrap() {
       const isDevFallback = !isAllowed && nodeEnv !== 'production';
 
       if (!isAllowed && !isDevFallback) {
-        console.warn(`Blocked WebSocket connection from unauthorized origin: ${info.origin}`);
+        serverLogger.warn(`Blocked WebSocket connection from unauthorized origin: ${info.origin}`);
       } else if (isDevFallback) {
-        console.warn(`⚠️  Security Warning: Allowing unauthorized WebSocket origin "${info.origin}" due to non-production environment.`);
+        serverLogger.warn(`⚠️  Security Warning: Allowing unauthorized WebSocket origin "${info.origin}" due to non-production environment.`);
       }
       done(isAllowed || isDevFallback);
     },
@@ -209,7 +212,7 @@ async function bootstrap() {
         try {
           data = JSON.parse(message);
         } catch (e) {
-          console.warn('Received malformed WebSocket JSON payload');
+          serverLogger.warn('Received malformed WebSocket JSON payload');
           return;
         }
 
@@ -254,11 +257,12 @@ async function bootstrap() {
   const port = process.env.PORT || configService.get<number>('PORT') || 3000;
   await app.listen(port, '0.0.0.0');
 
-  console.log(`✨ Trading Dashboard Backend running on port ${port}`);
-  console.log(`📡 WebSocket endpoint: ws://0.0.0.0:${port}/session/ws`);
+  serverLogger.log(`✨ Trading Dashboard Backend running on port ${port}`);
+  serverLogger.log(`📡 WebSocket endpoint: ws://0.0.0.0:${port}/session/ws`);
 }
 
 bootstrap().catch((err) => {
-  console.error('Server startup failed:', err);
+  const bootstrapLogger = new Logger('Bootstrap');
+  bootstrapLogger.error('Server startup failed:', err);
   process.exit(1);
 });

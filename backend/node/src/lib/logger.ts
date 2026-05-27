@@ -16,7 +16,7 @@ export class DynamicLogger extends ConsoleLogger {
   }
 
   setLogLevels(levels: LogLevel[]) {
-    this.options.logLevels = levels;
+    super.setLogLevels(levels);
   }
 }
 

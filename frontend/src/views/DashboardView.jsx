@@ -7,13 +7,13 @@ import { ActiveTradeBar } from '../components/ActiveTradeBar'
 import * as Dialog from '@radix-ui/react-dialog'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { 
-  StatCard, SectionLabel, Btn, StatusBadge, PaperBadge, DemoBadge, LiveBadge,
+  StatCard, SectionLabel, Btn, StatusBadge, PaperBadge, EcoBadge, DemoBadge, LiveBadge,
   ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn
 } from '../components/ui/primitives'
 import {
   ChevronLeft, Plus, Trash2, LayoutDashboard, History,
   Settings as SettingsIcon, Activity, Zap, ShieldCheck,
-  BarChart3, XCircle, Pause, Play, Edit3, RefreshCw
+  BarChart3, XCircle, Pause, Play, Edit3, RefreshCw, Leaf
 } from 'lucide-react'
 import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -271,7 +271,7 @@ export function DashboardView() {
     totalSlUsed, activeTrades, config, setSessionActive,
     updateConfig, gateState,
     scannerPaused, sessionList, fetchSessions, wsStatus,
-    sidebarCollapsed, variantScannerResults
+    sidebarCollapsed, variantScannerResults, isThrottled, setThrottled, isEcoMode
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -290,7 +290,10 @@ export function DashboardView() {
     fetchSessions: state.fetchSessions,
     wsStatus: state.wsStatus,
     sidebarCollapsed: state.sidebarCollapsed,
-    variantScannerResults: state.variantScannerResults
+    variantScannerResults: state.variantScannerResults,
+    isThrottled: state.isThrottled,
+    setThrottled: state.setThrottled,
+    isEcoMode: state.isEcoMode
   }), shallow)
 
   // BOLT OPTIMIZATION: Select only entry count to avoid Dashboard re-rendering on every log
@@ -446,6 +449,7 @@ export function DashboardView() {
                 {tradingMode === 'paper' && <PaperBadge />}
                 {tradingMode === 'testnet' && <DemoBadge />}
                 {tradingMode === 'live' && <LiveBadge />}
+                {(isThrottled || isEcoMode) && <EcoBadge />}
               </div>
               <div className="flex items-center gap-3 lg:hidden">
                 <span className={cn("text-[10px] font-bold font-mono tracking-widest uppercase", wsStatus === 'live' ? "text-green" : "text-amber")}>
@@ -459,7 +463,23 @@ export function DashboardView() {
             </div>
           </div>
 
-          <div className="flex gap-4">
+          <div className="flex gap-3">
+            <button
+              onClick={() => setThrottled(!isThrottled)}
+              title={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}
+              className={cn(
+                "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2",
+                isThrottled
+                  ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
+                  : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
+              )}
+            >
+              <Leaf size={18} fill={isThrottled ? "currentColor" : "none"} />
+              <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest">
+                {isThrottled ? "Eco Active" : "Eco Mode"}
+              </span>
+            </button>
+
             {!sessionActive ? (
               <Btn variant="success" onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }} disabled={loading} className="flex-1 sm:flex-none">
                 <Plus size={16} className="mr-2" /> New Session

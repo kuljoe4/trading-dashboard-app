@@ -113,8 +113,32 @@ export class TradingSessionService {
     this.wsBroadcaster = cb;
   }
 
+  isEcoMode(): boolean {
+    return this.running && this.listenerCount === 0;
+  }
+
   setListenerCount(count: number) {
+    const prevCount = this.listenerCount;
     this.listenerCount = count;
+
+    // BOLT ECO-MODE: Dynamically throttle loops if no one is watching
+    if (this.running && this.config) {
+      if (prevCount > 0 && count === 0) {
+        this.logger.log('Switching to ECO-MODE: No active listeners. Throttling main loop to 15s.');
+        this.restartLoops(this.config.hot_loop_interval_ms || 2000, 15000);
+      } else if (prevCount === 0 && count > 0) {
+        this.logger.log('Exiting ECO-MODE: Listener detected. Restoring performance loops.');
+        this.restartLoops(this.config.hot_loop_interval_ms || 2000, this.config.main_loop_interval_ms || 5000);
+      }
+    }
+  }
+
+  private restartLoops(hotMs: number, mainMs: number) {
+    if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
+    if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
+
+    this.hotLoopInterval = setInterval(() => this.hotLoop(), hotMs);
+    this.mainLoopInterval = setInterval(() => this.mainLoop(), mainMs);
   }
 
   setBalanceUpdateCallback(cb: (balance: number, pnl: number) => Promise<void> | void) {
@@ -281,6 +305,13 @@ export class TradingSessionService {
    */
   private async hotLoop() {
     if (!this.running || !this.config) return;
+
+    // BOLT ECO-MODE: Skip hot loop entirely if no one is listening AND no positions are open
+    if (this.listenerCount === 0 && this.positionTracker.activeCount() === 0) {
+      this.monitoringService.recordHotLoop(0);
+      return;
+    }
+
     const start = performance.now();
     try {
       await this.checkExits();
@@ -313,6 +344,14 @@ export class TradingSessionService {
 
     const prevGateState = this.gateState;
     const isInsideWindow = this.isInsideTradingWindow();
+
+    // BOLT ECO-MODE: Skip scanner and entries if session is idle and unwatched
+    if (this.listenerCount === 0 && activeTrades.length === 0 && isInsideWindow) {
+      // Still allow checkExits in hotLoop to handle SL/TP if they were to exist (handled above)
+      // but skip the expensive scanning and entry logic
+      this.monitoringService.recordMainLoop(0);
+      return;
+    }
 
     // Check if any single symbol monitors ignore the window
     const hasUnscheduledMonitors = this.config.single_symbol_configs?.some(sc => sc.enabled && sc.follow_schedule === false);
@@ -790,6 +829,7 @@ export class TradingSessionService {
     // BOLT: Single-pass synchronous processing of trades
     const trades: any[] = [];
     const len = activeTrades.length;
+    let anyPriceChangedSignificant = false;
     for (let i = 0; i < len; i++) {
       const trade = activeTrades[i];
       let current = this.tickerCache.getPrice(trade.symbol);
@@ -807,10 +847,20 @@ export class TradingSessionService {
       if (prevTrade && !isHeartbeat) {
         if (serialized.sl_price === prevTrade.sl_price) delete (serialized as any).sl_price;
         if (serialized.max_rr === prevTrade.max_rr) delete (serialized as any).max_rr;
+
         // Even RR can be omitted if it hasn't moved significantly
         if (serialized.rr !== undefined && prevTrade.rr !== undefined && Math.abs(serialized.rr - prevTrade.rr) < 0.01) {
            delete (serialized as any).rr;
+        } else {
+           anyPriceChangedSignificant = true;
         }
+
+        // Also check PnL movement for "Quiet Ticks"
+        if (serialized.pnl !== undefined && prevTrade.pnl !== undefined && Math.abs(serialized.pnl - prevTrade.pnl) > 0.05) {
+           anyPriceChangedSignificant = true;
+        }
+      } else {
+        anyPriceChangedSignificant = true;
       }
 
       trades.push(serialized);
@@ -851,6 +901,7 @@ export class TradingSessionService {
       activeWindows: this.getActiveWindows(),
       rateLimit: this.getBinanceRateLimit(),
       monitoring,
+      isEcoMode: this.isEcoMode(),
       analytics: {
         maxDrawdown: this.lastAnalyticsResult.maxDrawdown,
         maxDrawdownPct: this.lastAnalyticsResult.maxDrawdownPct,
@@ -861,18 +912,17 @@ export class TradingSessionService {
 
     const hasActiveTrades = trades.length > 0;
     
-    // Optimization: Only broadcast if significant data changed or as a heartbeat
-    // BOLT OPTIMIZATION: Skip construction and broadcast if no one is listening
-
-    let shouldBroadcast = isHeartbeat;
+    // BOLT "QUIET TICKS": Only broadcast if significant data changed or as a heartbeat (30s)
+    // Heartbeat is increased to 30s for Quiet Ticks when no active trades exist
+    const heartbeatInterval = hasActiveTrades ? 10000 : 30000;
+    let shouldBroadcast = !this.lastTickData || (now - this.lastTickTime > heartbeatInterval);
 
     if (!shouldBroadcast) {
       const prevTrades = this.lastTickData?.trades || [];
-      const tradesChanged = trades.length !== prevTrades.length || 
-                            trades.some((t, i) => t.symbol !== prevTrades[i]?.symbol || Math.abs((t.pnl || 0) - (prevTrades[i]?.pnl || 0)) > 0.1);
+      const tradesChanged = trades.length !== prevTrades.length || anyPriceChangedSignificant;
       
-      const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) > 0.05;
-      const monitoringChanged = Math.abs((monitoring?.system?.cpu_usage || 0) - (this.lastTickData?.monitoring?.system?.cpu_usage || 0)) > 5;
+      const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) > 0.1;
+      const monitoringChanged = Math.abs((monitoring?.system?.cpu_usage || 0) - (this.lastTickData?.monitoring?.system?.cpu_usage || 0)) > 8;
       const gateChanged = tickData.gateState !== this.lastTickData?.gateState;
 
       if (tradesChanged || pnlChanged || monitoringChanged || gateChanged) {
@@ -1048,18 +1098,16 @@ export class TradingSessionService {
     this.cachedScanSignatures.clear();
     this.logger.log('Session config updated (hot-reload)');
 
-    // If loop intervals changed, restart them
+    // If loop intervals changed, restart them (obeying eco-mode if active)
     if (prevConfig && (
       prevConfig.hot_loop_interval_ms !== config.hot_loop_interval_ms ||
       prevConfig.main_loop_interval_ms !== config.main_loop_interval_ms
     )) {
-      this.logger.log(`Restarting loops with new intervals: hot=${config.hot_loop_interval_ms}ms, main=${config.main_loop_interval_ms}ms`);
+      const mainMs = this.listenerCount === 0 ? 15000 : (config.main_loop_interval_ms || 5000);
+      const hotMs = config.hot_loop_interval_ms || 2000;
 
-      if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
-      if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
-
-      this.hotLoopInterval = setInterval(() => this.hotLoop(), config.hot_loop_interval_ms || 2000);
-      this.mainLoopInterval = setInterval(() => this.mainLoop(), config.main_loop_interval_ms || 5000);
+      this.logger.log(`Restarting loops with new intervals: hot=${hotMs}ms, main=${mainMs}ms ${this.listenerCount === 0 ? '(ECO)' : ''}`);
+      this.restartLoops(hotMs, mainMs);
     }
 
     this.broadcast('tick', { config: this.config });

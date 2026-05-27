@@ -1,5 +1,6 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
+import { TooltipProvider } from './components/ui/tooltip';
 import { useTradingStore } from './store/trading';
 import { sessionAPI } from './api/client';
 import { useVisibility } from './hooks/useVisibility';
@@ -86,11 +87,13 @@ const App = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background text-text font-sans selection:bg-accent selection:text-white">
-      <Suspense fallback={<LoadingView />}>
-        {renderView()}
-      </Suspense>
-    </div>
+    <TooltipProvider delayDuration={300}>
+      <div className="min-h-screen bg-background text-text font-sans selection:bg-accent selection:text-white">
+        <Suspense fallback={<LoadingView />}>
+          {renderView()}
+        </Suspense>
+      </div>
+    </TooltipProvider>
   );
 };
 

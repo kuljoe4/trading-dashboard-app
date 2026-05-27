@@ -31,6 +31,79 @@ const LoadingFallback = () => (
   </div>
 )
 
+const StrategyCardsList = React.memo(({
+  currentStrategy, activeTrades, variantScannerResults, config, sessionPaused,
+  togglePause, setIsEditMode, setSelectedConfig, setEditingVariantIndex,
+  setShowConfig, setSelected
+}) => {
+  const mainStrategyData = useMemo(() => ({
+    ...currentStrategy,
+    totalPnl: activeTrades.reduce((sum, t) => (t.strategy_label === currentStrategy.strategy_label ? sum + (t.pnl || 0) : sum), 0),
+    activeTrades: activeTrades.filter(t => t.strategy_label === currentStrategy.strategy_label)
+  }), [currentStrategy, activeTrades]);
+
+  const variants = useMemo(() => (config.strategy_variants || []).filter(v => v.enabled !== false), [config.strategy_variants]);
+
+  return (
+    <>
+      <StrategyCard
+        s={mainStrategyData}
+        scannerResults={variantScannerResults[currentStrategy.strategy_label]}
+        config={config}
+        paused={sessionPaused}
+        onPause={togglePause}
+        onEdit={() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }}
+        onClick={() => setSelected(true)}
+      />
+      {variants.map((variant, i) => (
+        <VariantStrategyCard
+          key={i}
+          index={i}
+          variant={variant}
+          currentStrategy={currentStrategy}
+          activeTrades={activeTrades}
+          variantScannerResults={variantScannerResults}
+          config={config}
+          sessionPaused={sessionPaused}
+          togglePause={togglePause}
+          setIsEditMode={setIsEditMode}
+          setSelectedConfig={setSelectedConfig}
+          setEditingVariantIndex={setEditingVariantIndex}
+          setShowConfig={setShowConfig}
+          setSelected={setSelected}
+        />
+      ))}
+    </>
+  );
+});
+
+const VariantStrategyCard = React.memo(({
+  index, variant, currentStrategy, activeTrades, variantScannerResults, config, sessionPaused,
+  togglePause, setIsEditMode, setSelectedConfig, setEditingVariantIndex,
+  setShowConfig, setSelected
+}) => {
+  const label = variant.strategy_label || `Variant ${index + 1}`;
+  const variantConfig = useMemo(() => ({ ...config, ...variant }), [config, variant]);
+  const variantData = useMemo(() => ({
+    ...currentStrategy,
+    strategy_label: label,
+    totalPnl: activeTrades.reduce((sum, t) => (t.strategy_label === label ? sum + (t.pnl || 0) : sum), 0),
+    activeTrades: activeTrades.filter(t => t.strategy_label === label)
+  }), [currentStrategy, label, activeTrades]);
+
+  return (
+    <StrategyCard
+      s={variantData}
+      scannerResults={variantScannerResults[label]}
+      config={variantConfig}
+      paused={sessionPaused}
+      onPause={togglePause}
+      onEdit={() => { setIsEditMode(true); setSelectedConfig(variantConfig); setEditingVariantIndex(index); setShowConfig(true); }}
+      onClick={() => setSelected(true)}
+    />
+  );
+});
+
 // --- Strategy Card ---
 const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults }) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -306,6 +379,12 @@ export function DashboardView() {
 
   const [loading, setLoading] = useState(false)
 
+  const configModalKey = useMemo(() => {
+    if (!isEditMode) return 'new-session';
+    if (editingVariantIndex !== null) return `edit-variant-${editingVariantIndex}`;
+    return `edit-session-${strategyId || 'active'}`;
+  }, [isEditMode, editingVariantIndex, strategyId]);
+
   useEffect(() => {
     let timer;
     if (confirmStop) {
@@ -529,48 +608,19 @@ export function DashboardView() {
               <SectionLabel>Active Strategy</SectionLabel>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {sessionActive ? (
-                  <>
-                    <StrategyCard
-                      s={{
-                        ...currentStrategy,
-                        totalPnl: activeTrades.reduce((sum, t) => {
-                          const match = t.strategy_label === currentStrategy.strategy_label;
-                          return match ? sum + (t.pnl || 0) : sum;
-                        }, 0),
-                        activeTrades: activeTrades.filter(t => t.strategy_label === currentStrategy.strategy_label)
-                      }}
-                      scannerResults={variantScannerResults[currentStrategy.strategy_label]}
-                      config={config}
-                      paused={sessionPaused}
-                      onPause={togglePause}
-                      onEdit={() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }}
-                      onClick={() => setSelected(true)}
-                    />
-                    {(config.strategy_variants || []).filter(v => v.enabled !== false).map((variant, i) => {
-                      const label = variant.strategy_label || `Variant ${i + 1}`;
-                      const variantConfig = { ...config, ...variant };
-                      return (
-                        <StrategyCard
-                          key={i}
-                          s={{
-                            ...currentStrategy,
-                            strategy_label: label,
-                            totalPnl: activeTrades.reduce((sum, t) => {
-                              const match = t.strategy_label === label;
-                              return match ? sum + (t.pnl || 0) : sum;
-                            }, 0),
-                            activeTrades: activeTrades.filter(t => t.strategy_label === label)
-                          }}
-                          scannerResults={variantScannerResults[label]}
-                          config={variantConfig}
-                          paused={sessionPaused}
-                          onPause={togglePause}
-                          onEdit={() => { setIsEditMode(true); setSelectedConfig(variantConfig); setEditingVariantIndex(i); setShowConfig(true); }}
-                          onClick={() => setSelected(true)}
-                        />
-                      );
-                    })}
-                  </>
+                  <StrategyCardsList
+                    currentStrategy={currentStrategy}
+                    activeTrades={activeTrades}
+                    variantScannerResults={variantScannerResults}
+                    config={config}
+                    sessionPaused={sessionPaused}
+                    togglePause={togglePause}
+                    setIsEditMode={setIsEditMode}
+                    setSelectedConfig={setSelectedConfig}
+                    setEditingVariantIndex={setEditingVariantIndex}
+                    setShowConfig={setShowConfig}
+                    setSelected={setSelected}
+                  />
                 ) : (
                   <button
                     onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
@@ -697,7 +747,7 @@ export function DashboardView() {
               </div>
               <div className="flex-1 overflow-y-auto">
                 <Suspense fallback={<LoadingFallback />}>
-                  <ConfigModal initialConfig={selectedConfig || config} onSave={handleConfigSave} onClose={() => setShowConfig(false)} isEdit={isEditMode} />
+                  <ConfigModal key={configModalKey} initialConfig={selectedConfig || config} onSave={handleConfigSave} onClose={() => setShowConfig(false)} isEdit={isEditMode} />
                 </Suspense>
               </div>
             </Drawer.Content>

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, AlertCircle } from 'lucide-react'
+import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, AlertCircle, Zap, XCircle, Activity } from 'lucide-react'
 import { cn, Btn } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 
@@ -49,8 +49,31 @@ const Chip = ({ active, onClick, children, activeClass = "border-accent text-acc
   </button>
 )
 
+const flattenConfig = (config) => {
+  if (!config) return {}
+  const parsed = { ...config }
+  if (config.signal_params) {
+    try {
+      const params = typeof config.signal_params === 'string'
+        ? JSON.parse(config.signal_params)
+        : config.signal_params
+      parsed.signal_params_ma_period = params.ma_period
+      parsed.signal_params_ema_period = params.ema_period
+      parsed.signal_params_entry_ema_period = params.entry_ema_period
+      parsed.signal_params_exit_ema_period = params.exit_ema_period
+      parsed.signal_params_entry_ema_fast = params.entry_ema_fast
+      parsed.signal_params_entry_ema_slow = params.entry_ema_slow
+      parsed.signal_params_exit_ema_fast = params.exit_ema_fast
+      parsed.signal_params_exit_ema_slow = params.exit_ema_slow
+    } catch (e) {
+      console.error('Failed to parse signal_params', e)
+    }
+  }
+  return parsed
+}
+
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) => {
-  const [cfg, setCfg] = useState({ ...initialConfig })
+  const [cfg, setCfg] = useState(() => flattenConfig(initialConfig))
   const [section, setSection] = useState('scan')
   const [presets, setPresets] = useState([])
   const [presetName, setPresetName] = useState('')
@@ -124,30 +147,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     if (saved) setPresets(JSON.parse(saved))
   }, [])
 
-  useEffect(() => {
-    // Parse signal_params when initialConfig changes
-    if (initialConfig && initialConfig.signal_params) {
-      try {
-        const params = typeof initialConfig.signal_params === 'string'
-          ? JSON.parse(initialConfig.signal_params)
-          : initialConfig.signal_params;
-        setCfg(prev => ({
-          ...prev,
-          ...initialConfig,
-          signal_params_ma_period: params.ma_period,
-          signal_params_ema_period: params.ema_period,
-          signal_params_entry_ema_period: params.entry_ema_period,
-          signal_params_exit_ema_period: params.exit_ema_period,
-          signal_params_entry_ema_fast: params.entry_ema_fast,
-          signal_params_entry_ema_slow: params.entry_ema_slow,
-          signal_params_exit_ema_fast: params.exit_ema_fast,
-          signal_params_exit_ema_slow: params.exit_ema_slow,
-        }));
-      } catch (e) {
-        setCfg({ ...initialConfig })
-      }
-    }
-  }, [initialConfig])
 
   const setField = (key, value) => {
     const next = { ...cfg, [key]: value };
@@ -319,19 +318,22 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
         </button>
       </div>
 
-      <div className="flex gap-2 p-4 overflow-x-auto no-scrollbar shrink-0 border-b border-border">
+      <div className="flex gap-2 p-4 overflow-x-auto no-scrollbar shrink-0 border-b border-border bg-background/30">
         {[
-          ['scan', 'Global Scan'],
-          ['monitors', 'Single Symbols'],
-          ['signals', 'Signals'],
-          ['exit', 'Exit'],
-          ['risk', 'Risk'],
-          ['schedule', 'Schedule'],
-          ['mode', 'Mode'],
-          ['performance', 'Performance'],
-          ['presets', 'Presets'],
-        ].map(([id, label]) => (
-          <Chip key={id} active={section === id} onClick={() => setSection(id)}>{label}</Chip>
+          ['scan', 'Global Scan', Search],
+          ['monitors', 'Single Symbols', ShieldCheck],
+          ['signals', 'Signals', Zap],
+          ['exit', 'Exit', XCircle],
+          ['risk', 'Risk', AlertCircle],
+          ['schedule', 'Schedule', Clock],
+          ['mode', 'Mode', Activity],
+          ['performance', 'Performance', Settings2],
+          ['presets', 'Presets', FolderOpen],
+        ].map(([id, label, Icon]) => (
+          <Chip key={id} active={section === id} onClick={() => setSection(id)} className="flex items-center gap-2 whitespace-nowrap">
+            <Icon size={12} className={cn(section === id ? "text-accent" : "text-dim")} />
+            {label}
+          </Chip>
         ))}
       </div>
 

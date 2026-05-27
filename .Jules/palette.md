@@ -16,3 +16,7 @@
 
 **Action:** When implementing collapsible sections or detail views, include a chevron icon and animate its rotation (usually 180 degrees) using a library like `framer-motion` to match the transition of the content.
 ## 2026-05-27 - [Eco Mode Transparency] **Learning:** Automated power saving features should be visually communicated to the user to prevent confusion over data staleness. **Action:** Added real-time EcoBadges and power-state indicators synchronized with backend engine state.
+
+## 2024-05-27 - [UX] Contextual Tab Icons
+**Learning:** Dense configuration modals with many sections can be overwhelming. Adding small, relevant icons to tab triggers significantly aids visual scanning and helps users locate specific settings faster without reading every label.
+**Action:** In multi-section interfaces, always pair text labels with a supporting icon to improve accessibility and navigation speed.

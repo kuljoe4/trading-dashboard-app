@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, LogLevel } from '@nestjs/common';
+import { ValidationPipe, LogLevel, Logger } from '@nestjs/common';
 import { Request, Response, NextFunction, json, urlencoded } from 'express';
 import { DynamicLogger } from './lib/logger';
 import { ConfigService } from '@nestjs/config';

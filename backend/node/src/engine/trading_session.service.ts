@@ -42,6 +42,7 @@ export class TradingSessionService {
   private hotLoopInterval: NodeJS.Timeout | null = null;
   private balancePollInterval: NodeJS.Timeout | null = null;
   private lastScannerFullBroadcast = 0;
+  private lastScannerResultsJson = '';
   private userDataWs: any = null;
   private listenKey: string | null = null;
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
@@ -416,25 +417,40 @@ export class TradingSessionService {
 
         const now = Date.now();
         const isFullBroadcast = now - this.lastScannerFullBroadcast > 30000;
-        if (isFullBroadcast) this.lastScannerFullBroadcast = now;
 
-        this.broadcast('scanner', {
-          count: this.lastScannerResults.length,
-          opportunities: this.lastScannerResults.slice(0, 5).map(o => {
-            if (isFullBroadcast) return o;
-            const { history, ...rest } = o; // Skip history (sparkline data) in delta updates
-            return rest;
-          }),
-          variant_opportunities: this.lastVariantScannerResults.map(v => ({
-            ...v,
-            opportunities: v.opportunities.slice(0, 5).map((o: any) => {
-               if (isFullBroadcast) return o;
-               const { history, ...rest } = o;
-               return rest;
-            })
-          })),
-          activeWindows: this.getActiveWindows(),
+        // BOLT: Use a lightweight JSON signature for scanner results to detect UI-relevant changes
+        const nextResultsJson = JSON.stringify(opportunitiesWithSignals.map(o => ({ s: o.symbol, p: o.price, m: o.momentum, d: o.direction, sig: o.signalResult?.allFired })));
+        const resultsChanged = this.lastScannerResultsJson !== nextResultsJson;
+
+        // BOLT: Only broadcast scanner results if they changed or during heartbeat
+        // We also check for significant price changes to keep opportunities "realtime"
+        const priceChanged = this.lastScannerResults.some((o, i) => {
+          const prev = (this.lastTickData as any)?.scannerResults?.[i];
+          return prev && Math.abs(o.price - prev.price) / prev.price > 0.001; // 0.1% change
         });
+
+        if (isFullBroadcast || resultsChanged || priceChanged) {
+          if (isFullBroadcast) this.lastScannerFullBroadcast = now;
+          this.lastScannerResultsJson = nextResultsJson;
+
+          this.broadcast('scanner', {
+            count: this.lastScannerResults.length,
+            opportunities: this.lastScannerResults.slice(0, 5).map(o => {
+              if (isFullBroadcast) return o;
+              const { history, ...rest } = o; // Skip history (sparkline data) in delta updates
+              return rest;
+            }),
+            variant_opportunities: this.lastVariantScannerResults.map(v => ({
+              ...v,
+              opportunities: v.opportunities.slice(0, 5).map((o: any) => {
+                 if (isFullBroadcast) return o;
+                 const { history, ...rest } = o;
+                 return rest;
+              })
+            })),
+            activeWindows: this.getActiveWindows(),
+          });
+        }
       } else {
         // Still update internal state for history tracking if needed,
         // but we can skip the expensive formatting and broadcasting

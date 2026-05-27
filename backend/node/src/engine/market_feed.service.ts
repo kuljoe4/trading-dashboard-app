@@ -121,17 +121,31 @@ export class MarketFeedService {
     }
   }
 
+  private safeClose(ws: WebSocket | null) {
+    if (!ws) return;
+    try {
+      if (ws.readyState === WebSocket.CONNECTING) {
+        // Hard terminate if still connecting to avoid "closed before connection established" errors
+        ws.terminate();
+      } else if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+    } catch (err) {
+      this.logger.warn(`Error closing WebSocket: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   async stop() {
     this.running = false;
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
 
     if (this.miniTickerWs) {
-      this.miniTickerWs.close();
+      this.safeClose(this.miniTickerWs);
       this.miniTickerWs = null;
     }
 
     for (const ws of this.combinedKlineWsList) {
-      ws.close();
+      this.safeClose(ws);
     }
     this.combinedKlineWsList = [];
 
@@ -172,6 +186,10 @@ export class MarketFeedService {
         if (this.running) {
           this.subscriptionTasks.push(setTimeout(() => connect(), 2000));
         }
+      });
+
+      ws.on('error', (err) => {
+        this.logger.warn(`miniTicker WS error: ${err.message}`);
       });
 
       this.miniTickerWs = ws;
@@ -287,7 +305,7 @@ export class MarketFeedService {
 
   private async rebuildCombinedKlineStream() {
     for (const ws of this.combinedKlineWsList) {
-      ws.close();
+      this.safeClose(ws);
     }
     this.combinedKlineWsList = [];
 

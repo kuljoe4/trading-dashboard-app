@@ -30,6 +30,7 @@ export class TradingSessionService {
   private onBalanceUpdate: ((balance: number, pnl: number) => Promise<void> | void) | null = null;
   private onTradeUpdate: ((trade: Trade, balance: number) => Promise<void>) | null = null;
   private lastScannerResults: any[] = [];
+  private lastScannerResultsJson: string = '';
   private lastVariantScannerResults: any[] = [];
   private closedTrades: Trade[] = [];
   private lastAnalyticsResult: any = null;
@@ -284,7 +285,7 @@ export class TradingSessionService {
     const start = performance.now();
     try {
       await this.checkExits();
-      await this.broadcastTick();
+      this.broadcastTick();
       this.monitoringService.recordHotLoop(performance.now() - start);
     } catch (error) {
       if (this.config.debug_mode) {
@@ -302,7 +303,7 @@ export class TradingSessionService {
 
     // Evaluate risk gates before scanning
     const activeTrades = this.positionTracker.activeList();
-    const riskResult = await this.riskEngine.canEnter(
+    const riskResult = this.riskEngine.canEnter(
       activeTrades,
       this.closedTrades,
       this.getBalance(),
@@ -386,7 +387,7 @@ export class TradingSessionService {
       for (const strategyConfig of strategyConfigs) {
         const signature = this.scanSignature(strategyConfig);
         if (!opportunitiesBySignature.has(signature)) {
-          opportunitiesBySignature.set(signature, await this.momentumScanner.scan(strategyConfig));
+          opportunitiesBySignature.set(signature, this.momentumScanner.scan(strategyConfig));
         }
         if (primaryOpportunities.length === 0) {
           primaryOpportunities = opportunitiesBySignature.get(signature) || [];
@@ -401,8 +402,8 @@ export class TradingSessionService {
       // BOLT OPTIMIZATION: Only update and broadcast scanner results for UI if there are active listeners
       if (this.listenerCount > 0) {
         const baseConfig = strategyConfigs[0];
-        const opportunitiesWithSignals = await Promise.all(primaryOpportunities.slice(0, 10).map(async (opp) => {
-          const signalResult = await this.signalEngine.checkEntry(
+        const opportunitiesWithSignals = primaryOpportunities.slice(0, 10).map((opp) => {
+          const signalResult = this.signalEngine.checkEntry(
             opp.symbol,
             baseConfig,
             baseConfig.scan_interval || '1m',
@@ -410,7 +411,7 @@ export class TradingSessionService {
             'entry'
           );
           return { ...opp, signalResult };
-        }));
+        });
 
         this.updateScannerResults(opportunitiesWithSignals);
         this.lastVariantScannerResults = scannerData;
@@ -418,9 +419,10 @@ export class TradingSessionService {
         const now = Date.now();
         const isFullBroadcast = now - this.lastScannerFullBroadcast > 30000;
 
-        // BOLT: Use a lightweight JSON signature for scanner results to detect UI-relevant changes
-        const nextResultsJson = JSON.stringify(opportunitiesWithSignals.map(o => ({ s: o.symbol, p: o.price, m: o.momentum, d: o.direction, sig: o.signalResult?.allFired })));
-        const resultsChanged = this.lastScannerResultsJson !== nextResultsJson;
+        // BOLT: Efficiently check if scanner results actually changed to save egress
+        const nextResultsJson = JSON.stringify(this.lastScannerResults.map(o => o.symbol + o.direction + o.score));
+        const resultsChanged = nextResultsJson !== this.lastScannerResultsJson;
+        this.lastScannerResultsJson = nextResultsJson;
 
         // BOLT: Only broadcast scanner results if they changed or during heartbeat
         // We also check for significant price changes to keep opportunities "realtime"
@@ -474,16 +476,16 @@ export class TradingSessionService {
 
     const activeTrades = this.positionTracker.activeList();
     for (const trade of activeTrades) {
-      const currentPrice = await this.tickerCache.getPrice(trade.symbol);
+      const currentPrice = this.tickerCache.getPrice(trade.symbol);
       if (!currentPrice) continue;
 
       // 1. Ratchet SL if applicable
       const tradeConfig = { ...this.config!, ...((trade as any).strategy_config || {}) } as SessionConfig;
-      await this.positionTracker.checkRrSequenceAdjustments(trade.symbol, currentPrice, tradeConfig);
+      this.positionTracker.checkRrSequenceAdjustments(trade.symbol, currentPrice, tradeConfig);
 
       // 2. Check Exit Conditions (SL/TP/Signals)
       const exitInterval = tradeConfig.scan_interval || '1m';
-      const exitCondition = await this.positionTracker.checkExitConditions(trade.symbol, currentPrice, tradeConfig, exitInterval);
+      const exitCondition = this.positionTracker.checkExitConditions(trade.symbol, currentPrice, tradeConfig, exitInterval);
 
       if (exitCondition?.exitOccurred) {
         const result = await this.positionTracker.closeTrade(trade.symbol, currentPrice, exitCondition.exitReason, tradeConfig);
@@ -550,7 +552,7 @@ export class TradingSessionService {
 
       const symbolConfig = (strategyConfig.single_symbol_configs?.find(c => c.symbol === opp.symbol)?.custom_config || strategyConfig) as SessionConfig;
 
-      const signalResult = await this.signalEngine.checkEntry(
+      const signalResult = this.signalEngine.checkEntry(
         opp.symbol,
         strategyConfig,
         strategyConfig.scan_interval || '1m',
@@ -565,7 +567,7 @@ export class TradingSessionService {
       }
 
       const activeTrades = this.positionTracker.activeList();
-      const riskResult = await this.riskEngine.canEnter(
+      const riskResult = this.riskEngine.canEnter(
         activeTrades,
         this.closedTrades,
         this.getBalance(),
@@ -588,16 +590,16 @@ export class TradingSessionService {
         continue;
       }
 
-      const price = await this.tickerCache.getPrice(opp.symbol);
+      const price = this.tickerCache.getPrice(opp.symbol);
       if (!price) continue;
 
-      const lookback = await this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
-      const slPrice = await this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.minLow, lookback.maxHigh);
-      const qty = await this.riskEngine.computePositionSize(this.getBalance(), price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
+      const lookback = this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
+      const slPrice = this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.minLow, lookback.maxHigh);
+      const qty = this.riskEngine.computePositionSize(this.getBalance(), price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
       
       if (qty <= 0) continue;
 
-      const tpPrice = await this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
+      const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
 
       this.logger.log(`${opp.symbol}: Sending ${opp.direction} order (Qty: ${qty.toFixed(4)})`);
       
@@ -769,7 +771,7 @@ export class TradingSessionService {
   private lastTickData: any = null;
   private lastTickTime = 0;
 
-  private async broadcastTick() {
+  private broadcastTick() {
     // RESOURCE REDUCTION: Skip heavy tick data construction and broadcast if no one is listening.
     // This is the primary driver of egress savings when the tab is in the background.
     if (this.listenerCount === 0) return;
@@ -784,8 +786,12 @@ export class TradingSessionService {
       }
     }
 
-    const trades = await Promise.all(activeTrades.map(async (trade) => {
-      let current = await this.tickerCache.getPrice(trade.symbol);
+    // BOLT: Single-pass synchronous processing of trades
+    const trades: any[] = [];
+    const len = activeTrades.length;
+    for (let i = 0; i < len; i++) {
+      const trade = activeTrades[i];
+      let current = this.tickerCache.getPrice(trade.symbol);
       
       // Fallback to previous price if cache miss to prevent PnL flickering
       if (current === null) {
@@ -796,8 +802,21 @@ export class TradingSessionService {
       }
       
       // BOLT: Use minimal serialization for ticks (delta updates) to save network egress
-      return this.serializeTrade(trade, current ?? undefined, true);
-    }));
+      const serialized = this.serializeTrade(trade, current ?? undefined, true);
+
+      // DELTA OPTIMIZATION: Only send sl_price and max_rr if they actually changed since last tick
+      if (prevTrade && !isHeartbeat) {
+        if (serialized.sl_price === prevTrade.sl_price) delete serialized.sl_price;
+        if (serialized.max_rr === prevTrade.max_rr) delete serialized.max_rr;
+        // Even RR can be omitted if it hasn't moved significantly
+        if (serialized.rr !== undefined && prevTrade.rr !== undefined && Math.abs(serialized.rr - prevTrade.rr) < 0.01) {
+           delete serialized.rr;
+        }
+      }
+
+      trades.push(serialized);
+    }
+
     const activePnl = trades.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
     const balance = this.getBalance();
     const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');

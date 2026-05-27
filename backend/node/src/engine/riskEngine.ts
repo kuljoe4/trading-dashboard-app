@@ -10,14 +10,14 @@ export class RiskEngineService {
   /**
    * Check if a new trade can be entered based on risk limits
    */
-  async canEnter(
+  canEnter(
     activeTrades: Trade[],
     closedTrades: Trade[],
     balance: number,
     symbol: string,
     config: SessionConfig,
     totalSlUsed: number
-  ): Promise<{ canEnter: boolean; reason: string }> {
+  ): { canEnter: boolean; reason: string } {
     // Check global max open trades
     const maxOpenTrades = config.max_open_trades ?? 5;
     const maxOpenTradesPerSymbol = config.max_open_trades_per_symbol ?? 1;
@@ -133,13 +133,13 @@ export class RiskEngineService {
    * Calculate stop loss price based on SL type configuration
    * BOLT OPTIMIZATION: Accept scalar min/max extremes instead of arrays to reduce memory churn.
    */
-  async computeSl(
+  computeSl(
     entryPrice: number,
     direction: 'LONG' | 'SHORT',
     config: SessionConfig,
     minLow?: number,
     maxHigh?: number
-  ): Promise<number> {
+  ): number {
     if (config.sl_type === 'pct') {
       // Simple percentage-based SL
       const distance = entryPrice * ((config.sl_distance_pct ?? 0.8) / 100);
@@ -177,13 +177,13 @@ export class RiskEngineService {
   /**
    * Calculate position size (quantity) based on risk parameters
    */
-  async computePositionSize(
+  computePositionSize(
     balance: number,
     entryPrice: number,
     slPrice: number,
     direction: 'LONG' | 'SHORT',
     config: SessionConfig
-  ): Promise<number> {
+  ): number {
     if (balance <= 0 || entryPrice <= 0) return 0;
 
     const riskAmount = balance * ((config.risk_pct_per_trade ?? 1.0) / 100);
@@ -200,12 +200,12 @@ export class RiskEngineService {
   /**
    * Calculate initial Take Profit price based on exit RR sequence
    */
-  async computeTp(
+  computeTp(
     entryPrice: number,
     slPrice: number,
     direction: 'LONG' | 'SHORT',
     config: SessionConfig,
-  ): Promise<number | null> {
+  ): number | null {
     if (config.tp_mode === 'exp_rr_seq') {
       return null;
     }

@@ -60,11 +60,11 @@ export class PositionTrackerService {
     this.rrSequenceIndex.set(trade.symbol, -1);
   }
 
-  async checkRrSequenceAdjustments(
+  checkRrSequenceAdjustments(
     symbol: string,
     currentPrice: number,
     config: SessionConfig,
-  ): Promise<void> {
+  ): void {
     const trade = this.trades.get(symbol);
     if (!trade || trade.status !== 'OPEN') return;
 
@@ -164,12 +164,12 @@ export class PositionTrackerService {
     );
   }
 
-  async checkExitConditions(
+  checkExitConditions(
     symbol: string,
     currentPrice: number,
     config: SessionConfig,
     interval: string = '1m',
-  ): Promise<{ exitOccurred: boolean; exitType: string; exitReason: string } | null> {
+  ): { exitOccurred: boolean; exitType: string; exitReason: string } | null {
     const trade = this.trades.get(symbol);
     if (!trade || trade.status !== 'OPEN') return null;
 
@@ -216,7 +216,7 @@ export class PositionTrackerService {
     }
 
     // Check exit signals
-    const { exitTriggered, exitSignalType } = await this.orderManager.checkExitSignals(
+    const { exitTriggered, exitSignalType } = this.orderManager.checkExitSignals(
       symbol,
       trade,
       config,

@@ -18,7 +18,7 @@ export class SignalEngineService {
 
   private readonly signalHandlers: Record<
     string,
-    (symbol: string, config: any, interval: string, side?: 'LONG' | 'SHORT', purpose?: 'entry' | 'exit') => Promise<boolean | SignalDetail>
+    (symbol: string, config: any, interval: string, side?: 'LONG' | 'SHORT', purpose?: 'entry' | 'exit') => boolean | SignalDetail
   > = {
     momentum_pct: this.momentumPctSignal.bind(this),
     breakback_hl: this.breakoutHlSignal.bind(this), // Typo in existing code? It's breakout_hl
@@ -34,13 +34,13 @@ export class SignalEngineService {
 
   constructor(private readonly klineStore: KlineStoreService) {}
 
-  async checkEntry(
+  checkEntry(
     symbol: string,
     config: SessionConfig,
     interval: string = '1m',
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
-  ): Promise<{ allFired: boolean; firedSignals: string[]; reason: string; details?: Record<string, SignalDetail> }> {
+  ): { allFired: boolean; firedSignals: string[]; reason: string; details?: Record<string, SignalDetail> } {
     if (!config.enabled_signals || config.enabled_signals.length === 0) {
       return {
         allFired: false,
@@ -61,7 +61,7 @@ export class SignalEngineService {
       }
 
       try {
-        const result = await handler(symbol, config, interval, side, purpose);
+        const result = handler(symbol, config, interval, side, purpose);
         const fired = typeof result === 'boolean' ? result : result.fired;
         
         if (typeof result !== 'boolean') {
@@ -91,13 +91,13 @@ export class SignalEngineService {
     return { allFired, firedSignals, reason, details };
   }
 
-  private async momentumPctSignal(
+  private momentumPctSignal(
     symbol: string,
     config: SessionConfig,
     interval: string,
-  ): Promise<SignalDetail> {
+  ): SignalDetail {
     const lookback = Math.max(config.scan_lookback || 3, 1);
-    const candles = await this.klineStore.getRecentCandles(symbol, interval, lookback + 1);
+    const candles = this.klineStore.getRecentCandles(symbol, interval, lookback + 1);
     const threshold = config.scan_pct_threshold || 0;
     
     if (candles.length < lookback + 1) {
@@ -127,13 +127,13 @@ export class SignalEngineService {
     };
   }
 
-  private async breakoutHlSignal(
+  private breakoutHlSignal(
     symbol: string,
     config: SessionConfig,
     interval: string,
-  ): Promise<SignalDetail> {
+  ): SignalDetail {
     const lookback = Math.max(config.scan_lookback || 3, 2);
-    const candles = await this.klineStore.getRecentCandles(symbol, interval, lookback + 1);
+    const candles = this.klineStore.getRecentCandles(symbol, interval, lookback + 1);
     
     if (candles.length < lookback + 1) {
       return {
@@ -171,13 +171,13 @@ export class SignalEngineService {
     };
   }
 
-  private async engulfingSignal(
+  private engulfingSignal(
     symbol: string,
     config: any,
     interval: string,
-  ): Promise<SignalDetail> {
+  ): SignalDetail {
     try {
-      const candles = await this.klineStore.getRecentCandles(symbol, interval, 2);
+      const candles = this.klineStore.getRecentCandles(symbol, interval, 2);
       if (candles.length < 2) {
         return { fired: false, value: 0, threshold: 0, unit: 'bool', metric: 'Engulfing', description: 'Insufficient data', insufficientData: true };
       }
@@ -200,14 +200,14 @@ export class SignalEngineService {
     }
   }
 
-  private async maSignal(
+  private maSignal(
     symbol: string,
     config: any,
     interval: string,
-  ): Promise<SignalDetail> {
+  ): SignalDetail {
     try {
       const period = parseInt(config.signal_params?.ma_period || '20', 10);
-      const candles = await this.klineStore.getRecentCandles(symbol, interval, period + 1);
+      const candles = this.klineStore.getRecentCandles(symbol, interval, period + 1);
       if (candles.length < period + 1) {
         return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'MA Cross', description: 'Insufficient data', insufficientData: true };
       }
@@ -233,20 +233,20 @@ export class SignalEngineService {
     }
   }
 
-  private async emaSignal(
+  private emaSignal(
     symbol: string,
     config: any,
     interval: string,
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
-  ): Promise<SignalDetail> {
+  ): SignalDetail {
     try {
       const params = config.signal_params || {};
       const period = purpose === 'exit'
         ? parseInt(params.exit_ema_period || params.ema_period || '12', 10)
         : parseInt(params.entry_ema_period || params.ema_period || '12', 10);
 
-      const candles = await this.klineStore.getRecentCandles(symbol, interval, period + 1);
+      const candles = this.klineStore.getRecentCandles(symbol, interval, period + 1);
       if (candles.length < period + 1) {
         return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Cross', description: 'Insufficient data', insufficientData: true };
       }
@@ -280,13 +280,13 @@ export class SignalEngineService {
     }
   }
 
-  private async emaDualCrossSignal(
+  private emaDualCrossSignal(
     symbol: string,
     config: any,
     interval: string,
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
-  ): Promise<SignalDetail> {
+  ): SignalDetail {
     try {
       const params = config.signal_params || {};
       const fastPeriod = purpose === 'exit'
@@ -297,7 +297,7 @@ export class SignalEngineService {
         : parseInt(params.entry_ema_slow || '21', 10);
 
       const maxPeriod = Math.max(fastPeriod, slowPeriod);
-      const candles = await this.klineStore.getRecentCandles(symbol, interval, maxPeriod + 2);
+      const candles = this.klineStore.getRecentCandles(symbol, interval, maxPeriod + 2);
       if (candles.length < maxPeriod + 1) {
         return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Dual', description: 'Insufficient data', insufficientData: true };
       }
@@ -337,20 +337,20 @@ export class SignalEngineService {
     }
   }
 
-  private async emaCloseSignal(
+  private emaCloseSignal(
     symbol: string,
     config: any,
     interval: string,
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
-  ): Promise<SignalDetail> {
+  ): SignalDetail {
     try {
       const params = config.signal_params || {};
       const period = purpose === 'exit'
         ? parseInt(params.exit_ema_period || params.ema_period || '12', 10)
         : parseInt(params.entry_ema_period || params.ema_period || '12', 10);
 
-      const candles = await this.klineStore.getRecentCandles(symbol, interval, period + 1);
+      const candles = this.klineStore.getRecentCandles(symbol, interval, period + 1);
       if (candles.length < period + 1) {
         return {
           fired: false,

@@ -141,15 +141,15 @@ describe('OrderManagerService', () => {
   });
 
   describe('checkExitSignals', () => {
-    it('returns exitTriggered false when no exit signals are configured', async () => {
+    it('returns exitTriggered false when no exit signals are configured', () => {
       const trade = { symbol: 'BTCUSDT' } as any;
       const config = { exit_signals: [] } as any;
       
-      const result = await service.checkExitSignals('BTCUSDT', trade, config);
+      const result = service.checkExitSignals('BTCUSDT', trade, config);
       expect(result.exitTriggered).toBe(false);
     });
 
-    it('correctly identifies triggered exit signals', async () => {
+    it('correctly identifies triggered exit signals', () => {
       const trade = { 
         symbol: 'BTCUSDT', 
         direction: 'LONG',
@@ -161,13 +161,13 @@ describe('OrderManagerService', () => {
         exit_signal_logic: 'any'
       } as any;
 
-      mockSignalEngine.checkEntry.mockResolvedValue({
+      mockSignalEngine.checkEntry.mockReturnValue({
         allFired: true,
         firedSignals: ['ema_close'],
         reason: 'EMA close fired'
       });
 
-      const result = await service.checkExitSignals('BTCUSDT', trade, config);
+      const result = service.checkExitSignals('BTCUSDT', trade, config);
       
       expect(result.exitTriggered).toBe(true);
       expect(result.exitSignalType).toBe('ema_close');

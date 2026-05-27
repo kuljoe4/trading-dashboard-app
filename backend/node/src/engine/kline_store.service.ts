@@ -83,7 +83,7 @@ export class KlineStoreService {
     }
   }
 
-  async getRecentCandles(symbol: string, interval: string, count: number): Promise<Candle[]> {
+  getRecentCandles(symbol: string, interval: string, count: number): Candle[] {
     const key = `${symbol}_${interval}`;
     const candles = this.klines.get(key) || [];
     return candles.slice(-count);
@@ -92,11 +92,11 @@ export class KlineStoreService {
   /**
    * BOLT OPTIMIZATION: Calculate min/max extremes in a single pass without array allocations (slice/map).
    */
-  async getLookbackExtremes(
+  getLookbackExtremes(
     symbol: string,
     interval: string,
     period: number,
-  ): Promise<{ minLow: number; maxHigh: number }> {
+  ): { minLow: number; maxHigh: number } {
     const key = `${symbol}_${interval}`;
     const candles = this.klines.get(key) || [];
 

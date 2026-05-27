@@ -318,8 +318,6 @@ export class SessionService implements OnModuleInit {
       where: { status: 'OPEN' as any }
     });
 
-    const sessionOpenTrades = openTrades.filter(t => t.sessionId === this.currentSessionId);
-
     // Instantiate Binance client if not in paper mode
     let binanceClient = null;
     const mode = config.trading_mode || (paperMode ? 'paper' : 'live');
@@ -341,43 +339,78 @@ export class SessionService implements OnModuleInit {
       binanceClient = BinanceClientFactory.createClient(key, decrypt(secret), isTestnet);
     }
       
-    // Reconciliation for Paper Mode: Mark open trades as orphaned if their session is not running
-    if (mode === 'paper') {
-      for (const trade of openTrades) {
-        let isOrphaned = false;
-        if (trade.sessionId) {
-          const session = await this.sessionRepository.findOne({ where: { id: trade.sessionId } });
-          if (!session || !session.running) {
-            isOrphaned = true;
-          }
-        } else {
-          // If no sessionId, default to time-based fallback for safety
-          const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
-          if (Date.now() - (trade.entry_ts ? new Date(trade.entry_ts).getTime() : 0) > STALE_THRESHOLD_MS) {
-            isOrphaned = true;
-          }
+    // 1. Reconciliation: Identify trades that should be closed or resumed
+    for (const trade of openTrades) {
+      let isOrphaned = false;
+      if (trade.sessionId) {
+        const tSession = await this.sessionRepository.findOne({ where: { id: trade.sessionId } });
+        if (!tSession || (!tSession.running && tSession.id !== this.currentSessionId)) {
+          isOrphaned = true;
         }
-
-        if (isOrphaned) {
-          this.logger.log(`Paper trade ${trade.symbol} (Session: ${trade.sessionId}) is orphaned. Marking as closed.`);
-          await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date() });
+      } else {
+        const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+        if (Date.now() - (trade.entry_ts ? new Date(trade.entry_ts).getTime() : 0) > STALE_THRESHOLD_MS) {
+          isOrphaned = true;
         }
       }
-    } else if (binanceClient) {
-      // Reconciliation: Check if persistent open trades still exist on the exchange
-      for (const trade of openTrades) {
+
+      if (isOrphaned) {
+        this.logger.log(`Trade ${trade.symbol} (Session: ${trade.sessionId}) is orphaned. Marking as closed.`);
+        await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date() });
+        await this.logMessage(`Trade ${trade.symbol} was orphaned during downtime and marked closed.`, 'warn');
+        (trade as any).reconciled_out = true;
+        continue;
+      }
+
+      // Check if trade exists on exchange for live/testnet
+      if (mode !== 'paper' && binanceClient) {
         try {
           const orders = await (binanceClient.restAPI as any).tradeApi.getOpenOrders(trade.symbol);
           const hasOrder = Array.isArray(orders) && orders.some(o => (o as any).orderId == trade.binance_order_id || (o as any).orderId == trade.binance_stop_order_id);
           if (!hasOrder) {
             this.logger.log(`Trade ${trade.symbol} not found on exchange. Marking as closed (orphaned).`);
+            await this.logMessage(`Live position for ${trade.symbol} was not found on exchange during reconciliation. Marking as orphaned.`, 'warn');
             await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date() });
+            (trade as any).reconciled_out = true;
+            continue;
           }
         } catch (e) {
-          this.logger.warn(`Failed to reconcile trade ${trade.symbol}: ${e instanceof Error ? e.message : String(e)}`);
+          this.logger.warn(`Failed to reconcile live trade ${trade.symbol}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      // Offline Breach Detection for paper trades in the current session
+      if (mode === 'paper' && trade.sessionId === this.currentSessionId) {
+        const currentPrice = await this.tradingSessionService.fetchTickerPrice(trade.symbol);
+        if (currentPrice) {
+          const side = trade.direction.toUpperCase();
+          const sl = Number(trade.current_sl || 0);
+          const tp = Number(trade.tp || 0);
+
+          let breached = false;
+          let reason = 'AUTO_RECONCILED_EXIT';
+
+          if (side === 'LONG') {
+            if (sl > 0 && currentPrice <= sl) { breached = true; reason = 'AUTO_RECONCILED_SL'; }
+            else if (tp > 0 && currentPrice >= tp) { breached = true; reason = 'AUTO_RECONCILED_TP'; }
+          } else {
+            if (sl > 0 && currentPrice >= sl) { breached = true; reason = 'AUTO_RECONCILED_SL'; }
+            else if (tp > 0 && currentPrice <= tp) { breached = true; reason = 'AUTO_RECONCILED_TP'; }
+          }
+
+          if (breached) {
+            this.logger.warn(`Resumed trade ${trade.symbol} breached SL/TP during downtime. Auto-closing at ${currentPrice}.`);
+            await this.logMessage(`Resumed trade ${trade.symbol} breached SL/TP during downtime. Auto-closed at ${currentPrice} (${reason}).`, 'warn');
+            const pnl = side === 'LONG' ? (currentPrice - Number(trade.entry_price)) * Number(trade.qty) : (Number(trade.entry_price) - currentPrice) * Number(trade.qty);
+            const updatedTrade = { ...trade, status: 'CLOSED', exit_ts: new Date(), exit_price: currentPrice, pnl, exit_reason: reason };
+            await this.saveTradeAtomic(updatedTrade, Number(session.balance) + pnl);
+            (trade as any).reconciled_out = true;
+          }
         }
       }
     }
+
+    const sessionOpenTrades = openTrades.filter(t => t.sessionId === this.currentSessionId && !(t as any).reconciled_out);
 
     // Fetch current global balance to ensure risk engine uses real-time account state
     const currentSettings = await this.settingsRepository.findOne({ where: { id: 'default' } });

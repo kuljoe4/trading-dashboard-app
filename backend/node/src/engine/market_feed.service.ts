@@ -238,6 +238,16 @@ export class MarketFeedService {
         if (t.strategy_config?.scan_interval) {
           newWatchlist.get(t.symbol)!.add(t.strategy_config.scan_interval);
         }
+        if (t.strategy_config?.sl_lookback_timeframe) {
+          newWatchlist.get(t.symbol)!.add(t.strategy_config.sl_lookback_timeframe);
+        }
+      }
+
+      // 4. Structural Lookback (Ensure SL data is pre-cached for all potential symbols)
+      if (config.sl_lookback_timeframe) {
+        for (const [symbol, intervals] of newWatchlist) {
+          intervals.add(config.sl_lookback_timeframe);
+        }
       }
 
       // Check if watchlist changed

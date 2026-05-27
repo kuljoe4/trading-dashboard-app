@@ -21,6 +21,9 @@ async function bootstrap() {
     bodyParser: false, // Disable default body parser to configure limits manually
   });
 
+  // Security: Disable X-Powered-By header to reduce information disclosure
+  app.getHttpAdapter().getInstance().disable('x-powered-by');
+
   // Security: Limit JSON and URL-encoded payload size to prevent DoS attacks
   app.use(json({ limit: '50kb' }));
   app.use(urlencoded({ limit: '50kb', extended: true }));

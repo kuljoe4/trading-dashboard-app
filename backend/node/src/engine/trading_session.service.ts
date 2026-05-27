@@ -42,6 +42,7 @@ export class TradingSessionService {
   private hotLoopInterval: NodeJS.Timeout | null = null;
   private balancePollInterval: NodeJS.Timeout | null = null;
   private lastScannerFullBroadcast = 0;
+  private lastScannerResultsJson = '';
   private userDataWs: any = null;
   private listenKey: string | null = null;
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
@@ -422,7 +423,10 @@ export class TradingSessionService {
 
         const now = Date.now();
         const isFullBroadcast = now - this.lastScannerFullBroadcast > 30000;
-        const resultsChanged = prevResultsJson !== nextResultsJson;
+
+        // BOLT: Use a lightweight JSON signature for scanner results to detect UI-relevant changes
+        const nextResultsJson = JSON.stringify(opportunitiesWithSignals.map(o => ({ s: o.symbol, p: o.price, m: o.momentum, d: o.direction, sig: o.signalResult?.allFired })));
+        const resultsChanged = this.lastScannerResultsJson !== nextResultsJson;
 
         // BOLT: Only broadcast scanner results if they changed or during heartbeat
         // We also check for significant price changes to keep opportunities "realtime"
@@ -433,6 +437,7 @@ export class TradingSessionService {
 
         if (isFullBroadcast || resultsChanged || priceChanged) {
           if (isFullBroadcast) this.lastScannerFullBroadcast = now;
+          this.lastScannerResultsJson = nextResultsJson;
 
           this.broadcast('scanner', {
             count: this.lastScannerResults.length,

@@ -66,6 +66,7 @@
 ## 2026-05-27 - [Engine De-promisification]
 **Learning:** Using 'async/await' for purely in-memory operations in high-frequency loops (1s/2s/5s) creates significant Promise allocation overhead and microtask queue pressure. Converting technical analysis (indicators, signals) and risk checks to synchronous methods results in zero Promise churn for the hot path.
 **Action:** Prioritize synchronous signatures for all in-memory technical analysis and risk evaluation logic. Reserved 'async' only for I/O bound operations like database persistence or external API calls.
+## 2026-05-27 - [Aggressive Eco Mode] **Learning:** Unwatched background loops and global market streams are the primary drivers of Railway egress and CPU cost. **Action:** Implement dynamic loop throttling (ECO-MODE) and conditional market feed skipping based on listener counts.
 
 ## 2024-05-27 - [Optimization] Memoized Strategy Joins
 **Learning:** Re-calculating strategy-specific data (PnL, filtered trades) inside a main view's render loop bypasses 'React.memo' optimizations on child components, as new object literals are created on every tick.

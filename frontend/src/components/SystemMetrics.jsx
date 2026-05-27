@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Cpu, HardDrive, Clock, Zap } from 'lucide-react';
+import { Activity, Cpu, HardDrive, Clock, Zap, Leaf } from 'lucide-react';
 import { cn, PulseDot } from './ui/primitives';
 
 export const SystemMetric = ({ icon: Icon, label, value, colorClass, compact = false }) => (
@@ -12,14 +12,22 @@ export const SystemMetric = ({ icon: Icon, label, value, colorClass, compact = f
   </div>
 );
 
-export const SystemMetrics = ({ monitoring, rateLimit, wsStatus, compact = false }) => (
+export const SystemMetrics = ({ monitoring, rateLimit, wsStatus, isEcoMode, compact = false }) => (
   <div className={cn("flex items-center gap-4 overflow-hidden", compact ? "justify-center" : "flex-col")}>
-    <div className={cn("flex items-center gap-2 overflow-hidden", compact ? "" : "p-3 bg-background/40 rounded-xl border border-border/50")}>
-      <PulseDot color={wsStatus === 'live' ? "bg-green" : "bg-amber"} />
-      {!compact && (
-        <span className={cn("font-bold uppercase tracking-widest truncate", wsStatus === 'live' ? "text-green" : "text-amber", "text-[10px]")}>
-          {wsStatus === 'live' ? 'Live' : 'Offline'}
-        </span>
+    <div className="flex items-center gap-2">
+      <div className={cn("flex items-center gap-2 overflow-hidden", compact ? "" : "p-3 bg-background/40 rounded-xl border border-border/50")}>
+        <PulseDot color={wsStatus === 'live' ? "bg-green" : "bg-amber"} />
+        {!compact && (
+          <span className={cn("font-bold uppercase tracking-widest truncate", wsStatus === 'live' ? "text-green" : "text-amber", "text-[10px]")}>
+            {wsStatus === 'live' ? 'Live' : 'Offline'}
+          </span>
+        )}
+      </div>
+
+      {isEcoMode && !compact && (
+        <div className="flex items-center gap-1.5 px-3 py-3 bg-green/10 rounded-xl border border-green/20 text-green text-[10px] font-bold uppercase tracking-widest animate-in fade-in slide-in-from-left-2">
+          <Leaf size={12} fill="currentColor" /> ECO
+        </div>
       )}
     </div>
     

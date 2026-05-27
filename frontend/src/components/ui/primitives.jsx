@@ -93,6 +93,13 @@ export const PaperBadge = () => (
   </span>
 )
 
+export const EcoBadge = () => (
+  <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5 shadow-[0_0_10px_rgba(0,229,160,0.05)]">
+    <div className="w-1.5 h-1.5 bg-green rounded-full animate-pulse" />
+    ECO
+  </span>
+)
+
 export const DemoBadge = () => (
   <span className="px-2.5 py-1 rounded-full border border-purple/20 bg-purple/10 text-[10px] text-purple font-bold tracking-wider flex items-center gap-1.5">
     <Zap size={10} fill="currentColor" />

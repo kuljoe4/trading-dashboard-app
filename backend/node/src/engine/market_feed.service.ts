@@ -172,6 +172,16 @@ export class MarketFeedService {
 
       ws.on('message', (data: Buffer) => {
         try {
+          // BOLT: Aggressive CPU optimization - skip full miniTicker processing if in ECO mode
+          // and the system is under load (implied by ECO mode being active)
+          if (this.tradingSession.isEcoMode()) {
+             // In ECO mode, we only process miniTickers if we have active trades
+             if (this.tradingSession.getStatus().activeTrades.length === 0) {
+                // If no trades and no listeners, we don't need real-time 24h volume for 400+ symbols
+                return;
+             }
+          }
+
           const msg = JSON.parse(data.toString());
           let tickers: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
           if (tickers.length > 0) {

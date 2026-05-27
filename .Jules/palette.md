@@ -15,3 +15,7 @@
 **Learning:** Adding a subtle rotation animation to a chevron icon on expansion toggles provides an immediate and intuitive visual confirmation of the component's state, improving the perceived responsiveness of the interface.
 
 **Action:** When implementing collapsible sections or detail views, include a chevron icon and animate its rotation (usually 180 degrees) using a library like `framer-motion` to match the transition of the content.
+
+## 2024-05-27 - [UX] Contextual Tab Icons
+**Learning:** Dense configuration modals with many sections can be overwhelming. Adding small, relevant icons to tab triggers significantly aids visual scanning and helps users locate specific settings faster without reading every label.
+**Action:** In multi-section interfaces, always pair text labels with a supporting icon to improve accessibility and navigation speed.

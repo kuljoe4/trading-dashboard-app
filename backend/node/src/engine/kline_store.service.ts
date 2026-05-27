@@ -39,7 +39,7 @@ export class KlineStoreService {
     );
 
     if (!isValidCandle) {
-      this.logger.debug(
+      this.logger.verbose(
         `Ignoring invalid candle for ${symbol}/${interval} at ${candle.time}: open=${candle.open}, high=${candle.high}, low=${candle.low}, close=${candle.close}`,
       );
       return;
@@ -131,7 +131,7 @@ export class KlineStoreService {
     // Keep only the last N candles
     const trimmed = candles.slice(-this.MAX_CANDLES);
     this.klines.set(key, trimmed);
-    this.logger.debug(`Seeded ${trimmed.length} candles for ${symbol}/${interval}`);
+    this.logger.verbose(`Seeded ${trimmed.length} candles for ${symbol}/${interval}`);
   }
 
   getStats(): { keys: string[]; counts: Record<string, number> } {

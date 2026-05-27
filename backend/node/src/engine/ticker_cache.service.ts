@@ -75,7 +75,7 @@ export class TickerCacheService {
     }
 
     const all = Array.from(this.tickers.values());
-    this.logger.debug(`topByVolume requested ${n} symbols. Cache size: ${all.length}. Cache miss - recomputing.`);
+    this.logger.verbose(`topByVolume requested ${n} symbols. Cache size: ${all.length}. Cache miss - recomputing.`);
 
     const result = all
       .filter(t => !excluded.includes(t.symbol))

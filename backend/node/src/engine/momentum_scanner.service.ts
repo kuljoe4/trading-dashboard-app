@@ -70,7 +70,7 @@ export class MomentumScannerService {
             const res = this.scanSymbol(symbol, interval, config);
             if (res) results.push(res);
           } catch (error) {
-            this.logger.debug(`Global scan error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
+            this.logger.verbose(`Global scan error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
           }
         }
       }
@@ -88,7 +88,7 @@ export class MomentumScannerService {
             const res = this.scanSymbol(sc.symbol, interval, symbolConfig);
             if (res) singleResults.push(res);
           } catch (error) {
-            this.logger.debug(`Single symbol scan error for ${sc.symbol}: ${error instanceof Error ? error.message : String(error)}`);
+            this.logger.verbose(`Single symbol scan error for ${sc.symbol}: ${error instanceof Error ? error.message : String(error)}`);
           }
         }
 
@@ -135,7 +135,7 @@ export class MomentumScannerService {
     const previousPrice = candles[candles.length - 1 - lookback].close;
 
     if (!this.isValidPrice(currentPrice) || !this.isValidPrice(previousPrice)) {
-      this.logger.debug(
+      this.logger.verbose(
         `Skipping scan for ${symbol} due invalid candle prices current=${currentPrice} previous=${previousPrice}`,
       );
       return null;
@@ -144,7 +144,7 @@ export class MomentumScannerService {
     // Calculate simple momentum
     const momentumPct = this.calculateMomentum(currentPrice, previousPrice);
     if (!Number.isFinite(momentumPct)) {
-      this.logger.debug(
+      this.logger.verbose(
         `Skipping scan for ${symbol} due invalid momentum current=${currentPrice} previous=${previousPrice}`,
       );
       return null;

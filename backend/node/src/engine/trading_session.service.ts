@@ -519,7 +519,7 @@ export class TradingSessionService {
   private async onCandleClose(symbol: string) {
     if (!this.running || !this.config) return;
     if (this.config.debug_mode) {
-      this.logger.debug(`Candle closed for ${symbol}`);
+      this.logger.verbose(`Candle closed for ${symbol}`);
     }
   }
 

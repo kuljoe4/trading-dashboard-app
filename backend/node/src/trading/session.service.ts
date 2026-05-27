@@ -13,6 +13,7 @@ import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { decrypt } from '../lib/crypto';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { AnalyticsService } from '../engine/analytics.service';
+import { updateLogLevels } from '../lib/logger';
 
 @Injectable()
 export class SessionService implements OnModuleInit {
@@ -418,6 +419,9 @@ export class SessionService implements OnModuleInit {
       ? (mode === 'paper' ? Number(currentSettings.paper_balance) : (mode === 'testnet' ? Number(currentSettings.testnet_balance) : Number(currentSettings.live_balance)))
       : undefined;
 
+    // Update global log levels based on session config
+    updateLogLevels(!!config.debug_mode);
+
     // Start the actual trading engine
     await this.tradingSessionService.start(config, binanceClient, this.currentSessionId, initialHistory as any, currentGlobalBalance, sessionOpenTrades as any);
 
@@ -426,11 +430,13 @@ export class SessionService implements OnModuleInit {
   }
 
   async updateSession(id: string, config: SessionConfig) {
-   this.validateConfig(config);
-   // Ensure we pass a plain object for the config column to avoid TypeORM issues with class instances
-   await this.sessionRepository.update(id, { config: Object.assign({}, config) as any });
+    this.validateConfig(config);
+    // Ensure we pass a plain object for the config column to avoid TypeORM issues with class instances
+    await this.sessionRepository.update(id, { config: Object.assign({}, config) as any });
     // If this is the active session, hot-reload the config in the engine
     if (this.sessionRunning && this.currentSessionId === id) {
+      // Update global log levels based on session config
+      updateLogLevels(!!config.debug_mode);
       this.tradingSessionService.updateConfig(config);
     }
 
@@ -469,6 +475,9 @@ export class SessionService implements OnModuleInit {
 
     // Stop the actual trading engine
     await this.tradingSessionService.stop();
+
+    // Reset log levels to default when session stops
+    updateLogLevels(false);
 
     this.logger.log(`Stopping trading session.`);
     this.sessionRunning = false;

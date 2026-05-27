@@ -12,7 +12,7 @@ async function bootstrap() {
   const isProduction = process.env.NODE_ENV === 'production';
   const forceDebug = process.env.DEBUG === 'true';
 
-  const logLevels: LogLevel[] = isProduction && !forceDebug
+  const logLevels: LogLevel[] = (isProduction && !forceDebug)
     ? ['log', 'warn', 'error']
     : ['log', 'error', 'warn', 'debug', 'verbose'];
 

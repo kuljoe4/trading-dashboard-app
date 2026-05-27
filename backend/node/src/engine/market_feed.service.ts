@@ -326,7 +326,7 @@ export class MarketFeedService {
       chunks.push(allStreams.slice(i, i + CHUNK_SIZE));
     }
     
-    this.logger.log(`Creating ${chunks.length} kline streams for ${allStreams.length} symbol-interval pairs.`);
+    this.logger.debug(`Creating ${chunks.length} kline streams for ${allStreams.length} symbol-interval pairs.`);
 
     for (const chunk of chunks) {
       const streams = chunk.join('/');
@@ -340,7 +340,7 @@ export class MarketFeedService {
 
         ws.on('open', () => {
           if ((this.tradingSession as any).config?.debug_mode) {
-            this.logger.log(`Combined kline stream connected for ${chunk.length} symbols`);
+            this.logger.debug(`Combined kline stream connected for ${chunk.length} symbols`);
           }
         });
 

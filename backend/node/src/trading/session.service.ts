@@ -58,7 +58,7 @@ export class SessionService implements OnModuleInit {
     // BOLT: Optimize startup cleanup with a single bulk update instead of a loop
     const updateResult = await this.sessionRepository.update({ running: true }, { running: false });
     if (updateResult.affected && updateResult.affected > 0) {
-      this.logger.log(`Cleaned up ${updateResult.affected} stale running sessions`);
+      this.logger.verbose(`Cleaned up ${updateResult.affected} stale running sessions`);
     }
 
     // Wire balance updates to persistence (legacy/standalone updates)
@@ -168,7 +168,7 @@ export class SessionService implements OnModuleInit {
       }
 
       await queryRunner.commitTransaction();
-      this.logger.debug(`Transaction committed: Saved trade ${trade.symbol} (${trade.status}) and updated session ${sessionId}`);
+      this.logger.verbose(`Transaction committed: Saved trade ${trade.symbol} (${trade.status}) and updated session ${sessionId}`);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(`Transaction rolled back: Failed to save trade ${trade.symbol}: ${error instanceof Error ? error.message : String(error)}`);

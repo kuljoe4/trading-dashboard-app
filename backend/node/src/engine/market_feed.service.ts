@@ -58,7 +58,7 @@ export class MarketFeedService {
   async start(config: SessionConfig) {
     this.running = true;
     if (config.debug_mode) {
-      this.logger.log('MarketFeed starting');
+      this.logger.verbose('MarketFeed starting');
     }
 
     // Start !miniTicker@arr stream first
@@ -69,7 +69,7 @@ export class MarketFeedService {
       const check = setInterval(() => {
         if (this.tickerCache.getCacheSize() > 0) {
           clearInterval(check);
-          this.logger.log('Initial tickers populated from WebSocket');
+          this.logger.verbose('Initial tickers populated from WebSocket');
           resolve();
         }
       }, 100);
@@ -84,14 +84,14 @@ export class MarketFeedService {
     await waitForWs;
 
     if (this.tickerCache.getCacheSize() === 0) {
-      this.logger.log('WebSocket data not received yet, falling back to REST seeding');
+      this.logger.verbose('WebSocket data not received yet, falling back to REST seeding');
       await this.fetchInitialTickers();
     }
 
     // Start watchlist manager
     this.startWatchlistManager(config);
 
-    this.logger.log('MarketFeed started');
+    this.logger.verbose('MarketFeed started');
   }
 
   private updateWeight(headers: Headers) {
@@ -102,7 +102,7 @@ export class MarketFeedService {
   }
 
   private async fetchInitialTickers() {
-    this.logger.log('Fetching initial tickers from Binance REST API...');
+    this.logger.verbose('Fetching initial tickers from Binance REST API...');
     try {
       this.monitoringService.incrementApiRequests();
       const response = await fetch('https://fapi.binance.com/fapi/v1/ticker/24hr');

@@ -34,13 +34,13 @@ export class MomentumScannerService {
   }
 
   async start(config: SessionConfig) {
-    this.logger.log(
+    this.logger.verbose(
       `MomentumScanner started with watchlist_size=${config.watchlist_size}`,
     );
   }
 
   async stop() {
-    this.logger.log('MomentumScanner stopped');
+    this.logger.verbose('MomentumScanner stopped');
   }
 
   /**

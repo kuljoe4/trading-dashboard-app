@@ -160,7 +160,7 @@ export class TradingSessionService {
 
     // Load resumed open trades into the position tracker
     if (openTrades.length > 0) {
-      this.logger.log(`Resuming ${openTrades.length} open trades into the position tracker.`);
+      this.logger.verbose(`Resuming ${openTrades.length} open trades into the position tracker.`);
       for (const trade of openTrades) {
         this.positionTracker.addTrade(trade);
       }
@@ -543,7 +543,7 @@ export class TradingSessionService {
   private async processEntries(opportunities: any[], strategyConfig: SessionConfig = this.config!) {
     const strategyLabel = this.getStrategyLabel(strategyConfig);
     if (this.config?.debug_mode) {
-      this.logger.debug(`Processing entries. Label: ${strategyLabel}, Config Label: ${strategyConfig.strategy_label}`);
+      this.logger.verbose(`Processing entries. Label: ${strategyLabel}, Config Label: ${strategyConfig.strategy_label}`);
     }
 
     for (const opp of opportunities) {

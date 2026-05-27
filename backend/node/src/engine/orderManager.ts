@@ -149,12 +149,12 @@ export class OrderManagerService {
     }
   }
 
-  async checkExitSignals(
+  checkExitSignals(
     symbol: string,
     trade: Trade,
     config: SessionConfig,
     interval: string = '1m',
-  ): Promise<{ exitTriggered: boolean; exitSignalType?: string }> {
+  ): { exitTriggered: boolean; exitSignalType?: string } {
     if (!config.exit_signals || config.exit_signals.length === 0) {
       return { exitTriggered: false };
     }
@@ -183,7 +183,7 @@ export class OrderManagerService {
           enabled_signals: [exitSignal],
         };
 
-        const result = await this.signalEngine.checkEntry(
+        const result = this.signalEngine.checkEntry(
           symbol,
           tempConfig,
           interval,

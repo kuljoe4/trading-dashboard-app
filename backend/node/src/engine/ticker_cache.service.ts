@@ -57,7 +57,7 @@ export class TickerCacheService {
     return this.tickers.get(symbol) || null;
   }
 
-  async getLatestTickers(): Promise<Ticker[]> {
+  getLatestTickers(): Ticker[] {
     return Array.from(this.tickers.values());
   }
 
@@ -65,7 +65,7 @@ export class TickerCacheService {
     return this.tickers.size;
   }
 
-  async topByVolume(n: number, excluded: string[] = []): Promise<Ticker[]> {
+  topByVolume(n: number, excluded: string[] = []): Ticker[] {
     const cacheKey = `${n}_${[...excluded].sort().join(',')}`;
     const cached = this._topByVolumeCache[cacheKey];
     const CACHE_TTL_MS = 30000; // 30 seconds

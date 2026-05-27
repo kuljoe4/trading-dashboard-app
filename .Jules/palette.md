@@ -9,3 +9,9 @@
 **Learning:** Providing immediate visual confirmation (like an icon swap from 'Copy' to 'Check') for clipboard actions reduces user uncertainty and eliminates the need for redundant toast notifications in dense UIs.
 
 **Action:** Use a local 'copied' state with a 2-second timeout to toggle icons and colors for copy buttons. Ensure 'e.stopPropagation()' is used if the button is nested within a clickable card.
+
+## 2025-05-15 - Visual State Feedback for Toggles
+
+**Learning:** Adding a subtle rotation animation to a chevron icon on expansion toggles provides an immediate and intuitive visual confirmation of the component's state, improving the perceived responsiveness of the interface.
+
+**Action:** When implementing collapsible sections or detail views, include a chevron icon and animate its rotation (usually 180 degrees) using a library like `framer-motion` to match the transition of the content.

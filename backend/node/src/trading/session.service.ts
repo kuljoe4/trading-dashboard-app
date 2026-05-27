@@ -1,8 +1,8 @@
 import { Injectable, Logger, OnModuleInit, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Session as SessionEntity } from '../models/entities/Session.entity';
-import { TradeEntity } from '../models/entities/Trade.entity';
+import { TradeEntity, TERMINAL_STATUSES } from '../models/entities/Trade.entity';
 import { Log as LogEntity } from '../models/entities/Log.entity';
 import { BalanceHistory as BalanceHistoryEntity } from '../models/entities/BalanceHistory.entity';
 import { SessionConfig } from '../models/SessionConfig';
@@ -303,12 +303,7 @@ export class SessionService implements OnModuleInit {
 
     // Load initial history for TOD risk context
     const initialHistory = await this.tradeRepository.find({
-      where: [
-        { status: 'CLOSED' as any, sessionId: this.currentSessionId },
-        { status: 'CLOSED_SL', sessionId: this.currentSessionId },
-        { status: 'CLOSED_TP', sessionId: this.currentSessionId },
-        { status: 'CLOSED_SIGNAL', sessionId: this.currentSessionId },
-      ],
+      where: { status: In(TERMINAL_STATUSES as any), sessionId: this.currentSessionId },
       order: { exit_ts: 'DESC' },
       take: 200,
     });
@@ -403,7 +398,13 @@ export class SessionService implements OnModuleInit {
             this.logger.warn(`Resumed trade ${trade.symbol} breached SL/TP during downtime. Auto-closing at ${currentPrice}.`);
             await this.logMessage(`Resumed trade ${trade.symbol} breached SL/TP during downtime. Auto-closed at ${currentPrice} (${reason}).`, 'warn');
             const pnl = side === 'LONG' ? (currentPrice - Number(trade.entry_price)) * Number(trade.qty) : (Number(trade.entry_price) - currentPrice) * Number(trade.qty);
-            const updatedTrade = { ...trade, status: 'CLOSED', exit_ts: new Date(), exit_price: currentPrice, pnl, exit_reason: reason };
+
+            // Map reason to specific terminal status
+            let terminalStatus: any = 'CLOSED';
+            if (reason === 'AUTO_RECONCILED_SL') terminalStatus = 'CLOSED_SL';
+            else if (reason === 'AUTO_RECONCILED_TP') terminalStatus = 'CLOSED_TP';
+
+            const updatedTrade = { ...trade, status: terminalStatus, exit_ts: new Date(), exit_price: currentPrice, pnl, exit_reason: reason };
             await this.saveTradeAtomic(updatedTrade, Number(session.balance) + pnl);
             (trade as any).reconciled_out = true;
           }
@@ -561,17 +562,10 @@ export class SessionService implements OnModuleInit {
 
   async getHistory() {
     const closedTrades = await this.tradeRepository.find({
-      where: this.currentSessionId ? [
-        { status: 'CLOSED' as any, sessionId: this.currentSessionId },
-        { status: 'CLOSED_SL', sessionId: this.currentSessionId },
-        { status: 'CLOSED_TP', sessionId: this.currentSessionId },
-        { status: 'CLOSED_SIGNAL', sessionId: this.currentSessionId },
-      ] : [
-        { status: 'CLOSED' as any },
-        { status: 'CLOSED_SL' },
-        { status: 'CLOSED_TP' },
-        { status: 'CLOSED_SIGNAL' },
-      ],
+      where: {
+        status: In(TERMINAL_STATUSES as any),
+        ...(this.currentSessionId ? { sessionId: this.currentSessionId } : {})
+      },
       order: { exit_ts: 'DESC' },
       take: 200,
     });
@@ -588,17 +582,10 @@ export class SessionService implements OnModuleInit {
     // Only fetch minimal columns for analytics to save memory
     const trades = await this.tradeRepository.find({
       select: ['pnl', 'exit_ts', 'status'],
-      where: this.currentSessionId ? [
-        { status: 'CLOSED' as any, sessionId: this.currentSessionId },
-        { status: 'CLOSED_SL', sessionId: this.currentSessionId },
-        { status: 'CLOSED_TP', sessionId: this.currentSessionId },
-        { status: 'CLOSED_SIGNAL', sessionId: this.currentSessionId },
-      ] : [
-        { status: 'CLOSED' as any },
-        { status: 'CLOSED_SL' },
-        { status: 'CLOSED_TP' },
-        { status: 'CLOSED_SIGNAL' },
-      ],
+      where: {
+        status: In(TERMINAL_STATUSES as any),
+        ...(this.currentSessionId ? { sessionId: this.currentSessionId } : {})
+      }
     });
 
     const result = this.analyticsService.calculateAnalytics(trades as any);
@@ -686,12 +673,9 @@ export class SessionService implements OnModuleInit {
     // 1. Fetch all closed trades across all sessions for the specific mode
     const trades = await this.tradeRepository.find({
       select: ['pnl', 'exit_ts', 'status', 'strategy_config'],
-      where: [
-        { status: 'CLOSED' as any },
-        { status: 'CLOSED_SL' },
-        { status: 'CLOSED_TP' },
-        { status: 'CLOSED_SIGNAL' },
-      ],
+      where: {
+        status: In(TERMINAL_STATUSES as any),
+      },
       order: { exit_ts: 'ASC' }
     });
 

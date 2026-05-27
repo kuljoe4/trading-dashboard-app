@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { pnlColor, fmtUSD, fmt, C } from '../lib/theme'
 import { PulseDot, PaperBadge, cn } from './ui/primitives'
-import { Info, TrendingUp, ShieldAlert, Target, Activity, Zap, XCircle, ShieldCheck, Clock, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Info, TrendingUp, ShieldAlert, Target, Activity, Zap, XCircle, ShieldCheck, Clock, CheckCircle2, AlertCircle, ChevronDown } from 'lucide-react'
 import { sessionAPI } from '../api/client'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
@@ -451,6 +451,13 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
           aria-expanded={isExpanded}
           className="flex-1 px-4 py-3 bg-surface border border-border hover:border-accent/40 text-text rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2"
         >
+          <motion.div
+            animate={{ rotate: isExpanded ? 180 : 0 }}
+            transition={{ duration: 0.3 }}
+            className="flex items-center justify-center"
+          >
+            <ChevronDown size={16} />
+          </motion.div>
           {isExpanded ? 'Hide Details' : 'View Details'}
         </button>
         <button

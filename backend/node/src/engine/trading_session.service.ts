@@ -30,7 +30,6 @@ export class TradingSessionService {
   private onBalanceUpdate: ((balance: number, pnl: number) => Promise<void> | void) | null = null;
   private onTradeUpdate: ((trade: Trade, balance: number) => Promise<void>) | null = null;
   private lastScannerResults: any[] = [];
-  private lastScannerResultsJson: string = '';
   private lastVariantScannerResults: any[] = [];
   private closedTrades: Trade[] = [];
   private lastAnalyticsResult: any = null;
@@ -777,6 +776,8 @@ export class TradingSessionService {
     if (this.listenerCount === 0) return;
 
     const activeTrades = this.positionTracker.activeList();
+    const now = Date.now();
+    const isHeartbeat = !this.lastTickData || (now - this.lastTickTime > 10000);
 
     // BOLT OPTIMIZATION: Index last tick data for O(1) lookup during price fallbacks
     const prevTickMap = new Map<string, any>();
@@ -792,13 +793,11 @@ export class TradingSessionService {
     for (let i = 0; i < len; i++) {
       const trade = activeTrades[i];
       let current = this.tickerCache.getPrice(trade.symbol);
+      const prevTrade = prevTickMap.get(trade.symbol);
       
       // Fallback to previous price if cache miss to prevent PnL flickering
-      if (current === null) {
-        const prevTrade = prevTickMap.get(trade.symbol);
-        if (prevTrade) {
-          current = prevTrade.current_price;
-        }
+      if (current === null && prevTrade) {
+        current = prevTrade.current_price;
       }
       
       // BOLT: Use minimal serialization for ticks (delta updates) to save network egress
@@ -806,11 +805,11 @@ export class TradingSessionService {
 
       // DELTA OPTIMIZATION: Only send sl_price and max_rr if they actually changed since last tick
       if (prevTrade && !isHeartbeat) {
-        if (serialized.sl_price === prevTrade.sl_price) delete serialized.sl_price;
-        if (serialized.max_rr === prevTrade.max_rr) delete serialized.max_rr;
+        if (serialized.sl_price === prevTrade.sl_price) delete (serialized as any).sl_price;
+        if (serialized.max_rr === prevTrade.max_rr) delete (serialized as any).max_rr;
         // Even RR can be omitted if it hasn't moved significantly
         if (serialized.rr !== undefined && prevTrade.rr !== undefined && Math.abs(serialized.rr - prevTrade.rr) < 0.01) {
-           delete serialized.rr;
+           delete (serialized as any).rr;
         }
       }
 
@@ -860,13 +859,12 @@ export class TradingSessionService {
       },
     };
 
-    const now = Date.now();
     const hasActiveTrades = trades.length > 0;
     
     // Optimization: Only broadcast if significant data changed or as a heartbeat
     // BOLT OPTIMIZATION: Skip construction and broadcast if no one is listening
 
-    let shouldBroadcast = !this.lastTickData || (now - this.lastTickTime > 10000); // Heartbeat every 10s (was 5s)
+    let shouldBroadcast = isHeartbeat;
 
     if (!shouldBroadcast) {
       const prevTrades = this.lastTickData?.trades || [];

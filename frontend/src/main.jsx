@@ -21,7 +21,7 @@ const LoadingView = () => (
 
 const App = () => {
   const { 
-    sessionActive, setSessionActive, balance, totalRiskPct, config, updateStats, setThrottled, debugToolsEnabled
+    setSessionActive, updateStats, setThrottled, debugToolsEnabled
   } = useTradingStore();
 
   const isHidden = useVisibility();
@@ -62,21 +62,24 @@ const App = () => {
     async function checkStatus() {
       try {
         const res = await sessionAPI.status({ signal: controller.signal });
+        if (controller.signal.aborted) return;
+
+        const currentState = useTradingStore.getState();
         if (res.data.running) {
           setSessionActive(true, res.data.strategyId || res.data.strategy_id);
         }
         updateStats({
-          balance: res.data.balance ?? balance,
-          totalRiskPct: res.data.totalRiskPct ?? totalRiskPct,
+          balance: res.data.balance ?? currentState.balance,
+          totalRiskPct: res.data.totalRiskPct ?? currentState.totalRiskPct,
           totalSlUsed: res.data.totalSlUsed ?? 0,
           activeTrades: res.data.activeTrades || [],
           scannerResults: res.data.scannerResults || [],
           activeWindows: res.data.activeWindows || [],
           tradeHistory: res.data.history || [],
-          config: res.data.config ? { ...config, ...res.data.config } : config,
+          config: res.data.config ? { ...currentState.config, ...res.data.config } : currentState.config,
         });
       } catch (e) {
-        if (e.name !== 'CanceledError') {
+        if (!controller.signal.aborted && e.name !== 'CanceledError' && e.code !== 'ERR_CANCELED') {
           console.error("Failed to fetch session status", e);
         }
       }
@@ -94,7 +97,7 @@ const App = () => {
       controller.abort();
       window.removeEventListener('hashchange', handleHashChange);
     };
-  }, [setSessionActive, balance, totalRiskPct, config, updateStats]);
+  }, [setSessionActive, updateStats]);
 
   const renderView = () => {
     switch (view) {

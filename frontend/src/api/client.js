@@ -87,7 +87,7 @@ export const createSessionAPI = (apiInstance = api) => ({
     sessionId,
   }),
   stop: () => apiInstance.post('/session/stop'),
-  status: () => apiInstance.get('/session/status'),
+  status: (config) => apiInstance.get('/session/status', config),
   list: () => apiInstance.get('/session/list'),
   update: (id, config) => apiInstance.patch(`/session/${id}`, { config: sanitizeSessionConfig(config) }),
   pause: (paused) => apiInstance.post('/session/pause', { paused }),

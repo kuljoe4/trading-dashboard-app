@@ -1,4 +1,4 @@
-import { create } from 'zustand'
+import { createWithEqualityFn } from 'zustand/traditional'
 import { sessionAPI } from '../api/client'
 
 const toNumber = (value, fallback = 0) => {
@@ -175,7 +175,7 @@ const defaultConfig = {
   debug_mode: false,
 }
 
-export const useTradingStore = create((set, get) => ({
+export const useTradingStore = createWithEqualityFn((set, get) => ({
   sessionActive: false,
   sessionPaused: false,
   strategyId: null,

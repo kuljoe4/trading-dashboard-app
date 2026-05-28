@@ -77,8 +77,7 @@ async function bootstrap() {
       if (!origin) return callback(null, true);
 
       const normalizedOrigin = origin.replace(/\/$/, '');
-      const isAllowed = allowedOrigins.some(o => o.replace(/\/$/, '') === normalizedOrigin) ||
-                       normalizedOrigin.endsWith('.up.railway.app');
+      const isAllowed = allowedOrigins.some(o => o.replace(/\/$/, '') === normalizedOrigin);
       const isDevFallback = !isAllowed && nodeEnv !== 'production';
 
       if (isAllowed || isDevFallback) {
@@ -125,8 +124,7 @@ async function bootstrap() {
     verifyClient: (info, done) => {
       const origin = info.origin ? info.origin.replace(/\/$/, '') : null;
       const isAllowed = !origin ||
-                       allowedOrigins.some(o => o.replace(/\/$/, '') === origin) ||
-                       origin.endsWith('.up.railway.app');
+                       allowedOrigins.some(o => o.replace(/\/$/, '') === origin);
       const isDevFallback = !isAllowed && nodeEnv !== 'production';
 
       if (!isAllowed && !isDevFallback) {

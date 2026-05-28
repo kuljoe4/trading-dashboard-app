@@ -786,7 +786,7 @@ export class TradingSessionService {
   }
 
   private serializeTrade(trade: Trade, currentPrice?: number, minimal = false) {
-    const round = (val: any, p = 4) => (val !== undefined && Number.isFinite(val)) ? Number(val.toFixed(p)) : val;
+    const round = (val: any, p = 8) => (val !== undefined && Number.isFinite(val)) ? Number(val.toFixed(p)) : val;
     const anyTrade = trade as any;
     const direction = (anyTrade.direction || anyTrade.side || 'LONG').toString().toUpperCase();
     const entry = anyTrade.entry_price ?? anyTrade.entry ?? 0;
@@ -806,41 +806,40 @@ export class TradingSessionService {
       rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / risk;
     }
 
-    if (minimal) {
-      return {
+    if (minimal) {        return {
         id: trade.id,
-        symbol: trade.symbol, // symbol is kept for identification
+        symbol: trade.symbol,
         strategy_label: anyTrade.strategy_label || this.getStrategyLabel(anyTrade.strategy_config || this.config),
         current_price: round(current ?? entry),
         sl_price: round(anyTrade.current_sl ?? anyTrade.sl_price),
+        tp_price: round(anyTrade.tp ?? anyTrade.tp_price),
         pnl: round(pnl, 2),
-        rr: round(rrValue, 2),
-        max_rr: round(anyTrade.max_rr_achieved ?? anyTrade.max_rr ?? 0, 2),
+        rr: round(rrValue, 4),
+        max_rr: round(anyTrade.max_rr_achieved ?? anyTrade.max_rr ?? 0, 4),
         direction: (anyTrade.direction || anyTrade.side || 'LONG').toString().toUpperCase(),
         entry_price: round(entry),
         qty: round(anyTrade.qty ?? 0),
         paper_mode: this.config?.paper_mode,
-        // Include heavy fields in the base serialization, but they will be pruned by server.ts if not focused
+        exit_signals_status: anyTrade.exit_signals_status || {},
         sl_adjustments: anyTrade.sl_adjustments || [],
         live_rr_sequence: anyTrade.strategy_config?.live_rr_sequence || this.config?.live_rr_sequence || [],
         exit_rr_sequence: anyTrade.strategy_config?.exit_rr_sequence || this.config?.exit_rr_sequence || [],
         tp_mode: anyTrade.strategy_config?.tp_mode || this.config?.tp_mode || 'fixed',
         tp_ratio: anyTrade.strategy_config?.tp_ratio || this.config?.tp_ratio || 2,
         _delta: true,
-      };
-    }
+        };    }
 
     return {
       ...trade,
       direction,
-      current_price: current ?? entry,
-      sl_price: anyTrade.current_sl ?? anyTrade.sl_price,
-      tp_price: anyTrade.tp ?? anyTrade.tp_price,
-      pnl: pnl !== undefined && Number.isFinite(pnl) ? pnl : undefined,
-      rr: rrValue !== undefined && Number.isFinite(rrValue) ? rrValue : undefined,
+      current_price: round(current ?? entry),
+      sl_price: round(anyTrade.current_sl ?? anyTrade.sl_price),
+      tp_price: round(anyTrade.tp ?? anyTrade.tp_price),
+      pnl: round(pnl, 2),
+      rr: round(rrValue, 4),
       paper_mode: this.config?.paper_mode,
       trading_mode: this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live'),
-      max_rr: round(anyTrade.max_rr_achieved ?? anyTrade.max_rr ?? 0, 2),
+      max_rr: round(anyTrade.max_rr_achieved ?? anyTrade.max_rr ?? 0, 4),
       strategy_label: anyTrade.strategy_label || this.getStrategyLabel(anyTrade.strategy_config || this.config),
       strategy_config: anyTrade.strategy_config,
       live_rr_sequence: anyTrade.strategy_config?.live_rr_sequence || this.config?.live_rr_sequence || [],
@@ -896,6 +895,7 @@ export class TradingSessionService {
         if (serialized.max_rr === prevTrade.max_rr) delete (serialized as any).max_rr; else tradeChanged = true;
 
         // Strip large static/semi-static fields in delta updates if they match previous
+        if (JSON.stringify(serialized.exit_signals_status) === JSON.stringify(prevTrade.exit_signals_status)) delete (serialized as any).exit_signals_status;
         if (JSON.stringify(serialized.sl_adjustments) === JSON.stringify(prevTrade.sl_adjustments)) delete (serialized as any).sl_adjustments; else tradeChanged = true;
         if (JSON.stringify(serialized.live_rr_sequence) === JSON.stringify(prevTrade.live_rr_sequence)) delete (serialized as any).live_rr_sequence; else tradeChanged = true;
         if (JSON.stringify(serialized.exit_rr_sequence) === JSON.stringify(prevTrade.exit_rr_sequence)) delete (serialized as any).exit_rr_sequence; else tradeChanged = true;

@@ -176,7 +176,7 @@ async function bootstrap() {
             if (!isFocused) {
               const {
                 strategy_config, live_rr_sequence, exit_rr_sequence,
-                sl_adjustments, tp_mode, tp_ratio, ...thinTrade
+                exit_signals_status, sl_adjustments, tp_mode, tp_ratio, ...thinTrade
               } = trade;
               return { ...thinTrade, _thin: true };
             }

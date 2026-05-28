@@ -50,7 +50,7 @@ export class PositionTrackerService {
   totalRisk(): number {
     let sum = 0;
     for (const trade of this.trades.values()) {
-      sum += Math.abs(trade.entry_price - trade.current_sl) * trade.qty;
+      sum += trade.risk_usdt || 0;
     }
     return sum;
   }
@@ -115,6 +115,7 @@ export class PositionTrackerService {
         if (newSl > trade.current_sl) {
           const prevSl = trade.current_sl;
           trade.current_sl = newSl;
+          trade.risk_usdt = Math.abs(trade.entry_price - trade.current_sl) * trade.qty;
           this.logSlAdjustment(trade, prevSl, newSl, currentIndex);
           // Update exchange-side SL in live mode
           this.orderManager.updateStopLoss(trade, newSl).catch(err => {
@@ -127,6 +128,7 @@ export class PositionTrackerService {
         if (newSl < trade.current_sl) {
           const prevSl = trade.current_sl;
           trade.current_sl = newSl;
+          trade.risk_usdt = Math.abs(trade.entry_price - trade.current_sl) * trade.qty;
           this.logSlAdjustment(trade, prevSl, newSl, currentIndex);
           // Update exchange-side SL in live mode
           this.orderManager.updateStopLoss(trade, newSl).catch(err => {

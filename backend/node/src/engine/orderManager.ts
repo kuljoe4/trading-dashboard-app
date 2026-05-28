@@ -47,6 +47,7 @@ export class OrderManagerService {
         entry_signal_confidence: 1.0,
         pnl: 0,
         pnl_pct: 0,
+        risk_usdt: Math.abs(entryPrice - slPrice) * qty,
         sessionId,
         strategy_label: metadata.strategy_label,
         strategy_config: metadata.strategy_config,

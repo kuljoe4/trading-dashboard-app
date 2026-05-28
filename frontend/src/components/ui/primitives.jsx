@@ -2,6 +2,7 @@ import React from 'react'
 import { clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 import * as ProgressPrimitive from "@radix-ui/react-progress"
+import * as TooltipPrimitive from "@radix-ui/react-tooltip"
 import { CheckCircle2, AlertCircle, Loader2, Zap, Copy } from 'lucide-react'
 import { Sparkline as SparklineChart } from '../DataCharts'
 
@@ -198,26 +199,53 @@ export const PnLBars = React.memo(({ trades }) => {
         const h = absPnl === 0 ? 0 : Math.max(3, scaleFactor * 28); // Max half-height is ~30px
 
         return (
-          <div
-            key={t.id || `${t.symbol}-${i}`}
-            title={`${t.symbol}: ${Number(pnl).toFixed(2)}`}
-            className={cn(
-              "flex-1 transition-all duration-300 hover:opacity-100 opacity-80 z-10",
-              isPos
-                ? "bg-green rounded-t-[1px] shadow-[0_0_10px_rgba(0,229,160,0.1)]"
-                : "bg-red rounded-b-[1px] shadow-[0_0_10px_rgba(255,68,102,0.1)]"
-            )}
-            style={{
-              height: `${h}px`,
-              transform: `translateY(${isPos ? -50 : 50}%)`,
-              alignSelf: 'center'
-            }}
-          />
+          <Tooltip key={t.id || `${t.symbol}-${i}`} content={`${t.symbol}: ${Number(pnl).toFixed(2)}`}>
+            <div
+              className={cn(
+                "flex-1 transition-all duration-300 hover:opacity-100 opacity-80 z-10",
+                isPos
+                  ? "bg-green rounded-t-[1px] shadow-[0_0_10px_rgba(0,229,160,0.1)]"
+                  : "bg-red rounded-b-[1px] shadow-[0_0_10px_rgba(255,68,102,0.1)]"
+              )}
+              style={{
+                height: `${h}px`,
+                transform: `translateY(${isPos ? -50 : 50}%)`,
+                alignSelf: 'center'
+              }}
+            />
+          </Tooltip>
         );
       })}
     </div>
   );
 })
+
+// --- Tooltip ---
+export const Tooltip = ({ children, content, side = "top", align = "center", className }) => {
+  if (!content) return children;
+
+  return (
+    <TooltipPrimitive.Root>
+      <TooltipPrimitive.Trigger asChild>
+        {children}
+      </TooltipPrimitive.Trigger>
+      <TooltipPrimitive.Portal>
+        <TooltipPrimitive.Content
+          side={side}
+          align={align}
+          sideOffset={8}
+          className={cn(
+            "z-[100] overflow-hidden rounded-lg bg-surface border border-border px-3 py-1.5 text-[10px] font-bold font-mono text-text shadow-xl animate-in fade-in zoom-in-95 duration-200",
+            className
+          )}
+        >
+          {content}
+          <TooltipPrimitive.Arrow className="fill-border" />
+        </TooltipPrimitive.Content>
+      </TooltipPrimitive.Portal>
+    </TooltipPrimitive.Root>
+  );
+};
 
 // --- Copy Button ---
 export const CopyButton = ({ value, className }) => {
@@ -235,18 +263,19 @@ export const CopyButton = ({ value, className }) => {
   }
 
   return (
-    <button
-      onClick={handleCopy}
-      className={cn(
-        "p-1.5 rounded-md transition-all active:scale-90",
-        copied ? "text-green bg-green/10" : "text-dim hover:text-text hover:bg-white/5",
-        className
-      )}
-      aria-label={copied ? "Copied to clipboard" : "Copy to clipboard"}
-      title={copied ? "Copied!" : "Copy"}
-    >
-      {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
-    </button>
+    <Tooltip content={copied ? "Copied!" : "Copy"}>
+      <button
+        onClick={handleCopy}
+        className={cn(
+          "p-1.5 rounded-md transition-all active:scale-90",
+          copied ? "text-green bg-green/10" : "text-dim hover:text-text hover:bg-white/5",
+          className
+        )}
+        aria-label={copied ? "Copied to clipboard" : "Copy to clipboard"}
+      >
+        {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+      </button>
+    </Tooltip>
   )
 }
 

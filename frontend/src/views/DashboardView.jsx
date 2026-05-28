@@ -8,7 +8,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { 
   StatCard, SectionLabel, Btn, StatusBadge, PaperBadge, EcoBadge, DemoBadge, LiveBadge,
-  ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn
+  ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn, Tooltip
 } from '../components/ui/primitives'
 import {
   ChevronLeft, Plus, Trash2, LayoutDashboard, History,
@@ -154,37 +154,40 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
         </div>
         <div className="text-right shrink-0">
           <div className="flex gap-2 mb-2 relative z-20">
-            <button
-              onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
-              aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
-              aria-expanded={isExpanded}
-              className={cn(
-                "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95",
-                isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
-              )}
-              title={isExpanded ? "Hide Details" : "Show Details"}
-            >
-              <Activity size={14} />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onEdit(); }}
-              className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95"
-              aria-label="Edit strategy configuration"
-              title="Edit Config"
-            >
-              <Edit3 size={14} />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onPause(); }}
-              className={cn(
-                "p-2 border rounded-lg transition-all active:scale-95",
-                paused ? "bg-green/10 border-green/20 text-green hover:bg-green/20" : "bg-amber/10 border-amber/20 text-amber hover:bg-amber/20"
-              )}
-              aria-label={paused ? "Resume strategy session" : "Pause strategy session"}
-              title={paused ? "Resume Session" : "Pause Session"}
-            >
-              {paused ? <Play size={14} fill="currentColor" /> : <Pause size={14} fill="currentColor" />}
-            </button>
+            <Tooltip content={isExpanded ? "Hide Details" : "Show Details"}>
+              <button
+                onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
+                aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
+                aria-expanded={isExpanded}
+                className={cn(
+                  "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95",
+                  isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
+                )}
+              >
+                <Activity size={14} />
+              </button>
+            </Tooltip>
+            <Tooltip content="Edit Config">
+              <button
+                onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95"
+                aria-label="Edit strategy configuration"
+              >
+                <Edit3 size={14} />
+              </button>
+            </Tooltip>
+            <Tooltip content={paused ? "Resume Session" : "Pause Session"}>
+              <button
+                onClick={(e) => { e.stopPropagation(); onPause(); }}
+                className={cn(
+                  "p-2 border rounded-lg transition-all active:scale-95",
+                  paused ? "bg-green/10 border-green/20 text-green hover:bg-green/20" : "bg-amber/10 border-amber/20 text-amber hover:bg-amber/20"
+                )}
+                aria-label={paused ? "Resume strategy session" : "Pause strategy session"}
+              >
+                {paused ? <Play size={14} fill="currentColor" /> : <Pause size={14} fill="currentColor" />}
+              </button>
+            </Tooltip>
           </div>
           <div className="text-2xl font-bold font-mono" style={{ color: pnlColor(s.totalPnl) }}>
             {fmtUSD(s.totalPnl)}
@@ -543,21 +546,22 @@ export function DashboardView() {
           </div>
 
           <div className="flex gap-3">
-            <button
-              onClick={() => setThrottled(!isThrottled)}
-              title={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}
-              className={cn(
-                "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2",
-                isThrottled
-                  ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
-                  : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
-              )}
-            >
-              <Leaf size={18} fill={isThrottled ? "currentColor" : "none"} />
-              <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest">
-                {isThrottled ? "Eco Active" : "Eco Mode"}
-              </span>
-            </button>
+            <Tooltip content={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}>
+              <button
+                onClick={() => setThrottled(!isThrottled)}
+                className={cn(
+                  "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2",
+                  isThrottled
+                    ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
+                    : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
+                )}
+              >
+                <Leaf size={18} fill={isThrottled ? "currentColor" : "none"} />
+                <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest">
+                  {isThrottled ? "Eco Active" : "Eco Mode"}
+                </span>
+              </button>
+            </Tooltip>
 
             {!sessionActive ? (
               <Btn variant="success" onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }} disabled={loading} className="flex-1 sm:flex-none">
@@ -775,16 +779,17 @@ export function DashboardView() {
         </Drawer.Root>
 
         {/* Mobile Floating Controls */}
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={() => setShowScanner(true)}
-          aria-label="Open Market Scanner"
-          title="Open Market Scanner"
-          className="lg:hidden fixed bottom-24 right-6 w-16 h-16 rounded-full bg-accent text-white shadow-2xl flex items-center justify-center z-40 animate-in fade-in zoom-in duration-500"
-        >
-          <Zap size={28} />
-        </motion.button>
+        <Tooltip content="Open Market Scanner" side="left">
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => setShowScanner(true)}
+            aria-label="Open Market Scanner"
+            className="lg:hidden fixed bottom-24 right-6 w-16 h-16 rounded-full bg-accent text-white shadow-2xl flex items-center justify-center z-40 animate-in fade-in zoom-in duration-500"
+          >
+            <Zap size={28} />
+          </motion.button>
+        </Tooltip>
 
         <BottomNav selected={selected} />
       </div>

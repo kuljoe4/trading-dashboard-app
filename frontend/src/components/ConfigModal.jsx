@@ -1,16 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, AlertCircle, Zap, XCircle, Activity } from 'lucide-react'
-import { cn, Btn } from './ui/primitives'
+import { cn, Btn, Tooltip } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 
 const SIGNALS = [
-  ['momentum_pct', '% Momentum'],
-  ['breakout_hl', 'Breakout H/L'],
-  ['ema_price_cross', 'EMA Price Cross'],
-  ['ema_dual_cross', 'EMA Dual Cross'],
-  ['ema_close', 'EMA Close'],
-  ['ma', 'MA Cross'],
-  ['engulfing', 'Engulfing'],
+  ['momentum_pct', '% Momentum', 'Entry when momentum exceeds a predefined percentage threshold within the scan lookback.'],
+  ['breakout_hl', 'Breakout H/L', 'Entry when price breaks above the highest high or below the lowest low of the lookback period.'],
+  ['ema_price_cross', 'EMA Price Cross', 'Entry when the current price crosses above or below the EMA period.'],
+  ['ema_dual_cross', 'EMA Dual Cross', 'Entry when a fast EMA crosses over or under a slow EMA.'],
+  ['ema_close', 'EMA Close', 'Entry when the candle closes on the favorable side of the EMA.'],
+  ['ma', 'MA Cross', 'Entry when price crosses a simple Moving Average.'],
+  ['engulfing', 'Engulfing', 'Entry on a bullish or bearish engulfing candle pattern.'],
 ]
 
 const Toggle = ({ value, onChange, label, color = "bg-accent" }) => (
@@ -589,18 +589,19 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
               >Allow Any</button>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              {SIGNALS.map(([key, label]) => {
+              {SIGNALS.map(([key, label, desc]) => {
                 const active = (cfg.enabled_signals || []).includes(key)
                 return (
-                  <Chip
-                    key={key}
-                    active={active}
-                    onClick={() => setField('enabled_signals', active
-                      ? (cfg.enabled_signals || []).filter((s) => s !== key)
-                      : [...(cfg.enabled_signals || []), key])}
-                  >
-                    {label}
-                  </Chip>
+                  <Tooltip key={key} content={desc}>
+                    <Chip
+                      active={active}
+                      onClick={() => setField('enabled_signals', active
+                        ? (cfg.enabled_signals || []).filter((s) => s !== key)
+                        : [...(cfg.enabled_signals || []), key])}
+                    >
+                      {label}
+                    </Chip>
+                  </Tooltip>
                 )
               })}
             </div>
@@ -646,7 +647,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
               </div>
               <div className="text-xs text-dim mb-3">Signals that will close positions automatically. Set activation delay (sec) for each.</div>
               <div className="grid grid-cols-1 gap-3">
-                {SIGNALS.map(([key, label]) => {
+                {SIGNALS.map(([key, label, desc]) => {
                   const active = (cfg.exit_signals || []).includes(key)
                   const delay = (cfg.exit_signal_delays || {})[key] || 0
                   return (
@@ -655,18 +656,20 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                       active ? "border-red/40 bg-red/5" : "border-border bg-background/50"
                     )}>
                       <div className="flex items-center justify-between">
-                        <button
-                          type="button"
-                          onClick={() => setField('exit_signals', active
-                            ? (cfg.exit_signals || []).filter((s) => s !== key)
-                            : [...(cfg.exit_signals || []), key])}
-                          className={cn(
-                            "flex-1 text-left text-sm font-bold transition-colors",
-                            active ? "text-red" : "text-dim hover:text-text"
-                          )}
-                        >
-                          {label}
-                        </button>
+                        <Tooltip content={desc}>
+                          <button
+                            type="button"
+                            onClick={() => setField('exit_signals', active
+                              ? (cfg.exit_signals || []).filter((s) => s !== key)
+                              : [...(cfg.exit_signals || []), key])}
+                            className={cn(
+                              "flex-1 text-left text-sm font-bold transition-colors",
+                              active ? "text-red" : "text-dim hover:text-text"
+                            )}
+                          >
+                            {label}
+                          </button>
+                        </Tooltip>
                         <Switch.Root
                           checked={active}
                           onCheckedChange={(val) => setField('exit_signals', val

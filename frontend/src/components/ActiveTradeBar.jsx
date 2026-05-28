@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { pnlColor, fmtUSD, fmt, C } from '../lib/theme'
-import { PulseDot, PaperBadge, cn } from './ui/primitives'
+import { PulseDot, PaperBadge, cn, Tooltip } from './ui/primitives'
 import { Info, TrendingUp, ShieldAlert, Target, Activity, Zap, XCircle, ShieldCheck, Clock, CheckCircle2, AlertCircle, ChevronDown } from 'lucide-react'
 import { sessionAPI } from '../api/client'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -353,9 +353,11 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
         </div>
         <div className="flex flex-col gap-1 relative group">
           <span className="text-[9px] text-dim font-bold uppercase tracking-widest">SL Dist</span>
-          <span className="text-sm font-bold font-mono text-amber cursor-help" title={`Initial: ${initialSlDist}% | Live: ${liveSlDist}%`}>
-            {slDist}%
-          </span>
+          <Tooltip content={`Initial: ${initialSlDist}% | Live: ${liveSlDist}%`}>
+            <span className="text-sm font-bold font-mono text-amber cursor-help">
+              {slDist}%
+            </span>
+          </Tooltip>
           {/* Micro-UX: Visual hint for dynamic SL */}
           {initialSlDist !== liveSlDist && (
             <div className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />

@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { SystemMetrics } from './SystemMetrics'
 import { LayoutDashboard, History, Settings as SettingsIcon, ChevronLeft, ChevronRight, Zap } from 'lucide-react'
 import { useTradingStore } from '../store/trading'
-import { cn } from './ui/primitives'
+import { cn, Tooltip } from './ui/primitives'
 
 export const Sidebar = ({ selected }) => {
   const { wsStatus, sidebarCollapsed: collapsed, toggleSidebar, monitoring, rateLimit, isEcoMode } = useTradingStore()
@@ -38,44 +38,46 @@ export const Sidebar = ({ selected }) => {
           { path: '/history', label: 'History', icon: History },
           { path: '/settings', label: 'Settings', icon: SettingsIcon },
         ].map(item => (
+          <Tooltip key={item.path} content={!isExpanded ? item.label : undefined} side="right">
+            <button
+              onClick={() => window.location.hash = `#${item.path}`}
+              aria-label={item.label}
+              className={cn(
+                "w-full flex items-center gap-3 py-3 rounded-xl font-bold text-[13px] transition-all",
+                !isExpanded ? "justify-center px-0" : "px-4",
+                isActive(item.path) ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:bg-white/5 hover:text-text"
+              )}
+            >
+              <item.icon size={20} className="shrink-0" />
+              {isExpanded && <span>{item.label}</span>}
+            </button>
+          </Tooltip>
+        ))}
+
+        <Tooltip content={!isExpanded ? "Market Scanner" : undefined} side="right">
           <button 
-            key={item.path}
-            onClick={() => window.location.hash = `#${item.path}`}
-            aria-label={item.label}
-            title={!isExpanded ? item.label : undefined}
+            onClick={triggerScanner}
+            aria-label="Market Scanner"
             className={cn(
-              "w-full flex items-center gap-3 py-3 rounded-xl font-bold text-[13px] transition-all",
-              !isExpanded ? "justify-center px-0" : "px-4",
-              isActive(item.path) ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:bg-white/5 hover:text-text"
+              "w-full flex items-center gap-3 py-3 rounded-xl font-bold text-[13px] transition-all text-accent hover:bg-accent/10",
+              !isExpanded ? "justify-center px-0" : "px-4"
             )}
           >
-            <item.icon size={20} className="shrink-0" />
-            {isExpanded && <span>{item.label}</span>}
+            <Zap size={20} className="shrink-0" />
+            {isExpanded && <span>Scanner</span>}
           </button>
-        ))}
-        
-        <button 
-          onClick={triggerScanner}
-          aria-label="Market Scanner"
-          title={!isExpanded ? "Market Scanner" : undefined}
-          className={cn(
-            "w-full flex items-center gap-3 py-3 rounded-xl font-bold text-[13px] transition-all text-accent hover:bg-accent/10",
-            !isExpanded ? "justify-center px-0" : "px-4"
-          )}
-        >
-          <Zap size={20} className="shrink-0" />
-          {isExpanded && <span>Scanner</span>}
-        </button>
+        </Tooltip>
       </nav>
 
-      <button 
-        onClick={toggleSidebar}
-        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        className="absolute -right-4 top-8 w-8 h-8 bg-surface border border-border rounded-full flex items-center justify-center text-dim hover:text-text z-50 shadow-md"
-      >
-        {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-      </button>
+      <Tooltip content={collapsed ? "Expand sidebar" : "Collapse sidebar"} side="right">
+        <button 
+          onClick={toggleSidebar}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className="absolute -right-4 top-8 w-8 h-8 bg-surface border border-border rounded-full flex items-center justify-center text-dim hover:text-text z-50 shadow-md"
+        >
+          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+        </button>
+      </Tooltip>
 
       <div className={cn(
         "pt-6 border-t border-border/50",

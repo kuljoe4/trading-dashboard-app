@@ -6,11 +6,6 @@ import { sessionAPI } from './api/client';
 import { useVisibility } from './hooks/useVisibility';
 import './index.css';
 
-const urlParams = new URLSearchParams(window.location.search);
-if (urlParams.get('debug') === 'true') {
-  import('eruda').then(m => m.default.init());
-}
-
 const DashboardView = lazy(() => import('./views/DashboardView').then(m => ({ default: m.DashboardView })));
 const SettingsView = lazy(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })));
 const HistoryView = lazy(() => import('./views/HistoryView').then(m => ({ default: m.HistoryView })));
@@ -26,7 +21,7 @@ const LoadingView = () => (
 
 const App = () => {
   const { 
-    sessionActive, setSessionActive, balance, totalRiskPct, config, updateStats, setThrottled
+    sessionActive, setSessionActive, balance, totalRiskPct, config, updateStats, setThrottled, debugToolsEnabled
   } = useTradingStore();
 
   const isHidden = useVisibility();
@@ -34,6 +29,30 @@ const App = () => {
   useEffect(() => {
     setThrottled(isHidden);
   }, [isHidden, setThrottled]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (debugToolsEnabled) {
+      import('eruda').then((module) => {
+        if (cancelled || window.__momentumDebugToolsActive) return;
+        module.default.init();
+        window.__momentumDebugToolsActive = true;
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (window.eruda && window.__momentumDebugToolsActive) {
+      window.eruda.destroy();
+      window.__momentumDebugToolsActive = false;
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [debugToolsEnabled]);
 
   const [view, setView] = useState('cockpit');
 

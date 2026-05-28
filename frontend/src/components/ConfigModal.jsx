@@ -34,8 +34,9 @@ const Toggle = ({ value, onChange, label, color = "bg-accent" }) => (
   </label>
 )
 
-const Chip = ({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10", ...props }) => (
+const Chip = React.forwardRef(({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10", ...props }, ref) => (
   <button
+    ref={ref}
     type="button"
     onClick={onClick}
     aria-pressed={active}
@@ -47,7 +48,8 @@ const Chip = ({ active, onClick, children, activeClass = "border-accent text-acc
   >
     {children}
   </button>
-)
+))
+Chip.displayName = 'Chip'
 
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) => {
   const [cfg, setCfg] = useState({ ...initialConfig })

@@ -33,21 +33,32 @@ const App = () => {
   useEffect(() => {
     let cancelled = false;
 
-    if (debugToolsEnabled) {
-      import('eruda').then((module) => {
-        if (cancelled || window.__momentumDebugToolsActive) return;
-        module.default.init();
-        window.__momentumDebugToolsActive = true;
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
+    const toggleEruda = async () => {
+      try {
+        if (debugToolsEnabled) {
+          const eruda = (await import('eruda')).default;
+          if (cancelled || window.__momentumDebugToolsActive) return;
+          
+          // Defensive: ensure window.eruda doesn't conflict if it's not a real instance
+          if (window.eruda && typeof window.eruda.destroy !== 'function') {
+            delete window.eruda;
+          }
+          
+          eruda.init();
+          window.__momentumDebugToolsActive = true;
+        } else if (window.__momentumDebugToolsActive) {
+          const eruda = (await import('eruda')).default;
+          if (eruda && typeof eruda.destroy === 'function') {
+            eruda.destroy();
+          }
+          window.__momentumDebugToolsActive = false;
+        }
+      } catch (e) {
+        console.error('Eruda lifecycle error:', e);
+      }
+    };
 
-    if (window.eruda && window.__momentumDebugToolsActive) {
-      window.eruda.destroy();
-      window.__momentumDebugToolsActive = false;
-    }
+    toggleEruda();
 
     return () => {
       cancelled = true;

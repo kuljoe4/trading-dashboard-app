@@ -549,7 +549,7 @@ export function DashboardView() {
                       paused={sessionPaused}
                       onPause={togglePause}
                       onEdit={() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }}
-                      onClick={() => setSelected(s.strategy_label)}
+                      onClick={() => setSelected(currentStrategy.strategy_label)}
                     />
                     {(config.strategy_variants || []).filter(v => v.enabled !== false).map((variant, i) => {
                       const label = variant.strategy_label || `Variant ${i + 1}`;
@@ -571,7 +571,7 @@ export function DashboardView() {
                           paused={sessionPaused}
                           onPause={togglePause}
                           onEdit={() => { setIsEditMode(true); setSelectedConfig(variantConfig); setEditingVariantIndex(i); setShowConfig(true); }}
-                          onClick={() => setSelected(s.strategy_label)}
+                          onClick={() => setSelected(label)}
                         />
                       );
                     })}

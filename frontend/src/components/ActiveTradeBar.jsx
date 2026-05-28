@@ -249,7 +249,7 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
   const [isExpanded, setIsExpanded] = useState(initialExpanded)
 
   useEffect(() => {
-    if (isExpanded) {
+    if (isExpanded && trade?.id) {
       setFocusMode(true, trade.id);
     } else {
       // Note: We don't strictly set to false here as other components might have focus,
@@ -261,7 +261,7 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
     return () => {
        if (isExpanded) setFocusMode(false, null);
     };
-  }, [isExpanded, trade.id, setFocusMode]);
+  }, [isExpanded, trade?.id, setFocusMode]);
 
   useEffect(() => {
     if (confirmClose) {

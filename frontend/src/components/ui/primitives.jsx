@@ -44,7 +44,7 @@ export const SectionLabel = ({ children, className }) => (
 )
 
 // --- Button ---
-export const Btn = ({ children, variant = "primary", onClick, className, disabled, loading, icon: Icon, ...props }) => {
+export const Btn = React.forwardRef(({ children, variant = "primary", onClick, className, disabled, loading, icon: Icon, ...props }, ref) => {
   const variants = {
     success: "bg-green/10 text-green border border-green/20 hover:bg-green/20 shadow-[0_0_15px_rgba(0,229,160,0.1)]",
     danger: "bg-red/10 text-red border border-red/20 hover:bg-red/20 shadow-[0_0_15px_rgba(255,68,102,0.1)]",
@@ -54,6 +54,7 @@ export const Btn = ({ children, variant = "primary", onClick, className, disable
 
   return (
     <button
+      ref={ref}
       onClick={onClick}
       disabled={disabled || loading}
       className={cn(
@@ -67,7 +68,8 @@ export const Btn = ({ children, variant = "primary", onClick, className, disable
       {children}
     </button>
   )
-}
+})
+Btn.displayName = 'Btn'
 
 // --- Status Badge ---
 export const StatusBadge = ({ status }) => {

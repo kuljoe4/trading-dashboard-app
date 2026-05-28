@@ -247,7 +247,7 @@ export const HistoryView = () => {
     const params = new URLSearchParams((window.location.hash.split('?')[1] || '').split('#')[0])
     const sessionId = params.get('session')
     if (sessionId) {
-      document.getElementById(`session-${sessionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      document.getElementById(`session-${sessionId}`)?.scrollIntoView({ behavior: 'auto', block: 'start' })
     }
   }, [loading, sessionsToRender.length])
 

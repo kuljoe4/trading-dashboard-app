@@ -36,3 +36,8 @@
 **Vulnerability:** Risk calculations using structural lows of '0' (from missing candle data) result in extremely wide SL distances that could lead to oversized positions if not clamped, or misleading behavior.
 **Learning:** Structural price data must be validated against zero, not just undefined/null.
 **Prevention:** Explicitly check for zero values in structural price data and implement safe fallbacks to standard risk parameters.
+
+## 2026-05-28 - Over-Permissive Origin Validation on Shared Hosting
+**Vulnerability:** CORS and WebSocket origin validation allowed any subdomain of a shared hosting provider (e.g., `.up.railway.app`).
+**Learning:** Shared hosting platforms (like Railway) allow anyone to deploy under their domain. Wildcard or suffix-based validation for these domains is effectively a bypass, as an attacker can host a malicious site on the same platform to exploit CORS or WebSocket vulnerabilities.
+**Prevention:** Always use an explicit whitelist of allowed origins. Avoid suffix-based matching for shared domains. If dynamic origin support is needed for staging environments, use a strictly controlled pattern or explicitly list the staging URLs.

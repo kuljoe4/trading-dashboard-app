@@ -1,15 +1,10 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
-import { TooltipProvider } from '@radix-ui/react-tooltip';
+import { TooltipProvider } from './components/ui/tooltip';
 import { useTradingStore } from './store/trading';
 import { sessionAPI } from './api/client';
 import { useVisibility } from './hooks/useVisibility';
 import './index.css';
-
-const urlParams = new URLSearchParams(window.location.search);
-if (urlParams.get('debug') === 'true') {
-  import('eruda').then(m => m.default.init());
-}
 
 const DashboardView = lazy(() => import('./views/DashboardView').then(m => ({ default: m.DashboardView })));
 const SettingsView = lazy(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })));
@@ -26,7 +21,7 @@ const LoadingView = () => (
 
 const App = () => {
   const { 
-    sessionActive, setSessionActive, balance, totalRiskPct, config, updateStats, setThrottled
+    setSessionActive, updateStats, setThrottled, debugToolsEnabled
   } = useTradingStore();
 
   const isHidden = useVisibility();
@@ -34,6 +29,41 @@ const App = () => {
   useEffect(() => {
     setThrottled(isHidden);
   }, [isHidden, setThrottled]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const toggleEruda = async () => {
+      try {
+        if (debugToolsEnabled) {
+          const eruda = (await import('eruda')).default;
+          if (cancelled || window.__momentumDebugToolsActive) return;
+          
+          // Defensive: ensure window.eruda doesn't conflict if it's not a real instance
+          if (window.eruda && typeof window.eruda.destroy !== 'function') {
+            delete window.eruda;
+          }
+          
+          eruda.init();
+          window.__momentumDebugToolsActive = true;
+        } else if (window.__momentumDebugToolsActive) {
+          const eruda = (await import('eruda')).default;
+          if (eruda && typeof eruda.destroy === 'function') {
+            eruda.destroy();
+          }
+          window.__momentumDebugToolsActive = false;
+        }
+      } catch (e) {
+        console.error('Eruda lifecycle error:', e);
+      }
+    };
+
+    toggleEruda();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [debugToolsEnabled]);
 
   const [view, setView] = useState('cockpit');
 
@@ -43,21 +73,24 @@ const App = () => {
     async function checkStatus() {
       try {
         const res = await sessionAPI.status({ signal: controller.signal });
+        if (controller.signal.aborted) return;
+
+        const currentState = useTradingStore.getState();
         if (res.data.running) {
           setSessionActive(true, res.data.strategyId || res.data.strategy_id);
         }
         updateStats({
-          balance: res.data.balance ?? balance,
-          totalRiskPct: res.data.totalRiskPct ?? totalRiskPct,
+          balance: res.data.balance ?? currentState.balance,
+          totalRiskPct: res.data.totalRiskPct ?? currentState.totalRiskPct,
           totalSlUsed: res.data.totalSlUsed ?? 0,
           activeTrades: res.data.activeTrades || [],
           scannerResults: res.data.scannerResults || [],
           activeWindows: res.data.activeWindows || [],
           tradeHistory: res.data.history || [],
-          config: res.data.config ? { ...config, ...res.data.config } : config,
+          config: res.data.config ? { ...currentState.config, ...res.data.config } : currentState.config,
         });
       } catch (e) {
-        if (e.name !== 'CanceledError') {
+        if (!controller.signal.aborted && e.name !== 'CanceledError' && e.code !== 'ERR_CANCELED') {
           console.error("Failed to fetch session status", e);
         }
       }
@@ -75,7 +108,7 @@ const App = () => {
       controller.abort();
       window.removeEventListener('hashchange', handleHashChange);
     };
-  }, [setSessionActive, balance, totalRiskPct, config, updateStats]);
+  }, [setSessionActive, updateStats]);
 
   const renderView = () => {
     switch (view) {

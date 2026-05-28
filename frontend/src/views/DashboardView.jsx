@@ -3,13 +3,10 @@ import { shallow } from 'zustand/shallow'
 import { pnlColor, fmtUSD, C } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
 import { sessionAPI } from '../api/client'
-import { ActiveTradeBar } from '../components/ActiveTradeBar'
-import * as Dialog from '@radix-ui/react-dialog'
-import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { 
   StatCard, SectionLabel, Btn, StatusBadge, PaperBadge, EcoBadge, DemoBadge, LiveBadge,
-  ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn, Tooltip
-} from '../components/ui/primitives'
+    ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn, Tooltip, VisuallyHidden
+  } from '../components/ui/primitives'
 import {
   ChevronLeft, Plus, Trash2, LayoutDashboard, History,
   Settings as SettingsIcon, Activity, Zap, ShieldCheck,
@@ -30,79 +27,6 @@ const LoadingFallback = () => (
     <div className="w-8 h-8 border-4 border-accent border-t-transparent rounded-full animate-spin" />
   </div>
 )
-
-const StrategyCardsList = React.memo(({
-  currentStrategy, activeTrades, variantScannerResults, config, sessionPaused,
-  togglePause, setIsEditMode, setSelectedConfig, setEditingVariantIndex,
-  setShowConfig, setSelected
-}) => {
-  const mainStrategyData = useMemo(() => ({
-    ...currentStrategy,
-    totalPnl: activeTrades.reduce((sum, t) => (t.strategy_label === currentStrategy.strategy_label ? sum + (t.pnl || 0) : sum), 0),
-    activeTrades: activeTrades.filter(t => t.strategy_label === currentStrategy.strategy_label)
-  }), [currentStrategy, activeTrades]);
-
-  const variants = useMemo(() => (config.strategy_variants || []).filter(v => v.enabled !== false), [config.strategy_variants]);
-
-  return (
-    <>
-      <StrategyCard
-        s={mainStrategyData}
-        scannerResults={variantScannerResults[currentStrategy.strategy_label]}
-        config={config}
-        paused={sessionPaused}
-        onPause={togglePause}
-        onEdit={() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }}
-        onClick={() => setSelected(true)}
-      />
-      {variants.map((variant, i) => (
-        <VariantStrategyCard
-          key={i}
-          index={i}
-          variant={variant}
-          currentStrategy={currentStrategy}
-          activeTrades={activeTrades}
-          variantScannerResults={variantScannerResults}
-          config={config}
-          sessionPaused={sessionPaused}
-          togglePause={togglePause}
-          setIsEditMode={setIsEditMode}
-          setSelectedConfig={setSelectedConfig}
-          setEditingVariantIndex={setEditingVariantIndex}
-          setShowConfig={setShowConfig}
-          setSelected={setSelected}
-        />
-      ))}
-    </>
-  );
-});
-
-const VariantStrategyCard = React.memo(({
-  index, variant, currentStrategy, activeTrades, variantScannerResults, config, sessionPaused,
-  togglePause, setIsEditMode, setSelectedConfig, setEditingVariantIndex,
-  setShowConfig, setSelected
-}) => {
-  const label = variant.strategy_label || `Variant ${index + 1}`;
-  const variantConfig = useMemo(() => ({ ...config, ...variant }), [config, variant]);
-  const variantData = useMemo(() => ({
-    ...currentStrategy,
-    strategy_label: label,
-    totalPnl: activeTrades.reduce((sum, t) => (t.strategy_label === label ? sum + (t.pnl || 0) : sum), 0),
-    activeTrades: activeTrades.filter(t => t.strategy_label === label)
-  }), [currentStrategy, label, activeTrades]);
-
-  return (
-    <StrategyCard
-      s={variantData}
-      scannerResults={variantScannerResults[label]}
-      config={variantConfig}
-      paused={sessionPaused}
-      onPause={togglePause}
-      onEdit={() => { setIsEditMode(true); setSelectedConfig(variantConfig); setEditingVariantIndex(index); setShowConfig(true); }}
-      onClick={() => setSelected(true)}
-    />
-  );
-});
 
 // --- Strategy Card ---
 const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults }) => {
@@ -193,7 +117,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
             {fmtUSD(s.totalPnl)}
           </div>
           <div className="text-[10px] text-dim font-bold uppercase tracking-widest mt-1">
-            {s.entryCount} ENTRIES
+            {s.entryCount} ENTRIES · {s.hitCount} HITS
           </div>
         </div>
       </div>
@@ -223,7 +147,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
                   style={{ width: `${slPct}%` }}
                 />
               </div>
-              <ScannerPreview scannerResults={scannerResults || []} config={config} onOpen={() => {}} />
+              <ScannerPreview scannerResults={scannerResults || []} config={config} onOpen={(e) => { e.stopPropagation(); setShowScanner(true); }} />
             </div>
           </motion.div>
         )}
@@ -347,7 +271,7 @@ export function DashboardView() {
     totalSlUsed, activeTrades, config, setSessionActive,
     updateConfig, gateState,
     scannerPaused, sessionList, fetchSessions, wsStatus,
-    sidebarCollapsed, variantScannerResults, isThrottled, setThrottled, isEcoMode
+    sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -367,13 +291,14 @@ export function DashboardView() {
     wsStatus: state.wsStatus,
     sidebarCollapsed: state.sidebarCollapsed,
     variantScannerResults: state.variantScannerResults,
+    variantStats: state.variantStats,
     isThrottled: state.isThrottled,
     setThrottled: state.setThrottled,
-    isEcoMode: state.isEcoMode
+    isEcoMode: state.isEcoMode, entryCount: state.entryCount, hitCount: state.hitCount
   }), shallow)
 
-  // BOLT OPTIMIZATION: Select only entry count to avoid Dashboard re-rendering on every log
-  const entryCount = useTradingStore(state => state.logs.filter(l => l.msg.includes('Entry')).length)
+  const safeVariantStats = variantStats || {}
+
 
   const { updateStats, setFocusMode } = useTradingStore(state => ({
     updateStats: state.updateStats,
@@ -381,12 +306,6 @@ export function DashboardView() {
   }), shallow)
 
   const [loading, setLoading] = useState(false)
-
-  const configModalKey = useMemo(() => {
-    if (!isEditMode) return 'new-session';
-    if (editingVariantIndex !== null) return `edit-variant-${editingVariantIndex}`;
-    return `edit-session-${strategyId || 'active'}`;
-  }, [isEditMode, editingVariantIndex, strategyId]);
 
   useEffect(() => {
     let timer;
@@ -397,16 +316,18 @@ export function DashboardView() {
   }, [confirmStop]);
 
   const currentStrategy = useMemo(() => ({
-    sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount,
+    sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, hitCount,
     strategy_label: config.strategy_label || 'Momentum Strategy'
-  }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, config.strategy_label])
+  }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, hitCount, config.strategy_label])
 
   const maxRR = useMemo(() => activeTrades.reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
 
   useEffect(() => {
-    setFocusMode(!!selected)
-  }, [selected, setFocusMode])
-
+    // When a specific strategy is selected (StrategyDetailView) or scanner is open, 
+    // set focus mode to receive heavy updates.
+    const strategyLabel = typeof selected === "string" ? selected : null;
+    setFocusMode(!!selected || showScanner, null, strategyLabel);
+  }, [selected, showScanner, setFocusMode, currentStrategy.strategy_label]);
   useEffect(() => {
     fetchSessions();
 
@@ -516,6 +437,7 @@ export function DashboardView() {
       "shadow-[inset_0_0_100px_rgba(34,197,94,0.05)] border-green/10"
     )}>
       <Sidebar selected={selected} />
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-10">
       <div className="max-w-[1400px] mx-auto p-4 md:p-8 pb-32 lg:pb-8">
 
         {/* Header Bar */}
@@ -612,19 +534,39 @@ export function DashboardView() {
               <SectionLabel>Active Strategy</SectionLabel>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {sessionActive ? (
-                  <StrategyCardsList
-                    currentStrategy={currentStrategy}
-                    activeTrades={activeTrades}
-                    variantScannerResults={variantScannerResults}
-                    config={config}
-                    sessionPaused={sessionPaused}
-                    togglePause={togglePause}
-                    setIsEditMode={setIsEditMode}
-                    setSelectedConfig={setSelectedConfig}
-                    setEditingVariantIndex={setEditingVariantIndex}
-                    setShowConfig={setShowConfig}
-                    setSelected={setSelected}
-                  />
+                  <>
+                    <StrategyCard
+                      s={{
+                        ...currentStrategy,
+                        ...safeVariantStats[currentStrategy.strategy_label]
+                      }}
+                      scannerResults={variantScannerResults[currentStrategy.strategy_label]}
+                      config={config}
+                      paused={sessionPaused}
+                      onPause={togglePause}
+                      onEdit={() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }}
+                      onClick={() => setSelected(currentStrategy.strategy_label)}
+                    />
+                    {(config.strategy_variants || []).filter(v => v.enabled !== false).map((variant, i) => {
+                      const label = variant.strategy_label || `Variant ${i + 1}`;
+                      const variantConfig = { ...config, ...variant };
+                      return (
+                        <StrategyCard
+                          key={i}
+                          s={{
+                            ...currentStrategy,
+                            strategy_label: label,
+                            ...safeVariantStats[label]
+                          }}
+                          scannerResults={variantScannerResults[label]}
+                          config={variantConfig}
+                          paused={sessionPaused}
+                          onPause={togglePause}
+                          onEdit={() => { setIsEditMode(true); setSelectedConfig(variantConfig); setEditingVariantIndex(i); setShowConfig(true); }}
+                          onClick={() => setSelected(label)}
+                        />
+                      );
+                    })}                  </>
                 ) : (
                   <button
                     onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
@@ -685,57 +627,25 @@ export function DashboardView() {
               </div>
             </motion.div>
 
+            {/* Right Workspace (Context) */}
             <motion.div
-              initial={{ x: -20, opacity: 0 }}
+              initial={{ x: 20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
-              transition={{ delay: 0.4 }}
-            >
-              <SectionLabel>Current Position</SectionLabel>
-              <div className="space-y-5">
-                {activeTrades.length === 0 ? (
-                  <div className="bg-surface/20 border border-border border-dashed rounded-2xl p-16 text-center">
-                    <div className="text-sm font-bold text-dim uppercase tracking-widest flex flex-col items-center gap-4">
-                      <Zap size={32} className="opacity-20" />
-                      {sessionActive ? 'Scanner engaged. Watching for momentum...' : 'Initialize a strategy to start monitoring.'}
-                    </div>
-                  </div>
-                ) : (
-                  <AnimatePresence>
-                    {activeTrades.map((trade) => (
-                      <motion.div
-                        key={trade.id || trade.symbol}
-                        initial={{ opacity: 0, scale: 0.98 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.98 }}
-                      >
-                        <ActiveTradeBar trade={trade} />
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
-                )}
+              transition={{ delay: 0.5 }}
+              className="space-y-10">
+              <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col h-[450px] shadow-sm">
+                <SectionLabel className="mb-4">
+                  <Activity size={14} className="text-accent" /> Session Logs
+                </SectionLabel>
+                <div className="flex-1 overflow-hidden">
+                  <Suspense fallback={<LoadingFallback />}>
+                    <DecisionLog />
+                  </Suspense>
+                </div>
               </div>
             </motion.div>
-          </div>
-
-          {/* Right Workspace (Context) */}
-          <motion.div
-            initial={{ x: 20, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            transition={{ delay: 0.5 }}
-            className="space-y-10"
-          >
-            <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col h-[450px] shadow-sm">
-              <SectionLabel className="mb-4">
-                <Activity size={14} className="text-accent" /> Session Logs
-              </SectionLabel>
-              <div className="flex-1 overflow-hidden">
-                <Suspense fallback={<LoadingFallback />}>
-                  <DecisionLog />
-                </Suspense>
-              </div>
-            </div>
-          </motion.div>
         </div>
+          </div>
 
         {/* Modals & Drawers */}
         <Drawer.Root open={showConfig} onOpenChange={setShowConfig}>
@@ -751,7 +661,7 @@ export function DashboardView() {
               </div>
               <div className="flex-1 overflow-y-auto">
                 <Suspense fallback={<LoadingFallback />}>
-                  <ConfigModal key={configModalKey} initialConfig={selectedConfig || config} onSave={handleConfigSave} onClose={() => setShowConfig(false)} isEdit={isEditMode} />
+                  <ConfigModal initialConfig={selectedConfig || config} onSave={handleConfigSave} onClose={() => setShowConfig(false)} isEdit={isEditMode} />
                 </Suspense>
               </div>
             </Drawer.Content>
@@ -794,5 +704,6 @@ export function DashboardView() {
         <BottomNav selected={selected} />
       </div>
     </div>
+  </div>
   )
 }

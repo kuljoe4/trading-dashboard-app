@@ -7,13 +7,21 @@ import {
   StatCard, SectionLabel, StatusBadge, PaperBadge, DemoBadge, LiveBadge,
   ConditionWidget, PnLBars, CopyButton, cn
 } from '../components/ui/primitives'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
-  ChevronLeft, Activity, BarChart3, TrendingUp
+  ChevronLeft, Activity, BarChart3, TrendingUp, Zap
 } from 'lucide-react'
 import { EquityCurve } from '../components/Analytics'
 
 const StrategyDetailView = ({ s, onBack }) => {
-  const { config, scannerResults, analytics } = useTradingStore()
+  const { config, scannerResults, analytics, setFocusMode } = useTradingStore()
+
+  React.useEffect(() => {
+    // Signal focus on this strategy label to backend
+    setFocusMode(true, null, s.strategy_label);
+    return () => setFocusMode(false, null, null);
+  }, [s.strategy_label, setFocusMode]);
+
   const bestOpp = scannerResults[0] || { symbol: '---', pct: 0, dir: '---' }
   const scanMet = Math.abs(bestOpp.pct) >= config.scan_pct_threshold
 
@@ -81,10 +89,32 @@ const StrategyDetailView = ({ s, onBack }) => {
         </div>
       </div>
 
-      {/* Active Position */}
+      {/* Active Positions */}
       <div className="mb-10">
         <SectionLabel>Tactical Overview</SectionLabel>
-        <ActiveTradeBar trade={s.activeTrades[0]} initialExpanded={true} />
+        <div className="space-y-5">
+          {s.activeTrades.length === 0 ? (
+            <div className="bg-surface/20 border border-border border-dashed rounded-2xl p-16 text-center">
+              <div className="text-sm font-bold text-dim uppercase tracking-widest flex flex-col items-center gap-4">
+                <Zap size={32} className="opacity-20" />
+                Waiting for strategy triggers...
+              </div>
+            </div>
+          ) : (
+            <AnimatePresence>
+              {s.activeTrades.map((trade, idx) => (
+                <motion.div
+                  key={trade.id || trade.symbol}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.1 }}
+                >
+                  <ActiveTradeBar trade={trade} initialExpanded={idx === 0} />
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          )}
+        </div>
       </div>
 
       {/* Content Grid */}

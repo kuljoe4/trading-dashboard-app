@@ -174,7 +174,7 @@ const SessionGroup = React.memo(({ session, trades, colorDrawdown }) => {
                 <div className="py-8 text-center text-[11px] text-dim font-bold uppercase tracking-widest">No trades recorded for this session</div>
               ) : (
                 trades.map((trade) => (
-                  <TradeItem key={trade.id} trade={trade} session={session} />
+                  <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} session={session} />
                 ))
               )}
             </div>
@@ -247,7 +247,7 @@ export const HistoryView = () => {
     const params = new URLSearchParams((window.location.hash.split('?')[1] || '').split('#')[0])
     const sessionId = params.get('session')
     if (sessionId) {
-      document.getElementById(`session-${sessionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      document.getElementById(`session-${sessionId}`)?.scrollIntoView({ behavior: 'auto', block: 'start' })
     }
   }, [loading, sessionsToRender.length])
 
@@ -393,6 +393,7 @@ export const HistoryView = () => {
 
                 {visibleSessions < allSessionsWithTrades.length && (
                    <motion.div
+                     key="load-more-btn"
                      initial={{ opacity: 0 }}
                      animate={{ opacity: 1 }}
                      className="py-10 flex justify-center"
@@ -406,6 +407,7 @@ export const HistoryView = () => {
                    </motion.div>
                 )}
 
+                  >
                 {orphans.length > 0 && (
                   <motion.div
                     layout
@@ -415,7 +417,7 @@ export const HistoryView = () => {
                     <SectionLabel className="mt-10 mb-6">Uncategorized Trades</SectionLabel>
                     <div className="space-y-3">
                       {orphans.map((trade) => (
-                        <TradeItem key={trade.id} trade={trade} />
+                        <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} />
                       ))}
                     </div>
                   </motion.div>

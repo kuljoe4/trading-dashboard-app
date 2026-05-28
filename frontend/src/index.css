@@ -31,10 +31,10 @@
     @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-background;
   }
 
-  /* Smooth scroll for the whole app */
-  html {
+  /* Smooth scroll for the whole app - Removed to prevent Firefox scroll-linked effect warnings */
+  /* html {
     scroll-behavior: smooth;
-  }
+  } */
 }
 
 @layer utilities {
@@ -53,5 +53,6 @@
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+    overflow-anchor: none;
   }
 }

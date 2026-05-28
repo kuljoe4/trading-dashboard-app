@@ -53,5 +53,6 @@
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+    overflow-anchor: none;
   }
 }

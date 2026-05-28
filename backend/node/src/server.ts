@@ -166,11 +166,15 @@ async function bootstrap() {
         const tick = { ...basePayload };
 
         // BOLT: Aggressive View-Based Pruning
-        if (tick.trades && Array.isArray(tick.trades)) {
+        // If the client is NOT in focus mode (Dashboard view), strip ALL trades to save network
+        if (!client.focusMode) {
+          tick.trades = [];
+          tick.activeWindows = [];
+        } else if (tick.trades && Array.isArray(tick.trades)) {
           tick.trades = tick.trades.map((trade: any) => {
             const isFocused = client.focusTradeId === trade.id || client.focusStrategyLabel === trade.strategy_label;
 
-            // If not focused, strip heavy details to save network usage
+            // If not specifically focused on this trade, strip heavy details
             if (!isFocused) {
               const {
                 strategy_config, live_rr_sequence, exit_rr_sequence,
@@ -190,6 +194,27 @@ async function bootstrap() {
         return;
       }
 
+      if (basePayload.type === 'scanner') {
+        // Optimization: Prune sparkline history for Dashboard to save bandwidth
+        if (!client.focusMode) {
+           const pruned = {
+             ...basePayload,
+             opportunities: (basePayload.opportunities || []).map((o: any) => {
+               const { history, signalResult, ...thin } = o;
+               return thin;
+             }),
+             variant_opportunities: (basePayload.variant_opportunities || []).map((v: any) => ({
+               ...v,
+               opportunities: (v.opportunities || []).map((o: any) => {
+                 const { history, signalResult, ...thin } = o;
+                 return thin;
+               })
+             }))
+           };
+           client.send(JSON.stringify(pruned));
+           return;
+        }
+      }
       if (basePayload.type === 'log' && client.logFilters) {
         if (client.logFilters[basePayload.level] === false) return;
       }

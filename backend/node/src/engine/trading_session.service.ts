@@ -963,14 +963,37 @@ export class TradingSessionService {
 
     const monitoring = this.monitoringService.getMetrics();
 
+    // BOLT: Aggressive Cockpit Optimization
+    // Calculate variant stats once here so the broadcaster can prune full trades safely
+    const variantStats: Record<string, any> = {};
+    const activeList = this.positionTracker.activeList();
+
+    this.getStrategyConfigs().forEach(cfg => {
+      const label = cfg.strategy_label!;
+      const strategyActiveTrades = activeList.filter(t => t.strategy_label === label);
+      const strategyClosedTrades = this.closedTrades.filter(t => t.strategy_label === label);
+
+      const strategyActivePnl = strategyActiveTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
+      const strategyRealizedPnl = strategyClosedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
+      const strategyTotalRisk = strategyActiveTrades.reduce((sum, t) => sum + (t.risk_usdt || 0), 0);
+
+      variantStats[label] = {
+         totalPnl: Number((strategyRealizedPnl + strategyActivePnl).toFixed(2)),
+         entryCount: strategyClosedTrades.length + strategyActiveTrades.length,
+         hitCount: strategyClosedTrades.filter(t => (t.pnl || 0) > 0).length + strategyActiveTrades.filter(t => (t.pnl || 0) > 0).length,
+         totalRiskPct: Number((balance > 0 ? (strategyTotalRisk / balance) * 100 : 0).toFixed(2)),
+         activeTradeCount: strategyActiveTrades.length
+      };
+    });
+
     const tickData: any = {
       balance: Number(balance.toFixed(2)),
       total_pnl: Number(totalPnl.toFixed(2)),
       total_risk_pct: Number((balance > 0 ? (totalRiskUsdt / balance) * 100 : 0).toFixed(2)),
       total_sl_used: Number(totalRiskUsdt.toFixed(2)),
       trades,
-      gateState: this.gateState,
-      paused: this.paused,
+      variant_stats: variantStats,
+      gateState: this.gateState,      paused: this.paused,
       scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period' || this.paused,
       activeWindows: this.getActiveWindows(),
       rateLimit: this.getBinanceRateLimit(),
@@ -1165,6 +1188,31 @@ export class TradingSessionService {
     }
   }
 
+  private calculateVariantStats(): Record<string, any> {
+    const variantStats: Record<string, any> = {};
+    const activeList = this.positionTracker.activeList();
+    const balance = this.getBalance();
+    
+    this.getStrategyConfigs().forEach(cfg => {
+      const label = cfg.strategy_label!;
+      const strategyActiveTrades = activeList.filter(t => t.strategy_label === label);
+      const strategyClosedTrades = this.closedTrades.filter(t => t.strategy_label === label);
+      
+      const strategyActivePnl = strategyActiveTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
+      const strategyRealizedPnl = strategyClosedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
+      const strategyTotalRisk = strategyActiveTrades.reduce((sum, t) => sum + (t.risk_usdt || 0), 0);
+
+      variantStats[label] = {
+         totalPnl: Number((strategyRealizedPnl + strategyActivePnl).toFixed(2)),
+         entryCount: strategyClosedTrades.length + strategyActiveTrades.length,
+         hitCount: strategyClosedTrades.filter(t => (t.pnl || 0) > 0).length + strategyActiveTrades.filter(t => (t.pnl || 0) > 0).length,
+         totalRiskPct: Number((balance > 0 ? (strategyTotalRisk / balance) * 100 : 0).toFixed(2)),
+         activeTradeCount: strategyActiveTrades.length
+      };
+    });
+    return variantStats;
+  }
+
   getStatus() {
     return {
       running: this.running,
@@ -1176,6 +1224,7 @@ export class TradingSessionService {
       stats: this.stats,
       activeTrades: this.positionTracker.activeList().map((trade) => this.serializeTrade(trade)),
       total_risk: this.positionTracker.totalRisk(),
+      variant_stats: this.calculateVariantStats(),
       scannerResults: this.lastScannerResults,
       activeWindows: this.getActiveWindows(),
       gateState: this.gateState,

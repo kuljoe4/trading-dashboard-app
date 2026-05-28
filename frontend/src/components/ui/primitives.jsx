@@ -249,6 +249,12 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
   );
 };
 
+export const VisuallyHidden = ({ children }) => (
+  <span className="absolute w-[1px] h-[1px] p-0 -m-[1px] overflow-hidden whitespace-nowrap border-0">
+    {children}
+  </span>
+)
+
 // --- Copy Button ---
 export const CopyButton = ({ value, className }) => {
   const [copied, setCopied] = React.useState(false)

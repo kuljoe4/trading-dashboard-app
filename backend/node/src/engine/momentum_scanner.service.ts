@@ -109,10 +109,18 @@ export class MomentumScannerService {
       const topResults = tempResults.slice(0, 15);
 
       // BOLT OPTIMIZATION: Only map history for the final top 15 results
-      return topResults.map(({ opp, candles }) => ({
-        ...opp,
-        history: candles.slice(-20).map(c => c.close),
-      }));
+      return topResults.map(({ opp, candles }) => {
+        const historyLen = Math.min(20, candles.length);
+        const history: number[] = new Array(historyLen);
+        const startIdx = candles.length - historyLen;
+        for (let i = 0; i < historyLen; i++) {
+          history[i] = candles[startIdx + i].close;
+        }
+        return {
+          ...opp,
+          history,
+        };
+      });
     } catch (error) {
       this.logger.warn(`Scan error: ${error instanceof Error ? error.message : String(error)}`);
       return [];
@@ -126,7 +134,7 @@ export class MomentumScannerService {
   ): { opp: Opportunity, candles: Candle[] } | null {
     // Get recent candles for momentum calculation
     const lookback = Math.max(config.scan_lookback || 1, 1);
-    const candles = this.klineStore.getRecentCandles(symbol, interval, Math.max(20, lookback + 1));
+    const candles = this.klineStore.getRawCandles(symbol, interval);
     if (candles.length < lookback + 1) {
       return null;
     }

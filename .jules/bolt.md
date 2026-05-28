@@ -79,3 +79,6 @@
 ## 2024-05-27 - [Optimization] Stable Store Selectors
 **Learning:** Store selectors that return new object literals on every call cause consumer components to re-render even if the underlying data is identical.
 **Action:** Use Zustand's 'shallow' comparison or 'useMemo' for selectors that return objects/arrays to prevent redundant component tree updates.
+## 2026-05-28 - [Optimization] Zero-Allocation Candle Processing
+**Learning:** Even with small arrays (N=500), frequent 'slice()' calls in a multi-strategy scanner loop (hundreds of times per second) create significant GC pressure. Accessing the raw underlying array and using relative indexing (e.g., 'length - 1 - lookback') provides a zero-allocation path for technical indicators.
+**Action:** Expose raw data arrays for hot-path services and refactor math helpers to accept start/end indices instead of relying on array slicing for windowing.

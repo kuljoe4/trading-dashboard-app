@@ -8,6 +8,7 @@ describe('MomentumScannerService', () => {
   beforeEach(() => {
     klineStore = {
       getRecentCandles: jest.fn(),
+      getRawCandles: jest.fn(),
     }
 
     tickerCache = {
@@ -28,7 +29,7 @@ describe('MomentumScannerService', () => {
       volume: 1,
     }))
 
-    klineStore.getRecentCandles.mockReturnValueOnce(invalidCandles)
+    klineStore.getRawCandles.mockReturnValueOnce(invalidCandles)
 
     const result = (service as any).scanSymbol('BTCUSDT', '1m', { scan_lookback: 1 })
 
@@ -45,7 +46,7 @@ describe('MomentumScannerService', () => {
       volume: 1,
     }))
 
-    klineStore.getRecentCandles.mockReturnValueOnce(validCandles)
+    klineStore.getRawCandles.mockReturnValueOnce(validCandles)
     tickerCache.getTicker.mockReturnValue({ price: 60, volume_24h: 1000 })
 
     const result = (service as any).scanSymbol('BTCUSDT', '1m', { scan_lookback: 1 })

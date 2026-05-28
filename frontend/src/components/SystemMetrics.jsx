@@ -1,6 +1,7 @@
 import React from 'react';
 import { Activity, Cpu, HardDrive, Clock, Zap, Leaf } from 'lucide-react';
 import { cn, PulseDot } from './ui/primitives';
+import { Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip';
 
 export const SystemMetric = ({ icon: Icon, label, value, colorClass, compact = false }) => (
   <div className={cn("flex items-center gap-2", compact ? "px-2" : "gap-3")}>
@@ -12,15 +13,30 @@ export const SystemMetric = ({ icon: Icon, label, value, colorClass, compact = f
   </div>
 );
 
-export const SystemMetrics = ({ monitoring, rateLimit, wsStatus, isEcoMode, compact = false }) => (
+export const SystemMetrics = ({ monitoring, rateLimit, wsStatus, gateState, isEcoMode, compact = false }) => (
   <div className={cn("flex items-center gap-4 overflow-hidden", compact ? "justify-center" : "flex-col")}>
     <div className="flex items-center gap-2">
       <div className={cn("flex items-center gap-2 overflow-hidden", compact ? "" : "p-3 bg-background/40 rounded-xl border border-border/50")}>
         <PulseDot color={wsStatus === 'live' ? "bg-green" : "bg-amber"} />
         {!compact && (
-          <span className={cn("font-bold uppercase tracking-widest truncate", wsStatus === 'live' ? "text-green" : "text-amber", "text-[10px]")}>
-            {wsStatus === 'live' ? 'Live' : 'Offline'}
-          </span>
+          <div className="flex flex-col">
+            <span className={cn("font-bold uppercase tracking-widest truncate", wsStatus === 'live' ? "text-green" : "text-amber", "text-[10px]")}>
+              {wsStatus === 'live' ? 'Live' : 'Offline'}
+            </span>
+            {(gateState === 'sleeping' || gateState === 'max_trades' || gateState === 'max_trades_period') && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="text-[8px] text-accent font-bold uppercase tracking-tight animate-pulse cursor-help">Efficiency Active</span>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-[200px] text-[10px]">
+                  {gateState === 'sleeping'
+                    ? "Sleep Mode: WebSockets closed. CPU usage reduced by >95%."
+                    : "Gating Active: Momentum scanning paused. Main loop CPU reduced by ~90%."
+                  }
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
         )}
       </div>
 
@@ -42,13 +58,33 @@ export const SystemMetrics = ({ monitoring, rateLimit, wsStatus, isEcoMode, comp
     )}
 
     {monitoring?.application && (
-      <SystemMetric
-        icon={Zap}
-        label="REST API"
-        value={monitoring.application.api_requests_total}
-        colorClass="text-accent"
-        compact={compact}
-      />
+      <>
+        <SystemMetric
+          icon={Zap}
+          label="REST API"
+          value={monitoring.application.api_requests_total}
+          colorClass="text-accent"
+          compact={compact}
+        />
+        {!compact && (
+          <>
+            <SystemMetric
+              icon={Activity}
+              label="Hot Loop"
+              value={`${monitoring.application.hot_loop_ms}ms`}
+              colorClass={monitoring.application.hot_loop_ms > 100 ? "text-red" : "text-dim"}
+              compact={compact}
+            />
+            <SystemMetric
+              icon={Activity}
+              label="Main Loop"
+              value={`${monitoring.application.main_loop_ms}ms`}
+              colorClass={monitoring.application.main_loop_ms > 500 ? "text-red" : "text-dim"}
+              compact={compact}
+            />
+          </>
+        )}
+      </>
     )}
 
     {!compact && (

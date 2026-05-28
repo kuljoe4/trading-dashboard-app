@@ -5,7 +5,7 @@ import { useTradingStore } from '../store/trading'
 import { cn, Tooltip } from './ui/primitives'
 
 export const Sidebar = ({ selected }) => {
-  const { wsStatus, sidebarCollapsed: collapsed, toggleSidebar, monitoring, rateLimit, isEcoMode } = useTradingStore()
+  const { wsStatus, sidebarCollapsed: collapsed, toggleSidebar, monitoring, rateLimit, gateState, isEcoMode } = useTradingStore()
   const [isHovered, setIsHovered] = React.useState(false)
   const isExpanded = !collapsed || isHovered
 
@@ -83,14 +83,14 @@ export const Sidebar = ({ selected }) => {
         "pt-6 border-t border-border/50",
         !isExpanded ? "px-0" : "px-2"
       )}>
-        <SystemMetrics monitoring={monitoring} rateLimit={rateLimit} wsStatus={wsStatus} isEcoMode={isEcoMode} compact={!isExpanded} />
+        <SystemMetrics monitoring={monitoring} rateLimit={rateLimit} wsStatus={wsStatus} gateState={gateState} isEcoMode={isEcoMode} compact={!isExpanded} />
       </div>
     </div>
   )
 }
 
 export const BottomNav = ({ selected }) => {
-  const { wsStatus, monitoring, rateLimit, isEcoMode } = useTradingStore()
+  const { wsStatus, monitoring, rateLimit, gateState, isEcoMode } = useTradingStore()
   const isActive = (path) => {
     if (path === '/') return !selected && window.location.hash === '#/'
     return window.location.hash.startsWith(`#${path}`)
@@ -122,7 +122,7 @@ export const BottomNav = ({ selected }) => {
         </button>
       </div>
       <div className="px-4 pb-2 border-t border-border/40 flex justify-center pt-2">
-        <SystemMetrics monitoring={monitoring} rateLimit={rateLimit} wsStatus={wsStatus} isEcoMode={isEcoMode} compact={true} />
+        <SystemMetrics monitoring={monitoring} rateLimit={rateLimit} wsStatus={wsStatus} gateState={gateState} isEcoMode={isEcoMode} compact={true} />
       </div>
     </div>
   )

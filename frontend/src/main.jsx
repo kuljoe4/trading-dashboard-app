@@ -1,6 +1,6 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
-import { TooltipProvider } from '@radix-ui/react-tooltip';
+import { TooltipProvider } from './components/ui/tooltip';
 import { useTradingStore } from './store/trading';
 import { sessionAPI } from './api/client';
 import { useVisibility } from './hooks/useVisibility';

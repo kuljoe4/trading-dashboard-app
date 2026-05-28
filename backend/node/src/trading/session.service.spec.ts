@@ -198,6 +198,7 @@ describe('SessionService Validation', () => {
 
     it('should rollback transaction and throw error if trade save fails', async () => {
       const trade = { symbol: 'BTCUSDT', status: 'CLOSED', entry_price: 50000, qty: 1, pnl: 100 } as any;
+      mockQueryRunner.manager.findOne.mockResolvedValue({ id: 'session-123', paperMode: true });
       mockQueryRunner.manager.save.mockRejectedValue(new Error('DB SAVE FAILED'));
       (service as any).currentSessionId = 'session-123';
 

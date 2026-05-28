@@ -64,23 +64,35 @@ export class SessionService implements OnModuleInit {
     // Wire balance updates to persistence (legacy/standalone updates)
     this.tradingSessionService.setBalanceUpdateCallback(async (balance, pnl) => {
       const sessionId = this.currentSessionId;
-      if (sessionId) {
-        // standalone balance sync (e.g. from Binance WS)
-        if (pnl === 0) {
-          await this.sessionRepository.update(sessionId, { balance });
+      if (sessionId && pnl === 0) {
+        const queryRunner = this.sessionRepository.manager.connection.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+        try {
+          // Lock Session row to ensure consistency and fetch mode
+          const session = await queryRunner.manager.findOne(SessionEntity, {
+            where: { id: sessionId },
+            lock: { mode: 'pessimistic_write' },
+            select: ['id', 'tradingMode', 'paperMode']
+          });
 
-          // Also update global settings for standalone balance sync to ensure persistence across restarts
-          const session = await this.sessionRepository.findOne({ where: { id: sessionId } });
           if (session) {
+            await queryRunner.manager.update(SessionEntity, sessionId, { balance });
+
             const mode = session.tradingMode || (session.paperMode ? 'paper' : 'live');
             const updateData: any = {};
             if (mode === 'paper') updateData.paper_balance = balance;
             else if (mode === 'testnet') updateData.testnet_balance = balance;
             else if (mode === 'live') updateData.live_balance = balance;
-            await this.settingsRepository.update('default', updateData);
+            await queryRunner.manager.update(SettingsEntity, 'default', updateData);
           }
+          await queryRunner.commitTransaction();
+        } catch (error) {
+          await queryRunner.rollbackTransaction();
+          this.logger.error(`Failed to sync standalone balance for session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+          await queryRunner.release();
         }
-        // Non-zero PnL updates are handled atomically in tradeUpdateCallback (saveTradeAtomic)
       }
     });
 
@@ -116,6 +128,17 @@ export class SessionService implements OnModuleInit {
     await queryRunner.startTransaction();
 
     try {
+      // 0. Lock Session row to serialize all updates for this session and fetch metadata
+      const session = await queryRunner.manager.findOne(SessionEntity, {
+        where: { id: sessionId },
+        lock: { mode: 'pessimistic_write' },
+        select: ['id', 'tradingMode', 'paperMode']
+      });
+
+      if (!session) {
+        throw new Error(`Session ${sessionId} not found during atomic save.`);
+      }
+
       // 1. Save Trade record
       const tradeEntity = this.tradeRepository.create({
         ...trade,
@@ -139,12 +162,6 @@ export class SessionService implements OnModuleInit {
       });
 
       // 3. Update Global Settings and record History for all modes
-      // BOLT: Fetching only required columns and avoiding extra lookups if session ID is known
-      const session = await queryRunner.manager.findOne(SessionEntity, {
-        where: { id: sessionId },
-        select: ['tradingMode', 'paperMode']
-      });
-
       if (session) {
         const mode = session.tradingMode || (session.paperMode ? 'paper' : 'live');
         const updateData: any = {};

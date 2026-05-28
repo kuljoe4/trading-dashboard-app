@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { pnlColor, fmtUSD, fmt, C } from '../lib/theme'
 import { PulseDot, PaperBadge, cn } from './ui/primitives'
-import { Info, TrendingUp, ShieldAlert, Target, Activity, Zap, XCircle, ShieldCheck, Clock, CheckCircle2, AlertCircle, ChevronDown } from 'lucide-react'
+import { Info, TrendingUp, ShieldAlert, Target, Activity, Zap, XCircle, ShieldCheck, Clock, CheckCircle2, AlertCircle, ChevronDown, Loader2 } from 'lucide-react'
 import { sessionAPI } from '../api/client'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
@@ -239,11 +239,29 @@ const ExitMonitor = React.memo(({ status, logic }) => {
 });
 
 export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpanded = false }) => {
-  const config = useTradingStore((state) => state.config)
+  const { config, setFocusMode } = useTradingStore((state) => ({
+    config: state.config,
+    setFocusMode: state.setFocusMode
+  }))
 
   const [isClosing, setIsClosing] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
   const [isExpanded, setIsExpanded] = useState(initialExpanded)
+
+  useEffect(() => {
+    if (isExpanded) {
+      setFocusMode(true, trade.id);
+    } else {
+      // Note: We don't strictly set to false here as other components might have focus,
+      // but in this app's architecture, only one detail view is open at a time usually.
+      // Better to check if this specific trade was focused.
+    }
+
+    // Cleanup focus when unmounting or collapsing
+    return () => {
+       if (isExpanded) setFocusMode(false, null);
+    };
+  }, [isExpanded, trade.id, setFocusMode]);
 
   useEffect(() => {
     if (confirmClose) {
@@ -438,9 +456,17 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
               </div>
             </div>
 
-            {isExpRR && <RRLadder trade={trade} />}
-
-            <ExitMonitor status={trade.exit_signals_status} logic={trade.exit_signal_logic} />
+            {trade._thin ? (
+              <div className="py-10 flex flex-col items-center justify-center gap-4 bg-surface/30 rounded-2xl border border-border/40 border-dashed">
+                <Loader2 size={24} className="animate-spin text-accent/40" />
+                <span className="text-[10px] text-dim font-bold uppercase tracking-[0.2em]">Retrieving Deep Diagnostics...</span>
+              </div>
+            ) : (
+              <>
+                {isExpRR && <RRLadder trade={trade} />}
+                <ExitMonitor status={trade.exit_signals_status} logic={trade.exit_signal_logic} />
+              </>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

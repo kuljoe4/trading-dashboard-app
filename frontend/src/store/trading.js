@@ -211,6 +211,8 @@ export const useTradingStore = create((set, get) => ({
   streamingEnabled: localStorage.getItem('streaming_enabled') !== 'false',
   sidebarCollapsed: localStorage.getItem('sidebar_collapsed') === 'true',
   isThrottled: false,
+  entryCount: 0,
+  hitCount: 0,
 
   toggleSidebar: () => {
     const next = !get().sidebarCollapsed
@@ -242,10 +244,15 @@ export const useTradingStore = create((set, get) => ({
     set({ streamingEnabled: enabled })
   },
 
-  setFocusMode: (focused) => {
+  setFocusMode: (focused, tradeId = null, strategyLabel = null) => {
     const ws = get().ws
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: focused }))
+      ws.send(JSON.stringify({
+        type: 'set_focus_mode',
+        enabled: focused,
+        tradeId,
+        strategyLabel
+      }))
     }
   },
 
@@ -402,6 +409,8 @@ export const useTradingStore = create((set, get) => ({
             totalPnl: (data.totalPnl !== undefined && data.totalPnl !== null) ? toNumber(data.totalPnl) : state.totalPnl,
             totalRiskPct: data.totalRiskPct ?? state.totalRiskPct,
             totalSlUsed: data.totalSlUsed ?? state.totalSlUsed,
+            entryCount: data.stats?.entryCount ?? state.entryCount,
+            hitCount: data.stats?.hitCount ?? state.hitCount,
             activeTrades: nextTrades,
             // Logs are handled via mergeLogs above
             scannerResults: data.scannerResults?.map(normalizeOpportunity) || state.scannerResults,
@@ -452,23 +461,45 @@ export const useTradingStore = create((set, get) => ({
         })
       } else if (data.type === 'tick') {
         set((state) => {
-          let nextTrades = state.activeTrades;
-          if (data.trades) {
-            const prevMap = new Map(state.activeTrades.map(t => [t.symbol, t]));
-            nextTrades = data.trades.map(t => normalizeTrade(t, prevMap.get(t.symbol))).filter(Boolean);
-          }
+          let nextTrades = [...state.activeTrades];
+          let tradesChanged = false;
 
-          // Only update activeTrades if reference should change (data changed)
-          // We still allow PnL changes to trigger updates, but we avoid re-creating 
-          // the array if the backend sends redundant ticks.
-          const tradesChanged = !data.trades || nextTrades.length !== state.activeTrades.length || 
-                               nextTrades.some((t, i) => t.symbol !== state.activeTrades[i]?.symbol || t.pnl !== state.activeTrades[i]?.pnl || t.current_price !== state.activeTrades[i]?.current_price);
+          if (data.trades) {
+            const prevMap = new Map(state.activeTrades.map(t => [t.id, t]));
+
+            data.trades.forEach(t => {
+               const prev = prevMap.get(t.id);
+               const normalized = normalizeTrade(t, prev);
+               if (!normalized) return;
+
+               const existingIdx = nextTrades.findIndex(at => at.id === t.id);
+               if (existingIdx !== -1) {
+                  nextTrades[existingIdx] = normalized;
+               } else {
+                  nextTrades.push(normalized);
+               }
+               tradesChanged = true;
+            });
+
+            // If it's a heartbeat (often indicated by large number of trades or first contact),
+            // ensure we don't have stale trades that weren't in the update list
+            if (data._heartbeat) {
+               const incomingIds = new Set(data.trades.map(t => t.id));
+               const cleaned = nextTrades.filter(t => incomingIds.has(t.id));
+               if (cleaned.length !== nextTrades.length) {
+                  nextTrades = cleaned;
+                  tradesChanged = true;
+               }
+            }
+          }
 
           return {
             balance: data.balance ?? state.balance,
             totalPnl: (data.total_pnl !== undefined && data.total_pnl !== null) ? toNumber(data.total_pnl) : state.totalPnl,
             totalRiskPct: data.total_risk_pct ?? state.totalRiskPct,
             totalSlUsed: data.total_sl_used ?? state.totalSlUsed,
+            entryCount: data.stats?.entryCount ?? state.entryCount,
+            hitCount: data.stats?.hitCount ?? state.hitCount,
             activeTrades: tradesChanged ? nextTrades : state.activeTrades,
             activeWindows: data.activeWindows ? (data.activeWindows || []).map(normalizeWindow) : state.activeWindows,
             gateState: data.gateState !== undefined ? data.gateState : state.gateState,
@@ -537,10 +568,13 @@ export const useTradingStore = create((set, get) => ({
         set((state) => ({
           activeTrades: data.event === 'closed'
             ? state.activeTrades.filter((t) => t.symbol !== data.symbol)
-            : state.activeTrades,
+            : (trade ? [...state.activeTrades, trade] : state.activeTrades),
           tradeHistory: data.event === 'closed' && trade
             ? [trade, ...state.tradeHistory].slice(0, 50)
             : state.tradeHistory,
+          entryCount: data.stats?.entryCount ?? state.entryCount,
+          hitCount: data.stats?.hitCount ?? state.hitCount,
+          analytics: data.analytics ? { ...state.analytics, ...data.analytics } : state.analytics,
         }))
       } else if (data.type === 'gate') {
         set((state) => ({

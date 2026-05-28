@@ -67,15 +67,3 @@
 **Learning:** Using 'async/await' for purely in-memory operations in high-frequency loops (1s/2s/5s) creates significant Promise allocation overhead and microtask queue pressure. Converting technical analysis (indicators, signals) and risk checks to synchronous methods results in zero Promise churn for the hot path.
 **Action:** Prioritize synchronous signatures for all in-memory technical analysis and risk evaluation logic. Reserved 'async' only for I/O bound operations like database persistence or external API calls.
 ## 2026-05-27 - [Aggressive Eco Mode] **Learning:** Unwatched background loops and global market streams are the primary drivers of Railway egress and CPU cost. **Action:** Implement dynamic loop throttling (ECO-MODE) and conditional market feed skipping based on listener counts.
-
-## 2024-05-27 - [Optimization] Memoized Strategy Joins
-**Learning:** Re-calculating strategy-specific data (PnL, filtered trades) inside a main view's render loop bypasses 'React.memo' optimizations on child components, as new object literals are created on every tick.
-**Action:** Extract list-item data derivation into memoized sub-components or 'useMemo' blocks to ensure props remain stable and only trigger re-renders when their underlying data Materially changes.
-
-## 2024-05-27 - [Reliability] Maintaining Scanner Consistency
-**Learning:** Slicing real-time data arrays in the backend to save egress can cause UI flickering if the frontend component expects the full dataset (e.g., in a detailed overlay). Bandwidth optimization should focus on stripping heavy non-essential fields (like history arrays) rather than truncating the primary list.
-**Action:** Always ensure backend data payloads match the maximum possible requirement of active UI components, using field-level stripping for optimization instead of array truncation.
-
-## 2024-05-27 - [Optimization] Stable Store Selectors
-**Learning:** Store selectors that return new object literals on every call cause consumer components to re-render even if the underlying data is identical.
-**Action:** Use Zustand's 'shallow' comparison or 'useMemo' for selectors that return objects/arrays to prevent redundant component tree updates.

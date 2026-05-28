@@ -147,6 +147,8 @@ async function bootstrap() {
     const tradingSessionService = app.get(TradingSessionService);
     const activeCount = clients.filter((c: any) => c.isActive !== false).length;
     tradingSessionService.setListenerCount(activeCount);
+    const dashCount = clients.filter((c: any) => c.isActive !== false && !c.focusMode).length;
+    tradingSessionService.setDashboardCount(dashCount);
   };
 
   sessionService.setBroadcaster((data: any) => {
@@ -162,10 +164,31 @@ async function bootstrap() {
 
       if (basePayload.type === 'scanner' && client.focusMode === true) return;
 
-      if (basePayload.type === 'tick' && client.monitoringEnabled === false) {
-        const stripped = { ...basePayload };
-        delete stripped.monitoring;
-        client.send(JSON.stringify(stripped));
+      if (basePayload.type === 'tick') {
+        const tick = { ...basePayload };
+
+        // BOLT: Aggressive View-Based Pruning
+        if (tick.trades && Array.isArray(tick.trades)) {
+          tick.trades = tick.trades.map((trade: any) => {
+            const isFocused = client.focusTradeId === trade.id || client.focusStrategyLabel === trade.strategy_label;
+
+            // If not focused, strip heavy details to save network usage
+            if (!isFocused) {
+              const {
+                strategy_config, live_rr_sequence, exit_rr_sequence,
+                sl_adjustments, tp_mode, tp_ratio, ...thinTrade
+              } = trade;
+              return { ...thinTrade, _thin: true };
+            }
+            return trade;
+          });
+        }
+
+        if (client.monitoringEnabled === false) {
+          delete tick.monitoring;
+        }
+
+        client.send(JSON.stringify(tick));
         return;
       }
 
@@ -189,6 +212,8 @@ async function bootstrap() {
   wss.on('connection', async (socket: any) => {
     socket.monitoringEnabled = true;
     socket.focusMode = false;
+    socket.focusTradeId = null;
+    socket.focusStrategyLabel = null;
     socket.isActive = true; // Default to active on connect
     socket.logFilters = { info: true, warn: true, error: true };
     socket.msgCount = 0;
@@ -224,6 +249,8 @@ async function bootstrap() {
         }
         if (data.type === 'set_focus_mode') {
           socket.focusMode = data.enabled === true;
+          socket.focusTradeId = data.tradeId || null;
+          socket.focusStrategyLabel = data.strategyLabel || null;
         }
         if (data.type === 'set_active') {
           const wasActive = socket.isActive;

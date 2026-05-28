@@ -1,5 +1,4 @@
 import React from 'react'
-import { shallow } from 'zustand/shallow'
 import { fmtVol } from '../lib/theme'
 import { PulseDot, Sparkline, cn } from './ui/primitives'
 import { useTradingStore } from '../store/trading'
@@ -12,7 +11,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
     config: state.config,
     scannerPaused: state.scannerPaused,
     gateState: state.gateState,
-  }), shallow)
+  }))
   const threshold = config.scan_pct_threshold || 2.0
 
   return (

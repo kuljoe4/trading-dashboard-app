@@ -97,7 +97,7 @@ export class SignalEngineService {
     interval: string,
   ): SignalDetail {
     const lookback = Math.max(config.scan_lookback || 3, 1);
-    const candles = this.klineStore.getRecentCandles(symbol, interval, lookback + 1);
+    const candles = this.klineStore.getRawCandles(symbol, interval);
     const threshold = config.scan_pct_threshold || 0;
     
     if (candles.length < lookback + 1) {
@@ -133,7 +133,7 @@ export class SignalEngineService {
     interval: string,
   ): SignalDetail {
     const lookback = Math.max(config.scan_lookback || 3, 2);
-    const candles = this.klineStore.getRecentCandles(symbol, interval, lookback + 1);
+    const candles = this.klineStore.getRawCandles(symbol, interval);
     
     if (candles.length < lookback + 1) {
       return {
@@ -151,7 +151,8 @@ export class SignalEngineService {
 
     let maxHigh = -Infinity;
     let minLow = Infinity;
-    for (let i = 0; i < candles.length - 1; i++) {
+    const startIdx = Math.max(0, candles.length - lookback - 1);
+    for (let i = startIdx; i < candles.length - 1; i++) {
       if (candles[i].high > maxHigh) maxHigh = candles[i].high;
       if (candles[i].low < minLow) minLow = candles[i].low;
     }
@@ -177,13 +178,13 @@ export class SignalEngineService {
     interval: string,
   ): SignalDetail {
     try {
-      const candles = this.klineStore.getRecentCandles(symbol, interval, 2);
+      const candles = this.klineStore.getRawCandles(symbol, interval);
       if (candles.length < 2) {
         return { fired: false, value: 0, threshold: 0, unit: 'bool', metric: 'Engulfing', description: 'Insufficient data', insufficientData: true };
       }
 
-      const prevCandle = candles[0];
-      const currCandle = candles[1];
+      const prevCandle = candles[candles.length - 2];
+      const currCandle = candles[candles.length - 1];
       const fired = currCandle.high > prevCandle.high && currCandle.low < prevCandle.low;
       
       return {
@@ -207,12 +208,12 @@ export class SignalEngineService {
   ): SignalDetail {
     try {
       const period = parseInt(config.signal_params?.ma_period || '20', 10);
-      const candles = this.klineStore.getRecentCandles(symbol, interval, period + 1);
+      const candles = this.klineStore.getRawCandles(symbol, interval);
       if (candles.length < period + 1) {
         return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'MA Cross', description: 'Insufficient data', insufficientData: true };
       }
 
-      const ma = this.calculateSMA(candles, 0, period);
+      const ma = this.calculateSMA(candles, candles.length - period - 1, candles.length - 1);
       const prevClose = candles[candles.length - 2].close;
       const currClose = candles[candles.length - 1].close;
       const diff = currClose - ma;
@@ -246,7 +247,7 @@ export class SignalEngineService {
         ? parseInt(params.exit_ema_period || params.ema_period || '12', 10)
         : parseInt(params.entry_ema_period || params.ema_period || '12', 10);
 
-      const candles = this.klineStore.getRecentCandles(symbol, interval, period + 1);
+      const candles = this.klineStore.getRawCandles(symbol, interval);
       if (candles.length < period + 1) {
         return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Cross', description: 'Insufficient data', insufficientData: true };
       }
@@ -297,7 +298,7 @@ export class SignalEngineService {
         : parseInt(params.entry_ema_slow || '21', 10);
 
       const maxPeriod = Math.max(fastPeriod, slowPeriod);
-      const candles = this.klineStore.getRecentCandles(symbol, interval, maxPeriod + 2);
+      const candles = this.klineStore.getRawCandles(symbol, interval);
       if (candles.length < maxPeriod + 1) {
         return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Dual', description: 'Insufficient data', insufficientData: true };
       }
@@ -350,7 +351,7 @@ export class SignalEngineService {
         ? parseInt(params.exit_ema_period || params.ema_period || '12', 10)
         : parseInt(params.entry_ema_period || params.ema_period || '12', 10);
 
-      const candles = this.klineStore.getRecentCandles(symbol, interval, period + 1);
+      const candles = this.klineStore.getRawCandles(symbol, interval);
       if (candles.length < period + 1) {
         return {
           fired: false,
@@ -406,10 +407,13 @@ export class SignalEngineService {
     if (candles.length < period + 1) return null;
     const multiplier = 2 / (period + 1);
 
-    let prevEma = NaN;
-    let ema = this.calculateSMA(candles, 0, period);
+    const lookback = Math.min(candles.length, period * 2);
+    const startIndex = candles.length - lookback;
 
-    for (let i = period; i < candles.length; i++) {
+    let prevEma = NaN;
+    let ema = this.calculateSMA(candles, startIndex, startIndex + period);
+
+    for (let i = startIndex + period; i < candles.length; i++) {
       prevEma = ema;
       ema = candles[i].close * multiplier + ema * (1 - multiplier);
     }
@@ -431,12 +435,26 @@ export class SignalEngineService {
 
   private calculateEMA(candles: any[], period: number): number {
     if (candles.length === 0) return 0;
-    if (candles.length < period) return this.calculateSMA(candles, 0, candles.length);
+
+    // For smaller histories, just use SMA
+    if (candles.length < period + 1) {
+      return this.calculateSMA(candles, 0, candles.length);
+    }
 
     const multiplier = 2 / (period + 1);
-    let ema = this.calculateSMA(candles, 0, period);
 
-    for (let i = period; i < candles.length; i++) {
+    // BOLT: We want the EMA at the current index (end of array).
+    // To correctly seed the EMA, we go back in time.
+    // Given MAX_CANDLES=500, we can afford a full array pass or a reasonably sized window.
+    // For consistency with typical indicator libraries, we seed with SMA of the first 'period' candles
+    // in our available window.
+
+    const lookback = Math.min(candles.length, period * 2);
+    const startIndex = candles.length - lookback;
+
+    let ema = this.calculateSMA(candles, startIndex, startIndex + period);
+
+    for (let i = startIndex + period; i < candles.length; i++) {
       ema = candles[i].close * multiplier + ema * (1 - multiplier);
     }
 

@@ -90,6 +90,15 @@ export class KlineStoreService {
   }
 
   /**
+   * BOLT OPTIMIZATION: Provides direct access to the internal candle array.
+   * Consumers MUST NOT mutate this array. Use for indexing to avoid slice() allocations.
+   */
+  getRawCandles(symbol: string, interval: string): Candle[] {
+    const key = `${symbol}_${interval}`;
+    return this.klines.get(key) || [];
+  }
+
+  /**
    * BOLT OPTIMIZATION: Calculate min/max extremes in a single pass without array allocations (slice/map).
    */
   getLookbackExtremes(

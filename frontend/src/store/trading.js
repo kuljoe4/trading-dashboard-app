@@ -374,6 +374,12 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
       wsUrl = `${protocol}${host}/session/ws`;
     }
 
+    // Security: Inject API key as token if configured
+    const adminKey = import.meta.env.VITE_ADMIN_API_KEY;
+    if (adminKey) {
+      wsUrl += (wsUrl.includes('?') ? '&' : '?') + `token=${encodeURIComponent(adminKey)}`;
+    }
+
     const ws = new WebSocket(wsUrl)
 
     ws.onopen = () => {

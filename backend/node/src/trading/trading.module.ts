@@ -19,6 +19,7 @@ import { SessionService } from './session.service';
 import { SessionController } from './session.controller';
 import { SettingsController } from './settings.controller';
 import { MonitoringController } from './monitoring.controller';
+import { ApiKeyGuard } from '../lib/api-key.guard';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { MonitoringService } from '../engine/monitoring.service';
 import { AnalyticsService } from '../engine/analytics.service';
@@ -42,6 +43,7 @@ import { AnalyticsService } from '../engine/analytics.service';
     SessionService,
     MonitoringService,
     AnalyticsService,
+    ApiKeyGuard,
   ],
   exports: [
     SignalEngineService,

@@ -1,10 +1,12 @@
-import { Controller, Post, Get, Body, Patch, Delete, Param, ParseUUIDPipe, Query, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Get, Body, Patch, Delete, Param, ParseUUIDPipe, Query, BadRequestException, UseGuards } from '@nestjs/common';
 import { SessionService } from './session.service';
+import { ApiKeyGuard } from '../lib/api-key.guard';
 import { SessionConfig } from '../models/SessionConfig';
 import { StartSessionDto, UpdateSessionDto } from './dto/session.dto';
 import { PauseSessionDto } from './dto/pause-session.dto';
 
 @Controller('session')
+@UseGuards(ApiKeyGuard)
 export class SessionController {
   constructor(private readonly sessionService: SessionService) {}
 

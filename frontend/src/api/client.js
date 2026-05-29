@@ -6,6 +6,15 @@ const api = axios.create({
   baseURL,
 })
 
+// Security: Inject Admin API Key if configured
+const adminKey = typeof import.meta !== 'undefined' && typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_ADMIN_API_KEY : undefined
+if (adminKey) {
+  api.interceptors.request.use((config) => {
+    config.headers['X-API-Key'] = adminKey
+    return config
+  })
+}
+
 const sessionConfigAllowedKeys = [
   'strategy_label',
   'strategy_variants',

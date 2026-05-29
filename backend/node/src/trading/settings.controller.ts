@@ -1,11 +1,13 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { UpdateKeysDto } from './dto/update-keys.dto';
 import { encrypt } from '../lib/crypto';
+import { ApiKeyGuard } from '../lib/api-key.guard';
 
 @Controller('settings')
+@UseGuards(ApiKeyGuard)
 export class SettingsController {
   constructor(
     @InjectRepository(SettingsEntity)

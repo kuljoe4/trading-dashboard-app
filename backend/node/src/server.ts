@@ -123,16 +123,29 @@ async function bootstrap() {
     },
     verifyClient: (info, done) => {
       const origin = info.origin ? info.origin.replace(/\/$/, '') : null;
-      const isAllowed = !origin ||
+      const isOriginAllowed = !origin ||
                        allowedOrigins.some(o => o.replace(/\/$/, '') === origin);
-      const isDevFallback = !isAllowed && nodeEnv !== 'production';
+      const isDevFallback = !isOriginAllowed && nodeEnv !== 'production';
 
-      if (!isAllowed && !isDevFallback) {
+      if (!isOriginAllowed && !isDevFallback) {
         serverLogger.warn(`Blocked WebSocket connection from unauthorized origin: ${info.origin}`);
+        return done(false);
       } else if (isDevFallback) {
         serverLogger.warn(`⚠️  Security Warning: Allowing unauthorized WebSocket origin "${info.origin}" due to non-production environment.`);
       }
-      done(isAllowed || isDevFallback);
+
+      // Security: Validate API Key if ADMIN_API_KEY is configured
+      const adminKey = configService.get<string>('ADMIN_API_KEY');
+      if (adminKey) {
+        const url = new URL(info.req.url || '', `http://${info.req.headers.host}`);
+        const token = url.searchParams.get('token');
+        if (token !== adminKey) {
+          serverLogger.warn(`Blocked WebSocket connection: Invalid or missing API Key from ${info.origin}`);
+          return done(false);
+        }
+      }
+
+      done(true);
     },
   });
 
@@ -233,6 +246,11 @@ async function bootstrap() {
   });
 
   wss.on('connection', async (socket: any) => {
+    // Security/Stability: Every socket MUST have an error handler to prevent process crashes
+    socket.on('error', (err: Error) => {
+      serverLogger.error(`WebSocket socket error: ${err.message}`);
+    });
+
     socket.monitoringEnabled = true;
     socket.focusMode = false;
     socket.focusTradeId = null;

@@ -35,6 +35,8 @@ export class TradingSessionService {
   private lastAnalyticsResult: any = null;
   private lastAnalyticsTradeCount = -1;
   private lastAnalyticsStartingBalance = -1;
+  private lastClosedTradesStatsCount = -1;
+  private cachedClosedTradesStats: Record<string, { pnl: number, count: number, hits: number }> = {};
   private gateState: string | null = null;
   private sleepMode = false;
   private activeWindows: Map<string, any> = new Map();
@@ -802,6 +804,7 @@ export class TradingSessionService {
 
     if (current !== undefined && Number.isFinite(current) && Number.isFinite(entry)) {
       pnl = (direction === 'LONG' ? (current - entry) * (anyTrade.qty ?? 0) : (entry - current) * (anyTrade.qty ?? 0));
+      anyTrade.pnl = pnl; // BOLT: Persist current PnL on the trade object for O(1) access in stats
       const risk = Math.abs(entry - (anyTrade.initial_sl ?? anyTrade.current_sl ?? anyTrade.sl_price ?? anyTrade.sl ?? entry)) || 1;
       rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / risk;
     }
@@ -940,7 +943,12 @@ export class TradingSessionService {
       }
     }
 
-    const activePnl = trades.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
+    // BOLT BUGFIX: Calculate total PnL from all active trades, not just those in the delta update!
+    let activePnl = 0;
+    for (const t of activeTrades) {
+      activePnl += (t.pnl || 0);
+    }
+
     const balance = this.getBalance();
     const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
     const startingBalance = (mode === 'paper')
@@ -951,7 +959,6 @@ export class TradingSessionService {
     const totalRiskUsdt = this.positionTracker.totalRisk();
 
     // BOLT OPTIMIZATION: Cache analytics results to avoid O(N log N) sorting in the 1s hot loop.
-    // Recalculate only when the number of closed trades or starting balance changes.
     if (!this.lastAnalyticsResult ||
         this.closedTrades.length !== this.lastAnalyticsTradeCount ||
         startingBalance !== this.lastAnalyticsStartingBalance) {
@@ -963,28 +970,8 @@ export class TradingSessionService {
 
     const monitoring = this.monitoringService.getMetrics();
 
-    // BOLT: Aggressive Cockpit Optimization
-    // Calculate variant stats once here so the broadcaster can prune full trades safely
-    const variantStats: Record<string, any> = {};
-    const activeList = this.positionTracker.activeList();
-
-    this.getStrategyConfigs().forEach(cfg => {
-      const label = cfg.strategy_label!;
-      const strategyActiveTrades = activeList.filter(t => t.strategy_label === label);
-      const strategyClosedTrades = this.closedTrades.filter(t => t.strategy_label === label);
-
-      const strategyActivePnl = strategyActiveTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
-      const strategyRealizedPnl = strategyClosedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
-      const strategyTotalRisk = strategyActiveTrades.reduce((sum, t) => sum + (t.risk_usdt || 0), 0);
-
-      variantStats[label] = {
-         totalPnl: Number((strategyRealizedPnl + strategyActivePnl).toFixed(2)),
-         entryCount: strategyClosedTrades.length + strategyActiveTrades.length,
-         hitCount: strategyClosedTrades.filter(t => (t.pnl || 0) > 0).length + strategyActiveTrades.filter(t => (t.pnl || 0) > 0).length,
-         totalRiskPct: Number((balance > 0 ? (strategyTotalRisk / balance) * 100 : 0).toFixed(2)),
-         activeTradeCount: strategyActiveTrades.length
-      };
-    });
+    // BOLT: Optimized single-pass variant stats calculation
+    const variantStats = this.calculateVariantStats(activeTrades);
 
     const tickData: any = {
       balance: Number(balance.toFixed(2)),
@@ -993,7 +980,8 @@ export class TradingSessionService {
       total_sl_used: Number(totalRiskUsdt.toFixed(2)),
       trades,
       variant_stats: variantStats,
-      gateState: this.gateState,      paused: this.paused,
+      gateState: this.gateState,
+      paused: this.paused,
       scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period' || this.paused,
       activeWindows: this.getActiveWindows(),
       rateLimit: this.getBinanceRateLimit(),
@@ -1188,26 +1176,62 @@ export class TradingSessionService {
     }
   }
 
-  private calculateVariantStats(): Record<string, any> {
+  private getClosedTradesStats(): Record<string, { pnl: number, count: number, hits: number }> {
+    if (this.closedTrades.length === this.lastClosedTradesStatsCount) {
+      return this.cachedClosedTradesStats;
+    }
+
+    const stats: Record<string, { pnl: number, count: number, hits: number }> = {};
+    for (const trade of this.closedTrades) {
+      const label = trade.strategy_label || 'Momentum Strategy';
+      if (!stats[label]) {
+        stats[label] = { pnl: 0, count: 0, hits: 0 };
+      }
+      stats[label].pnl += (trade.pnl || 0);
+      stats[label].count++;
+      if ((trade.pnl || 0) > 0) stats[label].hits++;
+    }
+
+    this.cachedClosedTradesStats = stats;
+    this.lastClosedTradesStatsCount = this.closedTrades.length;
+    return stats;
+  }
+
+  /**
+   * BOLT OPTIMIZATION: Single-pass variant stats calculation.
+   * Reduces complexity from O(M * (N + K)) to O(M + N + K_cache_update).
+   */
+  private calculateVariantStats(activeTrades?: Trade[]): Record<string, any> {
     const variantStats: Record<string, any> = {};
-    const activeList = this.positionTracker.activeList();
+    const activeList = activeTrades || this.positionTracker.activeList();
     const balance = this.getBalance();
+    const closedStats = this.getClosedTradesStats();
     
+    // Group active trades in O(N)
+    const activeGroups: Record<string, { pnl: number, risk: number, count: number, hits: number }> = {};
+    for (let i = 0; i < activeList.length; i++) {
+       const t = activeList[i];
+       const label = t.strategy_label || 'Momentum Strategy';
+       if (!activeGroups[label]) {
+         activeGroups[label] = { pnl: 0, risk: 0, count: 0, hits: 0 };
+       }
+       activeGroups[label].pnl += (t.pnl || 0);
+       activeGroups[label].risk += (t.risk_usdt || 0);
+       activeGroups[label].count++;
+       if ((t.pnl || 0) > 0) activeGroups[label].hits++;
+    }
+
     this.getStrategyConfigs().forEach(cfg => {
       const label = cfg.strategy_label!;
-      const strategyActiveTrades = activeList.filter(t => t.strategy_label === label);
-      const strategyClosedTrades = this.closedTrades.filter(t => t.strategy_label === label);
-      
-      const strategyActivePnl = strategyActiveTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
-      const strategyRealizedPnl = strategyClosedTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
-      const strategyTotalRisk = strategyActiveTrades.reduce((sum, t) => sum + (t.risk_usdt || 0), 0);
+      const a = activeGroups[label] || { pnl: 0, risk: 0, count: 0, hits: 0 };
+      const c = closedStats[label] || { pnl: 0, count: 0, hits: 0 };
 
       variantStats[label] = {
-         totalPnl: Number((strategyRealizedPnl + strategyActivePnl).toFixed(2)),
-         entryCount: strategyClosedTrades.length + strategyActiveTrades.length,
-         hitCount: strategyClosedTrades.filter(t => (t.pnl || 0) > 0).length + strategyActiveTrades.filter(t => (t.pnl || 0) > 0).length,
-         totalRiskPct: Number((balance > 0 ? (strategyTotalRisk / balance) * 100 : 0).toFixed(2)),
-         activeTradeCount: strategyActiveTrades.length
+         totalPnl: Number((c.pnl + a.pnl).toFixed(2)),
+         entryCount: c.count + a.count,
+         hitCount: c.hits + a.hits,
+         totalRiskPct: Number((balance > 0 ? (a.risk / balance) * 100 : 0).toFixed(2)),
+         activeTradeCount: a.count
       };
     });
     return variantStats;

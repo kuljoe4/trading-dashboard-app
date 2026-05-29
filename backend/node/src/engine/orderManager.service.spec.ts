@@ -138,6 +138,23 @@ describe('OrderManagerService', () => {
         })
       );
     });
+
+    it('assigns CLOSED status for manual and termination reasons', async () => {
+      const trade = {
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 0.1,
+        entry_price: 50000,
+      } as Trade;
+
+      // Manual close
+      const resultManual = await service.closeTrade('BTCUSDT', { ...trade }, 51000, 'MANUAL_CLOSE');
+      expect(resultManual.trade.status).toBe('CLOSED');
+
+      // Session termination
+      const resultTerm = await service.closeTrade('BTCUSDT', { ...trade }, 51000, 'SESSION_TERMINATED');
+      expect(resultTerm.trade.status).toBe('CLOSED');
+    });
   });
 
   describe('checkExitSignals', () => {

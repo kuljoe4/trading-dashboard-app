@@ -287,7 +287,7 @@ export class OrderManagerService {
       } else if (exitReason.includes('SIGNAL')) {
         trade.status = 'CLOSED_SIGNAL';
       } else {
-        trade.status = 'CLOSED_SIGNAL';
+        trade.status = 'CLOSED';
       }
 
       // In live mode, place close order with reduce-only for safety

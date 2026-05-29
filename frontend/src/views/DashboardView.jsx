@@ -494,7 +494,7 @@ export function DashboardView() {
                 variant="danger"
                 onClick={handleStop}
                 disabled={loading}
-                aria-label={confirmStop ? "Confirm terminate session" : "Terminate session"}
+                aria-label={loading ? "Terminating session" : confirmStop ? "Confirm terminate session" : "Terminate session"}
                 className={cn("flex-1 sm:flex-none transition-all duration-300", confirmStop && "bg-red/80 animate-pulse")}
               >
                 <XCircle size={16} className="mr-2" />

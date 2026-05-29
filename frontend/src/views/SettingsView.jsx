@@ -360,6 +360,7 @@ export function SettingsView() {
                 <button
                   onClick={handleResetBalance}
                   disabled={resetting}
+                  aria-label={resetting ? "Resetting balance" : resetConfirm ? "Confirm reset balance" : "Reset balance"}
                   className={cn(
                     "px-6 py-3 rounded-xl text-[11px] font-bold uppercase tracking-widest transition-all",
                     resetConfirm
@@ -367,7 +368,9 @@ export function SettingsView() {
                       : "bg-surface border border-border text-dim hover:text-red hover:border-red"
                   )}
                 >
-                  {resetting ? "Resetting..." : resetConfirm ? "Confirm Reset?" : "Reset Balance"}
+                  <span aria-live="polite">
+                    {resetting ? "Resetting..." : resetConfirm ? "Confirm Reset?" : "Reset Balance"}
+                  </span>
                 </button>
               </div>
             </div>

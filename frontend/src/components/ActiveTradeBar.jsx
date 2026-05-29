@@ -497,13 +497,16 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
             }
           }}
           disabled={isClosing}
+          aria-label={isClosing ? "Closing position" : confirmClose ? "Confirm close position" : "Close position"}
           className={cn(
             "flex-1 px-4 py-3 bg-red hover:bg-red/80 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2",
             confirmClose && "animate-pulse ring-2 ring-red ring-offset-2 ring-offset-surface"
           )}
         >
           <XCircle size={16} />
-          {isClosing ? 'Closing...' : confirmClose ? 'Confirm?' : 'Close Position'}
+          <span aria-live="polite">
+            {isClosing ? 'Closing...' : confirmClose ? 'Confirm?' : 'Close Position'}
+          </span>
         </button>
       </div>
     </div>

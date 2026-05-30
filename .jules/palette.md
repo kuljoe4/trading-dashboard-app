@@ -16,3 +16,6 @@
 ## 2026-05-30 - Anti-Flicker Data Preservation
 **Learning:** UX stability is compromised when UI elements (like "Deep Diagnostics") disappear and reappear as a loading state during partial updates.
 **Action:** Modified component rendering to use locally cached data for complex states (exit signals) even during thin updates, ensuring the UI stays populated and stable while waiting for the next full sync.
+## 2026-05-30 - Config Modal Interaction Stability
+**Learning:** In 'vaul' drawers, horizontal scrolling containers (like tabs) and vertical scroll areas can conflict with the drag-to-dismiss gesture, leading to frustrating accidental closures on mobile.
+**Action:** Apply 'data-vaul-no-drag' to all interactive scrollable regions within a bottom sheet. Combine this with sticky headers and backdrop-blur to maintain context and provide high-quality visual feedback during long configuration sessions.

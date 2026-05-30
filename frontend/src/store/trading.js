@@ -51,8 +51,8 @@ const normalizeTrade = (trade = {}, prevTrade = null) => {
 
   const prev = prevTrade || {};
 
-  // If this is a delta update, merge it with previous state
-  if (trade._delta) {
+  // If this is a delta or thin update, merge it with previous state to preserve all known values
+  if (trade._delta || trade._thin) {
     return {
       ...prev,
       ...trade,
@@ -61,6 +61,15 @@ const normalizeTrade = (trade = {}, prevTrade = null) => {
       current_price: trade.current_price !== undefined ? toNumber(trade.current_price) : prev.current_price,
       sl_price: trade.sl_price !== undefined ? toNumber(trade.sl_price) : prev.sl_price,
       max_rr: trade.max_rr !== undefined ? toNumber(trade.max_rr) : prev.max_rr,
+      // Preserve complex fields if missing in the update
+      exit_signals_status: trade.exit_signals_status || prev.exit_signals_status || {},
+      strategy_config: trade.strategy_config || prev.strategy_config,
+      live_rr_sequence: trade.live_rr_sequence || prev.live_rr_sequence,
+      exit_rr_sequence: trade.exit_rr_sequence || prev.exit_rr_sequence,
+      sl_adjustments: trade.sl_adjustments || prev.sl_adjustments,
+      exit_signal_logic: trade.exit_signal_logic || prev.exit_signal_logic,
+      tp_mode: trade.tp_mode || prev.tp_mode,
+      tp_ratio: trade.tp_ratio !== undefined ? toNumber(trade.tp_ratio) : prev.tp_ratio,
     };
   }
 
@@ -102,6 +111,8 @@ const normalizeTrade = (trade = {}, prevTrade = null) => {
     paper_mode: trade.paper_mode ?? prev.paper_mode ?? true,
     qty: toNumber(trade.qty ?? trade.quantity ?? prev.qty ?? 0),
     max_rr_achieved: toNumber(trade.max_rr_achieved ?? trade.max_rr ?? prev.max_rr_achieved ?? 0),
+    exit_signals_status: trade.exit_signals_status || prev.exit_signals_status || {},
+    strategy_config: trade.strategy_config || prev.strategy_config,
   };
 }
 
@@ -542,8 +553,9 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
             const nextResults = (data.opportunities || []).map(o => {
               const normalized = normalizeOpportunity(o);
               const prev = state.scannerResults.find(p => p.symbol === normalized.symbol);
-              if (prev && normalized.history === undefined) {
-                normalized.history = prev.history;
+              if (prev) {
+                if (normalized.history === undefined) normalized.history = prev.history;
+                if (normalized.signalResult === undefined) normalized.signalResult = prev.signalResult;
               }
               return normalized;
             });
@@ -552,8 +564,9 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
             Object.keys(variantResults).forEach(label => {
               nextVariantResults[label] = variantResults[label].map(o => {
                 const prev = state.variantScannerResults[label]?.find(p => p.symbol === o.symbol);
-                if (prev && o.history === undefined) {
-                  o.history = prev.history;
+                if (prev) {
+                  if (o.history === undefined) o.history = prev.history;
+                  if (o.signalResult === undefined) o.signalResult = prev.signalResult;
                 }
                 return o;
               });

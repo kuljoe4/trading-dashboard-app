@@ -16,3 +16,8 @@
 **Vulnerability:** Standard strict equality (`===`) used for verifying API keys and WebSocket tokens was susceptible to timing attacks, potentially leaking secret values.
 **Learning:** String comparison in most runtimes is optimized to return as soon as a mismatch is found, meaning the execution time depends on how many characters match. `crypto.timingSafeEqual` provides constant-time comparison but requires inputs of equal length.
 **Prevention:** Use a `safeCompare` utility that hashes both strings (e.g., using SHA-256) before using `crypto.timingSafeEqual`. This ensures equal-length inputs and prevents leaking the secret's length or value via timing.
+
+## 2026-05-30 - Client-Side State Protection
+**Vulnerability:** Relying on the backend to provide the full state in every update can lead to sensitive UI data being exposed or cleared unexpectedly if the backend applies aggressive pruning.
+**Learning:** The frontend must act as a secondary guard for data integrity. Implementing "Local State Preservation" ensures that once sensitive or critical data (like trade configs) is delivered over a secure channel, it is held securely in client memory even if subsequent partial updates omit it.
+**Prevention:** Design frontend stores to merge updates by default, rather than replacing state, specifically for complex objects delivered via WebSockets.

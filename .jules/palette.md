@@ -12,3 +12,7 @@
 ## 2026-05-30 - Standardized Descriptive Tooltips
 **Learning:** Native `title` attributes provide poor UX and inconsistent styling. Reusing the project's Radix-based `Tooltip` for all icon-only actions and supplementary data (like trade timestamps) ensures a cohesive "pro-grade" feel and better accessibility.
 **Action:** Replaced all remaining native `title` attributes in `ConfigModal` and `HistoryView` with the styled `<Tooltip>` component.
+
+## 2026-05-30 - Anti-Flicker Data Preservation
+**Learning:** UX stability is compromised when UI elements (like "Deep Diagnostics") disappear and reappear as a loading state during partial updates.
+**Action:** Modified component rendering to use locally cached data for complex states (exit signals) even during thin updates, ensuring the UI stays populated and stable while waiting for the next full sync.

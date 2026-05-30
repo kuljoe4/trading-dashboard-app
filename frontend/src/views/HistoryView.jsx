@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { fmtUSD, pnlColor } from '../lib/theme'
 import { sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
-import { SectionLabel, StatCard, cn, PaperBadge } from '../components/ui/primitives'
+import { SectionLabel, StatCard, cn, PaperBadge, Tooltip } from '../components/ui/primitives'
 import { motion, AnimatePresence } from 'framer-motion'
 import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap, BarChart3, LineChart, Target } from 'lucide-react'
 import { Sidebar, BottomNav } from '../components/Navigation'
@@ -45,12 +45,16 @@ const TradeItem = React.memo(({ trade, session = {} }) => {
           <div className="flex items-center gap-2">
             <span className="text-[9px] text-dim font-mono">{new Date(trade.entry_ts || trade.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
             <span className="text-[9px] text-dim/40 font-mono">·</span>
-            <span
-              className="text-[9px] text-dim font-mono flex items-center gap-1 cursor-help"
-              title={`Entry: ${new Date(trade.entry_ts || trade.createdAt).toLocaleString()}\nExit: ${trade.exit_ts ? new Date(trade.exit_ts).toLocaleString() : 'Open'}`}
-            >
-              <Clock size={8} /> {durationStr}
-            </span>
+            <Tooltip content={
+              <div className="flex flex-col gap-1">
+                <div>Entry: {new Date(trade.entry_ts || trade.createdAt).toLocaleString()}</div>
+                <div>Exit: {trade.exit_ts ? new Date(trade.exit_ts).toLocaleString() : 'Open'}</div>
+              </div>
+            }>
+              <span className="text-[9px] text-dim font-mono flex items-center gap-1 cursor-help">
+                <Clock size={8} /> {durationStr}
+              </span>
+            </Tooltip>
           </div>
         </div>
       </div>
@@ -407,7 +411,6 @@ export const HistoryView = () => {
                    </motion.div>
                 )}
 
-                  >
                 {orphans.length > 0 && (
                   <motion.div
                     layout

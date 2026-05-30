@@ -158,6 +158,12 @@ export class MomentumScannerService {
       return null;
     }
 
+    // BOLT OPTIMIZATION: Early return if momentum is below threshold to avoid expensive volatility/trend calculations
+    const threshold = config.scan_pct_threshold ?? 0;
+    if (Math.abs(momentumPct) < threshold) {
+      return null;
+    }
+
     // Determine direction based on momentum
     const direction = momentumPct > 0 ? 'LONG' : 'SHORT';
 

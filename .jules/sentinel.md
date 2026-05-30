@@ -12,3 +12,7 @@
 **Vulnerability:** Forced session termination could bypass balance updates if the primary closure logic failed, leading to data drift between the database and the actual account state upon restart.
 **Learning:** Fallback paths in critical state-changing logic (like trade closure) must be as robust as the primary path, including explicit balance synchronization.
 **Prevention:** Always ensure that every logical branch leading to trade finalization includes a mandatory account/session balance update.
+## 2026-05-30 - Timing Attacks on Secret Comparison
+**Vulnerability:** Standard strict equality (`===`) used for verifying API keys and WebSocket tokens was susceptible to timing attacks, potentially leaking secret values.
+**Learning:** String comparison in most runtimes is optimized to return as soon as a mismatch is found, meaning the execution time depends on how many characters match. `crypto.timingSafeEqual` provides constant-time comparison but requires inputs of equal length.
+**Prevention:** Use a `safeCompare` utility that hashes both strings (e.g., using SHA-256) before using `crypto.timingSafeEqual`. This ensures equal-length inputs and prevents leaking the secret's length or value via timing.

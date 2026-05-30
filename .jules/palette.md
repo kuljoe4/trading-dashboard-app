@@ -9,3 +9,6 @@
 ## 2026-05-30 - Reliable PnL Display
 **Learning:** Inconsistent PnL calculation during session termination (missing from fallback path) can lead to confusing "zero PnL" entries in the trade history.
 **Action:** Implemented explicit PnL calculation in the engine's termination fallback to ensure that even forced trade closures provide accurate financial feedback in the UI.
+## 2026-05-30 - Standardized Descriptive Tooltips
+**Learning:** Native `title` attributes provide poor UX and inconsistent styling. Reusing the project's Radix-based `Tooltip` for all icon-only actions and supplementary data (like trade timestamps) ensures a cohesive "pro-grade" feel and better accessibility.
+**Action:** Replaced all remaining native `title` attributes in `ConfigModal` and `HistoryView` with the styled `<Tooltip>` component.

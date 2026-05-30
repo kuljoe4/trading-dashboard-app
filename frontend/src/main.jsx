@@ -67,35 +67,10 @@ const App = () => {
 
   const [view, setView] = useState('cockpit');
 
-  useEffect(() => {
-    const controller = new AbortController();
-    
-    async function checkStatus() {
-      try {
-        const res = await sessionAPI.status({ signal: controller.signal });
-        if (controller.signal.aborted) return;
+  const { syncStatus } = useTradingStore();
 
-        const currentState = useTradingStore.getState();
-        if (res.data.running) {
-          setSessionActive(true, res.data.strategyId || res.data.strategy_id);
-        }
-        updateStats({
-          balance: res.data.balance ?? currentState.balance,
-          totalRiskPct: res.data.totalRiskPct ?? currentState.totalRiskPct,
-          totalSlUsed: res.data.totalSlUsed ?? 0,
-          activeTrades: res.data.activeTrades || [],
-          scannerResults: res.data.scannerResults || [],
-          activeWindows: res.data.activeWindows || [],
-          tradeHistory: res.data.history || [],
-          config: res.data.config ? { ...currentState.config, ...res.data.config } : currentState.config,
-        });
-      } catch (e) {
-        if (!controller.signal.aborted && e.name !== 'CanceledError' && e.code !== 'ERR_CANCELED') {
-          console.error("Failed to fetch session status", e);
-        }
-      }
-    }
-    checkStatus();
+  useEffect(() => {
+    syncStatus();
 
     const handleHashChange = () => {
       const hash = (window.location.hash.replace('#/', '') || 'cockpit').split('?')[0];
@@ -105,7 +80,6 @@ const App = () => {
     handleHashChange();
 
     return () => {
-      controller.abort();
       window.removeEventListener('hashchange', handleHashChange);
     };
   }, [setSessionActive, updateStats]);

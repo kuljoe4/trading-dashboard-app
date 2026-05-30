@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
 
 const price = (value) => {
-  if (value == null || Number.isNaN(Number(value))) return 'None'
+  if (value == null || Number.isNaN(Number(value)) || Number(value) === 0) return '---'
   const n = Number(value)
   return n >= 100 ? `$${n.toFixed(2)}` : `$${n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}`
 }
@@ -16,6 +16,7 @@ const timeSince = (entryTs) => {
   if (!entryTs) return 'Just now'
   const now = Date.now()
   const entry = new Date(entryTs).getTime()
+  if (isNaN(entry)) return '---'
   const diff = Math.floor((now - entry) / 1000)
   if (diff < 60) return `${diff}s ago`
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
@@ -28,6 +29,7 @@ const duration = (entryTs) => {
   if (!entryTs) return '0s'
   const now = Date.now()
   const entry = new Date(entryTs).getTime()
+  if (isNaN(entry)) return '0s'
   const diff = Math.floor((now - entry) / 1000)
   const h = Math.floor(diff / 3600)
   const m = Math.floor((diff % 3600) / 60)
@@ -296,9 +298,9 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
   const direction = trade.direction?.toUpperCase()
   const isLong = direction === 'LONG'
   const isExpRR = trade.tp_mode === 'exp_rr_seq'
-  const initialSlDist = trade.entry_price ? ((Math.abs(trade.entry_price - trade.initial_sl) / trade.entry_price) * 100).toFixed(2) : '0.00'
-  const liveSlDist = trade.entry_price ? ((Math.abs(trade.entry_price - trade.sl_price) / trade.entry_price) * 100).toFixed(2) : '0.00'
-  const slDist = initialSlDist
+  const initialSlDist = (trade.entry_price && trade.initial_sl) ? ((Math.abs(trade.entry_price - trade.initial_sl) / trade.entry_price) * 100).toFixed(2) : '0.00'
+  const liveSlDist = (trade.entry_price && trade.sl_price) ? ((Math.abs(trade.entry_price - trade.sl_price) / trade.entry_price) * 100).toFixed(2) : '0.00'
+  const slDist = initialSlDist === '0.00' && liveSlDist !== '0.00' ? liveSlDist : initialSlDist
   const pctChange = trade.entry_price && trade.current_price
     ? ((trade.current_price - trade.entry_price) / trade.entry_price * 100).toFixed(2)
     : '0.00'

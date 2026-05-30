@@ -67,7 +67,13 @@ const App = () => {
 
   const [view, setView] = useState('cockpit');
 
-  const { syncStatus } = useTradingStore();
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function checkStatus() {
+      try {
+        const res = await sessionAPI.status({ signal: controller.signal });
+        if (controller.signal.aborted) return;
 
         const currentState = useTradingStore.getState();
         if (res.data.running) {
@@ -79,6 +85,7 @@ const App = () => {
           totalRiskPct: res.data.totalRiskPct ?? currentState.totalRiskPct,
           totalSlUsed: res.data.totalSlUsed ?? 0,
           activeTrades: res.data.activeTrades || [],
+          variantStats: res.data.variant_stats || {},
           scannerResults: res.data.scannerResults || [],
           activeWindows: res.data.activeWindows || [],
           tradeHistory: res.data.history || [],
@@ -91,8 +98,6 @@ const App = () => {
       }
     }
     checkStatus();
-  useEffect(() => {
-    syncStatus();
 
     const handleHashChange = () => {
       const hash = (window.location.hash.replace('#/', '') || 'cockpit').split('?')[0];
@@ -102,6 +107,7 @@ const App = () => {
     handleHashChange();
 
     return () => {
+      controller.abort();
       window.removeEventListener('hashchange', handleHashChange);
     };
   }, [setSessionActive, updateStats]);

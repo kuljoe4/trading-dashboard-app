@@ -25,10 +25,4 @@ export class Settings {
 
   @Column('decimal', { precision: 20, scale: 8, default: 0 })
   live_balance: number;
-
-  @Column({ default: 7 })
-  log_retention_days: number;
-
-  @Column({ default: 30 })
-  trade_retention_days: number;
 }

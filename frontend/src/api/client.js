@@ -114,8 +114,6 @@ export const sessionAPI = createSessionAPI()
 export const settingsAPI = {
   getKeys: () => api.get('/settings/keys'),
   updateKeys: (keys) => api.post('/settings/keys', keys),
-  getMaintenance: () => api.get('/settings/maintenance'),
-  updateMaintenance: (config) => api.post('/settings/maintenance', config),
 }
 
 export { sanitizeSessionConfig }

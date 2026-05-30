@@ -76,8 +76,8 @@ export class SessionController {
   }
 
   @Get('history')
-  async getHistory() {
-    return this.sessionService.getHistory();
+  async getHistory(@Query('sessionId') sessionId?: string) {
+    return this.sessionService.getHistory(sessionId);
   }
 
   @Post('trade/:symbol/close')
@@ -90,8 +90,8 @@ export class SessionController {
   }
 
   @Get('analytics')
-  async getAnalytics() {
-    return this.sessionService.getAnalytics();
+  async getAnalytics(@Query('sessionId') sessionId?: string) {
+    return this.sessionService.getAnalytics(sessionId);
   }
 
   @Get('lifetime-analytics')

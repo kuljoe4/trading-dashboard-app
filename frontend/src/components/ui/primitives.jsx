@@ -25,16 +25,21 @@ export const PulseDot = React.memo(({ color = "bg-green" }) => (
 ))
 
 // --- Stat Card ---
-export const StatCard = React.memo(({ label, value, color = "text-text", subValue }) => (
-  <div className="bg-surface border border-border p-5 rounded-2xl shadow-sm hover:border-border-hover transition-colors group">
-    <div className="text-[10px] text-dim tracking-widest mb-2 uppercase font-bold group-hover:text-dim/80 transition-colors">{label}</div>
-    <div className={cn(
-      "text-xl font-bold font-mono tracking-tight",
-      color
-    )}>{value}</div>
-    {subValue && <div className="text-[10px] text-dim mt-1 font-mono uppercase">{subValue}</div>}
-  </div>
-))
+export const StatCard = React.memo(({ label, value, color = "text-text", subValue }) => {
+  const isStale = value === '$0.00' || value === '0.00%' || value === '0' || value === '$0';
+
+  return (
+    <div className="bg-surface border border-border p-5 rounded-2xl shadow-sm hover:border-border-hover transition-colors group">
+      <div className="text-[10px] text-dim tracking-widest mb-2 uppercase font-bold group-hover:text-dim/80 transition-colors">{label}</div>
+      <div className={cn(
+        "text-xl font-bold font-mono tracking-tight transition-opacity duration-300",
+        color,
+        isStale && "opacity-50"
+      )}>{value}</div>
+      {subValue && <div className="text-[10px] text-dim mt-1 font-mono uppercase">{subValue}</div>}
+    </div>
+  );
+})
 
 // --- Section Label ---
 export const SectionLabel = ({ children, className }) => (

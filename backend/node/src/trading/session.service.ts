@@ -1,6 +1,6 @@
-import { Injectable, Logger, OnModuleInit, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, LessThan } from 'typeorm';
 import { Session as SessionEntity } from '../models/entities/Session.entity';
 import { TradeEntity, TERMINAL_STATUSES } from '../models/entities/Trade.entity';
 import { Log as LogEntity } from '../models/entities/Log.entity';
@@ -16,7 +16,7 @@ import { AnalyticsService } from '../engine/analytics.service';
 import { updateLogLevels } from '../lib/logger';
 
 @Injectable()
-export class SessionService implements OnModuleInit {
+export class SessionService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SessionService.name);
   
   private sessionRunning = false;
@@ -25,6 +25,7 @@ export class SessionService implements OnModuleInit {
 
   private analyticsCache: { data: any; ts: number } | null = null;
   private readonly CACHE_TTL_MS = 60000; // 1 minute
+  private cleanupInterval: NodeJS.Timeout | null = null;
 
   constructor(
     @InjectRepository(SessionEntity)
@@ -55,10 +56,38 @@ export class SessionService implements OnModuleInit {
     }
 
     // Cleanup any sessions marked as running in the database on startup
-    // BOLT: Optimize startup cleanup with a single bulk update instead of a loop
-    const updateResult = await this.sessionRepository.update({ running: true }, { running: false });
-    if (updateResult.affected && updateResult.affected > 0) {
-      this.logger.verbose(`Cleaned up ${updateResult.affected} stale running sessions`);
+    // BOLT: Optimize startup cleanup and reconcile orphaned trades to ensure history visibility
+    const sessions = await this.sessionRepository.find({ where: { running: true } });
+    if (sessions.length > 0) {
+      for (const s of sessions) {
+        await this.sessionRepository.update(s.id, { running: false });
+
+        // Mark all 'OPEN' trades from this session as 'CLOSED_ORPHANED' so they appear in history
+        const orphanedResult = await this.tradeRepository.update(
+          { sessionId: s.id, status: 'OPEN' as any },
+          { status: 'CLOSED_ORPHANED', exit_ts: new Date(), exit_reason: 'SERVER_RESTART' }
+        );
+
+        if (orphanedResult.affected && orphanedResult.affected > 0) {
+          // Trigger a re-aggregation of session stats for accurate history overview
+          const { sum, count, wins } = await this.tradeRepository.createQueryBuilder('trade')
+            .select('SUM(trade.pnl)', 'sum')
+            .addSelect('COUNT(trade.id)', 'count')
+            .addSelect('COUNT(CASE WHEN trade.pnl > 0 THEN 1 END)', 'wins')
+            .where('trade.sessionId = :sessionId', { sessionId: s.id })
+            .andWhere('trade.status IN (:...statuses)', { statuses: TERMINAL_STATUSES })
+            .getRawOne();
+
+          await this.sessionRepository.update(s.id, {
+            totalPnl: parseFloat(sum || '0'),
+            tradeCount: parseInt(count || '0', 10),
+            winCount: parseInt(wins || '0', 10),
+          });
+
+          this.logger.log(`Session ${s.id}: Reconciled ${orphanedResult.affected} orphaned trades on restart.`);
+        }
+      }
+      this.logger.verbose(`Cleaned up ${sessions.length} stale running sessions`);
     }
 
     // Wire balance updates to persistence (legacy/standalone updates)
@@ -100,6 +129,50 @@ export class SessionService implements OnModuleInit {
     this.tradingSessionService.setTradeUpdateCallback(async (trade, balance) => {
       await this.saveTradeAtomic(trade, balance);
     });
+
+    // Run initial cleanup and schedule periodic cleanup (every 12 hours)
+    this.cleanupOldData().catch(err => this.logger.error(`Initial cleanup failed: ${err.message}`));
+    this.cleanupInterval = setInterval(() => this.cleanupOldData(), 12 * 60 * 60 * 1000);
+  }
+
+  onModuleDestroy() {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+    }
+  }
+
+  async cleanupOldData() {
+    try {
+      const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+      if (!settings) return;
+
+      const logRetentionDate = new Date();
+      logRetentionDate.setDate(logRetentionDate.getDate() - (settings.log_retention_days || 7));
+
+      const tradeRetentionDate = new Date();
+      tradeRetentionDate.setDate(tradeRetentionDate.getDate() - (settings.trade_retention_days || 30));
+
+      this.logger.log(`Running background cleanup (Logs < ${settings.log_retention_days}d, Trades < ${settings.trade_retention_days}d)`);
+
+      const logDeleteResult = await this.logRepository.delete({
+        ts: LessThan(logRetentionDate.toISOString())
+      });
+
+      const balanceDeleteResult = await this.balanceHistoryRepository.delete({
+        timestamp: LessThan(logRetentionDate)
+      });
+
+      const tradeDeleteResult = await this.tradeRepository.delete({
+        status: In(TERMINAL_STATUSES as any),
+        exit_ts: LessThan(tradeRetentionDate)
+      });
+
+      if (logDeleteResult.affected || balanceDeleteResult.affected || tradeDeleteResult.affected) {
+        this.logger.log(`Cleanup complete: Deleted ${logDeleteResult.affected || 0} logs, ${balanceDeleteResult.affected || 0} balance history records, and ${tradeDeleteResult.affected || 0} closed trades.`);
+      }
+    } catch (error) {
+      this.logger.error(`Cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private validateTrade(trade: any): boolean {
@@ -147,25 +220,31 @@ export class SessionService implements OnModuleInit {
         persistenceTrade.pnl_pct = 0;
       }
 
+      const mode = session.tradingMode || (session.paperMode ? 'paper' : 'live');
       const tradeEntity = this.tradeRepository.create({
         ...persistenceTrade,
         exit_signal_type: trade.exit_signal_type,
         exit_signal_reason: trade.exit_signal_reason,
+        trading_mode: mode as any,
         sessionId,
       });
       await queryRunner.manager.save(TradeEntity, tradeEntity);
 
-      // 2. Update Session PnL and Balance
-      // BOLT: Recomputing totalPnl from sum of trades ensures idempotency and prevents double-counting
-      const { sum } = await queryRunner.manager
-        .createQueryBuilder(TradeEntity, 'trade')
+      // 2. Update Session PnL, Win Rate and Balance
+      // BOLT: Recomputing stats from sum of trades ensures idempotency and prevents data drift
+      const { sum, count, wins } = await queryRunner.manager.createQueryBuilder(TradeEntity, 'trade')
         .select('SUM(trade.pnl)', 'sum')
+        .addSelect('COUNT(trade.id)', 'count')
+        .addSelect('COUNT(CASE WHEN trade.pnl > 0 THEN 1 END)', 'wins')
         .where('trade.sessionId = :sessionId', { sessionId })
+        .andWhere('trade.status IN (:...statuses)', { statuses: TERMINAL_STATUSES })
         .getRawOne();
 
       await queryRunner.manager.update(SessionEntity, sessionId, {
         balance,
-        totalPnl: parseFloat(sum || '0')
+        totalPnl: parseFloat(sum || '0'),
+        tradeCount: parseInt(count || '0', 10),
+        winCount: parseInt(wins || '0', 10),
       });
 
       // 3. Update Global Settings and record History for all modes
@@ -570,6 +649,7 @@ export class SessionService implements OnModuleInit {
       tradingMode: session.tradingMode,
       balance: engineStatus.running ? (session.paperMode ? engineStatus.balance_paper : engineStatus.balance_live) : session.balance,
       totalPnl: engineStatus.running ? engineStatus.total_pnl : session.totalPnl,
+      total_pnl: engineStatus.running ? engineStatus.total_pnl : session.totalPnl,
       logLines: logs,
       activeTrades: engineStatus.activeTrades?.length ? engineStatus.activeTrades : activeTrades,
       scannerResults: engineStatus.scannerResults,
@@ -584,22 +664,37 @@ export class SessionService implements OnModuleInit {
     };
   }
 
-  async getHistory() {
+  async getHistory(sessionId?: string) {
     const closedTrades = await this.tradeRepository.find({
       where: {
         status: In(TERMINAL_STATUSES as any),
-        ...(this.currentSessionId ? { sessionId: this.currentSessionId } : {})
+        ...(sessionId ? { sessionId } : {})
       },
       order: { exit_ts: 'DESC' },
-      take: 200,
+      take: 500,
     });
 
     return { trades: closedTrades };
   }
 
-  async getAnalytics() {
+  private downsample(data: any[], maxPoints: number) {
+    if (data.length <= maxPoints) return data;
+    const step = data.length / maxPoints;
+    const downsampled = [];
+    for (let i = 0; i < maxPoints; i++) {
+      downsampled.push(data[Math.floor(i * step)]);
+    }
+    // Always include the last point to ensure accurate final PnL
+    if (Math.floor((maxPoints - 1) * step) < data.length - 1) {
+      downsampled[downsampled.length - 1] = data[data.length - 1];
+    }
+    return downsampled;
+  }
+
+  async getAnalytics(sessionId?: string) {
     const now = Date.now();
-    if (this.analyticsCache && (now - this.analyticsCache.ts < this.CACHE_TTL_MS)) {
+    const cacheKey = sessionId || 'global';
+    if (!sessionId && this.analyticsCache && (now - this.analyticsCache.ts < this.CACHE_TTL_MS)) {
       return this.analyticsCache.data;
     }
 
@@ -608,12 +703,20 @@ export class SessionService implements OnModuleInit {
       select: ['pnl', 'exit_ts', 'status'],
       where: {
         status: In(TERMINAL_STATUSES as any),
-        ...(this.currentSessionId ? { sessionId: this.currentSessionId } : {})
-      }
+        ...(sessionId ? { sessionId } : {})
+      },
+      order: { exit_ts: 'ASC' }
     });
 
     const result = this.analyticsService.calculateAnalytics(trades as any);
-    this.analyticsCache = { data: result, ts: now };
+    // Downsample cumulative PnL to keep payload size constant
+    if (result.cumulativePnL) {
+      result.cumulativePnL = this.downsample(result.cumulativePnL, 500);
+    }
+
+    if (!sessionId) {
+      this.analyticsCache = { data: result, ts: now };
+    }
     return result;
   }
 
@@ -696,18 +799,12 @@ export class SessionService implements OnModuleInit {
   async getLifetimeAnalytics(mode: 'paper' | 'testnet' | 'live' = 'paper') {
     // 1. Fetch all closed trades across all sessions for the specific mode
     const trades = await this.tradeRepository.find({
-      select: ['pnl', 'exit_ts', 'status', 'strategy_config'],
+      select: ['pnl', 'exit_ts', 'status'],
       where: {
         status: In(TERMINAL_STATUSES as any),
+        trading_mode: mode
       },
       order: { exit_ts: 'ASC' }
-    });
-
-    // Filter trades by mode
-    const filteredTrades = trades.filter(t => {
-        const tConfig = t.strategy_config || {};
-        const tMode = tConfig.trading_mode || (tConfig.paper_mode !== false ? 'paper' : 'live');
-        return tMode === mode;
     });
 
     // 2. Fetch balance history snapshots for high-fidelity curve
@@ -719,7 +816,7 @@ export class SessionService implements OnModuleInit {
     // 3. Calculate analytics using the full trade set
     // We assume the very first starting balance was 10000 for paper, and 0 (initial tracking) for real
     const startingBalance = mode === 'paper' ? 10000 : (history.length > 0 ? Number(history[0].balance) - Number(history[0].pnl) : 0);
-    const analytics = this.analyticsService.calculateAnalytics(filteredTrades as any, startingBalance);
+    const analytics = this.analyticsService.calculateAnalytics(trades as any, startingBalance);
 
     // 4. Override cumulative PnL with balance history for better accuracy if available
     if (history.length > 0) {
@@ -727,6 +824,11 @@ export class SessionService implements OnModuleInit {
         ts: h.timestamp.toISOString(),
         pnl: Number(h.balance) - startingBalance
       }));
+    }
+
+    // 5. Downsample cumulative PnL to keep payload size constant
+    if (analytics.cumulativePnL) {
+      analytics.cumulativePnL = this.downsample(analytics.cumulativePnL, 500);
     }
 
     return analytics;

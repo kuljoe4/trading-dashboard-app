@@ -30,6 +30,36 @@ export class SettingsController {
     };
   }
 
+  @Get('maintenance')
+  async getMaintenanceSettings() {
+    const settings = await this.settingsRepository.findOne({
+      where: { id: 'default' },
+      select: ['log_retention_days', 'trade_retention_days']
+    });
+    return {
+      log_retention_days: settings?.log_retention_days ?? 30,
+      trade_retention_days: settings?.trade_retention_days ?? 90,
+    };
+  }
+
+  @Post('maintenance')
+  async updateMaintenanceSettings(@Body() body: { log_retention_days?: number, trade_retention_days?: number }) {
+    let settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+    if (!settings) {
+      settings = this.settingsRepository.create({ id: 'default' });
+    }
+
+    if (body.log_retention_days !== undefined) {
+      settings.log_retention_days = Math.max(1, Math.min(365, body.log_retention_days));
+    }
+    if (body.trade_retention_days !== undefined) {
+      settings.trade_retention_days = Math.max(1, Math.min(1000, body.trade_retention_days));
+    }
+
+    await this.settingsRepository.save(settings);
+    return { status: 'saved' };
+  }
+
   @Post('keys')
   async updateKeys(@Body() body: UpdateKeysDto) {
     let settings = await this.settingsRepository.findOne({

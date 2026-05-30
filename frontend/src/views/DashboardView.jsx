@@ -651,15 +651,15 @@ export function DashboardView() {
         <Drawer.Root open={showConfig} onOpenChange={setShowConfig}>
           <Drawer.Portal>
             <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
-            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-full max-h-[96%] fixed bottom-0 left-0 right-0 z-50 focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[800px] lg:mx-auto">
-              <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
-                <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
+            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-[90vh] fixed bottom-0 left-0 right-0 z-50 focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[800px] lg:mx-auto">
+              <div className="p-4 bg-background border-b border-border rounded-t-[32px] flex flex-col items-center shrink-0">
+                <div className="w-12 h-1.5 bg-border rounded-full mb-4" />
                 <VisuallyHidden>
                   <Drawer.Title>Configuration</Drawer.Title>
                   <Drawer.Description>Form to configure trading strategy parameters</Drawer.Description>
                 </VisuallyHidden>
               </div>
-              <div className="flex-1 overflow-hidden">
+              <div className="flex-1 overflow-y-auto">
                 <Suspense fallback={<LoadingFallback />}>
                   <ConfigModal initialConfig={selectedConfig || config} onSave={handleConfigSave} onClose={() => setShowConfig(false)} isEdit={isEditMode} />
                 </Suspense>
@@ -671,9 +671,9 @@ export function DashboardView() {
         <Drawer.Root open={showScanner} onOpenChange={setShowScanner}>
           <Drawer.Portal>
             <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
-            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-full max-h-[96%] fixed bottom-0 left-0 right-0 z-50 focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto">
-              <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
-                <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
+            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-[90vh] fixed bottom-0 left-0 right-0 z-50 focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto">
+              <div className="p-4 bg-background border-b border-border rounded-t-[32px] flex flex-col items-center shrink-0">
+                <div className="w-12 h-1.5 bg-border rounded-full mb-4" />
                 <VisuallyHidden>
                   <Drawer.Title>Scanner</Drawer.Title>
                   <Drawer.Description>View live market scanner opportunities</Drawer.Description>

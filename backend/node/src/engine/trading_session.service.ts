@@ -1262,15 +1262,32 @@ export class TradingSessionService {
   }
 
   getStatus() {
+    const balance = this.getBalance();
+    const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
+    const startingBalance = (mode === 'paper')
+      ? this.config?.paper_starting_balance
+      : this.config?.live_starting_balance;
+
+    const activeList = this.positionTracker.activeList();
+    let activePnl = 0;
+    for (const t of activeList) {
+      // Use cached pnl on the trade object if available
+      activePnl += (t as any).pnl || 0;
+    }
+
+    const realizedPnl = balance - (startingBalance ?? balance);
+    const totalPnl = realizedPnl + activePnl;
+
     return {
       running: this.running,
       paused: this.paused,
       mode: this.config?.paper_mode ? 'PAPER' : 'LIVE',
-      tradingMode: this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live'),
+      tradingMode: mode,
       balance_paper: this.balancePaper,
       balance_live: this.balanceLive,
       stats: this.stats,
-      activeTrades: this.positionTracker.activeList().map((trade) => this.serializeTrade(trade)),
+      total_pnl: Number(totalPnl.toFixed(2)),
+      activeTrades: activeList.map((trade) => this.serializeTrade(trade)),
       total_risk: this.positionTracker.totalRisk(),
       variant_stats: this.calculateVariantStats(),
       scannerResults: this.lastScannerResults,

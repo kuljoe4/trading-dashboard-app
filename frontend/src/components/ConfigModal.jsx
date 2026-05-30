@@ -239,7 +239,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     }
 
     return (
-      <div className="flex flex-col gap-1.5 scroll-mt-32">
+      <div className="flex flex-col gap-1.5">
         <div className="flex justify-between items-center">
           <label htmlFor={id} className="text-[10px] text-dim font-bold tracking-widest uppercase">{label}</label>
           {hasError && <span id={`${id}-error`} role="alert" className="text-[9px] text-red font-bold uppercase">{errors[key]}</span>}
@@ -262,23 +262,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
           <input
             id={id}
             type={type}
-            inputMode={type === 'number' ? 'decimal' : undefined}
             value={val ?? ''}
             aria-invalid={hasError}
             aria-describedby={hasError ? `${id}-error` : undefined}
             min={attrs.min}
             max={attrs.max}
             step={attrs.step}
-            onFocus={(e) => {
-              // Ensure the input is visible when focused on mobile
-              setTimeout(() => {
-                e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              }, 300);
-            }}
-            onBlur={() => {
-              // Helps iOS/some android browsers to snap back or at least trigger a layout recalc
-              window.scrollTo(window.scrollX, window.scrollY);
-            }}
             onChange={(e) => onChange(type === 'number' ? Number(e.target.value) : e.target.value)}
             className={cn(
               "bg-surface border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent transition-colors",
@@ -321,21 +310,20 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
   const [editingSingleSymbolIndex, setEditingSingleSymbolIndex] = useState(null)
 
   return (
-    <div className="flex flex-col h-full bg-surface text-text overflow-hidden relative">
-      <div className="sticky top-0 z-30 bg-surface/80 backdrop-blur-md">
-        <div className="p-5 border-b border-border flex justify-between items-center shrink-0">
-          <div>
-            <div className="text-lg font-bold">New Session</div>
-            <div className="text-[11px] text-dim font-medium mt-0.5">Configure scanner, exits, and risk before launch</div>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full transition-colors" aria-label="Close configuration">
-            <X size={18} className="text-dim" />
-          </button>
+    <div className="flex flex-col h-full bg-surface text-text overflow-hidden">
+      <div className="p-5 border-b border-border flex justify-between items-center shrink-0">
+        <div>
+          <div className="text-lg font-bold">New Session</div>
+          <div className="text-[11px] text-dim font-medium mt-0.5">Configure scanner, exits, and risk before launch</div>
         </div>
+        <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full transition-colors" aria-label="Close configuration">
+          <X size={18} className="text-dim" />
+        </button>
+      </div>
 
-        <div className="flex gap-2 p-4 overflow-x-auto no-scrollbar shrink-0 border-b border-border touch-pan-x" data-vaul-no-drag>
-          {[
-            ['scan', 'Global Scan'],
+      <div className="flex gap-2 p-4 overflow-x-auto no-scrollbar shrink-0 border-b border-border">
+        {[
+          ['scan', 'Global Scan'],
           ['monitors', 'Single Symbols'],
           ['signals', 'Signals'],
           ['exit', 'Exit'],
@@ -344,15 +332,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
           ['mode', 'Mode'],
           ['performance', 'Performance'],
           ['presets', 'Presets'],
-          ].map(([id, label]) => (
-            <Chip key={id} active={section === id} onClick={() => setSection(id)}>{label}</Chip>
-          ))}
-        </div>
+        ].map(([id, label]) => (
+          <Chip key={id} active={section === id} onClick={() => setSection(id)}>{label}</Chip>
+        ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-5 pb-32 overscroll-contain" data-vaul-no-drag>
+      <div className="flex-1 overflow-y-auto p-5">
         {section === 'scan' && (
-          <div className="space-y-6 animate-in fade-in duration-300">
+          <div className="space-y-6">
             <div className="grid grid-cols-1">
               {field('Strategy label', 'strategy_label', 'text', null, { })}
             </div>
@@ -411,10 +398,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                   <input
                     type="text"
                     placeholder="Search symbol (e.g. BTCUSDT)"
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="characters"
-                    spellCheck="false"
                     value={symbolSearch}
                     onChange={(e) => setSymbolSearch(e.target.value.toUpperCase())}
                     className="w-full bg-surface border border-border rounded-md pl-10 pr-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent"
@@ -923,7 +906,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
               <div className="flex gap-2">
                 <input
                   type="text"
-                  autoComplete="off"
                   placeholder={presetName || generatedPresetName}
                   value={presetName}
                   onChange={(e) => setPresetName(e.target.value)}

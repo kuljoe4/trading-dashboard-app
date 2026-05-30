@@ -458,7 +458,7 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
               </div>
             </div>
 
-            {trade._thin ? (
+            {trade._thin && (!trade.exit_signals_status || Object.keys(trade.exit_signals_status).length === 0) ? (
               <div className="py-10 flex flex-col items-center justify-center gap-4 bg-surface/30 rounded-2xl border border-border/40 border-dashed">
                 <Loader2 size={24} className="animate-spin text-accent/40" />
                 <span className="text-[10px] text-dim font-bold uppercase tracking-[0.2em]">Retrieving Deep Diagnostics...</span>

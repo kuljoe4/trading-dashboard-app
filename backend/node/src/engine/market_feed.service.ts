@@ -182,7 +182,8 @@ export class MarketFeedService {
              }
           }
 
-          const msg = JSON.parse(data.toString());
+          // BOLT: Use Buffer directly in JSON.parse (supported in Node 20+) to avoid string allocation
+          const msg = JSON.parse(data as any);
           let tickers: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
           if (tickers.length > 0) {
             this.tickerCache.bulkUpdate(tickers);
@@ -356,7 +357,8 @@ export class MarketFeedService {
 
         ws.on('message', (data: Buffer) => {
           try {
-            const msg: BinanceKline = JSON.parse(data.toString());
+            // BOLT: Use Buffer directly in JSON.parse to avoid string allocation
+            const msg: BinanceKline = JSON.parse(data as any);
             const kline = msg.data?.k;
             if (kline) {
               const symbol = kline.s;

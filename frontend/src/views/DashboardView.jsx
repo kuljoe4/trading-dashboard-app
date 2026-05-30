@@ -521,6 +521,7 @@ export function DashboardView() {
             value={fmtUSD(totalPnl)}
             color={totalPnl >= 0 ? "text-green" : "text-red"}
             subValue={wsStatus !== 'live' ? "Synchronizing..." : undefined}
+            syncing={wsStatus !== 'live'}
           />
           <StatCard label="Live Risk" value={`${Number(totalRiskPct || 0).toFixed(1)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
           <StatCard label="Peak RR" value={`+${Number(maxRR || 0).toFixed(2)}`} color="text-accent" />

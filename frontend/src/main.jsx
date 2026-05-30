@@ -85,6 +85,7 @@ const App = () => {
           totalRiskPct: res.data.totalRiskPct ?? currentState.totalRiskPct,
           totalSlUsed: res.data.totalSlUsed ?? 0,
           activeTrades: res.data.activeTrades || [],
+          variantStats: res.data.variant_stats || {},
           scannerResults: res.data.scannerResults || [],
           activeWindows: res.data.activeWindows || [],
           tradeHistory: res.data.history || [],

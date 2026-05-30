@@ -25,14 +25,26 @@ export const PulseDot = React.memo(({ color = "bg-green" }) => (
 ))
 
 // --- Stat Card ---
-export const StatCard = React.memo(({ label, value, color = "text-text", subValue }) => (
-  <div className="bg-surface border border-border p-5 rounded-2xl shadow-sm hover:border-border-hover transition-colors group">
+export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing }) => (
+  <div className="bg-surface border border-border p-5 rounded-2xl shadow-sm hover:border-border-hover transition-colors group relative overflow-hidden">
+    {syncing && (
+      <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" />
+    )}
     <div className="text-[10px] text-dim tracking-widest mb-2 uppercase font-bold group-hover:text-dim/80 transition-colors">{label}</div>
     <div className={cn(
-      "text-xl font-bold font-mono tracking-tight",
-      color
+      "text-xl font-bold font-mono tracking-tight transition-all duration-500",
+      color,
+      syncing && "opacity-40 blur-[1px]"
     )}>{value}</div>
-    {subValue && <div className="text-[10px] text-dim mt-1 font-mono uppercase">{subValue}</div>}
+    {subValue && (
+      <div className={cn(
+        "text-[10px] text-dim mt-1 font-mono uppercase flex items-center gap-1.5",
+        syncing && "text-accent/60 animate-pulse"
+      )}>
+        {syncing && <Loader2 size={10} className="animate-spin" />}
+        {subValue}
+      </div>
+    )}
   </div>
 ))
 

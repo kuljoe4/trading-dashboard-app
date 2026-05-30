@@ -69,6 +69,28 @@ const App = () => {
 
   const { syncStatus } = useTradingStore();
 
+        const currentState = useTradingStore.getState();
+        if (res.data.running) {
+          setSessionActive(true, res.data.strategyId || res.data.strategy_id);
+        }
+        updateStats({
+          balance: res.data.balance ?? currentState.balance,
+          totalPnl: res.data.totalPnl ?? currentState.totalPnl,
+          totalRiskPct: res.data.totalRiskPct ?? currentState.totalRiskPct,
+          totalSlUsed: res.data.totalSlUsed ?? 0,
+          activeTrades: res.data.activeTrades || [],
+          scannerResults: res.data.scannerResults || [],
+          activeWindows: res.data.activeWindows || [],
+          tradeHistory: res.data.history || [],
+          config: res.data.config ? { ...currentState.config, ...res.data.config } : currentState.config,
+        });
+      } catch (e) {
+        if (!controller.signal.aborted && e.name !== 'CanceledError' && e.code !== 'ERR_CANCELED') {
+          console.error("Failed to fetch session status", e);
+        }
+      }
+    }
+    checkStatus();
   useEffect(() => {
     syncStatus();
 

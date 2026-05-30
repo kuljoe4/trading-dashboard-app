@@ -21,3 +21,8 @@
 **Vulnerability:** Relying on the backend to provide the full state in every update can lead to sensitive UI data being exposed or cleared unexpectedly if the backend applies aggressive pruning.
 **Learning:** The frontend must act as a secondary guard for data integrity. Implementing "Local State Preservation" ensures that once sensitive or critical data (like trade configs) is delivered over a secure channel, it is held securely in client memory even if subsequent partial updates omit it.
 **Prevention:** Design frontend stores to merge updates by default, rather than replacing state, specifically for complex objects delivered via WebSockets.
+
+## 2026-05-30 - Background Task Suppression
+**Vulnerability:** Maintaining high-frequency market data streams and engine loops for idle or backgrounded clients can lead to resource exhaustion and potential DoS on the server side.
+**Learning:** Resource suppression should be applied as close to the source as possible.
+**Prevention:** Implement "ECO-MODE" floors for loop intervals and strictly suppress data ingestion (miniTickers) when no active traders or listeners are present.

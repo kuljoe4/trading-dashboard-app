@@ -191,25 +191,36 @@ async function bootstrap() {
   };
 
   sessionService.setBroadcaster((data: any) => {
-    const basePayload = typeof data === "string" ? JSON.parse(data) : data;
+    const isString = typeof data === "string";
+    let basePayload: any;
+    let cachedJson: string | null = isString ? (data as string) : null;
+
+    const getPayload = () => {
+      if (!basePayload) {
+        basePayload = isString ? JSON.parse(data as string) : data;
+      }
+      return basePayload;
+    };
 
     wss.clients.forEach((client: any) => {
       if (client.readyState !== client.OPEN) return;
 
+      const payload = getPayload();
+
       // Optimization: Skip ticks, scanner, and logs for inactive (background) clients to save network egress
       if (
         client.isActive === false &&
-        (basePayload.type === "tick" ||
-          basePayload.type === "scanner" ||
-          basePayload.type === "log")
+        (payload.type === "tick" ||
+          payload.type === "scanner" ||
+          payload.type === "log")
       ) {
         return;
       }
 
-      if (basePayload.type === "scanner" && client.focusMode === true) return;
+      if (payload.type === "scanner" && client.focusMode === true) return;
 
-      if (basePayload.type === "tick") {
-        const tick = { ...basePayload };
+      if (payload.type === "tick") {
+        const tick = { ...payload };
 
         // BOLT: Aggressive View-Based Pruning
         // If the client is NOT in focus mode (Dashboard view), strip ALL trades to save network
@@ -248,12 +259,12 @@ async function bootstrap() {
         return;
       }
 
-      if (basePayload.type === "scanner") {
+      if (payload.type === "scanner") {
         // Optimization: Prune sparkline history for Dashboard to save bandwidth
         if (!client.focusMode) {
           const pruned = {
-            ...basePayload,
-            opportunities: (basePayload.opportunities || []).map((o: any) => {
+            ...payload,
+            opportunities: (payload.opportunities || []).map((o: any) => {
               const { history, signalResult, ...thin } = o;
               return thin;
             }),
@@ -271,18 +282,18 @@ async function bootstrap() {
           return;
         }
       }
-      if (basePayload.type === "log" && client.logFilters) {
-        if (client.logFilters[basePayload.level] === false) return;
+      if (payload.type === "log" && client.logFilters) {
+        if (client.logFilters[payload.level] === false) return;
       }
 
       if (
-        basePayload.type === "status" &&
+        payload.type === "status" &&
         client.logFilters &&
-        Array.isArray(basePayload.logLines)
+        Array.isArray(payload.logLines)
       ) {
         const filteredPayload = {
-          ...basePayload,
-          logLines: basePayload.logLines.filter(
+          ...payload,
+          logLines: payload.logLines.filter(
             (log: any) => client.logFilters[log.level] !== false,
           ),
         };
@@ -290,7 +301,10 @@ async function bootstrap() {
         return;
       }
 
-      client.send(JSON.stringify(basePayload));
+      if (!cachedJson) {
+        cachedJson = JSON.stringify(payload);
+      }
+      client.send(cachedJson);
     });
   });
 

@@ -173,13 +173,14 @@ export class MarketFeedService {
       ws.on('message', (data: Buffer) => {
         try {
           // BOLT: Aggressive CPU optimization - skip full miniTicker processing if in ECO mode
-          // and the system is under load (implied by ECO mode being active)
-          if (this.tradingSession.isEcoMode()) {
-             // In ECO mode, we only process miniTickers if we have active trades
-             if (this.tradingSession.getStatus().activeTrades.length === 0) {
-                // If no trades and no listeners, we don't need real-time 24h volume for 400+ symbols
-                return;
-             }
+          // or GATED mode and no active trades are open.
+          // This saves significant CPU cycles when the session is idle or restricted.
+          const activeCount = this.tradingSession.getStatus().activeTrades.length;
+          const isGated = this.tradingSession.isGated();
+          const isEco = this.tradingSession.isEcoMode();
+
+          if ((isEco || isGated) && activeCount === 0) {
+             return;
           }
 
           // BOLT: Use Buffer directly in JSON.parse (supported in Node 20+) to avoid string allocation
@@ -219,9 +220,10 @@ export class MarketFeedService {
 
     try {
       const newWatchlist = new Map<string, Set<string>>();
+      const isGated = this.tradingSession.isGated();
 
       // 1. Global Scanner Symbols
-      if (config.global_scanner_enabled !== false) {
+      if (config.global_scanner_enabled !== false && !isGated) {
         let symbols: string[];
         if (config.symbols && config.symbols.length > 0) {
           symbols = config.symbols;
@@ -240,7 +242,7 @@ export class MarketFeedService {
       }
 
       // 2. Single Symbol Monitor Symbols
-      if (config.single_symbol_configs) {
+      if (config.single_symbol_configs && !isGated) {
         for (const sc of config.single_symbol_configs) {
           if (!sc.enabled) continue;
           if (!newWatchlist.has(sc.symbol)) newWatchlist.set(sc.symbol, new Set());

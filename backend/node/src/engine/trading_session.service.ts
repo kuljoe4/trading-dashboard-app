@@ -124,6 +124,14 @@ export class TradingSessionService {
     return this.running && this.listenerCount === 0;
   }
 
+  /**
+   * BOLT: Aggressive resource suppression when the session is restricted.
+   * Returns true if the session is paused, sleeping (outside windows), or hit a risk limit.
+   */
+  isGated(): boolean {
+    return this.paused || this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period' || this.gateState === 'sleeping';
+  }
+
   setDashboardCount(count: number) {
     this.dashboardCount = count;
   }
@@ -260,6 +268,8 @@ export class TradingSessionService {
 
     return { status: 'started' };
   }
+
+  private readonly MAX_CLOSED_TRADES_MEMORY = 1000;
 
   async stop() {
     this.running = false;
@@ -403,9 +413,11 @@ export class TradingSessionService {
         reason: riskResult.reason,
         scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period'
       });
+      // BOLT: Immediately update watchlist when gating status changes to reduce active kline streams
+      this.marketFeed.updateWatchlist().catch(() => {});
     }
 
-    const isGated = this.paused || this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period' || this.gateState === 'sleeping';
+    const isGated = this.isGated();
     
     // BOLT SCANNER HIBERNATION: If no one is looking at the dashboard, we can skip the scanner.
     // This saves massive CPU cycles on technical analysis and volume sorting.
@@ -416,10 +428,13 @@ export class TradingSessionService {
       // If gated due to 'sleeping' (outside windows), the market feed and scanner are fully stopped.
       // This saves CPU cycles, memory allocations from new candle data, and Binance API weight.
 
+      // BOLT: Only broadcast scanner results if they changed (e.g. just entered gated state) or during heartbeat
+      const now = Date.now();
+      const isFullBroadcast = now - this.lastScannerFullBroadcast > 30000;
+      const justEnteredGated = this.gateState !== prevGateState;
+
       // Still broadcast cached results to keep UI from flickering/clearing if listeners are active.
-      if (this.listenerCount > 0) {
-        const now = Date.now();
-        const isFullBroadcast = now - this.lastScannerFullBroadcast > 30000;
+      if (this.listenerCount > 0 && (isFullBroadcast || justEnteredGated)) {
         if (isFullBroadcast) this.lastScannerFullBroadcast = now;
 
         this.broadcast('scanner', {
@@ -562,6 +577,9 @@ export class TradingSessionService {
           try {
             await this.updateBalance(result.trade);
             this.closedTrades.unshift(result.trade);
+            if (this.closedTrades.length > this.MAX_CLOSED_TRADES_MEMORY) {
+              this.closedTrades.pop();
+            }
             if (this.onTradeUpdate) await this.onTradeUpdate(result.trade, this.getBalance());
 
             // Trigger watchlist update to potentially remove closed trade symbol
@@ -1361,6 +1379,9 @@ export class TradingSessionService {
       try {
         await this.updateBalance(result.trade);
         this.closedTrades.unshift(result.trade);
+        if (this.closedTrades.length > this.MAX_CLOSED_TRADES_MEMORY) {
+          this.closedTrades.pop();
+        }
         if (this.onTradeUpdate) await this.onTradeUpdate(result.trade, this.getBalance());
 
         // Trigger watchlist update

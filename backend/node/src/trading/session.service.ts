@@ -140,8 +140,15 @@ export class SessionService implements OnModuleInit {
       }
 
       // 1. Save Trade record
+      // BOLT: Ensure OPEN trades have 0 PnL in DB to avoid corrupting realized totalPnl sum
+      const persistenceTrade = { ...trade };
+      if (trade.status === 'OPEN') {
+        persistenceTrade.pnl = 0;
+        persistenceTrade.pnl_pct = 0;
+      }
+
       const tradeEntity = this.tradeRepository.create({
-        ...trade,
+        ...persistenceTrade,
         exit_signal_type: trade.exit_signal_type,
         exit_signal_reason: trade.exit_signal_reason,
         sessionId,

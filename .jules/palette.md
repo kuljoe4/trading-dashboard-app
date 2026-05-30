@@ -5,3 +5,7 @@
 ## 2026-05-29 - Accessible Confirmation Feedback
 **Learning:** Critical actions with two-stage confirmation (like closing positions or resetting data) need clear accessibility cues to ensure users with assistive technology understand the changing state of the button.
 **Action:** Implemented a pattern using dynamic `aria-label` attributes and `aria-live="polite"` spans for all stateful confirmation buttons across the cockpit and settings.
+
+## 2026-05-30 - Reliable PnL Display
+**Learning:** Inconsistent PnL calculation during session termination (missing from fallback path) can lead to confusing "zero PnL" entries in the trade history.
+**Action:** Implemented explicit PnL calculation in the engine's termination fallback to ensure that even forced trade closures provide accurate financial feedback in the UI.

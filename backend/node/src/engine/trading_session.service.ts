@@ -299,7 +299,13 @@ export class TradingSessionService {
         trade.status = 'CLOSED';
         trade.exit_ts = new Date();
         trade.exit_reason = 'SESSION_TERMINATED';
+        trade.exit_price = exitPrice;
+        // BOLT: Manually calculate PnL for fallback closure to ensure balance integrity
+        const pnlPoints = trade.direction === 'LONG' ? exitPrice - trade.entry_price : trade.entry_price - exitPrice;
+        trade.pnl = pnlPoints * trade.qty;
+
         this.closedTrades.push(trade);
+        await this.updateBalance(trade);
         if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
         this.positionTracker.removeTrade(trade.symbol);
       }

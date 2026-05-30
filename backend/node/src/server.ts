@@ -1,23 +1,24 @@
-import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, LogLevel, Logger } from '@nestjs/common';
-import { Request, Response, NextFunction, json, urlencoded } from 'express';
-import { DynamicLogger } from './lib/logger';
-import { ConfigService } from '@nestjs/config';
-import { WebSocketServer } from 'ws';
-import { AppModule } from './app.module';
-import { SessionService } from './trading/session.service';
-import { MonitoringService } from './engine/monitoring.service';
-import { TradingSessionService } from './engine/trading_session.service';
+import { NestFactory } from "@nestjs/core";
+import { ValidationPipe, LogLevel, Logger } from "@nestjs/common";
+import { Request, Response, NextFunction, json, urlencoded } from "express";
+import { DynamicLogger } from "./lib/logger";
+import { ConfigService } from "@nestjs/config";
+import { WebSocketServer } from "ws";
+import { AppModule } from "./app.module";
+import { safeCompare } from "./lib/crypto";
+import { SessionService } from "./trading/session.service";
+import { MonitoringService } from "./engine/monitoring.service";
+import { TradingSessionService } from "./engine/trading_session.service";
 
 async function bootstrap() {
-  const isProduction = process.env.NODE_ENV === 'production';
-  const forceDebug = process.env.DEBUG === 'true';
+  const isProduction = process.env.NODE_ENV === "production";
+  const forceDebug = process.env.DEBUG === "true";
 
   // Default to quiet logs even in dev, unless forceDebug is set.
   // DynamicLogger will upgrade these levels at runtime if a session starts with debug_mode: true.
   const logLevels: LogLevel[] = forceDebug
-    ? ['log', 'error', 'warn', 'debug', 'verbose']
-    : ['log', 'warn', 'error'];
+    ? ["log", "error", "warn", "debug", "verbose"]
+    : ["log", "warn", "error"];
 
   const logger = DynamicLogger.getInstance();
   logger.setLogLevels(logLevels);
@@ -28,11 +29,11 @@ async function bootstrap() {
   });
 
   // Security: Disable X-Powered-By header to reduce information disclosure
-  app.getHttpAdapter().getInstance().disable('x-powered-by');
+  app.getHttpAdapter().getInstance().disable("x-powered-by");
 
   // Security: Limit JSON and URL-encoded payload size to prevent DoS attacks
-  app.use(json({ limit: '50kb' }));
-  app.use(urlencoded({ limit: '50kb', extended: true }));
+  app.use(json({ limit: "50kb" }));
+  app.use(urlencoded({ limit: "50kb", extended: true }));
 
   const configService = app.get(ConfigService);
 
@@ -44,28 +45,40 @@ async function bootstrap() {
     }),
   );
 
-  const allowedOrigins = configService.get<string>('ALLOWED_ORIGINS')?.split(',').map((o) => o.trim()) || [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-    'https://frontend-production-9bcd.up.railway.app',
-    'https://frontend-staging-f45a.up.railway.app',
+  const allowedOrigins = configService
+    .get<string>("ALLOWED_ORIGINS")
+    ?.split(",")
+    .map((o) => o.trim()) || [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://frontend-production-9bcd.up.railway.app",
+    "https://frontend-staging-f45a.up.railway.app",
   ];
 
-  const nodeEnv = configService.get<string>('NODE_ENV');
-  const serverLogger = new Logger('Server');
-  serverLogger.log(`🔒 Allowed Origins: ${allowedOrigins.join(', ')}`);
+  const nodeEnv = configService.get<string>("NODE_ENV");
+  const serverLogger = new Logger("Server");
+  serverLogger.log(`🔒 Allowed Origins: ${allowedOrigins.join(", ")}`);
 
   // Security Headers Middleware
   app.use((req: Request, res: Response, next: NextFunction) => {
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
-    res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
-    res.setHeader('Referrer-Policy', 'no-referrer');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests;");
-    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
-    if (nodeEnv === 'production') {
-      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-XSS-Protection", "1; mode=block");
+    res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader(
+      "Content-Security-Policy",
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests;",
+    );
+    res.setHeader(
+      "Permissions-Policy",
+      "camera=(), microphone=(), geolocation=(), payment=()",
+    );
+    if (nodeEnv === "production") {
+      res.setHeader(
+        "Strict-Transport-Security",
+        "max-age=31536000; includeSubDomains",
+      );
     }
     next();
   });
@@ -76,26 +89,30 @@ async function bootstrap() {
       // Allow requests with no origin (like mobile apps or curl)
       if (!origin) return callback(null, true);
 
-      const normalizedOrigin = origin.replace(/\/$/, '');
-      const isAllowed = allowedOrigins.some(o => o.replace(/\/$/, '') === normalizedOrigin);
-      const isDevFallback = !isAllowed && nodeEnv !== 'production';
+      const normalizedOrigin = origin.replace(/\/$/, "");
+      const isAllowed = allowedOrigins.some(
+        (o) => o.replace(/\/$/, "") === normalizedOrigin,
+      );
+      const isDevFallback = !isAllowed && nodeEnv !== "production";
 
       if (isAllowed || isDevFallback) {
         if (isDevFallback) {
-          serverLogger.warn(`⚠️  Security Warning: Allowing unauthorized origin "${origin}" due to non-production environment.`);
+          serverLogger.warn(
+            `⚠️  Security Warning: Allowing unauthorized origin "${origin}" due to non-production environment.`,
+          );
         }
         callback(null, true);
       } else {
         serverLogger.warn(`CORS blocked for origin: ${origin}`);
-        callback(new Error('Not allowed by CORS'));
+        callback(new Error("Not allowed by CORS"));
       }
     },
     credentials: true,
   });
 
   // Health check endpoint
-  app.getHttpAdapter().get('/health', (req, res) => {
-    res.status(200).send({ status: 'ok', timestamp: new Date().toISOString() });
+  app.getHttpAdapter().get("/health", (req, res) => {
+    res.status(200).send({ status: "ok", timestamp: new Date().toISOString() });
   });
 
   await app.init();
@@ -105,7 +122,7 @@ async function bootstrap() {
 
   const wss = new WebSocketServer({
     server: httpServer,
-    path: '/session/ws',
+    path: "/session/ws",
     perMessageDeflate: {
       zlibDeflateOptions: {
         chunkSize: 1024,
@@ -113,7 +130,7 @@ async function bootstrap() {
         level: 3,
       },
       zlibInflateOptions: {
-        chunkSize: 10 * 1024
+        chunkSize: 10 * 1024,
       },
       clientNoContextTakeover: true,
       serverNoContextTakeover: true,
@@ -122,25 +139,34 @@ async function bootstrap() {
       threshold: 1024,
     },
     verifyClient: (info, done) => {
-      const origin = info.origin ? info.origin.replace(/\/$/, '') : null;
-      const isOriginAllowed = !origin ||
-                       allowedOrigins.some(o => o.replace(/\/$/, '') === origin);
-      const isDevFallback = !isOriginAllowed && nodeEnv !== 'production';
+      const origin = info.origin ? info.origin.replace(/\/$/, "") : null;
+      const isOriginAllowed =
+        !origin || allowedOrigins.some((o) => o.replace(/\/$/, "") === origin);
+      const isDevFallback = !isOriginAllowed && nodeEnv !== "production";
 
       if (!isOriginAllowed && !isDevFallback) {
-        serverLogger.warn(`Blocked WebSocket connection from unauthorized origin: ${info.origin}`);
+        serverLogger.warn(
+          `Blocked WebSocket connection from unauthorized origin: ${info.origin}`,
+        );
         return done(false);
       } else if (isDevFallback) {
-        serverLogger.warn(`⚠️  Security Warning: Allowing unauthorized WebSocket origin "${info.origin}" due to non-production environment.`);
+        serverLogger.warn(
+          `⚠️  Security Warning: Allowing unauthorized WebSocket origin "${info.origin}" due to non-production environment.`,
+        );
       }
 
       // Security: Validate API Key if ADMIN_API_KEY is configured
-      const adminKey = configService.get<string>('ADMIN_API_KEY');
+      const adminKey = configService.get<string>("ADMIN_API_KEY");
       if (adminKey) {
-        const url = new URL(info.req.url || '', `http://${info.req.headers.host}`);
-        const token = url.searchParams.get('token');
-        if (token !== adminKey) {
-          serverLogger.warn(`Blocked WebSocket connection: Invalid or missing API Key from ${info.origin}`);
+        const url = new URL(
+          info.req.url || "",
+          `http://${info.req.headers.host}`,
+        );
+        const token = url.searchParams.get("token");
+        if (!token || !safeCompare(token, adminKey)) {
+          serverLogger.warn(
+            `Blocked WebSocket connection: Invalid or missing API Key from ${info.origin}`,
+          );
           return done(false);
         }
       }
@@ -153,29 +179,36 @@ async function bootstrap() {
     const clients = Array.from(wss.clients);
     const anyActive = clients.some((c: any) => c.monitoringEnabled !== false);
     monitoringService.setEnabled(anyActive);
-    
+
     // Synchronize listener count for loop optimization
     const tradingSessionService = app.get(TradingSessionService);
     const activeCount = clients.filter((c: any) => c.isActive !== false).length;
     tradingSessionService.setListenerCount(activeCount);
-    const dashCount = clients.filter((c: any) => c.isActive !== false && !c.focusMode).length;
+    const dashCount = clients.filter(
+      (c: any) => c.isActive !== false && !c.focusMode,
+    ).length;
     tradingSessionService.setDashboardCount(dashCount);
   };
 
   sessionService.setBroadcaster((data: any) => {
-    const basePayload = typeof data === 'string' ? JSON.parse(data) : data;
-    
+    const basePayload = typeof data === "string" ? JSON.parse(data) : data;
+
     wss.clients.forEach((client: any) => {
       if (client.readyState !== client.OPEN) return;
 
       // Optimization: Skip ticks, scanner, and logs for inactive (background) clients to save network egress
-      if (client.isActive === false && (basePayload.type === 'tick' || basePayload.type === 'scanner' || basePayload.type === 'log')) {
+      if (
+        client.isActive === false &&
+        (basePayload.type === "tick" ||
+          basePayload.type === "scanner" ||
+          basePayload.type === "log")
+      ) {
         return;
       }
 
-      if (basePayload.type === 'scanner' && client.focusMode === true) return;
+      if (basePayload.type === "scanner" && client.focusMode === true) return;
 
-      if (basePayload.type === 'tick') {
+      if (basePayload.type === "tick") {
         const tick = { ...basePayload };
 
         // BOLT: Aggressive View-Based Pruning
@@ -185,13 +218,21 @@ async function bootstrap() {
           tick.activeWindows = [];
         } else if (tick.trades && Array.isArray(tick.trades)) {
           tick.trades = tick.trades.map((trade: any) => {
-            const isFocused = client.focusTradeId === trade.id || client.focusStrategyLabel === trade.strategy_label;
+            const isFocused =
+              client.focusTradeId === trade.id ||
+              client.focusStrategyLabel === trade.strategy_label;
 
             // If not specifically focused on this trade, strip heavy details
             if (!isFocused) {
               const {
-                strategy_config, live_rr_sequence, exit_rr_sequence,
-                exit_signals_status, sl_adjustments, tp_mode, tp_ratio, ...thinTrade
+                strategy_config,
+                live_rr_sequence,
+                exit_rr_sequence,
+                exit_signals_status,
+                sl_adjustments,
+                tp_mode,
+                tp_ratio,
+                ...thinTrade
               } = trade;
               return { ...thinTrade, _thin: true };
             }
@@ -207,35 +248,43 @@ async function bootstrap() {
         return;
       }
 
-      if (basePayload.type === 'scanner') {
+      if (basePayload.type === "scanner") {
         // Optimization: Prune sparkline history for Dashboard to save bandwidth
         if (!client.focusMode) {
-           const pruned = {
-             ...basePayload,
-             opportunities: (basePayload.opportunities || []).map((o: any) => {
-               const { history, signalResult, ...thin } = o;
-               return thin;
-             }),
-             variant_opportunities: (basePayload.variant_opportunities || []).map((v: any) => ({
-               ...v,
-               opportunities: (v.opportunities || []).map((o: any) => {
-                 const { history, signalResult, ...thin } = o;
-                 return thin;
-               })
-             }))
-           };
-           client.send(JSON.stringify(pruned));
-           return;
+          const pruned = {
+            ...basePayload,
+            opportunities: (basePayload.opportunities || []).map((o: any) => {
+              const { history, signalResult, ...thin } = o;
+              return thin;
+            }),
+            variant_opportunities: (
+              basePayload.variant_opportunities || []
+            ).map((v: any) => ({
+              ...v,
+              opportunities: (v.opportunities || []).map((o: any) => {
+                const { history, signalResult, ...thin } = o;
+                return thin;
+              }),
+            })),
+          };
+          client.send(JSON.stringify(pruned));
+          return;
         }
       }
-      if (basePayload.type === 'log' && client.logFilters) {
+      if (basePayload.type === "log" && client.logFilters) {
         if (client.logFilters[basePayload.level] === false) return;
       }
 
-      if (basePayload.type === 'status' && client.logFilters && Array.isArray(basePayload.logLines)) {
+      if (
+        basePayload.type === "status" &&
+        client.logFilters &&
+        Array.isArray(basePayload.logLines)
+      ) {
         const filteredPayload = {
           ...basePayload,
-          logLines: basePayload.logLines.filter((log: any) => client.logFilters[log.level] !== false),
+          logLines: basePayload.logLines.filter(
+            (log: any) => client.logFilters[log.level] !== false,
+          ),
         };
         client.send(JSON.stringify(filteredPayload));
         return;
@@ -245,9 +294,9 @@ async function bootstrap() {
     });
   });
 
-  wss.on('connection', async (socket: any) => {
+  wss.on("connection", async (socket: any) => {
     // Security/Stability: Every socket MUST have an error handler to prevent process crashes
-    socket.on('error', (err: Error) => {
+    socket.on("error", (err: Error) => {
       serverLogger.error(`WebSocket socket error: ${err.message}`);
     });
 
@@ -260,8 +309,8 @@ async function bootstrap() {
     socket.msgCount = 0;
     socket.lastReset = Date.now();
     updateMonitoringSuppression();
-    
-    socket.on('message', async (message: string) => {
+
+    socket.on("message", async (message: string) => {
       try {
         // Rate limiting: max 20 messages per second
         const now = Date.now();
@@ -278,22 +327,22 @@ async function bootstrap() {
         try {
           data = JSON.parse(message);
         } catch (e) {
-          serverLogger.warn('Received malformed WebSocket JSON payload');
+          serverLogger.warn("Received malformed WebSocket JSON payload");
           return;
         }
 
-        if (!data || typeof data !== 'object') return;
+        if (!data || typeof data !== "object") return;
 
-        if (data.type === 'set_monitoring') {
+        if (data.type === "set_monitoring") {
           socket.monitoringEnabled = data.enabled === true;
           updateMonitoringSuppression();
         }
-        if (data.type === 'set_focus_mode') {
+        if (data.type === "set_focus_mode") {
           socket.focusMode = data.enabled === true;
           socket.focusTradeId = data.tradeId || null;
           socket.focusStrategyLabel = data.strategyLabel || null;
         }
-        if (data.type === 'set_active') {
+        if (data.type === "set_active") {
           const wasActive = socket.isActive;
           socket.isActive = data.active === true;
           // If state changed, update backend listener count for loop optimization
@@ -302,10 +351,19 @@ async function bootstrap() {
           }
           // If becoming active again, send full status to sync state
           if (!wasActive && socket.isActive) {
-             socket.send(JSON.stringify({ type: 'status', ...(await sessionService.getStatus()) }));
+            socket.send(
+              JSON.stringify({
+                type: "status",
+                ...(await sessionService.getStatus()),
+              }),
+            );
           }
         }
-        if (data.type === 'set_log_filters' && typeof data.filters === 'object' && data.filters !== null) {
+        if (
+          data.type === "set_log_filters" &&
+          typeof data.filters === "object" &&
+          data.filters !== null
+        ) {
           socket.logFilters = {
             info: data.filters.info === true,
             warn: data.filters.warn === true,
@@ -315,22 +373,24 @@ async function bootstrap() {
       } catch (e) {}
     });
 
-    socket.on('close', () => {
+    socket.on("close", () => {
       updateMonitoringSuppression();
     });
 
-    socket.send(JSON.stringify({ type: 'status', ...(await sessionService.getStatus()) }));
+    socket.send(
+      JSON.stringify({ type: "status", ...(await sessionService.getStatus()) }),
+    );
   });
 
-  const port = process.env.PORT || configService.get<number>('PORT') || 3000;
-  await app.listen(port, '0.0.0.0');
+  const port = process.env.PORT || configService.get<number>("PORT") || 3000;
+  await app.listen(port, "0.0.0.0");
 
   serverLogger.log(`✨ Trading Dashboard Backend running on port ${port}`);
   serverLogger.log(`📡 WebSocket endpoint: ws://0.0.0.0:${port}/session/ws`);
 }
 
 bootstrap().catch((err) => {
-  const bootstrapLogger = new Logger('Bootstrap');
-  bootstrapLogger.error('Server startup failed:', err);
+  const bootstrapLogger = new Logger("Bootstrap");
+  bootstrapLogger.error("Server startup failed:", err);
   process.exit(1);
 });

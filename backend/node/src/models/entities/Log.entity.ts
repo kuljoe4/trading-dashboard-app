@@ -9,7 +9,6 @@ export class Log {
   @Column()
   sessionId: string;
 
-  @Index()
   @Column()
   ts: string;
 

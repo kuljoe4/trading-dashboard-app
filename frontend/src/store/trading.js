@@ -61,12 +61,6 @@ const normalizeTrade = (trade = {}, prevTrade = null) => {
       current_price: trade.current_price !== undefined ? toNumber(trade.current_price) : prev.current_price,
       sl_price: trade.sl_price !== undefined ? toNumber(trade.sl_price) : prev.sl_price,
       max_rr: trade.max_rr !== undefined ? toNumber(trade.max_rr) : prev.max_rr,
-      // BOLT: Preserve critical static fields often pruned in thin updates to prevent UI NaN/0s
-      entry_price: trade.entry_price !== undefined ? toNumber(trade.entry_price) : prev.entry_price,
-      initial_sl: trade.initial_sl !== undefined ? toNumber(trade.initial_sl) : prev.initial_sl,
-      entry_ts: trade.entry_ts || trade.entry_time || prev.entry_ts || prev.entry_time,
-      qty: trade.qty !== undefined ? toNumber(trade.qty) : prev.qty,
-
       // Preserve complex fields if missing in the update
       exit_signals_status: trade.exit_signals_status || prev.exit_signals_status || {},
       strategy_config: trade.strategy_config || prev.strategy_config,
@@ -240,48 +234,10 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   },
   
   setThrottled: (isThrottled) => {
-    const wasThrottled = get().isThrottled
     set({ isThrottled })
-
     const ws = get().ws
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'set_active', active: !isThrottled }))
-    }
-
-    // If returning from background, ensure we are actually connected and sync status
-    if (wasThrottled && !isThrottled) {
-      get().syncStatus()
-    }
-  },
-
-  syncStatus: async () => {
-    try {
-      const res = await sessionAPI.status()
-      const currentState = get()
-
-      if (res.data.running) {
-        set({ sessionActive: true, strategyId: res.data.strategyId || res.data.strategy_id })
-      }
-
-      set({
-        balance: res.data.balance ?? currentState.balance,
-        totalPnl: (res.data.total_pnl ?? res.data.totalPnl) !== undefined ? toNumber(res.data.total_pnl ?? res.data.totalPnl) : currentState.totalPnl,
-        totalRiskPct: res.data.totalRiskPct ?? currentState.totalRiskPct,
-        totalSlUsed: res.data.totalSlUsed ?? 0,
-        activeTrades: (res.data.activeTrades || []).map(t => normalizeTrade(t, currentState.activeTrades.find(p => p.symbol === t.symbol))),
-        scannerResults: (res.data.scannerResults || []).map(normalizeOpportunity),
-        activeWindows: (res.data.activeWindows || []).map(normalizeWindow),
-        tradeHistory: (res.data.history || []).map(t => normalizeTrade(t)),
-        config: res.data.config ? { ...currentState.config, ...res.data.config } : currentState.config,
-      })
-
-      // If WS is stalled but supposedly open, a hard reconnect might be needed
-      const ws = get().ws
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        get().connectWS()
-      }
-    } catch (e) {
-      console.error('tradingStore: syncStatus error:', e)
     }
   },
 

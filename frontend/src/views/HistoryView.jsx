@@ -97,18 +97,14 @@ const TradeItem = React.memo(({ trade, session = {} }) => {
 
 const SessionGroup = React.memo(({ session, trades, colorDrawdown }) => {
   const [expanded, setExpanded] = useState(false)
-
-  // BOLT: Use persisted session aggregates for the overview to ensure visibility even after restart
-  const tradeCount = session.tradeCount ?? trades.length
-  const winCount = session.winCount ?? trades.filter(t => (t.pnl || 0) > 0).length
-  const pnl = session.totalPnl != null ? Number(session.totalPnl) : trades.reduce((sum, t) => sum + (t.pnl || 0), 0)
-
-  const winRate = tradeCount ? Math.round((winCount / tradeCount) * 100) : 0
+  const pnl = trades.reduce((sum, t) => sum + (t.pnl || 0), 0)
+  const wins = trades.filter(t => (t.pnl || 0) > 0).length
+  const winRate = trades.length ? Math.round((wins / trades.length) * 100) : 0
   const curve = useMemo(() => buildCurve(trades), [trades])
   const label = strategyLabel(session)
 
-  const avgWin = winCount > 0 ? trades.filter(t => (t.pnl || 0) > 0).reduce((sum, t) => sum + (t.pnl || 0), 0) / winCount : 0
-  const losses = tradeCount - winCount
+  const avgWin = wins > 0 ? trades.filter(t => (t.pnl || 0) > 0).reduce((sum, t) => sum + (t.pnl || 0), 0) / wins : 0
+  const losses = trades.length - wins
   const avgLoss = losses > 0 ? Math.abs(trades.filter(t => (t.pnl || 0) < 0).reduce((sum, t) => sum + (t.pnl || 0), 0)) / losses : 0
   const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) : '∞'
 
@@ -149,7 +145,7 @@ const SessionGroup = React.memo(({ session, trades, colorDrawdown }) => {
           </div>
           <div className="flex flex-col">
             <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-1">Win Rate</span>
-            <span className="text-xs font-bold font-mono">{winRate}% ({winCount}/{tradeCount})</span>
+            <span className="text-xs font-bold font-mono">{winRate}% ({wins}/{trades.length})</span>
           </div>
           <div className="hidden sm:flex flex-col">
             <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-1">W/L Ratio</span>

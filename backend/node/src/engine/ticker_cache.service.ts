@@ -69,19 +69,24 @@ export class TickerCacheService {
     const cacheKey = `${n}_${[...excluded].sort().join(',')}`;
     const cached = this._topByVolumeCache[cacheKey];
     const CACHE_TTL_MS = 30000; // 30 seconds
+    const now = Date.now();
 
-    if (cached && (Date.now() - cached.timestamp < CACHE_TTL_MS)) {
+    if (cached && (now - cached.timestamp < CACHE_TTL_MS)) {
       return cached.data;
     }
 
-    // BOLT: Prevent unbounded growth of the topByVolume cache
-    const cacheKeys = Object.keys(this._topByVolumeCache);
-    if (cacheKeys.length > 50) {
-      const now = Date.now();
-      for (const key of cacheKeys) {
+    // BOLT: Prune stale entries and limit cache size
+    const keys = Object.keys(this._topByVolumeCache);
+    if (keys.length > 50) {
+      for (const key of keys) {
         if (now - this._topByVolumeCache[key].timestamp > CACHE_TTL_MS) {
           delete this._topByVolumeCache[key];
         }
+      }
+
+      // If still too large, clear everything to reset
+      if (Object.keys(this._topByVolumeCache).length > 50) {
+        this._topByVolumeCache = {};
       }
     }
 
@@ -95,7 +100,7 @@ export class TickerCacheService {
 
     this._topByVolumeCache[cacheKey] = {
       data: result,
-      timestamp: Date.now()
+      timestamp: now
     };
 
     return result;

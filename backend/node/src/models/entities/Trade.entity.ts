@@ -87,6 +87,10 @@ export class TradeEntity {
   @Column({ nullable: true })
   strategy_label: string;
 
+  @Index()
+  @Column({ type: 'varchar', default: 'paper' })
+  trading_mode: 'paper' | 'testnet' | 'live';
+
   @Column('jsonb', { nullable: true })
   strategy_config: any;
 

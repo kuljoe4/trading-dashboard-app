@@ -1,7 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 
 @Injectable()
-export class MonitoringService {
+export class MonitoringService implements OnModuleDestroy {
   private readonly logger = new Logger(MonitoringService.name);
   private lastCpuUsage = process.cpuUsage();
   private lastCpuTime = Date.now();
@@ -19,13 +19,20 @@ export class MonitoringService {
   private apiRequestCount = 0;
   private eventLoopLag = 0;
   private enabled = true;
+  private metricsInterval: NodeJS.Timeout | null = null;
+  private lagTimeout: NodeJS.Timeout | null = null;
 
   constructor() {
     this.measureEventLoopLag();
     // Update CPU metrics every 5 seconds to reduce overhead
-    setInterval(() => {
+    this.metricsInterval = setInterval(() => {
       if (this.enabled) this.updateCpuMetrics();
     }, 5000);
+  }
+
+  onModuleDestroy() {
+    if (this.metricsInterval) clearInterval(this.metricsInterval);
+    if (this.lagTimeout) clearTimeout(this.lagTimeout);
   }
 
   setEnabled(enabled: boolean) {
@@ -37,12 +44,12 @@ export class MonitoringService {
 
   private measureEventLoopLag() {
     if (!this.enabled) {
-      setTimeout(() => this.measureEventLoopLag(), 5000);
+      this.lagTimeout = setTimeout(() => this.measureEventLoopLag(), 5000);
       return;
     }
     const start = Date.now();
     const delay = 5000; // Increased delay to 5s
-    setTimeout(() => {
+    this.lagTimeout = setTimeout(() => {
       if (!this.enabled) {
         this.measureEventLoopLag();
         return;

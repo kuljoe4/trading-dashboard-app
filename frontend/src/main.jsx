@@ -81,6 +81,7 @@ const App = () => {
         }
         updateStats({
           balance: res.data.balance ?? currentState.balance,
+          totalPnl: res.data.totalPnl ?? currentState.totalPnl,
           totalRiskPct: res.data.totalRiskPct ?? currentState.totalRiskPct,
           totalSlUsed: res.data.totalSlUsed ?? 0,
           activeTrades: res.data.activeTrades || [],

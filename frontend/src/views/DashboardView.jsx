@@ -516,7 +516,12 @@ export function DashboardView() {
           className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10"
         >
           <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} />
-          <StatCard label="Session P&L" value={fmtUSD(totalPnl)} color={totalPnl >= 0 ? "text-green" : "text-red"} />
+          <StatCard
+            label="Session P&L"
+            value={fmtUSD(totalPnl)}
+            color={totalPnl >= 0 ? "text-green" : "text-red"}
+            subValue={wsStatus !== 'live' ? "Synchronizing..." : undefined}
+          />
           <StatCard label="Live Risk" value={`${Number(totalRiskPct || 0).toFixed(1)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
           <StatCard label="Peak RR" value={`+${Number(maxRR || 0).toFixed(2)}`} color="text-accent" />
         </motion.div>

@@ -569,7 +569,7 @@ export class SessionService implements OnModuleInit {
       paperMode: session.paperMode,
       tradingMode: session.tradingMode,
       balance: engineStatus.running ? (session.paperMode ? engineStatus.balance_paper : engineStatus.balance_live) : session.balance,
-      totalPnl: session.totalPnl,
+      totalPnl: engineStatus.running ? engineStatus.total_pnl : session.totalPnl,
       logLines: logs,
       activeTrades: engineStatus.activeTrades?.length ? engineStatus.activeTrades : activeTrades,
       scannerResults: engineStatus.scannerResults,

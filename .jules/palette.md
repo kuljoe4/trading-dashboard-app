@@ -19,3 +19,7 @@
 ## 2026-05-30 - Config Modal Interaction Stability
 **Learning:** In 'vaul' drawers, horizontal scrolling containers (like tabs) and vertical scroll areas can conflict with the drag-to-dismiss gesture, leading to frustrating accidental closures on mobile.
 **Action:** Apply 'data-vaul-no-drag' to all interactive scrollable regions within a bottom sheet. Combine this with sticky headers and backdrop-blur to maintain context and provide high-quality visual feedback during long configuration sessions.
+
+## 2026-05-30 - Sync Feedback Visibility
+**Learning:** Users perceive a "jumpy" UI as broken. If data is still loading or synchronizing, the UI should explicitly state it.
+**Action:** Added "Synchronizing..." indicators to high-value metrics during WebSocket reconnection to manage user expectations and explain potential data staleness.

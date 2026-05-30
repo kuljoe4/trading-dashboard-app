@@ -135,8 +135,10 @@ export class TradingSessionService {
     // BOLT ECO-MODE: Dynamically throttle loops if no one is watching
     if (this.running && this.config) {
       if (prevCount > 0 && count === 0) {
-        this.logger.log('Switching to ECO-MODE: No active listeners. Throttling main loop to 15s.');
-        this.restartLoops(this.config.hot_loop_interval_ms || 2000, 15000);
+        const ecoMainMs = Math.max(15000, this.config.main_loop_interval_ms || 5000);
+        const ecoHotMs = Math.max(5000, this.config.hot_loop_interval_ms || 2000);
+        this.logger.log(`Switching to ECO-MODE: No active listeners. Throttling loops (Main: ${ecoMainMs}ms, Hot: ${ecoHotMs}ms).`);
+        this.restartLoops(ecoHotMs, ecoMainMs);
       } else if (prevCount === 0 && count > 0) {
         this.logger.log('Exiting ECO-MODE: Listener detected. Restoring performance loops.');
         this.restartLoops(this.config.hot_loop_interval_ms || 2000, this.config.main_loop_interval_ms || 5000);
@@ -1281,10 +1283,15 @@ export class TradingSessionService {
       prevConfig.hot_loop_interval_ms !== config.hot_loop_interval_ms ||
       prevConfig.main_loop_interval_ms !== config.main_loop_interval_ms
     )) {
-      const mainMs = this.listenerCount === 0 ? 15000 : (config.main_loop_interval_ms || 5000);
-      const hotMs = config.hot_loop_interval_ms || 2000;
+      const isEco = this.listenerCount === 0;
+      const mainMs = isEco
+        ? Math.max(15000, config.main_loop_interval_ms || 5000)
+        : (config.main_loop_interval_ms || 5000);
+      const hotMs = isEco
+        ? Math.max(5000, config.hot_loop_interval_ms || 2000)
+        : (config.hot_loop_interval_ms || 2000);
 
-      this.logger.log(`Restarting loops with new intervals: hot=${hotMs}ms, main=${mainMs}ms ${this.listenerCount === 0 ? '(ECO)' : ''}`);
+      this.logger.log(`Restarting loops with new intervals: hot=${hotMs}ms, main=${mainMs}ms ${isEco ? '(ECO)' : ''}`);
       this.restartLoops(hotMs, mainMs);
     }
 

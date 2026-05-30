@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { settingsAPI } from '../api/client'
 import { SectionLabel, Btn, StatCard, cn } from '../components/ui/primitives'
-import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap, Eye, EyeOff, RotateCcw, Bug } from 'lucide-react'
+import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap, Eye, EyeOff, RotateCcw, Bug, Database } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
 import { Sidebar, BottomNav } from '../components/Navigation'
@@ -10,6 +10,8 @@ export function SettingsView() {
   const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, debugToolsEnabled, setDebugToolsEnabled, sidebarCollapsed, logFilters, toggleLogFilter, resetPaperBalance } = useTradingStore()
   const [apiKey, setApiKey] = useState('')
   const [apiSecret, setApiSecret] = useState('')
+  const [logRetention, setLogRetention] = useState(30)
+  const [tradeRetention, setTradeRetention] = useState(90)
   const [showLiveSecret, setShowLiveSecret] = useState(false)
   const [testnetApiKey, setTestnetApiKey] = useState('')
   const [testnetApiSecret, setTestnetApiSecret] = useState('')
@@ -20,16 +22,21 @@ export function SettingsView() {
   const [status, setStatus] = useState(null)
 
   useEffect(() => {
-    loadKeys()
+    loadSettings()
   }, [])
 
-  async function loadKeys() {
+  async function loadSettings() {
     try {
-      const res = await settingsAPI.getKeys()
-      setMaskedKey(res.data.api_key)
-      setMaskedTestnetKey(res.data.testnet_api_key)
+      const [keysRes, maintRes] = await Promise.all([
+        settingsAPI.getKeys(),
+        settingsAPI.getMaintenance()
+      ])
+      setMaskedKey(keysRes.data.api_key)
+      setMaskedTestnetKey(keysRes.data.testnet_api_key)
+      setLogRetention(maintRes.data.log_retention_days)
+      setTradeRetention(maintRes.data.trade_retention_days)
     } catch (e) {
-      console.error('Failed to load keys', e)
+      console.error('Failed to load settings', e)
     }
   }
 
@@ -64,18 +71,30 @@ export function SettingsView() {
     setLoading(true)
     setStatus(null)
     try {
-      await settingsAPI.updateKeys({
-        api_key: apiKey,
-        api_secret: apiSecret,
-        testnet_api_key: testnetApiKey,
-        testnet_api_secret: testnetApiSecret
-      })
-      setStatus({ type: 'success', msg: 'Credentials updated successfully!' })
+      const tasks = []
+
+      // Only update keys if they were actually entered
+      if (apiKey.trim() || apiSecret.trim() || testnetApiKey.trim() || testnetApiSecret.trim()) {
+        tasks.push(settingsAPI.updateKeys({
+          api_key: apiKey,
+          api_secret: apiSecret,
+          testnet_api_key: testnetApiKey,
+          testnet_api_secret: testnetApiSecret
+        }))
+      }
+
+      tasks.push(settingsAPI.updateMaintenance({
+        log_retention_days: Number(logRetention),
+        trade_retention_days: Number(tradeRetention)
+      }))
+
+      await Promise.all(tasks)
+      setStatus({ type: 'success', msg: 'Settings updated successfully!' })
       setApiKey('')
       setApiSecret('')
       setTestnetApiKey('')
       setTestnetApiSecret('')
-      loadKeys()
+      loadSettings()
     } catch (e) {
       setStatus({ type: 'error', msg: 'Update failed. Check backend logs.' })
     } finally {
@@ -333,11 +352,11 @@ export function SettingsView() {
                   </div>
                   <Btn
                     onClick={handleSave}
-                    disabled={loading || (!apiKey && !apiSecret && !testnetApiKey && !testnetApiSecret)}
+                    disabled={loading}
                     loading={loading}
                     className="w-full md:w-auto min-w-[160px]"
                   >
-                    Apply All Credentials
+                    Apply Settings
                   </Btn>
                 </div>
               </div>
@@ -345,9 +364,57 @@ export function SettingsView() {
           </section>
 
           <section>
-            <SectionLabel className="mb-6">Account Maintenance</SectionLabel>
-            <div className="bg-surface border border-border rounded-2xl p-6 md:p-8 shadow-sm">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <SectionLabel className="mb-6">Account & Data Maintenance</SectionLabel>
+            <div className="bg-surface border border-border rounded-2xl p-6 md:p-8 shadow-sm space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center">
+                      <Database size={16} className="text-accent" />
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold uppercase tracking-tight">Log Retention</h3>
+                      <p className="text-[10px] text-dim font-medium uppercase">Prune backend logs after N days</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min="1"
+                      max="365"
+                      value={logRetention}
+                      onChange={e => setLogRetention(e.target.value)}
+                      className="w-24 bg-background border border-border focus:border-accent focus:outline-none rounded-xl px-4 py-2 text-sm font-bold text-text transition-all"
+                    />
+                    <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Days</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-green/10 flex items-center justify-center">
+                      <RotateCcw size={16} className="text-green" />
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold uppercase tracking-tight">Trade History Retention</h3>
+                      <p className="text-[10px] text-dim font-medium uppercase">Prune history and analytics data</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min="1"
+                      max="1000"
+                      value={tradeRetention}
+                      onChange={e => setTradeRetention(e.target.value)}
+                      className="w-24 bg-background border border-border focus:border-accent focus:outline-none rounded-xl px-4 py-2 text-sm font-bold text-text transition-all"
+                    />
+                    <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Days</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-8 border-t border-border/50 flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-xl bg-red/10 flex items-center justify-center">
                     <RotateCcw size={20} className="text-red" />

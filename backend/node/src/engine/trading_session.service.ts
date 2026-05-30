@@ -261,6 +261,8 @@ export class TradingSessionService {
     return { status: 'started' };
   }
 
+  private readonly MAX_CLOSED_TRADES_MEMORY = 1000;
+
   async stop() {
     this.running = false;
     this.paused = false;
@@ -562,6 +564,9 @@ export class TradingSessionService {
           try {
             await this.updateBalance(result.trade);
             this.closedTrades.unshift(result.trade);
+            if (this.closedTrades.length > this.MAX_CLOSED_TRADES_MEMORY) {
+              this.closedTrades.pop();
+            }
             if (this.onTradeUpdate) await this.onTradeUpdate(result.trade, this.getBalance());
 
             // Trigger watchlist update to potentially remove closed trade symbol
@@ -1344,6 +1349,9 @@ export class TradingSessionService {
       try {
         await this.updateBalance(result.trade);
         this.closedTrades.unshift(result.trade);
+        if (this.closedTrades.length > this.MAX_CLOSED_TRADES_MEMORY) {
+          this.closedTrades.pop();
+        }
         if (this.onTradeUpdate) await this.onTradeUpdate(result.trade, this.getBalance());
 
         // Trigger watchlist update

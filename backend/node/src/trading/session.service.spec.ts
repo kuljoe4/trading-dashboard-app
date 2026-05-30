@@ -215,8 +215,10 @@ describe('SessionService Validation', () => {
 
       const mockQueryBuilder = {
         select: jest.fn().mockReturnThis(),
+        addSelect: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
-        getRawOne: jest.fn().mockResolvedValue({ sum: '100' }),
+        andWhere: jest.fn().mockReturnThis(),
+        getRawOne: jest.fn().mockResolvedValue({ sum: '100', count: '1', wins: '1' }),
       };
       mockQueryRunner.manager.createQueryBuilder = jest.fn().mockReturnValue(mockQueryBuilder);
       mockQueryRunner.manager.findOne.mockResolvedValue({ id: 'session-123', paperMode: true });
@@ -226,7 +228,9 @@ describe('SessionService Validation', () => {
       expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
       expect(mockQueryRunner.manager.update).toHaveBeenCalledWith(SessionEntity, 'session-123', {
         balance: 10100,
-        totalPnl: 100
+        totalPnl: 100,
+        tradeCount: 1,
+        winCount: 1
       });
     });
 
@@ -236,8 +240,10 @@ describe('SessionService Validation', () => {
 
       const mockQueryBuilder = {
         select: jest.fn().mockReturnThis(),
+        addSelect: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
-        getRawOne: jest.fn().mockResolvedValue({ sum: '100' }),
+        andWhere: jest.fn().mockReturnThis(),
+        getRawOne: jest.fn().mockResolvedValue({ sum: '100', count: '1', wins: '1' }),
       };
       mockQueryRunner.manager.createQueryBuilder = jest.fn().mockReturnValue(mockQueryBuilder);
       mockQueryRunner.manager.findOne.mockResolvedValue({ id: 'session-123', paperMode: true });
@@ -249,7 +255,9 @@ describe('SessionService Validation', () => {
       // totalPnl should still be 100 because it's recomputed from the database SUM
       expect(mockQueryRunner.manager.update).toHaveBeenCalledWith(SessionEntity, 'session-123', {
         balance: 10100,
-        totalPnl: 100
+        totalPnl: 100,
+        tradeCount: 1,
+        winCount: 1
       });
     });
 
@@ -269,8 +277,10 @@ describe('SessionService Validation', () => {
 
       const mockQueryBuilder = {
         select: jest.fn().mockReturnThis(),
+        addSelect: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
-        getRawOne: jest.fn().mockResolvedValue({ sum: '100' }),
+        andWhere: jest.fn().mockReturnThis(),
+        getRawOne: jest.fn().mockResolvedValue({ sum: '100', count: '1', wins: '1' }),
       };
       mockQueryRunner.manager.createQueryBuilder = jest.fn().mockReturnValue(mockQueryBuilder);
       mockQueryRunner.manager.findOne.mockResolvedValue({ id: 'session-123', paperMode: true });

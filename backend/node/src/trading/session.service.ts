@@ -1,6 +1,6 @@
-import { Injectable, Logger, OnModuleInit, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, LessThan } from 'typeorm';
 import { Session as SessionEntity } from '../models/entities/Session.entity';
 import { TradeEntity, TERMINAL_STATUSES } from '../models/entities/Trade.entity';
 import { Log as LogEntity } from '../models/entities/Log.entity';
@@ -16,7 +16,7 @@ import { AnalyticsService } from '../engine/analytics.service';
 import { updateLogLevels } from '../lib/logger';
 
 @Injectable()
-export class SessionService implements OnModuleInit {
+export class SessionService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SessionService.name);
   
   private sessionRunning = false;
@@ -25,6 +25,7 @@ export class SessionService implements OnModuleInit {
 
   private analyticsCache: { data: any; ts: number } | null = null;
   private readonly CACHE_TTL_MS = 60000; // 1 minute
+  private cleanupInterval: NodeJS.Timeout | null = null;
 
   constructor(
     @InjectRepository(SessionEntity)
@@ -100,6 +101,57 @@ export class SessionService implements OnModuleInit {
     this.tradingSessionService.setTradeUpdateCallback(async (trade, balance) => {
       await this.saveTradeAtomic(trade, balance);
     });
+
+    // Start background cleanup task (every 12 hours)
+    this.runCleanup();
+    this.cleanupInterval = setInterval(() => this.runCleanup(), 12 * 60 * 60 * 1000);
+  }
+
+  onModuleDestroy() {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+  }
+
+  async runCleanup() {
+    this.logger.verbose('Running background maintenance cleanup...');
+    try {
+      const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+      if (!settings) return;
+
+      const now = new Date();
+
+      // 1. Cleanup Logs
+      const logRetentionDate = new Date(now.getTime() - settings.log_retention_days * 24 * 60 * 60 * 1000);
+      const logDeleteResult = await this.logRepository.delete({
+        ts: LessThan(logRetentionDate.toISOString())
+      });
+      if (logDeleteResult.affected && logDeleteResult.affected > 0) {
+        this.logger.log(`Cleaned up ${logDeleteResult.affected} old log entries (Retention: ${settings.log_retention_days} days)`);
+      }
+
+      // 2. Cleanup Balance History
+      const balanceRetentionDate = new Date(now.getTime() - settings.trade_retention_days * 24 * 60 * 60 * 1000);
+      const bhDeleteResult = await this.balanceHistoryRepository.delete({
+        timestamp: LessThan(balanceRetentionDate)
+      });
+      if (bhDeleteResult.affected && bhDeleteResult.affected > 0) {
+        this.logger.log(`Cleaned up ${bhDeleteResult.affected} old balance history snapshots (Retention: ${settings.trade_retention_days} days)`);
+      }
+
+      // 3. Cleanup Closed Trades
+      const tradeDeleteResult = await this.tradeRepository.delete({
+        status: In(TERMINAL_STATUSES as any),
+        exit_ts: LessThan(balanceRetentionDate)
+      });
+      if (tradeDeleteResult.affected && tradeDeleteResult.affected > 0) {
+        this.logger.log(`Cleaned up ${tradeDeleteResult.affected} old closed trades (Retention: ${settings.trade_retention_days} days)`);
+      }
+
+    } catch (error) {
+      this.logger.error(`Maintenance cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private validateTrade(trade: any): boolean {

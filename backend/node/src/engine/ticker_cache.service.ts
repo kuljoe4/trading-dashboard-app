@@ -74,6 +74,17 @@ export class TickerCacheService {
       return cached.data;
     }
 
+    // BOLT: Prevent unbounded growth of the topByVolume cache
+    const cacheKeys = Object.keys(this._topByVolumeCache);
+    if (cacheKeys.length > 50) {
+      const now = Date.now();
+      for (const key of cacheKeys) {
+        if (now - this._topByVolumeCache[key].timestamp > CACHE_TTL_MS) {
+          delete this._topByVolumeCache[key];
+        }
+      }
+    }
+
     const all = Array.from(this.tickers.values());
     this.logger.verbose(`topByVolume requested ${n} symbols. Cache size: ${all.length}. Cache miss - recomputing.`);
 

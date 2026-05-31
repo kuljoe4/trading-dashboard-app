@@ -31,3 +31,7 @@
 ## 2026-05-31 - Semantic Mnemonic Shortcuts
 **Learning:** Numeric shortcuts are efficient but can be harder to remember than mnemonics (C for Cockpit, H for History). Providing both improves recall for different user types.
 **Action:** Expanded global keyboard listeners to include 'C' and 'H' mnemonics and updated sidebar tooltips to communicate these alternative shortcuts, enhancing overall dashboard accessibility.
+
+## 2026-05-31 - Motion-Driven Confirmation Feedback
+**Learning:** Static state changes in confirmation buttons can be missed if the user is focused on the data. Subtle motion (like sliding icons) combined with pulsing color cues provides a stronger affordance that the button is "armed" for a destructive action.
+**Action:** Implemented a Framer Motion transition on the "Terminate Session" button icon to slide out of view during the confirmation phase, heightening the visual impact and reducing accidental double-taps.

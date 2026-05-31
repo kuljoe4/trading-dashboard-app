@@ -115,6 +115,12 @@ async function bootstrap() {
     res.status(200).send({ status: "ok", timestamp: new Date().toISOString() });
   });
 
+  // SENTINEL: Disable 'Server' header to further reduce information disclosure
+  app.getHttpAdapter().getInstance().use((req: Request, res: Response, next: NextFunction) => {
+    res.removeHeader("Server");
+    next();
+  });
+
   await app.init();
   const httpServer = app.getHttpServer();
   const sessionService = app.get(SessionService);

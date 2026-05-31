@@ -47,66 +47,58 @@ export const SystemMetrics = ({ monitoring, rateLimit, wsStatus, gateState, isEc
       )}
     </div>
     
-    {rateLimit && (
+    <SystemMetric
+      icon={Activity}
+      label="Rate"
+      value={rateLimit ? `${rateLimit.used_weight_1m}/${rateLimit.limit}` : '---/---'}
+      colorClass={rateLimit ? (rateLimit.used_weight_1m > rateLimit.limit * 0.8 ? "text-red" : rateLimit.used_weight_1m > rateLimit.limit * 0.5 ? "text-amber" : "text-green") : "text-dim"}
+      compact={compact}
+    />
+
+    <>
       <SystemMetric
-        icon={Activity}
-        label="Rate"
-        value={`${rateLimit.used_weight_1m}/${rateLimit.limit}`}
-        colorClass={rateLimit.used_weight_1m > rateLimit.limit * 0.8 ? "text-red" : rateLimit.used_weight_1m > rateLimit.limit * 0.5 ? "text-amber" : "text-green"}
+        icon={Zap}
+        label="REST API"
+        value={monitoring?.application?.api_requests_total ?? '---'}
+        colorClass="text-accent"
         compact={compact}
       />
-    )}
-
-    {monitoring?.application && (
-      <>
-        <SystemMetric
-          icon={Zap}
-          label="REST API"
-          value={monitoring.application.api_requests_total}
-          colorClass="text-accent"
-          compact={compact}
-        />
-        {!compact && (
-          <>
-            <SystemMetric
-              icon={Activity}
-              label="Hot Loop"
-              value={`${monitoring.application.hot_loop_ms}ms`}
-              colorClass={monitoring.application.hot_loop_ms > 100 ? "text-red" : "text-dim"}
-              compact={compact}
-            />
-            <SystemMetric
-              icon={Activity}
-              label="Main Loop"
-              value={`${monitoring.application.main_loop_ms}ms`}
-              colorClass={monitoring.application.main_loop_ms > 500 ? "text-red" : "text-dim"}
-              compact={compact}
-            />
-          </>
-        )}
-      </>
-    )}
+      {!compact && (
+        <>
+          <SystemMetric
+            icon={Activity}
+            label="Hot Loop"
+            value={monitoring?.application ? `${monitoring.application.hot_loop_ms}ms` : '---ms'}
+            colorClass={monitoring?.application?.hot_loop_ms > 100 ? "text-red" : "text-dim"}
+            compact={compact}
+          />
+          <SystemMetric
+            icon={Activity}
+            label="Main Loop"
+            value={monitoring?.application ? `${monitoring.application.main_loop_ms}ms` : '---ms'}
+            colorClass={monitoring?.application?.main_loop_ms > 500 ? "text-red" : "text-dim"}
+            compact={compact}
+          />
+        </>
+      )}
+    </>
 
     {!compact && (
       <>
-        {monitoring?.system && (
-          <>
-            <SystemMetric
-              icon={Cpu}
-              label="CPU"
-              value={`${monitoring.system.cpu_usage}%`}
-              colorClass={monitoring.system.cpu_usage > 50 ? "text-red" : "text-amber"}
-              compact={compact}
-            />
-            <SystemMetric
-              icon={Clock}
-              label="Lag"
-              value={`${monitoring.system.event_loop_lag}ms`}
-              colorClass={monitoring.system.event_loop_lag > 50 ? "text-red" : "text-green"}
-              compact={compact}
-            />
-          </>
-        )}
+        <SystemMetric
+          icon={Cpu}
+          label="CPU"
+          value={monitoring?.system ? `${monitoring.system.cpu_usage}%` : '---%'}
+          colorClass={monitoring?.system?.cpu_usage > 50 ? "text-red" : "text-amber"}
+          compact={compact}
+        />
+        <SystemMetric
+          icon={Clock}
+          label="Lag"
+          value={monitoring?.system ? `${monitoring.system.event_loop_lag}ms` : '---ms'}
+          colorClass={monitoring?.system?.event_loop_lag > 50 ? "text-red" : "text-green"}
+          compact={compact}
+        />
       </>
     )}
   </div>

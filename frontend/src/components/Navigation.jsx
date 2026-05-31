@@ -14,7 +14,7 @@ export const Sidebar = ({ selected }) => {
     return window.location.hash.startsWith(`#${path}`)
   }
 
-  const triggerScanner = () => window.dispatchEvent(new Event('open-scanner'))
+  const triggerScanner = () => window.dispatchEvent(new Event('toggle-scanner'))
 
   return (
     <div 
@@ -34,14 +34,14 @@ export const Sidebar = ({ selected }) => {
 
       <nav className="flex-1 space-y-2">
         {[
-          { path: '/', label: 'Cockpit', icon: LayoutDashboard },
-          { path: '/history', label: 'History', icon: History },
-          { path: '/settings', label: 'Settings', icon: SettingsIcon },
+          { path: '/', label: 'Cockpit', icon: LayoutDashboard, shortcut: '1' },
+          { path: '/history', label: 'History', icon: History, shortcut: '2' },
+          { path: '/settings', label: 'Settings', icon: SettingsIcon, shortcut: '3' },
         ].map(item => (
-          <Tooltip key={item.path} content={!isExpanded ? item.label : undefined} side="right">
+          <Tooltip key={item.path} content={`${item.label} [${item.shortcut}]`} side="right">
             <button
               onClick={() => window.location.hash = `#${item.path}`}
-              aria-label={item.label}
+              aria-label={`${item.label} [${item.shortcut}]`}
               className={cn(
                 "w-full flex items-center gap-3 py-3 rounded-xl font-bold text-[13px] transition-all",
                 !isExpanded ? "justify-center px-0" : "px-4",
@@ -54,10 +54,10 @@ export const Sidebar = ({ selected }) => {
           </Tooltip>
         ))}
 
-        <Tooltip content={!isExpanded ? "Market Scanner" : undefined} side="right">
+        <Tooltip content="Market Scanner [S]" side="right">
           <button 
             onClick={triggerScanner}
-            aria-label="Market Scanner"
+            aria-label="Market Scanner [S]"
             className={cn(
               "w-full flex items-center gap-3 py-3 rounded-xl font-bold text-[13px] transition-all text-accent hover:bg-accent/10",
               !isExpanded ? "justify-center px-0" : "px-4"

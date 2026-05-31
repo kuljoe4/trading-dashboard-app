@@ -239,7 +239,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     }
 
     return (
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-1.5 scroll-mt-32">
         <div className="flex justify-between items-center">
           <label htmlFor={id} className="text-[10px] text-dim font-bold tracking-widest uppercase">{label}</label>
           {hasError && <span id={`${id}-error`} role="alert" className="text-[9px] text-red font-bold uppercase">{errors[key]}</span>}
@@ -262,12 +262,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
           <input
             id={id}
             type={type}
+            inputMode={type === 'number' ? 'decimal' : undefined}
             value={val ?? ''}
             aria-invalid={hasError}
             aria-describedby={hasError ? `${id}-error` : undefined}
             min={attrs.min}
             max={attrs.max}
             step={attrs.step}
+            onFocus={(e) => {
+              // Ensure the input is visible when focused on mobile
+              setTimeout(() => {
+                e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }, 300);
+            }}
+            onBlur={() => {
+              // Helps iOS/some android browsers to snap back or at least trigger a layout recalc
+              window.scrollTo(window.scrollX, window.scrollY);
+            }}
             onChange={(e) => onChange(type === 'number' ? Number(e.target.value) : e.target.value)}
             className={cn(
               "bg-surface border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent transition-colors",
@@ -310,20 +321,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
   const [editingSingleSymbolIndex, setEditingSingleSymbolIndex] = useState(null)
 
   return (
-    <div className="flex flex-col h-full bg-surface text-text overflow-hidden">
-      <div className="p-5 border-b border-border flex justify-between items-center shrink-0">
-        <div>
-          <div className="text-lg font-bold">New Session</div>
-          <div className="text-[11px] text-dim font-medium mt-0.5">Configure scanner, exits, and risk before launch</div>
+    <div className="flex flex-col h-full bg-surface text-text overflow-hidden relative">
+      <div className="sticky top-0 z-30 bg-surface/80 backdrop-blur-md">
+        <div className="p-5 border-b border-border flex justify-between items-center shrink-0">
+          <div>
+            <div className="text-lg font-bold">New Session</div>
+            <div className="text-[11px] text-dim font-medium mt-0.5">Configure scanner, exits, and risk before launch</div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full transition-colors" aria-label="Close configuration">
+            <X size={18} className="text-dim" />
+          </button>
         </div>
-        <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full transition-colors" aria-label="Close configuration">
-          <X size={18} className="text-dim" />
-        </button>
-      </div>
 
-      <div className="flex gap-2 p-4 overflow-x-auto no-scrollbar shrink-0 border-b border-border">
-        {[
-          ['scan', 'Global Scan'],
+        <div className="flex gap-2 p-4 overflow-x-auto no-scrollbar shrink-0 border-b border-border touch-pan-x" data-vaul-no-drag>
+          {[
+            ['scan', 'Global Scan'],
           ['monitors', 'Single Symbols'],
           ['signals', 'Signals'],
           ['exit', 'Exit'],
@@ -332,14 +344,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
           ['mode', 'Mode'],
           ['performance', 'Performance'],
           ['presets', 'Presets'],
-        ].map(([id, label]) => (
-          <Chip key={id} active={section === id} onClick={() => setSection(id)}>{label}</Chip>
-        ))}
+          ].map(([id, label]) => (
+            <Chip key={id} active={section === id} onClick={() => setSection(id)}>{label}</Chip>
+          ))}
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-5">
+      <div className="flex-1 overflow-y-auto p-5 pb-32 overscroll-contain" data-vaul-no-drag>
         {section === 'scan' && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-in fade-in duration-300">
             <div className="grid grid-cols-1">
               {field('Strategy label', 'strategy_label', 'text', null, { })}
             </div>
@@ -398,6 +411,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                   <input
                     type="text"
                     placeholder="Search symbol (e.g. BTCUSDT)"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="characters"
+                    spellCheck="false"
                     value={symbolSearch}
                     onChange={(e) => setSymbolSearch(e.target.value.toUpperCase())}
                     className="w-full bg-surface border border-border rounded-md pl-10 pr-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent"
@@ -417,27 +434,28 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                     }}
                   />
                 </div>
-                <Btn
-                  variant="primary"
-                  onClick={() => {
-                    if (!symbolSearch) return
-                    const existing = (cfg.single_symbol_configs || []).find(s => s.symbol === symbolSearch)
-                    if (!existing) {
-                      setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), {
-                        symbol: symbolSearch,
-                        enabled: true,
-                        follow_schedule: true,
-                        use_custom_config: false
-                      }])
-                    }
-                    setSymbolSearch('')
-                  }}
-                  aria-label="Add symbol monitor"
-                  title="Add symbol monitor"
-                  className="px-4"
-                >
-                  <Plus size={18} />
-                </Btn>
+                <Tooltip content="Add symbol monitor">
+                  <Btn
+                    variant="primary"
+                    onClick={() => {
+                      if (!symbolSearch) return
+                      const existing = (cfg.single_symbol_configs || []).find(s => s.symbol === symbolSearch)
+                      if (!existing) {
+                        setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), {
+                          symbol: symbolSearch,
+                          enabled: true,
+                          follow_schedule: true,
+                          use_custom_config: false
+                        }])
+                      }
+                      setSymbolSearch('')
+                    }}
+                    aria-label="Add symbol monitor"
+                    className="px-4"
+                  >
+                    <Plus size={18} />
+                  </Btn>
+                </Tooltip>
               </div>
             </div>
 
@@ -478,23 +496,25 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                           </div>
                         </div>
                         <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => setEditingSingleSymbolIndex(editingSingleSymbolIndex === i ? null : i)}
-                            aria-label={editingSingleSymbolIndex === i ? "Close symbol settings" : "Open symbol settings"}
-                            aria-expanded={editingSingleSymbolIndex === i}
-                            title="Symbol Settings"
-                            className={cn("p-2 rounded-lg transition-colors", editingSingleSymbolIndex === i ? "bg-accent/20 text-accent" : "text-dim hover:bg-white/5 hover:text-text")}
-                          >
-                            <Settings2 size={16} />
-                          </button>
-                          <button
-                            onClick={() => setField('single_symbol_configs', cfg.single_symbol_configs.filter((_, idx) => idx !== i))}
-                            aria-label={`Delete monitor for ${sc.symbol}`}
-                            title="Delete Monitor"
-                            className="p-2 text-dim hover:text-red transition-colors"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                          <Tooltip content="Symbol Settings">
+                            <button
+                              onClick={() => setEditingSingleSymbolIndex(editingSingleSymbolIndex === i ? null : i)}
+                              aria-label={editingSingleSymbolIndex === i ? "Close symbol settings" : "Open symbol settings"}
+                              aria-expanded={editingSingleSymbolIndex === i}
+                              className={cn("p-2 rounded-lg transition-colors", editingSingleSymbolIndex === i ? "bg-accent/20 text-accent" : "text-dim hover:bg-white/5 hover:text-text")}
+                            >
+                              <Settings2 size={16} />
+                            </button>
+                          </Tooltip>
+                          <Tooltip content="Delete Monitor">
+                            <button
+                              onClick={() => setField('single_symbol_configs', cfg.single_symbol_configs.filter((_, idx) => idx !== i))}
+                              aria-label={`Delete monitor for ${sc.symbol}`}
+                              className="p-2 text-dim hover:text-red transition-colors"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </Tooltip>
                         </div>
                       </div>
 
@@ -851,14 +871,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                              setField('trading_windows', next);
                           }} className="bg-surface border border-border rounded px-2 py-1 text-xs font-mono" />
                        </div>
-                       <button
-                         onClick={() => setField('trading_windows', cfg.trading_windows.filter((_, idx) => idx !== i))}
-                         aria-label={`Delete trading window ${w.start} to ${w.end}`}
-                         title="Delete Window"
-                         className="text-red/60 hover:text-red p-2"
-                        >
-                          <Trash2 size={16} />
-                       </button>
+                       <Tooltip content="Delete Window">
+                         <button
+                           onClick={() => setField('trading_windows', cfg.trading_windows.filter((_, idx) => idx !== i))}
+                           aria-label={`Delete trading window ${w.start} to ${w.end}`}
+                           className="text-red/60 hover:text-red p-2"
+                          >
+                            <Trash2 size={16} />
+                         </button>
+                       </Tooltip>
                     </div>
                   ))}
                </div>
@@ -902,25 +923,27 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
               <div className="flex gap-2">
                 <input
                   type="text"
+                  autoComplete="off"
                   placeholder={presetName || generatedPresetName}
                   value={presetName}
                   onChange={(e) => setPresetName(e.target.value)}
                   className="flex-1 bg-surface border border-border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent"
                 />
-                <button
-                  onClick={savePreset}
-                  disabled={!presetName && !generatedPresetName}
-                  aria-label="Save current configuration as preset"
-                  title="Save Preset"
-                  className={cn(
-                    "px-4 py-2 rounded-md disabled:opacity-50 transition-all duration-300",
-                    saveSuccess
-                      ? "bg-green/20 border border-green/40 text-green"
-                      : "bg-accent/10 border border-accent/20 text-accent hover:bg-accent/20"
-                  )}
-                >
-                  {saveSuccess ? <CheckCircle2 size={18} className="animate-in zoom-in duration-300" /> : <Save size={18} />}
-                </button>
+                <Tooltip content="Save Preset">
+                  <button
+                    onClick={savePreset}
+                    disabled={!presetName && !generatedPresetName}
+                    aria-label="Save current configuration as preset"
+                    className={cn(
+                      "px-4 py-2 rounded-md disabled:opacity-50 transition-all duration-300",
+                      saveSuccess
+                        ? "bg-green/20 border border-green/40 text-green"
+                        : "bg-accent/10 border border-accent/20 text-accent hover:bg-accent/20"
+                    )}
+                  >
+                    {saveSuccess ? <CheckCircle2 size={18} className="animate-in zoom-in duration-300" /> : <Save size={18} />}
+                  </button>
+                </Tooltip>
               </div>
             </div>
 
@@ -964,14 +987,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                         >
                           {selectedForBatch ? 'Queued' : 'Run With'}
                         </button>
-                        <button
-                          onClick={(e) => deletePreset(e, p.name)}
-                          aria-label={`Delete preset ${p.name}`}
-                          title="Delete Preset"
-                          className="p-2 text-dim hover:text-red transition-colors opacity-0 group-hover:opacity-100"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        <Tooltip content="Delete Preset">
+                          <button
+                            onClick={(e) => deletePreset(e, p.name)}
+                            aria-label={`Delete preset ${p.name}`}
+                            className="p-2 text-dim hover:text-red transition-colors opacity-0 group-hover:opacity-100"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </Tooltip>
                       </div>
                     </div>
                   )})}

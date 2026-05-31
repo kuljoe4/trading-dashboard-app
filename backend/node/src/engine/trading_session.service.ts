@@ -124,6 +124,17 @@ export class TradingSessionService {
     return this.running && this.listenerCount === 0;
   }
 
+  isGated(): boolean {
+    return this.paused ||
+      this.gateState === 'max_trades' ||
+      this.gateState === 'sl_guard' ||
+      this.gateState === 'max_trades_period' ||
+      this.gateState === 'sleeping' ||
+      this.gateState === 'risk_pct' ||
+      this.gateState === 'tod_risk' ||
+      this.gateState === 'risk';
+  }
+
   setDashboardCount(count: number) {
     this.dashboardCount = count;
   }
@@ -135,8 +146,10 @@ export class TradingSessionService {
     // BOLT ECO-MODE: Dynamically throttle loops if no one is watching
     if (this.running && this.config) {
       if (prevCount > 0 && count === 0) {
-        this.logger.log('Switching to ECO-MODE: No active listeners. Throttling main loop to 15s.');
-        this.restartLoops(this.config.hot_loop_interval_ms || 2000, 15000);
+        const ecoMainMs = Math.max(15000, this.config.main_loop_interval_ms || 5000);
+        const ecoHotMs = Math.max(5000, this.config.hot_loop_interval_ms || 2000);
+        this.logger.log(`Switching to ECO-MODE: No active listeners. Throttling loops (Main: ${ecoMainMs}ms, Hot: ${ecoHotMs}ms).`);
+        this.restartLoops(ecoHotMs, ecoMainMs);
       } else if (prevCount === 0 && count > 0) {
         this.logger.log('Exiting ECO-MODE: Listener detected. Restoring performance loops.');
         this.restartLoops(this.config.hot_loop_interval_ms || 2000, this.config.main_loop_interval_ms || 5000);
@@ -299,7 +312,13 @@ export class TradingSessionService {
         trade.status = 'CLOSED';
         trade.exit_ts = new Date();
         trade.exit_reason = 'SESSION_TERMINATED';
+        trade.exit_price = exitPrice;
+        // BOLT: Manually calculate PnL for fallback closure to ensure balance integrity
+        const pnlPoints = trade.direction === 'LONG' ? exitPrice - trade.entry_price : trade.entry_price - exitPrice;
+        trade.pnl = pnlPoints * trade.qty;
+
         this.closedTrades.push(trade);
+        await this.updateBalance(trade);
         if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
         this.positionTracker.removeTrade(trade.symbol);
       }
@@ -348,8 +367,11 @@ export class TradingSessionService {
   private async mainLoop() {
     if (!this.running || !this.config) return;
 
-    // Evaluate risk gates before scanning
     const activeTrades = this.positionTracker.activeList();
+    const prevGateState = this.gateState;
+    const isInsideWindow = this.isInsideTradingWindow();
+
+    // 1. Evaluate Risk Gates
     const riskResult = this.riskEngine.canEnter(
       activeTrades,
       this.closedTrades,
@@ -359,24 +381,12 @@ export class TradingSessionService {
       this.positionTracker.totalRisk(),
     );
 
-    const prevGateState = this.gateState;
-    const isInsideWindow = this.isInsideTradingWindow();
-
-    // BOLT ECO-MODE: Skip scanner and entries if session is idle and unwatched
-    if (this.listenerCount === 0 && activeTrades.length === 0 && isInsideWindow) {
-      // Still allow checkExits in hotLoop to handle SL/TP if they were to exist (handled above)
-      // but skip the expensive scanning and entry logic
-      this.monitoringService.recordMainLoop(0);
-      return;
-    }
-
-    // Check if any single symbol monitors ignore the window
+    // 2. Determine Gate State
     const hasUnscheduledMonitors = this.config.single_symbol_configs?.some(sc => sc.enabled && sc.follow_schedule === false);
 
     if (!isInsideWindow && !hasUnscheduledMonitors) {
       this.gateState = 'sleeping';
-      const activeTradesCount = this.positionTracker.activeList().length;
-      if (activeTradesCount === 0 && !this.sleepMode) {
+      if (activeTrades.length === 0 && !this.sleepMode) {
         this.enterSleepMode();
       }
     } else if (this.sleepMode && (isInsideWindow || hasUnscheduledMonitors)) {
@@ -391,21 +401,22 @@ export class TradingSessionService {
       this.gateState = null;
     }
 
+    // 3. Broadcast and handle gate changes
     if (this.gateState !== prevGateState) {
       this.broadcast('gate', {
         gateState: this.gateState,
         reason: riskResult.reason,
         scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period'
       });
+
+      // BOLT: When gating status changes, update the market feed watchlist to potentially reduce resources
+      this.marketFeed.updateWatchlist(this.config).catch(() => {});
     }
 
-    const isGated = this.paused || this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period' || this.gateState === 'sleeping';
+    // 4. Resource Throttling & Early Returns
+    const isGated = this.isGated();
     
-    // BOLT SCANNER HIBERNATION: If no one is looking at the dashboard, we can skip the scanner.
-    // This saves massive CPU cycles on technical analysis and volume sorting.
-    const scannerHibernating = this.dashboardCount === 0 && this.listenerCount > 0;
-
-    if (isGated || scannerHibernating) {
+    if (isGated) {
       // RESOURCE REDUCTION: When gated or paused, we completely skip the momentum scan and entry processing.
       // If gated due to 'sleeping' (outside windows), the market feed and scanner are fully stopped.
       // This saves CPU cycles, memory allocations from new candle data, and Binance API weight.
@@ -459,8 +470,8 @@ export class TradingSessionService {
         opportunities: opportunitiesBySignature.get(this.scanSignature(config)) || [],
       }));
 
-      // BOLT OPTIMIZATION: Only update and broadcast scanner results for UI if there are active listeners
-      if (this.listenerCount > 0) {
+      // BOLT OPTIMIZATION: Only update and broadcast scanner results for UI if there are active dashboard listeners
+      if (this.dashboardCount > 0) {
         const baseConfig = strategyConfigs[0];
         const opportunitiesWithSignals = primaryOpportunities.slice(0, 10).map((opp) => {
           const signalResult = this.signalEngine.checkEntry(
@@ -1275,10 +1286,15 @@ export class TradingSessionService {
       prevConfig.hot_loop_interval_ms !== config.hot_loop_interval_ms ||
       prevConfig.main_loop_interval_ms !== config.main_loop_interval_ms
     )) {
-      const mainMs = this.listenerCount === 0 ? 15000 : (config.main_loop_interval_ms || 5000);
-      const hotMs = config.hot_loop_interval_ms || 2000;
+      const isEco = this.listenerCount === 0;
+      const mainMs = isEco
+        ? Math.max(15000, config.main_loop_interval_ms || 5000)
+        : (config.main_loop_interval_ms || 5000);
+      const hotMs = isEco
+        ? Math.max(5000, config.hot_loop_interval_ms || 2000)
+        : (config.hot_loop_interval_ms || 2000);
 
-      this.logger.log(`Restarting loops with new intervals: hot=${hotMs}ms, main=${mainMs}ms ${this.listenerCount === 0 ? '(ECO)' : ''}`);
+      this.logger.log(`Restarting loops with new intervals: hot=${hotMs}ms, main=${mainMs}ms ${isEco ? '(ECO)' : ''}`);
       this.restartLoops(hotMs, mainMs);
     }
 

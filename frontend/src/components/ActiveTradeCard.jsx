@@ -67,7 +67,7 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose }) => {
     : null
   const slDist = trade.entry_price && trade.sl_price
     ? Number((Math.abs(trade.entry_price - trade.sl_price) / trade.entry_price) * 100).toFixed(2)
-    : null
+    : trade.sl_dist != null ? trade.sl_dist : null
 
   return (
     <div className="bg-surface border border-border rounded-2xl p-5 flex flex-col gap-4 w-full flex-1 shadow-sm">
@@ -86,28 +86,28 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose }) => {
             )}
           </div>
         </div>
-        <div className={`text-lg font-bold ${trade.pnl != null ? pnlColor(trade.pnl) : 'text-dim'}`}>
-          {trade.pnl != null ? fmtUSD(trade.pnl) : '---'}
+        <div className={`text-lg font-bold ${trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlColor(trade.pnl) : 'text-dim'}`}>
+          {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-dim">
         <div className="flex flex-col gap-1">
           <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">Entry</span>
-          <span>{trade.entry_price != null ? price(trade.entry_price) : '---'}</span>
+          <span>{trade.entry_price != null ? price(trade.entry_price) : 'None'}</span>
         </div>
         <div className="flex flex-col gap-1">
           <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">Current</span>
-          <span>{trade.current_price != null ? price(trade.current_price) : '---'}</span>
+          <span>{trade.current_price != null ? price(trade.current_price) : 'None'}</span>
         </div>
         <div className="flex flex-col gap-1">
           <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">% Change</span>
           <span className={pctChange != null ? (pctChange >= 0 ? 'text-green font-bold' : 'text-red font-bold') : ''}>
-            {pctChange != null ? `${pctChange >= 0 ? '+' : ''}${pctChange}%` : '---'}
+            {pctChange != null ? `${pctChange >= 0 ? '+' : ''}${pctChange}%` : '0.00%'}
           </span>
         </div>
         <div className="flex flex-col gap-1">
           <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">SL Dist</span>
-          <span className="text-amber font-bold">{slDist != null ? `${slDist}%` : '---'}</span>
+          <span className="text-amber font-bold">{slDist != null ? `${slDist}%` : '0.00%'}</span>
         </div>
         <div className="flex flex-col gap-1">
           <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">Opened</span>

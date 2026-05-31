@@ -82,3 +82,7 @@
 ## 2026-05-28 - [Optimization] Zero-Allocation Candle Processing
 **Learning:** Even with small arrays (N=500), frequent 'slice()' calls in a multi-strategy scanner loop (hundreds of times per second) create significant GC pressure. Accessing the raw underlying array and using relative indexing (e.g., 'length - 1 - lookback') provides a zero-allocation path for technical indicators.
 **Action:** Expose raw data arrays for hot-path services and refactor math helpers to accept start/end indices instead of relying on array slicing for windowing.
+
+## 2026-05-31 - [Optimization] Zero-Allocation Kline Ingestion
+**Learning:** High-frequency kline updates (multiple times per second per symbol) can create thousands of short-lived 'Candle' objects and intermediate arrays (via '[].every()') if the ingestion path isn't optimized. This leads to aggressive GC churn.
+**Action:** Parse kline data into local variables first, use direct numeric checks for validity, and implement in-place property mutation for existing candles to achieve near-zero allocation for the dominant 'update' path. Use static shared constants for empty return values to avoid redundant '[]' allocations.

@@ -42,11 +42,25 @@ const App = () => {
     }
   }, [debugToolsEnabled]);
 
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+
+      if (e.key === '1') window.location.hash = '#/';
+      if (e.key === '2') window.location.hash = '#/history';
+      if (e.key === '3') window.location.hash = '#/settings';
+      if (e.key.toLowerCase() === 's') window.dispatchEvent(new Event('toggle-scanner'));
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const [view, setView] = useState('cockpit');
 
   useEffect(() => {
     const controller = new AbortController();
-    
+
     async function checkStatus() {
       try {
         const res = await sessionAPI.status({ signal: controller.signal });
@@ -58,9 +72,11 @@ const App = () => {
         }
         updateStats({
           balance: res.data.balance ?? currentState.balance,
+          totalPnl: res.data.totalPnl ?? currentState.totalPnl,
           totalRiskPct: res.data.totalRiskPct ?? currentState.totalRiskPct,
           totalSlUsed: res.data.totalSlUsed ?? 0,
           activeTrades: res.data.activeTrades || [],
+          variantStats: res.data.variant_stats || {},
           scannerResults: res.data.scannerResults || [],
           activeWindows: res.data.activeWindows || [],
           tradeHistory: res.data.history || [],

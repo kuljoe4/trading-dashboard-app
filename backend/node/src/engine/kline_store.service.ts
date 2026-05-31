@@ -23,6 +23,8 @@ export class KlineStoreService {
   getMaxCandles(): number {
     return this.MAX_CANDLES;
   }
+  private readonly MAX_CANDLES = 500;
+  private static readonly EMPTY_ARRAY: Candle[] = [];
 
   upsertCandle(symbol: string, interval: string, kline: any) {
     const key = `${symbol}_${interval}`;
@@ -32,24 +34,24 @@ export class KlineStoreService {
       this.klines.set(key, existing);
     }
 
-    // Parse kline data from Binance format
-    // BOLT: Use open time (t) instead of close time (T) for more reliable interval indexing
-    const candle: Candle = {
-      time: parseInt(kline.t || kline[0] || Date.now(), 10),
-      open: parseFloat(kline.o || kline[1] || 0),
-      high: parseFloat(kline.h || kline[2] || 0),
-      low: parseFloat(kline.l || kline[3] || 0),
-      close: parseFloat(kline.c || kline[4] || 0),
-      volume: parseFloat(kline.q || kline[7] || 0), // Standardize to Quote Volume (USDT)
-    };
+    // BOLT OPTIMIZATION: Parse kline data into local variables first to avoid premature object allocation
+    // Use open time (t) instead of close time (T) for more reliable interval indexing
+    const time = parseInt(kline.t || kline[0] || Date.now(), 10);
+    const open = parseFloat(kline.o || kline[1] || 0);
+    const high = parseFloat(kline.h || kline[2] || 0);
+    const low = parseFloat(kline.l || kline[3] || 0);
+    const close = parseFloat(kline.c || kline[4] || 0);
+    const volume = parseFloat(kline.q || kline[7] || 0); // Standardize to Quote Volume (USDT)
 
-    const isValidCandle = [candle.open, candle.high, candle.low, candle.close].every(
-      (value) => Number.isFinite(value) && value > 0,
-    );
+    // BOLT OPTIMIZATION: Replace [].every() with direct numeric checks to avoid array allocation and functional calls
+    const isValidCandle = Number.isFinite(open) && open > 0 &&
+                          Number.isFinite(high) && high > 0 &&
+                          Number.isFinite(low) && low > 0 &&
+                          Number.isFinite(close) && close > 0;
 
     if (!isValidCandle) {
       this.logger.verbose(
-        `Ignoring invalid candle for ${symbol}/${interval} at ${candle.time}: open=${candle.open}, high=${candle.high}, low=${candle.low}, close=${candle.close}`,
+        `Ignoring invalid candle for ${symbol}/${interval} at ${time}: open=${open}, high=${high}, low=${low}, close=${close}`,
       );
       return;
     }
@@ -60,31 +62,40 @@ export class KlineStoreService {
     if (existing.length > 0) {
       const lastCandle = existing[lastIdx];
       
-      if (lastCandle.time === candle.time) {
-        // Update current candle
-        existing[lastIdx] = candle;
+      if (lastCandle.time === time) {
+        // BOLT OPTIMIZATION: Mutate existing object in-place to avoid new allocations for every market tick
+        lastCandle.open = open;
+        lastCandle.high = high;
+        lastCandle.low = low;
+        lastCandle.close = close;
+        lastCandle.volume = volume;
         return;
       } 
       
-      if (candle.time > lastCandle.time) {
-        // New candle arriving
-        existing.push(candle);
+      if (time > lastCandle.time) {
+        // New candle arriving - allocate only once per interval
+        existing.push({ time, open, high, low, close, volume });
         if (existing.length > this.MAX_CANDLES) {
           existing.shift(); // O(1) removal from start (for small N like 500)
         }
         return;
       }
     } else {
-      existing.push(candle);
+      existing.push({ time, open, high, low, close, volume });
       return;
     }
 
     // Fallback for out-of-order candles (rare in real-time)
-    const idx = existing.findIndex(c => c.time === candle.time);
+    const idx = existing.findIndex(c => c.time === time);
     if (idx !== -1) {
-      existing[idx] = candle;
+      const c = existing[idx];
+      c.open = open;
+      c.high = high;
+      c.low = low;
+      c.close = close;
+      c.volume = volume;
     } else {
-      existing.push(candle);
+      existing.push({ time, open, high, low, close, volume });
       existing.sort((a, b) => a.time - b.time);
       if (existing.length > this.MAX_CANDLES) {
         existing.shift();
@@ -94,7 +105,8 @@ export class KlineStoreService {
 
   getRecentCandles(symbol: string, interval: string, count: number): Candle[] {
     const key = `${symbol}_${interval}`;
-    const candles = this.klines.get(key) || [];
+    const candles = this.klines.get(key);
+    if (!candles) return KlineStoreService.EMPTY_ARRAY;
     return candles.slice(-count);
   }
 
@@ -104,7 +116,7 @@ export class KlineStoreService {
    */
   getRawCandles(symbol: string, interval: string): Candle[] {
     const key = `${symbol}_${interval}`;
-    return this.klines.get(key) || [];
+    return this.klines.get(key) || KlineStoreService.EMPTY_ARRAY;
   }
 
   /**

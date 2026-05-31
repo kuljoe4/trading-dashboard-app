@@ -73,13 +73,20 @@ export class SessionService implements OnModuleInit {
           const session = await queryRunner.manager.findOne(SessionEntity, {
             where: { id: sessionId },
             lock: { mode: 'pessimistic_write' },
-            select: ['id', 'tradingMode', 'paperMode']
+            select: ['id', 'tradingMode', 'paperMode', 'config']
           });
 
           if (session) {
-            await queryRunner.manager.update(SessionEntity, sessionId, { balance });
-
             const mode = session.tradingMode || (session.paperMode ? 'paper' : 'live');
+            const startingBalance = mode === 'paper'
+              ? (session.config?.paper_starting_balance || 10000)
+              : (session.config?.live_starting_balance || 0);
+
+            await queryRunner.manager.update(SessionEntity, sessionId, {
+              balance,
+              totalPnl: balance - startingBalance
+            });
+
             const updateData: any = {};
             if (mode === 'paper') updateData.paper_balance = balance;
             else if (mode === 'testnet') updateData.testnet_balance = balance;
@@ -132,7 +139,7 @@ export class SessionService implements OnModuleInit {
       const session = await queryRunner.manager.findOne(SessionEntity, {
         where: { id: sessionId },
         lock: { mode: 'pessimistic_write' },
-        select: ['id', 'tradingMode', 'paperMode']
+        select: ['id', 'tradingMode', 'paperMode', 'config']
       });
 
       if (!session) {
@@ -140,8 +147,15 @@ export class SessionService implements OnModuleInit {
       }
 
       // 1. Save Trade record
+      // BOLT: Ensure OPEN trades have 0 PnL in DB to avoid corrupting realized totalPnl sum
+      const persistenceTrade = { ...trade };
+      if (trade.status === 'OPEN') {
+        persistenceTrade.pnl = 0;
+        persistenceTrade.pnl_pct = 0;
+      }
+
       const tradeEntity = this.tradeRepository.create({
-        ...trade,
+        ...persistenceTrade,
         exit_signal_type: trade.exit_signal_type,
         exit_signal_reason: trade.exit_signal_reason,
         sessionId,
@@ -149,16 +163,17 @@ export class SessionService implements OnModuleInit {
       await queryRunner.manager.save(TradeEntity, tradeEntity);
 
       // 2. Update Session PnL and Balance
-      // BOLT: Recomputing totalPnl from sum of trades ensures idempotency and prevents double-counting
-      const { sum } = await queryRunner.manager
-        .createQueryBuilder(TradeEntity, 'trade')
-        .select('SUM(trade.pnl)', 'sum')
-        .where('trade.sessionId = :sessionId', { sessionId })
-        .getRawOne();
+      // BOLT: Use balance-based PnL to account for fees/slippage, ensuring consistency with Engine UI
+      const mode = session.tradingMode || (session.paperMode ? 'paper' : 'live');
+      const startingBalance = mode === 'paper'
+        ? (session.config?.paper_starting_balance || 10000)
+        : (session.config?.live_starting_balance || 0);
+
+      const realizedPnl = balance - startingBalance;
 
       await queryRunner.manager.update(SessionEntity, sessionId, {
         balance,
-        totalPnl: parseFloat(sum || '0')
+        totalPnl: realizedPnl
       });
 
       // 3. Update Global Settings and record History for all modes
@@ -562,7 +577,7 @@ export class SessionService implements OnModuleInit {
       paperMode: session.paperMode,
       tradingMode: session.tradingMode,
       balance: engineStatus.running ? (session.paperMode ? engineStatus.balance_paper : engineStatus.balance_live) : session.balance,
-      totalPnl: session.totalPnl,
+      totalPnl: engineStatus.running ? engineStatus.total_pnl : session.totalPnl,
       logLines: logs,
       activeTrades: engineStatus.activeTrades?.length ? engineStatus.activeTrades : activeTrades,
       scannerResults: engineStatus.scannerResults,

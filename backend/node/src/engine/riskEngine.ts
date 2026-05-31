@@ -39,33 +39,32 @@ export class RiskEngineService {
       const now = Date.now();
       const periodStartMs = now - periodMin * 60 * 1000;
       let tradesInPeriod = 0;
+      let oldestTradeInPeriodTs = now;
 
       // BOLT OPTIMIZATION: Manual loops to avoid array spread and multiple filters
       for (const t of activeTrades) {
-        if (t.entry_ts && new Date(t.entry_ts).getTime() >= periodStartMs) {
+        const entryTs = t.entry_ts ? new Date(t.entry_ts).getTime() : 0;
+        if (entryTs >= periodStartMs) {
           tradesInPeriod++;
+          if (entryTs < oldestTradeInPeriodTs) oldestTradeInPeriodTs = entryTs;
         }
-      }
-
-      // If we already reached the limit, exit early
-      if (tradesInPeriod >= maxTradesPeriod) {
-        return {
-          canEnter: false,
-          reason: `Max trades per period (${maxTradesPeriod} per ${periodMin}m) reached`
-        };
       }
 
       for (const t of closedTrades) {
-        if (t.entry_ts && new Date(t.entry_ts).getTime() >= periodStartMs) {
+        const entryTs = t.entry_ts ? new Date(t.entry_ts).getTime() : 0;
+        if (entryTs >= periodStartMs) {
           tradesInPeriod++;
-          if (tradesInPeriod >= maxTradesPeriod) break;
+          if (entryTs < oldestTradeInPeriodTs) oldestTradeInPeriodTs = entryTs;
         }
       }
 
       if (tradesInPeriod >= maxTradesPeriod) {
+        const nextSlotMs = oldestTradeInPeriodTs + (periodMin * 60 * 1000) - now;
+        const nextSlotMin = Math.ceil(nextSlotMs / (60 * 1000));
+
         return {
           canEnter: false,
-          reason: `Max trades per period (${maxTradesPeriod} per ${periodMin}m) reached`
+          reason: `Max trades per period reached (${maxTradesPeriod}/${periodMin}m). Next slot in ~${nextSlotMin}m.`
         };
       }
     }

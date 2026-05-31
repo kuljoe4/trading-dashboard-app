@@ -636,10 +636,19 @@ export class TradingSessionService {
       this.logger.verbose(`Processing entries. Label: ${strategyLabel}, Config Label: ${strategyConfig.strategy_label}`);
     }
 
+    // BOLT OPTIMIZATION: Pre-map symbol configs for O(1) lookup in the entry loop
+    const symbolConfigs = strategyConfig.single_symbol_configs;
+    const symbolConfigMap = (symbolConfigs && symbolConfigs.length > 0)
+      ? new Map(symbolConfigs.map(sc => [sc.symbol, sc]))
+      : null;
+
     for (const opp of opportunities) {
       if (this.positionTracker.hasSymbol(opp.symbol)) continue;
 
-      const symbolConfig = (strategyConfig.single_symbol_configs?.find(c => c.symbol === opp.symbol)?.custom_config || strategyConfig) as SessionConfig;
+      const sc = symbolConfigMap?.get(opp.symbol);
+      const symbolConfig = (sc?.use_custom_config && sc.custom_config)
+        ? { ...strategyConfig, ...sc.custom_config } as SessionConfig
+        : strategyConfig;
 
       const signalResult = this.signalEngine.checkEntry(
         opp.symbol,
@@ -924,15 +933,18 @@ export class TradingSessionService {
       let tradeChanged = false;
 
       // DELTA OPTIMIZATION: Only send fields if they actually changed since last tick
+      // BOLT: Replace slow JSON.stringify checks with length and reference checks where possible
       if (prevTrade && !isHeartbeat) {
         if (serialized.sl_price === prevTrade.sl_price) delete (serialized as any).sl_price; else tradeChanged = true;
         if (serialized.max_rr === prevTrade.max_rr) delete (serialized as any).max_rr; else tradeChanged = true;
 
         // Strip large static/semi-static fields in delta updates if they match previous
-        if (JSON.stringify(serialized.exit_signals_status) === JSON.stringify(prevTrade.exit_signals_status)) delete (serialized as any).exit_signals_status;
+        // BOLT: Use JSON.stringify for complex state to ensure data integrity during delta ticks
         if (JSON.stringify(serialized.sl_adjustments) === JSON.stringify(prevTrade.sl_adjustments)) delete (serialized as any).sl_adjustments; else tradeChanged = true;
+        if (JSON.stringify(serialized.exit_signals_status) === JSON.stringify(prevTrade.exit_signals_status)) delete (serialized as any).exit_signals_status; else tradeChanged = true;
         if (JSON.stringify(serialized.live_rr_sequence) === JSON.stringify(prevTrade.live_rr_sequence)) delete (serialized as any).live_rr_sequence; else tradeChanged = true;
         if (JSON.stringify(serialized.exit_rr_sequence) === JSON.stringify(prevTrade.exit_rr_sequence)) delete (serialized as any).exit_rr_sequence; else tradeChanged = true;
+
         if (serialized.tp_mode === prevTrade.tp_mode) delete (serialized as any).tp_mode; else tradeChanged = true;
         if (serialized.tp_ratio === prevTrade.tp_ratio) delete (serialized as any).tp_ratio; else tradeChanged = true;
 

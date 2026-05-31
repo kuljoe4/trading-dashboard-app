@@ -287,7 +287,7 @@ export function DashboardView() {
   const {
     sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
     totalSlUsed, activeTrades, config, setSessionActive,
-    updateConfig, gateState,
+    updateConfig, gateState, gateReason,
     scannerPaused, sessionList, fetchSessions, wsStatus,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount
   } = useTradingStore(state => ({
@@ -313,7 +313,9 @@ export function DashboardView() {
     variantStats: state.variantStats,
     isThrottled: state.isThrottled,
     setThrottled: state.setThrottled,
-    isEcoMode: state.isEcoMode, entryCount: state.entryCount, hitCount: state.hitCount
+    isEcoMode: state.isEcoMode,
+    entryCount: state.entryCount,
+    hitCount: state.hitCount
   }), shallow)
 
   const safeVariantStats = variantStats || {}

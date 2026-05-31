@@ -164,4 +164,12 @@ export class KlineStoreService {
       counts,
     };
   }
+
+  /**
+   * Clear all stored klines to free up memory (Deep Sleep)
+   */
+  clear() {
+    this.klines.clear();
+    this.logger.verbose('KlineStore cleared');
+  }
 }

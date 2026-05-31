@@ -778,10 +778,15 @@ export class TradingSessionService {
 
   private async enterHibernation(reason: string) {
     // MAXIMUM RESOURCE REDUCTION (Deep Sleep): Stop all high-frequency data streams and scanning
-    this.logger.log(`Entering DEEP SLEEP (Hibernation) - Stopping all connections. Reason: ${reason}`);
+    this.logger.log(`Entering DEEP SLEEP (Hibernation) - Stopping all connections and clearing memory. Reason: ${reason}`);
     this.hibernating = true;
     await this.marketFeed.stop();
     await this.momentumScanner.stop();
+
+    // BOLT: Clear memory-heavy stores during Deep Sleep to reduce RAM usage
+    this.klineStore.clear();
+    this.tickerCache.clear();
+
     this.broadcast('gate', {
       gateState: this.gateState,
       reason: reason,

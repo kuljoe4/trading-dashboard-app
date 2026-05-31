@@ -124,6 +124,17 @@ export class TradingSessionService {
     return this.running && this.listenerCount === 0;
   }
 
+  isGated(): boolean {
+    return this.paused ||
+      this.gateState === 'max_trades' ||
+      this.gateState === 'sl_guard' ||
+      this.gateState === 'max_trades_period' ||
+      this.gateState === 'sleeping' ||
+      this.gateState === 'risk_pct' ||
+      this.gateState === 'tod_risk' ||
+      this.gateState === 'risk';
+  }
+
   setDashboardCount(count: number) {
     this.dashboardCount = count;
   }
@@ -356,8 +367,11 @@ export class TradingSessionService {
   private async mainLoop() {
     if (!this.running || !this.config) return;
 
-    // Evaluate risk gates before scanning
     const activeTrades = this.positionTracker.activeList();
+    const prevGateState = this.gateState;
+    const isInsideWindow = this.isInsideTradingWindow();
+
+    // 1. Evaluate Risk Gates
     const riskResult = this.riskEngine.canEnter(
       activeTrades,
       this.closedTrades,
@@ -367,24 +381,12 @@ export class TradingSessionService {
       this.positionTracker.totalRisk(),
     );
 
-    const prevGateState = this.gateState;
-    const isInsideWindow = this.isInsideTradingWindow();
-
-    // BOLT ECO-MODE: Skip scanner and entries if session is idle and unwatched
-    if (this.listenerCount === 0 && activeTrades.length === 0 && isInsideWindow) {
-      // Still allow checkExits in hotLoop to handle SL/TP if they were to exist (handled above)
-      // but skip the expensive scanning and entry logic
-      this.monitoringService.recordMainLoop(0);
-      return;
-    }
-
-    // Check if any single symbol monitors ignore the window
+    // 2. Determine Gate State
     const hasUnscheduledMonitors = this.config.single_symbol_configs?.some(sc => sc.enabled && sc.follow_schedule === false);
 
     if (!isInsideWindow && !hasUnscheduledMonitors) {
       this.gateState = 'sleeping';
-      const activeTradesCount = this.positionTracker.activeList().length;
-      if (activeTradesCount === 0 && !this.sleepMode) {
+      if (activeTrades.length === 0 && !this.sleepMode) {
         this.enterSleepMode();
       }
     } else if (this.sleepMode && (isInsideWindow || hasUnscheduledMonitors)) {
@@ -399,21 +401,22 @@ export class TradingSessionService {
       this.gateState = null;
     }
 
+    // 3. Broadcast and handle gate changes
     if (this.gateState !== prevGateState) {
       this.broadcast('gate', {
         gateState: this.gateState,
         reason: riskResult.reason,
         scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period'
       });
+
+      // BOLT: When gating status changes, update the market feed watchlist to potentially reduce resources
+      this.marketFeed.updateWatchlist(this.config).catch(() => {});
     }
 
-    const isGated = this.paused || this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period' || this.gateState === 'sleeping';
+    // 4. Resource Throttling & Early Returns
+    const isGated = this.isGated();
     
-    // BOLT SCANNER HIBERNATION: If no one is looking at the dashboard, we can skip the scanner.
-    // This saves massive CPU cycles on technical analysis and volume sorting.
-    const scannerHibernating = this.dashboardCount === 0 && this.listenerCount > 0;
-
-    if (isGated || scannerHibernating) {
+    if (isGated) {
       // RESOURCE REDUCTION: When gated or paused, we completely skip the momentum scan and entry processing.
       // If gated due to 'sleeping' (outside windows), the market feed and scanner are fully stopped.
       // This saves CPU cycles, memory allocations from new candle data, and Binance API weight.
@@ -467,8 +470,8 @@ export class TradingSessionService {
         opportunities: opportunitiesBySignature.get(this.scanSignature(config)) || [],
       }));
 
-      // BOLT OPTIMIZATION: Only update and broadcast scanner results for UI if there are active listeners
-      if (this.listenerCount > 0) {
+      // BOLT OPTIMIZATION: Only update and broadcast scanner results for UI if there are active dashboard listeners
+      if (this.dashboardCount > 0) {
         const baseConfig = strategyConfigs[0];
         const opportunitiesWithSignals = primaryOpportunities.slice(0, 10).map((opp) => {
           const signalResult = this.signalEngine.checkEntry(

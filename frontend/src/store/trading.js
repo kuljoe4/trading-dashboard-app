@@ -203,6 +203,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   tradeHistory: [],
   lifetimeAnalytics: null,
   gateState: null,
+  gateReason: null,
   scannerPaused: false,
   wsStatus: 'offline',
   sessionList: [],
@@ -528,6 +529,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
             variantStats: data.variant_stats || state.variantStats,
             activeWindows: data.activeWindows ? (data.activeWindows || []).map(normalizeWindow) : state.activeWindows,
             gateState: data.gateState !== undefined ? data.gateState : state.gateState,
+            gateReason: data.reason || state.gateReason,
             sessionPaused: data.paused !== undefined ? data.paused : state.sessionPaused,
             scannerPaused: data.scannerPaused !== undefined ? data.scannerPaused : state.scannerPaused,
             rateLimit: data.rateLimit || state.rateLimit,
@@ -606,6 +608,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
       } else if (data.type === 'gate') {
         set((state) => ({
           gateState: data.gateState,
+          gateReason: data.reason,
           scannerPaused: data.scannerPaused,
         }))
         get().addLog({ level: 'warn', msg: data.reason || 'Risk gate active' })

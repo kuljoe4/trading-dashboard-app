@@ -156,29 +156,47 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
   );
 })
 
-const GateBanner = ({ gateState, scannerPaused }) => {
+const GateBanner = ({ gateState, scannerPaused, reason, activeTradesCount }) => {
   if (!gateState && !scannerPaused) return null
+
   const messages = {
     max_trades: 'Maximum open trades reached. Entry gated.',
     max_trades_period: 'Maximum trades for the current period reached. Scanner paused.',
     sl_guard: 'Session Stop-Loss Guard reached. All entries blocked.',
     risk_pct: 'Total risk limit reached. Entries restricted.',
-  tod_risk: 'Historical performance risk for this hour. Entries blocked.',
-  sleeping: 'Engine idling outside trading windows.',
+    tod_risk: 'Historical performance risk for this hour. Entries blocked.',
+    sleeping: 'Engine idling outside trading windows.',
     risk: 'Risk gate active. Monitoring only.',
   }
 
+  const isGatedIdle = (gateState === 'sleeping' || gateState === 'max_trades_period' || gateState === 'sl_guard') && activeTradesCount === 0;
+
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
       className={cn(
-        "p-4 rounded-xl mb-6 text-xs font-bold border flex items-center gap-3",
-        scannerPaused ? "bg-red/10 border-red/20 text-red" : "bg-amber/10 border-amber/20 text-amber"
+        "p-4 rounded-xl mb-6 text-xs font-bold border flex flex-col gap-2 shadow-sm transition-colors",
+        scannerPaused ? "bg-red/10 border-red/20 text-red" : "bg-amber/10 border-amber/20 text-amber",
+        isGatedIdle && "bg-accent/5 border-accent/20 text-accent/80"
       )}
     >
-      {gateState === 'sleeping' ? <Pause size={16} className="animate-pulse" /> : <XCircle size={16} className={scannerPaused ? "animate-pulse" : ""} />}
-      {messages[gateState] || 'Risk gate active.'}
+      <div className="flex items-center gap-3">
+        {gateState === 'sleeping' ? <Pause size={16} className="animate-pulse" /> : <XCircle size={16} className={scannerPaused ? "animate-pulse" : ""} />}
+        <span className="uppercase tracking-widest">{messages[gateState] || 'Risk gate active.'}</span>
+        {isGatedIdle && (
+          <Tooltip content="Resource Suppression Active: Market feed and scanner are throttled to save CPU/Memory while idle.">
+            <div className="ml-auto bg-accent/10 px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border border-accent/20">
+              <Leaf size={10} /> RESOURCE SAVER
+            </div>
+          </Tooltip>
+        )}
+      </div>
+      {reason && reason !== 'OK' && (
+        <div className="pl-7 opacity-80 font-mono text-[10px] tracking-tight">
+          Backend: {reason}
+        </div>
+      )}
     </motion.div>
   )
 }
@@ -285,6 +303,7 @@ export function DashboardView() {
     setSessionActive: state.setSessionActive,
     updateConfig: state.updateConfig,
     gateState: state.gateState,
+    gateReason: state.gateReason,
     scannerPaused: state.scannerPaused,
     sessionList: state.sessionList,
     fetchSessions: state.fetchSessions,
@@ -506,7 +525,12 @@ export function DashboardView() {
           </div>
         </motion.div>
 
-        <GateBanner gateState={gateState} scannerPaused={scannerPaused} />
+        <GateBanner
+          gateState={gateState}
+          scannerPaused={scannerPaused}
+          reason={gateReason}
+          activeTradesCount={activeTrades.length}
+        />
 
         {/* Global Metrics */}
         <motion.div

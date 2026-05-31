@@ -218,9 +218,11 @@ export class MarketFeedService {
 
     try {
       const newWatchlist = new Map<string, Set<string>>();
+      const isGated = this.tradingSession.isGated();
+      const activeTrades = this.tradingSession.getStatus().activeTrades;
 
-      // 1. Global Scanner Symbols
-      if (config.global_scanner_enabled !== false) {
+      // 1. Global Scanner Symbols (Skip if gated and no active trades to save resources)
+      if (config.global_scanner_enabled !== false && !(isGated && activeTrades.length === 0)) {
         let symbols: string[];
         if (config.symbols && config.symbols.length > 0) {
           symbols = config.symbols;

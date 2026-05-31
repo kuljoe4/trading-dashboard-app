@@ -6,6 +6,8 @@ const toNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
+const MAX_LOG_LINES = 500
+
 const DEFAULT_LOG_FILTERS = {
   info: true,
   warn: true,
@@ -153,7 +155,7 @@ const defaultConfig = {
   scan_window_duration_sec: 90,
   scan_check_interval_sec: 5,
   entry_side: 'both',
-  watchlist_size: 50,
+  watchlist_size: 25,
   enabled_signals: ['momentum_pct'],
   signal_logic: 'all',
   tp_mode: 'fixed',
@@ -170,8 +172,8 @@ const defaultConfig = {
   max_open_trades: 5,
   paper_starting_balance: 10000,
   live_starting_balance: 10000,
-  hot_loop_interval_ms: 2000,
-  main_loop_interval_ms: 5000,
+  hot_loop_interval_ms: 5000,
+  main_loop_interval_ms: 15000,
   debug_mode: false,
 }
 
@@ -331,7 +333,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
     if (!normalized.msg) return {}
     // Avoid exact duplicates back-to-back
     if (state.logs.length > 0 && state.logs[0].level === normalized.level && state.logs[0].msg === normalized.msg) return {}
-    return { logs: [normalized, ...state.logs].slice(0, 2000) }
+    return { logs: [normalized, ...state.logs].slice(0, MAX_LOG_LINES) }
   }),
 
   mergeLogs: (incomingLogs) => set((state) => {
@@ -345,15 +347,8 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
 
     if (newLogs.length === 0) return {}
 
-    // Combine and sort by timestamp (descending)
-    const combined = [...newLogs, ...state.logs]
-      .sort((a, b) => {
-         // Try to parse ts if possible, otherwise keep original order
-         return 0; // Keeping it simple: status logs are usually prepended
-      })
-      .slice(0, 2000)
-
-    return { logs: uniqueLogs(combined) }
+    // Incoming status logs are already newest-first; avoid a no-op sort and cap memory.
+    return { logs: uniqueLogs([...newLogs, ...state.logs]).slice(0, MAX_LOG_LINES) }
   }),
 
   ws: null,

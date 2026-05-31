@@ -22,7 +22,12 @@ describe('PnL Inconsistency Reproduction', () => {
     mockAnalyticsService = { calculateAnalytics: jest.fn().mockReturnValue({
       maxDrawdown: 0, maxDrawdownPct: 0, overallWinRate: 0, cumulativePnL: []
     }) };
-    mockMonitoringService = { getMetrics: jest.fn().mockReturnValue({}), recordHotLoop: jest.fn(), recordMainLoop: jest.fn() };
+    mockMonitoringService = {
+      getMetrics: jest.fn().mockReturnValue({}),
+      recordHotLoop: jest.fn(),
+      recordMainLoop: jest.fn(),
+      incrementApiRequests: jest.fn()
+    };
     mockOrderManager = { setBinanceClient: jest.fn() };
     mockMarketFeed = { setCandeCloseCallback: jest.fn(), start: jest.fn(), stop: jest.fn() };
     mockMomentumScanner = { start: jest.fn(), stop: jest.fn() };
@@ -50,7 +55,7 @@ describe('PnL Inconsistency Reproduction', () => {
     };
 
     // Initialize session
-    await service.start(config, null, 'session-123', [], startingBalance);
+    await service.start(config, { restAPI: {} } as any, 'session-123', [], startingBalance);
 
     // Mock a trade that closed with $10 profit but incurred $1 fee
     // Gross PnL = $10. Net balance change = $9.

@@ -481,35 +481,33 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
         })
       } else if (data.type === 'tick') {
         set((state) => {
-          let nextTrades = [...state.activeTrades];
+          let nextTrades = state.activeTrades;
           let tradesChanged = false;
 
           if (data.trades) {
-            const prevMap = new Map(state.activeTrades.map(t => [t.id, t]));
+            const tradeMap = new Map(state.activeTrades.map(t => [t.id, t]));
 
             data.trades.forEach(t => {
-               const prev = prevMap.get(t.id);
+               const prev = tradeMap.get(t.id);
                const normalized = normalizeTrade(t, prev);
-               if (!normalized) return;
-
-               const existingIdx = nextTrades.findIndex(at => at.id === t.id);
-               if (existingIdx !== -1) {
-                  nextTrades[existingIdx] = normalized;
-               } else {
-                  nextTrades.push(normalized);
+               if (normalized) {
+                 tradeMap.set(t.id, normalized);
+                 tradesChanged = true;
                }
-               tradesChanged = true;
             });
 
-            // If it's a heartbeat (often indicated by large number of trades or first contact),
-            // ensure we don't have stale trades that weren't in the update list
             if (data._heartbeat) {
                const incomingIds = new Set(data.trades.map(t => t.id));
-               const cleaned = nextTrades.filter(t => incomingIds.has(t.id));
-               if (cleaned.length !== nextTrades.length) {
-                  nextTrades = cleaned;
-                  tradesChanged = true;
+               for (const id of tradeMap.keys()) {
+                 if (!incomingIds.has(id)) {
+                   tradeMap.delete(id);
+                   tradesChanged = true;
+                 }
                }
+            }
+
+            if (tradesChanged) {
+              nextTrades = Array.from(tradeMap.values());
             }
           }
 
@@ -520,7 +518,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
             totalSlUsed: data.total_sl_used ?? state.totalSlUsed,
             entryCount: data.stats?.entryCount ?? state.entryCount,
             hitCount: data.stats?.hitCount ?? state.hitCount,
-            activeTrades: tradesChanged ? nextTrades : state.activeTrades,
+            activeTrades: nextTrades,
             variantStats: data.variant_stats || state.variantStats,
             activeWindows: data.activeWindows ? (data.activeWindows || []).map(normalizeWindow) : state.activeWindows,
             gateState: data.gateState !== undefined ? data.gateState : state.gateState,

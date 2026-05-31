@@ -261,11 +261,11 @@ export class TradingSessionService {
 
     // Pro Loop Architecture
     // 1. Hot Loop: Exit monitoring & PnL updates
-    const hotInterval = config.hot_loop_interval_ms || 2000;
+    const hotInterval = config.hot_loop_interval_ms || 5000;
     this.hotLoopInterval = setInterval(() => this.hotLoop(), hotInterval);
 
     // 2. Main Loop: Scanning & Entry
-    const mainInterval = config.main_loop_interval_ms || 5000;
+    const mainInterval = config.main_loop_interval_ms || 15000;
     this.mainLoopInterval = setInterval(() => this.mainLoop(), mainInterval);
 
     this.logger.log(`Session started | mode=${config.paper_mode ? 'PAPER' : 'LIVE'} | balance=${this.getBalance()} | hot=${hotInterval}ms | main=${mainInterval}ms`);
@@ -429,7 +429,7 @@ export class TradingSessionService {
 
         this.broadcast('scanner', {
           count: this.lastScannerResults.length,
-          hibernating: scannerHibernating,
+          hibernating: isGated,
           opportunities: this.lastScannerResults.slice(0, 5).map(o => {
             if (isFullBroadcast) return o;
             const { history, ...rest } = o;
@@ -1288,11 +1288,11 @@ export class TradingSessionService {
     )) {
       const isEco = this.listenerCount === 0;
       const mainMs = isEco
-        ? Math.max(15000, config.main_loop_interval_ms || 5000)
-        : (config.main_loop_interval_ms || 5000);
+        ? Math.max(15000, config.main_loop_interval_ms || 15000)
+        : (config.main_loop_interval_ms || 15000);
       const hotMs = isEco
-        ? Math.max(5000, config.hot_loop_interval_ms || 2000)
-        : (config.hot_loop_interval_ms || 2000);
+        ? Math.max(5000, config.hot_loop_interval_ms || 5000)
+        : (config.hot_loop_interval_ms || 5000);
 
       this.logger.log(`Restarting loops with new intervals: hot=${hotMs}ms, main=${mainMs}ms ${isEco ? '(ECO)' : ''}`);
       this.restartLoops(hotMs, mainMs);

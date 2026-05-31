@@ -23,7 +23,6 @@ export class KlineStoreService {
   getMaxCandles(): number {
     return this.MAX_CANDLES;
   }
-  private readonly MAX_CANDLES = 500;
   private static readonly EMPTY_ARRAY: Candle[] = [];
 
   upsertCandle(symbol: string, interval: string, kline: any) {

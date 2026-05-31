@@ -34,8 +34,8 @@ export const Sidebar = ({ selected }) => {
 
       <nav className="flex-1 space-y-2">
         {[
-          { path: '/', label: 'Cockpit', icon: LayoutDashboard, shortcut: '1' },
-          { path: '/history', label: 'History', icon: History, shortcut: '2' },
+          { path: '/', label: 'Cockpit', icon: LayoutDashboard, shortcut: '1/C' },
+          { path: '/history', label: 'History', icon: History, shortcut: '2/H' },
           { path: '/settings', label: 'Settings', icon: SettingsIcon, shortcut: '3' },
         ].map(item => (
           <Tooltip key={item.path} content={`${item.label} [${item.shortcut}]`} side="right">

@@ -246,15 +246,14 @@ async function bootstrap() {
         const tick = { ...payload };
 
         // BOLT: Aggressive View-Based Pruning
-        // If the client is NOT in focus mode (Dashboard view), strip ALL trades to save network
-        if (!client.focusMode) {
-          tick.trades = [];
-          tick.activeWindows = [];
-        } else if (tick.trades && Array.isArray(tick.trades)) {
+        // If the client is NOT in focus mode (Dashboard view), we still send thin trades to prevent UI data gaps.
+        if (tick.trades && Array.isArray(tick.trades)) {
           tick.trades = tick.trades.map((trade: any) => {
-            const isFocused =
+            const isFocused = client.focusMode && (
+              client.focusTradeId === "all" ||
               client.focusTradeId === trade.id ||
-              client.focusStrategyLabel === trade.strategy_label;
+              client.focusStrategyLabel === trade.strategy_label
+            );
 
             // If not specifically focused on this trade, strip heavy details
             if (!isFocused) {
@@ -266,12 +265,17 @@ async function bootstrap() {
                 sl_adjustments,
                 tp_mode,
                 tp_ratio,
+                exit_signal_logic,
                 ...thinTrade
               } = trade;
               return { ...thinTrade, _thin: true };
             }
             return trade;
           });
+        }
+
+        if (!client.focusMode) {
+          tick.activeWindows = [];
         }
 
         if (client.monitoringEnabled === false) {
@@ -380,9 +384,22 @@ async function bootstrap() {
           updateMonitoringSuppression();
         }
         if (data.type === "set_focus_mode") {
+          const wasFocused = socket.focusMode;
           socket.focusMode = data.enabled === true;
           socket.focusTradeId = data.tradeId || null;
           socket.focusStrategyLabel = data.strategyLabel || null;
+
+          // If becoming focused, immediately broadcast the current session state to the client
+          // to prevent UI "data gaps" during transition.
+          if (!wasFocused && socket.focusMode) {
+            const tradingSessionService = app.get(TradingSessionService);
+            const status = tradingSessionService.getStatus();
+            socket.send(JSON.stringify({
+              type: "status",
+              ...status,
+              _forced: true
+            }));
+          }
         }
         if (data.type === "set_active") {
           const wasActive = socket.isActive;

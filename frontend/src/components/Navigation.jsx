@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { SystemMetrics } from './SystemMetrics'
-import { LayoutDashboard, History, Settings as SettingsIcon, ChevronLeft, ChevronRight, Zap } from 'lucide-react'
+import { LayoutDashboard, Briefcase, History, Settings as SettingsIcon, ChevronLeft, ChevronRight, Zap } from 'lucide-react'
 import { useTradingStore } from '../store/trading'
 import { cn, Tooltip } from './ui/primitives'
 
@@ -35,8 +35,9 @@ export const Sidebar = ({ selected }) => {
       <nav className="flex-1 space-y-2">
         {[
           { path: '/', label: 'Cockpit', icon: LayoutDashboard, shortcut: '1/C' },
-          { path: '/history', label: 'History', icon: History, shortcut: '2/H' },
-          { path: '/settings', label: 'Settings', icon: SettingsIcon, shortcut: '3' },
+          { path: '/trades', label: 'Trades', icon: Briefcase, shortcut: '2/T' },
+          { path: '/history', label: 'History', icon: History, shortcut: '3/H' },
+          { path: '/settings', label: 'Settings', icon: SettingsIcon, shortcut: '4' },
         ].map(item => (
           <Tooltip key={item.path} content={`${item.label} [${item.shortcut}]`} side="right">
             <button
@@ -105,6 +106,13 @@ export const BottomNav = ({ selected }) => {
           className={cn("flex flex-col items-center gap-2", isActive('/') ? "text-accent" : "text-dim hover:text-text")}
         >
           <LayoutDashboard size={24} />
+        </button>
+        <button
+          onClick={() => window.location.hash = '#/trades'}
+          aria-label="Trades"
+          className={cn("flex flex-col items-center gap-2", isActive('/trades') ? "text-accent" : "text-dim hover:text-text")}
+        >
+          <Briefcase size={24} />
         </button>
         <button 
           onClick={() => window.location.hash = '#/history'}

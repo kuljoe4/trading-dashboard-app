@@ -14,13 +14,18 @@ import {
 import { EquityCurve } from '../components/Analytics'
 
 const StrategyDetailView = ({ s, onBack }) => {
-  const { config, scannerResults, analytics, setFocusMode } = useTradingStore()
+  const { config, scannerResults, analytics, setFocusMode, wsStatus } = useTradingStore()
 
   React.useEffect(() => {
     // Signal focus on this strategy label to backend
     setFocusMode(true, null, s.strategy_label);
+    // We don't necessarily want to set focus mode to false immediately on unmount
+    // if we are navigating to another focused view (like a specific trade),
+    // but for now the simple toggle is standard for this architecture.
     return () => setFocusMode(false, null, null);
   }, [s.strategy_label, setFocusMode]);
+
+  const isSyncing = wsStatus !== 'live' || (s.activeTrades.length > 0 && !s.activeTrades.some(t => t.strategy_label === s.strategy_label && t._is_full));
 
   const bestOpp = scannerResults[0] || { symbol: '---', pct: 0, dir: '---' }
   const scanMet = Math.abs(bestOpp.pct) >= config.scan_pct_threshold
@@ -65,8 +70,8 @@ const StrategyDetailView = ({ s, onBack }) => {
           label="Total P&L"
           value={fmtUSD(s.totalPnl)}
           color={s.totalPnl >= 0 ? "text-green" : "text-red"}
-          subValue={analytics === null ? "Synchronizing..." : undefined}
-          syncing={analytics === null}
+          subValue={isSyncing ? "Synchronizing..." : undefined}
+          syncing={isSyncing}
         />
         <StatCard label="Hit Count" value={(s.entryCount ?? 0).toString()} color="text-accent" />
         <StatCard label="SL Budget" value={`$${Number(s.totalSlUsed || 0).toFixed(0)} / $${config.total_sl_guard_usdt}`} color={s.totalSlUsed > config.total_sl_guard_usdt * 0.7 ? "text-amber" : "text-text"} />
@@ -99,7 +104,7 @@ const StrategyDetailView = ({ s, onBack }) => {
       <div className="mb-10">
         <SectionLabel>Tactical Overview</SectionLabel>
         <div className="space-y-5">
-          {s.activeTrades.length === 0 ? (
+      {s.activeTrades.filter(t => t.strategy_label === s.strategy_label).length === 0 ? (
             <div className="bg-surface/20 border border-border border-dashed rounded-2xl p-16 text-center">
               <div className="text-sm font-bold text-dim uppercase tracking-widest flex flex-col items-center gap-4">
                 <Zap size={32} className="opacity-20" />
@@ -107,12 +112,15 @@ const StrategyDetailView = ({ s, onBack }) => {
               </div>
             </div>
           ) : (
-            <AnimatePresence>
-              {s.activeTrades.map((trade, idx) => (
+        <AnimatePresence mode="popLayout">
+          {s.activeTrades
+            .filter(t => t.strategy_label === s.strategy_label)
+            .map((trade, idx) => (
                 <motion.div
                   key={trade.id || trade.symbol}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95 }}
                   transition={{ delay: idx * 0.1 }}
                 >
                   <ActiveTradeBar trade={trade} initialExpanded={idx === 0} />

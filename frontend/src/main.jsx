@@ -9,6 +9,7 @@ import './index.css';
 const DashboardView = lazy(() => import('./views/DashboardView').then(m => ({ default: m.DashboardView })));
 const SettingsView = lazy(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })));
 const HistoryView = lazy(() => import('./views/HistoryView').then(m => ({ default: m.HistoryView })));
+const TradesView = lazy(() => import('./views/TradesView'));
 
 const LoadingView = () => (
   <div className="min-h-screen bg-background flex items-center justify-center">
@@ -68,8 +69,9 @@ const App = () => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
 
       if (e.key === '1' || e.key.toLowerCase() === 'c') window.location.hash = '#/';
-      if (e.key === '2' || e.key.toLowerCase() === 'h') window.location.hash = '#/history';
-      if (e.key === '3') window.location.hash = '#/settings';
+      if (e.key === '2' || e.key.toLowerCase() === 't') window.location.hash = '#/trades';
+      if (e.key === '3' || e.key.toLowerCase() === 'h') window.location.hash = '#/history';
+      if (e.key === '4') window.location.hash = '#/settings';
       if (e.key.toLowerCase() === 's') window.dispatchEvent(new Event('toggle-scanner'));
     };
 
@@ -127,6 +129,7 @@ const App = () => {
   const renderView = () => {
     switch (view) {
       case 'cockpit': return <DashboardView />;
+      case 'trades': return <TradesView />;
       case 'history': return <HistoryView />;
       case 'settings': return <SettingsView />;
       default: return <DashboardView />;

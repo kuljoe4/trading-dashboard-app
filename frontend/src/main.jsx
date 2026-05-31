@@ -65,6 +65,20 @@ const App = () => {
     };
   }, [debugToolsEnabled]);
 
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+
+      if (e.key === '1') window.location.hash = '#/';
+      if (e.key === '2') window.location.hash = '#/history';
+      if (e.key === '3') window.location.hash = '#/settings';
+      if (e.key.toLowerCase() === 's') window.dispatchEvent(new Event('toggle-scanner'));
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const [view, setView] = useState('cockpit');
 
   useEffect(() => {

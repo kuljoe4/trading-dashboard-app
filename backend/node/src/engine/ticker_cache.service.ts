@@ -97,4 +97,13 @@ export class TickerCacheService {
 
     return result;
   }
+
+  /**
+   * Clear all ticker data to free up memory (Deep Sleep)
+   */
+  clear() {
+    this.tickers.clear();
+    this._topByVolumeCache = {};
+    this.logger.verbose('TickerCache cleared');
+  }
 }

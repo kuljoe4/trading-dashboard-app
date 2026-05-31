@@ -39,7 +39,7 @@ export class TradingSessionService {
   private lastClosedTradesStatsCount = -1;
   private cachedClosedTradesStats: Record<string, { pnl: number, count: number, hits: number }> = {};
   private gateState: string | null = null;
-  private sleepMode = false;
+  private hibernating = false;
   private activeWindows: Map<string, any> = new Map();
   private mainLoopInterval: NodeJS.Timeout | null = null;
   private hotLoopInterval: NodeJS.Timeout | null = null;
@@ -387,12 +387,6 @@ export class TradingSessionService {
 
     if (!isInsideWindow && !hasUnscheduledMonitors) {
       this.gateState = 'sleeping';
-      if (activeTrades.length === 0 && !this.sleepMode) {
-        this.enterSleepMode();
-      }
-    } else if (this.sleepMode && (isInsideWindow || hasUnscheduledMonitors)) {
-      this.exitSleepMode();
-      this.gateState = null;
     } else if (!riskResult.canEnter) {
       // Filter out per-symbol reasons for global gate state
       if (!riskResult.reason.includes('Max open trades for')) {
@@ -402,7 +396,17 @@ export class TradingSessionService {
       this.gateState = null;
     }
 
-    // 3. Broadcast and handle gate changes
+    // 3. Deep Sleep (Hibernation) Management
+    // If gated and no active trades, we can shut down all connections completely.
+    const shouldHibernate = this.isGated() && activeTrades.length === 0;
+
+    if (shouldHibernate && !this.hibernating) {
+      await this.enterHibernation(riskResult.reason || 'Session gated and idle');
+    } else if (!shouldHibernate && this.hibernating) {
+      await this.exitHibernation();
+    }
+
+    // 4. Broadcast and handle gate changes
     if (this.gateState !== prevGateState) {
       this.broadcast('gate', {
         gateState: this.gateState,
@@ -410,14 +414,16 @@ export class TradingSessionService {
         scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period'
       });
 
-      // BOLT: When gating status changes, update the market feed watchlist to potentially reduce resources
-      this.marketFeed.updateWatchlist(this.config).catch(() => {});
+      // BOLT: When gating status changes, update the market feed watchlist
+      if (!this.hibernating) {
+        this.marketFeed.updateWatchlist(this.config).catch(() => {});
+      }
     }
 
-    // 4. Resource Throttling & Early Returns
+    // 5. Resource Throttling & Early Returns
     const isGated = this.isGated();
     
-    if (isGated) {
+    if (isGated || this.hibernating) {
       // RESOURCE REDUCTION: When gated or paused, we completely skip the momentum scan and entry processing.
       // If gated due to 'sleeping' (outside windows), the market feed and scanner are fully stopped.
       // This saves CPU cycles, memory allocations from new candle data, and Binance API weight.
@@ -430,7 +436,7 @@ export class TradingSessionService {
 
         this.broadcast('scanner', {
           count: this.lastScannerResults.length,
-          hibernating: isGated,
+          hibernating: this.hibernating,
           opportunities: this.lastScannerResults.slice(0, 5).map(o => {
             if (isFullBroadcast) return o;
             const { history, ...rest } = o;
@@ -771,23 +777,36 @@ export class TradingSessionService {
     });
   }
 
-  private async enterSleepMode() {
-    // MAXIMUM RESOURCE REDUCTION: Stop all high-frequency data streams and scanning
-    this.logger.log('Entering SLEEP MODE (Outside trading windows) - Stopping Market Feed & Scanner');
-    this.sleepMode = true;
+  private async enterHibernation(reason: string) {
+    // MAXIMUM RESOURCE REDUCTION (Deep Sleep): Stop all high-frequency data streams and scanning
+    this.logger.log(`Entering DEEP SLEEP (Hibernation) - Stopping all connections and clearing memory. Reason: ${reason}`);
+    this.hibernating = true;
     await this.marketFeed.stop();
     await this.momentumScanner.stop();
-    this.broadcast('gate', { gateState: 'sleeping', reason: 'Outside trading window' });
+
+    // BOLT: Clear memory-heavy stores during Deep Sleep to reduce RAM usage
+    this.klineStore.clear();
+    this.tickerCache.clear();
+
+    this.broadcast('gate', {
+      gateState: this.gateState,
+      reason: reason,
+      hibernating: true
+    });
   }
 
-  private async exitSleepMode() {
-    this.logger.log('Exiting SLEEP MODE (Trading window active) - Restarting Market Feed & Scanner');
-    this.sleepMode = false;
+  private async exitHibernation() {
+    this.logger.log('Exiting DEEP SLEEP (Hibernation) - Restarting connections and warming up...');
+    this.hibernating = false;
     if (this.config) {
+      // Market feed will automatically seed tickers and rebuild kline streams
       await this.marketFeed.start(this.config);
       await this.momentumScanner.start(this.config);
     }
-    this.broadcast('gate', { gateState: null, reason: 'Trading window active' });
+    this.broadcast('gate', {
+      gateState: this.gateState,
+      hibernating: false
+    });
   }
 
   private mapGateState(reason: string): string {
@@ -993,6 +1012,7 @@ export class TradingSessionService {
       trades,
       variant_stats: variantStats,
       gateState: this.gateState,
+      hibernating: this.hibernating,
       paused: this.paused,
       scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period' || this.paused,
       activeWindows: this.getActiveWindows(),
@@ -1264,6 +1284,7 @@ export class TradingSessionService {
       scannerResults: this.lastScannerResults,
       activeWindows: this.getActiveWindows(),
       gateState: this.gateState,
+      hibernating: this.hibernating,
       scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period',
       history: this.closedTrades.slice(0, 50).map((trade) => this.serializeTrade(trade, trade.exit_price)),
     };

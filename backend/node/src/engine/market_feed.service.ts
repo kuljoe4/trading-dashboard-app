@@ -300,7 +300,7 @@ export class MarketFeedService {
       }
 
       // 3. Active Trade Symbols (CRITICAL for exit signals)
-      for (const trade of activeTrades) {
+      for (const trade of activeTradesForWatchlist) {
         const t = trade as any;
         if (!newWatchlist.has(t.symbol)) newWatchlist.set(t.symbol, new Set());
 
@@ -329,10 +329,17 @@ export class MarketFeedService {
       if (!changed) {
         for (const [symbol, intervals] of newWatchlist) {
           const oldIntervals = this.activeWatchlist.get(symbol);
-          if (!oldIntervals || oldIntervals.size !== intervals.size || [...intervals].some(i => !oldIntervals.has(i))) {
+          if (!oldIntervals || oldIntervals.size !== intervals.size) {
             changed = true;
             break;
           }
+          for (const i of intervals) {
+            if (!oldIntervals.has(i)) {
+              changed = true;
+              break;
+            }
+          }
+          if (changed) break;
         }
       }
 

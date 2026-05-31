@@ -14,6 +14,7 @@ import { decrypt } from '../lib/crypto';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { AnalyticsService } from '../engine/analytics.service';
 import { updateLogLevels } from '../lib/logger';
+import { roundEight } from '../lib/math';
 
 @Injectable()
 export class SessionService implements OnModuleInit {
@@ -84,7 +85,7 @@ export class SessionService implements OnModuleInit {
 
             await queryRunner.manager.update(SessionEntity, sessionId, {
               balance,
-              totalPnl: balance - startingBalance
+              totalPnl: roundEight(balance - startingBalance)
             });
 
             const updateData: any = {};
@@ -169,7 +170,7 @@ export class SessionService implements OnModuleInit {
         ? (session.config?.paper_starting_balance || 10000)
         : (session.config?.live_starting_balance || 0);
 
-      const realizedPnl = balance - startingBalance;
+      const realizedPnl = roundEight(balance - startingBalance);
 
       await queryRunner.manager.update(SessionEntity, sessionId, {
         balance,
@@ -190,7 +191,7 @@ export class SessionService implements OnModuleInit {
         const snapshot = this.balanceHistoryRepository.create({
           timestamp: new Date(),
           balance: balance,
-          pnl: trade.pnl || 0,
+          pnl: roundEight(trade.pnl || 0),
           type: 'TRADE_CLOSE',
           sessionId: sessionId,
           tradeId: trade.id,
@@ -300,9 +301,9 @@ export class SessionService implements OnModuleInit {
       
       // Preserving starting balance if it exists in the config to maintain correct PnL calculation across restarts
       if (paperMode) {
-        config.paper_starting_balance = config.paper_starting_balance || (Number(session.balance) - Number(session.totalPnl));
+        config.paper_starting_balance = config.paper_starting_balance || roundEight(Number(session.balance) - Number(session.totalPnl));
       } else {
-        config.live_starting_balance = config.live_starting_balance || (Number(session.balance) - Number(session.totalPnl));
+        config.live_starting_balance = config.live_starting_balance || roundEight(Number(session.balance) - Number(session.totalPnl));
       }
     } else {
       // Ensure starting balance is explicitly in the config for new sessions
@@ -429,7 +430,7 @@ export class SessionService implements OnModuleInit {
           if (breached) {
             this.logger.warn(`Resumed trade ${trade.symbol} breached SL/TP during downtime. Auto-closing at ${currentPrice}.`);
             await this.logMessage(`Resumed trade ${trade.symbol} breached SL/TP during downtime. Auto-closed at ${currentPrice} (${reason}).`, 'warn');
-            const pnl = side === 'LONG' ? (currentPrice - Number(trade.entry_price)) * Number(trade.qty) : (Number(trade.entry_price) - currentPrice) * Number(trade.qty);
+            const pnl = roundEight(side === 'LONG' ? (currentPrice - Number(trade.entry_price)) * Number(trade.qty) : (Number(trade.entry_price) - currentPrice) * Number(trade.qty));
 
             // Map reason to specific terminal status
             let terminalStatus: any = 'CLOSED';
@@ -437,7 +438,7 @@ export class SessionService implements OnModuleInit {
             else if (reason === 'AUTO_RECONCILED_TP') terminalStatus = 'CLOSED_TP';
 
             const updatedTrade = { ...trade, status: terminalStatus, exit_ts: new Date(), exit_price: currentPrice, pnl, exit_reason: reason };
-            await this.saveTradeAtomic(updatedTrade, Number(session.balance) + pnl);
+            await this.saveTradeAtomic(updatedTrade, roundEight(Number(session.balance) + pnl));
             (trade as any).reconciled_out = true;
           }
         }

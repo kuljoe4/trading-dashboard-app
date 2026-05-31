@@ -12,6 +12,7 @@ import { MomentumScannerService } from './momentum_scanner.service';
 import { MonitoringService } from './monitoring.service';
 import { AnalyticsService } from './analytics.service';
 import { v4 as uuid } from 'uuid';
+import { roundEight } from '../lib/math';
 
 @Injectable()
 export class TradingSessionService {
@@ -315,7 +316,7 @@ export class TradingSessionService {
         trade.exit_price = exitPrice;
         // BOLT: Manually calculate PnL for fallback closure to ensure balance integrity
         const pnlPoints = trade.direction === 'LONG' ? exitPrice - trade.entry_price : trade.entry_price - exitPrice;
-        trade.pnl = pnlPoints * trade.qty;
+        trade.pnl = roundEight(pnlPoints * trade.qty);
 
         this.closedTrades.push(trade);
         await this.updateBalance(trade);
@@ -814,7 +815,7 @@ export class TradingSessionService {
     let rrValue = undefined;
 
     if (current !== undefined && Number.isFinite(current) && Number.isFinite(entry)) {
-      pnl = (direction === 'LONG' ? (current - entry) * (anyTrade.qty ?? 0) : (entry - current) * (anyTrade.qty ?? 0));
+      pnl = roundEight(direction === 'LONG' ? (current - entry) * (anyTrade.qty ?? 0) : (entry - current) * (anyTrade.qty ?? 0));
       anyTrade.pnl = pnl; // BOLT: Persist current PnL on the trade object for O(1) access in stats
       const risk = Math.abs(entry - (anyTrade.initial_sl ?? anyTrade.current_sl ?? anyTrade.sl_price ?? anyTrade.sl ?? entry)) || 1;
       rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / risk;
@@ -965,8 +966,8 @@ export class TradingSessionService {
     const startingBalance = (mode === 'paper')
       ? this.config?.paper_starting_balance
       : this.config?.live_starting_balance;
-    const realizedPnl = balance - (startingBalance ?? balance);
-    const totalPnl = realizedPnl + activePnl;
+    const realizedPnl = roundEight(balance - (startingBalance ?? balance));
+    const totalPnl = roundEight(realizedPnl + activePnl);
     const totalRiskUsdt = this.positionTracker.totalRisk();
 
     // BOLT OPTIMIZATION: Cache analytics results to avoid O(N log N) sorting in the 1s hot loop.
@@ -1093,7 +1094,7 @@ export class TradingSessionService {
   private async updateBalance(trade: Trade) {
     const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
     if (mode === 'paper') {
-      this.balancePaper += trade.pnl || 0;
+      this.balancePaper = roundEight(this.balancePaper + (trade.pnl || 0));
     } else if (this.binanceClient) {
       // For real modes, fetch actual balance to account for fees and slippage
       const balance = await this.fetchBinanceBalance();
@@ -1102,8 +1103,8 @@ export class TradingSessionService {
         this.balancePaper = balance;
       } else {
         // Fallback to manual calculation if API fails
-        this.balanceLive += trade.pnl || 0;
-        this.balancePaper += trade.pnl || 0;
+        this.balanceLive = roundEight(this.balanceLive + (trade.pnl || 0));
+        this.balancePaper = roundEight(this.balancePaper + (trade.pnl || 0));
       }
     }
 
@@ -1198,7 +1199,7 @@ export class TradingSessionService {
       if (!stats[label]) {
         stats[label] = { pnl: 0, count: 0, hits: 0 };
       }
-      stats[label].pnl += (trade.pnl || 0);
+      stats[label].pnl = roundEight(stats[label].pnl + (trade.pnl || 0));
       stats[label].count++;
       if ((trade.pnl || 0) > 0) stats[label].hits++;
     }
@@ -1226,8 +1227,8 @@ export class TradingSessionService {
        if (!activeGroups[label]) {
          activeGroups[label] = { pnl: 0, risk: 0, count: 0, hits: 0 };
        }
-       activeGroups[label].pnl += (t.pnl || 0);
-       activeGroups[label].risk += (t.risk_usdt || 0);
+       activeGroups[label].pnl = roundEight(activeGroups[label].pnl + (t.pnl || 0));
+       activeGroups[label].risk = roundEight(activeGroups[label].risk + (t.risk_usdt || 0));
        activeGroups[label].count++;
        if ((t.pnl || 0) > 0) activeGroups[label].hits++;
     }
@@ -1238,7 +1239,7 @@ export class TradingSessionService {
       const c = closedStats[label] || { pnl: 0, count: 0, hits: 0 };
 
       variantStats[label] = {
-         totalPnl: Number((c.pnl + a.pnl).toFixed(2)),
+         totalPnl: roundEight(c.pnl + a.pnl),
          entryCount: c.count + a.count,
          hitCount: c.hits + a.hits,
          totalRiskPct: Number((balance > 0 ? (a.risk / balance) * 100 : 0).toFixed(2)),
@@ -1307,6 +1308,16 @@ export class TradingSessionService {
 
   updateRateLimit(used1m: number) {
     this.binanceRateLimit.used_1m = used1m;
+  }
+
+  /**
+   * Proactive Rate Limit Check
+   * Returns true if 1m weight usage is > 80%
+   */
+  isRateLimited(): boolean {
+    const used = this.binanceRateLimit.used_1m || 0;
+    const limit = 1200; // Binance Futures default
+    return (used / limit) > 0.8;
   }
 
   getBinanceRateLimit() {

@@ -2,7 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
 import { SignalEngineService } from './signalEngine';
+import { MarketFeedService } from './market_feed.service';
+import { TradingSessionService } from './trading_session.service';
 import { v4 as uuid } from 'uuid';
+import { roundEight, floorStep, roundTo } from '../lib/math';
 
 @Injectable()
 export class OrderManagerService {
@@ -11,11 +14,37 @@ export class OrderManagerService {
   private binanceClient: any = null;
   private paperMode = true;
 
-  constructor(private readonly signalEngine: SignalEngineService) {}
+  constructor(
+    private readonly signalEngine: SignalEngineService,
+    private readonly marketFeed: MarketFeedService,
+    private readonly tradingSession: TradingSessionService
+  ) {}
 
   setBinanceClient(client: any, paperMode = true) {
     this.binanceClient = client;
     this.paperMode = paperMode;
+  }
+
+  private applyFilters(symbol: string, price: number, qty: number) {
+    const filters = this.marketFeed.getSymbolFilters(symbol);
+    if (!filters) return { price, qty };
+
+    let finalPrice = price;
+    let finalQty = qty;
+
+    const priceFilter = filters.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
+    if (priceFilter) {
+      const tickSize = parseFloat(priceFilter.tickSize);
+      finalPrice = roundEight(Math.round(price / tickSize) * tickSize);
+    }
+
+    const lotSize = filters.filters.find((f: any) => f.filterType === 'LOT_SIZE');
+    if (lotSize) {
+      const stepSize = parseFloat(lotSize.stepSize);
+      finalQty = floorStep(qty, stepSize);
+    }
+
+    return { price: finalPrice, qty: finalQty };
   }
 
   async enter(
@@ -29,6 +58,20 @@ export class OrderManagerService {
     metadata: Pick<Trade, 'strategy_label' | 'strategy_config'> = {},
   ): Promise<Trade | null> {
     try {
+      const filtered = this.applyFilters(symbol, entryPrice, qty);
+      const filteredSl = this.applyFilters(symbol, slPrice, qty).price;
+      const filteredTp = tpPrice ? this.applyFilters(symbol, tpPrice, qty).price : null;
+
+      entryPrice = filtered.price;
+      qty = filtered.qty;
+      slPrice = filteredSl;
+      tpPrice = filteredTp;
+
+      if (qty <= 0) {
+        this.logger.warn(`${symbol}: Position size too small after LOT_SIZE filtering.`);
+        return null;
+      }
+
       const trade = {
         id: uuid(),
         symbol,
@@ -47,7 +90,7 @@ export class OrderManagerService {
         entry_signal_confidence: 1.0,
         pnl: 0,
         pnl_pct: 0,
-        risk_usdt: Math.abs(entryPrice - slPrice) * qty,
+        risk_usdt: roundEight(Math.abs(entryPrice - slPrice) * qty),
         sessionId,
         strategy_label: metadata.strategy_label,
         strategy_config: metadata.strategy_config,
@@ -89,6 +132,9 @@ export class OrderManagerService {
    * Place a STOP_MARKET order on Binance for stop loss protection
    */
   async placeStopLoss(trade: Trade, slPrice: number): Promise<string | null> {
+    const filtered = this.applyFilters(trade.symbol, slPrice, trade.qty);
+    slPrice = filtered.price;
+
     if (this.paperMode || !this.binanceClient) return null;
 
     try {
@@ -118,6 +164,17 @@ export class OrderManagerService {
    */
   async updateStopLoss(trade: Trade, newSlPrice: number): Promise<void> {
     if (this.paperMode || !this.binanceClient) return;
+
+    // BOLT: Proactive Rate Limit - Skip non-critical SL updates if near limits
+    // We only skip if the gap is small, otherwise it's critical protection
+    if (this.tradingSession.isRateLimited()) {
+       const risk = Math.abs(trade.entry_price - trade.initial_sl);
+       const move = Math.abs(newSlPrice - trade.current_sl);
+       if (move < (risk * 0.1)) {
+          this.logger.debug(`Skipping SL update for ${trade.symbol} due to rate limits (small move: ${move.toFixed(4)})`);
+          return;
+       }
+    }
 
     // Cancel existing SL order if it exists
     if (trade.binance_stop_order_id) {
@@ -259,8 +316,8 @@ export class OrderManagerService {
         ? exitPrice - trade.entry_price
         : trade.entry_price - exitPrice;
 
-      const pnl = pnlPoints * trade.qty || 0;
-      const pnlPct = (pnlPoints / trade.entry_price) * 100;
+      const pnl = roundEight(pnlPoints * trade.qty || 0);
+      const pnlPct = roundEight((pnlPoints / trade.entry_price) * 100);
 
       // Update trade
       trade.exit_price = exitPrice;

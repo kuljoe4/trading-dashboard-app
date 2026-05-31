@@ -56,6 +56,9 @@ export class MarketFeedService {
   }
 
   async start(config: SessionConfig) {
+    if (this.running) {
+      await this.stop();
+    }
     this.running = true;
     if (config.debug_mode) {
       this.logger.verbose('MarketFeed starting');
@@ -209,6 +212,7 @@ export class MarketFeedService {
   }
 
   private startWatchlistManager(config: SessionConfig) {
+    if (this.watchlistInterval) clearInterval(this.watchlistInterval);
     this.updateWatchlist(config);
     this.watchlistInterval = setInterval(() => this.updateWatchlist(config), 60000);
   }
@@ -255,7 +259,6 @@ export class MarketFeedService {
       }
 
       // 3. Active Trade Symbols (CRITICAL for exit signals)
-      const activeTrades = this.tradingSession.getStatus().activeTrades;
       for (const trade of activeTrades) {
         const t = trade as any;
         if (!newWatchlist.has(t.symbol)) newWatchlist.set(t.symbol, new Set());

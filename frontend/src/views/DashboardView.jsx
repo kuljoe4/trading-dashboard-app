@@ -156,7 +156,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
   );
 })
 
-const GateBanner = ({ gateState, scannerPaused, reason, activeTradesCount }) => {
+const GateBanner = ({ gateState, scannerPaused, reason, hibernating, activeTradesCount }) => {
   if (!gateState && !scannerPaused) return null
 
   const messages = {
@@ -178,13 +178,19 @@ const GateBanner = ({ gateState, scannerPaused, reason, activeTradesCount }) => 
       className={cn(
         "p-4 rounded-xl mb-6 text-xs font-bold border flex flex-col gap-2 shadow-sm transition-colors",
         scannerPaused ? "bg-red/10 border-red/20 text-red" : "bg-amber/10 border-amber/20 text-amber",
-        isGatedIdle && "bg-accent/5 border-accent/20 text-accent/80"
+        (hibernating || isGatedIdle) && "bg-accent/5 border-accent/20 text-accent/80"
       )}
     >
       <div className="flex items-center gap-3">
-        {gateState === 'sleeping' ? <Pause size={16} className="animate-pulse" /> : <XCircle size={16} className={scannerPaused ? "animate-pulse" : ""} />}
+        {hibernating ? <Zap size={16} className="text-accent animate-pulse opacity-50" /> : gateState === 'sleeping' ? <Pause size={16} className="animate-pulse" /> : <XCircle size={16} className={scannerPaused ? "animate-pulse" : ""} />}
         <span className="uppercase tracking-widest">{messages[gateState] || 'Risk gate active.'}</span>
-        {isGatedIdle && (
+        {hibernating ? (
+           <Tooltip content="Deep Sleep (Hibernation) Active: All market data connections closed to save maximum CPU/Memory. Engine will wake up automatically when limit expires.">
+            <div className="ml-auto bg-accent/20 px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border border-accent/40 text-accent">
+              <Zap size={10} fill="currentColor" /> DEEP SLEEP
+            </div>
+          </Tooltip>
+        ) : isGatedIdle && (
           <Tooltip content="Resource Suppression Active: Market feed and scanner are throttled to save CPU/Memory while idle.">
             <div className="ml-auto bg-accent/10 px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border border-accent/20">
               <Leaf size={10} /> RESOURCE SAVER
@@ -287,7 +293,7 @@ export function DashboardView() {
   const {
     sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
     totalSlUsed, activeTrades, config, setSessionActive,
-    updateConfig, gateState,
+    updateConfig, gateState, hibernating,
     scannerPaused, sessionList, fetchSessions, wsStatus,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount
   } = useTradingStore(state => ({
@@ -304,6 +310,7 @@ export function DashboardView() {
     updateConfig: state.updateConfig,
     gateState: state.gateState,
     gateReason: state.gateReason,
+    hibernating: state.hibernating,
     scannerPaused: state.scannerPaused,
     sessionList: state.sessionList,
     fetchSessions: state.fetchSessions,
@@ -529,6 +536,7 @@ export function DashboardView() {
           gateState={gateState}
           scannerPaused={scannerPaused}
           reason={gateReason}
+          hibernating={hibernating}
           activeTradesCount={activeTrades.length}
         />
 

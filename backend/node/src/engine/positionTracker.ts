@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
 import { RiskEngineService } from './riskEngine';
@@ -18,6 +18,7 @@ export class PositionTrackerService {
   constructor(
     private readonly riskEngine: RiskEngineService,
     private readonly signalEngine: SignalEngineService,
+    @Inject(forwardRef(() => OrderManagerService))
     private readonly orderManager: OrderManagerService,
     private readonly tickerCache: TickerCacheService,
     private readonly klineStore: KlineStoreService,

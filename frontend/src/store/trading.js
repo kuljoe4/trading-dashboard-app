@@ -72,6 +72,8 @@ const normalizeTrade = (trade = {}, prevTrade = null) => {
       exit_signal_logic: trade.exit_signal_logic || prev.exit_signal_logic,
       tp_mode: trade.tp_mode || prev.tp_mode,
       tp_ratio: trade.tp_ratio !== undefined ? toNumber(trade.tp_ratio) : prev.tp_ratio,
+      // Flag to indicate this trade has full details cached
+      _is_full: prev._is_full || !trade._thin
     };
   }
 
@@ -410,11 +412,14 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
         set((state) => {
           const stopped = data.running === false
           let nextTrades = state.activeTrades;
+
           if (stopped) {
             nextTrades = [];
           } else if (data.activeTrades) {
-            const prevMap = new Map(state.activeTrades.map(t => [t.symbol, t]));
-            nextTrades = data.activeTrades.map(t => normalizeTrade(t, prevMap.get(t.symbol))).filter(Boolean);
+              // If we are in focus mode and receive a status update that is thin,
+              // we must be careful not to overwrite our rich local state.
+              const prevMap = new Map(state.activeTrades.map(t => [t.id || t.symbol, t]));
+              nextTrades = data.activeTrades.map(t => normalizeTrade(t, prevMap.get(t.id || t.symbol))).filter(Boolean);
           }
 
           return {
@@ -481,13 +486,14 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
           let tradesChanged = false;
 
           if (data.trades) {
-            const tradeMap = new Map(state.activeTrades.map(t => [t.id, t]));
+            const tradeMap = new Map(state.activeTrades.map(t => [t.id || t.symbol, t]));
 
             data.trades.forEach(t => {
-               const prev = tradeMap.get(t.id);
+               const key = t.id || t.symbol;
+               const prev = tradeMap.get(key);
                const normalized = normalizeTrade(t, prev);
                if (normalized) {
-                 tradeMap.set(t.id, normalized);
+                 tradeMap.set(key, normalized);
                  tradesChanged = true;
                }
             });

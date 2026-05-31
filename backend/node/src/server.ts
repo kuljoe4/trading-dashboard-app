@@ -245,19 +245,21 @@ async function bootstrap() {
       if (payload.type === "tick") {
         const tick = { ...payload };
 
-        // BOLT: Aggressive View-Based Pruning
-        // If the client is NOT in focus mode (Dashboard view), strip ALL trades to save network
-        if (!client.focusMode) {
-          tick.trades = [];
-          tick.activeWindows = [];
-        } else if (tick.trades && Array.isArray(tick.trades)) {
+          // BOLT: Tiered Data Fidelity Logic
+        if (tick.trades && Array.isArray(tick.trades)) {
           tick.trades = tick.trades.map((trade: any) => {
-            const isFocused =
-              client.focusTradeId === trade.id ||
-              client.focusStrategyLabel === trade.strategy_label;
+              // 1. Full Fidelity: ONLY for a specific focused trade ID
+              const isFullFidelity = client.focusMode && client.focusTradeId === trade.id;
 
-            // If not specifically focused on this trade, strip heavy details
-            if (!isFocused) {
+              // 2. Mid Fidelity: For a strategy list or the global trades view
+              const isMidFidelity = client.focusMode &&
+                (client.focusTradeId === "all" || client.focusStrategyLabel === trade.strategy_label);
+
+              if (isFullFidelity) {
+                return trade;
+              }
+
+              // Strip heavy diagnostics for everyone else
               const {
                 strategy_config,
                 live_rr_sequence,
@@ -266,12 +268,26 @@ async function bootstrap() {
                 sl_adjustments,
                 tp_mode,
                 tp_ratio,
+                exit_signal_logic,
                 ...thinTrade
               } = trade;
-              return { ...thinTrade, _thin: true };
+
+              if (isMidFidelity) {
+                return {
+                  ...thinTrade,
+                  live_rr_sequence: trade.live_rr_sequence,
+                  exit_rr_sequence: trade.exit_rr_sequence,
+                  _thin: true,
+                };
             }
-            return trade;
+
+              // Low Fidelity: For Dashboard overview (No sequences, no logs)
+              return { ...thinTrade, _thin: true };
           });
+        }
+
+        if (!client.focusMode) {
+          tick.activeWindows = [];
         }
 
         if (client.monitoringEnabled === false) {
@@ -380,9 +396,22 @@ async function bootstrap() {
           updateMonitoringSuppression();
         }
         if (data.type === "set_focus_mode") {
+          const wasFocused = socket.focusMode;
           socket.focusMode = data.enabled === true;
           socket.focusTradeId = data.tradeId || null;
           socket.focusStrategyLabel = data.strategyLabel || null;
+
+          // If becoming focused, immediately broadcast the current session state to the client
+          // to prevent UI "data gaps" during transition.
+          if (!wasFocused && socket.focusMode) {
+            const tradingSessionService = app.get(TradingSessionService);
+            const status = tradingSessionService.getStatus();
+            socket.send(JSON.stringify({
+              type: "status",
+              ...status,
+              _forced: true
+            }));
+          }
         }
         if (data.type === "set_active") {
           const wasActive = socket.isActive;

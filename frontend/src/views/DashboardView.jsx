@@ -10,7 +10,8 @@ import {
 import {
   ChevronLeft, Plus, Trash2, LayoutDashboard, History,
   Settings as SettingsIcon, Activity, Zap, ShieldCheck,
-  BarChart3, XCircle, Pause, Play, Edit3, RefreshCw, Leaf
+  BarChart3, XCircle, Pause, Play, Edit3, RefreshCw, Leaf,
+  Briefcase, TrendingUp, ArrowRight
 } from 'lucide-react'
 import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -281,8 +282,8 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
   )
 }
 
-export function DashboardView() {
-  const [selected, setSelected] = useState(null)
+export function DashboardView({ initialStrategy }) {
+  const [selected, setSelected] = useState(initialStrategy || null)
   const [showConfig, setShowConfig] = useState(false)
   const [showScanner, setShowScanner] = useState(false)
   const [isEditMode, setIsEditMode] = useState(false)
@@ -556,7 +557,7 @@ export function DashboardView() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.2 }}
-          className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10"
+          className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6"
         >
           <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} />
           <StatCard
@@ -569,6 +570,43 @@ export function DashboardView() {
           <StatCard label="Live Risk" value={`${Number(totalRiskPct || 0).toFixed(1)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
           <StatCard label="Peak RR" value={`+${Number(maxRR || 0).toFixed(2)}`} color="text-accent" />
         </motion.div>
+
+        {/* Active Positions Overview Banner */}
+        <AnimatePresence>
+          {activeTrades.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mb-10 overflow-hidden"
+            >
+              <button
+                onClick={() => window.location.hash = '#/trades'}
+                className="w-full bg-accent/5 border border-accent/20 rounded-2xl p-4 flex items-center justify-between group hover:bg-accent/10 transition-all"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-accent text-white flex items-center justify-center shadow-lg shadow-accent/20">
+                    <Briefcase size={20} />
+                  </div>
+                  <div className="text-left">
+                    <div className="text-sm font-bold flex items-center gap-2">
+                      {activeTrades.length} Active Positions
+                      <span className="text-[10px] bg-accent/20 text-accent px-1.5 py-0.5 rounded uppercase tracking-wider">Live</span>
+                    </div>
+                    <div className="text-[11px] text-dim font-bold uppercase tracking-widest mt-0.5">
+                      Total Unrealized: <span className={activeTrades.reduce((acc, t) => acc + (t.pnl || 0), 0) >= 0 ? "text-green" : "text-red"}>
+                        {fmtUSD(activeTrades.reduce((acc, t) => acc + (t.pnl || 0), 0))}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 text-accent font-bold text-[10px] uppercase tracking-widest">
+                  Monitor All <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                </div>
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Main Grid */}
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-10">

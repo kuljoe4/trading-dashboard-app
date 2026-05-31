@@ -238,30 +238,13 @@ const ExitMonitor = React.memo(({ status, logic }) => {
   );
 });
 
-export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpanded = false }) => {
-  const { config, setFocusMode } = useTradingStore((state) => ({
-    config: state.config,
-    setFocusMode: state.setFocusMode
+export const ActiveTradeBar = React.memo(({ trade, compact = false }) => {
+  const { config } = useTradingStore((state) => ({
+    config: state.config
   }))
 
   const [isClosing, setIsClosing] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
-  const [isExpanded, setIsExpanded] = useState(initialExpanded)
-
-  useEffect(() => {
-    if (isExpanded && trade?.id) {
-      setFocusMode(true, trade.id);
-    } else {
-      // Note: We don't strictly set to false here as other components might have focus,
-      // but in this app's architecture, only one detail view is open at a time usually.
-      // Better to check if this specific trade was focused.
-    }
-
-    // Cleanup focus when unmounting or collapsing
-    return () => {
-       if (isExpanded) setFocusMode(false, null);
-    };
-  }, [isExpanded, trade?.id, setFocusMode]);
 
   useEffect(() => {
     if (confirmClose) {
@@ -387,106 +370,55 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false, initialExpan
         </div>
       </div>
 
-      <AnimatePresence>
-        {isExpanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden"
-          >
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 mb-8 p-5 bg-surface/50 rounded-2xl border border-border/50">
-              {[
-                ['QTY', trade.qty != null ? `${trade.qty}` : '---', <Target size={14} className="text-dim" />],
-                ['OPENED', entryTime ? new Date(entryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '---', <Clock size={14} className="text-accent" />],
-                ['INITIAL SL', price(trade.initial_sl), <ShieldAlert size={14} className="text-red/60" />],
-                ['LIVE SL', price(trade.sl_price), <ShieldAlert size={14} className="text-red" />],
-              ].map(([k, v, icon]) => (
-                <div key={k} className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    {icon}
-                    <span className="text-[10px] text-dim font-bold tracking-widest uppercase">{k}</span>
-                  </div>
-                  <div className="text-[14px] text-text font-bold font-mono tracking-tight">{v}</div>
-                </div>
-              ))}
-            </div>
+      <div className="space-y-4 px-1 relative mb-8">
+        <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest mb-1">
+          <span className="text-red flex items-center gap-2">
+            <ShieldAlert size={14} />
+            STOP LOSS: {price(trade.sl_price)}
+          </span>
+          <span className={cn("flex items-center gap-2", fixedTarget == null ? "text-accent" : "text-green")}>
+            <Target size={14} />
+            {fixedTarget == null ? 'RUNWAY ACTIVE' : `TARGET: ${price(fixedTarget)}`}
+          </span>
+        </div>
 
-            <div className="space-y-4 px-1 relative mb-8">
-              <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest mb-1">
-                <span className="text-red flex items-center gap-2">
-                  <ShieldAlert size={14} />
-                  STOP LOSS: {price(trade.sl_price)}
-                </span>
-                <span className={cn("flex items-center gap-2", fixedTarget == null ? "text-accent" : "text-green")}>
-                  <Target size={14} />
-                  {fixedTarget == null ? 'RUNWAY ACTIVE' : `TARGET: ${price(fixedTarget)}`}
-                </span>
-              </div>
-
-              <div
-                role="progressbar"
-                aria-valuenow={progress}
-                aria-valuemin="0"
-                aria-valuemax="100"
-                className="h-3 bg-border rounded-full relative overflow-hidden shadow-inner"
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-red/10 via-background/0 to-green/10" />
-                <div
-                  className={cn("absolute h-full transition-all duration-1000 ease-out", isWinning ? "bg-green/40 shadow-[0_0_15px_rgba(0,229,160,0.4)]" : "bg-red/40")}
-                  style={{ width: `${progress ?? 0}%` }}
-                />
-              </div>
-
-              <div className="relative h-4 -mt-7 mb-4">
-                <div
-                  className={cn(
-                    "absolute w-5 h-5 rounded-full border-2 border-surface shadow-xl z-20 transition-all duration-500 ease-out",
-                    isWinning ? "bg-green" : "bg-red"
-                  )}
-                  style={{ left: `${progress ?? 0}%`, transform: 'translateX(-50%)' }}
-                />
-              </div>
-
-              <div className="flex justify-between text-[9px] text-dim font-bold uppercase tracking-tighter opacity-50 px-0.5">
-                <span>{slDist}% INITIAL RISK</span>
-                <span>POTENTIAL TARGET</span>
-              </div>
-              <div className="flex justify-between text-[9px] text-dim font-bold uppercase tracking-tighter mt-0.5 px-0.5">
-                <span>Time Ago: <span className="font-bold text-text">{timeSince(entryTime)}</span></span>
-                <span className="text-dim/40 italic">Live Tracking</span>
-              </div>
-            </div>
-
-            {trade._thin && (!trade.exit_signals_status || Object.keys(trade.exit_signals_status).length === 0) ? (
-              <div className="py-10 flex flex-col items-center justify-center gap-4 bg-surface/30 rounded-2xl border border-border/40 border-dashed">
-                <Loader2 size={24} className="animate-spin text-accent/40" />
-                <span className="text-[10px] text-dim font-bold uppercase tracking-[0.2em]">Retrieving Deep Diagnostics...</span>
-              </div>
-            ) : (
-              <>
-                {isExpRR && <RRLadder trade={trade} />}
-                <ExitMonitor status={trade.exit_signals_status} logic={trade.exit_signal_logic} />
-              </>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <div className="mt-6 flex gap-3">
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          aria-expanded={isExpanded}
-          className="flex-1 px-4 py-3 bg-surface border border-border hover:border-accent/40 text-text rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2"
+        <div
+          role="progressbar"
+          aria-valuenow={progress}
+          aria-valuemin="0"
+          aria-valuemax="100"
+          className="h-3 bg-border rounded-full relative overflow-hidden shadow-inner"
         >
-          <motion.div
-            animate={{ rotate: isExpanded ? 180 : 0 }}
-            transition={{ duration: 0.3 }}
-            className="flex items-center justify-center"
-          >
-            <ChevronDown size={16} />
-          </motion.div>
-          {isExpanded ? 'Hide Details' : 'View Details'}
+          <div className="absolute inset-0 bg-gradient-to-r from-red/10 via-background/0 to-green/10" />
+          <div
+            className={cn("absolute h-full transition-all duration-1000 ease-out", isWinning ? "bg-green/40 shadow-[0_0_15px_rgba(0,229,160,0.4)]" : "bg-red/40")}
+            style={{ width: `${progress ?? 0}%` }}
+          />
+        </div>
+
+        <div className="relative h-4 -mt-7 mb-4">
+          <div
+            className={cn(
+              "absolute w-5 h-5 rounded-full border-2 border-surface shadow-xl z-20 transition-all duration-500 ease-out",
+              isWinning ? "bg-green" : "bg-red"
+            )}
+            style={{ left: `${progress ?? 0}%`, transform: 'translateX(-50%)' }}
+          />
+        </div>
+
+        <div className="flex justify-between text-[9px] text-dim font-bold uppercase tracking-tighter opacity-50 px-0.5">
+          <span>{slDist}% INITIAL RISK</span>
+          <span>{fixedTarget == null ? 'UNLIMITED TARGET' : 'FIXED TARGET'}</span>
+        </div>
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          onClick={() => window.location.hash = `#/trade/${trade.id || trade.symbol}`}
+          className="flex-1 px-4 py-3 bg-surface border border-border hover:border-accent/40 text-text rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2 group"
+        >
+          <ExternalLink size={16} className="group-hover:text-accent transition-colors" />
+          Manage & Diagnose
         </button>
         <button
           onClick={() => {

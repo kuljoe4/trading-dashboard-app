@@ -1,0 +1,91 @@
+import React from 'react'
+import { useTradingStore } from '../store/trading'
+import { ActiveTradeBar } from '../components/ActiveTradeBar'
+import { SectionLabel, StatCard } from '../components/ui/primitives'
+import { fmtUSD } from '../lib/theme'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Briefcase, Zap, AlertCircle } from 'lucide-react'
+
+const Breadcrumbs = () => (
+  <nav className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-dim mb-6">
+    <button onClick={() => window.location.hash = '#/'} className="hover:text-text transition-colors">Cockpit</button>
+    <span>/</span>
+    <span className="text-text">All Active Trades</span>
+  </nav>
+)
+
+const TradesView = () => {
+  const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, setFocusMode } = useTradingStore()
+
+  React.useEffect(() => {
+    // Focused on all trades
+    setFocusMode(true, 'all', null);
+    return () => setFocusMode(false, null, null);
+  }, [setFocusMode]);
+
+  return (
+    <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <Breadcrumbs />
+      <div className="flex items-center gap-4 mb-10">
+        <div className="w-12 h-12 rounded-2xl bg-accent/10 flex items-center justify-center text-accent shadow-sm border border-accent/20">
+          <Briefcase size={24} />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold">Active Positions</h1>
+          <p className="text-dim text-xs font-bold uppercase tracking-widest mt-1">Live monitoring across all strategies</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
+        <StatCard
+          label="Unrealized P&L"
+          value={fmtUSD(activeTrades.reduce((acc, t) => acc + (t.pnl || 0), 0))}
+          color={activeTrades.reduce((acc, t) => acc + (t.pnl || 0), 0) >= 0 ? "text-green" : "text-red"}
+        />
+        <StatCard label="Active Risk" value={`${totalRiskPct.toFixed(2)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
+        <StatCard label="Positions" value={activeTrades.length.toString()} color="text-accent" />
+      </div>
+
+      <div className="space-y-6">
+        <SectionLabel>Live Tactical Map</SectionLabel>
+
+        {activeTrades.length === 0 ? (
+          <div className="bg-surface/20 border border-border border-dashed rounded-3xl p-20 flex flex-col items-center justify-center text-center">
+            <div className="w-16 h-16 rounded-full bg-surface border border-border flex items-center justify-center mb-6 text-dim/20">
+              <Zap size={32} />
+            </div>
+            <h3 className="text-lg font-bold mb-2">No Active Trades</h3>
+            <p className="text-dim text-sm max-w-xs mx-auto">
+              The engine is currently scanning for opportunities. New positions will appear here in real-time.
+            </p>
+          </div>
+        ) : (
+          <AnimatePresence mode="popLayout">
+            {activeTrades.map((trade, idx) => (
+              <motion.div
+                key={trade.id || trade.symbol}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ delay: idx * 0.05 }}
+              >
+                <ActiveTradeBar trade={trade} initialExpanded={activeTrades.length === 1} />
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        )}
+      </div>
+
+      {activeTrades.length > 0 && (
+        <div className="mt-10 p-4 bg-accent/5 border border-accent/10 rounded-2xl flex items-start gap-4">
+          <AlertCircle size={18} className="text-accent shrink-0 mt-0.5" />
+          <div className="text-[11px] leading-relaxed text-accent/80 font-medium">
+            <strong>Pro Tip:</strong> Click on a position to expand full details including SL adjustments, technical signals, and the RR ladder. All calculations are performed in real-time using live WebSocket data.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default TradesView

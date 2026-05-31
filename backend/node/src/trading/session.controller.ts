@@ -70,6 +70,11 @@ export class SessionController {
     return this.sessionService.getStatus();
   }
 
+  @Get('trade/:id')
+  async getTrade(@Param('id') id: string) {
+    return this.sessionService.getTrade(id);
+  }
+
   @Get('binance/rate-limit')
   async getBinanceRateLimit() {
     return this.sessionService.getBinanceRateLimit();

@@ -225,7 +225,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   // UX Settings
   healthEnabled: localStorage.getItem('health_enabled') !== 'false',
   streamingEnabled: localStorage.getItem('streaming_enabled') !== 'false',
-  debugToolsEnabled: localStorage.getItem('debug_tools_enabled') === 'true',
+  debugToolsEnabled: new URLSearchParams(window.location.search).get('debug') === 'true',
   sidebarCollapsed: localStorage.getItem('sidebar_collapsed') === 'true',
   isThrottled: false,
   entryCount: 0,
@@ -259,11 +259,6 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   setStreamingEnabled: (enabled) => {
     localStorage.setItem('streaming_enabled', enabled)
     set({ streamingEnabled: enabled })
-  },
-
-  setDebugToolsEnabled: (enabled) => {
-    localStorage.setItem('debug_tools_enabled', enabled)
-    set({ debugToolsEnabled: enabled })
   },
 
   setFocusMode: (focused, tradeId = null, strategyLabel = null) => {

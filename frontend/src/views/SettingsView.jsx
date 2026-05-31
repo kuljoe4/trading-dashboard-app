@@ -7,7 +7,7 @@ import { useTradingStore } from '../store/trading'
 import { Sidebar, BottomNav } from '../components/Navigation'
 
 export function SettingsView() {
-  const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, debugToolsEnabled, setDebugToolsEnabled, sidebarCollapsed, logFilters, toggleLogFilter, resetPaperBalance } = useTradingStore()
+  const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, sidebarCollapsed, logFilters, toggleLogFilter, resetPaperBalance } = useTradingStore()
   const [apiKey, setApiKey] = useState('')
   const [apiSecret, setApiSecret] = useState('')
   const [showLiveSecret, setShowLiveSecret] = useState(false)
@@ -173,33 +173,6 @@ export function SettingsView() {
                   <div className={cn(
                     "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
                     streamingEnabled ? "translate-x-7" : "translate-x-1"
-                  )} />
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between gap-4 pt-8 border-t border-border/50">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-amber/10 flex items-center justify-center">
-                    <Bug size={20} className="text-amber" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold uppercase tracking-tight">Developer Debug Console</h3>
-                    <p className="text-[11px] text-dim font-medium uppercase mt-1">Uses an externally loaded Eruda global; no debug bundle is shipped</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setDebugToolsEnabled(!debugToolsEnabled)}
-                  role="switch"
-                  aria-checked={debugToolsEnabled}
-                  aria-label="Toggle Developer Debug Console"
-                  className={cn(
-                    "w-12 h-6 rounded-full transition-colors relative shrink-0",
-                    debugToolsEnabled ? "bg-amber" : "bg-border"
-                  )}
-                >
-                  <div className={cn(
-                    "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
-                    debugToolsEnabled ? "translate-x-7" : "translate-x-1"
                   )} />
                 </button>
               </div>

@@ -31,30 +31,36 @@ const App = () => {
   }, [isHidden, setThrottled]);
 
   useEffect(() => {
-    const eruda = window.eruda;
+    let script = null;
 
     if (debugToolsEnabled) {
-      if (eruda && typeof eruda.init === 'function') {
-        if (!window.__momentumDebugToolsActive) {
-          eruda.init();
+      const initEruda = () => {
+        if (window.eruda && !window.__momentumDebugToolsActive) {
+          window.eruda.init();
           window.__momentumDebugToolsActive = true;
         }
+      };
+
+      if (window.eruda) {
+        initEruda();
       } else {
-        // Dynamically load Eruda from CDN if not present
-        const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/eruda';
-        script.onload = () => {
-          if (window.eruda) {
-            window.eruda.init();
-            window.__momentumDebugToolsActive = true;
-          }
-        };
-        document.body.appendChild(script);
+        const existingScript = document.querySelector('script[src*="eruda"]');
+        if (!existingScript) {
+          script = document.createElement('script');
+          script.src = 'https://cdn.jsdelivr.net/npm/eruda';
+          script.async = true;
+          script.onload = initEruda;
+          document.body.appendChild(script);
+        }
       }
-    } else if (!debugToolsEnabled && window.__momentumDebugToolsActive && eruda && typeof eruda.destroy === 'function') {
-      eruda.destroy();
-      window.__momentumDebugToolsActive = false;
     }
+
+    return () => {
+      if (window.__momentumDebugToolsActive && window.eruda && typeof window.eruda.destroy === 'function') {
+        window.eruda.destroy();
+        window.__momentumDebugToolsActive = false;
+      }
+    };
   }, [debugToolsEnabled]);
 
   useEffect(() => {

@@ -220,10 +220,11 @@ export class MarketFeedService {
     try {
       const newWatchlist = new Map<string, Set<string>>();
       const isGated = this.tradingSession.isGated();
-      const activeTrades = this.tradingSession.getStatus().activeTrades;
+      const tradingStatus = this.tradingSession.getStatus();
+      const activeTradesForWatchlist = tradingStatus.activeTrades;
 
       // 1. Global Scanner Symbols (Skip if gated and no active trades to save resources)
-      if (config.global_scanner_enabled !== false && !(isGated && activeTrades.length === 0)) {
+      if (config.global_scanner_enabled !== false && !(isGated && activeTradesForWatchlist.length === 0)) {
         let symbols: string[];
         if (config.symbols && config.symbols.length > 0) {
           symbols = config.symbols;
@@ -256,8 +257,7 @@ export class MarketFeedService {
       }
 
       // 3. Active Trade Symbols (CRITICAL for exit signals)
-      const activeTrades = this.tradingSession.getStatus().activeTrades;
-      for (const trade of activeTrades) {
+      for (const trade of activeTradesForWatchlist) {
         const t = trade as any;
         if (!newWatchlist.has(t.symbol)) newWatchlist.set(t.symbol, new Set());
 

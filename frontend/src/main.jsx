@@ -33,9 +33,24 @@ const App = () => {
   useEffect(() => {
     const eruda = window.eruda;
 
-    if (debugToolsEnabled && eruda && typeof eruda.init === 'function' && !window.__momentumDebugToolsActive) {
-      eruda.init();
-      window.__momentumDebugToolsActive = true;
+    if (debugToolsEnabled) {
+      if (eruda && typeof eruda.init === 'function') {
+        if (!window.__momentumDebugToolsActive) {
+          eruda.init();
+          window.__momentumDebugToolsActive = true;
+        }
+      } else {
+        // Dynamically load Eruda from CDN if not present
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/eruda';
+        script.onload = () => {
+          if (window.eruda) {
+            window.eruda.init();
+            window.__momentumDebugToolsActive = true;
+          }
+        };
+        document.body.appendChild(script);
+      }
     } else if (!debugToolsEnabled && window.__momentumDebugToolsActive && eruda && typeof eruda.destroy === 'function') {
       eruda.destroy();
       window.__momentumDebugToolsActive = false;
@@ -46,8 +61,8 @@ const App = () => {
     const handleKeyDown = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
 
-      if (e.key === '1') window.location.hash = '#/';
-      if (e.key === '2') window.location.hash = '#/history';
+      if (e.key === '1' || e.key.toLowerCase() === 'c') window.location.hash = '#/';
+      if (e.key === '2' || e.key.toLowerCase() === 'h') window.location.hash = '#/history';
       if (e.key === '3') window.location.hash = '#/settings';
       if (e.key.toLowerCase() === 's') window.dispatchEvent(new Event('toggle-scanner'));
     };

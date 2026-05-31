@@ -51,8 +51,30 @@ const Chip = React.forwardRef(({ active, onClick, children, activeClass = "borde
 ))
 Chip.displayName = 'Chip'
 
+const flattenConfig = (config) => {
+  if (!config) return {};
+  try {
+    const params = typeof config.signal_params === 'string'
+      ? JSON.parse(config.signal_params || '{}')
+      : config.signal_params || {};
+    return {
+      ...config,
+      signal_params_ma_period: params.ma_period,
+      signal_params_ema_period: params.ema_period,
+      signal_params_entry_ema_period: params.entry_ema_period,
+      signal_params_exit_ema_period: params.exit_ema_period,
+      signal_params_entry_ema_fast: params.entry_ema_fast,
+      signal_params_entry_ema_slow: params.entry_ema_slow,
+      signal_params_exit_ema_fast: params.exit_ema_fast,
+      signal_params_exit_ema_slow: params.exit_ema_slow,
+    };
+  } catch (e) {
+    return { ...config };
+  }
+};
+
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) => {
-  const [cfg, setCfg] = useState({ ...initialConfig })
+  const [cfg, setCfg] = useState(() => flattenConfig(initialConfig))
   const [section, setSection] = useState('scan')
   const [presets, setPresets] = useState([])
   const [presetName, setPresetName] = useState('')
@@ -126,30 +148,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     if (saved) setPresets(JSON.parse(saved))
   }, [])
 
-  useEffect(() => {
-    // Parse signal_params when initialConfig changes
-    if (initialConfig && initialConfig.signal_params) {
-      try {
-        const params = typeof initialConfig.signal_params === 'string'
-          ? JSON.parse(initialConfig.signal_params)
-          : initialConfig.signal_params;
-        setCfg(prev => ({
-          ...prev,
-          ...initialConfig,
-          signal_params_ma_period: params.ma_period,
-          signal_params_ema_period: params.ema_period,
-          signal_params_entry_ema_period: params.entry_ema_period,
-          signal_params_exit_ema_period: params.exit_ema_period,
-          signal_params_entry_ema_fast: params.entry_ema_fast,
-          signal_params_entry_ema_slow: params.entry_ema_slow,
-          signal_params_exit_ema_fast: params.exit_ema_fast,
-          signal_params_exit_ema_slow: params.exit_ema_slow,
-        }));
-      } catch (e) {
-        setCfg({ ...initialConfig })
-      }
-    }
-  }, [initialConfig])
 
   const setField = (key, value) => {
     const next = { ...cfg, [key]: value };

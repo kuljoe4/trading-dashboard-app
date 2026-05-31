@@ -27,3 +27,7 @@
 ## 2026-05-31 - Power-User Navigation Shortcuts
 **Learning:** For high-frequency "cockpit" interfaces, keyboard navigation significantly reduces cognitive load and physical movement, but shortcuts must be discoverable and safe from input focus conflicts.
 **Action:** Implemented global shortcuts (1-3, S) with discoverability hints in tooltips and focus-aware suppression to ensure they don't fire during data entry.
+
+## 2026-05-31 - Semantic Mnemonic Shortcuts
+**Learning:** Numeric shortcuts are efficient but can be harder to remember than mnemonics (C for Cockpit, H for History). Providing both improves recall for different user types.
+**Action:** Expanded global keyboard listeners to include 'C' and 'H' mnemonics and updated sidebar tooltips to communicate these alternative shortcuts, enhancing overall dashboard accessibility.

@@ -691,7 +691,13 @@ export function DashboardView() {
               </div>
               <div className="flex-1 overflow-hidden">
                 <Suspense fallback={<LoadingFallback />}>
-                  <ConfigModal initialConfig={selectedConfig || config} onSave={handleConfigSave} onClose={() => setShowConfig(false)} isEdit={isEditMode} />
+                  <ConfigModal
+                    key={isEditMode ? (selectedConfig?.id || strategyId) : 'new'}
+                    initialConfig={selectedConfig || config}
+                    onSave={handleConfigSave}
+                    onClose={() => setShowConfig(false)}
+                    isEdit={isEditMode}
+                  />
                 </Suspense>
               </div>
             </Drawer.Content>

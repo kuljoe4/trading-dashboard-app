@@ -293,7 +293,7 @@ export function DashboardView() {
   const {
     sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
     totalSlUsed, activeTrades, config, setSessionActive,
-    updateConfig, gateState, hibernating,
+    updateConfig, gateState, gateReason, hibernating,
     scannerPaused, sessionList, fetchSessions, wsStatus,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount
   } = useTradingStore(state => ({

@@ -13,6 +13,16 @@ export interface Candle {
 export class KlineStoreService {
   private readonly logger = new Logger(KlineStoreService.name);
   private klines: Map<string, Candle[]> = new Map();
+  private readonly MAX_CANDLES = this.readMaxCandles();
+
+  private readMaxCandles(): number {
+    const parsed = Number(process.env.KLINE_MAX_CANDLES || 200);
+    return Number.isFinite(parsed) ? Math.min(Math.max(Math.floor(parsed), 50), 500) : 200;
+  }
+
+  getMaxCandles(): number {
+    return this.MAX_CANDLES;
+  }
   private readonly MAX_CANDLES = 500;
   private static readonly EMPTY_ARRAY: Candle[] = [];
 

@@ -31,38 +31,15 @@ const App = () => {
   }, [isHidden, setThrottled]);
 
   useEffect(() => {
-    let cancelled = false;
+    const eruda = window.eruda;
 
-    const toggleEruda = async () => {
-      try {
-        if (debugToolsEnabled) {
-          const eruda = (await import('eruda')).default;
-          if (cancelled || window.__momentumDebugToolsActive) return;
-          
-          // Defensive: ensure window.eruda doesn't conflict if it's not a real instance
-          if (window.eruda && typeof window.eruda.destroy !== 'function') {
-            delete window.eruda;
-          }
-          
-          eruda.init();
-          window.__momentumDebugToolsActive = true;
-        } else if (window.__momentumDebugToolsActive) {
-          const eruda = (await import('eruda')).default;
-          if (eruda && typeof eruda.destroy === 'function') {
-            eruda.destroy();
-          }
-          window.__momentumDebugToolsActive = false;
-        }
-      } catch (e) {
-        console.error('Eruda lifecycle error:', e);
-      }
-    };
-
-    toggleEruda();
-
-    return () => {
-      cancelled = true;
-    };
+    if (debugToolsEnabled && eruda && typeof eruda.init === 'function' && !window.__momentumDebugToolsActive) {
+      eruda.init();
+      window.__momentumDebugToolsActive = true;
+    } else if (!debugToolsEnabled && window.__momentumDebugToolsActive && eruda && typeof eruda.destroy === 'function') {
+      eruda.destroy();
+      window.__momentumDebugToolsActive = false;
+    }
   }, [debugToolsEnabled]);
 
   useEffect(() => {

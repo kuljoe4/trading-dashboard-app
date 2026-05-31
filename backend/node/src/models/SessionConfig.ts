@@ -87,7 +87,7 @@ export class SessionConfig {
   @Min(1)
   @Max(200)
   @IsOptional()
-  watchlist_size: number = 50;
+  watchlist_size: number = 25;
 
   @IsEnum(['both', 'long', 'short'])
   @IsOptional()
@@ -274,12 +274,12 @@ export class SessionConfig {
   @IsNumber()
   @IsOptional()
   @Min(500)
-  hot_loop_interval_ms?: number = 2000;
+  hot_loop_interval_ms?: number = 5000;
 
   @IsNumber()
   @IsOptional()
   @Min(1000)
-  main_loop_interval_ms?: number = 5000;
+  main_loop_interval_ms?: number = 15000;
 
   @IsBoolean()
   @IsOptional()

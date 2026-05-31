@@ -165,7 +165,7 @@ export function SettingsView() {
                   </div>
                   <div>
                     <h3 className="text-sm font-bold uppercase tracking-tight">Developer Debug Console</h3>
-                    <p className="text-[11px] text-dim font-medium uppercase mt-1">Load the in-app diagnostics overlay</p>
+                    <p className="text-[11px] text-dim font-medium uppercase mt-1">Uses an externally loaded Eruda global; no debug bundle is shipped</p>
                   </div>
                 </div>
                 <button

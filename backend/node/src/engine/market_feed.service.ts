@@ -210,7 +210,8 @@ export class MarketFeedService {
 
   private startWatchlistManager(config: SessionConfig) {
     this.updateWatchlist(config);
-    this.watchlistInterval = setInterval(() => this.updateWatchlist(config), 60000);
+    this.watchlistInterval = setInterval(() => this.updateWatchlist(config), 120000);
+    this.watchlistInterval.unref?.();
   }
 
   async updateWatchlist(config: SessionConfig = (this.tradingSession as any).config) {
@@ -433,7 +434,7 @@ export class MarketFeedService {
     await new Promise(resolve => setTimeout(resolve, Math.random() * 2000));
 
     try {
-      const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=500`;
+      const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${this.klineStore.getMaxCandles()}`;
       this.monitoringService.incrementApiRequests();
       const response = await fetch(url);
       this.updateWeight(response.headers);

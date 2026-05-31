@@ -26,3 +26,8 @@
 **Vulnerability:** Maintaining high-frequency market data streams and engine loops for idle or backgrounded clients can lead to resource exhaustion and potential DoS on the server side.
 **Learning:** Resource suppression should be applied as close to the source as possible.
 **Prevention:** Implement "ECO-MODE" floors for loop intervals and strictly suppress data ingestion (miniTickers) when no active traders or listeners are present.
+
+## 2026-05-31 - WebSocket Zombie Connection Protection
+**Vulnerability:** Broken or "zombie" WebSocket connections could remain open indefinitely on the server, leading to resource exhaustion (memory/handles) and potential Denial of Service.
+**Learning:** Modern networking environments (firewalls, load balancers, unstable mobile links) can cause connections to hang in a half-open state where the server believes the client is still connected but no data is flowing.
+**Prevention:** Implement a standard heartbeat (ping/pong) mechanism at the application level. Periodically ping all clients and strictly terminate those that fail to respond within a defined window.

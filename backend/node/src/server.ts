@@ -175,6 +175,23 @@ async function bootstrap() {
     },
   });
 
+  // Heartbeat interval to detect and terminate zombie connections
+  const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach((ws: any) => {
+      if (ws.isAlive === false) {
+        serverLogger.warn("Terminating zombie WebSocket connection");
+        return ws.terminate();
+      }
+
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, 30000);
+
+  wss.on("close", () => {
+    clearInterval(heartbeatInterval);
+  });
+
   const updateMonitoringSuppression = () => {
     const clients = Array.from(wss.clients);
     const anyActive = clients.some((c: any) => c.monitoringEnabled !== false);
@@ -312,6 +329,11 @@ async function bootstrap() {
     // Security/Stability: Every socket MUST have an error handler to prevent process crashes
     socket.on("error", (err: Error) => {
       serverLogger.error(`WebSocket socket error: ${err.message}`);
+    });
+
+    socket.isAlive = true;
+    socket.on("pong", () => {
+      socket.isAlive = true;
     });
 
     socket.monitoringEnabled = true;

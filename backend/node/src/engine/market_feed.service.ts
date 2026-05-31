@@ -38,6 +38,8 @@ export class MarketFeedService {
   private running = false;
   private miniTickerWs: WebSocket | null = null;
   private combinedKlineWsList: WebSocket[] = [];
+  private exchangeInfo: Map<string, any> = new Map();
+  private lastExchangeInfoFetch = 0;
   private activeWatchlist: Map<string, Set<string>> = new Map(); // symbol -> Set of intervals
   private subscriptionTasks: any[] = [];
   private onCandeClose: ((symbol: string) => Promise<void>) | null = null;
@@ -63,6 +65,9 @@ export class MarketFeedService {
     if (config.debug_mode) {
       this.logger.verbose('MarketFeed starting');
     }
+
+    // Fetch exchange info for precision filters
+    await this.fetchExchangeInfo();
 
     // Start !miniTicker@arr stream first
     this.startMiniTickerStream();
@@ -102,6 +107,39 @@ export class MarketFeedService {
     if (weight) {
       this.tradingSession.updateRateLimit(parseInt(weight));
     }
+  }
+
+  private async fetchExchangeInfo() {
+    const now = Date.now();
+    // Cache exchange info for 1 hour
+    if (this.exchangeInfo.size > 0 && now - this.lastExchangeInfoFetch < 3600000) {
+      return;
+    }
+
+    this.logger.verbose('Fetching Binance Futures exchange info...');
+    try {
+      this.monitoringService.incrementApiRequests();
+      const response = await fetch('https://fapi.binance.com/fapi/v1/exchangeInfo');
+      this.updateWeight(response.headers);
+
+      if (response.ok) {
+        const data: any = await response.json();
+        if (data && Array.isArray(data.symbols)) {
+          this.exchangeInfo.clear();
+          for (const s of data.symbols) {
+            this.exchangeInfo.set(s.symbol, s);
+          }
+          this.lastExchangeInfoFetch = now;
+          this.logger.log(`Loaded exchange info for ${this.exchangeInfo.size} symbols`);
+        }
+      }
+    } catch (error) {
+      this.logger.warn(`Fetch exchange info error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  getSymbolFilters(symbol: string) {
+    return this.exchangeInfo.get(symbol);
   }
 
   private async fetchInitialTickers() {
@@ -185,7 +223,8 @@ export class MarketFeedService {
              }
           }
 
-          const msg = JSON.parse(data.toString());
+          // BOLT: Direct Buffer parsing to avoid redundant string allocation
+          const msg = JSON.parse(data as any);
           let tickers: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
           if (tickers.length > 0) {
             this.tickerCache.bulkUpdate(tickers);
@@ -214,7 +253,8 @@ export class MarketFeedService {
   private startWatchlistManager(config: SessionConfig) {
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
     this.updateWatchlist(config);
-    this.watchlistInterval = setInterval(() => this.updateWatchlist(config), 60000);
+    this.watchlistInterval = setInterval(() => this.updateWatchlist(config), 120000);
+    this.watchlistInterval.unref?.();
   }
 
   async updateWatchlist(config: SessionConfig = (this.tradingSession as any).config) {
@@ -223,10 +263,11 @@ export class MarketFeedService {
     try {
       const newWatchlist = new Map<string, Set<string>>();
       const isGated = this.tradingSession.isGated();
-      const activeTrades = this.tradingSession.getStatus().activeTrades;
+      const tradingStatus = this.tradingSession.getStatus();
+      const activeTradesForWatchlist = tradingStatus.activeTrades;
 
       // 1. Global Scanner Symbols (Skip if gated and no active trades to save resources)
-      if (config.global_scanner_enabled !== false && !(isGated && activeTrades.length === 0)) {
+      if (config.global_scanner_enabled !== false && !(isGated && activeTradesForWatchlist.length === 0)) {
         let symbols: string[];
         if (config.symbols && config.symbols.length > 0) {
           symbols = config.symbols;
@@ -361,7 +402,8 @@ export class MarketFeedService {
 
         ws.on('message', (data: Buffer) => {
           try {
-            const msg: BinanceKline = JSON.parse(data.toString());
+            // BOLT: Direct Buffer parsing to avoid redundant string allocation
+            const msg: BinanceKline = JSON.parse(data as any);
             const kline = msg.data?.k;
             if (kline) {
               const symbol = kline.s;
@@ -416,6 +458,10 @@ export class MarketFeedService {
   }
 
   private async backfillKlines(symbol: string, interval: string) {
+    if (this.tradingSession.isRateLimited()) {
+      this.logger.warn(`Backfill skipped for ${symbol}/${interval} - Engine is near Binance rate limits.`);
+      return;
+    }
     // Check if we already have data for this symbol/interval to avoid redundant seeding
     // BOLT: Also check if data is stale (older than 2 intervals)
     const existingCandles = await this.klineStore.getRecentCandles(symbol, interval, 1);
@@ -436,7 +482,7 @@ export class MarketFeedService {
     await new Promise(resolve => setTimeout(resolve, Math.random() * 2000));
 
     try {
-      const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=500`;
+      const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${this.klineStore.getMaxCandles()}`;
       this.monitoringService.incrementApiRequests();
       const response = await fetch(url);
       this.updateWeight(response.headers);

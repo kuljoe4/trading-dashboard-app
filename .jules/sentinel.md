@@ -31,3 +31,13 @@
 **Vulnerability:** Broken or "zombie" WebSocket connections could remain open indefinitely on the server, leading to resource exhaustion (memory/handles) and potential Denial of Service.
 **Learning:** Modern networking environments (firewalls, load balancers, unstable mobile links) can cause connections to hang in a half-open state where the server believes the client is still connected but no data is flowing.
 **Prevention:** Implement a standard heartbeat (ping/pong) mechanism at the application level. Periodically ping all clients and strictly terminate those that fail to respond within a defined window.
+
+## 2026-05-31 - Insecure Credential Entry Warning
+**Vulnerability:** Users might inadvertently enter sensitive Binance API credentials over an unencrypted HTTP connection if the dashboard is deployed without forced SSL, exposing secrets to man-in-the-middle (MITM) attacks.
+**Learning:** Security is a shared responsibility. While the backend should enforce HSTS, the UI must proactively warn users before they perform high-risk actions over insecure channels.
+**Prevention:** Implement a prominent UI banner in the settings view that detects and warns against insecure (non-HTTPS) connections when not on localhost.
+
+## 2026-05-31 - Server Header Suppression
+**Vulnerability:** The default 'Server' header often leaks information about the underlying web server or framework version, aiding reconnaissance for potential attackers.
+**Learning:** Minimizing the attack surface includes removing unnecessary information disclosure in HTTP headers. While often overlooked, the 'Server' header can provide specific version clues.
+**Prevention:** Explicitly remove the 'Server' header in middleware to ensure it's not broadcasted in HTTP responses.

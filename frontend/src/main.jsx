@@ -31,46 +31,38 @@ const App = () => {
   }, [isHidden, setThrottled]);
 
   useEffect(() => {
-    let cancelled = false;
+    const eruda = window.eruda;
 
-    const toggleEruda = async () => {
-      try {
-        if (debugToolsEnabled) {
-          const eruda = (await import('eruda')).default;
-          if (cancelled || window.__momentumDebugToolsActive) return;
-          
-          // Defensive: ensure window.eruda doesn't conflict if it's not a real instance
-          if (window.eruda && typeof window.eruda.destroy !== 'function') {
-            delete window.eruda;
-          }
-          
+    if (debugToolsEnabled) {
+      if (eruda && typeof eruda.init === 'function') {
+        if (!window.__momentumDebugToolsActive) {
           eruda.init();
           window.__momentumDebugToolsActive = true;
-        } else if (window.__momentumDebugToolsActive) {
-          const eruda = (await import('eruda')).default;
-          if (eruda && typeof eruda.destroy === 'function') {
-            eruda.destroy();
-          }
-          window.__momentumDebugToolsActive = false;
         }
-      } catch (e) {
-        console.error('Eruda lifecycle error:', e);
+      } else {
+        // Dynamically load Eruda from CDN if not present
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/eruda';
+        script.onload = () => {
+          if (window.eruda) {
+            window.eruda.init();
+            window.__momentumDebugToolsActive = true;
+          }
+        };
+        document.body.appendChild(script);
       }
-    };
-
-    toggleEruda();
-
-    return () => {
-      cancelled = true;
-    };
+    } else if (!debugToolsEnabled && window.__momentumDebugToolsActive && eruda && typeof eruda.destroy === 'function') {
+      eruda.destroy();
+      window.__momentumDebugToolsActive = false;
+    }
   }, [debugToolsEnabled]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
 
-      if (e.key === '1') window.location.hash = '#/';
-      if (e.key === '2') window.location.hash = '#/history';
+      if (e.key === '1' || e.key.toLowerCase() === 'c') window.location.hash = '#/';
+      if (e.key === '2' || e.key.toLowerCase() === 'h') window.location.hash = '#/history';
       if (e.key === '3') window.location.hash = '#/settings';
       if (e.key.toLowerCase() === 's') window.dispatchEvent(new Event('toggle-scanner'));
     };

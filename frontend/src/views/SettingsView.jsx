@@ -101,6 +101,25 @@ export function SettingsView() {
         </div>
 
         <div className="space-y-10">
+          {window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-red/10 border border-red/20 rounded-2xl p-6 flex gap-4 items-center shadow-sm"
+            >
+              <div className="w-12 h-12 rounded-2xl bg-red/10 flex items-center justify-center shrink-0">
+                <ShieldAlert size={24} className="text-red" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-red uppercase tracking-tight">Insecure Connection</h3>
+                <p className="text-xs text-dim font-medium leading-relaxed mt-1">
+                  You are accessing the dashboard over an unencrypted <span className="text-red font-bold">HTTP</span> connection.
+                  Entering API credentials now is <span className="text-red font-bold">HIGHLY DISCOURAGED</span> as they could be intercepted.
+                </p>
+              </div>
+            </motion.div>
+          )}
+
           <section>
             <SectionLabel className="mb-6">Dashboard & Streaming</SectionLabel>
             <div className="bg-surface border border-border rounded-2xl p-6 md:p-8 shadow-sm space-y-8">
@@ -165,7 +184,7 @@ export function SettingsView() {
                   </div>
                   <div>
                     <h3 className="text-sm font-bold uppercase tracking-tight">Developer Debug Console</h3>
-                    <p className="text-[11px] text-dim font-medium uppercase mt-1">Load the in-app diagnostics overlay</p>
+                    <p className="text-[11px] text-dim font-medium uppercase mt-1">Uses an externally loaded Eruda global; no debug bundle is shipped</p>
                   </div>
                 </div>
                 <button

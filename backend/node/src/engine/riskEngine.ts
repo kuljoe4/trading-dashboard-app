@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { SessionConfig } from '../models/SessionConfig';
 import { Trade } from '../models/Trade';
 import { v4 as uuid } from 'uuid';
+import { roundEight } from '../lib/math';
 
 @Injectable()
 export class RiskEngineService {
@@ -192,7 +193,7 @@ export class RiskEngineService {
 
     // qty = risk_amount / (sl_distance)
     // For futures, adjust based on entry_price as well
-    const qty = riskAmount / slDistance;
+    const qty = roundEight(riskAmount / slDistance);
     return qty;
   }
 

@@ -320,7 +320,9 @@ export function DashboardView() {
     variantStats: state.variantStats,
     isThrottled: state.isThrottled,
     setThrottled: state.setThrottled,
-    isEcoMode: state.isEcoMode, entryCount: state.entryCount, hitCount: state.hitCount
+    isEcoMode: state.isEcoMode,
+    entryCount: state.entryCount,
+    hitCount: state.hitCount
   }), shallow)
 
   const safeVariantStats = variantStats || {}
@@ -521,11 +523,20 @@ export function DashboardView() {
                 onClick={handleStop}
                 disabled={loading}
                 aria-label={loading ? "Terminating session" : confirmStop ? "Confirm terminate session" : "Terminate session"}
-                className={cn("flex-1 sm:flex-none transition-all duration-300", confirmStop && "bg-red/80 animate-pulse")}
+                className={cn(
+                  "flex-1 sm:flex-none transition-all duration-300 relative overflow-hidden",
+                  confirmStop && "bg-red/80 animate-pulse"
+                )}
               >
-                <XCircle size={16} className="mr-2" />
-                <span aria-live="polite">
-                  {loading ? 'Terminating...' : confirmStop ? 'Confirm?' : 'Terminate Session'}
+                <motion.div
+                  initial={false}
+                  animate={{ y: confirmStop ? -20 : 0, opacity: confirmStop ? 0 : 1 }}
+                  className="flex items-center"
+                >
+                  <XCircle size={16} className="mr-2" />
+                </motion.div>
+                <span aria-live="polite" className="relative">
+                  {loading ? 'Terminating...' : confirmStop ? 'Confirm Stop?' : 'Terminate Session'}
                 </span>
               </Btn>
             )}
@@ -699,7 +710,13 @@ export function DashboardView() {
               </div>
               <div className="flex-1 overflow-hidden">
                 <Suspense fallback={<LoadingFallback />}>
-                  <ConfigModal initialConfig={selectedConfig || config} onSave={handleConfigSave} onClose={() => setShowConfig(false)} isEdit={isEditMode} />
+                  <ConfigModal
+                    key={isEditMode ? (selectedConfig?.id || strategyId) : 'new'}
+                    initialConfig={selectedConfig || config}
+                    onSave={handleConfigSave}
+                    onClose={() => setShowConfig(false)}
+                    isEdit={isEditMode}
+                  />
                 </Suspense>
               </div>
             </Drawer.Content>

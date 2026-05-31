@@ -22,10 +22,11 @@ export class MonitoringService {
 
   constructor() {
     this.measureEventLoopLag();
-    // Update CPU metrics every 5 seconds to reduce overhead
-    setInterval(() => {
+    // Update CPU metrics at a low cadence to reduce overhead
+    const cpuTimer = setInterval(() => {
       if (this.enabled) this.updateCpuMetrics();
-    }, 5000);
+    }, 10000);
+    cpuTimer.unref?.();
   }
 
   setEnabled(enabled: boolean) {
@@ -37,12 +38,13 @@ export class MonitoringService {
 
   private measureEventLoopLag() {
     if (!this.enabled) {
-      setTimeout(() => this.measureEventLoopLag(), 5000);
+      const disabledTimer = setTimeout(() => this.measureEventLoopLag(), 10000);
+      disabledTimer.unref?.();
       return;
     }
     const start = Date.now();
-    const delay = 5000; // Increased delay to 5s
-    setTimeout(() => {
+    const delay = 10000; // Low-overhead sampling cadence
+    const lagTimer = setTimeout(() => {
       if (!this.enabled) {
         this.measureEventLoopLag();
         return;
@@ -55,6 +57,7 @@ export class MonitoringService {
       }
       this.measureEventLoopLag();
     }, delay);
+    lagTimer.unref?.();
   }
 
   private updateCpuMetrics() {

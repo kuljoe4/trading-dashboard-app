@@ -11,6 +11,8 @@ export class TickerCacheService {
   private readonly logger = new Logger(TickerCacheService.name);
   private tickers: Map<string, Ticker> = new Map();
   private _topByVolumeCache: { [key: string]: { data: Ticker[], timestamp: number } } = {};
+  private readonly TOP_VOLUME_CACHE_TTL_MS = 60000;
+  private readonly TOP_VOLUME_CACHE_MAX_KEYS = 12;
 
   /**
    * BOLT OPTIMIZATION: Optimized to use object reuse and avoid redundant parseFloat.
@@ -68,23 +70,29 @@ export class TickerCacheService {
   topByVolume(n: number, excluded: string[] = []): Ticker[] {
     const cacheKey = `${n}_${[...excluded].sort().join(',')}`;
     const cached = this._topByVolumeCache[cacheKey];
-    const CACHE_TTL_MS = 30000; // 30 seconds
+    const now = Date.now();
 
-    if (cached && (Date.now() - cached.timestamp < CACHE_TTL_MS)) {
+    if (cached && (now - cached.timestamp < this.TOP_VOLUME_CACHE_TTL_MS)) {
       return cached.data;
     }
 
+    const excludedSet = excluded.length > 0 ? new Set(excluded) : null;
     const all = Array.from(this.tickers.values());
     this.logger.verbose(`topByVolume requested ${n} symbols. Cache size: ${all.length}. Cache miss - recomputing.`);
 
     const result = all
-      .filter(t => !excluded.includes(t.symbol))
+      .filter(t => !excludedSet?.has(t.symbol))
       .sort((a, b) => b.volume_24h - a.volume_24h)
       .slice(0, n);
 
+    const cacheKeys = Object.keys(this._topByVolumeCache);
+    if (cacheKeys.length >= this.TOP_VOLUME_CACHE_MAX_KEYS && !this._topByVolumeCache[cacheKey]) {
+      delete this._topByVolumeCache[cacheKeys[0]];
+    }
+
     this._topByVolumeCache[cacheKey] = {
       data: result,
-      timestamp: Date.now()
+      timestamp: now
     };
 
     return result;

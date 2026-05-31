@@ -1284,6 +1284,19 @@ export class TradingSessionService {
     return variantStats;
   }
 
+  getTrade(idOrSymbol: string): any | null {
+    const active = this.positionTracker.activeList();
+    const trade = active.find(t => t.id === idOrSymbol || t.symbol === idOrSymbol);
+    if (trade) {
+      return this.serializeTrade(trade, this.tickerCache.getPrice(trade.symbol) || undefined);
+    }
+    const closed = this.closedTrades.find(t => t.id === idOrSymbol || t.symbol === idOrSymbol);
+    if (closed) {
+      return this.serializeTrade(closed, closed.exit_price);
+    }
+    return null;
+  }
+
   getStatus() {
     return {
       running: this.running,

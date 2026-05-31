@@ -10,6 +10,7 @@ const DashboardView = lazy(() => import('./views/DashboardView').then(m => ({ de
 const SettingsView = lazy(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })));
 const HistoryView = lazy(() => import('./views/HistoryView').then(m => ({ default: m.HistoryView })));
 const TradesView = lazy(() => import('./views/TradesView'));
+const TradeDetailView = lazy(() => import('./views/TradeDetailView'));
 
 const LoadingView = () => (
   <div className="min-h-screen bg-background flex items-center justify-center">
@@ -114,8 +115,9 @@ const App = () => {
     checkStatus();
 
     const handleHashChange = () => {
-      const hash = (window.location.hash.replace('#/', '') || 'cockpit').split('?')[0];
-      setView(hash === 'dashboard' ? 'cockpit' : hash);
+      const fullHash = window.location.hash.replace('#/', '') || 'cockpit';
+      const [path, query] = fullHash.split('?');
+      setView(path === 'dashboard' ? 'cockpit' : path);
     };
     window.addEventListener('hashchange', handleHashChange);
     handleHashChange();
@@ -127,6 +129,17 @@ const App = () => {
   }, [setSessionActive, updateStats]);
 
   const renderView = () => {
+    if (view.startsWith('trade/')) {
+      const id = view.replace('trade/', '');
+      return <TradeDetailView tradeId={id} />;
+    }
+    if (view.startsWith('strategy/')) {
+      const label = decodeURIComponent(view.replace('strategy/', ''));
+      // Find strategy from store to pass to Dashboard's selected state
+      // For now, we reuse the selected logic in DashboardView if it's there
+      return <DashboardView initialStrategy={label} />;
+    }
+
     switch (view) {
       case 'cockpit': return <DashboardView />;
       case 'trades': return <TradesView />;

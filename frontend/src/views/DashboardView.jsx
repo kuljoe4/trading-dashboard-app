@@ -282,8 +282,8 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
   )
 }
 
-export function DashboardView() {
-  const [selected, setSelected] = useState(null)
+export function DashboardView({ initialStrategy }) {
+  const [selected, setSelected] = useState(initialStrategy || null)
   const [showConfig, setShowConfig] = useState(false)
   const [showScanner, setShowScanner] = useState(false)
   const [isEditMode, setIsEditMode] = useState(false)

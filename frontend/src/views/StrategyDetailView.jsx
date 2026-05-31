@@ -13,6 +13,14 @@ import {
 } from 'lucide-react'
 import { EquityCurve } from '../components/Analytics'
 
+const Breadcrumbs = ({ strategyLabel }) => (
+  <nav className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-dim mb-6">
+    <button onClick={() => window.location.hash = '#/'} className="hover:text-accent transition-colors">Cockpit</button>
+    <span>/</span>
+    <span className="text-text">{strategyLabel}</span>
+  </nav>
+)
+
 const StrategyDetailView = ({ s, onBack }) => {
   const { config, scannerResults, analytics, setFocusMode, wsStatus } = useTradingStore()
 
@@ -40,6 +48,8 @@ const StrategyDetailView = ({ s, onBack }) => {
 
   return (
     <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <Breadcrumbs strategyLabel={s.strategy_label} />
+
       {/* Header */}
       <div className="flex items-center gap-5 mb-10">
         <button

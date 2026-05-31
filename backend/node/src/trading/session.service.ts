@@ -630,6 +630,10 @@ export class SessionService implements OnModuleInit {
     return this.tradingSessionService.getBinanceRateLimit();
   }
 
+  async getTrade(idOrSymbol: string) {
+    return this.tradingSessionService.getTrade(idOrSymbol);
+  }
+
   // WebSocket broadcaster
   setBroadcaster(callback: (data: any) => void) {
     this.wsBroadcaster = callback;

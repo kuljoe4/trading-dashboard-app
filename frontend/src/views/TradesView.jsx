@@ -6,6 +6,14 @@ import { fmtUSD } from '../lib/theme'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Briefcase, Zap, AlertCircle } from 'lucide-react'
 
+const Breadcrumbs = () => (
+  <nav className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-dim mb-6">
+    <button onClick={() => window.location.hash = '#/'} className="hover:text-text transition-colors">Cockpit</button>
+    <span>/</span>
+    <span className="text-text">All Active Trades</span>
+  </nav>
+)
+
 const TradesView = () => {
   const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, setFocusMode } = useTradingStore()
 
@@ -17,6 +25,7 @@ const TradesView = () => {
 
   return (
     <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <Breadcrumbs />
       <div className="flex items-center gap-4 mb-10">
         <div className="w-12 h-12 rounded-2xl bg-accent/10 flex items-center justify-center text-accent shadow-sm border border-accent/20">
           <Briefcase size={24} />

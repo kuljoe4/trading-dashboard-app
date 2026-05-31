@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { SessionConfig } from '../models/SessionConfig';
 import { Trade } from '../models/Trade';
 import { TickerCacheService } from './ticker_cache.service';
@@ -109,8 +109,11 @@ export class TradingSessionService {
     private readonly klineStore: KlineStoreService,
     private readonly signalEngine: SignalEngineService,
     private readonly riskEngine: RiskEngineService,
+    @Inject(forwardRef(() => PositionTrackerService))
     private readonly positionTracker: PositionTrackerService,
+    @Inject(forwardRef(() => OrderManagerService))
     private readonly orderManager: OrderManagerService,
+    @Inject(forwardRef(() => MarketFeedService))
     private readonly marketFeed: MarketFeedService,
     private readonly momentumScanner: MomentumScannerService,
     private readonly monitoringService: MonitoringService,

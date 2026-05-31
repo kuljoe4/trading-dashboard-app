@@ -331,9 +331,9 @@ export function DashboardView() {
   useEffect(() => {
     fetchSessions();
 
-    const openScanner = () => setShowScanner(true);
-    window.addEventListener('open-scanner', openScanner);
-    return () => window.removeEventListener('open-scanner', openScanner);
+    const toggleScanner = () => setShowScanner(prev => !prev);
+    window.addEventListener('toggle-scanner', toggleScanner);
+    return () => window.removeEventListener('toggle-scanner', toggleScanner);
   }, []);
 
   async function handleConfigSave(newConfig) {

@@ -23,3 +23,7 @@
 ## 2026-05-30 - Sync Feedback Visibility
 **Learning:** Users perceive a "jumpy" UI as broken. If data is still loading or synchronizing, the UI should explicitly state it.
 **Action:** Added "Synchronizing..." indicators to high-value metrics during WebSocket reconnection to manage user expectations and explain potential data staleness.
+
+## 2026-05-31 - Power-User Navigation Shortcuts
+**Learning:** For high-frequency "cockpit" interfaces, keyboard navigation significantly reduces cognitive load and physical movement, but shortcuts must be discoverable and safe from input focus conflicts.
+**Action:** Implemented global shortcuts (1-3, S) with discoverability hints in tooltips and focus-aware suppression to ensure they don't fire during data entry.

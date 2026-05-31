@@ -300,7 +300,7 @@ export class MarketFeedService {
       }
 
       // 3. Active Trade Symbols (CRITICAL for exit signals)
-      for (const trade of activeTrades) {
+      for (const trade of activeTradesForWatchlist) {
         const t = trade as any;
         if (!newWatchlist.has(t.symbol)) newWatchlist.set(t.symbol, new Set());
 

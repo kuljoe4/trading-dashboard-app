@@ -7,6 +7,7 @@ import { WebSocketServer } from "ws";
 import { AppModule } from "./app.module";
 import { AllExceptionsFilter } from "./lib/all-exceptions.filter";
 import { safeCompare } from "./lib/crypto";
+import { ENGINE_CONSTANTS } from "./models/constants";
 import { SessionService } from "./trading/session.service";
 import { MonitoringService } from "./engine/monitoring.service";
 import { TradingSessionService } from "./engine/trading_session.service";
@@ -33,8 +34,8 @@ async function bootstrap() {
   app.getHttpAdapter().getInstance().disable("x-powered-by");
 
   // Security: Limit JSON and URL-encoded payload size to prevent DoS attacks
-  app.use(json({ limit: "50kb" }));
-  app.use(urlencoded({ limit: "50kb", extended: true }));
+  app.use(json({ limit: ENGINE_CONSTANTS.HTTP_BODY_LIMIT }));
+  app.use(urlencoded({ limit: ENGINE_CONSTANTS.HTTP_BODY_LIMIT, extended: true }));
 
   const configService = app.get(ConfigService);
 
@@ -202,7 +203,7 @@ async function bootstrap() {
       ws.isAlive = false;
       ws.ping();
     });
-  }, 30000);
+  }, ENGINE_CONSTANTS.WS_HEARTBEAT_INTERVAL_MS);
 
   wss.on("close", () => {
     clearInterval(heartbeatInterval);

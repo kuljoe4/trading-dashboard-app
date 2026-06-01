@@ -1,6 +1,6 @@
 import { createWithEqualityFn } from 'zustand/traditional'
 import { sessionAPI } from '../api/client'
-import { CONFIG_LIMITS } from '../constants/configLimits'
+import { CONFIG_LIMITS, ENGINE_CONSTANTS } from '../constants/configLimits'
 
 const toNumber = (v, f = 0) => { const p = Number(v); return Number.isFinite(p) ? p : f; }
 const MAX_LOG_LINES = 500;
@@ -35,7 +35,7 @@ const defaultConfig = {
   strategy_label: 'Momentum Strategy',
   strategy_variants: [],
   max_total_risk_pct: CONFIG_LIMITS.MAX_TOTAL_RISK_DEFAULT,
-  total_sl_guard_usdt: 200,
+  total_sl_guard_usdt: CONFIG_LIMITS.TOTAL_SL_GUARD_DEFAULT,
   scan_interval: '5m',
   scan_pct_threshold: 2.0,
   scan_lookback: 3,
@@ -48,7 +48,7 @@ const defaultConfig = {
   enabled_signals: ['momentum_pct'],
   signal_logic: 'all',
   tp_mode: 'fixed',
-  tp_ratio: 2,
+  tp_ratio: CONFIG_LIMITS.TP_RATIO_DEFAULT,
   live_rr_sequence: [1, 2, 4],
   exit_rr_sequence: [0, 1, 2],
   sl_type: 'pct',
@@ -58,9 +58,9 @@ const defaultConfig = {
   sl_min_pct: 0.3,
   sl_max_pct: 3,
   risk_pct_per_trade: CONFIG_LIMITS.RISK_PER_TRADE_DEFAULT,
-  max_open_trades: 5,
-  paper_starting_balance: 10000,
-  live_starting_balance: 10000,
+  max_open_trades: CONFIG_LIMITS.MAX_OPEN_TRADES_DEFAULT,
+  paper_starting_balance: CONFIG_LIMITS.PAPER_STARTING_BALANCE_DEFAULT,
+  live_starting_balance: CONFIG_LIMITS.LIVE_STARTING_BALANCE_DEFAULT,
   hot_loop_interval_ms: CONFIG_LIMITS.HOT_LOOP_DEFAULT,
   main_loop_interval_ms: CONFIG_LIMITS.MAIN_LOOP_DEFAULT,
   debug_mode: false,
@@ -70,7 +70,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   sessionActive: false, sessionPaused: false, strategyId: null, balance: 10000, totalPnl: 0, totalRiskPct: 0, totalSlUsed: 0,
   activeTrades: [], logs: [], logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
   gateState: null, gateReason: null, hibernating: false, scannerPaused: false, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
-  rateLimit: { used_weight_1m: 0, limit: 1200, used_pct: 0 }, config: defaultConfig,
+  rateLimit: { used_weight_1m: 0, limit: ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT, used_pct: 0 }, config: defaultConfig,
   sidebarCollapsed: localStorage.getItem('sidebar_collapsed') === 'true', isThrottled: false, entryCount: 0, hitCount: 0,
   
   _subscriptions: { trades: new Map(), strategies: new Map(), globalTrades: 0, scanner: 0 },

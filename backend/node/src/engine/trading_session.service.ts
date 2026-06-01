@@ -17,7 +17,7 @@ import { SessionStateService } from './session_state.service';
 import { ENGINE_EVENTS } from './events';
 import { v4 as uuid } from 'uuid';
 import { roundEight } from '../lib/math';
-import { ENGINE_CONSTANTS } from '../models/constants';
+import { ENGINE_CONSTANTS, CONFIG_LIMITS } from '../models/constants';
 
 function monitoringChangedInternal(curr: any, prev: any): boolean {
   if (!curr || !prev) return true;
@@ -96,11 +96,11 @@ export class TradingSessionService {
     const prevCount = this.sessionState.listenerCount; this.sessionState.listenerCount = count;
     if (this.running && this.config) {
       if (prevCount > 0 && count === 0) {
-        const ecoMainMs = Math.max(15000, this.config.main_loop_interval_ms || 5000);
-        const ecoHotMs = Math.max(5000, this.config.hot_loop_interval_ms || 2000);
+        const ecoMainMs = Math.max(15000, this.config.main_loop_interval_ms || CONFIG_LIMITS.MAIN_LOOP_DEFAULT);
+        const ecoHotMs = Math.max(5000, this.config.hot_loop_interval_ms || CONFIG_LIMITS.HOT_LOOP_DEFAULT);
         this.restartLoops(ecoHotMs, ecoMainMs);
       } else if (prevCount === 0 && count > 0) {
-        this.restartLoops(this.config.hot_loop_interval_ms || 2000, this.config.main_loop_interval_ms || 5000);
+        this.restartLoops(this.config.hot_loop_interval_ms || CONFIG_LIMITS.HOT_LOOP_DEFAULT, this.config.main_loop_interval_ms || CONFIG_LIMITS.MAIN_LOOP_DEFAULT);
       }
     }
   }
@@ -127,7 +127,7 @@ export class TradingSessionService {
         this.balancePollInterval = setInterval(async () => {
           const b = await this.fetchBinanceBalance();
           if (b > 0) { this.sessionState.balanceLive = b; this.sessionState.balancePaper = b; if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), 0); }
-        }, 30000);
+        }, ENGINE_CONSTANTS.USER_DATA_POLL_INTERVAL_MS);
       });
     }
 
@@ -401,7 +401,7 @@ export class TradingSessionService {
       this.monitoringService.incrementApiRequests(); const res = await this.binanceClient.restAPI.userDataStreamsApi.startUserDataStream(); this.listenKey = res.data.listenKey;
       this.userDataWs = await this.binanceClient.websocketStreams.connect();
       this.userDataWs.on('message', async (msg: any) => { try { const data = typeof msg === 'string' ? JSON.parse(msg) : msg; if (data.e === 'ACCOUNT_UPDATE' && data.a && data.a.B) { const usdt = data.a.B.find((b: any) => b.a === 'USDT'); if (usdt) { const nb = parseFloat(usdt.wb); this.sessionState.balanceLive = nb; this.sessionState.balancePaper = nb; if (this.onBalanceUpdate) await this.onBalanceUpdate(this.getBalance(), 0); } } } catch (err) {} });
-      this.userDataWs.userData(this.listenKey); this.listenKeyKeepAlive = setInterval(async () => { if (this.listenKey) { try { this.monitoringService.incrementApiRequests(); await this.binanceClient.restAPI.userDataStreamsApi.keepaliveUserDataStream(this.listenKey); } catch (err) {} } }, 1800000);
+      this.userDataWs.userData(this.listenKey); this.listenKeyKeepAlive = setInterval(async () => { if (this.listenKey) { try { this.monitoringService.incrementApiRequests(); await this.binanceClient.restAPI.userDataStreamsApi.keepaliveUserDataStream(this.listenKey); } catch (err) {} } }, ENGINE_CONSTANTS.USER_DATA_KEEPALIVE_MS);
     } catch (e) { throw e; }
   }
 

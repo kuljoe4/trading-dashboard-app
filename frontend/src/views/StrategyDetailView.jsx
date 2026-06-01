@@ -12,6 +12,7 @@ import {
   ChevronLeft, Activity, BarChart3, TrendingUp, Zap
 } from 'lucide-react'
 import { EquityCurve } from '../components/Analytics'
+import { useResourceFocus } from '../hooks/useResourceFocus'
 
 const Breadcrumbs = ({ strategyLabel }) => (
   <nav className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-dim mb-6">
@@ -22,16 +23,10 @@ const Breadcrumbs = ({ strategyLabel }) => (
 )
 
 const StrategyDetailView = ({ s, onBack }) => {
-  const { config, scannerResults, analytics, setFocusMode, wsStatus } = useTradingStore()
+  const { config, scannerResults, analytics, wsStatus } = useTradingStore()
 
-  React.useEffect(() => {
-    // Signal focus on this strategy label to backend
-    setFocusMode(true, null, s.strategy_label);
-    // We don't necessarily want to set focus mode to false immediately on unmount
-    // if we are navigating to another focused view (like a specific trade),
-    // but for now the simple toggle is standard for this architecture.
-    return () => setFocusMode(false, null, null);
-  }, [s.strategy_label, setFocusMode]);
+  // Lifecycle-scoped subscription contract
+  useResourceFocus('strategy', s.strategy_label);
 
   const isSyncing = wsStatus !== 'live' || (s.activeTrades.length > 0 && !s.activeTrades.some(t => t.strategy_label === s.strategy_label && t._is_full));
 

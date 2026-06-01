@@ -224,6 +224,80 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   config: defaultConfig,
   logFilters: loadLogFilters(),
   
+  // Resource Focus Subscriptions
+  // Contract: components register interest in resources.
+  // Focus mode is sent to backend only when the aggregate interest changes,
+  // debounced to handle navigation handoffs.
+  _subscriptions: {
+    trades: new Map(), // tradeId -> count
+    strategies: new Map(), // strategyLabel -> count
+    globalTrades: 0, // global trades view interest count
+    scanner: 0, // scanner interest count
+  },
+  _focusTimer: null,
+
+  registerInterest: (type, id) => {
+    const subs = { ...get()._subscriptions };
+    if (type === 'trade') subs.trades.set(id, (subs.trades.get(id) || 0) + 1);
+    if (type === 'strategy') subs.strategies.set(id, (subs.strategies.get(id) || 0) + 1);
+    if (type === 'global_trades') subs.globalTrades++;
+    if (type === 'scanner') subs.scanner++;
+
+    set({ _subscriptions: subs });
+    get()._syncFocusToBackend();
+  },
+
+  unregisterInterest: (type, id) => {
+    const subs = { ...get()._subscriptions };
+    if (type === 'trade') {
+       const count = (subs.trades.get(id) || 0) - 1;
+       if (count <= 0) subs.trades.delete(id); else subs.trades.set(id, count);
+    }
+    if (type === 'strategy') {
+       const count = (subs.strategies.get(id) || 0) - 1;
+       if (count <= 0) subs.strategies.delete(id); else subs.strategies.set(id, count);
+    }
+    if (type === 'global_trades') subs.globalTrades = Math.max(0, subs.globalTrades - 1);
+    if (type === 'scanner') subs.scanner = Math.max(0, subs.scanner - 1);
+
+    set({ _subscriptions: subs });
+    get()._syncFocusToBackend();
+  },
+
+  _syncFocusToBackend: () => {
+    if (get()._focusTimer) clearTimeout(get()._focusTimer);
+
+    // 100ms debounce bridges the gap between old component unmount and new component mount
+    const timer = setTimeout(() => {
+       const { _subscriptions, ws } = get();
+       if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+       // Determine aggregate focus
+       const focusEnabled = _subscriptions.trades.size > 0 || _subscriptions.strategies.size > 0 || _subscriptions.globalTrades > 0 || _subscriptions.scanner > 0;
+
+       let tradeId = null;
+       if (_subscriptions.trades.size > 0) {
+          tradeId = Array.from(_subscriptions.trades.keys())[0];
+       } else if (_subscriptions.globalTrades > 0) {
+          tradeId = 'all';
+       }
+
+       let strategyLabel = null;
+       if (_subscriptions.strategies.size > 0) {
+          strategyLabel = Array.from(_subscriptions.strategies.keys())[0];
+       }
+
+       ws.send(JSON.stringify({
+         type: 'set_focus_mode',
+         enabled: focusEnabled,
+         tradeId,
+         strategyLabel
+       }));
+    }, 100);
+
+    set({ _focusTimer: timer });
+  },
+
   // UX Settings
   healthEnabled: localStorage.getItem('health_enabled') !== 'false',
   streamingEnabled: localStorage.getItem('streaming_enabled') !== 'false',

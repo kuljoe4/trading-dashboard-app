@@ -329,9 +329,8 @@ export function DashboardView({ initialStrategy }) {
   const safeVariantStats = variantStats || {}
 
 
-  const { updateStats, setFocusMode } = useTradingStore(state => ({
-    updateStats: state.updateStats,
-    setFocusMode: state.setFocusMode
+  const { updateStats } = useTradingStore(state => ({
+    updateStats: state.updateStats
   }), shallow)
 
   const [loading, setLoading] = useState(false)
@@ -352,11 +351,12 @@ export function DashboardView({ initialStrategy }) {
   const maxRR = useMemo(() => activeTrades.reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
 
   useEffect(() => {
-    // When a specific strategy is selected (StrategyDetailView) or scanner is open, 
-    // set focus mode to receive heavy updates.
-    const strategyLabel = typeof selected === "string" ? selected : null;
-    setFocusMode(!!selected || showScanner, null, strategyLabel);
-  }, [selected, showScanner, setFocusMode, currentStrategy.strategy_label]);
+    // Legacy support for scanner-only focus if not handled by hook
+    if (showScanner) {
+       useTradingStore.getState().registerInterest('scanner');
+       return () => useTradingStore.getState().unregisterInterest('scanner');
+    }
+  }, [showScanner]);
   useEffect(() => {
     fetchSessions();
 

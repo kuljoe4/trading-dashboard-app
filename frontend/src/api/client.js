@@ -84,6 +84,9 @@ const sanitizeSessionConfig = (config) => {
     } catch (error) {
       /* keep original if serialization fails */
     }
+  } else if (typeof sanitized.signal_params === 'string') {
+    // If it's already a string, ensure it's not double-stringified elsewhere
+    // ConfigModal.jsx might stringify it before passing to sanitizeSessionConfig
   }
 
   return sanitized

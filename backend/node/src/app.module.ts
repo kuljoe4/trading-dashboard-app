@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TradingModule } from './trading/trading.module';
 import { Session } from './models/entities/Session.entity';
 import { TradeEntity } from './models/entities/Trade.entity';
@@ -25,6 +26,7 @@ import { BalanceHistory } from './models/entities/BalanceHistory.entity';
       }),
       inject: [ConfigService],
     }),
+    EventEmitterModule.forRoot(),
     TradingModule,
   ],
 })

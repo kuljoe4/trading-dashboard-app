@@ -21,6 +21,7 @@ import { Sidebar, BottomNav } from '../components/Navigation'
 const DecisionLog = lazy(() => import('../components/DecisionLog').then(module => ({ default: module.DecisionLog })))
 const ConfigModal = lazy(() => import('../components/ConfigModal').then(module => ({ default: module.ConfigModal })))
 const ScannerOverlay = lazy(() => import('../components/ScannerOverlay').then(module => ({ default: module.ScannerOverlay })))
+import { ConfirmationModal } from '../components/ConfirmationModal'
 const StrategyDetailView = lazy(() => import('./StrategyDetailView'))
 
 const LoadingFallback = () => (
@@ -30,7 +31,7 @@ const LoadingFallback = () => (
 )
 
 // --- Strategy Card ---
-const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults }) => {
+const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
@@ -148,7 +149,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
                   style={{ width: `${slPct}%` }}
                 />
               </div>
-              <ScannerPreview scannerResults={scannerResults || []} config={config} onOpen={(e) => { e.stopPropagation(); setShowScanner(true); }} />
+              <ScannerPreview scannerResults={scannerResults || []} config={config} onOpen={(e) => { e.stopPropagation(); onOpenScanner(); }} />
             </div>
           </motion.div>
         )}
@@ -424,11 +425,6 @@ export function DashboardView({ initialStrategy }) {
   }
 
   async function handleStop() {
-    if (!confirmStop) {
-      setConfirmStop(true)
-      return
-    }
-
     setLoading(true)
     try {
       await sessionAPI.stop()
@@ -462,15 +458,28 @@ export function DashboardView({ initialStrategy }) {
 
   return (
     <div className={cn(
-      "min-h-screen transition-all duration-300",
+      "min-h-screen transition-all duration-300 relative",
       sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]",
       tradingMode === 'paper' ? "shadow-[inset_0_0_100px_rgba(245,166,35,0.05)] border-amber/10" :
       tradingMode === 'testnet' ? "shadow-[inset_0_0_100px_rgba(168,85,247,0.05)] border-purple/10" :
       "shadow-[inset_0_0_100px_rgba(34,197,94,0.05)] border-green/10"
     )}>
+      {/* Audit Item 40: Persistent Paper Mode Indicator */}
+      {tradingMode === 'paper' && (
+        <div className="fixed top-0 left-0 right-0 h-1 bg-amber z-[100] shadow-[0_2px_10px_rgba(245,166,35,0.5)]" />
+      )}
       <Sidebar selected={selected} />
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-10">
       <div className="max-w-[1400px] mx-auto p-4 md:p-8 pb-32 lg:pb-8">
+
+        <ConfirmationModal
+          isOpen={confirmStop}
+          onClose={() => setConfirmStop(false)}
+          onConfirm={handleStop}
+          title="Terminate Trading Session?"
+          message="This will immediately close all open positions at market price and stop the engine. This action cannot be undone."
+          confirmText="Terminate Everything"
+        />
 
         {/* Header Bar */}
         <motion.div
@@ -524,24 +533,11 @@ export function DashboardView({ initialStrategy }) {
             ) : (
               <Btn
                 variant="danger"
-                onClick={handleStop}
+                onClick={() => setConfirmStop(true)}
                 disabled={loading}
-                aria-label={loading ? "Terminating session" : confirmStop ? "Confirm terminate session" : "Terminate session"}
-                className={cn(
-                  "flex-1 sm:flex-none transition-all duration-300 relative overflow-hidden",
-                  confirmStop && "bg-red/80 animate-pulse"
-                )}
+                className="flex-1 sm:flex-none"
               >
-                <motion.div
-                  initial={false}
-                  animate={{ y: confirmStop ? -20 : 0, opacity: confirmStop ? 0 : 1 }}
-                  className="flex items-center"
-                >
-                  <XCircle size={16} className="mr-2" />
-                </motion.div>
-                <span aria-live="polite" className="relative">
-                  {loading ? 'Terminating...' : confirmStop ? 'Confirm Stop?' : 'Terminate Session'}
-                </span>
+                <XCircle size={16} className="mr-2" /> Terminate Session
               </Btn>
             )}
           </div>
@@ -634,6 +630,7 @@ export function DashboardView({ initialStrategy }) {
                       config={config}
                       paused={sessionPaused}
                       onPause={togglePause}
+                      onOpenScanner={() => setShowScanner(true)}
                       onEdit={() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }}
                       onClick={() => setSelected(currentStrategy.strategy_label)}
                     />
@@ -652,6 +649,7 @@ export function DashboardView({ initialStrategy }) {
                           config={variantConfig}
                           paused={sessionPaused}
                           onPause={togglePause}
+                          onOpenScanner={() => setShowScanner(true)}
                           onEdit={() => { setIsEditMode(true); setSelectedConfig(variantConfig); setEditingVariantIndex(i); setShowConfig(true); }}
                           onClick={() => setSelected(label)}
                         />

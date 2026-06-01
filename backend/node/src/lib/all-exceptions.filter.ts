@@ -6,60 +6,38 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { Request, Response } from 'express';
+import { HttpAdapterHost } from '@nestjs/core';
 
-/**
- * SENTINEL: Global exception filter to catch all unhandled exceptions.
- * Prevents information disclosure by sanitizing error responses and
- * ensuring stack traces are never leaked to the client.
- */
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
-  private readonly logger = new Logger('AllExceptionsFilter');
+  private readonly logger = new Logger('Exceptions');
 
-  catch(exception: unknown, host: ArgumentsHost) {
+  constructor(private readonly httpAdapterHost: HttpAdapterHost) {}
+
+  catch(exception: unknown, host: ArgumentsHost): void {
+    const { httpAdapter } = this.httpAdapterHost;
+
     const ctx = host.switchToHttp();
-    const response = ctx.getResponse<Response>();
-    const request = ctx.getRequest<Request>();
 
-    const status =
+    const httpStatus =
       exception instanceof HttpException
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
-    const exceptionResponse =
-      exception instanceof HttpException
-        ? exception.getResponse()
-        : null;
-
-    // Log the full exception details internally for debugging
-    const errorMessage = exception instanceof Error ? exception.message : String(exception);
-    const logMessage = `[${request.method}] ${request.url} - Status: ${status} - Error: ${errorMessage}`;
-
-    if (status >= 500) {
-      this.logger.error(logMessage, exception instanceof Error ? exception.stack : undefined);
-    } else {
-      this.logger.warn(logMessage);
-    }
-
-    // Construct a sanitized response
-    // If it's a known HttpException, we try to preserve the message (e.g. validation errors)
-    // but we wrap it in a standard structure.
-    let message = 'Internal server error';
-
-    if (status < 500 && exceptionResponse) {
-      if (typeof exceptionResponse === 'string') {
-        message = exceptionResponse;
-      } else if (typeof exceptionResponse === 'object' && (exceptionResponse as any).message) {
-        message = (exceptionResponse as any).message;
-      }
-    }
-
-    response.status(status).json({
-      statusCode: status,
-      message,
+    const responseBody = {
+      statusCode: httpStatus,
       timestamp: new Date().toISOString(),
-      path: request.url,
-    });
+      path: httpAdapter.getRequestUrl(ctx.getRequest()),
+      message: (exception as any)?.message || 'Internal server error',
+    };
+
+    // Audit Item 33: Log full stack trace for unhandled exceptions
+    if (httpStatus >= 500) {
+      this.logger.error(`Unhandled Exception (${httpAdapter.getRequestUrl(ctx.getRequest())}): ${(exception as any)?.stack || exception}`);
+    } else {
+      this.logger.warn(`HTTP Exception (${httpStatus}) [${httpAdapter.getRequestUrl(ctx.getRequest())}]: ${(exception as any)?.message}`);
+    }
+
+    httpAdapter.reply(ctx.getResponse(), responseBody, httpStatus);
   }
 }

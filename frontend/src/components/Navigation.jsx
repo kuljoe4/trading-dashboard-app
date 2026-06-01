@@ -44,13 +44,15 @@ export const Sidebar = ({ selected }) => {
               onClick={() => window.location.hash = `#${item.path}`}
               aria-label={`${item.label} [${item.shortcut}]`}
               className={cn(
-                "w-full flex items-center gap-3 py-3 rounded-xl font-bold text-[13px] transition-all",
-                !isExpanded ? "justify-center px-0" : "px-4",
+                "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all relative",
+                isExpanded ? "flex-row px-4 gap-3" : "justify-center px-0",
                 isActive(item.path) ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:bg-white/5 hover:text-text"
               )}
             >
               <item.icon size={20} className="shrink-0" />
-              {isExpanded && <span>{item.label}</span>}
+              {isExpanded ? <span>{item.label}</span> : (
+                <span className="text-[7px] font-black uppercase tracking-tighter opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-1">{item.label}</span>
+              )}
             </button>
           </Tooltip>
         ))}
@@ -60,12 +62,14 @@ export const Sidebar = ({ selected }) => {
             onClick={triggerScanner}
             aria-label="Market Scanner [S]"
             className={cn(
-              "w-full flex items-center gap-3 py-3 rounded-xl font-bold text-[13px] transition-all text-accent hover:bg-accent/10",
-              !isExpanded ? "justify-center px-0" : "px-4"
+              "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all text-accent hover:bg-accent/10 relative",
+              isExpanded ? "flex-row px-4 gap-3" : "justify-center px-0"
             )}
           >
             <Zap size={20} className="shrink-0" />
-            {isExpanded && <span>Scanner</span>}
+            {isExpanded ? <span>Scanner</span> : (
+              <span className="text-[7px] font-black uppercase tracking-tighter opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-1">Scanner</span>
+            )}
           </button>
         </Tooltip>
       </nav>
@@ -99,38 +103,24 @@ export const BottomNav = ({ selected }) => {
 
   return (
     <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-surface/90 backdrop-blur-md border-t border-border z-40">
-      <div className="flex justify-around items-center px-8 py-5">
-        <button 
-          onClick={() => window.location.hash = '#/'}
-          aria-label="Cockpit"
-          className={cn("flex flex-col items-center gap-2", isActive('/') ? "text-accent" : "text-dim hover:text-text")}
-        >
-          <LayoutDashboard size={24} />
-        </button>
-        <button
-          onClick={() => window.location.hash = '#/trades'}
-          aria-label="Trades"
-          className={cn("flex flex-col items-center gap-2", isActive('/trades') ? "text-accent" : "text-dim hover:text-text")}
-        >
-          <Briefcase size={24} />
-        </button>
-        <button 
-          onClick={() => window.location.hash = '#/history'}
-          aria-label="History"
-          className={cn("flex flex-col items-center gap-2", isActive('/history') ? "text-accent" : "text-dim hover:text-text")}
-        >
-          <History size={24} />
-        </button>
-        <button 
-          onClick={() => window.location.hash = '#/settings'}
-          aria-label="Settings"
-          className={cn("flex flex-col items-center gap-2", isActive('/settings') ? "text-accent" : "text-dim hover:text-text")}
-        >
-          <SettingsIcon size={24} />
-        </button>
-      </div>
-      <div className="px-4 pb-2 border-t border-border/40 flex justify-center pt-2">
-        <SystemMetrics monitoring={monitoring} rateLimit={rateLimit} wsStatus={wsStatus} gateState={gateState} isEcoMode={isEcoMode} compact={true} />
+      <div className="flex justify-around items-center h-16">
+        {[
+          { path: '/', label: 'Cockpit', icon: LayoutDashboard },
+          { path: '/history', label: 'History', icon: History },
+          { path: '/settings', label: 'Settings', icon: SettingsIcon },
+        ].map(item => (
+          <button
+            key={item.path}
+            onClick={() => window.location.hash = `#${item.path}`}
+            className={cn(
+              "flex flex-col items-center justify-center w-full h-full gap-1 transition-all",
+              isActive(item.path) ? "text-accent" : "text-dim hover:text-text"
+            )}
+          >
+            <item.icon size={20} />
+            <span className="text-[10px] font-bold uppercase tracking-widest">{item.label}</span>
+          </button>
+        ))}
       </div>
     </div>
   )

@@ -45,7 +45,7 @@ describe('OrderManagerService', () => {
         'BTCUSDT',
         'BUY',
         'MARKET',
-        expect.objectContaining({ quantity: 0.1 })
+        expect.objectContaining({ quantity: '0.10000000' })
       );
 
       // Second call: Initial STOP_MARKET order
@@ -55,7 +55,7 @@ describe('OrderManagerService', () => {
         'SELL',
         'STOP_MARKET',
         expect.objectContaining({
-          stopPrice: 49500,
+          stopPrice: '49500.00000000',
           closePosition: 'true',
           reduceOnly: 'true',
         })
@@ -105,7 +105,7 @@ describe('OrderManagerService', () => {
         'BTCUSDT',
         'SELL',
         'STOP_MARKET',
-        expect.objectContaining({ stopPrice: 50500 })
+        expect.objectContaining({ stopPrice: '50500.00000000' })
       );
       expect(trade.binance_stop_order_id).toBe('new_sl_id');
     });
@@ -133,7 +133,7 @@ describe('OrderManagerService', () => {
         'SELL',
         'MARKET',
         expect.objectContaining({
-          quantity: 0.1,
+          quantity: '0.10000000',
           reduceOnly: true,
         })
       );

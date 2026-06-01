@@ -18,6 +18,8 @@ const LogEntry = React.memo(({ log }) => (
   </div>
 ))
 
+const DEFAULT_LOG_FILTERS = { info: true, warn: true, error: true };
+
 export const DecisionLog = React.memo(() => {
   const logs = useTradingStore(state => state.logs)
   const logFilters = useTradingStore(state => state.logFilters)
@@ -26,7 +28,7 @@ export const DecisionLog = React.memo(() => {
   const [isAtTop, setIsAtTop] = React.useState(true)
 
   const visibleLogs = React.useMemo(
-    () => logs.filter((log) => logFilters[log.level] !== false),
+    () => logs.filter((log) => (logFilters || DEFAULT_LOG_FILTERS)[log.level] !== false),
     [logs, logFilters]
   )
 
@@ -57,7 +59,7 @@ export const DecisionLog = React.memo(() => {
       >
         <div className="flex-1 flex gap-2 overflow-x-auto no-scrollbar">
           {filterButtons.map((filter) => {
-            const active = logFilters[filter.level]
+            const active = (logFilters || DEFAULT_LOG_FILTERS)[filter.level]
             return (
               <button
                 key={filter.level}

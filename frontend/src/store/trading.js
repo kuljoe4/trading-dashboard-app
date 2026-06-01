@@ -34,12 +34,13 @@ const defaultConfig = { paper_mode: true, strategy_label: 'Momentum Strategy', s
 
 export const useTradingStore = createWithEqualityFn((set, get) => ({
   sessionActive: false, sessionPaused: false, strategyId: null, balance: 10000, totalPnl: 0, totalRiskPct: 0, totalSlUsed: 0,
-  activeTrades: [], logs: [], scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
+  activeTrades: [], logs: [], logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
   gateState: null, gateReason: null, hibernating: false, scannerPaused: false, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
   rateLimit: { used_weight_1m: 0, limit: 1200, used_pct: 0 }, config: defaultConfig,
   sidebarCollapsed: localStorage.getItem('sidebar_collapsed') === 'true', isThrottled: false, entryCount: 0, hitCount: 0,
   
   toggleSidebar: () => { const n = !get().sidebarCollapsed; localStorage.setItem('sidebar_collapsed', n); set({ sidebarCollapsed: n }); },
+  toggleLogFilter: (level) => set((st) => ({ logFilters: { ...st.logFilters, [level]: !st.logFilters[level] } })),
   setThrottled: (t) => { set({ isThrottled: t }); const ws = get().ws; if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_active', active: !t })); },
   setFocusMode: (f, tid = null, s = null) => { const ws = get().ws; if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: f, tradeId: tid, strategyLabel: s })); },
   setSessionActive: (a, id) => { set({ sessionActive: a, strategyId: id }); if (a) get().connectWS(); else get().disconnectWS(); },

@@ -24,11 +24,19 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
+    let message: any = 'Internal server error';
+    if (exception instanceof HttpException) {
+      const response = exception.getResponse();
+      message = (typeof response === 'object' && (response as any).message) ? (response as any).message : exception.message;
+    } else if (exception instanceof Error) {
+        message = 'Internal server error';
+    }
+
     const responseBody = {
       statusCode: httpStatus,
       timestamp: new Date().toISOString(),
       path: httpAdapter.getRequestUrl(ctx.getRequest()),
-      message: (exception as any)?.message || 'Internal server error',
+      message: message,
     };
 
     // Audit Item 33: Log full stack trace for unhandled exceptions

@@ -1,26 +1,30 @@
 import { AllExceptionsFilter } from './all-exceptions.filter';
-import { HttpStatus, HttpException, Logger } from '@nestjs/common';
+import { HttpStatus, HttpException } from '@nestjs/common';
+import { HttpAdapterHost } from '@nestjs/core';
 
 describe('AllExceptionsFilter', () => {
   let filter: AllExceptionsFilter;
-  let mockResponse: any;
-  let mockRequest: any;
+  let mockHttpAdapter: any;
+  let mockHttpAdapterHost: HttpAdapterHost;
   let mockArgumentsHost: any;
+  let mockResponse: any;
 
   beforeEach(() => {
-    filter = new AllExceptionsFilter();
-    mockResponse = {
-      status: jest.fn().mockReturnThis(),
-      json: jest.fn().mockReturnThis(),
+    mockHttpAdapter = {
+      getRequestUrl: jest.fn().mockReturnValue('/test-url'),
+      reply: jest.fn(),
     };
-    mockRequest = {
-      url: '/test-url',
-      method: 'GET',
-    };
+    mockHttpAdapterHost = {
+      httpAdapter: mockHttpAdapter,
+    } as unknown as HttpAdapterHost;
+
+    filter = new AllExceptionsFilter(mockHttpAdapterHost);
+
+    mockResponse = {};
     mockArgumentsHost = {
       switchToHttp: jest.fn().mockReturnValue({
         getResponse: () => mockResponse,
-        getRequest: () => mockRequest,
+        getRequest: () => ({ url: '/test-url', method: 'GET' }),
       }),
     };
   });
@@ -30,35 +34,38 @@ describe('AllExceptionsFilter', () => {
 
     filter.catch(exception, mockArgumentsHost);
 
-    expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.BAD_REQUEST);
-    expect(mockResponse.json).toHaveBeenCalledWith({
-      statusCode: HttpStatus.BAD_REQUEST,
-      message: 'Test error',
-      timestamp: expect.any(String),
-      path: '/test-url',
-    });
+    expect(mockHttpAdapter.reply).toHaveBeenCalledWith(
+      mockResponse,
+      expect.objectContaining({
+        statusCode: HttpStatus.BAD_REQUEST,
+        message: 'Test error',
+        path: '/test-url',
+      }),
+      HttpStatus.BAD_REQUEST
+    );
   });
 
   it('should handle unknown Error and return 500 Internal Server Error', () => {
     const exception = new Error('Secret internal error details');
 
     // Silence logger for this test
-    // We access the logger through the filter instance's private field (using any)
     const loggerSpy = jest.spyOn((filter as any).logger, 'error').mockImplementation(() => {});
 
     filter.catch(exception, mockArgumentsHost);
 
-    expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.INTERNAL_SERVER_ERROR);
-    expect(mockResponse.json).toHaveBeenCalledWith({
-      statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-      message: 'Internal server error',
-      timestamp: expect.any(String),
-      path: '/test-url',
-    });
+    expect(mockHttpAdapter.reply).toHaveBeenCalledWith(
+      mockResponse,
+      expect.objectContaining({
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: 'Internal server error',
+        path: '/test-url',
+      }),
+      HttpStatus.INTERNAL_SERVER_ERROR
+    );
 
     // Check that we didn't leak "Secret internal error details"
-    const jsonCall = mockResponse.json.mock.calls[0][0];
-    expect(jsonCall.message).not.toContain('Secret internal error details');
+    const replyCall = mockHttpAdapter.reply.mock.calls[0][1];
+    expect(replyCall.message).not.toContain('Secret internal error details');
     expect(loggerSpy).toHaveBeenCalled();
   });
 
@@ -71,12 +78,14 @@ describe('AllExceptionsFilter', () => {
 
     filter.catch(exception, mockArgumentsHost);
 
-    expect(mockResponse.status).toHaveBeenCalledWith(HttpStatus.BAD_REQUEST);
-    expect(mockResponse.json).toHaveBeenCalledWith({
-      statusCode: HttpStatus.BAD_REQUEST,
-      message: validationMessage,
-      timestamp: expect.any(String),
-      path: '/test-url',
-    });
+    expect(mockHttpAdapter.reply).toHaveBeenCalledWith(
+      mockResponse,
+      expect.objectContaining({
+        statusCode: HttpStatus.BAD_REQUEST,
+        message: validationMessage,
+        path: '/test-url',
+      }),
+      HttpStatus.BAD_REQUEST
+    );
   });
 });

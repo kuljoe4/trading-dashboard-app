@@ -124,7 +124,7 @@ export class MarketFeedService {
   private startMiniTickerStream() {
     const connect = () => {
       if (!this.running) return;
-      const ws = new WebSocket(`${BINANCE_WS_BASE}/ws/!miniTicker@arr`, { handshakeTimeout: 15000 });
+      const ws = new WebSocket(`${ENGINE_CONSTANTS.BINANCE_WS_BASE}/ws/!miniTicker@arr`, { handshakeTimeout: 15000 });
       ws.on('message', (data: Buffer) => {
         try {
           if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) return;
@@ -239,7 +239,7 @@ export class MarketFeedService {
     for (let i = 0; i < allStreams.length; i += CHUNK_SIZE) chunks.push(allStreams.slice(i, i + CHUNK_SIZE));
     for (const chunk of chunks) {
       const streams = chunk.join('/');
-      const url = `${BINANCE_WS_BASE}/stream?streams=${streams}`;
+      const url = `${ENGINE_CONSTANTS.BINANCE_WS_BASE}/stream?streams=${streams}`;
       const connect = () => {
         if (!this.running) return;
         const ws = new WebSocket(url, { handshakeTimeout: 15000 });

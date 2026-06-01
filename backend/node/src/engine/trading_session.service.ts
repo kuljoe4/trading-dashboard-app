@@ -435,6 +435,12 @@ export class TradingSessionService {
   getBinanceRateLimit() { return this.sessionState.getBinanceRateLimit(); }
   getClosedTrades(): Trade[] { return this.sessionState.closedTrades; }
 
+  getTrade(idOrSymbol: string): Trade | undefined {
+    const active = this.positionTracker.activeList().find(t => t.id === idOrSymbol || t.symbol === idOrSymbol);
+    if (active) return active;
+    return this.sessionState.closedTrades.find(t => t.id === idOrSymbol || t.symbol === idOrSymbol);
+  }
+
   async closeTradeManually(symbol: string): Promise<{ success: boolean; trade?: Trade; error?: string }> {
     if (!this.running) return { success: false, error: 'No session running' };
     const trade = this.positionTracker.activeList().find(t => t.symbol === symbol);

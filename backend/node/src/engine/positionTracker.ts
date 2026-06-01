@@ -6,6 +6,7 @@ import { SignalEngineService } from './signalEngine';
 import { OrderManagerService } from './orderManager';
 import { TickerCacheService } from './ticker_cache.service';
 import { KlineStoreService } from './kline_store.service';
+import { roundEight } from '../lib/math';
 
 @Injectable()
 export class PositionTrackerService {
@@ -14,6 +15,7 @@ export class PositionTrackerService {
   private trades: Map<string, Trade> = new Map(); // symbol -> Trade
   private rrSequenceIndex: Map<string, number> = new Map(); // symbol -> current milestone index
   private onTradeUpdate: ((trade: Trade) => void) | null = null;
+  private _totalRisk = 0;
 
   constructor(
     private readonly riskEngine: RiskEngineService,
@@ -45,20 +47,22 @@ export class PositionTrackerService {
   }
 
   /**
-   * BOLT OPTIMIZATION: Use direct loop over Map values instead of creating an array.
-   * Eliminates O(N) allocation in the 1s hot loop and 2s main loop.
+   * BOLT OPTIMIZATION: Returns pre-calculated total risk in O(1).
    */
   totalRisk(): number {
-    let sum = 0;
-    for (const trade of this.trades.values()) {
-      sum += trade.risk_usdt || 0;
-    }
-    return sum;
+    return this._totalRisk;
   }
 
   addTrade(trade: Trade): void {
+    // Correctly handle symbol overwrites to prevent double-counting risk
+    const existing = this.trades.get(trade.symbol);
+    if (existing) {
+      this._totalRisk = roundEight(this._totalRisk - (existing.risk_usdt || 0));
+    }
+
     this.trades.set(trade.symbol, trade);
     this.rrSequenceIndex.set(trade.symbol, -1);
+    this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt || 0));
   }
 
   checkRrSequenceAdjustments(
@@ -115,8 +119,11 @@ export class PositionTrackerService {
       if (trade.direction === 'LONG' && newSl) {
         if (newSl > trade.current_sl) {
           const prevSl = trade.current_sl;
+          const prevRisk = trade.risk_usdt || 0;
           trade.current_sl = newSl;
           trade.risk_usdt = Math.abs(trade.entry_price - trade.current_sl) * trade.qty;
+          // Update running total risk with the delta
+          this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
           this.logSlAdjustment(trade, prevSl, newSl, currentIndex);
           // Update exchange-side SL in live mode
           this.orderManager.updateStopLoss(trade, newSl).catch(err => {
@@ -128,8 +135,11 @@ export class PositionTrackerService {
       } else if (trade.direction === 'SHORT' && newSl) {
         if (newSl < trade.current_sl) {
           const prevSl = trade.current_sl;
+          const prevRisk = trade.risk_usdt || 0;
           trade.current_sl = newSl;
           trade.risk_usdt = Math.abs(trade.entry_price - trade.current_sl) * trade.qty;
+          // Update running total risk with the delta
+          this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
           this.logSlAdjustment(trade, prevSl, newSl, currentIndex);
           // Update exchange-side SL in live mode
           this.orderManager.updateStopLoss(trade, newSl).catch(err => {
@@ -270,6 +280,10 @@ export class PositionTrackerService {
     }
 
     // Remove from tracking after exchange close/recording
+    const existing = this.trades.get(symbol);
+    if (existing) {
+      this._totalRisk = roundEight(this._totalRisk - (existing.risk_usdt || 0));
+    }
     this.trades.delete(symbol);
     this.rrSequenceIndex.delete(symbol);
 
@@ -281,6 +295,10 @@ export class PositionTrackerService {
   }
 
   removeTrade(symbol: string): void {
+    const existing = this.trades.get(symbol);
+    if (existing) {
+      this._totalRisk = roundEight(this._totalRisk - (existing.risk_usdt || 0));
+    }
     this.trades.delete(symbol);
     this.rrSequenceIndex.delete(symbol);
   }

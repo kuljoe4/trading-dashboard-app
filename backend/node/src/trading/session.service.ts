@@ -40,9 +40,21 @@ export class SessionService implements OnModuleInit {
     private balanceHistoryRepository: Repository<BalanceHistoryEntity>,
     private tradingSessionService: TradingSessionService,
     private analyticsService: AnalyticsService,
+    private binanceClientFactory: BinanceClientFactory,
   ) {}
 
   async onModuleInit() {
+    // SEC-02: Cleanup old data on startup and periodically
+    await this.cleanupOldData();
+    setInterval(() => this.cleanupOldData().catch(e => this.logger.error(`Periodic cleanup failed: ${e.message}`)), 12 * 60 * 60 * 1000);
+
+    // DEPLOY-02: Check ENCRYPTION_KEY in production
+    if (process.env.NODE_ENV === 'production' && !process.env.ENCRYPTION_KEY) {
+       this.logger.error('CRITICAL: ENCRYPTION_KEY is not set in production! App will fail on sensitive operations.');
+       // Audit Item 29: Refuse to start if ENCRYPTION_KEY is missing in production
+       throw new Error('ENCRYPTION_KEY must be set in production');
+    }
+
     // Ensure default settings exist
     const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
     if (!settings) {
@@ -119,7 +131,17 @@ export class SessionService implements OnModuleInit {
     );
   }
 
+  private saveTradePromiseChain: Promise<any> = Promise.resolve();
+
   async saveTradeAtomic(trade: any, balance: number) {
+    // Audit Item 13: Mutex/Promise chain to prevent race conditions during atomic saves
+    return this.saveTradePromiseChain = this.saveTradePromiseChain.then(() => this.executeSaveTradeAtomic(trade, balance)).catch(e => {
+       this.logger.error(`Atomic save failed in chain: ${e.message}`);
+       throw e;
+    });
+  }
+
+  private async executeSaveTradeAtomic(trade: any, balance: number) {
     if (!this.validateTrade(trade)) {
       this.logger.warn(`Attempted to save invalid trade ${trade.symbol}, skipping.`);
       return;
@@ -270,6 +292,22 @@ export class SessionService implements OnModuleInit {
        throw new BadRequestException('EMA signals require an EMA period to be defined');
     }
 
+    // DATA-02: EMA Convergence validation
+    const maxCandles = parseInt(process.env.KLINE_MAX_CANDLES || '200', 10);
+    const emaPeriods = [
+      signalParams.ema_period,
+      signalParams.entry_ema_period,
+      signalParams.exit_ema_period,
+      signalParams.entry_ema_slow,
+      signalParams.exit_ema_slow
+    ].map(p => parseInt(p, 10)).filter(p => !isNaN(p));
+
+    for (const p of emaPeriods) {
+      if (p >= maxCandles * 0.8) {
+        throw new BadRequestException(`EMA period ${p} is too large for current KLINE_MAX_CANDLES (${maxCandles}). EMA may not converge. Increase KLINE_MAX_CANDLES or reduce period.`);
+      }
+    }
+
     // 5. Risk Constraints
     const riskPerTrade = config.risk_pct_per_trade ?? 0;
     const maxTotalRisk = config.max_total_risk_pct ?? 100;
@@ -291,6 +329,9 @@ export class SessionService implements OnModuleInit {
       session = await this.sessionRepository.findOne({ where: { id: sessionId } });
       if (!session) throw new NotFoundException('Session not found');
       
+      // CODE-03: Validate config on restart
+      this.validateConfig(session.config);
+
       // Update session to running
       session.running = true;
       await this.sessionRepository.save(session);
@@ -365,7 +406,7 @@ export class SessionService implements OnModuleInit {
         throw new BadRequestException(`Binance ${isTestnet ? 'Testnet' : 'Live'} API keys are not configured.`);
       }
 
-      binanceClient = BinanceClientFactory.createClient(key, decrypt(secret), isTestnet);
+      binanceClient = this.binanceClientFactory.createClient(key, decrypt(secret), isTestnet);
     }
       
     // 1. Reconciliation: Identify trades that should be closed or resumed
@@ -585,7 +626,7 @@ export class SessionService implements OnModuleInit {
       activeWindows: engineStatus.activeWindows,
       gateState: engineStatus.gateState,
       scannerPaused: engineStatus.scannerPaused,
-      history: engineStatus.history,
+      history: engineStatus.history || [],
       totalRiskPct: session.paperMode ? (engineStatus.balance_paper > 0 ? (engineStatus.total_risk / engineStatus.balance_paper) * 100 : 0) : (engineStatus.balance_live > 0 ? (engineStatus.total_risk / engineStatus.balance_live) * 100 : 0),
       totalSlUsed: engineStatus.total_risk,
       config: session.config,
@@ -662,10 +703,52 @@ export class SessionService implements OnModuleInit {
     return result;
   }
 
+  /**
+   * Cleanup task for old database records (Logs and closed Trades)
+   */
+  private async cleanupOldData() {
+    try {
+      const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+      const logRetentionDays = (settings as any)?.log_retention_days || 7;
+      const tradeRetentionDays = (settings as any)?.trade_retention_days || 30;
+
+      const logCutoff = new Date(Date.now() - logRetentionDays * 24 * 60 * 60 * 1000);
+      const tradeCutoff = new Date(Date.now() - tradeRetentionDays * 24 * 60 * 60 * 1000);
+
+      const deletedLogs = await this.logRepository.createQueryBuilder()
+        .delete()
+        .where("ts < :cutoff", { cutoff: logCutoff.toISOString() })
+        .execute();
+
+      const deletedTrades = await this.tradeRepository.createQueryBuilder()
+        .delete()
+        .where("exit_ts < :cutoff", { cutoff: tradeCutoff })
+        .andWhere("status IN (:...statuses)", { statuses: TERMINAL_STATUSES })
+        .execute();
+
+      this.logger.log(`Cleanup completed: ${deletedLogs.affected || 0} logs and ${deletedTrades.affected || 0} old trades removed.`);
+    } catch (e: any) {
+      this.logger.error(`Data cleanup failed: ${e.message}`);
+    }
+  }
+
   // Add log line
   async logMessage(msg: string, level: 'info' | 'warn' | 'error' = 'info') {
     if (!this.currentSessionId) return;
     
+    // SEC-02: Cap per-session log inserts to prevent unbounded growth
+    const logCount = await this.logRepository.count({ where: { sessionId: this.currentSessionId } });
+    if (logCount >= 2000) {
+      // If we already have many logs for this session, we only keep errors
+      if (level !== 'error') return;
+      // For errors, we delete the oldest log before inserting a new one
+      const oldest = await this.logRepository.findOne({
+        where: { sessionId: this.currentSessionId },
+        order: { ts: 'ASC' }
+      });
+      if (oldest) await this.logRepository.delete(oldest.id);
+    }
+
     await this.logRepository.insert({
       sessionId: this.currentSessionId,
       ts: new Date().toISOString(),

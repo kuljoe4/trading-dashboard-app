@@ -14,13 +14,22 @@ export class ApiKeyGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     const adminKey = this.configService.get<string>("ADMIN_API_KEY");
+    const request = context.switchToHttp().getRequest<Request>();
 
-    // If no admin key is configured, allow all requests (opt-in security)
+    // Audit Item 34: Unconditionally require key for monitoring
+    const isMonitoring = request.url?.includes('/monitoring/');
+
+    // If no admin key is configured, allow all requests (opt-in security),
+    // EXCEPT for monitoring which is unconditionally restricted if key is MISSING (to be safe)
+    // Actually, if it's missing we can't validate it.
+    // But Audit Item 34 says "require the key unconditionally for monitoring".
     if (!adminKey) {
+      if (isMonitoring) {
+        throw new UnauthorizedException("ADMIN_API_KEY must be set to access monitoring");
+      }
       return true;
     }
 
-    const request = context.switchToHttp().getRequest<Request>();
     // Case-insensitive header check
     const rawApiKey = request.headers["x-api-key"];
 

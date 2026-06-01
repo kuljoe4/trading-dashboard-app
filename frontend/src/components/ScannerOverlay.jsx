@@ -44,13 +44,21 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-[30px_100px_1fr_60px_1fr_1fr_50px] items-center px-4 py-2 text-[10px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase h-[36px] shrink-0">
+      <div className="grid grid-cols-[30px_100px_1fr_60px_1fr_1fr_50px] items-center px-4 py-2 text-[10px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase h-[36px] shrink-0 md:grid hidden">
         <span>#</span>
         <span>Symbol</span>
         <span className="text-right">Move</span>
         <span className="text-center">Trend</span>
         <span className="text-right">Volume</span>
         <span className="text-right px-2">Score</span>
+        <span className="text-center">Pass</span>
+      </div>
+
+      {/* Mobile Header (Simplified) */}
+      <div className="grid grid-cols-[30px_100px_1fr_1fr] items-center px-4 py-2 text-[10px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase h-[36px] shrink-0 md:hidden">
+        <span>#</span>
+        <span>Symbol</span>
+        <span className="text-right">Move</span>
         <span className="text-center">Pass</span>
       </div>
 
@@ -67,7 +75,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
             return (
               <div key={opp.symbol}
                 className={cn(
-                  "grid grid-cols-[30px_100px_1fr_60px_1fr_1fr_50px] items-center px-4 py-3 border-b border-border/50 transition-opacity h-[56px]",
+                  "grid grid-cols-[30px_100px_1fr_1fr] md:grid-cols-[30px_100px_1fr_60px_1fr_1fr_50px] items-center px-4 py-3 border-b border-border/50 transition-opacity h-[56px]",
                   !passing && "opacity-45",
                   isSingleMonitor && "bg-accent/5"
                 )}>
@@ -90,11 +98,11 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                 )}>
                   {isLong ? "▲" : "▼"}{Number(Math.abs(opp.pct || 0)).toFixed(1)}%
                 </span>
-                <div className="flex justify-center">
+                <div className="md:flex justify-center hidden">
                   <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={40} height={16} />
                 </div>
-                <span className="text-[11px] text-dim font-mono text-right">{fmtVol(opp.vol)}</span>
-                <div className="flex items-center gap-2 px-2 overflow-hidden">
+                <span className="text-[11px] text-dim font-mono text-right md:block hidden">{fmtVol(opp.vol)}</span>
+                <div className="md:flex items-center gap-2 px-2 overflow-hidden hidden">
                   <div className="flex-1 h-1 bg-border rounded-full overflow-hidden min-w-[20px]">
                     <div className="h-full bg-accent rounded-full" style={{ width: `${(Number(opp.score || 0) / 10) * 100}%` }} />
                   </div>

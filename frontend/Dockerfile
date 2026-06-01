@@ -10,10 +10,9 @@ RUN npm ci --include=dev
 COPY . .
 ARG VITE_WS_URL
 ARG VITE_API_URL
-ARG VITE_ADMIN_API_KEY
+# ARG VITE_ADMIN_API_KEY (SEC-01: Removed from build-time args to prevent embedding in bundle)
 ENV VITE_WS_URL=$VITE_WS_URL \
-    VITE_API_URL=$VITE_API_URL \
-    VITE_ADMIN_API_KEY=$VITE_ADMIN_API_KEY
+    VITE_API_URL=$VITE_API_URL
 
 RUN npm run build
 

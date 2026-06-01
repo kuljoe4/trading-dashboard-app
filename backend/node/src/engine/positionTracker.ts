@@ -61,11 +61,11 @@ export class PositionTrackerService {
     this.rrSequenceIndex.set(trade.symbol, -1);
   }
 
-  checkRrSequenceAdjustments(
+  async checkRrSequenceAdjustments(
     symbol: string,
     currentPrice: number,
     config: SessionConfig,
-  ): void {
+  ): Promise<void> {
     const trade = this.trades.get(symbol);
     if (!trade || trade.status !== 'OPEN') return;
 

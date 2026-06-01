@@ -1,76 +1,38 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, AlertCircle, Zap, XCircle, Activity } from 'lucide-react'
+import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, AlertCircle, Zap, XCircle, Activity, LayoutGrid } from 'lucide-react'
 import { cn, Btn, Tooltip } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 
 const SIGNALS = [
-  ['momentum_pct', '% Momentum', 'Entry when momentum exceeds a predefined percentage threshold within the scan lookback.'],
-  ['breakout_hl', 'Breakout H/L', 'Entry when price breaks above the highest high or below the lowest low of the lookback period.'],
-  ['ema_price_cross', 'EMA Price Cross', 'Entry when the current price crosses above or below the EMA period.'],
-  ['ema_dual_cross', 'EMA Dual Cross', 'Entry when a fast EMA crosses over or under a slow EMA.'],
-  ['ema_close', 'EMA Close', 'Entry when the candle closes on the favorable side of the EMA.'],
-  ['ma', 'MA Cross', 'Entry when price crosses a simple Moving Average.'],
-  ['engulfing', 'Engulfing', 'Entry on a bullish or bearish engulfing candle pattern.'],
+  ['momentum_pct', '% Momentum', 'Entry when momentum exceeds threshold.'],
+  ['breakout_hl', 'Breakout H/L', 'Entry when price breaks highest high or lowest low.'],
+  ['ema_price_cross', 'EMA Price Cross', 'Entry when price crosses EMA.'],
+  ['ema_dual_cross', 'EMA Dual Cross', 'Entry when fast EMA crosses slow EMA.'],
+  ['ema_close', 'EMA Close', 'Entry when candle closes favorable side of EMA.'],
+  ['ma', 'MA Cross', 'Entry when price crosses simple Moving Average.'],
+  ['engulfing', 'Engulfing', 'Entry on bullish or bearish engulfing pattern.'],
 ]
 
 const Toggle = ({ value, onChange, label, color = "bg-accent" }) => (
   <label className="flex items-center gap-3 cursor-pointer group">
-    <Switch.Root
-      checked={value}
-      onCheckedChange={onChange}
-      className={cn(
-        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50",
-        value ? color : "bg-border"
-      )}
-    >
-      <Switch.Thumb
-        className={cn(
-          "pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform",
-          value ? "translate-x-5" : "translate-x-0"
-        )}
-      />
+    <Switch.Root checked={value} onCheckedChange={onChange} className={cn("relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:border-accent", value ? color : "bg-border")}>
+      <Switch.Thumb className={cn("pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform", value ? "translate-x-5" : "translate-x-0")} />
     </Switch.Root>
     {label && <span className={cn("text-sm font-bold transition-colors", value ? "text-text" : "text-dim group-hover:text-dim/80")}>{label}</span>}
   </label>
 )
 
 const Chip = React.forwardRef(({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10", ...props }, ref) => (
-  <button
-    ref={ref}
-    type="button"
-    onClick={onClick}
-    aria-pressed={active}
-    className={cn(
-      "px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all",
-      active ? activeClass : "border-border text-dim hover:border-dim/50"
-    )}
-    {...props}
-  >
-    {children}
-  </button>
+  <button ref={ref} type="button" onClick={onClick} aria-pressed={active} className={cn("px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all", active ? activeClass : "border-border text-dim hover:border-dim/50")} {...props}>{children}</button>
 ))
 Chip.displayName = 'Chip'
 
 const flattenConfig = (config) => {
   if (!config) return {};
   try {
-    const params = typeof config.signal_params === 'string'
-      ? JSON.parse(config.signal_params || '{}')
-      : config.signal_params || {};
-    return {
-      ...config,
-      signal_params_ma_period: params.ma_period,
-      signal_params_ema_period: params.ema_period,
-      signal_params_entry_ema_period: params.entry_ema_period,
-      signal_params_exit_ema_period: params.exit_ema_period,
-      signal_params_entry_ema_fast: params.entry_ema_fast,
-      signal_params_entry_ema_slow: params.entry_ema_slow,
-      signal_params_exit_ema_fast: params.exit_ema_fast,
-      signal_params_exit_ema_slow: params.exit_ema_slow,
-    };
-  } catch (e) {
-    return { ...config };
-  }
+    const params = typeof config.signal_params === 'string' ? JSON.parse(config.signal_params || '{}') : config.signal_params || {};
+    return { ...config, signal_params_ma_period: params.ma_period, signal_params_ema_period: params.ema_period, signal_params_entry_ema_period: params.entry_ema_period, signal_params_exit_ema_period: params.exit_ema_period, signal_params_entry_ema_fast: params.entry_ema_fast, signal_params_entry_ema_slow: params.entry_ema_slow, signal_params_exit_ema_fast: params.exit_ema_fast, signal_params_exit_ema_slow: params.exit_ema_slow };
+  } catch (e) { return { ...config }; }
 };
 
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) => {
@@ -80,269 +42,59 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
   const [presetName, setPresetName] = useState('')
   const [errors, setErrors] = useState({})
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const [symbolSearch, setSymbolSearch] = useState('')
 
-  const validate = (currentCfg) => {
-    const errs = {}
-    
-    // Scan Section
-    if (!currentCfg.scan_interval) errs.scan_interval = 'Required'
-    if (currentCfg.scan_lookback < 1) errs.scan_lookback = 'Min 1'
-    if (currentCfg.scan_mode === 'active_window') {
-      if (!currentCfg.scan_window_duration_sec) errs.scan_window_duration_sec = 'Required'
-      if (!currentCfg.scan_check_interval_sec) errs.scan_check_interval_sec = 'Required'
-    }
-
-    // Signals Section
-    const allEnabled = [...(currentCfg.enabled_signals || []), ...(currentCfg.exit_signals || [])]
-    if (allEnabled.includes('ma') && !currentCfg.signal_params_ma_period) errs.signal_params_ma_period = 'Required'
-    if (allEnabled.includes('ema_close') || allEnabled.includes('ema_price_cross')) {
-      if (!currentCfg.signal_params_entry_ema_period) errs.signal_params_entry_ema_period = 'Required'
-      if (currentCfg.exit_signals?.includes('ema_close') && !currentCfg.signal_params_exit_ema_period) errs.signal_params_exit_ema_period = 'Required'
-    }
-    if (allEnabled.includes('ema_dual_cross')) {
-      if (!currentCfg.signal_params_entry_ema_fast) errs.signal_params_entry_ema_fast = 'Required'
-      if (!currentCfg.signal_params_entry_ema_slow) errs.signal_params_entry_ema_slow = 'Required'
-      if (currentCfg.signal_params_entry_ema_fast >= currentCfg.signal_params_entry_ema_slow) {
-        errs.signal_params_entry_ema_fast = 'Must be < slow'
-      }
-    }
-
-    // Exit Section
-    if (currentCfg.sl_type === 'lookback_low/high') {
-      if (!currentCfg.sl_lookback_period) errs.sl_lookback_period = 'Required'
-    }
-    if (currentCfg.tp_mode === 'exp_rr_seq') {
-      if (!currentCfg.live_rr_sequence?.length) errs.tp_mode = 'Sequence required'
-    }
-
-    // Risk Section
-    if (currentCfg.risk_pct_per_trade > currentCfg.max_total_risk_pct) {
-      errs.risk_pct_per_trade = 'Exceeds max total risk'
-    }
-
-    setErrors(errs)
-    return Object.keys(errs).length === 0
+  const validate = (c) => {
+    const errs = {}; if (!c.scan_interval) errs.scan_interval = 'Required'; if (c.scan_lookback < 1) errs.scan_lookback = 'Min 1';
+    if (c.scan_mode === 'active_window' && (!c.scan_window_duration_sec || !c.scan_check_interval_sec)) errs.scan_mode = 'Params missing';
+    setErrors(errs); return Object.keys(errs).length === 0;
   }
 
   const generatedPresetName = useMemo(() => {
-    const interval = cfg.scan_interval || 'Custom'
-    const risk = cfg.risk_pct_per_trade ? `${cfg.risk_pct_per_trade}% risk` : ''
-    const enabled = Array.isArray(cfg.enabled_signals) ? cfg.enabled_signals : []
-    const signalLabels = enabled
-      .map((signal) => SIGNALS.find(([key]) => key === signal)?.[1] || signal)
-      .filter(Boolean)
+    const i = cfg.scan_interval || 'Custom'; const r = cfg.risk_pct_per_trade ? `${cfg.risk_pct_per_trade}% risk` : '';
+    const parts = [i, r].filter(Boolean); return parts.join(' · ') || 'New session preset';
+  }, [cfg.scan_interval, cfg.risk_pct_per_trade])
 
-    let signalPart = 'Custom signals'
-    if (signalLabels.length === 1) {
-      signalPart = signalLabels[0]
-    } else if (signalLabels.length > 1) {
-      signalPart = `${signalLabels.slice(0, 2).join(', ')}${signalLabels.length > 2 ? ` +${signalLabels.length - 2}` : ''}`
-    }
+  useEffect(() => { const saved = localStorage.getItem('strategy_presets'); if (saved) setPresets(JSON.parse(saved)); }, [])
 
-    const parts = [interval, signalPart, risk].filter(Boolean)
-    return parts.join(' · ') || 'New session preset'
-  }, [cfg.scan_interval, cfg.risk_pct_per_trade, cfg.enabled_signals])
-
-  useEffect(() => {
-    const saved = localStorage.getItem('strategy_presets')
-    if (saved) setPresets(JSON.parse(saved))
-  }, [])
-
-
-  const setField = (key, value) => {
-    const next = { ...cfg, [key]: value };
-    setCfg(next);
-    if (Object.keys(errors).length > 0) validate(next);
-  }
-
-  const savePreset = () => {
-    if (!validate(cfg)) return;
-    const name = presetName.trim() || generatedPresetName
-    if (!name) return
-    const { strategy_variants, ...presetConfig } = cfg
-    const next = [...presets.filter(p => p.name !== name), { name, config: { ...presetConfig, strategy_label: name } }]
-    setPresets(next)
-    localStorage.setItem('strategy_presets', JSON.stringify(next))
-    setPresetName('')
-    setSaveSuccess(true)
-    setTimeout(() => setSaveSuccess(false), 2000)
-  }
-
-  const loadPreset = (p) => {
-    setCfg({ ...p.config })
-    setSection('scan')
-    setErrors({})
-  }
-
-  const deletePreset = (e, name) => {
-    e.stopPropagation()
-    const next = presets.filter(p => p.name !== name)
-    setPresets(next)
-    localStorage.setItem('strategy_presets', JSON.stringify(next))
-  }
-
-  const toggleVariant = (e, preset) => {
-    e.stopPropagation()
-    const variants = cfg.strategy_variants || []
-    const exists = variants.some((variant) => variant.strategy_label === preset.name)
-    setField('strategy_variants', exists
-      ? variants.filter((variant) => variant.strategy_label !== preset.name)
-      : [...variants, { ...preset.config, strategy_label: preset.name }])
-  }
+  const setField = (key, value) => { const next = { ...cfg, [key]: value }; setCfg(next); if (Object.keys(errors).length > 0) validate(next); }
+  const savePreset = () => { if (!validate(cfg)) return; const name = (presetName || generatedPresetName).trim(); if (!name) return; const { strategy_variants, ...pc } = cfg; const next = [...presets.filter(p => p.name !== name), { name, config: { ...pc, strategy_label: name } }]; setPresets(next); localStorage.setItem('strategy_presets', JSON.stringify(next)); setPresetName(''); setSaveSuccess(true); setTimeout(() => setSaveSuccess(false), 2000); }
+  const loadPreset = (p) => { setCfg({ ...p.config }); setSection('scan'); setErrors({}); }
+  const deletePreset = (e, name) => { e.stopPropagation(); const next = presets.filter(p => p.name !== name); setPresets(next); localStorage.setItem('strategy_presets', JSON.stringify(next)); }
+  const toggleVariant = (e, p) => { e.stopPropagation(); const vs = cfg.strategy_variants || []; const ex = vs.some((v) => v.strategy_label === p.name); setField('strategy_variants', ex ? vs.filter((v) => v.strategy_label !== p.name) : [...vs, { ...p.config, strategy_label: p.name }]); }
 
   const buildConfigToSave = () => {
-    const configToSave = { ...cfg, strategy_label: (cfg.strategy_label || presetName || generatedPresetName || 'Momentum Strategy').trim() };
-    const signalParams = {
-      ...(typeof cfg.signal_params === 'string' ? JSON.parse(cfg.signal_params || '{}') : cfg.signal_params || {})
-    };
-    if (cfg.signal_params_ma_period) signalParams.ma_period = cfg.signal_params_ma_period;
-    if (cfg.signal_params_ema_period) signalParams.ema_period = cfg.signal_params_ema_period;
-    if (cfg.signal_params_entry_ema_period) signalParams.entry_ema_period = cfg.signal_params_entry_ema_period;
-    if (cfg.signal_params_exit_ema_period) signalParams.exit_ema_period = cfg.signal_params_exit_ema_period;
-    if (cfg.signal_params_entry_ema_fast) signalParams.entry_ema_fast = cfg.signal_params_entry_ema_fast;
-    if (cfg.signal_params_entry_ema_slow) signalParams.entry_ema_slow = cfg.signal_params_entry_ema_slow;
-    if (cfg.signal_params_exit_ema_fast) signalParams.exit_ema_fast = cfg.signal_params_exit_ema_fast;
-    if (cfg.signal_params_exit_ema_slow) signalParams.exit_ema_slow = cfg.signal_params_exit_ema_slow;
-
-    configToSave.signal_params = JSON.stringify(signalParams);
-    configToSave.strategy_variants = (cfg.strategy_variants || []).map((variant) => ({
-      ...variant,
-      strategy_label: variant.strategy_label || 'Strategy Variant',
-      strategy_variants: [],
-    }));
-    return configToSave;
+    const c = { ...cfg, strategy_label: (cfg.strategy_label || presetName || generatedPresetName || 'Momentum Strategy').trim() };
+    const sp = { ...(typeof cfg.signal_params === 'string' ? JSON.parse(cfg.signal_params || '{}') : cfg.signal_params || {}) };
+    ['ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period', 'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow'].forEach(k => { if (cfg[`signal_params_${k}`]) sp[k] = cfg[`signal_params_${k}`]; });
+    c.signal_params = JSON.stringify(sp);
+    c.strategy_variants = (cfg.strategy_variants || []).map((v) => ({ ...v, strategy_label: v.strategy_label || 'Variant', strategy_variants: [] }));
+    return c;
   }
 
   const riskAmount = ((cfg.paper_starting_balance || 10000) * ((cfg.risk_pct_per_trade || 0) / 100))
-  const slDistance = 100 * ((cfg.sl_distance_pct || 1) / 100)
-  const estimatedQty = slDistance > 0 ? riskAmount / slDistance : 0
+  const sequence = useMemo(() => { const l = cfg.live_rr_sequence || []; const ex = cfg.exit_rr_sequence || []; return l.map((t, i) => [t, ex[i] ?? 0]); }, [cfg.live_rr_sequence, cfg.exit_rr_sequence])
 
-  const sequence = useMemo(() => {
-    const live = cfg.live_rr_sequence || []
-    const exits = cfg.exit_rr_sequence || []
-    return live.map((trigger, i) => [trigger, exits[i] ?? 0])
-  }, [cfg.live_rr_sequence, cfg.exit_rr_sequence])
-
-  function field(label, key, type = 'number', opts = null, attrs = {}, customPath = null) {
-    const id = `config-${key}`
-    const val = customPath ? customPath[key] : cfg[key]
-    const hasError = !!errors[key]
-    
-    const onChange = (v) => {
-      if (customPath) {
-        attrs.onCustomChange(key, v)
-      } else {
-        setField(key, v)
-      }
-    }
-
+  function field(label, key, type = 'number', opts = null, attrs = {}, cp = null) {
+    const id = `config-${key}`; const v = cp ? cp[key] : cfg[key]; const err = errors[key];
+    const onChange = (val) => { if (cp) attrs.onCustomChange(key, val); else setField(key, val); }
     return (
-      <div className="flex flex-col gap-1.5 scroll-mt-32">
-        <div className="flex justify-between items-center">
-          <label htmlFor={id} className="text-[10px] text-dim font-bold tracking-widest uppercase">{label}</label>
-          {hasError && <span id={`${id}-error`} role="alert" className="text-[9px] text-red font-bold uppercase">{errors[key]}</span>}
-        </div>
-        {opts ? (
-          <select
-            id={id}
-            value={val ?? ''}
-            aria-invalid={hasError}
-            aria-describedby={hasError ? `${id}-error` : undefined}
-            onChange={(e) => onChange(e.target.value)}
-            className={cn(
-              "bg-surface border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent transition-colors",
-              hasError ? "border-red/50 bg-red/5" : "border-border"
-            )}
-          >
-            {opts.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        ) : (
-          <input
-            id={id}
-            type={type}
-            inputMode={type === 'number' ? 'decimal' : undefined}
-            value={val ?? ''}
-            aria-invalid={hasError}
-            aria-describedby={hasError ? `${id}-error` : undefined}
-            min={attrs.min}
-            max={attrs.max}
-            step={attrs.step}
-            onFocus={(e) => {
-              // Ensure the input is visible when focused on mobile
-              setTimeout(() => {
-                e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              }, 300);
-            }}
-            onBlur={() => {
-              // Helps iOS/some android browsers to snap back or at least trigger a layout recalc
-              window.scrollTo(window.scrollX, window.scrollY);
-            }}
-            onChange={(e) => onChange(type === 'number' ? Number(e.target.value) : e.target.value)}
-            className={cn(
-              "bg-surface border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent transition-colors",
-              hasError ? "border-red/50 bg-red/5" : "border-border"
-            )}
-          />
-        )}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex justify-between items-center"><label htmlFor={id} className="text-[10px] text-dim font-bold tracking-widest uppercase">{label}</label>{err && <span role="alert" className="text-[9px] text-red font-bold uppercase">{err}</span>}</div>
+        {opts ? <select id={id} value={v ?? ''} onChange={(e) => onChange(e.target.value)} className="bg-surface border border-border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent">{opts.map((o) => <option key={o} value={o}>{o}</option>)}</select> : <input id={id} type={type} value={v ?? ''} {...attrs} onChange={(e) => onChange(type === 'number' ? Number(e.target.value) : e.target.value)} className="bg-surface border border-border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent" />}
       </div>
     )
   }
 
-  function updateSequence(index, col, value) {
-    const next = sequence.map((row, i) => i === index ? [col === 0 ? Number(value) : row[0], col === 1 ? Number(value) : row[1]] : row)
-    setCfg((prev) => ({
-      ...prev,
-      live_rr_sequence: next.map(([trigger]) => trigger),
-      exit_rr_sequence: next.map(([, exit]) => exit),
-    }))
-  }
-
-  function addStep() {
-    const last = sequence[sequence.length - 1] || [0, -1]
-    setCfg((prev) => ({
-      ...prev,
-      live_rr_sequence: [...(prev.live_rr_sequence || []), last[0] + 1],
-      exit_rr_sequence: [...(prev.exit_rr_sequence || []), Math.max(0, last[1] + 1)],
-    }))
-  }
-
-  function removeStep(index) {
-    const next = sequence.filter((_, i) => i !== index)
-    setCfg((prev) => ({
-      ...prev,
-      live_rr_sequence: next.map(([trigger]) => trigger),
-      exit_rr_sequence: next.map(([, exit]) => exit),
-    }))
-  }
-
-  const [symbolSearch, setSymbolSearch] = useState('')
-  const [editingSingleSymbolIndex, setEditingSingleSymbolIndex] = useState(null)
-
   return (
     <div className="flex flex-col h-full bg-surface text-text overflow-hidden relative">
-      <div className="sticky top-0 z-30 bg-surface/80 backdrop-blur-md">
-        <div className="p-5 border-b border-border flex justify-between items-center shrink-0">
-          <div>
-            <div className="text-lg font-bold">New Session</div>
-            <div className="text-[11px] text-dim font-medium mt-0.5">Configure scanner, exits, and risk before launch</div>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full transition-colors" aria-label="Close configuration">
-            <X size={18} className="text-dim" />
-          </button>
+      <div className="sticky top-0 z-30 bg-surface/80 backdrop-blur-md border-b border-border">
+        <div className="p-5 flex justify-between items-center">
+          <div><div className="text-lg font-bold">Configure Engine</div><div className="text-[11px] text-dim font-medium">Define parameters for automated execution</div></div>
+          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full transition-colors"><X size={18} className="text-dim" /></button>
         </div>
-
-        <div className="flex gap-2 p-4 overflow-x-auto no-scrollbar shrink-0 border-b border-border touch-pan-x" data-vaul-no-drag>
-          {[
-            ['scan', 'Global Scan'],
-          ['monitors', 'Single Symbols'],
-          ['signals', 'Signals'],
-          ['exit', 'Exit'],
-          ['risk', 'Risk'],
-          ['schedule', 'Schedule'],
-          ['mode', 'Mode'],
-          ['performance', 'Performance'],
-          ['presets', 'Presets'],
-          ].map(([id, label]) => (
+        <div className="flex gap-2 p-4 overflow-x-auto no-scrollbar touch-pan-x" data-vaul-no-drag>
+          {[ ['scan', 'Scanner'], ['strategy', 'Strategy'], ['risk', 'Risk'], ['advanced', 'Advanced'], ['presets', 'Presets'] ].map(([id, label]) => (
             <Chip key={id} active={section === id} onClick={() => setSection(id)}>{label}</Chip>
           ))}
         </div>
@@ -351,773 +103,109 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
       <div className="flex-1 overflow-y-auto p-5 pb-32 overscroll-contain" data-vaul-no-drag>
         {section === 'scan' && (
           <div className="space-y-6 animate-in fade-in duration-300">
-            <div className="grid grid-cols-1">
-              {field('Strategy label', 'strategy_label', 'text', null, { })}
-            </div>
-
+            {field('Strategy label', 'strategy_label', 'text')}
             <div className="p-4 bg-accent/5 border border-accent/20 rounded-xl flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center">
-                  <Search size={20} className="text-accent" />
-                </div>
-                <div>
-                  <div className="text-sm font-bold">Broad Market Scanner</div>
-                  <div className="text-[10px] text-dim font-medium">Auto-discover top volume opportunities</div>
-                </div>
-              </div>
-              <Toggle
-                value={cfg.global_scanner_enabled !== false}
-                onChange={(v) => setField('global_scanner_enabled', v)}
-                label={cfg.global_scanner_enabled !== false ? "ON" : "OFF"}
-              />
+              <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center"><Search size={20} className="text-accent" /></div><div><div className="text-sm font-bold">Global Scanner</div><div className="text-[10px] text-dim font-medium">Automatic opportunity discovery</div></div></div>
+              <Toggle value={cfg.global_scanner_enabled !== false} onChange={(v) => setField('global_scanner_enabled', v)} />
             </div>
-
-            <div className={cn("grid grid-cols-1 md:grid-cols-2 gap-5 transition-opacity", cfg.global_scanner_enabled === false && "opacity-40 pointer-events-none")}>
+            <div className={cn("grid grid-cols-2 gap-5", cfg.global_scanner_enabled === false && "opacity-40 pointer-events-none")}>
               {field('Interval', 'scan_interval', 'text', ['1m', '5m', '15m', '1h'])}
-              {field('Lookback candles', 'scan_lookback', 'number', null, { min: 1, max: 20 })}
               {field('% threshold', 'scan_pct_threshold', 'number', null, { min: 0.1, step: 0.1 })}
-              {field('Min volume USDT', 'scan_min_volume_usdt', 'number', null, { min: 0, step: 100000 })}
               {field('Watchlist size', 'watchlist_size', 'number', null, { min: 10, max: 100 })}
               {field('Entry side', 'entry_side', 'text', ['both', 'long', 'short'])}
             </div>
-            <div className="flex gap-2 p-1 bg-background rounded-lg">
-              <button
-                className={cn("flex-1 py-2 text-[11px] font-bold rounded-md transition-all", cfg.scan_mode === 'interval' ? "bg-surface text-accent shadow-sm" : "text-dim")}
-                onClick={() => setField('scan_mode', 'interval')}
-              >Interval</button>
-              <button
-                className={cn("flex-1 py-2 text-[11px] font-bold rounded-md transition-all", cfg.scan_mode === 'active_window' ? "bg-surface text-accent shadow-sm" : "text-dim")}
-                onClick={() => setField('scan_mode', 'active_window')}
-              >Active Window</button>
-            </div>
-            {cfg.scan_mode === 'active_window' && (
-              <div className="grid grid-cols-2 gap-5">
-                {field('Window duration sec', 'scan_window_duration_sec', 'number', null, { min: 10, max: 600 })}
-                {field('Check interval sec', 'scan_check_interval_sec', 'number', null, { min: 2, max: 60 })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {section === 'monitors' && (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2">
-            <div className="space-y-4">
-              <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Add Symbol Monitor</div>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim" />
-                  <input
-                    type="text"
-                    placeholder="Search symbol (e.g. BTCUSDT)"
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="characters"
-                    spellCheck="false"
-                    value={symbolSearch}
-                    onChange={(e) => setSymbolSearch(e.target.value.toUpperCase())}
-                    className="w-full bg-surface border border-border rounded-md pl-10 pr-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && symbolSearch) {
-                        const existing = (cfg.single_symbol_configs || []).find(s => s.symbol === symbolSearch)
-                        if (!existing) {
-                          setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), {
-                            symbol: symbolSearch,
-                            enabled: true,
-                            follow_schedule: true,
-                            use_custom_config: false
-                          }])
-                        }
-                        setSymbolSearch('')
-                      }
-                    }}
-                  />
-                </div>
-                <Tooltip content="Add symbol monitor">
-                  <Btn
-                    variant="primary"
-                    onClick={() => {
-                      if (!symbolSearch) return
-                      const existing = (cfg.single_symbol_configs || []).find(s => s.symbol === symbolSearch)
-                      if (!existing) {
-                        setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), {
-                          symbol: symbolSearch,
-                          enabled: true,
-                          follow_schedule: true,
-                          use_custom_config: false
-                        }])
-                      }
-                      setSymbolSearch('')
-                    }}
-                    aria-label="Add symbol monitor"
-                    className="px-4"
-                  >
-                    <Plus size={18} />
-                  </Btn>
-                </Tooltip>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Active Monitors</div>
-              {(cfg.single_symbol_configs || []).length === 0 ? (
-                <div className="p-10 border border-dashed border-border rounded-xl text-center">
-                  <div className="w-12 h-12 bg-background rounded-full flex items-center justify-center mx-auto mb-3">
-                    <ShieldCheck size={24} className="text-dim/40" />
-                  </div>
-                  <span className="text-xs text-dim">No specific symbols monitored yet</span>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {(cfg.single_symbol_configs || []).map((sc, i) => (
-                    <div key={sc.symbol} className="flex flex-col gap-3 p-4 bg-background border border-border rounded-xl">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <Toggle
-                            value={sc.enabled}
-                            onChange={(v) => {
-                              const next = [...cfg.single_symbol_configs]
-                              next[i] = { ...sc, enabled: v }
-                              setField('single_symbol_configs', next)
-                            }}
-                            label=""
-                          />
-                          <div className="flex flex-col">
-                            <span className="text-sm font-bold">{sc.symbol}</span>
-                            <div className="flex items-center gap-2">
-                               <span className={cn("text-[9px] font-bold uppercase", sc.follow_schedule ? "text-dim" : "text-amber")}>
-                                 {sc.follow_schedule ? "Following Schedule" : "Always Active"}
-                               </span>
-                               {sc.use_custom_config && (
-                                 <span className="text-[9px] font-bold uppercase text-accent">Custom Config</span>
-                               )}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Tooltip content="Symbol Settings">
-                            <button
-                              onClick={() => setEditingSingleSymbolIndex(editingSingleSymbolIndex === i ? null : i)}
-                              aria-label={editingSingleSymbolIndex === i ? "Close symbol settings" : "Open symbol settings"}
-                              aria-expanded={editingSingleSymbolIndex === i}
-                              className={cn("p-2 rounded-lg transition-colors", editingSingleSymbolIndex === i ? "bg-accent/20 text-accent" : "text-dim hover:bg-white/5 hover:text-text")}
-                            >
-                              <Settings2 size={16} />
-                            </button>
-                          </Tooltip>
-                          <Tooltip content="Delete Monitor">
-                            <button
-                              onClick={() => setField('single_symbol_configs', cfg.single_symbol_configs.filter((_, idx) => idx !== i))}
-                              aria-label={`Delete monitor for ${sc.symbol}`}
-                              className="p-2 text-dim hover:text-red transition-colors"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </Tooltip>
-                        </div>
-                      </div>
-
-                      {editingSingleSymbolIndex === i && (
-                        <div className="pt-4 border-t border-border mt-1 space-y-4 animate-in slide-in-from-top-2">
-                          <div className="grid grid-cols-2 gap-4">
-                            <Toggle
-                              label="Respect Schedule"
-                              value={sc.follow_schedule !== false}
-                              onChange={(v) => {
-                                const next = [...cfg.single_symbol_configs]
-                                next[i] = { ...sc, follow_schedule: v }
-                                setField('single_symbol_configs', next)
-                              }}
-                              color="bg-dim"
-                            />
-                            <Toggle
-                              label="Custom Strategy"
-                              value={sc.use_custom_config}
-                              onChange={(v) => {
-                                const next = [...cfg.single_symbol_configs]
-                                next[i] = { ...sc, use_custom_config: v, custom_config: v ? (sc.custom_config || { ...cfg, single_symbol_configs: [] }) : sc.custom_config }
-                                setField('single_symbol_configs', next)
-                              }}
-                              color="bg-accent"
-                            />
-                          </div>
-
-                          {sc.use_custom_config && (
-                            <div className="space-y-5 p-4 bg-surface rounded-lg border border-accent/20">
-                              <div className="text-[9px] text-accent font-bold uppercase tracking-widest flex items-center gap-2">
-                                <Settings2 size={12} /> Symbol Specific Overrides
-                              </div>
-                              <div className="grid grid-cols-2 gap-4">
-                                {field('Interval', 'scan_interval', 'text', ['1m', '5m', '15m', '1h'], {
-                                  onCustomChange: (k, v) => {
-                                    const next = [...cfg.single_symbol_configs]
-                                    next[i] = { ...sc, custom_config: { ...sc.custom_config, [k]: v } }
-                                    setField('single_symbol_configs', next)
-                                  }
-                                }, sc.custom_config)}
-                                {field('TP Ratio', 'tp_ratio', 'number', null, {
-                                  min: 0.1, step: 0.1,
-                                  onCustomChange: (k, v) => {
-                                    const next = [...cfg.single_symbol_configs]
-                                    next[i] = { ...sc, custom_config: { ...sc.custom_config, [k]: v } }
-                                    setField('single_symbol_configs', next)
-                                  }
-                                }, sc.custom_config)}
-                                {field('SL Pct', 'sl_distance_pct', 'number', null, {
-                                  min: 0.05, step: 0.05,
-                                  onCustomChange: (k, v) => {
-                                    const next = [...cfg.single_symbol_configs]
-                                    next[i] = { ...sc, custom_config: { ...sc.custom_config, [k]: v } }
-                                    setField('single_symbol_configs', next)
-                                  }
-                                }, sc.custom_config)}
-                                {field('Risk %', 'risk_pct_per_trade', 'number', null, {
-                                  min: 0.1, max: 100, step: 0.1,
-                                  onCustomChange: (k, v) => {
-                                    const next = [...cfg.single_symbol_configs]
-                                    next[i] = { ...sc, custom_config: { ...sc.custom_config, [k]: v } }
-                                    setField('single_symbol_configs', next)
-                                  }
-                                }, sc.custom_config)}
-                              </div>
-                              <div className="text-[9px] text-dim font-medium italic">
-                                * Overrides only the basic parameters for now. Other settings are inherited from global.
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+            <div className="space-y-3 pt-4 border-t border-border/40">
+               <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2"><ShieldCheck size={12} /> Specific Symbol Monitors</div>
+               <div className="flex gap-2"><input type="text" placeholder="BTCUSDT" value={symbolSearch} onChange={(e) => setSymbolSearch(e.target.value.toUpperCase())} className="flex-1 bg-surface border border-border rounded px-3 py-2 text-sm font-mono" /><Btn variant="primary" onClick={() => { if (!symbolSearch) return; setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), { symbol: symbolSearch, enabled: true, follow_schedule: true }]); setSymbolSearch(''); }}><Plus size={16} /></Btn></div>
             </div>
           </div>
         )}
 
-        {section === 'signals' && (
-          <div className="space-y-6">
-            <div className="flex gap-2 p-1 bg-background rounded-lg">
-              <button
-                className={cn("flex-1 py-2 text-[11px] font-bold rounded-md transition-all", cfg.signal_logic === 'all' ? "bg-surface text-accent shadow-sm" : "text-dim")}
-                onClick={() => setField('signal_logic', 'all')}
-              >Require All</button>
-              <button
-                className={cn("flex-1 py-2 text-[11px] font-bold rounded-md transition-all", cfg.signal_logic === 'any' ? "bg-surface text-accent shadow-sm" : "text-dim")}
-                onClick={() => setField('signal_logic', 'any')}
-              >Allow Any</button>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              {SIGNALS.map(([key, label, desc]) => {
-                const active = (cfg.enabled_signals || []).includes(key)
-                return (
-                  <Tooltip key={key} content={desc}>
-                    <Chip
-                      active={active}
-                      onClick={() => setField('enabled_signals', active
-                        ? (cfg.enabled_signals || []).filter((s) => s !== key)
-                        : [...(cfg.enabled_signals || []), key])}
-                    >
-                      {label}
-                    </Chip>
-                  </Tooltip>
-                )
+        {section === 'strategy' && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="grid grid-cols-2 gap-2">
+              {SIGNALS.map(([key, label]) => {
+                const active = (cfg.enabled_signals || []).includes(key);
+                return <Chip key={key} active={active} onClick={() => setField('enabled_signals', active ? cfg.enabled_signals.filter(s => s !== key) : [...(cfg.enabled_signals || []), key])}>{label}</Chip>
               })}
             </div>
-
-            <div className="space-y-4 border-t border-border pt-4">
-              <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Entry Signal Parameters</div>
+            <div className="space-y-4 pt-4 border-t border-border">
+              <div className="text-[10px] text-dim font-bold uppercase tracking-widest">Indicators</div>
               <div className="grid grid-cols-2 gap-5">
-                {field('MA Period', 'signal_params_ma_period', 'number', null, { min: 5, max: 200, step: 1 })}
-                {field('Entry EMA Period', 'signal_params_entry_ema_period', 'number', null, { min: 2, max: 200, step: 1 })}
-              </div>
-              <div className="grid grid-cols-2 gap-5">
-                {field('Entry EMA Fast', 'signal_params_entry_ema_fast', 'number', null, { min: 2, max: 200, step: 1 })}
-                {field('Entry EMA Slow', 'signal_params_entry_ema_slow', 'number', null, { min: 2, max: 200, step: 1 })}
-              </div>
-
-              <div className="text-[10px] text-dim font-bold tracking-widest uppercase pt-2">Exit Signal Parameters</div>
-              <div className="grid grid-cols-2 gap-5">
-                {field('Exit EMA Period', 'signal_params_exit_ema_period', 'number', null, { min: 2, max: 200, step: 1 })}
-              </div>
-              <div className="grid grid-cols-2 gap-5">
-                {field('Exit EMA Fast', 'signal_params_exit_ema_fast', 'number', null, { min: 2, max: 200, step: 1 })}
-                {field('Exit EMA Slow', 'signal_params_exit_ema_slow', 'number', null, { min: 2, max: 200, step: 1 })}
+                {field('MA Period', 'signal_params_ma_period')}
+                {field('EMA Period', 'signal_params_entry_ema_period')}
               </div>
             </div>
-          </div>
-        )}
-
-        {section === 'exit' && (
-          <div className="space-y-8">
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Exit Signals (Optional)</div>
-                <div className="flex gap-2 p-1 bg-background rounded-lg scale-90 origin-right">
-                  <button
-                    className={cn("px-3 py-1 text-[9px] font-bold rounded-md transition-all", (cfg.exit_signal_logic || 'any') === 'any' ? "bg-surface text-red shadow-sm" : "text-dim")}
-                    onClick={() => setField('exit_signal_logic', 'any')}
-                  >Allow Any</button>
-                  <button
-                    className={cn("px-3 py-1 text-[9px] font-bold rounded-md transition-all", cfg.exit_signal_logic === 'all' ? "bg-surface text-red shadow-sm" : "text-dim")}
-                    onClick={() => setField('exit_signal_logic', 'all')}
-                  >Require All</button>
-                </div>
-              </div>
-              <div className="text-xs text-dim mb-3">Signals that will close positions automatically. Set activation delay (sec) for each.</div>
-              <div className="grid grid-cols-1 gap-3">
-                {SIGNALS.map(([key, label, desc]) => {
-                  const active = (cfg.exit_signals || []).includes(key)
-                  const delay = (cfg.exit_signal_delays || {})[key] || 0
-                  return (
-                    <div key={key} className={cn(
-                      "flex flex-col gap-3 p-3 rounded-xl border transition-all",
-                      active ? "border-red/40 bg-red/5" : "border-border bg-background/50"
-                    )}>
-                      <div className="flex items-center justify-between">
-                        <Tooltip content={desc}>
-                          <button
-                            type="button"
-                            onClick={() => setField('exit_signals', active
-                              ? (cfg.exit_signals || []).filter((s) => s !== key)
-                              : [...(cfg.exit_signals || []), key])}
-                            className={cn(
-                              "flex-1 text-left text-sm font-bold transition-colors",
-                              active ? "text-red" : "text-dim hover:text-text"
-                            )}
-                          >
-                            {label}
-                          </button>
-                        </Tooltip>
-                        <Switch.Root
-                          checked={active}
-                          onCheckedChange={(val) => setField('exit_signals', val
-                            ? [...(cfg.exit_signals || []), key]
-                            : (cfg.exit_signals || []).filter((s) => s !== key))}
-                          className={cn(
-                            "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors",
-                            active ? "bg-red" : "bg-border"
-                          )}
-                        >
-                          <Switch.Thumb className={cn(
-                            "pointer-events-none block h-4 w-4 rounded-full bg-white transition-transform",
-                            active ? "translate-x-4" : "translate-x-0"
-                          )} />
-                        </Switch.Root>
-                      </div>
-                      {active && (
-                        <div className="flex items-center gap-3 pt-2 border-t border-red/10 animate-in fade-in slide-in-from-top-1 duration-300">
-                          <span className="text-[10px] text-dim font-bold uppercase tracking-tight">Activation Delay</span>
-                          <div className="flex-1 flex items-center gap-2">
-                            <input
-                              type="number"
-                              min="0"
-                              max="3600"
-                              value={delay}
-                              onChange={(e) => setField('exit_signal_delays', {
-                                ...(cfg.exit_signal_delays || {}),
-                                [key]: Number(e.target.value)
-                              })}
-                              className="w-20 bg-surface border border-red/20 rounded px-2 py-1 text-xs font-mono text-red focus:outline-none focus:border-red/50"
-                            />
-                            <span className="text-[10px] text-red/60 font-bold uppercase">Seconds</span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Take Profit Mode</div>
-              <div className="flex gap-2 p-1 bg-background rounded-lg">
-                <button className={cn("flex-1 py-2 text-[11px] font-bold rounded-md transition-all", cfg.tp_mode === 'fixed' ? "bg-surface text-accent shadow-sm" : "text-dim")} onClick={() => setField('tp_mode', 'fixed')}>Fixed R:R</button>
-                <button className={cn("flex-1 py-2 text-[11px] font-bold rounded-md transition-all", cfg.tp_mode === 'exp_rr_seq' ? "bg-surface text-accent shadow-sm" : "text-dim")} onClick={() => setField('tp_mode', 'exp_rr_seq')}>EXP RR</button>
-              </div>
-              {cfg.tp_mode === 'fixed' ? (
-                <div className="grid grid-cols-1">{field('TP ratio', 'tp_ratio', 'number', null, { min: 0.2, step: 0.1 })}</div>
-              ) : (
-                <div className="space-y-3">
-                  {sequence.map(([trigger, exit], i) => (
-                    <div key={i} className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 bg-background rounded-lg border border-border">
-                      <div className="flex items-center justify-between sm:justify-start gap-3">
-                        <span className="text-[11px] text-dim font-bold w-4">{i + 1}</span>
-                        <div className="flex-1 sm:hidden text-center text-xs font-bold font-mono px-2 py-1 bg-surface border border-border rounded">
-                          {exit === 0 ? 'BE' : `${exit}R`}
-                        </div>
-                        <button onClick={() => removeStep(i)} className="sm:hidden text-red/60 hover:text-red p-1"><Trash2 size={16} /></button>
-                      </div>
-                      <div className="flex gap-2 flex-1">
-                        <div className="flex-1 flex flex-col gap-1">
-                          <span className="text-[9px] text-dim uppercase font-bold">Trigger RR</span>
-                          <input type="number" value={trigger} min="0.5" step="0.5" onChange={(e) => updateSequence(i, 0, e.target.value)} className="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-accent" />
-                        </div>
-                        <div className="flex-1 flex flex-col gap-1">
-                          <span className="text-[9px] text-dim uppercase font-bold">Exit RR</span>
-                          <input type="number" value={exit} min="-1" step="0.5" onChange={(e) => updateSequence(i, 1, e.target.value)} className="w-full bg-surface border border-border rounded px-2 py-1.5 text-xs font-mono focus:outline-none focus:border-accent" />
-                        </div>
-                      </div>
-                      <div className="hidden sm:block w-12 text-center text-xs font-bold font-mono">
-                        {exit === 0 ? 'BE' : `${exit}R`}
-                      </div>
-                      <button onClick={() => removeStep(i)} className="hidden sm:block text-red/60 hover:text-red p-1"><Trash2 size={16} /></button>
-                    </div>
-                  ))}
-                  <button onClick={addStep} className="w-full py-2 border border-dashed border-border rounded-lg text-[11px] font-bold text-dim hover:text-accent hover:border-accent transition-all flex items-center justify-center gap-1.5">
-                    <Plus size={14} /> Add Step
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-4">
-              <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Stop Loss Mode</div>
-              <div className="flex gap-2 p-1 bg-background rounded-lg">
-                <button className={cn("flex-1 py-2 text-[11px] font-bold rounded-md transition-all", cfg.sl_type === 'pct' ? "bg-surface text-accent shadow-sm" : "text-dim")} onClick={() => setField('sl_type', 'pct')}>Fixed %</button>
-                <button className={cn("flex-1 py-2 text-[11px] font-bold rounded-md transition-all", cfg.sl_type === 'lookback_low/high' ? "bg-surface text-accent shadow-sm" : "text-dim")} onClick={() => setField('sl_type', 'lookback_low/high')}>Lookback H/L</button>
-              </div>
-              {cfg.sl_type === 'pct' ? (
-                <div className="grid grid-cols-1">{field('SL distance %', 'sl_distance_pct', 'number', null, { min: 0.05, step: 0.05 })}</div>
-              ) : (
-                <div className="grid grid-cols-2 gap-5">
-                  {field('SL timeframe', 'sl_lookback_timeframe', 'text', ['1m', '5m', '15m', '1h', '4h'])}
-                  {field('Lookback bars', 'sl_lookback_period', 'number', null, { min: 1, max: 50 })}
-                  {field('Min SL %', 'sl_min_pct', 'number', null, { min: 0.05, step: 0.05 })}
-                  {field('Max SL %', 'sl_max_pct', 'number', null, { min: 0.1, step: 0.1 })}
-                </div>
-              )}
+            <div className="space-y-4 pt-4 border-t border-border">
+               <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex justify-between"><span>Exit Conditions</span><div className="flex gap-1">
+                 <button className={cn("px-2 py-0.5 rounded text-[8px] font-bold", (cfg.exit_signal_logic || 'any') === 'any' ? "bg-red text-white" : "bg-border")} onClick={() => setField('exit_signal_logic', 'any')}>ANY</button>
+                 <button className={cn("px-2 py-0.5 rounded text-[8px] font-bold", cfg.exit_signal_logic === 'all' ? "bg-red text-white" : "bg-border")} onClick={() => setField('exit_signal_logic', 'all')}>ALL</button>
+               </div></div>
+               <div className="grid grid-cols-1 gap-2">
+                 {SIGNALS.map(([key, label]) => {
+                   const active = (cfg.exit_signals || []).includes(key);
+                   return <div key={key} className={cn("flex items-center justify-between p-2 rounded border", active ? "border-red/40 bg-red/5" : "border-border")}><span className="text-xs font-bold">{label}</span><Switch.Root checked={active} onCheckedChange={(v) => setField('exit_signals', v ? [...(cfg.exit_signals || []), key] : cfg.exit_signals.filter(s => s !== key))} className={cn("h-5 w-9 rounded-full border-2 border-transparent transition-colors", active ? "bg-red" : "bg-border")}><Switch.Thumb className={cn("block h-4 w-4 rounded-full bg-white transition-transform", active ? "translate-x-4" : "translate-x-0")} /></Switch.Root></div>
+                 })}
+               </div>
             </div>
           </div>
         )}
 
         {section === 'risk' && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {field('Risk % per trade', 'risk_pct_per_trade', 'number', null, { min: 0.1, step: 0.1 })}
-              {field('Max open trades', 'max_open_trades', 'number', null, { min: 1 })}
-              {field('Max trades per period', 'max_trades_per_period', 'number', null, { min: 0 })}
-              {field('Period (minutes)', 'trades_period_min', 'number', null, { min: 1 })}
-              {field('Max total risk %', 'max_total_risk_pct', 'number', null, { min: 0.5, step: 0.5 })}
-              {field('SL guard USDT', 'total_sl_guard_usdt', 'number', null, { min: 1, step: 10 })}
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="grid grid-cols-2 gap-5">
+              {field('Risk % per trade', 'risk_pct_per_trade', 'number', null, { step: 0.1 })}
+              {field('Max open trades', 'max_open_trades')}
+              {field('Max total risk %', 'max_total_risk_pct')}
+              {field('SL guard USDT', 'total_sl_guard_usdt')}
             </div>
-            <div className="grid grid-cols-3 gap-3 p-4 bg-background rounded-xl border border-border">
-              <div className="flex flex-col gap-1">
-                <span className="text-[9px] text-dim uppercase font-bold">Risk amount</span>
-                <span className="text-sm font-bold font-mono text-amber">${Number(riskAmount || 0).toFixed(2)}</span>
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-[9px] text-dim uppercase font-bold">SL @ $100</span>
-                <span className="text-sm font-bold font-mono text-red">{Number(slDistance || 0).toFixed(2)}</span>
-              </div>
-              <div className="flex flex-col gap-1 text-right">
-                <span className="text-[9px] text-dim uppercase font-bold">Est. qty</span>
-                <span className="text-sm font-bold font-mono text-accent">{Number(estimatedQty || 0).toFixed(1)}</span>
-              </div>
-            </div>
-
-            <div className="pt-6 border-t border-border/40 space-y-4">
-               <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Advanced Risk Filters</div>
-               <div className="flex flex-col gap-4">
-                  <Toggle
-                    label="Historical TOD Risk"
-                    value={cfg.risk_use_tod_stats}
-                    onChange={(v) => setField('risk_use_tod_stats', v)}
-                    color="bg-green"
-                  />
-                  {cfg.risk_use_tod_stats && (
-                    <div className="pl-9">
-                       {field('Min Hour WinRate %', 'tod_min_winrate', 'number', null, { min: 10, max: 90, step: 1 })}
-                    </div>
-                  )}
-               </div>
+            <div className="p-4 bg-background border border-border rounded-xl flex justify-between"><div className="flex flex-col"><span className="text-[9px] text-dim uppercase font-bold">Capital at risk</span><span className="text-sm font-bold font-mono text-amber">${fmtUSD(riskAmount)}</span></div><div className="flex flex-col text-right"><span className="text-[9px] text-dim uppercase font-bold">TP Ratio</span><span className="text-sm font-bold font-mono text-accent">{cfg.tp_ratio}R</span></div></div>
+            <div className="space-y-4 pt-4 border-t border-border">
+               <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2"><Clock size={12} /> Trading Windows</div>
+               <div className="flex gap-2"><Btn variant="ghost" onClick={() => setField('trading_windows', [...(cfg.trading_windows || []), { start: '09:00', end: '17:00' }])} className="w-full text-[10px]">+ Add Window</Btn></div>
             </div>
           </div>
         )}
 
-        {section === 'schedule' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-               <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Trading Windows (24h)</div>
-               <button
-                  onClick={() => setField('trading_windows', [...(cfg.trading_windows || []), { start: '09:00', end: '17:00' }])}
-                  className="text-[10px] font-bold text-accent uppercase tracking-widest"
-               >+ Add Window</button>
+        {section === 'advanced' && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="grid grid-cols-1 gap-4">
+              {['paper', 'testnet', 'live'].map(m => (
+                <button key={m} onClick={() => { setField('trading_mode', m); setField('paper_mode', m === 'paper'); }} className={cn("p-4 rounded-xl border-2 text-left transition-all", (cfg.trading_mode === m || (m === 'paper' && cfg.paper_mode && !cfg.trading_mode)) ? "border-accent bg-accent/5" : "border-border bg-surface")}>
+                  <div className="flex items-center justify-between mb-1"><span className="text-sm font-bold capitalize">{m} Trading</span>{(cfg.trading_mode === m || (m === 'paper' && cfg.paper_mode && !cfg.trading_mode)) && <CheckCircle2 size={16} className="text-accent" />}</div>
+                  <p className="text-[10px] text-dim">Executing in ${m} environment</p>
+                </button>
+              ))}
             </div>
-
-            {(cfg.trading_windows || []).length === 0 ? (
-               <div className="p-8 border border-dashed border-border rounded-xl text-center">
-                  <span className="text-xs text-dim">Trade 24/7 (No restrictions)</span>
-               </div>
-            ) : (
-               <div className="space-y-3">
-                  {cfg.trading_windows.map((w, i) => (
-                    <div key={i} className="flex items-center gap-3 p-4 bg-background border border-border rounded-xl">
-                       <div className="flex-1 flex flex-col gap-1">
-                          <span className="text-[9px] text-dim uppercase font-bold">Start</span>
-                          <input type="time" value={w.start} onChange={(e) => {
-                             const next = [...cfg.trading_windows];
-                             next[i] = { ...next[i], start: e.target.value };
-                             setField('trading_windows', next);
-                          }} className="bg-surface border border-border rounded px-2 py-1 text-xs font-mono" />
-                       </div>
-                       <div className="flex-1 flex flex-col gap-1">
-                          <span className="text-[9px] text-dim uppercase font-bold">End</span>
-                          <input type="time" value={w.end} onChange={(e) => {
-                             const next = [...cfg.trading_windows];
-                             next[i] = { ...next[i], end: e.target.value };
-                             setField('trading_windows', next);
-                          }} className="bg-surface border border-border rounded px-2 py-1 text-xs font-mono" />
-                       </div>
-                       <Tooltip content="Delete Window">
-                         <button
-                           onClick={() => setField('trading_windows', cfg.trading_windows.filter((_, idx) => idx !== i))}
-                           aria-label={`Delete trading window ${w.start} to ${w.end}`}
-                           className="text-red/60 hover:text-red p-2"
-                          >
-                            <Trash2 size={16} />
-                         </button>
-                       </Tooltip>
-                    </div>
-                  ))}
-               </div>
-            )}
-            <p className="text-[10px] text-dim/60 leading-relaxed italic">
-               Note: System will enter 'Sleep Mode' outside these windows if no positions are open, reducing API consumption and CPU usage.
-            </p>
-          </div>
-        )}
-
-        {section === 'performance' && (
-          <div className="space-y-6">
-            <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Engine Optimization</div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {field('Hot Loop (ms)', 'hot_loop_interval_ms', 'number', null, { min: 500, step: 100 })}
-              {field('Main Loop (ms)', 'main_loop_interval_ms', 'number', null, { min: 1000, step: 100 })}
-            </div>
-            <div className="p-4 bg-background border border-border rounded-xl space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-bold">Debug Mode</div>
-                  <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Verbose backend logging</div>
-                </div>
-                <Toggle
-                  value={cfg.debug_mode === true}
-                  onChange={(v) => setField('debug_mode', v)}
-                  color="bg-amber"
-                />
-              </div>
-              <p className="text-[10px] text-dim/60 italic leading-relaxed">
-                * Note: Increasing loop intervals drastically reduces Railway resource usage and API weight. Default is 2000ms/5000ms.
-              </p>
+            <div className="space-y-4 pt-4 border-t border-border">
+              {field('Hot Loop (ms)', 'hot_loop_interval_ms')}
+              {field('Main Loop (ms)', 'main_loop_interval_ms')}
+              <div className="flex items-center justify-between p-4 bg-background rounded-xl"><div><div className="text-sm font-bold">Debug Mode</div><div className="text-[10px] text-dim uppercase">Verbose backend logs</div></div><Toggle value={cfg.debug_mode === true} onChange={(v) => setField('debug_mode', v)} color="bg-amber" /></div>
             </div>
           </div>
         )}
 
         {section === 'presets' && (
-          <div className="space-y-6">
-            <div className="flex flex-col gap-3">
-              <label className="text-[10px] text-dim font-bold tracking-widest uppercase">Save Current as Preset</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  autoComplete="off"
-                  placeholder={presetName || generatedPresetName}
-                  value={presetName}
-                  onChange={(e) => setPresetName(e.target.value)}
-                  className="flex-1 bg-surface border border-border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent"
-                />
-                <Tooltip content="Save Preset">
-                  <button
-                    onClick={savePreset}
-                    disabled={!presetName && !generatedPresetName}
-                    aria-label="Save current configuration as preset"
-                    className={cn(
-                      "px-4 py-2 rounded-md disabled:opacity-50 transition-all duration-300",
-                      saveSuccess
-                        ? "bg-green/20 border border-green/40 text-green"
-                        : "bg-accent/10 border border-accent/20 text-accent hover:bg-accent/20"
-                    )}
-                  >
-                    {saveSuccess ? <CheckCircle2 size={18} className="animate-in zoom-in duration-300" /> : <Save size={18} />}
-                  </button>
-                </Tooltip>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <label className="text-[10px] text-dim font-bold tracking-widest uppercase">Saved Library</label>
-              {(cfg.strategy_variants || []).length > 0 && (
-                <div className="p-3 bg-accent/5 border border-accent/20 rounded-xl text-[11px] text-accent font-bold uppercase tracking-widest">
-                  Running together: {cfg.strategy_label || generatedPresetName} + {(cfg.strategy_variants || []).map(v => v.strategy_label).join(', ')}
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="flex gap-2"><input type="text" placeholder="Preset name" value={presetName} onChange={(e) => setPresetName(e.target.value)} className="flex-1 bg-surface border border-border rounded px-3 py-2 text-sm font-mono" /><Btn variant="primary" onClick={savePreset}><Save size={18} /></Btn></div>
+            <div className="space-y-2">
+              {presets.length === 0 ? <div className="p-10 border border-dashed border-border rounded-xl text-center text-dim text-xs">No presets saved</div> : presets.map(p => (
+                <div key={p.name} onClick={() => loadPreset(p)} className="flex items-center justify-between p-4 bg-background border border-border rounded-xl cursor-pointer hover:border-accent/40 transition-all">
+                  <div><div className="text-sm font-bold">{p.name}</div><div className="text-[10px] text-dim font-mono">{p.config.scan_interval} · {p.config.risk_pct_per_trade}% Risk</div></div>
+                  <button onClick={(e) => deletePreset(e, p.name)} className="p-2 text-dim hover:text-red"><Trash2 size={16} /></button>
                 </div>
-              )}
-              {presets.length === 0 ? (
-                <div className="p-10 border border-dashed border-border rounded-xl text-center text-dim text-xs font-medium">
-                  No presets saved yet
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-3">
-                  {presets.map((p) => {
-                    const selectedForBatch = (cfg.strategy_variants || []).some((variant) => variant.strategy_label === p.name)
-                    return (
-                    <div
-                      key={p.name}
-                      onClick={() => loadPreset(p)}
-                      className="group flex items-center justify-between p-4 bg-background border border-border rounded-xl cursor-pointer hover:border-accent/40 transition-all"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-surface flex items-center justify-center border border-border group-hover:border-accent/20">
-                          <FolderOpen size={14} className="text-dim group-hover:text-accent" />
-                        </div>
-                        <div>
-                          <div className="text-sm font-bold group-hover:text-accent transition-colors">{p.name}</div>
-                          <div className="text-[10px] text-dim font-mono">{p.config.scan_interval} · {p.config.scan_pct_threshold}% · {p.config.risk_pct_per_trade}% Risk</div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={(e) => toggleVariant(e, p)}
-                          className={cn(
-                            "px-3 py-1.5 rounded-md border text-[9px] font-bold uppercase tracking-widest transition-colors",
-                            selectedForBatch ? "border-accent/40 bg-accent/10 text-accent" : "border-border text-dim hover:text-accent"
-                          )}
-                        >
-                          {selectedForBatch ? 'Queued' : 'Run With'}
-                        </button>
-                        <Tooltip content="Delete Preset">
-                          <button
-                            onClick={(e) => deletePreset(e, p.name)}
-                            aria-label={`Delete preset ${p.name}`}
-                            className="p-2 text-dim hover:text-red transition-colors opacity-0 group-hover:opacity-100"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </Tooltip>
-                      </div>
-                    </div>
-                  )})}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {section === 'mode' && (
-          <div className="space-y-6">
-            <div className="space-y-4">
-              <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Trading Environment</div>
-              <div className="grid grid-cols-1 gap-4">
-                <button
-                  onClick={() => { setField('trading_mode', 'paper'); setField('paper_mode', true); }}
-                  className={cn(
-                    "p-4 rounded-xl border-2 text-left transition-all",
-                    (cfg.trading_mode === 'paper' || (cfg.paper_mode && !cfg.trading_mode)) ? "border-amber bg-amber/5" : "border-border bg-surface hover:border-dim/50"
-                  )}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-bold">Local Paper Trading</span>
-                    {(cfg.trading_mode === 'paper' || (cfg.paper_mode && !cfg.trading_mode)) && <div className="w-2 h-2 rounded-full bg-amber shadow-[0_0_8px_rgba(245,166,35,0.8)]" />}
-                  </div>
-                  <p className="text-[11px] text-dim leading-relaxed">Simulated fills within the app. No real exchange connection required. Best for initial logic testing.</p>
-                </button>
-
-                <button
-                  onClick={() => { setField('trading_mode', 'testnet'); setField('paper_mode', false); }}
-                  className={cn(
-                    "p-4 rounded-xl border-2 text-left transition-all",
-                    cfg.trading_mode === 'testnet' ? "border-purple bg-purple/5" : "border-border bg-surface hover:border-dim/50"
-                  )}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-bold">Binance Demo (Testnet)</span>
-                    {cfg.trading_mode === 'testnet' && <div className="w-2 h-2 rounded-full bg-purple shadow-[0_0_8px_rgba(168,85,247,0.8)]" />}
-                  </div>
-                  <p className="text-[11px] text-dim leading-relaxed">Real-time execution on Binance Testnet. Uses demo funds but tests actual connectivity and exchange latency.</p>
-                </button>
-
-                <button
-                  onClick={() => { setField('trading_mode', 'live'); setField('paper_mode', false); }}
-                  className={cn(
-                    "p-4 rounded-xl border-2 text-left transition-all",
-                    cfg.trading_mode === 'live' ? "border-green bg-green/5" : "border-border bg-surface hover:border-dim/50"
-                  )}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-bold">Binance Live Trading</span>
-                    {cfg.trading_mode === 'live' && <div className="w-2 h-2 rounded-full bg-green shadow-[0_0_8px_rgba(34,197,94,0.8)]" />}
-                  </div>
-                  <p className="text-[11px] text-dim leading-relaxed">Real funds on Binance Futures. Use with extreme caution. Ensure API keys have appropriate permissions.</p>
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-4 border-t border-border/50">
-              {field('Initial Balance USDT', cfg.trading_mode === 'paper' ? 'paper_starting_balance' : 'live_starting_balance', 'number', null, { min: 10, step: 100 })}
+              ))}
             </div>
           </div>
         )}
       </div>
 
-      <div className="p-5 border-t border-border bg-surface flex gap-3 shrink-0">
+      <div className="p-5 border-t border-border bg-surface flex gap-3 sticky bottom-0">
         <Btn variant="ghost" onClick={onClose} className="flex-1">Cancel</Btn>
-        <Btn variant="primary" onClick={() => {
-          const errs = {}
-
-          // Scan Section
-          if (!cfg.scan_interval) errs.scan_interval = 'Required'
-          if (cfg.scan_lookback < 1) errs.scan_lookback = 'Min 1'
-          if (cfg.scan_mode === 'active_window') {
-            if (!cfg.scan_window_duration_sec) errs.scan_window_duration_sec = 'Required'
-            if (!cfg.scan_check_interval_sec) errs.scan_check_interval_sec = 'Required'
-          }
-
-          // Signals Section
-          const allEnabled = [...(cfg.enabled_signals || []), ...(cfg.exit_signals || [])]
-          if (allEnabled.includes('ma') && !cfg.signal_params_ma_period) errs.signal_params_ma_period = 'Required'
-          if (allEnabled.includes('ema_close') || allEnabled.includes('ema_price_cross')) {
-            if (!cfg.signal_params_entry_ema_period) errs.signal_params_entry_ema_period = 'Required'
-            if (cfg.exit_signals?.includes('ema_close') && !cfg.signal_params_exit_ema_period) errs.signal_params_exit_ema_period = 'Required'
-          }
-          if (allEnabled.includes('ema_dual_cross')) {
-            if (!cfg.signal_params_entry_ema_fast) errs.signal_params_entry_ema_fast = 'Required'
-            if (!cfg.signal_params_entry_ema_slow) errs.signal_params_entry_ema_slow = 'Required'
-            if (cfg.signal_params_entry_ema_fast >= cfg.signal_params_entry_ema_slow) {
-              errs.signal_params_entry_ema_fast = 'Must be < slow'
-            }
-          }
-
-          // Exit Section
-          if (cfg.sl_type === 'lookback_low/high') {
-            if (!cfg.sl_lookback_period) errs.sl_lookback_period = 'Required'
-          }
-          if (cfg.tp_mode === 'exp_rr_seq') {
-            if (!cfg.live_rr_sequence?.length) errs.tp_mode = 'Sequence required'
-          }
-
-          // Risk Section
-          if (cfg.risk_pct_per_trade > cfg.max_total_risk_pct) {
-            errs.risk_pct_per_trade = 'Exceeds max total risk'
-          }
-
-          setErrors(errs)
-
-          if (Object.keys(errs).length > 0) {
-             const firstErrorKey = Object.keys(errs)[0];
-             if (firstErrorKey) {
-                if (['scan_interval', 'scan_lookback', 'scan_window_duration_sec', 'scan_check_interval_sec'].includes(firstErrorKey)) setSection('scan');
-                else if (firstErrorKey.startsWith('signal_params')) setSection('signals');
-                else if (['sl_lookback_period', 'tp_mode'].includes(firstErrorKey)) setSection('exit');
-                else if (['risk_pct_per_trade'].includes(firstErrorKey)) setSection('risk');
-             }
-             return;
-          }
-
-          onSave(buildConfigToSave());
-        }} className="flex-[2]">
-          {isEdit ? 'Apply Changes' : 'Start Session'}
-        </Btn>
+        <Btn variant="primary" onClick={() => { if (validate(cfg)) onSave(buildConfigToSave()); }} className="flex-[2]">{isEdit ? 'Apply Changes' : 'Start Session'}</Btn>
       </div>
     </div>
   )
 }
+
+const fmtUSD = (v) => `$${Number(v || 0).toFixed(2)}`;

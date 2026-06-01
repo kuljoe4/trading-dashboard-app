@@ -22,11 +22,25 @@ export const DecisionLog = React.memo(() => {
   const logs = useTradingStore(state => state.logs)
   const logFilters = useTradingStore(state => state.logFilters)
   const toggleLogFilter = useTradingStore(state => state.toggleLogFilter)
+  const scrollRef = React.useRef(null)
+  const [isAtTop, setIsAtTop] = React.useState(true)
 
   const visibleLogs = React.useMemo(
     () => logs.filter((log) => logFilters[log.level] !== false),
     [logs, logFilters]
   )
+
+  // Audit Item 41: Scroll-lock pattern
+  React.useEffect(() => {
+    if (isAtTop && scrollRef.current) {
+      scrollRef.current.scrollTop = 0
+    }
+  }, [visibleLogs, isAtTop])
+
+  const handleScroll = (e) => {
+    const { scrollTop } = e.currentTarget
+    setIsAtTop(scrollTop < 10)
+  }
 
   const filterButtons = [
     { level: 'info', label: 'Info' },
@@ -62,7 +76,22 @@ export const DecisionLog = React.memo(() => {
           )
         })}
       </div>
-      <div className="flex flex-col gap-1.5 max-h-[340px] overflow-y-auto no-scrollbar">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="flex flex-col gap-1.5 max-h-[340px] overflow-y-auto no-scrollbar relative"
+      >
+        {!isAtTop && (
+          <button
+            onClick={() => {
+              if (scrollRef.current) scrollRef.current.scrollTop = 0
+              setIsAtTop(true)
+            }}
+            className="sticky top-2 left-1/2 -translate-x-1/2 z-10 bg-accent text-white px-3 py-1 rounded-full text-[10px] font-bold shadow-lg animate-in fade-in zoom-in duration-200"
+          >
+            New logs below ↓
+          </button>
+        )}
         <AnimatePresence mode="popLayout">
           {visibleLogs.length === 0 ? (
             <motion.div

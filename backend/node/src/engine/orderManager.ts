@@ -45,6 +45,17 @@ export class OrderManagerService {
       finalQty = floorStep(qty, stepSize);
     }
 
+    // MIN_NOTIONAL Check
+    const minNotionalFilter = filters.filters.find((f: any) => f.filterType === 'MIN_NOTIONAL') ||
+                             filters.filters.find((f: any) => f.filterType === 'NOTIONAL');
+    if (minNotionalFilter) {
+      const minNotional = parseFloat(minNotionalFilter.notional || minNotionalFilter.minNotional || '0');
+      if (finalQty * finalPrice < minNotional) {
+        this.logger.warn(`${symbol}: Order notional ${finalQty * finalPrice} is below minimum ${minNotional}`);
+        return { price: finalPrice, qty: 0 }; // Zero qty will block entry
+      }
+    }
+
     return { price: finalPrice, qty: finalQty };
   }
 
@@ -101,8 +112,13 @@ export class OrderManagerService {
       if (!this.paperMode && this.binanceClient) {
         try {
           const binanceDirection = direction === 'LONG' ? 'BUY' : 'SELL';
+          const filters = this.marketFeed.getSymbolFilters(symbol);
+          const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
+          const stepSize = parseFloat(lotSize?.stepSize || '0');
+          const precision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
+
           const response = await this.binanceClient.restAPI.tradeApi.newOrder(symbol, binanceDirection, 'MARKET', {
-            quantity: qty,
+            quantity: qty.toFixed(precision),
           });
           const orderData = response.data || response;
           trade.binance_order_id = orderData.orderId;
@@ -140,9 +156,14 @@ export class OrderManagerService {
 
     try {
       const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
+      const filters = this.marketFeed.getSymbolFilters(trade.symbol);
+      const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
+      const tickSize = parseFloat(priceFilter?.tickSize || '0');
+      const precision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
+
       // Use STOP_MARKET with closePosition: true for optimal efficiency and robustness
       const response = await this.binanceClient.restAPI.tradeApi.newOrder(trade.symbol, closeDirection, 'STOP_MARKET', {
-        stopPrice: slPrice,
+        stopPrice: slPrice.toFixed(precision),
         closePosition: 'true',
         reduceOnly: 'true',
       });
@@ -304,6 +325,18 @@ export class OrderManagerService {
     return { exitTriggered, exitSignalType };
   }
 
+  private async fetchPosition(symbol: string): Promise<any | null> {
+    if (!this.binanceClient) return null;
+    try {
+      const response = await this.binanceClient.restAPI.accountApi.futuresPositionRiskV2({ symbol });
+      const data = response.data || response;
+      return Array.isArray(data) ? data[0] : data;
+    } catch (err) {
+      this.logger.warn(`Failed to fetch position for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
+  }
+
   async closeTrade(
     symbol: string,
     trade: Trade,
@@ -357,18 +390,40 @@ export class OrderManagerService {
           }
 
           const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
-          const response = await this.binanceClient.restAPI.tradeApi.newOrder(symbol, closeDirection, 'MARKET', {
-            quantity: trade.qty || 0,
-            reduceOnly: true,
-          });
-          const orderData = response.data || response;
-          trade.binance_close_order_id = orderData.orderId;
-          this.logger.log(
-            `Binance close order placed: ${symbol} qty=${trade.qty || 0} order_id=${orderData.orderId}`,
-          );
+          try {
+            const filters = this.marketFeed.getSymbolFilters(symbol);
+            const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
+            const stepSize = parseFloat(lotSize?.stepSize || '0');
+            const precision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
+
+            const response = await this.binanceClient.restAPI.tradeApi.newOrder(symbol, closeDirection, 'MARKET', {
+              quantity: (trade.qty || 0).toFixed(precision),
+              reduceOnly: true,
+            });
+            const orderData = response.data || response;
+            trade.binance_close_order_id = orderData.orderId;
+            this.logger.log(
+              `Binance close order placed: ${symbol} qty=${trade.qty || 0} order_id=${orderData.orderId}`,
+            );
+          } catch (err: any) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            // RISK-04: If close fails, check if it's because position is already closed (SL race)
+            if (errMsg.includes('REDUCE_ONLY') || errMsg.includes('Position side does not match')) {
+               this.logger.log(`Binance close order for ${symbol} rejected (possibly already closed by exchange SL). Verifying...`);
+               const position = await this.fetchPosition(symbol);
+               if (position && parseFloat(position.positionAmt) === 0) {
+                  this.logger.log(`Confirmed: ${symbol} position is already zero. Treating as successfully closed.`);
+                  trade.exit_reason = 'EXCHANGE_SL_OR_MANUAL';
+               } else {
+                  this.logger.warn(`Binance close order failed but position still exists for ${symbol}: ${errMsg}`);
+               }
+            } else {
+               this.logger.warn(`Binance close order failed for ${symbol}: ${errMsg}`);
+            }
+          }
         } catch (err) {
           this.logger.warn(
-            `Binance close order failed: ${err instanceof Error ? err.message : String(err)}`,
+            `Binance close operation error: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
       }

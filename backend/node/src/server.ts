@@ -1,4 +1,4 @@
-import { NestFactory } from "@nestjs/core";
+import { NestFactory, HttpAdapterHost } from "@nestjs/core";
 import { ValidationPipe, LogLevel, Logger } from "@nestjs/common";
 import { Request, Response, NextFunction, json, urlencoded } from "express";
 import { DynamicLogger } from "./lib/logger";
@@ -6,6 +6,7 @@ import { ConfigService } from "@nestjs/config";
 import { WebSocketServer } from "ws";
 import { AppModule } from "./app.module";
 import { safeCompare } from "./lib/crypto";
+import { AllExceptionsFilter } from "./lib/all-exceptions.filter";
 import { SessionService } from "./trading/session.service";
 import { MonitoringService } from "./engine/monitoring.service";
 import { TradingSessionService } from "./engine/trading_session.service";
@@ -44,6 +45,10 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
+  // Audit Item 33: Global structured error tracking
+  const { httpAdapter } = app.get(HttpAdapterHost);
+  app.useGlobalFilters(new AllExceptionsFilter(app.get(HttpAdapterHost)));
 
   const allowedOrigins = configService
     .get<string>("ALLOWED_ORIGINS")
@@ -111,8 +116,15 @@ async function bootstrap() {
   });
 
   // Health check endpoint
-  app.getHttpAdapter().get("/health", (req, res) => {
-    res.status(200).send({ status: "ok", timestamp: new Date().toISOString() });
+  app.getHttpAdapter().get("/health", async (req, res) => {
+    try {
+      // Audit Item 35: Add DB health check
+      const entityManager = app.get("EntityManager");
+      await entityManager.query("SELECT 1");
+      res.status(200).send({ status: "ok", db: "connected", timestamp: new Date().toISOString() });
+    } catch (e) {
+      res.status(503).send({ status: "error", db: "disconnected", timestamp: new Date().toISOString() });
+    }
   });
 
   // SENTINEL: Disable 'Server' header to further reduce information disclosure
@@ -350,18 +362,27 @@ async function bootstrap() {
     socket.logFilters = { info: true, warn: true, error: true };
     socket.msgCount = 0;
     socket.lastReset = Date.now();
+    socket.lockoutUntil = 0; // Audit Item 31: Lockout for rate limiting
     updateMonitoringSuppression();
 
     socket.on("message", async (message: string) => {
       try {
-        // Rate limiting: max 20 messages per second
         const now = Date.now();
+
+        // Audit Item 31: 5s backoff lockout on rate limit breach
+        if (now < socket.lockoutUntil) return;
+
+        // Rate limiting: max 20 messages per second
         if (now - socket.lastReset > 1000) {
           socket.msgCount = 0;
           socket.lastReset = now;
         }
         socket.msgCount++;
-        if (socket.msgCount > 20) return;
+        if (socket.msgCount > 20) {
+          serverLogger.warn(`Rate limit exceeded for client. Locking out for 5s.`);
+          socket.lockoutUntil = now + 5000;
+          return;
+        }
 
         if (message.length > 1000) return;
 

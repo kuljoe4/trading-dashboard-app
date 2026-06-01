@@ -5,6 +5,7 @@ import { DynamicLogger } from "./lib/logger";
 import { ConfigService } from "@nestjs/config";
 import { WebSocketServer } from "ws";
 import { AppModule } from "./app.module";
+import { AllExceptionsFilter } from "./lib/all-exceptions.filter";
 import { safeCompare } from "./lib/crypto";
 import { SessionService } from "./trading/session.service";
 import { MonitoringService } from "./engine/monitoring.service";
@@ -44,6 +45,9 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
+  // SENTINEL: Apply global exception filter to catch all errors and sanitize responses
+  app.useGlobalFilters(new AllExceptionsFilter());
 
   const allowedOrigins = configService
     .get<string>("ALLOWED_ORIGINS")

@@ -41,3 +41,8 @@
 **Vulnerability:** The default 'Server' header often leaks information about the underlying web server or framework version, aiding reconnaissance for potential attackers.
 **Learning:** Minimizing the attack surface includes removing unnecessary information disclosure in HTTP headers. While often overlooked, the 'Server' header can provide specific version clues.
 **Prevention:** Explicitly remove the 'Server' header in middleware to ensure it's not broadcasted in HTTP responses.
+
+## 2026-06-01 - Global Structured Exception Handling
+**Vulnerability:** Unhandled exceptions in NestJS can leak internal stack traces and implementation details in the response body, especially for 500 Internal Server Errors.
+**Learning:** Default error handling is often too verbose for production. A custom global filter is necessary to decouple internal debugging logs from client-facing responses.
+**Prevention:** Implement a global `ExceptionFilter` that intercepts all errors, logs full stack traces to the server console, but returns only sanitized, predefined fields (statusCode, message, timestamp, path) to the client.

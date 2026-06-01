@@ -46,7 +46,10 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
 
       <div className="grid grid-cols-[30px_100px_1fr_60px_1fr_1fr_50px] items-center px-4 py-2 text-[10px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase h-[36px] shrink-0">
         <span>#</span>
-        <span>Symbol</span>
+        <div className="flex flex-col">
+          <span>Symbol</span>
+          <span className="text-[8px] text-dim/60 normal-case tracking-normal">Top 15 results</span>
+        </div>
         <span className="text-right">Move</span>
         <span className="text-center">Trend</span>
         <span className="text-right">Volume</span>

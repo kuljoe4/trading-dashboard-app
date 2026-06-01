@@ -1,5 +1,6 @@
 import { createWithEqualityFn } from 'zustand/traditional'
 import { sessionAPI } from '../api/client'
+import { CONFIG_LIMITS } from '../constants/configLimits'
 
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value)
@@ -158,7 +159,7 @@ const defaultConfig = {
   paper_mode: true,
   strategy_label: 'Momentum Strategy',
   strategy_variants: [],
-  max_total_risk_pct: 5,
+  max_total_risk_pct: CONFIG_LIMITS.MAX_TOTAL_RISK_DEFAULT,
   total_sl_guard_usdt: 200,
   scan_interval: '5m',
   scan_pct_threshold: 2.0,
@@ -168,7 +169,7 @@ const defaultConfig = {
   scan_window_duration_sec: 90,
   scan_check_interval_sec: 5,
   entry_side: 'both',
-  watchlist_size: 25,
+  watchlist_size: CONFIG_LIMITS.WATCHLIST_DEFAULT,
   enabled_signals: ['momentum_pct'],
   signal_logic: 'all',
   tp_mode: 'fixed',
@@ -176,17 +177,17 @@ const defaultConfig = {
   live_rr_sequence: [1, 2, 4],
   exit_rr_sequence: [0, 1, 2],
   sl_type: 'pct',
-  sl_distance_pct: 0.8,
+  sl_distance_pct: CONFIG_LIMITS.SL_DISTANCE_DEFAULT,
   sl_lookback_timeframe: '5m',
   sl_lookback_period: 5,
   sl_min_pct: 0.3,
   sl_max_pct: 3,
-  risk_pct_per_trade: 1,
+  risk_pct_per_trade: CONFIG_LIMITS.RISK_PER_TRADE_DEFAULT,
   max_open_trades: 5,
   paper_starting_balance: 10000,
   live_starting_balance: 10000,
-  hot_loop_interval_ms: 5000,
-  main_loop_interval_ms: 15000,
+  hot_loop_interval_ms: CONFIG_LIMITS.HOT_LOOP_DEFAULT,
+  main_loop_interval_ms: CONFIG_LIMITS.MAIN_LOOP_DEFAULT,
   debug_mode: false,
 }
 

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, AlertCircle, Zap, XCircle, Activity } from 'lucide-react'
 import { cn, Btn, Tooltip } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
+import { CONFIG_LIMITS } from '../constants/configLimits'
 
 const SIGNALS = [
   ['momentum_pct', '% Momentum', 'Entry when momentum exceeds a predefined percentage threshold within the scan lookback.'],
@@ -120,6 +121,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
       errs.risk_pct_per_trade = 'Exceeds max total risk'
     }
 
+    if (currentCfg.risk_pct_per_trade > 2) {
+      errs.risk_pct_per_trade_warn = 'Aggressive (>2%)'
+    }
+
+    if (currentCfg.sl_distance_pct > 5) {
+      errs.sl_distance_pct_warn = 'Aggressive (>5%)'
+    }
+
     setErrors(errs)
     return Object.keys(errs).length === 0
   }
@@ -185,6 +194,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     e.stopPropagation()
     const variants = cfg.strategy_variants || []
     const exists = variants.some((variant) => variant.strategy_label === preset.name)
+
+    if (!exists && variants.length >= CONFIG_LIMITS.MAX_VARIANTS) {
+      alert(`Maximum of ${CONFIG_LIMITS.MAX_VARIANTS} strategy variants allowed.`);
+      return;
+    }
+
     setField('strategy_variants', exists
       ? variants.filter((variant) => variant.strategy_label !== preset.name)
       : [...variants, { ...preset.config, strategy_label: preset.name }])
@@ -227,6 +242,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     const id = `config-${key}`
     const val = customPath ? customPath[key] : cfg[key]
     const hasError = !!errors[key]
+    const hasWarning = !!errors[`${key}_warn`]
     
     const onChange = (v) => {
       if (customPath) {
@@ -240,7 +256,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
       <div className="flex flex-col gap-1.5 scroll-mt-32">
         <div className="flex justify-between items-center">
           <label htmlFor={id} className="text-[10px] text-dim font-bold tracking-widest uppercase">{label}</label>
-          {hasError && <span id={`${id}-error`} role="alert" className="text-[9px] text-red font-bold uppercase">{errors[key]}</span>}
+          {hasError ? (
+            <span id={`${id}-error`} role="alert" className="text-[9px] text-red font-bold uppercase">{errors[key]}</span>
+          ) : hasWarning ? (
+            <span id={`${id}-warn`} role="status" className="text-[9px] text-amber font-bold uppercase">{errors[`${key}_warn`]}</span>
+          ) : null}
         </div>
         {opts ? (
           <select
@@ -377,7 +397,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
               {field('Lookback candles', 'scan_lookback', 'number', null, { min: 1, max: 20 })}
               {field('% threshold', 'scan_pct_threshold', 'number', null, { min: 0.1, step: 0.1 })}
               {field('Min volume USDT', 'scan_min_volume_usdt', 'number', null, { min: 0, step: 100000 })}
-              {field('Watchlist size', 'watchlist_size', 'number', null, { min: 10, max: 100 })}
+              {field('Watchlist size', 'watchlist_size', 'number', null, { min: CONFIG_LIMITS.WATCHLIST_MIN, max: CONFIG_LIMITS.WATCHLIST_MAX })}
               {field('Entry side', 'entry_side', 'text', ['both', 'long', 'short'])}
             </div>
             <div className="flex gap-2 p-1 bg-background rounded-lg">
@@ -437,9 +457,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                     variant="primary"
                     onClick={() => {
                       if (!symbolSearch) return
-                      const existing = (cfg.single_symbol_configs || []).find(s => s.symbol === symbolSearch)
+                      const configs = cfg.single_symbol_configs || []
+                      if (configs.length >= CONFIG_LIMITS.MAX_SINGLE_SYMBOL_MONITORS) {
+                        alert(`Maximum of ${CONFIG_LIMITS.MAX_SINGLE_SYMBOL_MONITORS} symbol monitors allowed.`);
+                        return;
+                      }
+                      const existing = configs.find(s => s.symbol === symbolSearch)
                       if (!existing) {
-                        setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), {
+                        setField('single_symbol_configs', [...configs, {
                           symbol: symbolSearch,
                           enabled: true,
                           follow_schedule: true,
@@ -563,7 +588,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                                   }
                                 }, sc.custom_config)}
                                 {field('SL Pct', 'sl_distance_pct', 'number', null, {
-                                  min: 0.05, step: 0.05,
+                                  min: CONFIG_LIMITS.SL_DISTANCE_MIN, max: CONFIG_LIMITS.SL_DISTANCE_MAX, step: 0.1,
                                   onCustomChange: (k, v) => {
                                     const next = [...cfg.single_symbol_configs]
                                     next[i] = { ...sc, custom_config: { ...sc.custom_config, [k]: v } }
@@ -571,7 +596,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                                   }
                                 }, sc.custom_config)}
                                 {field('Risk %', 'risk_pct_per_trade', 'number', null, {
-                                  min: 0.1, max: 100, step: 0.1,
+                                  min: CONFIG_LIMITS.RISK_PER_TRADE_MIN, max: CONFIG_LIMITS.RISK_PER_TRADE_MAX, step: 0.1,
                                   onCustomChange: (k, v) => {
                                     const next = [...cfg.single_symbol_configs]
                                     next[i] = { ...sc, custom_config: { ...sc.custom_config, [k]: v } }
@@ -778,7 +803,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                 <button className={cn("flex-1 py-2 text-[11px] font-bold rounded-md transition-all", cfg.sl_type === 'lookback_low/high' ? "bg-surface text-accent shadow-sm" : "text-dim")} onClick={() => setField('sl_type', 'lookback_low/high')}>Lookback H/L</button>
               </div>
               {cfg.sl_type === 'pct' ? (
-                <div className="grid grid-cols-1">{field('SL distance %', 'sl_distance_pct', 'number', null, { min: 0.05, step: 0.05 })}</div>
+                <div className="grid grid-cols-1">{field('SL distance %', 'sl_distance_pct', 'number', null, { min: CONFIG_LIMITS.SL_DISTANCE_MIN, max: CONFIG_LIMITS.SL_DISTANCE_MAX, step: 0.1 })}</div>
               ) : (
                 <div className="grid grid-cols-2 gap-5">
                   {field('SL timeframe', 'sl_lookback_timeframe', 'text', ['1m', '5m', '15m', '1h', '4h'])}
@@ -794,11 +819,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
         {section === 'risk' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {field('Risk % per trade', 'risk_pct_per_trade', 'number', null, { min: 0.1, step: 0.1 })}
+              {field('Risk % per trade', 'risk_pct_per_trade', 'number', null, { min: CONFIG_LIMITS.RISK_PER_TRADE_MIN, max: CONFIG_LIMITS.RISK_PER_TRADE_MAX, step: 0.1 })}
               {field('Max open trades', 'max_open_trades', 'number', null, { min: 1 })}
               {field('Max trades per period', 'max_trades_per_period', 'number', null, { min: 0 })}
               {field('Period (minutes)', 'trades_period_min', 'number', null, { min: 1 })}
-              {field('Max total risk %', 'max_total_risk_pct', 'number', null, { min: 0.5, step: 0.5 })}
+              {field('Max total risk %', 'max_total_risk_pct', 'number', null, { min: CONFIG_LIMITS.MAX_TOTAL_RISK_MIN, max: CONFIG_LIMITS.MAX_TOTAL_RISK_MAX, step: 0.1 })}
               {field('SL guard USDT', 'total_sl_guard_usdt', 'number', null, { min: 1, step: 10 })}
             </div>
             <div className="grid grid-cols-3 gap-3 p-4 bg-background rounded-xl border border-border">
@@ -840,8 +865,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
             <div className="flex items-center justify-between">
                <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Trading Windows (24h)</div>
                <button
-                  onClick={() => setField('trading_windows', [...(cfg.trading_windows || []), { start: '09:00', end: '17:00' }])}
-                  className="text-[10px] font-bold text-accent uppercase tracking-widest"
+                  onClick={() => {
+                    const windows = cfg.trading_windows || [];
+                    if (windows.length >= CONFIG_LIMITS.MAX_TRADING_WINDOWS) {
+                      alert(`Maximum of ${CONFIG_LIMITS.MAX_TRADING_WINDOWS} trading windows allowed.`);
+                      return;
+                    }
+                    setField('trading_windows', [...windows, { start: '09:00', end: '17:00' }]);
+                  }}
+                  className="text-[10px] font-bold text-accent uppercase tracking-widest disabled:opacity-50"
+                  disabled={(cfg.trading_windows || []).length >= CONFIG_LIMITS.MAX_TRADING_WINDOWS}
                >+ Add Window</button>
             </div>
 
@@ -892,8 +925,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
           <div className="space-y-6">
             <div className="text-[10px] text-dim font-bold tracking-widest uppercase">Engine Optimization</div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {field('Hot Loop (ms)', 'hot_loop_interval_ms', 'number', null, { min: 500, step: 100 })}
-              {field('Main Loop (ms)', 'main_loop_interval_ms', 'number', null, { min: 1000, step: 100 })}
+              {field('Hot Loop (ms)', 'hot_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.HOT_LOOP_MIN, step: 100 })}
+              {field('Main Loop (ms)', 'main_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.MAIN_LOOP_MIN, step: 100 })}
             </div>
             <div className="p-4 bg-background border border-border rounded-xl space-y-4">
               <div className="flex items-center justify-between">
@@ -908,7 +941,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                 />
               </div>
               <p className="text-[10px] text-dim/60 italic leading-relaxed">
-                * Note: Increasing loop intervals drastically reduces Railway resource usage and API weight. Default is 2000ms/5000ms.
+                * Note: Increasing loop intervals drastically reduces Railway resource usage and API weight. Default is {CONFIG_LIMITS.HOT_LOOP_DEFAULT}ms/{CONFIG_LIMITS.MAIN_LOOP_DEFAULT}ms.
               </p>
             </div>
           </div>

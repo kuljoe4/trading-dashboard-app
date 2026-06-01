@@ -68,7 +68,7 @@ For faster exit monitoring or more aggressive scanning, raise these fields in th
 {
   "watchlist_size": 50,
   "hot_loop_interval_ms": 2000,
-  "main_loop_interval_ms": 5000
+  "main_loop_interval_ms": 15000
 }
 ```
 

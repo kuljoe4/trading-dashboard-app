@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SessionConfig } from '../models/SessionConfig';
+import { ENGINE_CONSTANTS } from '../models/constants';
 import { KlineStoreService, Candle } from './kline_store.service';
 import { TickerCacheService } from './ticker_cache.service';
 
@@ -103,14 +104,14 @@ export class MomentumScannerService {
       }
       const tempResults = results.filter((r): r is { opp: Opportunity, candles: Candle[] } => r !== null);
 
-      // Sort by score descending and take top 15
+      // Sort by score descending and take top results
       tempResults.sort((a, b) => b.opp.score - a.opp.score);
 
-      const topResults = tempResults.slice(0, 15);
+      const topResults = tempResults.slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS);
 
-      // BOLT OPTIMIZATION: Only map history for the final top 15 results
+      // BOLT OPTIMIZATION: Only map history for the final top results
       return topResults.map(({ opp, candles }) => {
-        const historyLen = Math.min(20, candles.length);
+        const historyLen = Math.min(ENGINE_CONSTANTS.SPARKLINE_HISTORY_LEN, candles.length);
         const history: number[] = new Array(historyLen);
         const startIdx = candles.length - historyLen;
         for (let i = 0; i < historyLen; i++) {

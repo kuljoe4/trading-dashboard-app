@@ -121,7 +121,7 @@ export class PositionTrackerService {
           const prevSl = trade.current_sl;
           const prevRisk = trade.risk_usdt || 0;
           trade.current_sl = newSl;
-          trade.risk_usdt = Math.abs(trade.entry_price - trade.current_sl) * trade.qty;
+          trade.risk_usdt = Math.max(0, trade.entry_price - trade.current_sl) * trade.qty;
           // Update running total risk with the delta
           this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
           this.logSlAdjustment(trade, prevSl, newSl, currentIndex);
@@ -137,7 +137,7 @@ export class PositionTrackerService {
           const prevSl = trade.current_sl;
           const prevRisk = trade.risk_usdt || 0;
           trade.current_sl = newSl;
-          trade.risk_usdt = Math.abs(trade.entry_price - trade.current_sl) * trade.qty;
+          trade.risk_usdt = Math.max(0, trade.current_sl - trade.entry_price) * trade.qty;
           // Update running total risk with the delta
           this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
           this.logSlAdjustment(trade, prevSl, newSl, currentIndex);

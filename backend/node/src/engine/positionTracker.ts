@@ -65,11 +65,11 @@ export class PositionTrackerService {
     this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt || 0));
   }
 
-  checkRrSequenceAdjustments(
+  async checkRrSequenceAdjustments(
     symbol: string,
     currentPrice: number,
     config: SessionConfig,
-  ): void {
+  ): Promise<void> {
     const trade = this.trades.get(symbol);
     if (!trade || trade.status !== 'OPEN') return;
 

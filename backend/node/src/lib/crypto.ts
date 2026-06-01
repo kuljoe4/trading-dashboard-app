@@ -64,7 +64,9 @@ export function decrypt(text: string): string {
  * Timing-safe string comparison using SHA-256 hashing.
  * Prevents timing attacks and handles differing string lengths securely.
  */
-export function safeCompare(a: string, b: string): boolean {
+export function safeCompare(a: string | undefined | null, b: string | undefined | null): boolean {
+  // Audit Item 30: Added null/undefined checks
+  if (!a || !b) return false;
   if (typeof a !== "string" || typeof b !== "string") return false;
 
   const aHash = crypto.createHash("sha256").update(a).digest();

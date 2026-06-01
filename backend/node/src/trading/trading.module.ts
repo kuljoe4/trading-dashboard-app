@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Session as SessionEntity } from '../models/entities/Session.entity';
@@ -15,6 +15,8 @@ import { TickerCacheService } from '../engine/ticker_cache.service';
 import { MarketFeedService } from '../engine/market_feed.service';
 import { MomentumScannerService } from '../engine/momentum_scanner.service';
 import { KlineStoreService } from '../engine/kline_store.service';
+import { BroadcastService } from '../engine/broadcast.service';
+import { SessionStateService } from '../engine/session_state.service';
 import { SessionService } from './session.service';
 import { SessionController } from './session.controller';
 import { SettingsController } from './settings.controller';
@@ -40,10 +42,13 @@ import { AnalyticsService } from '../engine/analytics.service';
     MarketFeedService,
     MomentumScannerService,
     KlineStoreService,
+    BroadcastService,
+    SessionStateService,
     SessionService,
     MonitoringService,
     AnalyticsService,
     ApiKeyGuard,
+    BinanceClientFactory,
   ],
   exports: [
     SignalEngineService,
@@ -55,6 +60,8 @@ import { AnalyticsService } from '../engine/analytics.service';
     MarketFeedService,
     MomentumScannerService,
     KlineStoreService,
+    BroadcastService,
+    SessionStateService,
     MonitoringService,
     AnalyticsService,
   ],

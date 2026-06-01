@@ -100,7 +100,8 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
         </span>
         {hoverData?.ts && (
           <span className="text-[8px] text-dim font-mono uppercase">
-            {new Date(hoverData.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            {/* Audit Item 42: Show full date if trades span multiple days */}
+            {new Date(hoverData.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
           </span>
         )}
       </div>

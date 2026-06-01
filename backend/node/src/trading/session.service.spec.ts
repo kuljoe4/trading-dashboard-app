@@ -27,6 +27,10 @@ describe('SessionService Validation', () => {
     calculateAnalytics: jest.fn(),
   } as any;
 
+  const mockBinanceClientFactory = {
+    createClient: jest.fn(),
+  } as any;
+
   const mockTradeRepository = {
     find: jest.fn().mockResolvedValue([]),
     create: jest.fn(),
@@ -43,7 +47,8 @@ describe('SessionService Validation', () => {
       mockRepository,
       mockRepository,
       mockTradingSessionService,
-      mockAnalyticsService
+      mockAnalyticsService,
+      mockBinanceClientFactory
     );
   });
 
@@ -124,7 +129,8 @@ describe('SessionService Validation', () => {
         mockRepository, // Settings
         mockRepository, // BalanceHistory
         mockTradingSessionService,
-        mockAnalyticsService
+        mockAnalyticsService,
+        mockBinanceClientFactory
       );
       
       (service as any).currentSessionId = 'test-id';

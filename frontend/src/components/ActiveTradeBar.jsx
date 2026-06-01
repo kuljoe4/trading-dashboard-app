@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { pnlColor, fmtUSD, fmt, C } from '../lib/theme'
 import { PulseDot, PaperBadge, cn, Tooltip } from './ui/primitives'
-import { Info, TrendingUp, ShieldAlert, Target, Activity, Zap, XCircle, ShieldCheck, Clock, CheckCircle2, AlertCircle, ChevronDown, Loader2 } from 'lucide-react'
+import { Info, TrendingUp, ShieldAlert, Target, Activity, Zap, XCircle, ShieldCheck, Clock, CheckCircle2, AlertCircle, ChevronDown, Loader2, ExternalLink } from 'lucide-react'
 import { sessionAPI } from '../api/client'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
@@ -431,11 +431,20 @@ export const ActiveTradeBar = React.memo(({ trade, compact = false }) => {
           disabled={isClosing}
           aria-label={isClosing ? "Closing position" : confirmClose ? "Confirm close position" : "Close position"}
           className={cn(
-            "flex-1 px-4 py-3 bg-red hover:bg-red/80 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2",
+            "flex-1 px-4 py-3 bg-red hover:bg-red/80 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-2 relative overflow-hidden",
             confirmClose && "animate-pulse ring-2 ring-red ring-offset-2 ring-offset-surface"
           )}
         >
-          <XCircle size={16} />
+          <motion.div
+            initial={false}
+            animate={{
+              y: (confirmClose && !isClosing) ? -20 : 0,
+              opacity: (confirmClose && !isClosing) ? 0 : 1
+            }}
+            className="flex items-center"
+          >
+            {isClosing ? <Loader2 className="animate-spin" size={16} /> : <XCircle size={16} />}
+          </motion.div>
           <span aria-live="polite">
             {isClosing ? 'Closing...' : confirmClose ? 'Confirm?' : 'Close Position'}
           </span>

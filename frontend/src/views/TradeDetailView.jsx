@@ -241,6 +241,7 @@ const TradeDetailView = ({ tradeId }) => {
         <div className="flex items-center gap-5">
            <button
              onClick={() => window.history.back()}
+             aria-label="Go back"
              className="p-3 bg-surface border border-border rounded-2xl hover:border-accent/40 text-dim hover:text-text transition-all active:scale-90"
            >
              <ChevronLeft size={20} />
@@ -271,13 +272,25 @@ const TradeDetailView = ({ tradeId }) => {
            <button
              onClick={() => confirmClose ? handleClose() : setConfirmClose(true)}
              disabled={isClosing}
+             aria-label={isClosing ? "Closing position" : confirmClose ? "Confirm close position" : "Close position"}
              className={cn(
-               "h-14 px-6 rounded-2xl font-bold uppercase text-[11px] tracking-[0.2em] transition-all flex items-center gap-3",
+               "h-14 px-6 rounded-2xl font-bold uppercase text-[11px] tracking-[0.2em] transition-all flex items-center gap-3 relative overflow-hidden",
                confirmClose ? "bg-red text-white animate-pulse" : "bg-red/10 text-red border border-red/20 hover:bg-red/20"
              )}
            >
-             {isClosing ? <Loader2 className="animate-spin" size={16} /> : <XCircle size={16} />}
-             {confirmClose ? 'Confirm Close?' : 'Close Position'}
+             <motion.div
+               initial={false}
+               animate={{
+                 y: (confirmClose && !isClosing) ? -20 : 0,
+                 opacity: (confirmClose && !isClosing) ? 0 : 1
+               }}
+               className="flex items-center"
+             >
+               {isClosing ? <Loader2 className="animate-spin" size={16} /> : <XCircle size={16} />}
+             </motion.div>
+             <span aria-live="polite">
+               {isClosing ? 'Closing...' : confirmClose ? 'Confirm Close?' : 'Close Position'}
+             </span>
            </button>
         </div>
       </div>

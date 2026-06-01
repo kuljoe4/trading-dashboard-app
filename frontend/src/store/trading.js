@@ -30,7 +30,41 @@ const normalizeLog = (l = {}) => {
   return { ...l, id: l.id || Math.random().toString(36).substring(2, 15), ts: l.ts || l.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), level: ['info', 'warn', 'error'].includes(lv) ? lv : 'info', msg: m };
 }
 
-const defaultConfig = { paper_mode: true, strategy_label: 'Momentum Strategy', strategy_variants: [], max_total_risk_pct: 5, total_sl_guard_usdt: 200, scan_interval: '5m', scan_pct_threshold: 2.0, scan_lookback: 3, scan_min_volume_usdt: 500000, scan_mode: 'interval', scan_window_duration_sec: 90, scan_check_interval_sec: 5, entry_side: 'both', watchlist_size: 25, enabled_signals: ['momentum_pct'], signal_logic: 'all', tp_mode: 'fixed', tp_ratio: 2, live_rr_sequence: [1, 2, 4], exit_rr_sequence: [0, 1, 2], sl_type: 'pct', sl_distance_pct: 0.8, sl_lookback_timeframe: '5m', sl_lookback_period: 5, sl_min_pct: 0.3, sl_max_pct: 3, risk_pct_per_trade: 1, max_open_trades: 5, paper_starting_balance: 10000, live_starting_balance: 10000, hot_loop_interval_ms: 2000, main_loop_interval_ms: 15000, debug_mode: false };
+const defaultConfig = {
+  paper_mode: true,
+  strategy_label: 'Momentum Strategy',
+  strategy_variants: [],
+  max_total_risk_pct: CONFIG_LIMITS.MAX_TOTAL_RISK_DEFAULT,
+  total_sl_guard_usdt: 200,
+  scan_interval: '5m',
+  scan_pct_threshold: 2.0,
+  scan_lookback: 3,
+  scan_min_volume_usdt: 500000,
+  scan_mode: 'interval',
+  scan_window_duration_sec: 90,
+  scan_check_interval_sec: 5,
+  entry_side: 'both',
+  watchlist_size: CONFIG_LIMITS.WATCHLIST_DEFAULT,
+  enabled_signals: ['momentum_pct'],
+  signal_logic: 'all',
+  tp_mode: 'fixed',
+  tp_ratio: 2,
+  live_rr_sequence: [1, 2, 4],
+  exit_rr_sequence: [0, 1, 2],
+  sl_type: 'pct',
+  sl_distance_pct: CONFIG_LIMITS.SL_DISTANCE_DEFAULT,
+  sl_lookback_timeframe: '5m',
+  sl_lookback_period: 5,
+  sl_min_pct: 0.3,
+  sl_max_pct: 3,
+  risk_pct_per_trade: CONFIG_LIMITS.RISK_PER_TRADE_DEFAULT,
+  max_open_trades: 5,
+  paper_starting_balance: 10000,
+  live_starting_balance: 10000,
+  hot_loop_interval_ms: CONFIG_LIMITS.HOT_LOOP_DEFAULT,
+  main_loop_interval_ms: CONFIG_LIMITS.MAIN_LOOP_DEFAULT,
+  debug_mode: false,
+};
 
 export const useTradingStore = createWithEqualityFn((set, get) => ({
   sessionActive: false, sessionPaused: false, strategyId: null, balance: 10000, totalPnl: 0, totalRiskPct: 0, totalSlUsed: 0,
@@ -38,6 +72,39 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   gateState: null, gateReason: null, hibernating: false, scannerPaused: false, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
   rateLimit: { used_weight_1m: 0, limit: 1200, used_pct: 0 }, config: defaultConfig,
   sidebarCollapsed: localStorage.getItem('sidebar_collapsed') === 'true', isThrottled: false, entryCount: 0, hitCount: 0,
+  
+  _subscriptions: { trades: new Map(), strategies: new Map(), globalTrades: 0, scanner: 0 },
+  _focusTimer: null,
+  registerInterest: (type, id) => {
+    const subs = { ...get()._subscriptions };
+    if (type === 'trade') subs.trades.set(id, (subs.trades.get(id) || 0) + 1);
+    else if (type === 'strategy') subs.strategies.set(id, (subs.strategies.get(id) || 0) + 1);
+    else if (type === 'global_trades') subs.globalTrades++;
+    else if (type === 'scanner') subs.scanner++;
+    set({ _subscriptions: subs });
+    get()._syncFocusToBackend();
+  },
+  unregisterInterest: (type, id) => {
+    const subs = { ...get()._subscriptions };
+    if (type === 'trade') { const count = (subs.trades.get(id) || 0) - 1; if (count <= 0) subs.trades.delete(id); else subs.trades.set(id, count); }
+    else if (type === 'strategy') { const count = (subs.strategies.get(id) || 0) - 1; if (count <= 0) subs.strategies.delete(id); else subs.strategies.set(id, count); }
+    else if (type === 'global_trades') subs.globalTrades = Math.max(0, subs.globalTrades - 1);
+    else if (type === 'scanner') subs.scanner = Math.max(0, subs.scanner - 1);
+    set({ _subscriptions: subs });
+    get()._syncFocusToBackend();
+  },
+  _syncFocusToBackend: () => {
+    if (get()._focusTimer) clearTimeout(get()._focusTimer);
+    set({ _focusTimer: setTimeout(() => {
+      const subs = get()._subscriptions;
+      const ws = get().ws;
+      if (ws?.readyState === WebSocket.OPEN) {
+        if (subs.trades.size > 0) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: true, tradeId: Array.from(subs.trades.keys())[0] }));
+        else if (subs.strategies.size > 0) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: true, strategyLabel: Array.from(subs.strategies.keys())[0] }));
+        else if (subs.globalTrades > 0 || subs.scanner > 0) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: false }));
+      }
+    }, 100) });
+  },
   
   toggleSidebar: () => { const n = !get().sidebarCollapsed; localStorage.setItem('sidebar_collapsed', n); set({ sidebarCollapsed: n }); },
   toggleLogFilter: (level) => set((st) => ({ logFilters: { ...st.logFilters, [level]: !st.logFilters[level] } })),

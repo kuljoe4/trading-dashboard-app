@@ -106,6 +106,7 @@ export const BottomNav = ({ selected }) => {
       <div className="flex justify-around items-center h-16">
         {[
           { path: '/', label: 'Cockpit', icon: LayoutDashboard },
+          { path: '/trades', label: 'Trades', icon: Briefcase },
           { path: '/history', label: 'History', icon: History },
           { path: '/settings', label: 'Settings', icon: SettingsIcon },
         ].map(item => (

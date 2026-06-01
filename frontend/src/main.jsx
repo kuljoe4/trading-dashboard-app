@@ -1,6 +1,7 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { TooltipProvider } from './components/ui/tooltip';
+import ErrorBoundary from './components/ErrorBoundary';
 import { useTradingStore } from './store/trading';
 import { sessionAPI } from './api/client';
 import { useVisibility } from './hooks/useVisibility';
@@ -163,7 +164,11 @@ const App = () => {
 const container = document.getElementById('root');
 if (container) {
   const root = createRoot(container);
-  root.render(<App />);
+  root.render(
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
 
   // Register service worker
   if ('serviceWorker' in navigator) {

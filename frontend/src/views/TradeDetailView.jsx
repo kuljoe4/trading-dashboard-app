@@ -8,9 +8,10 @@ import {
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChevronLeft, Activity, Target, ShieldAlert, Zap, Clock, Info, ShieldCheck,
-  CheckCircle2, AlertCircle, XCircle, TrendingUp, BarChart3, ArrowLeft, ExternalLink
+  CheckCircle2, AlertCircle, XCircle, TrendingUp, BarChart3, ArrowLeft, ExternalLink, Loader2
 } from 'lucide-react'
 import { sessionAPI } from '../api/client'
+import { useResourceFocus } from '../hooks/useResourceFocus'
 
 const price = (value) => {
   if (value == null || Number.isNaN(Number(value))) return 'None'
@@ -31,11 +32,11 @@ const duration = (entryTs) => {
   return `${s}s`
 }
 
-const Breadcrumbs = ({ strategyLabel, symbol, onBack }) => (
+const Breadcrumbs = ({ strategyLabel, symbol }) => (
   <nav className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-dim mb-6">
-    <button onClick={() => window.location.hash = '#/'} className="hover:text-accent transition-colors">Cockpit</button>
+    <button onClick={() => window.location.hash = '#/'} className="hover:text-text transition-colors">Cockpit</button>
     <span>/</span>
-    <button onClick={() => window.location.hash = `#/strategy/${strategyLabel}`} className="hover:text-accent transition-colors">{strategyLabel}</button>
+    <button onClick={() => window.location.hash = `#/strategy/${encodeURIComponent(strategyLabel)}`} className="hover:text-text transition-colors">{strategyLabel}</button>
     <span>/</span>
     <span className="text-text">{symbol}</span>
   </nav>
@@ -171,13 +172,14 @@ const ExitMonitor = ({ status, logic }) => {
 }
 
 const TradeDetailView = ({ tradeId }) => {
-  const { activeTrades, wsStatus, setFocusMode, updateStats } = useTradingStore()
+  const { activeTrades, wsStatus, updateStats } = useTradingStore()
   const trade = activeTrades.find(t => t.id === tradeId || t.symbol === tradeId)
+
+  // Lifecycle-scoped subscription contract
+  useResourceFocus('trade', tradeId);
 
   React.useEffect(() => {
     if (tradeId) {
-      setFocusMode(true, tradeId, null);
-
       // REST Hydration: Fetch immediate state to avoid waiting for tick
       sessionAPI.getTrade(tradeId).then(res => {
          if (res.data) {
@@ -194,8 +196,7 @@ const TradeDetailView = ({ tradeId }) => {
          }
       }).catch(() => {});
     }
-    return () => setFocusMode(false, null, null);
-  }, [tradeId, setFocusMode, updateStats]);
+  }, [tradeId, updateStats]);
 
   const [isClosing, setIsClosing] = React.useState(false)
   const [confirmClose, setConfirmClose] = React.useState(false)

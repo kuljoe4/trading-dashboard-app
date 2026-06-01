@@ -5,6 +5,7 @@ import { SectionLabel, StatCard } from '../components/ui/primitives'
 import { fmtUSD } from '../lib/theme'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Briefcase, Zap, AlertCircle } from 'lucide-react'
+import { useResourceFocus } from '../hooks/useResourceFocus'
 
 const Breadcrumbs = () => (
   <nav className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-dim mb-6">
@@ -15,13 +16,10 @@ const Breadcrumbs = () => (
 )
 
 const TradesView = () => {
-  const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, setFocusMode } = useTradingStore()
+  const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config } = useTradingStore()
 
-  React.useEffect(() => {
-    // Focused on all trades
-    setFocusMode(true, 'all', null);
-    return () => setFocusMode(false, null, null);
-  }, [setFocusMode]);
+  // Lifecycle-scoped subscription contract
+  useResourceFocus('global_trades');
 
   return (
     <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">

@@ -48,6 +48,19 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
   const validate = (c) => {
     const errs = {}; if (!c.scan_interval) errs.scan_interval = 'Required'; if (c.scan_lookback < 1) errs.scan_lookback = 'Min 1';
     if (c.scan_mode === 'active_window' && (!c.scan_window_duration_sec || !c.scan_check_interval_sec)) errs.scan_mode = 'Params missing';
+    
+    if (c.risk_pct_per_trade > c.max_total_risk_pct) {
+      errs.risk_pct_per_trade = 'Exceeds max total risk'
+    }
+
+    if (c.risk_pct_per_trade > 2) {
+      errs.risk_pct_per_trade_warn = 'Aggressive (>2%)'
+    }
+
+    if (c.sl_distance_pct > 5) {
+      errs.sl_distance_pct_warn = 'Aggressive (>5%)'
+    }
+
     setErrors(errs); return Object.keys(errs).length === 0;
   }
 
@@ -62,7 +75,20 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
   const savePreset = () => { if (!validate(cfg)) return; const name = (presetName || generatedPresetName).trim(); if (!name) return; const { strategy_variants, ...pc } = cfg; const next = [...presets.filter(p => p.name !== name), { name, config: { ...pc, strategy_label: name } }]; setPresets(next); localStorage.setItem('strategy_presets', JSON.stringify(next)); setPresetName(''); setSaveSuccess(true); setTimeout(() => setSaveSuccess(false), 2000); }
   const loadPreset = (p) => { setCfg({ ...p.config }); setSection('scan'); setErrors({}); }
   const deletePreset = (e, name) => { e.stopPropagation(); const next = presets.filter(p => p.name !== name); setPresets(next); localStorage.setItem('strategy_presets', JSON.stringify(next)); }
-  const toggleVariant = (e, p) => { e.stopPropagation(); const vs = cfg.strategy_variants || []; const ex = vs.some((v) => v.strategy_label === p.name); setField('strategy_variants', ex ? vs.filter((v) => v.strategy_label !== p.name) : [...vs, { ...p.config, strategy_label: p.name }]); }
+  const toggleVariant = (e, p) => {
+    e.stopPropagation()
+    const variants = cfg.strategy_variants || []
+    const exists = variants.some((v) => v.strategy_label === p.name)
+
+    if (!exists && variants.length >= CONFIG_LIMITS.MAX_VARIANTS) {
+      alert(`Maximum of ${CONFIG_LIMITS.MAX_VARIANTS} strategy variants allowed.`);
+      return;
+    }
+
+    setField('strategy_variants', exists
+      ? variants.filter((v) => v.strategy_label !== p.name)
+      : [...variants, { ...p.config, strategy_label: p.name }])
+  }
 
   const buildConfigToSave = () => {
     const c = { ...cfg, strategy_label: (cfg.strategy_label || presetName || generatedPresetName || 'Momentum Strategy').trim() };
@@ -77,11 +103,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
   const sequence = useMemo(() => { const l = cfg.live_rr_sequence || []; const ex = cfg.exit_rr_sequence || []; return l.map((t, i) => [t, ex[i] ?? 0]); }, [cfg.live_rr_sequence, cfg.exit_rr_sequence])
 
   function field(label, key, type = 'number', opts = null, attrs = {}, cp = null) {
-    const id = `config-${key}`; const v = cp ? cp[key] : cfg[key]; const err = errors[key];
+    const id = `config-${key}`; const v = cp ? cp[key] : cfg[key]; const err = errors[key]; const warn = errors[`${key}_warn`];
     const onChange = (val) => { if (cp) attrs.onCustomChange(key, val); else setField(key, val); }
     return (
       <div className="flex flex-col gap-1.5">
-        <div className="flex justify-between items-center"><label htmlFor={id} className="text-[10px] text-dim font-bold tracking-widest uppercase">{label}</label>{err && <span role="alert" className="text-[9px] text-red font-bold uppercase">{err}</span>}</div>
+        <div className="flex justify-between items-center"><label htmlFor={id} className="text-[10px] text-dim font-bold tracking-widest uppercase">{label}</label>
+          {err && <span role="alert" className="text-[9px] text-red font-bold uppercase">{err}</span>}
+          {warn && !err && <span role="alert" className="text-[9px] text-amber font-bold uppercase">{warn}</span>}
+        </div>
         {opts ? <select id={id} value={v ?? ''} onChange={(e) => onChange(e.target.value)} className="bg-surface border border-border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent">{opts.map((o) => <option key={o} value={o}>{o}</option>)}</select> : <input id={id} type={type} value={v ?? ''} {...attrs} onChange={(e) => onChange(type === 'number' ? Number(e.target.value) : e.target.value)} className="bg-surface border border-border rounded-md px-3 py-2 text-sm font-mono text-text focus:outline-none focus:border-accent" />}
       </div>
     )
@@ -156,6 +185,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
           <div className="space-y-6 animate-in fade-in duration-300">
             <div className="grid grid-cols-2 gap-5">
               {field('Risk % per trade', 'risk_pct_per_trade', 'number', null, { step: 0.1 })}
+              {field('SL Distance %', 'sl_distance_pct', 'number', null, { step: 0.1 })}
               {field('Max open trades', 'max_open_trades')}
               {field('Max total risk %', 'max_total_risk_pct')}
               {field('SL guard USDT', 'total_sl_guard_usdt')}
@@ -163,7 +193,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
             <div className="p-4 bg-background border border-border rounded-xl flex justify-between"><div className="flex flex-col"><span className="text-[9px] text-dim uppercase font-bold">Capital at risk</span><span className="text-sm font-bold font-mono text-amber">${fmtUSD(riskAmount)}</span></div><div className="flex flex-col text-right"><span className="text-[9px] text-dim uppercase font-bold">TP Ratio</span><span className="text-sm font-bold font-mono text-accent">{cfg.tp_ratio}R</span></div></div>
             <div className="space-y-4 pt-4 border-t border-border">
                <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2"><Clock size={12} /> Trading Windows</div>
-               <div className="flex gap-2"><Btn variant="ghost" onClick={() => setField('trading_windows', [...(cfg.trading_windows || []), { start: '09:00', end: '17:00' }])} className="w-full text-[10px]">+ Add Window</Btn></div>
+               <div className="flex flex-col gap-2">
+                 {(cfg.trading_windows || []).map((w, i) => (
+                   <div key={i} className="flex gap-2">
+                     <input type="text" value={w.start} onChange={(e) => { const wins = [...(cfg.trading_windows || [])]; wins[i].start = e.target.value; setField('trading_windows', wins); }} className="w-20 bg-surface border border-border rounded px-2 py-1 text-xs font-mono" />
+                     <input type="text" value={w.end} onChange={(e) => { const wins = [...(cfg.trading_windows || [])]; wins[i].end = e.target.value; setField('trading_windows', wins); }} className="w-20 bg-surface border border-border rounded px-2 py-1 text-xs font-mono" />
+                     <Btn variant="ghost" onClick={() => setField('trading_windows', cfg.trading_windows.filter((_, idx) => idx !== i))}><Trash2 size={14} /></Btn>
+                   </div>
+                 ))}
+                 <Btn variant="ghost" onClick={() => setField('trading_windows', [...(cfg.trading_windows || []), { start: '09:00', end: '17:00' }])} className="w-full text-[10px]">+ Add Window</Btn>
+               </div>
             </div>
           </div>
         )}

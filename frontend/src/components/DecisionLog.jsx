@@ -41,26 +41,29 @@ export const DecisionLog = React.memo(() => {
         aria-label="Filter logs by level"
         className="flex flex-wrap gap-2 items-center"
       >
-        {filterButtons.map((filter) => {
-          const active = logFilters[filter.level]
-          return (
-            <button
-              key={filter.level}
-              type="button"
-              aria-pressed={active}
-              onClick={() => toggleLogFilter(filter.level)}
-              className={cn(
-                "px-3 py-1 rounded-full border text-[11px] font-bold transition-all",
-                active ? "bg-surface border-border opacity-100" : "bg-transparent border-border/50 opacity-55 hover:opacity-80",
-                filter.level === 'warn' ? "text-amber" :
-                filter.level === 'error' ? "text-red" :
-                "text-text"
-              )}
-            >
-              {filter.label}
-            </button>
-          )
-        })}
+        <div className="flex-1 flex gap-2 overflow-x-auto no-scrollbar">
+          {filterButtons.map((filter) => {
+            const active = logFilters[filter.level]
+            return (
+              <button
+                key={filter.level}
+                type="button"
+                aria-pressed={active}
+                onClick={() => toggleLogFilter(filter.level)}
+                className={cn(
+                  "px-3 py-1 rounded-full border text-[11px] font-bold transition-all whitespace-nowrap",
+                  active ? "bg-surface border-border opacity-100" : "bg-transparent border-border/50 opacity-55 hover:opacity-80",
+                  filter.level === 'warn' ? "text-amber" :
+                  filter.level === 'error' ? "text-red" :
+                  "text-text"
+                )}
+              >
+                {filter.label}
+              </button>
+            )
+          })}
+        </div>
+        <span className="text-[9px] text-dim font-bold uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50 shrink-0">Latest 500</span>
       </div>
       <div className="flex flex-col gap-1.5 max-h-[340px] overflow-y-auto no-scrollbar">
         <AnimatePresence mode="popLayout">

@@ -1,12 +1,11 @@
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import WebSocket from 'ws';
 import { SessionConfig } from '../models/SessionConfig';
+import { ENGINE_CONSTANTS } from '../models/constants';
 import { TickerCacheService } from './ticker_cache.service';
 import { KlineStoreService } from './kline_store.service';
 import { TradingSessionService } from './trading_session.service';
 import { MonitoringService } from './monitoring.service';
-
-const BINANCE_WS_BASE = 'wss://fstream.binance.com/market';
 
 interface BinanceKline {
   stream?: string;
@@ -82,11 +81,11 @@ export class MarketFeedService {
         }
       }, 100);
       
-      // 5s timeout for fallback
+      // TICKER_BOOTSTRAP_TIMEOUT_MS timeout for fallback
       setTimeout(() => {
         clearInterval(check);
         resolve();
-      }, 5000);
+      }, ENGINE_CONSTANTS.TICKER_BOOTSTRAP_TIMEOUT_MS);
     });
 
     await waitForWs;
@@ -107,6 +106,11 @@ export class MarketFeedService {
     if (weight) {
       this.tradingSession.updateRateLimit(parseInt(weight));
     }
+    // BOLT: Dynamic limit discovery from headers
+    const limit = headers.get('X-MBX-USED-WEIGHT-1M-LIMIT');
+    if (limit) {
+      this.tradingSession.updateRateLimitConfig(parseInt(limit));
+    }
   }
 
   private async fetchExchangeInfo() {
@@ -119,7 +123,7 @@ export class MarketFeedService {
     this.logger.verbose('Fetching Binance Futures exchange info...');
     try {
       this.monitoringService.incrementApiRequests();
-      const response = await fetch('https://fapi.binance.com/fapi/v1/exchangeInfo');
+      const response = await fetch(`${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/exchangeInfo`);
       this.updateWeight(response.headers);
 
       if (response.ok) {
@@ -146,7 +150,7 @@ export class MarketFeedService {
     this.logger.verbose('Fetching initial tickers from Binance REST API...');
     try {
       this.monitoringService.incrementApiRequests();
-      const response = await fetch('https://fapi.binance.com/fapi/v1/ticker/24hr');
+      const response = await fetch(`${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/ticker/24hr`);
       this.updateWeight(response.headers);
 
       if (response.ok) {
@@ -202,7 +206,7 @@ export class MarketFeedService {
     const connect = () => {
       if (!this.running) return;
 
-      const url = `${BINANCE_WS_BASE}/ws/!miniTicker@arr`;
+      const url = `${ENGINE_CONSTANTS.BINANCE_WS_BASE}/ws/!miniTicker@arr`;
       const ws = new WebSocket(url, { handshakeTimeout: 15000 });
 
       ws.on('open', () => {
@@ -253,7 +257,7 @@ export class MarketFeedService {
   private startWatchlistManager(config: SessionConfig) {
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
     this.updateWatchlist(config);
-    this.watchlistInterval = setInterval(() => this.updateWatchlist(config), 120000);
+    this.watchlistInterval = setInterval(() => this.updateWatchlist(config), ENGINE_CONSTANTS.WATCHLIST_REFRESH_INTERVAL_MS);
     this.watchlistInterval.unref?.();
   }
 
@@ -382,18 +386,17 @@ export class MarketFeedService {
       }
     }
 
-    // Split streams into chunks of 20 to avoid URL length issues
-    const CHUNK_SIZE = 20;
+    // Split streams into chunks to avoid URL length issues
     const chunks = [];
-    for (let i = 0; i < allStreams.length; i += CHUNK_SIZE) {
-      chunks.push(allStreams.slice(i, i + CHUNK_SIZE));
+    for (let i = 0; i < allStreams.length; i += ENGINE_CONSTANTS.KLINE_STREAM_CHUNK_SIZE) {
+      chunks.push(allStreams.slice(i, i + ENGINE_CONSTANTS.KLINE_STREAM_CHUNK_SIZE));
     }
     
     this.logger.debug(`Creating ${chunks.length} kline streams for ${allStreams.length} symbol-interval pairs.`);
 
     for (const chunk of chunks) {
       const streams = chunk.join('/');
-      const url = `${BINANCE_WS_BASE}/stream?streams=${streams}`;
+      const url = `${ENGINE_CONSTANTS.BINANCE_WS_BASE}/stream?streams=${streams}`;
       
       const connect = () => {
         if (!this.running) return;
@@ -486,10 +489,10 @@ export class MarketFeedService {
     }
 
     // Basic concurrency limit for backfills: random delay to spread requests
-    await new Promise(resolve => setTimeout(resolve, Math.random() * 2000));
+    await new Promise(resolve => setTimeout(resolve, Math.random() * ENGINE_CONSTANTS.BACKFILL_MAX_JITTER_MS));
 
     try {
-      const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${this.klineStore.getMaxCandles()}`;
+      const url = `${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${this.klineStore.getMaxCandles()}`;
       this.monitoringService.incrementApiRequests();
       const response = await fetch(url);
       this.updateWeight(response.headers);

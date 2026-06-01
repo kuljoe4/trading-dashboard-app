@@ -13,6 +13,7 @@ import { MonitoringService } from './monitoring.service';
 import { AnalyticsService } from './analytics.service';
 import { v4 as uuid } from 'uuid';
 import { roundEight } from '../lib/math';
+import { ENGINE_CONSTANTS } from '../models/constants';
 
 @Injectable()
 export class TradingSessionService {
@@ -440,14 +441,14 @@ export class TradingSessionService {
         this.broadcast('scanner', {
           count: this.lastScannerResults.length,
           hibernating: this.hibernating,
-          opportunities: this.lastScannerResults.slice(0, 5).map(o => {
+          opportunities: this.lastScannerResults.slice(0, ENGINE_CONSTANTS.SCANNER_UI_RESULTS).map(o => {
             if (isFullBroadcast) return o;
             const { history, ...rest } = o;
             return rest;
           }),
           variant_opportunities: this.lastVariantScannerResults.map(v => ({
             ...v,
-            opportunities: v.opportunities.slice(0, 5).map((o: any) => {
+            opportunities: v.opportunities.slice(0, ENGINE_CONSTANTS.SCANNER_UI_RESULTS).map((o: any) => {
                if (isFullBroadcast) return o;
                const { history, ...rest } = o;
                return rest;
@@ -518,14 +519,14 @@ export class TradingSessionService {
 
           this.broadcast('scanner', {
             count: this.lastScannerResults.length,
-            opportunities: this.lastScannerResults.slice(0, 5).map(o => {
+            opportunities: this.lastScannerResults.slice(0, ENGINE_CONSTANTS.SCANNER_UI_RESULTS).map(o => {
               if (isFullBroadcast) return o;
               const { history, ...rest } = o; // Skip history (sparkline data) in delta updates
               return rest;
             }),
             variant_opportunities: this.lastVariantScannerResults.map(v => ({
               ...v,
-              opportunities: v.opportunities.slice(0, 5).map((o: any) => {
+              opportunities: v.opportunities.slice(0, ENGINE_CONSTANTS.SCANNER_UI_RESULTS).map((o: any) => {
                  if (isFullBroadcast) return o;
                  const { history, ...rest } = o;
                  return rest;
@@ -596,7 +597,7 @@ export class TradingSessionService {
                 maxDrawdown: Number(analytics.maxDrawdown.toFixed(2)),
                 maxDrawdownPct: Number(analytics.maxDrawdownPct.toFixed(2)),
                 overallWinRate: Number(analytics.overallWinRate.toFixed(2)),
-                cumulativePnL: analytics.cumulativePnL.slice(-20).map((p: any) => ({ ...p, pnl: Number(p.pnl.toFixed(2)) })),
+                cumulativePnL: analytics.cumulativePnL.slice(-ENGINE_CONSTANTS.ANALYTICS_UI_POINTS).map((p: any) => ({ ...p, pnl: Number(p.pnl.toFixed(2)) })),
               }
             });
           } catch (err) {
@@ -1047,7 +1048,7 @@ export class TradingSessionService {
          maxDrawdown: Number(this.lastAnalyticsResult.maxDrawdown.toFixed(2)),
          maxDrawdownPct: Number(this.lastAnalyticsResult.maxDrawdownPct.toFixed(2)),
          overallWinRate: Number(this.lastAnalyticsResult.overallWinRate.toFixed(2)),
-         cumulativePnL: this.lastAnalyticsResult.cumulativePnL.slice(-20).map((p: any) => ({
+         cumulativePnL: this.lastAnalyticsResult.cumulativePnL.slice(-ENGINE_CONSTANTS.ANALYTICS_UI_POINTS).map((p: any) => ({
             ...p,
             pnl: Number(p.pnl.toFixed(2))
          })),
@@ -1107,7 +1108,7 @@ export class TradingSessionService {
       activeTrades: this.positionTracker.activeList().map((trade) => this.serializeTrade(trade)),
       scannerResults: this.lastScannerResults,
       activeWindows: this.getActiveWindows(),
-      history: this.closedTrades.slice(0, 50).map((trade) => this.serializeTrade(trade, trade.exit_price)),
+      history: this.closedTrades.slice(0, ENGINE_CONSTANTS.HISTORY_UI_LIMIT).map((trade) => this.serializeTrade(trade, trade.exit_price)),
     });
   }
 
@@ -1205,7 +1206,7 @@ export class TradingSessionService {
 
       this.userDataWs.userData(this.listenKey);
 
-      // Keepalive listenKey every 30 mins
+      // Keepalive listenKey
       this.listenKeyKeepAlive = setInterval(async () => {
         if (this.listenKey) {
           try {
@@ -1215,7 +1216,7 @@ export class TradingSessionService {
             this.logger.warn(`ListenKey keepalive failed: ${err instanceof Error ? err.message : String(err)}`);
           }
         }
-      }, 30 * 60 * 1000);
+      }, ENGINE_CONSTANTS.USER_DATA_KEEPALIVE_MS);
 
       this.logger.log(`User Data Stream started for real-time balance updates (ListenKey: ${this.listenKey?.substring(0, 8)}...)`);
     } catch (error) {
@@ -1314,7 +1315,7 @@ export class TradingSessionService {
       gateState: this.gateState,
       hibernating: this.hibernating,
       scannerPaused: this.gateState === 'max_trades' || this.gateState === 'sl_guard' || this.gateState === 'max_trades_period',
-      history: this.closedTrades.slice(0, 50).map((trade) => this.serializeTrade(trade, trade.exit_price)),
+      history: this.closedTrades.slice(0, ENGINE_CONSTANTS.HISTORY_UI_LIMIT).map((trade) => this.serializeTrade(trade, trade.exit_price)),
     };
   }
 
@@ -1359,20 +1360,26 @@ export class TradingSessionService {
     this.binanceRateLimit.used_1m = used1m;
   }
 
+  updateRateLimitConfig(limit: number) {
+    if (limit > 0) {
+      this.binanceRateLimit.limit = limit;
+    }
+  }
+
   /**
    * Proactive Rate Limit Check
    * Returns true if 1m weight usage is > 80%
    */
   isRateLimited(): boolean {
     const used = this.binanceRateLimit.used_1m || 0;
-    const limit = 1200; // Binance Futures default
+    const limit = this.binanceRateLimit.limit || ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT;
     return (used / limit) > 0.8;
   }
 
   getBinanceRateLimit() {
     return {
       used_weight_1m: this.binanceRateLimit.used_1m || 0,
-      limit: 1200,
+      limit: this.binanceRateLimit.limit || ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT,
       last_update: new Date().toISOString(),
     };
   }
@@ -1433,7 +1440,7 @@ export class TradingSessionService {
             maxDrawdown: Number(analytics.maxDrawdown.toFixed(2)),
             maxDrawdownPct: Number(analytics.maxDrawdownPct.toFixed(2)),
             overallWinRate: Number(analytics.overallWinRate.toFixed(2)),
-            cumulativePnL: analytics.cumulativePnL.slice(-20).map((p: any) => ({ ...p, pnl: Number(p.pnl.toFixed(2)) })),
+            cumulativePnL: analytics.cumulativePnL.slice(-ENGINE_CONSTANTS.ANALYTICS_UI_POINTS).map((p: any) => ({ ...p, pnl: Number(p.pnl.toFixed(2)) })),
           }
         });
 

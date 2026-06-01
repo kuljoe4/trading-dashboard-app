@@ -262,13 +262,20 @@ export const HistoryView = () => {
     )}>
       <Sidebar />
       <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32 lg:pb-8">
-        <div className="flex items-center gap-4 mb-10 bg-surface border border-border rounded-2xl p-6 shadow-sm">
-          <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center">
-            <HistoryIcon size={24} className="text-accent" />
+        <div className="flex items-center justify-between gap-4 mb-10 bg-surface border border-border rounded-2xl p-6 shadow-sm">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center">
+              <HistoryIcon size={24} className="text-accent" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold">Trade History</h1>
+              <p className="text-[11px] text-dim font-bold uppercase tracking-widest mt-1">Verified records of all closed positions</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold">Trade History</h1>
-            <p className="text-[11px] text-dim font-bold uppercase tracking-widest mt-1">Verified records of all closed positions</p>
+          <div className="text-right">
+             <span className="text-[9px] text-dim font-bold uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50">
+               {isLifetime ? 'Recent 200 Trades' : 'Latest 50 Trades'}
+             </span>
           </div>
         </div>
 

@@ -1,5 +1,6 @@
 import { IsString, IsNumber, IsOptional, IsEnum, IsArray, IsBoolean, Min, Max, IsObject, ValidateNested, MaxLength, ArrayMaxSize } from 'class-validator';
 import { Type } from 'class-transformer';
+import { CONFIG_LIMITS } from './constants';
 
 export class SingleSymbolConfig {
   @IsString()
@@ -33,7 +34,7 @@ export class SessionConfig {
 
   @IsArray()
   @IsOptional()
-  @ArrayMaxSize(10)
+  @ArrayMaxSize(CONFIG_LIMITS.MAX_VARIANTS)
   @ValidateNested({ each: true })
   @Type(() => SessionConfig)
   strategy_variants?: Partial<SessionConfig>[] = [];
@@ -44,7 +45,7 @@ export class SessionConfig {
 
   @IsArray()
   @IsOptional()
-  @ArrayMaxSize(100)
+  @ArrayMaxSize(CONFIG_LIMITS.MAX_SINGLE_SYMBOL_MONITORS)
   @ValidateNested({ each: true })
   @Type(() => SingleSymbolConfig)
   single_symbol_configs: SingleSymbolConfig[] = [];
@@ -84,10 +85,10 @@ export class SessionConfig {
   scan_check_interval_sec?: number = 5;
 
   @IsNumber()
-  @Min(1)
-  @Max(200)
+  @Min(CONFIG_LIMITS.WATCHLIST_MIN)
+  @Max(CONFIG_LIMITS.WATCHLIST_MAX)
   @IsOptional()
-  watchlist_size: number = 25;
+  watchlist_size: number = CONFIG_LIMITS.WATCHLIST_DEFAULT;
 
   @IsEnum(['both', 'long', 'short'])
   @IsOptional()
@@ -108,7 +109,7 @@ export class SessionConfig {
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
-  @ArrayMaxSize(20)
+  @ArrayMaxSize(CONFIG_LIMITS.MAX_SIGNALS)
   enabled_signals?: string[] = ['momentum_pct'];
 
   @IsEnum(['any', 'all'])
@@ -126,10 +127,10 @@ export class SessionConfig {
   sl_type?: 'pct' | 'lookback_low/high' = "pct";
 
   @IsNumber()
-  @Min(0.1)
-  @Max(10)
+  @Min(CONFIG_LIMITS.SL_DISTANCE_MIN)
+  @Max(CONFIG_LIMITS.SL_DISTANCE_MAX)
   @IsOptional()
-  sl_distance_pct?: number = 0.8;
+  sl_distance_pct?: number = CONFIG_LIMITS.SL_DISTANCE_DEFAULT;
 
   @IsNumber()
   @Min(1)
@@ -182,7 +183,7 @@ export class SessionConfig {
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
-  @ArrayMaxSize(20)
+  @ArrayMaxSize(CONFIG_LIMITS.MAX_SIGNALS)
   exit_signals?: string[] = [];
 
   @IsEnum(['any', 'all'])
@@ -195,10 +196,10 @@ export class SessionConfig {
 
   // Risk Management
   @IsNumber()
-  @Min(0.01)
-  @Max(100)
+  @Min(CONFIG_LIMITS.RISK_PER_TRADE_MIN)
+  @Max(CONFIG_LIMITS.RISK_PER_TRADE_MAX)
   @IsOptional()
-  risk_pct_per_trade?: number = 1.0;
+  risk_pct_per_trade?: number = CONFIG_LIMITS.RISK_PER_TRADE_DEFAULT;
 
   @IsNumber()
   @Min(1)
@@ -221,10 +222,10 @@ export class SessionConfig {
   trades_period_min?: number = 60;
 
   @IsNumber()
-  @Min(0.1)
-  @Max(100)
+  @Min(CONFIG_LIMITS.MAX_TOTAL_RISK_MIN)
+  @Max(CONFIG_LIMITS.MAX_TOTAL_RISK_MAX)
   @IsOptional()
-  max_total_risk_pct?: number = 5.0;
+  max_total_risk_pct?: number = CONFIG_LIMITS.MAX_TOTAL_RISK_DEFAULT;
 
   @IsNumber()
   @Min(0)
@@ -258,7 +259,7 @@ export class SessionConfig {
   // Schedule & Advanced Risk
   @IsArray()
   @IsOptional()
-  @ArrayMaxSize(10)
+  @ArrayMaxSize(CONFIG_LIMITS.MAX_TRADING_WINDOWS)
   @IsObject({ each: true })
   trading_windows?: { start: string; end: string }[] = [];
 
@@ -273,13 +274,13 @@ export class SessionConfig {
   // Performance & Debug
   @IsNumber()
   @IsOptional()
-  @Min(500)
-  hot_loop_interval_ms?: number = 5000;
+  @Min(CONFIG_LIMITS.HOT_LOOP_MIN)
+  hot_loop_interval_ms?: number = CONFIG_LIMITS.HOT_LOOP_DEFAULT;
 
   @IsNumber()
   @IsOptional()
-  @Min(1000)
-  main_loop_interval_ms?: number = 15000;
+  @Min(CONFIG_LIMITS.MAIN_LOOP_MIN)
+  main_loop_interval_ms?: number = CONFIG_LIMITS.MAIN_LOOP_DEFAULT;
 
   @IsBoolean()
   @IsOptional()

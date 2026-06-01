@@ -217,9 +217,12 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
   return (
     <div className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 shadow-sm h-[385px] flex flex-col">
       <div className="p-5 border-b border-border flex justify-between items-center bg-surface/30 shrink-0">
-        <SectionLabel className="mb-0">
-          <Zap size={14} className="text-accent" /> Live Scanner
-        </SectionLabel>
+        <div className="flex flex-col">
+          <SectionLabel className="mb-0">
+            <Zap size={14} className="text-accent" /> Live Scanner
+          </SectionLabel>
+          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mt-0.5">Top 5 Opportunities</span>
+        </div>
         <button className="text-[11px] font-bold text-accent hover:text-accent/80 transition-colors uppercase tracking-widest" onClick={onOpen}>Open Full</button>
       </div>
       <div className="flex-1">

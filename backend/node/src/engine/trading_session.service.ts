@@ -942,11 +942,15 @@ export class TradingSessionService {
         if (serialized.max_rr === prevTrade.max_rr) delete (serialized as any).max_rr; else tradeChanged = true;
 
         // Strip large static/semi-static fields in delta updates if they match previous
-        // BOLT: Use JSON.stringify for complex state to ensure data integrity during delta ticks
-        if (JSON.stringify(serialized.sl_adjustments) === JSON.stringify(prevTrade.sl_adjustments)) delete (serialized as any).sl_adjustments; else tradeChanged = true;
+        // BOLT OPTIMIZATION: Use length checks for append-only data like sl_adjustments to avoid JSON.stringify
+        if (serialized.sl_adjustments?.length === prevTrade.sl_adjustments?.length) delete (serialized as any).sl_adjustments; else tradeChanged = true;
+
+        // Use JSON.stringify for complex state like exit signals status
         if (JSON.stringify(serialized.exit_signals_status) === JSON.stringify(prevTrade.exit_signals_status)) delete (serialized as any).exit_signals_status; else tradeChanged = true;
-        if (JSON.stringify(serialized.live_rr_sequence) === JSON.stringify(prevTrade.live_rr_sequence)) delete (serialized as any).live_rr_sequence; else tradeChanged = true;
-        if (JSON.stringify(serialized.exit_rr_sequence) === JSON.stringify(prevTrade.exit_rr_sequence)) delete (serialized as any).exit_rr_sequence; else tradeChanged = true;
+
+        // RR sequences are usually static per-trade
+        if (serialized.live_rr_sequence?.length === prevTrade.live_rr_sequence?.length) delete (serialized as any).live_rr_sequence; else tradeChanged = true;
+        if (serialized.exit_rr_sequence?.length === prevTrade.exit_rr_sequence?.length) delete (serialized as any).exit_rr_sequence; else tradeChanged = true;
 
         if (serialized.tp_mode === prevTrade.tp_mode) delete (serialized as any).tp_mode; else tradeChanged = true;
         if (serialized.tp_ratio === prevTrade.tp_ratio) delete (serialized as any).tp_ratio; else tradeChanged = true;
@@ -1067,7 +1071,9 @@ export class TradingSessionService {
       const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) > 0.1;
       const monitoringChanged = Math.abs((monitoring?.system?.cpu_usage || 0) - (this.lastTickData?.monitoring?.system?.cpu_usage || 0)) > 8;
       const gateChanged = tickData.gateState !== this.lastTickData?.gateState;
-      const statsChanged = JSON.stringify(tickData.stats) !== JSON.stringify(this.lastTickData?.stats);
+      // BOLT OPTIMIZATION: Replace JSON.stringify with direct property checks for stats
+      const statsChanged = tickData.stats?.entryCount !== this.lastTickData?.stats?.entryCount ||
+                           tickData.stats?.hitCount !== this.lastTickData?.stats?.hitCount;
 
       if (tradesChanged || pnlChanged || monitoringChanged || gateChanged || statsChanged) {
         shouldBroadcast = true;
@@ -1079,10 +1085,20 @@ export class TradingSessionService {
 
       // BOLT DELTA: Further prune final payload by removing unchanged nested objects
       if (this.lastTickData && !isHeartbeat) {
-         if (JSON.stringify(finalPayload.stats) === JSON.stringify(this.lastTickData.stats)) delete finalPayload.stats;
-         if (JSON.stringify(finalPayload.activeWindows) === JSON.stringify(this.lastTickData.activeWindows)) delete finalPayload.activeWindows;
+         // BOLT: Use direct property comparison for stats to avoid redundant JSON.stringify
+         if (finalPayload.stats?.entryCount === this.lastTickData.stats?.entryCount &&
+             finalPayload.stats?.hitCount === this.lastTickData.stats?.hitCount) {
+           delete finalPayload.stats;
+         }
+
+         // BOLT: Use length check for activeWindows as a fast path
+         if (finalPayload.activeWindows?.length === this.lastTickData.activeWindows?.length) {
+            delete finalPayload.activeWindows;
+         }
+
          if (finalPayload.gateState === this.lastTickData.gateState) delete finalPayload.gateState;
          if (finalPayload.paused === this.lastTickData.paused) delete finalPayload.paused;
+
          if (JSON.stringify(finalPayload.monitoring) === JSON.stringify(this.lastTickData.monitoring)) delete finalPayload.monitoring;
       }
 

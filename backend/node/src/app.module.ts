@@ -21,7 +21,9 @@ import { BalanceHistory } from './models/entities/BalanceHistory.entity';
         type: 'postgres',
         url: configService.get<string>('DATABASE_URL'),
         entities: [Session, TradeEntity, Settings, Log, BalanceHistory],
-        synchronize: configService.get<string>('NODE_ENV') !== 'production', // Disable sync in production for safety
+        synchronize: false, // Explicitly disable synchronize in all environments
+        migrations: [__dirname + '/migrations/**/*{.ts,.js}'],
+        migrationsRun: true,
         ssl: configService.get<string>('NODE_ENV') === 'production' ? { rejectUnauthorized: false } : false,
       }),
       inject: [ConfigService],

@@ -3,6 +3,7 @@ import { SessionConfig } from '../models/SessionConfig';
 import { Trade } from '../models/Trade';
 import { v4 as uuid } from 'uuid';
 import { roundEight } from '../lib/math';
+import { ConfigValidationException } from '../lib/exceptions';
 
 @Injectable()
 export class RiskEngineService {
@@ -171,7 +172,7 @@ export class RiskEngineService {
       return entryPrice + clampedDistance;
     }
 
-    throw new Error(`Unknown sl_type: ${config.sl_type}`);
+    throw new ConfigValidationException(`Unknown sl_type: ${config.sl_type}`);
   }
 
   /**

@@ -101,6 +101,7 @@ export class OrderManagerService {
         entry_signal_type: 'combo',
         entry_signal_confidence: 1.0,
         pnl: 0,
+        realized_fee: 0,
         pnl_pct: 0,
         risk_usdt: roundEight(Math.max(0, direction === 'LONG' ? entryPrice - slPrice : slPrice - entryPrice) * qty),
         sessionId,
@@ -122,8 +123,15 @@ export class OrderManagerService {
           });
           const orderData = response.data || response;
           trade.binance_order_id = orderData.orderId;
+
+          // Capture realized fees from entry fills
+          if (orderData.fills && Array.isArray(orderData.fills)) {
+            const entryFee = orderData.fills.reduce((sum: number, fill: any) => sum + parseFloat(fill.commission || 0), 0);
+            trade.realized_fee = roundEight(trade.realized_fee + entryFee);
+          }
+
           this.logger.log(
-            `Binance order placed: ${symbol} ${direction} qty=${qty} order_id=${orderData.orderId}`,
+            `Binance order placed: ${symbol} ${direction} qty=${qty} order_id=${orderData.orderId} fee=${trade.realized_fee}`,
           );
 
           // Place initial Stop Loss order on exchange
@@ -132,7 +140,12 @@ export class OrderManagerService {
           this.logger.warn(
             `Binance order failed (continuing in paper mode): ${err instanceof Error ? err.message : String(err)}`,
           );
+          // If we fallback to paper mode after failure, we should simulate the fee
+          trade.realized_fee = roundEight(entryPrice * qty * 0.0004);
         }
+      } else if (this.paperMode) {
+        // Simulate paper entry fee (0.04% taker)
+        trade.realized_fee = roundEight(entryPrice * qty * 0.0004);
       }
 
       this.logger.log(
@@ -402,8 +415,15 @@ export class OrderManagerService {
             });
             const orderData = response.data || response;
             trade.binance_close_order_id = orderData.orderId;
+
+            // Capture realized fees from exit fills
+            if (orderData.fills && Array.isArray(orderData.fills)) {
+              const exitFee = orderData.fills.reduce((sum: number, fill: any) => sum + parseFloat(fill.commission || 0), 0);
+              trade.realized_fee = roundEight(trade.realized_fee + exitFee);
+            }
+
             this.logger.log(
-              `Binance close order placed: ${symbol} qty=${trade.qty || 0} order_id=${orderData.orderId}`,
+              `Binance close order placed: ${symbol} qty=${trade.qty || 0} order_id=${orderData.orderId} total_fee=${trade.realized_fee}`,
             );
           } catch (err: any) {
             const errMsg = err instanceof Error ? err.message : String(err);
@@ -425,11 +445,21 @@ export class OrderManagerService {
           this.logger.warn(
             `Binance close operation error: ${err instanceof Error ? err.message : String(err)}`,
           );
+          // If close fails/rejected, we might already have exit fees from exchange SL (not easy to catch here without polling)
+          // but if we are here and it's paper mode or failed live close, simulate it
+          if (this.paperMode) {
+             const exitFee = roundEight(exitPrice * trade.qty * 0.0004);
+             trade.realized_fee = roundEight(trade.realized_fee + exitFee);
+          }
         }
+      } else if (this.paperMode) {
+        // Simulate paper exit fee (0.04% taker)
+        const exitFee = roundEight(exitPrice * trade.qty * 0.0004);
+        trade.realized_fee = roundEight(trade.realized_fee + exitFee);
       }
 
       this.logger.log(
-        `Close: ${symbol} @ ${exitPrice} P&L=${pnl.toFixed(2)} (${pnlPct.toFixed(2)}%) Reason=${exitReason}`,
+        `Close: ${symbol} @ ${exitPrice} P&L=${pnl.toFixed(2)} (${pnlPct.toFixed(2)}%) Fee=${trade.realized_fee} Reason=${exitReason}`,
       );
 
       return { trade, exitOccurred: true };

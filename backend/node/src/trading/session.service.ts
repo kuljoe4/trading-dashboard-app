@@ -48,11 +48,20 @@ export class SessionService implements OnModuleInit {
     await this.cleanupOldData();
     setInterval(() => this.cleanupOldData().catch(e => this.logger.error(`Periodic cleanup failed: ${e.message}`)), 12 * 60 * 60 * 1000);
 
-    // DEPLOY-02: Check ENCRYPTION_KEY in production
-    if (process.env.NODE_ENV === 'production' && !process.env.ENCRYPTION_KEY) {
-       this.logger.error('CRITICAL: ENCRYPTION_KEY is not set in production! App will fail on sensitive operations.');
-       // Audit Item 29: Refuse to start if ENCRYPTION_KEY is missing in production
-       throw new Error('ENCRYPTION_KEY must be set in production');
+    // DEPLOY-02: Check ENCRYPTION_KEY and ADMIN_API_KEY in production
+    if (process.env.NODE_ENV === "production") {
+      if (!process.env.ENCRYPTION_KEY) {
+        this.logger.error(
+          "CRITICAL: ENCRYPTION_KEY is not set in production! App will fail on sensitive operations.",
+        );
+        throw new Error("ENCRYPTION_KEY must be set in production");
+      }
+      if (!process.env.ADMIN_API_KEY) {
+        this.logger.error(
+          "CRITICAL: ADMIN_API_KEY is not set in production! App is UNPROTECTED.",
+        );
+        throw new Error("ADMIN_API_KEY must be set in production");
+      }
     }
 
     // Ensure default settings exist

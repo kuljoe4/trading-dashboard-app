@@ -3,7 +3,7 @@ import { X, AlertTriangle } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn, Btn } from './ui/primitives'
 
-export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = "Confirm", cancelText = "Cancel", variant = "danger" }) => {
+export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = "Confirm", cancelText = "Cancel", variant = "danger", loading = false }) => {
   if (!isOpen) return null;
 
   return (
@@ -37,8 +37,8 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
         <p className="text-sm text-dim leading-relaxed mb-6">{message}</p>
 
         <div className="flex gap-3">
-          <Btn variant="ghost" onClick={onClose} className="flex-1">{cancelText}</Btn>
-          <Btn variant={variant} onClick={onConfirm} className="flex-1">{confirmText}</Btn>
+          <Btn variant="ghost" onClick={onClose} disabled={loading} className="flex-1">{cancelText}</Btn>
+          <Btn variant={variant} onClick={onConfirm} loading={loading} className="flex-1">{confirmText}</Btn>
         </div>
       </motion.div>
     </div>

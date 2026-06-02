@@ -294,6 +294,7 @@ export function DashboardView({ initialStrategy }) {
   const [selectedConfig, setSelectedConfig] = useState(null)
   const [editingVariantIndex, setEditingVariantIndex] = useState(null)
   const [confirmStop, setConfirmStop] = useState(false)
+  const [sessionToDelete, setSessionToDelete] = useState(null)
 
   const {
     sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
@@ -439,6 +440,20 @@ export function DashboardView({ initialStrategy }) {
     }
   }
 
+  async function handleDeleteSession() {
+    if (!sessionToDelete) return
+    setLoading(true)
+    try {
+      await sessionAPI.delete(sessionToDelete)
+      await fetchSessions()
+    } catch (e) {
+      alert('Failed to delete session')
+    } finally {
+      setLoading(false)
+      setSessionToDelete(null)
+    }
+  }
+
   if (selected) {
     return (
       <div className={cn(
@@ -479,6 +494,17 @@ export function DashboardView({ initialStrategy }) {
           title="Terminate Trading Session?"
           message="This will immediately close all open positions at market price and stop the engine. This action cannot be undone."
           confirmText="Terminate Everything"
+          loading={loading}
+        />
+
+        <ConfirmationModal
+          isOpen={!!sessionToDelete}
+          onClose={() => setSessionToDelete(null)}
+          onConfirm={handleDeleteSession}
+          title="Delete Session History?"
+          message="This will permanently remove this session's records from your history. This action cannot be undone."
+          confirmText="Delete Permanently"
+          loading={loading}
         />
 
         {/* Header Bar */}
@@ -703,7 +729,7 @@ export function DashboardView({ initialStrategy }) {
                         <CopyButton value={s.id} className="p-1" />
                       </div>
                       <button
-                        onClick={async () => { if(confirm('Delete?')) { setLoading(true); await sessionAPI.delete(s.id); await fetchSessions(); setLoading(false); }}}
+                        onClick={() => setSessionToDelete(s.id)}
                         aria-label="Delete session history"
                         className="text-dim hover:text-red transition-colors"
                       >

@@ -61,7 +61,7 @@ export class SessionConfig {
   scan_lookback: number = 3;
 
   @IsNumber()
-  @Min(0)
+  @Min(CONFIG_LIMITS.SCAN_PCT_THRESHOLD_MIN)
   @IsOptional()
   scan_pct_threshold: number = 2.0;
 
@@ -162,9 +162,9 @@ export class SessionConfig {
   tp_mode?: 'fixed' | 'exp_rr_seq' = 'fixed';
 
   @IsNumber()
-  @Min(0.1)
+  @Min(CONFIG_LIMITS.TP_RATIO_MIN)
   @IsOptional()
-  tp_ratio?: number = 2.0;
+  tp_ratio?: number = CONFIG_LIMITS.TP_RATIO_DEFAULT;
 
   // Exponential RR Sequence for Profit Locking
   @IsArray()
@@ -202,9 +202,9 @@ export class SessionConfig {
   risk_pct_per_trade?: number = CONFIG_LIMITS.RISK_PER_TRADE_DEFAULT;
 
   @IsNumber()
-  @Min(1)
+  @Min(CONFIG_LIMITS.MAX_OPEN_TRADES_MIN)
   @IsOptional()
-  max_open_trades?: number = 5;
+  max_open_trades?: number = CONFIG_LIMITS.MAX_OPEN_TRADES_DEFAULT;
 
   @IsNumber()
   @Min(1)
@@ -230,7 +230,7 @@ export class SessionConfig {
   @IsNumber()
   @Min(0)
   @IsOptional()
-  total_sl_guard_usdt?: number = 200.0;
+  total_sl_guard_usdt?: number = CONFIG_LIMITS.TOTAL_SL_GUARD_DEFAULT;
 
   // Balance & Mode Configuration
   @IsBoolean()
@@ -244,12 +244,12 @@ export class SessionConfig {
   @IsNumber()
   @Min(0)
   @IsOptional()
-  paper_starting_balance?: number = 10000.0;
+  paper_starting_balance?: number = CONFIG_LIMITS.PAPER_STARTING_BALANCE_DEFAULT;
 
   @IsNumber()
   @Min(0)
   @IsOptional()
-  live_starting_balance?: number = 10000.0;
+  live_starting_balance?: number = CONFIG_LIMITS.LIVE_STARTING_BALANCE_DEFAULT;
 
   // API & Monitoring
   @IsBoolean()

@@ -54,7 +54,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
           </div>
         </div>
       )}
-      <div className="flex justify-between items-start mb-6">
+        <div className="flex justify-between items-start mb-6" aria-live="polite">
         <div>
           <div className="flex items-center gap-2 mb-3">
             <StatusBadge status={s.sessionActive} />
@@ -224,7 +224,7 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
           </SectionLabel>
           <span className="text-[9px] text-dim font-bold uppercase tracking-widest mt-0.5">Top 5 Opportunities</span>
         </div>
-        <button className="text-[11px] font-bold text-accent hover:text-accent/80 transition-colors uppercase tracking-widest" onClick={onOpen}>Open Full</button>
+        <button className="text-[11px] font-bold text-accent hover:text-accent/80 transition-colors uppercase tracking-widest" aria-label="View all scanner results" onClick={onOpen}>Open Full</button>
       </div>
       <div className="flex-1">
         {top.length === 0 && placeholders.length === 5 ? (
@@ -569,13 +569,15 @@ export function DashboardView({ initialStrategy }) {
           </div>
         </motion.div>
 
-        <GateBanner
-          gateState={gateState}
-          scannerPaused={scannerPaused}
-          reason={gateReason}
-          hibernating={hibernating}
-          activeTradesCount={activeTrades.length}
-        />
+        <div aria-live="polite">
+          <GateBanner
+            gateState={gateState}
+            scannerPaused={scannerPaused}
+            reason={gateReason}
+            hibernating={hibernating}
+            activeTradesCount={activeTrades.length}
+          />
+        </div>
 
         {/* Global Metrics */}
         <motion.div
@@ -684,6 +686,7 @@ export function DashboardView({ initialStrategy }) {
                 ) : (
                   <button
                     onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
+                    aria-label="Create new trading session"
                     className="bg-background border-2 border-dashed border-border rounded-2xl p-10 flex flex-col items-center justify-center gap-4 text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all group h-[256px]"
                   >
                     <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
@@ -756,6 +759,9 @@ export function DashboardView({ initialStrategy }) {
                     <DecisionLog />
                   </Suspense>
                 </div>
+              <div className="mt-2 text-[10px] text-dim font-bold uppercase tracking-widest text-center border-t border-border/20 pt-2">
+                Log Buffer: Latest 500 events
+              </div>
               </div>
             </motion.div>
         </div>

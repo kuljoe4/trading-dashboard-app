@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
 import { roundEight } from '../lib/math';
+import { ENGINE_CONSTANTS } from '../models/constants';
 
 @Injectable()
 export class SessionStateService {
@@ -81,14 +82,14 @@ export class SessionStateService {
 
   isRateLimited(): boolean {
     const used = this.binanceRateLimit.used_1m || 0;
-    const limit = 1200; // Binance Futures default
+    const limit = ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT;
     return (used / limit) > 0.8;
   }
 
   getBinanceRateLimit() {
     return {
       used_weight_1m: this.binanceRateLimit.used_1m || 0,
-      limit: 1200,
+      limit: ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT,
       last_update: new Date().toISOString(),
     };
   }

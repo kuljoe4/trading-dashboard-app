@@ -84,6 +84,7 @@ export const DecisionLog = React.memo(() => {
       <div
         ref={scrollRef}
         onScroll={handleScroll}
+        aria-live="polite"
         className="flex flex-col gap-1.5 max-h-[340px] overflow-y-auto no-scrollbar relative"
       >
         {!isAtTop && (

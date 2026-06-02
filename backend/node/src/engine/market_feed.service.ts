@@ -124,7 +124,7 @@ export class MarketFeedService {
   private startMiniTickerStream() {
     const connect = () => {
       if (!this.running) return;
-      const ws = new WebSocket(`${ENGINE_CONSTANTS.BINANCE_WS_BASE}/ws/!miniTicker@arr`, { handshakeTimeout: 15000 });
+      const ws = new WebSocket(`${ENGINE_CONSTANTS.BINANCE_WS_BASE}/ws/!miniTicker@arr`, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
       ws.on('message', (data: Buffer) => {
         try {
           if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) return;
@@ -133,7 +133,7 @@ export class MarketFeedService {
           if (tickers.length > 0) this.tickerCache.bulkUpdate(tickers);
         } catch (err) {}
       });
-      ws.on('close', () => { if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), 2000)); });
+      ws.on('close', () => { if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS)); });
       this.miniTickerWs = ws;
     };
     connect();
@@ -242,7 +242,7 @@ export class MarketFeedService {
       const url = `${ENGINE_CONSTANTS.BINANCE_WS_BASE}/stream?streams=${streams}`;
       const connect = () => {
         if (!this.running) return;
-        const ws = new WebSocket(url, { handshakeTimeout: 15000 });
+        const ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
         ws.on('message', (data: Buffer) => {
           try {
             const msg: BinanceKline = JSON.parse(data as any);
@@ -254,7 +254,7 @@ export class MarketFeedService {
             }
           } catch (err) {}
         });
-        ws.on('close', () => { if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), 2000)); });
+        ws.on('close', () => { if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS)); });
         this.combinedKlineWsList.push(ws);
       };
       connect();
@@ -279,7 +279,7 @@ export class MarketFeedService {
       const intervalMs = this.parseIntervalToMs(interval);
       if (!(lastCandle.time + intervalMs < Date.now() - intervalMs)) return;
     }
-    await new Promise(resolve => setTimeout(resolve, Math.random() * 2000));
+    await new Promise(resolve => setTimeout(resolve, Math.random() * ENGINE_CONSTANTS.BACKFILL_MAX_JITTER_MS));
     try {
       const url = `${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${this.klineStore.getMaxCandles()}`;
       this.monitoringService.incrementApiRequests();

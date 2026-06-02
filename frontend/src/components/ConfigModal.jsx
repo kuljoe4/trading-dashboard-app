@@ -46,7 +46,19 @@ const flattenConfig = (config) => {
   if (!config) return {};
   try {
     const params = typeof config.signal_params === 'string' ? JSON.parse(config.signal_params || '{}') : config.signal_params || {};
-    return { ...config, signal_params_ma_period: params.ma_period, signal_params_ema_period: params.ema_period, signal_params_entry_ema_period: params.entry_ema_period, signal_params_exit_ema_period: params.exit_ema_period, signal_params_entry_ema_fast: params.entry_ema_fast, signal_params_entry_ema_slow: params.entry_ema_slow, signal_params_exit_ema_fast: params.exit_ema_fast, signal_params_exit_ema_slow: params.exit_ema_slow };
+    return {
+      ...config,
+      signal_params_ma_period: params.ma_period,
+      signal_params_ema_period: params.ema_period,
+      signal_params_entry_ema_period: params.entry_ema_period,
+      signal_params_exit_ema_period: params.exit_ema_period,
+      signal_params_entry_ema_fast: params.entry_ema_fast,
+      signal_params_entry_ema_slow: params.entry_ema_slow,
+      signal_params_exit_ema_fast: params.exit_ema_fast,
+      signal_params_exit_ema_slow: params.exit_ema_slow,
+      live_rr_sequence: Array.isArray(config.live_rr_sequence) ? config.live_rr_sequence : [1.0, 2.0, 4.0],
+      exit_rr_sequence: Array.isArray(config.exit_rr_sequence) ? config.exit_rr_sequence : [0.0, 1.0, 2.0],
+    };
   } catch (e) { return { ...config }; }
 };
 
@@ -148,12 +160,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     <div className="flex flex-col h-full bg-surface text-text overflow-hidden relative">
       <div className="sticky top-0 z-30 bg-surface/80 backdrop-blur-md border-b border-border">
         <div className="p-5 flex justify-between items-center">
-          <div><div className="text-lg font-bold">Configure Engine</div><div className="text-[11px] text-dim font-medium">Define parameters for automated execution</div></div>
-          <button onClick={onClose} aria-label="Close configuration" className="p-2 hover:bg-white/5 rounded-full transition-colors"><X size={18} className="text-dim" /></button>
+          <div><div className="text-lg font-bold">Configure Engine</div><div className="text-[11px] text-dim font-medium uppercase tracking-widest">Strategy Orchestration</div></div>
+          <button type="button" onClick={onClose} aria-label="Close configuration" className="p-2 hover:bg-white/5 rounded-full transition-colors"><X size={18} className="text-dim" /></button>
         </div>
         <div className="flex gap-2 p-4 overflow-x-auto no-scrollbar touch-pan-x" data-vaul-no-drag>
-          {[ ['scan', 'Scanner'], ['strategy', 'Strategy'], ['risk', 'Risk'], ['advanced', 'Advanced'], ['presets', 'Presets'] ].map(([id, label]) => (
-            <Chip key={id} active={section === id} onClick={() => setSection(id)}>{label}</Chip>
+          {[
+            ['scan', 'Scanner', Search],
+            ['strategy', 'Strategy', Zap],
+            ['risk', 'Risk', ShieldCheck],
+            ['advanced', 'Advanced', Settings2],
+            ['presets', 'Presets', FolderOpen]
+          ].map(([id, label, Icon]) => (
+            <Chip key={id} active={section === id} onClick={() => setSection(id)} className="flex items-center gap-2">
+              <Icon size={12} className={cn(section === id ? "text-accent" : "text-dim")} />
+              {label}
+            </Chip>
           ))}
         </div>
       </div>
@@ -266,7 +287,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                     >
                       <span className={cn("text-xs font-bold", active ? "text-red" : "text-text")}>{label}</span>
                       <Switch.Root checked={active} className={cn("h-5 w-9 rounded-full transition-colors relative pointer-events-none", active ? "bg-red" : "bg-border")}>
-                        <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4.5" : "translate-x-1")} />
+                        <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
                       </Switch.Root>
                     </button>
                    )
@@ -297,7 +318,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                 {field('Strategy Type', 'sl_type', 'text', [
                   { value: 'pct', label: 'Fixed Percentage' },
-                  { value: 'lookback_low/high', label: 'High/Low Lookback' }
+                  {value: 'lookback_low/high', label: 'High/Low Stop' }
                 ])}
                 {cfg.sl_type === 'pct' ? (
                   field('Distance %', 'sl_distance_pct', 'number', null, { min: CONFIG_LIMITS.SL_DISTANCE_MIN, max: CONFIG_LIMITS.SL_DISTANCE_MAX, step: 0.1 })
@@ -449,16 +470,69 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
         )}
 
         {section === 'presets' && (
-          <div className="space-y-6 animate-in fade-in duration-300">
-            <div className="flex gap-2"><input type="text" placeholder="Preset name" value={presetName} onChange={(e) => setPresetName(e.target.value)} className="flex-1 bg-surface border border-border rounded px-3 py-2 text-sm font-mono" /><Btn variant="primary" onClick={savePreset}><Save size={18} /></Btn></div>
-            <div className="space-y-2">
-              {presets.length === 0 ? <div className="p-10 border border-dashed border-border rounded-xl text-center text-dim text-xs">No presets saved</div> : presets.map(p => (
-                <div key={p.name} onClick={() => loadPreset(p)} className="flex items-center justify-between p-4 bg-background border border-border rounded-xl cursor-pointer hover:border-accent/40 transition-all">
-                  <div><div className="text-sm font-bold">{p.name}</div><div className="text-[10px] text-dim font-mono">{p.config.scan_interval} · {p.config.risk_pct_per_trade}% Risk</div></div>
-                  <button onClick={(e) => deletePreset(e, p.name)} aria-label={`Delete preset ${p.name}`} className="p-2 text-dim hover:text-red"><Trash2 size={16} /></button>
+          <div className="space-y-8 animate-in fade-in duration-300">
+            <section>
+              <SectionHeader icon={Save} title="Save Strategy" subtitle="Store current configuration as a preset" />
+              <div className="flex gap-2">
+                <input type="text" placeholder="Preset name (e.g. Scalp High Vol)" value={presetName} onChange={(e) => setPresetName(e.target.value)} className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none" />
+                <Btn variant="primary" onClick={savePreset} className="aspect-square p-0 w-12 h-12 flex items-center justify-center">
+                  {saveSuccess ? <CheckCircle2 size={20} /> : <Save size={20} />}
+                </Btn>
+              </div>
+            </section>
+
+            <section className="pt-6 border-t border-border/40">
+              <div className="flex justify-between items-center mb-4">
+                <SectionHeader icon={FolderOpen} title="Manage Presets" subtitle="Load or combine strategies" />
+                <div className="text-[9px] text-dim font-black uppercase bg-background px-2 py-1 rounded border border-border">
+                  {cfg.strategy_variants?.length || 0} / {CONFIG_LIMITS.MAX_VARIANTS} Variants
                 </div>
-              ))}
-            </div>
+              </div>
+
+              <div className="space-y-3">
+                {presets.length === 0 ? (
+                  <div className="p-12 border-2 border-dashed border-border rounded-2xl text-center">
+                    <FolderOpen size={32} className="mx-auto mb-4 text-dim/20" />
+                    <div className="text-xs font-bold text-dim uppercase">No saved presets</div>
+                  </div>
+                ) : presets.map(p => {
+                  const isVariant = (cfg.strategy_variants || []).some(v => v.strategy_label === p.name);
+                  return (
+                    <div key={p.name} className="flex items-center justify-between p-4 bg-background border border-border rounded-2xl transition-all group/preset">
+                      <button type="button" onClick={() => loadPreset(p)} className="flex-1 flex items-center gap-4 text-left">
+                        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center border transition-colors", isVariant ? "bg-accent border-accent text-white" : "bg-surface border-border text-dim group-hover/preset:border-accent/20")}>
+                          {isVariant ? <ShieldCheck size={20} /> : <Zap size={20} />}
+                        </div>
+                        <div>
+                          <div className="text-sm font-bold group-hover/preset:text-accent transition-colors">{p.name}</div>
+                          <div className="text-[10px] text-dim font-bold uppercase tracking-tight">{p.config.scan_interval} · {p.config.scan_pct_threshold}% · {p.config.risk_pct_per_trade}% Risk</div>
+                        </div>
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <Tooltip content={isVariant ? "Remove from variants" : "Add as strategy variant"}>
+                          <button
+                            type="button"
+                            onClick={(e) => toggleVariant(e, p)}
+                            aria-label={isVariant ? `Remove ${p.name} from variants` : `Add ${p.name} as variant`}
+                            className={cn("p-2 rounded-lg transition-all active:scale-95", isVariant ? "bg-accent/10 text-accent border border-accent/20" : "bg-surface border border-border text-dim hover:text-accent hover:border-accent/20")}
+                          >
+                            {isVariant ? <XCircle size={16} /> : <Plus size={16} />}
+                          </button>
+                        </Tooltip>
+                        <button
+                          type="button"
+                          onClick={(e) => deletePreset(e, p.name)}
+                          aria-label={`Delete preset ${p.name}`}
+                          className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
           </div>
         )}
       </div>

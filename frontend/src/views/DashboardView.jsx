@@ -469,8 +469,7 @@ export function DashboardView({ initialStrategy }) {
         <div className="fixed top-0 left-0 right-0 h-1 bg-amber z-[100] shadow-[0_2px_10px_rgba(245,166,35,0.5)]" />
       )}
       <Sidebar selected={selected} />
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-10">
-      <div className="max-w-[1400px] mx-auto p-4 md:p-8 pb-32 lg:pb-8">
+      <div className="max-w-[1600px] mx-auto p-4 md:p-10 pb-32 lg:pb-10">
 
         <ConfirmationModal
           isOpen={confirmStop}
@@ -610,7 +609,7 @@ export function DashboardView({ initialStrategy }) {
         </AnimatePresence>
 
         {/* Main Grid */}
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-10">
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] items-start gap-10">
 
           {/* Left Workspace */}
           <div className="space-y-10">
@@ -738,7 +737,6 @@ export function DashboardView({ initialStrategy }) {
               </div>
               </div>
             </motion.div>
-        </div>
           </div>
 
         {/* Modals & Drawers */}
@@ -804,6 +802,5 @@ export function DashboardView({ initialStrategy }) {
         <BottomNav selected={selected} />
       </div>
     </div>
-  </div>
   )
 }

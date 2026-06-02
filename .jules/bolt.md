@@ -86,3 +86,7 @@
 ## 2026-05-31 - [Optimization] Zero-Allocation Kline Ingestion
 **Learning:** High-frequency kline updates (multiple times per second per symbol) can create thousands of short-lived 'Candle' objects and intermediate arrays (via '[].every()') if the ingestion path isn't optimized. This leads to aggressive GC churn.
 **Action:** Parse kline data into local variables first, use direct numeric checks for validity, and implement in-place property mutation for existing candles to achieve near-zero allocation for the dominant 'update' path. Use static shared constants for empty return values to avoid redundant '[]' allocations.
+
+## 2026-06-02 - [Optimization] Consolidated Hot-Loop Execution
+**Learning:** Performing PnL calculation, variant statistics, and delta detection in separate O(N) passes within a 1s hot loop creates significant cumulative overhead and GC churn.
+**Action:** Consolidate multiple iterations into a single-pass loop. Use summary fields (like `_sig_json` for state strings and `_sl_len` for array lengths) to achieve O(1) change detection for complex objects, and defer full serialization until AFTER a change is confirmed.

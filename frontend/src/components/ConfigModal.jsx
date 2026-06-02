@@ -143,7 +143,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
               {field('% threshold', 'scan_pct_threshold', 'number', null, { min: CONFIG_LIMITS.SCAN_PCT_THRESHOLD_MIN, step: 0.1 })}
               {field('Watchlist size', 'watchlist_size', 'number', null, { min: CONFIG_LIMITS.WATCHLIST_MIN, max: CONFIG_LIMITS.WATCHLIST_MAX })}
               {field('Entry side', 'entry_side', 'text', ['both', 'long', 'short'])}
+              {field('Lookback (Candles)', 'scan_lookback', 'number', null, { min: 1 })}
+              {field('Min Volume (USDT)', 'scan_min_volume_usdt', 'number', null, { min: 0, step: 100000 })}
+              {field('Scan Mode', 'scan_mode', 'text', ['interval', 'active_window'])}
             </div>
+            {cfg.scan_mode === 'active_window' && (
+              <div className="grid grid-cols-2 gap-5 pt-2 animate-in slide-in-from-top-2 duration-300">
+                {field('Window Duration (s)', 'scan_window_duration_sec', 'number', null, { min: 1 })}
+                {field('Check Interval (s)', 'scan_check_interval_sec', 'number', null, { min: 1 })}
+              </div>
+            )}
             <div className="space-y-3 pt-4 border-t border-border/40">
                <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2"><ShieldCheck size={12} /> Specific Symbol Monitors</div>
                <div className="flex gap-2"><input type="text" placeholder="BTCUSDT" value={symbolSearch} onChange={(e) => setSymbolSearch(e.target.value.toUpperCase())} className="flex-1 bg-surface border border-border rounded px-3 py-2 text-sm font-mono" /><Btn variant="primary" onClick={() => { if (!symbolSearch) return; setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), { symbol: symbolSearch, enabled: true, follow_schedule: true }]); setSymbolSearch(''); }}><Plus size={16} /></Btn></div>
@@ -153,6 +162,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
 
         {section === 'strategy' && (
           <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="flex justify-between items-center mb-2">
+              <div className="text-[10px] text-dim font-bold uppercase tracking-widest">Entry Signals</div>
+              <div className="flex gap-1">
+                 <button className={cn("px-2 py-0.5 rounded text-[8px] font-bold", (cfg.signal_logic || 'all') === 'any' ? "bg-accent text-white" : "bg-border")} onClick={() => setField('signal_logic', 'any')}>ANY</button>
+                 <button className={cn("px-2 py-0.5 rounded text-[8px] font-bold", (cfg.signal_logic || 'all') === 'all' ? "bg-accent text-white" : "bg-border")} onClick={() => setField('signal_logic', 'all')}>ALL</button>
+               </div>
+            </div>
             <div className="grid grid-cols-2 gap-2">
               {SIGNALS.map(([key, label]) => {
                 const active = (cfg.enabled_signals || []).includes(key);
@@ -162,8 +178,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
             <div className="space-y-4 pt-4 border-t border-border">
               <div className="text-[10px] text-dim font-bold uppercase tracking-widest">Indicators</div>
               <div className="grid grid-cols-2 gap-5">
-                {field('MA Period', 'signal_params_ma_period')}
-                {field('EMA Period', 'signal_params_entry_ema_period')}
+                {field('MA Period', 'signal_params_ma_period', 'number', null, { min: 1 })}
+                {field('EMA Period', 'signal_params_ema_period', 'number', null, { min: 1 })}
+                {field('Entry EMA Period', 'signal_params_entry_ema_period', 'number', null, { min: 1 })}
+                {field('Exit EMA Period', 'signal_params_exit_ema_period', 'number', null, { min: 1 })}
+                {field('Entry EMA (Fast)', 'signal_params_entry_ema_fast', 'number', null, { min: 1 })}
+                {field('Entry EMA (Slow)', 'signal_params_entry_ema_slow', 'number', null, { min: 1 })}
+                {field('Exit EMA (Fast)', 'signal_params_exit_ema_fast', 'number', null, { min: 1 })}
+                {field('Exit EMA (Slow)', 'signal_params_exit_ema_slow', 'number', null, { min: 1 })}
               </div>
             </div>
             <div className="space-y-4 pt-4 border-t border-border">
@@ -185,14 +207,87 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
           <div className="space-y-6 animate-in fade-in duration-300">
             <div className="grid grid-cols-2 gap-5">
               {field('Risk % per trade', 'risk_pct_per_trade', 'number', null, { min: CONFIG_LIMITS.RISK_PER_TRADE_MIN, max: CONFIG_LIMITS.RISK_PER_TRADE_MAX, step: 0.1 })}
-              {field('SL Distance %', 'sl_distance_pct', 'number', null, { min: CONFIG_LIMITS.SL_DISTANCE_MIN, max: CONFIG_LIMITS.SL_DISTANCE_MAX, step: 0.1 })}
-              {field('Max open trades', 'max_open_trades', 'number', null, { min: CONFIG_LIMITS.MAX_OPEN_TRADES_MIN })}
               {field('Max total risk %', 'max_total_risk_pct', 'number', null, { min: CONFIG_LIMITS.MAX_TOTAL_RISK_MIN, max: CONFIG_LIMITS.MAX_TOTAL_RISK_MAX })}
-              {field('SL guard USDT', 'total_sl_guard_usdt')}
+              {field('Max open trades', 'max_open_trades', 'number', null, { min: CONFIG_LIMITS.MAX_OPEN_TRADES_MIN })}
+              {field('Trades per period', 'max_trades_per_period', 'number', null, { min: 0 })}
+              {field('Period (min)', 'trades_period_min', 'number', null, { min: 1 })}
+              {field('Max per symbol', 'max_open_trades_per_symbol', 'number', null, { min: 1 })}
+              {field('SL guard USDT', 'total_sl_guard_usdt', 'number', null, { min: 0 })}
+            </div>
+
+            <div className="space-y-4 pt-4 border-t border-border">
+              <div className="text-[10px] text-dim font-bold uppercase tracking-widest">Stop Loss Configuration</div>
+              <div className="grid grid-cols-2 gap-5">
+                {field('SL Type', 'sl_type', 'text', ['pct', 'lookback_low/high'])}
+                {cfg.sl_type === 'pct' ? (
+                  field('SL Distance %', 'sl_distance_pct', 'number', null, { min: CONFIG_LIMITS.SL_DISTANCE_MIN, max: CONFIG_LIMITS.SL_DISTANCE_MAX, step: 0.1 })
+                ) : (
+                  <>
+                    {field('Lookback Period', 'sl_lookback_period', 'number', null, { min: 1 })}
+                    {field('Lookback TF', 'sl_lookback_timeframe', 'text', ['1m', '5m', '15m', '1h'])}
+              {field('SL Pct Limit %', 'sl_pct_limit', 'number', null, { min: 0.1, step: 0.1 })}
+                  </>
+                )}
+                {field('Min SL %', 'sl_min_pct', 'number', null, { min: 0.1, step: 0.1 })}
+                {field('Max SL %', 'sl_max_pct', 'number', null, { min: 0.1, step: 0.1 })}
+              </div>
+            </div>
+
+            <div className="space-y-4 pt-4 border-t border-border/40">
+               <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2">Excluded Symbols (Comma Separated)</div>
+               <input type="text" placeholder="BTCUSDT,ETHUSDT" value={cfg.excluded_symbols?.join(',') || ''} onChange={(e) => setField('excluded_symbols', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} className="w-full bg-surface border border-border rounded px-3 py-2 text-sm font-mono" />
+            </div>
+
+            <div className="space-y-4 pt-4 border-t border-border">
+              <div className="text-[10px] text-dim font-bold uppercase tracking-widest">Take Profit Configuration</div>
+              <div className="grid grid-cols-2 gap-5">
+                {field('TP Mode', 'tp_mode', 'text', ['fixed', 'exp_rr_seq'])}
+                {cfg.tp_mode === 'fixed' && field('TP Ratio (R)', 'tp_ratio', 'number', null, { min: 0.1, step: 0.1 })}
+              </div>
+              {cfg.tp_mode === 'exp_rr_seq' && (
+                <div className="space-y-2 mt-4 bg-background/50 p-4 rounded-xl border border-border/40">
+                  <div className="flex justify-between text-[10px] text-dim font-bold uppercase tracking-widest mb-2">
+                    <span>Live RR Milestone</span>
+                    <span>SL Adjustment (R)</span>
+                  </div>
+                  {sequence.map(([live, exit], i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input type="number" step="0.1" value={live} onChange={(e) => {
+                        const next = [...(cfg.live_rr_sequence || [1, 2, 4])];
+                        next[i] = Number(e.target.value);
+                        setField('live_rr_sequence', next);
+                      }} className="flex-1 bg-surface border border-border rounded px-2 py-1 text-xs font-mono" />
+                      <ArrowRight size={12} className="text-dim/40" />
+                      <input type="number" step="0.1" value={exit} onChange={(e) => {
+                        const next = [...(cfg.exit_rr_sequence || [0, 1, 2])];
+                        next[i] = Number(e.target.value);
+                        setField('exit_rr_sequence', next);
+                      }} className="flex-1 bg-surface border border-border rounded px-2 py-1 text-xs font-mono" />
+                      <button onClick={() => {
+                        setField('live_rr_sequence', cfg.live_rr_sequence.filter((_, idx) => idx !== i));
+                        setField('exit_rr_sequence', cfg.exit_rr_sequence.filter((_, idx) => idx !== i));
+                      }} className="p-1.5 text-dim hover:text-red"><Trash2 size={14} /></button>
+                    </div>
+                  ))}
+                  <button onClick={() => {
+                    setField('live_rr_sequence', [...(cfg.live_rr_sequence || []), 5]);
+                    setField('exit_rr_sequence', [...(cfg.exit_rr_sequence || []), 3]);
+                  }} className="w-full py-2 border border-dashed border-border rounded text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 transition-colors">+ Add Milestone</button>
+                </div>
+              )}
             </div>
             <div className="p-4 bg-background border border-border rounded-xl flex justify-between"><div className="flex flex-col"><span className="text-[9px] text-dim uppercase font-bold">Capital at risk</span><span className="text-sm font-bold font-mono text-amber">${fmtUSD(riskAmount)}</span></div><div className="flex flex-col text-right"><span className="text-[9px] text-dim uppercase font-bold">TP Ratio</span><span className="text-sm font-bold font-mono text-accent">{cfg.tp_ratio}R</span></div></div>
             <div className="space-y-4 pt-4 border-t border-border">
-               <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2"><Clock size={12} /> Trading Windows</div>
+               <div className="flex items-center justify-between p-4 bg-background rounded-xl mb-4">
+                 <div>
+                   <div className="text-sm font-bold">Time-of-Day Risk</div>
+                   <div className="text-[10px] text-dim uppercase">Use historical TOD winrate stats</div>
+                 </div>
+                 <Toggle value={cfg.risk_use_tod_stats === true} onChange={(v) => setField('risk_use_tod_stats', v)} color="bg-accent" />
+               </div>
+               {cfg.risk_use_tod_stats && field('Min TOD Winrate %', 'tod_min_winrate', 'number', null, { min: 0, max: 100 })}
+
+               <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2 mt-4"><Clock size={12} /> Trading Windows</div>
                <div className="flex flex-col gap-2">
                  {(cfg.trading_windows || []).map((w, i) => (
                    <div key={i} className="flex gap-2">
@@ -218,8 +313,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
               ))}
             </div>
             <div className="space-y-4 pt-4 border-t border-border">
+              <div className="grid grid-cols-2 gap-5">
+                {field('Paper Balance', 'paper_starting_balance', 'number', null, { min: 0 })}
+                {field('Live Balance', 'live_starting_balance', 'number', null, { min: 0 })}
+              </div>
               {field('Hot Loop (ms)', 'hot_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.HOT_LOOP_MIN })}
               {field('Main Loop (ms)', 'main_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.MAIN_LOOP_MIN })}
+              <div className="flex items-center justify-between p-4 bg-background rounded-xl">
+                <div><div className="text-sm font-bold">Track Rate Limits</div><div className="text-[10px] text-dim uppercase">Monitor Binance API weights</div></div>
+                <Toggle value={cfg.track_binance_rate_limits !== false} onChange={(v) => setField('track_binance_rate_limits', v)} />
+              </div>
               <div className="flex items-center justify-between p-4 bg-background rounded-xl"><div><div className="text-sm font-bold">Debug Mode</div><div className="text-[10px] text-dim uppercase">Verbose backend logs</div></div><Toggle value={cfg.debug_mode === true} onChange={(v) => setField('debug_mode', v)} color="bg-amber" /></div>
             </div>
           </div>

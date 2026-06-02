@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
+import { MomentumException } from './exceptions';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -32,12 +33,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
         message = 'Internal server error';
     }
 
-    const responseBody = {
+    const responseBody: any = {
       statusCode: httpStatus,
       timestamp: new Date().toISOString(),
       path: httpAdapter.getRequestUrl(ctx.getRequest()),
       message: message,
     };
+
+    if (exception instanceof MomentumException) {
+      responseBody.code = exception.code;
+    }
 
     // Audit Item 33: Log full stack trace for unhandled exceptions
     if (httpStatus >= 500) {

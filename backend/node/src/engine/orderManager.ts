@@ -6,6 +6,7 @@ import { MarketFeedService } from './market_feed.service';
 import { TradingSessionService } from './trading_session.service';
 import { v4 as uuid } from 'uuid';
 import { roundEight, floorStep, roundTo } from '../lib/math';
+import { ExchangeExecutionException } from '../lib/exceptions';
 
 @Injectable()
 export class OrderManagerService {
@@ -137,6 +138,7 @@ export class OrderManagerService {
           // Place initial Stop Loss order on exchange
           await this.placeStopLoss(trade, slPrice);
         } catch (err) {
+          throw new ExchangeExecutionException(`Binance order failed for ${symbol}: ${err instanceof Error ? err.message : String(err)}`, err);
           this.logger.warn(
             `Binance order failed (continuing in paper mode): ${err instanceof Error ? err.message : String(err)}`,
           );
@@ -153,6 +155,7 @@ export class OrderManagerService {
       );
       return trade;
     } catch (error) {
+      if (error instanceof ExchangeExecutionException) throw error;
       this.logger.error(`Enter failed: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }

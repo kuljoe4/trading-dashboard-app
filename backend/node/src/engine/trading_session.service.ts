@@ -57,6 +57,10 @@ export class TradingSessionService {
     return (config?.strategy_label || (index === 0 ? 'Momentum Strategy' : `Strategy ${index + 1}`)).toString();
   }
 
+  private serializeRound(val: any, p = 8) {
+    return (val !== undefined && Number.isFinite(val)) ? Number(val.toFixed(p)) : val;
+  }
+
   private getStrategyConfigs(): SessionConfig[] {
     if (this.cachedStrategyConfigs) return this.cachedStrategyConfigs;
     if (!this.config) return [];
@@ -336,15 +340,14 @@ export class TradingSessionService {
   }
 
   private serializeTrade(trade: Trade, currentPrice?: number, minimal = false) {
-    const round = (val: any, p = 8) => (val !== undefined && Number.isFinite(val)) ? Number(val.toFixed(p)) : val;
     const anyTrade = trade as any; const direction = (anyTrade.direction || anyTrade.side || 'LONG').toString().toUpperCase(); const entry = anyTrade.entry_price ?? anyTrade.entry ?? 0;
     const cpv = currentPrice !== undefined && Number.isFinite(currentPrice) && currentPrice > 0; const current = cpv ? currentPrice : anyTrade.exit_price ?? anyTrade.last_price ?? entry; if (cpv) anyTrade.last_price = currentPrice;
     let pnl = undefined; let rrValue = undefined;
     if (current !== undefined && Number.isFinite(current) && Number.isFinite(entry)) { pnl = roundEight(direction === 'LONG' ? (current - entry) * (anyTrade.qty ?? 0) : (entry - current) * (anyTrade.qty ?? 0)); anyTrade.pnl = pnl; const risk = Math.abs(entry - (anyTrade.initial_sl ?? anyTrade.current_sl ?? anyTrade.sl_price ?? anyTrade.sl ?? entry)) || 1; rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / risk; }
 
-    if (minimal) { return { id: trade.id, symbol: trade.symbol, strategy_label: anyTrade.strategy_label || this.getStrategyLabel(anyTrade.strategy_config || this.config), current_price: round(current ?? entry), sl_price: round(anyTrade.current_sl ?? anyTrade.sl_price), tp_price: round(anyTrade.tp ?? anyTrade.tp_price), pnl: round(pnl, 2), rr: round(rrValue, 4), max_rr: round(anyTrade.max_rr_achieved ?? anyTrade.max_rr ?? 0, 4), direction, entry_price: round(entry), qty: round(anyTrade.qty ?? 0), paper_mode: this.config?.paper_mode, exit_signals_status: anyTrade.exit_signals_status || {}, sl_adjustments: anyTrade.sl_adjustments || [], live_rr_sequence: anyTrade.strategy_config?.live_rr_sequence || this.config?.live_rr_sequence || [], exit_rr_sequence: anyTrade.strategy_config?.exit_rr_sequence || this.config?.exit_rr_sequence || [], tp_mode: anyTrade.strategy_config?.tp_mode || this.config?.tp_mode || 'fixed', tp_ratio: anyTrade.strategy_config?.tp_ratio || this.config?.tp_ratio || 2, _delta: true, }; }
+    if (minimal) { return { id: trade.id, symbol: trade.symbol, strategy_label: anyTrade.strategy_label || this.getStrategyLabel(anyTrade.strategy_config || this.config), current_price: this.serializeRound(current ?? entry), sl_price: this.serializeRound(anyTrade.current_sl ?? anyTrade.sl_price), tp_price: this.serializeRound(anyTrade.tp ?? anyTrade.tp_price), pnl: this.serializeRound(pnl, 2), rr: this.serializeRound(rrValue, 4), max_rr: this.serializeRound(anyTrade.max_rr_achieved ?? anyTrade.max_rr ?? 0, 4), direction, entry_price: this.serializeRound(entry), qty: this.serializeRound(anyTrade.qty ?? 0), paper_mode: this.config?.paper_mode, exit_signals_status: anyTrade.exit_signals_status || {}, sl_adjustments: anyTrade.sl_adjustments || [], live_rr_sequence: anyTrade.strategy_config?.live_rr_sequence || this.config?.live_rr_sequence || [], exit_rr_sequence: anyTrade.strategy_config?.exit_rr_sequence || this.config?.exit_rr_sequence || [], tp_mode: anyTrade.strategy_config?.tp_mode || this.config?.tp_mode || 'fixed', tp_ratio: anyTrade.strategy_config?.tp_ratio || this.config?.tp_ratio || 2, _delta: true, }; }
 
-    return { ...trade, direction, current_price: round(current ?? entry), sl_price: round(anyTrade.current_sl ?? anyTrade.sl_price), tp_price: round(anyTrade.tp ?? anyTrade.tp_price), pnl: round(pnl, 2), rr: round(rrValue, 4), paper_mode: this.config?.paper_mode, trading_mode: this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live'), max_rr: round(anyTrade.max_rr_achieved ?? anyTrade.max_rr ?? 0, 4), strategy_label: anyTrade.strategy_label || this.getStrategyLabel(anyTrade.strategy_config || this.config), strategy_config: anyTrade.strategy_config, live_rr_sequence: anyTrade.strategy_config?.live_rr_sequence || this.config?.live_rr_sequence || [], exit_rr_sequence: anyTrade.strategy_config?.exit_rr_sequence || this.config?.exit_rr_sequence || [], exit_signal_logic: anyTrade.strategy_config?.exit_signal_logic || this.config?.exit_signal_logic || 'any', tp_mode: anyTrade.strategy_config?.tp_mode || this.config?.tp_mode || 'fixed', tp_ratio: anyTrade.strategy_config?.tp_ratio || this.config?.tp_ratio || 2, };
+    return { ...trade, direction, current_price: this.serializeRound(current ?? entry), sl_price: this.serializeRound(anyTrade.current_sl ?? anyTrade.sl_price), tp_price: this.serializeRound(anyTrade.tp ?? anyTrade.tp_price), pnl: this.serializeRound(pnl, 2), rr: this.serializeRound(rrValue, 4), paper_mode: this.config?.paper_mode, trading_mode: this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live'), max_rr: this.serializeRound(anyTrade.max_rr_achieved ?? anyTrade.max_rr ?? 0, 4), strategy_label: anyTrade.strategy_label || this.getStrategyLabel(anyTrade.strategy_config || this.config), strategy_config: anyTrade.strategy_config, live_rr_sequence: anyTrade.strategy_config?.live_rr_sequence || this.config?.live_rr_sequence || [], exit_rr_sequence: anyTrade.strategy_config?.exit_rr_sequence || this.config?.exit_rr_sequence || [], exit_signal_logic: anyTrade.strategy_config?.exit_signal_logic || this.config?.exit_signal_logic || 'any', tp_mode: anyTrade.strategy_config?.tp_mode || this.config?.tp_mode || 'fixed', tp_ratio: anyTrade.strategy_config?.tp_ratio || this.config?.tp_ratio || 2, };
   }
 
   private lastTickData: any = null; private lastTickTime = 0;
@@ -352,35 +355,73 @@ export class TradingSessionService {
   private broadcastTick() {
     if (this.sessionState.listenerCount === 0) return;
     const activeTrades = this.positionTracker.activeList(); const now = Date.now(); const isHeartbeat = !this.lastTickData || (now - this.lastTickTime > 10000);
-    const prevTickMap = new Map<string, any>(); if (this.lastTickData?.trades) { for (const t of this.lastTickData.trades) prevTickMap.set(t.symbol, t); }
-    const trades: any[] = []; const len = activeTrades.length; let anyPriceChangedSignificant = false;
+    const prevTickMap = new Map<string, any>(); if (this.lastTickData?.trades) { for (const t of this.lastTickData.trades) prevTickMap.set(t.id, t); }
+    const trades: any[] = []; const len = activeTrades.length; let anyPriceChangedSignificant = false; let activePnl = 0;
+    const hasVariants = !!(this.config?.strategy_variants?.length); const variantGroups: Record<string, { pnl: number, risk: number, count: number, hits: number }> = {};
+
     for (let i = 0; i < len; i++) {
-      const trade = activeTrades[i]; let current = this.tickerCache.getPrice(trade.symbol); const prevTrade = prevTickMap.get(trade.symbol);
-      if (current === null && prevTrade) current = prevTrade.current_price;
-      const serialized = this.serializeTrade(trade, current ?? undefined, true); let tradeChanged = false;
-      if (prevTrade && !isHeartbeat) {
-        if (serialized.sl_price !== prevTrade.sl_price) tradeChanged = true; if (serialized.max_rr !== prevTrade.max_rr) tradeChanged = true;
-        if (JSON.stringify(serialized.sl_adjustments) !== JSON.stringify(prevTrade.sl_adjustments)) tradeChanged = true;
-        if (JSON.stringify(serialized.exit_signals_status) !== JSON.stringify(prevTrade.exit_signals_status)) tradeChanged = true;
-        if (serialized.direction !== prevTrade.direction) tradeChanged = true;
-        if (serialized.rr !== undefined && prevTrade.rr !== undefined && Math.abs(serialized.rr - prevTrade.rr) >= 0.01) { anyPriceChangedSignificant = true; tradeChanged = true; }
-        if (serialized.pnl !== undefined && prevTrade.pnl !== undefined && Math.abs(serialized.pnl - prevTrade.pnl) > 0.05) { anyPriceChangedSignificant = true; tradeChanged = true; }
-        if (serialized.current_price !== undefined && prevTrade.current_price !== undefined && Math.abs(serialized.current_price - prevTrade.current_price) / prevTrade.current_price >= 0.0001) tradeChanged = true;
-      } else { anyPriceChangedSignificant = true; tradeChanged = true; }
-      if (tradeChanged || isHeartbeat) { const { strategy_config, live_rr_sequence, exit_rr_sequence, exit_signals_status, sl_adjustments, tp_mode, tp_ratio, ...thin } = serialized as any; trades.push(thin); }
+      const trade = activeTrades[i] as any; const prevTrade = prevTickMap.get(trade.id);
+      let currentPrice = this.tickerCache.getPrice(trade.symbol); if (currentPrice === null && prevTrade) currentPrice = prevTrade.current_price;
+      const current = currentPrice ?? trade.exit_price ?? trade.last_price ?? trade.entry_price; if (currentPrice !== null) trade.last_price = currentPrice;
+      const direction = trade.direction || 'LONG'; const entry = trade.entry_price || 0; const qty = trade.qty || 0;
+      const pnlValue = roundEight(direction === 'LONG' ? (current - entry) * qty : (entry - current) * qty); trade.pnl = pnlValue; activePnl += pnlValue;
+
+      if (hasVariants) {
+        const label = trade.strategy_label || 'Momentum Strategy'; if (!variantGroups[label]) variantGroups[label] = { pnl: 0, risk: 0, count: 0, hits: 0 };
+        const g = variantGroups[label]; g.pnl = roundEight(g.pnl + pnlValue); g.risk = roundEight(g.risk + (trade.risk_usdt || 0)); g.count++; if (pnlValue > 0) g.hits++;
+      }
+
+      let tradeChanged = !prevTrade || isHeartbeat;
+      if (!tradeChanged && prevTrade) {
+        if (trade.current_sl !== prevTrade.sl_price || trade.max_rr_achieved !== prevTrade.max_rr || trade.direction !== prevTrade.direction) { tradeChanged = true; }
+        else if ((trade.sl_adjustments?.length || 0) !== (prevTrade._sl_len || 0)) { tradeChanged = true; }
+        else if (JSON.stringify(trade.exit_signals_status) !== prevTrade._sig_json) { tradeChanged = true; }
+        else {
+          const pnlDelta = Math.abs(pnlValue - (prevTrade.pnl || 0));
+          if (pnlDelta > 0.05) { tradeChanged = true; anyPriceChangedSignificant = true; }
+          else {
+            const priceMoveRatio = Math.abs(current - (prevTrade.current_price || 0)) / (prevTrade.current_price || 1);
+            if (priceMoveRatio >= 0.0001) tradeChanged = true;
+            else {
+              const risk = Math.abs(entry - (trade.initial_sl ?? trade.current_sl ?? entry)) || 1;
+              const rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / risk;
+              if (Math.abs(rrValue - (prevTrade.rr || 0)) >= 0.01) { tradeChanged = true; anyPriceChangedSignificant = true; }
+            }
+          }
+        }
+      }
+      if (tradeChanged) {
+        const serialized = this.serializeTrade(trade, current, true) as any;
+        const { strategy_config, live_rr_sequence, exit_rr_sequence, exit_signals_status, sl_adjustments, tp_mode, tp_ratio, ...thin } = serialized;
+        thin._sl_len = trade.sl_adjustments?.length || 0;
+        thin._sig_json = JSON.stringify(trade.exit_signals_status);
+        trades.push(thin);
+      }
     }
 
-    let activePnl = 0; for (const t of activeTrades) activePnl += (t.pnl || 0);
     const balance = this.getBalance(); const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live'); const startingBalance = (mode === 'paper') ? this.config?.paper_starting_balance : this.config?.live_starting_balance;
     const realizedPnl = roundEight(balance - (startingBalance ?? balance)); const totalPnl = roundEight(realizedPnl + activePnl); const totalRiskUsdt = this.positionTracker.totalRisk();
     if (!this.lastAnalyticsResult || this.sessionState.closedTrades.length !== this.lastAnalyticsTradeCount || startingBalance !== this.lastAnalyticsStartingBalance) { this.lastAnalyticsResult = this.analyticsService.calculateAnalytics(this.sessionState.closedTrades as any, startingBalance); this.lastAnalyticsTradeCount = this.sessionState.closedTrades.length; this.lastAnalyticsStartingBalance = startingBalance || 0; }
     const monitoringInterval = 15000; const lastMonitoringTime = this.lastTickData?._monitoring_ts || 0; const shouldUpdateMonitoring = (now - lastMonitoringTime > monitoringInterval) || !this.lastTickData; const monitoring = shouldUpdateMonitoring ? this.monitoringService.getMetrics() : null;
-    const variantStats = this.calculateVariantStats(activeTrades);
-    const tickData: any = { balance: Number(balance.toFixed(2)), total_pnl: Number(totalPnl.toFixed(2)), total_risk_pct: Number((balance > 0 ? (totalRiskUsdt / balance) * 100 : 0).toFixed(2)), total_sl_used: Number(totalRiskUsdt.toFixed(2)), trades, gateState: this.sessionState.gateState, hibernating: this.sessionState.hibernating, paused: this.sessionState.paused, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused, activeWindows: this.getActiveWindows(), rateLimit: this.getBinanceRateLimit(), stats: this.sessionState.stats, monitoring, isEcoMode: this.isEcoMode(), };
-    if (this.config?.strategy_variants?.length) tickData.variant_stats = variantStats;
-    const heartbeatInterval = trades.length > 0 ? 10000 : 30000; let shouldBroadcast = !this.lastTickData || (now - this.lastTickTime > heartbeatInterval); if (shouldBroadcast) (tickData as any)._heartbeat = true;
-    if (!shouldBroadcast) { const prevTrades = this.lastTickData?.trades || []; const tradesChanged = trades.length !== prevTrades.length || anyPriceChangedSignificant; const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) > 0.1; if (!shouldUpdateMonitoring) delete tickData.monitoring; else tickData._monitoring_ts = now; const gateChanged = tickData.gateState !== this.lastTickData?.gateState; const lastStatsVersion = this.lastTickData?._statsVersion || 0; const statsChanged = this.sessionState.statsVersion !== lastStatsVersion; if (tradesChanged || pnlChanged || (shouldUpdateMonitoring && monitoringChangedInternal(monitoring, this.lastTickData?.monitoring)) || gateChanged || statsChanged) shouldBroadcast = true; }
-    tickData._statsVersion = this.sessionState.statsVersion;
+
+    let variantStats: Record<string, any> | undefined;
+    if (hasVariants) {
+      variantStats = {}; const closedStats = this.sessionState.cachedClosedTradesStats; const configs = this.getStrategyConfigs();
+      for (let i = 0; i < configs.length; i++) {
+        const l = configs[i].strategy_label!; const a = variantGroups[l] || { pnl: 0, risk: 0, count: 0, hits: 0 }; const c = closedStats[l] || { pnl: 0, count: 0, hits: 0 };
+        variantStats[l] = { totalPnl: roundEight(c.pnl + a.pnl), entryCount: c.count + a.count, hitCount: c.hits + a.hits, totalRiskPct: Number((balance > 0 ? (a.risk / balance) * 100 : 0).toFixed(2)), activeTradeCount: a.count };
+      }
+    }
+
+    const tickData: any = { balance: Number(balance.toFixed(2)), total_pnl: Number(totalPnl.toFixed(2)), total_risk_pct: Number((balance > 0 ? (totalRiskUsdt / balance) * 100 : 0).toFixed(2)), total_sl_used: Number(totalRiskUsdt.toFixed(2)), trades, gateState: this.sessionState.gateState, hibernating: this.sessionState.hibernating, paused: this.sessionState.paused, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused, activeWindows: this.getActiveWindows(), rateLimit: this.getBinanceRateLimit(), stats: this.sessionState.stats, monitoring, isEcoMode: this.isEcoMode(), _statsVersion: this.sessionState.statsVersion, };
+    if (variantStats) tickData.variant_stats = variantStats;
+    const heartbeatInterval = trades.length > 0 ? 10000 : 30000; let shouldBroadcast = !this.lastTickData || (now - this.lastTickTime > heartbeatInterval); if (shouldBroadcast) tickData._heartbeat = true;
+    if (!shouldBroadcast) {
+      const prevTrades = this.lastTickData?.trades || []; const tradesChanged = trades.length > 0 || len !== prevTrades.length || anyPriceChangedSignificant;
+      const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) > 0.1; const gateChanged = tickData.gateState !== this.lastTickData?.gateState;
+      const statsChanged = tickData._statsVersion !== this.lastTickData?._statsVersion; if (!shouldUpdateMonitoring) delete tickData.monitoring; else tickData._monitoring_ts = now;
+      if (tradesChanged || pnlChanged || gateChanged || statsChanged || (shouldUpdateMonitoring && monitoringChangedInternal(monitoring, this.lastTickData?.monitoring))) shouldBroadcast = true;
+    }
     if (shouldBroadcast) { this.broadcast('tick', tickData); this.lastTickData = tickData; this.lastTickTime = now; }
   }
 

@@ -46,3 +46,8 @@
 **Vulnerability:** Unhandled exceptions in NestJS can leak internal stack traces and implementation details in the response body, especially for 500 Internal Server Errors.
 **Learning:** Default error handling is often too verbose for production. A custom global filter is necessary to decouple internal debugging logs from client-facing responses.
 **Prevention:** Implement a global `ExceptionFilter` that intercepts all errors, logs full stack traces to the server console, but returns only sanitized, predefined fields (statusCode, message, timestamp, path) to the client.
+
+## 2026-06-02 - Production Security Enforcement
+**Vulnerability:** Opt-in security models (optional ADMIN_API_KEY) can lead to accidental exposure of sensitive dashboards and trading controls if environment variables are omitted or misconfigured in production.
+**Learning:** Security should be "fail-closed" by default in production. While "opt-in" is convenient for development, a production environment must explicitly require authentication credentials to start or accept connections.
+**Prevention:** Implement mandatory environment variable checks during application bootstrap and within authorization guards to refuse operation in production if core security secrets are missing.

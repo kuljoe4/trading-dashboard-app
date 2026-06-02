@@ -185,6 +185,15 @@ async function bootstrap() {
           );
           return done(false);
         }
+      } else if (nodeEnv === "production") {
+        serverLogger.error(
+          "Blocked WebSocket connection: ADMIN_API_KEY is missing in production environment.",
+        );
+        return done(false);
+      } else {
+        serverLogger.warn(
+          "⚠️  Security Warning: WebSocket connection allowed without ADMIN_API_KEY in non-production environment.",
+        );
       }
 
       done(true);

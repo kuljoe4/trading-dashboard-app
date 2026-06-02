@@ -23,6 +23,8 @@ export class Trade {
 
   pnl: number = 0;
 
+  realized_fee: number = 0;
+
   risk_usdt: number = 0;
 
   status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL' | 'CLOSED_ORPHANED' = 'OPEN';

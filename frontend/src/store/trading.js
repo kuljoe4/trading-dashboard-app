@@ -71,7 +71,10 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   activeTrades: [], logs: [], logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
   gateState: null, gateReason: null, hibernating: false, scannerPaused: false, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
   rateLimit: { used_weight_1m: 0, limit: ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT, used_pct: 0 }, config: defaultConfig,
-  sidebarCollapsed: localStorage.getItem('sidebar_collapsed') === 'true', isThrottled: false, entryCount: 0, hitCount: 0,
+  sidebarCollapsed: localStorage.getItem('sidebar_collapsed') === 'true', 
+  healthEnabled: localStorage.getItem('health_enabled') !== 'false',
+  streamingEnabled: localStorage.getItem('streaming_enabled') !== 'false',
+  isThrottled: false, entryCount: 0, hitCount: 0,
   
   _subscriptions: { trades: new Map(), strategies: new Map(), globalTrades: 0, scanner: 0 },
   _focusTimer: null,
@@ -107,6 +110,8 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   },
   
   toggleSidebar: () => { const n = !get().sidebarCollapsed; localStorage.setItem('sidebar_collapsed', n); set({ sidebarCollapsed: n }); },
+  setHealthEnabled: (e) => { localStorage.setItem('health_enabled', e); set({ healthEnabled: e }); },
+  setStreamingEnabled: (e) => { localStorage.setItem('streaming_enabled', e); set({ streamingEnabled: e }); },
   toggleLogFilter: (level) => set((st) => ({ logFilters: { ...st.logFilters, [level]: !st.logFilters[level] } })),
   setThrottled: (t) => { set({ isThrottled: t }); const ws = get().ws; if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_active', active: !t })); },
   setFocusMode: (f, tid = null, s = null) => { const ws = get().ws; if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: f, tradeId: tid, strategyLabel: s })); },

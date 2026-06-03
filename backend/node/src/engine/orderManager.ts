@@ -137,8 +137,7 @@ export class OrderManagerService {
 
           // Place initial Stop Loss order on exchange
           await this.placeStopLoss(trade, slPrice);
-        } catch (err: unknown) {
-          const errorMessage = err instanceof Error ? err.message : String(err);
+        } catch (err: any) {
           this.logger.warn(
             `Binance order failed (continuing in paper mode): ${errorMessage}`,
           );
@@ -149,6 +148,9 @@ export class OrderManagerService {
         // Simulate paper entry fee (0.04% taker)
         trade.realized_fee = roundEight(entryPrice * qty * 0.0004);
       }
+
+      // Initialize PnL as net of entry fees
+      trade.pnl = roundEight(-trade.realized_fee);
 
       this.logger.log(
         `Enter: ${symbol} ${direction} @ ${entryPrice} qty=${qty} SL=${slPrice} TP=${tpPrice}`,
@@ -461,8 +463,11 @@ export class OrderManagerService {
         trade.realized_fee = roundEight(trade.realized_fee + exitFee);
       }
 
+      // Calculate final net PnL
+      trade.pnl = roundEight((pnlPoints * trade.qty) - trade.realized_fee);
+
       this.logger.log(
-        `Close: ${symbol} @ ${exitPrice} P&L=${pnl.toFixed(2)} (${pnlPct.toFixed(2)}%) Fee=${trade.realized_fee} Reason=${exitReason}`,
+        `Close: ${symbol} @ ${exitPrice} P&L=${trade.pnl.toFixed(2)} (${pnlPct.toFixed(2)}%) Fee=${trade.realized_fee} Reason=${exitReason}`,
       );
 
       return { trade, exitOccurred: true };

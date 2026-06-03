@@ -9,7 +9,6 @@ export class AlignSchemaWithEntities1717400000000 implements MigrationInterface 
         await queryRunner.query(`ALTER TABLE "session" ADD COLUMN IF NOT EXISTS "tradingMode" character varying NOT NULL DEFAULT 'paper'`);
         await queryRunner.query(`ALTER TABLE "session" ADD COLUMN IF NOT EXISTS "strategyLabel" character varying`);
 
-        // Use DO block to safely drop columns if they exist
         await queryRunner.query(`
             DO $$
             BEGIN
@@ -26,13 +25,16 @@ export class AlignSchemaWithEntities1717400000000 implements MigrationInterface 
         await queryRunner.query(`ALTER TABLE "trade_entity" ADD COLUMN IF NOT EXISTS "realized_fee" numeric(20,8) NOT NULL DEFAULT '0'`);
 
         // --- Settings ---
-        // Since the primary key type changes, it's safer to drop and recreate or carefully migrate.
-        // Given the context of a baseline fix, we'll ensure the structure matches the entity.
         await queryRunner.query(`
             DO $$
             BEGIN
                 IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='settings' AND column_name='config') THEN
-                    DROP TABLE "settings";
+                    -- Preserve data if possible, but structure is fundamentally different.
+                    -- We'll rename the old table and create a new one to avoid loss during migration failure.
+                    ALTER TABLE "settings" RENAME TO "settings_old";
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='settings') THEN
                     CREATE TABLE "settings" (
                         "id" character varying NOT NULL DEFAULT 'default',
                         "binance_api_key" character varying,
@@ -53,7 +55,10 @@ export class AlignSchemaWithEntities1717400000000 implements MigrationInterface 
             DO $$
             BEGIN
                 IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='log' AND column_name='timestamp') THEN
-                    DROP TABLE "log";
+                    ALTER TABLE "log" RENAME TO "log_old";
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='log') THEN
                     CREATE TABLE "log" (
                         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                         "sessionId" uuid NOT NULL,
@@ -71,7 +76,10 @@ export class AlignSchemaWithEntities1717400000000 implements MigrationInterface 
             DO $$
             BEGIN
                 IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='balance_history' AND data_type='integer' AND column_name='id') THEN
-                    DROP TABLE "balance_history";
+                    ALTER TABLE "balance_history" RENAME TO "balance_history_old";
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='balance_history') THEN
                     CREATE TABLE "balance_history" (
                         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
                         "timestamp" TIMESTAMP NOT NULL DEFAULT now(),
@@ -90,8 +98,8 @@ export class AlignSchemaWithEntities1717400000000 implements MigrationInterface 
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        // Down migration would ideally revert these, but since this is aligning a broken baseline,
-        // reverting to a broken state is not helpful. We'll leave it as is or implement a basic revert if needed.
+        // Basic revert logic
+        await queryRunner.query(`ALTER TABLE "session" ADD COLUMN IF NOT EXISTS "status" character varying`);
+        await queryRunner.query(`ALTER TABLE "session" ADD COLUMN IF NOT EXISTS "endTime" TIMESTAMP`);
     }
-
 }

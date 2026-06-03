@@ -83,10 +83,10 @@ export class InitialSchema1717315200000 implements MigrationInterface {
         await queryRunner.query(`
             DO $$
             BEGIN
-                IF NOT EXISTS (SELECT 1 FROM information_schema.constraint_column_usage WHERE constraint_name = 'FK_535261b0981993437299185244') THEN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'FK_535261b0981993437299185244') THEN
                     ALTER TABLE "trade_entity" ADD CONSTRAINT "FK_535261b0981993437299185244" FOREIGN KEY ("sessionId") REFERENCES "session"("id") ON DELETE NO ACTION ON UPDATE NO ACTION;
                 END IF;
-                IF NOT EXISTS (SELECT 1 FROM information_schema.constraint_column_usage WHERE constraint_name = 'FK_850261b0981993437299185244') THEN
+                IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'FK_850261b0981993437299185244') THEN
                     ALTER TABLE "balance_history" ADD CONSTRAINT "FK_850261b0981993437299185244" FOREIGN KEY ("sessionId") REFERENCES "session"("id") ON DELETE NO ACTION ON UPDATE NO ACTION;
                 END IF;
             END $$;

@@ -1,5 +1,6 @@
 import * as crypto from "crypto";
 import { Logger } from "@nestjs/common";
+import { ConfigValidationException } from "./exceptions";
 
 const logger = new Logger("Crypto");
 
@@ -18,8 +19,8 @@ if (!ENCRYPTION_KEY) {
 function getEncryptionKey(): Buffer {
   const key = process.env.ENCRYPTION_KEY;
   if (!key) {
-    throw new Error(
-      "ENCRYPTION_KEY environment variable is not set. Cannot perform cryptographic operations.",
+    throw new ConfigValidationException(
+      "ENCRYPTION_KEY environment variable is not set. Cannot perform cryptographic operations like API key encryption/decryption.",
     );
   }
   // Use a fixed salt for scrypt to ensure the same key is generated from the same environment variable

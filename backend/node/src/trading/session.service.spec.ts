@@ -104,6 +104,60 @@ describe('SessionService Validation', () => {
     });
   });
 
+  describe('startSession Security Enforcement', () => {
+    it('throws ConfigValidationException if starting a live session without ENCRYPTION_KEY', async () => {
+      const config = new SessionConfig();
+      config.trading_mode = 'live';
+
+      const originalEnv = process.env.ENCRYPTION_KEY;
+      process.env.ENCRYPTION_KEY = ''; // Empty string simulates missing env
+
+      try {
+        await service.startSession(config, false);
+        throw new Error('Should have thrown ConfigValidationException');
+      } catch (e: any) {
+        expect(e.message).toContain('ENCRYPTION_KEY must be set to start a session in live or testnet mode');
+      } finally {
+        process.env.ENCRYPTION_KEY = originalEnv;
+      }
+    });
+
+    it('throws ConfigValidationException if starting a testnet session without ENCRYPTION_KEY', async () => {
+      const config = new SessionConfig();
+      config.trading_mode = 'testnet';
+
+      const originalEnv = process.env.ENCRYPTION_KEY;
+      process.env.ENCRYPTION_KEY = ''; // Empty string simulates missing env
+
+      try {
+        await service.startSession(config, false);
+        throw new Error('Should have thrown ConfigValidationException');
+      } catch (e: any) {
+        expect(e.message).toContain('ENCRYPTION_KEY must be set to start a session in live or testnet mode');
+      } finally {
+        process.env.ENCRYPTION_KEY = originalEnv;
+      }
+    });
+
+    it('allows starting a paper session without ENCRYPTION_KEY', async () => {
+      const config = new SessionConfig();
+      config.trading_mode = 'paper';
+
+      mockRepository.save.mockResolvedValue({ id: 'paper-uuid', balance: 10000, running: true });
+      mockRepository.findOne.mockResolvedValue({ paper_balance: 10000.0 });
+
+      const originalEnv = process.env.ENCRYPTION_KEY;
+      delete process.env.ENCRYPTION_KEY;
+
+      try {
+        await service.startSession(config, true);
+        expect(mockTradingSessionService.start).toHaveBeenCalled();
+      } finally {
+        process.env.ENCRYPTION_KEY = originalEnv;
+      }
+    });
+  });
+
   describe('getStatus', () => {
     it('filters out invalid active trades from database', async () => {
       const mockTradeRepository = {

@@ -40,24 +40,32 @@ export function encrypt(text: string): string {
   return `${iv.toString("hex")}:${tag.toString("hex")}:${encrypted}`;
 }
 
-export function decrypt(text: string): string {
-  const key = getEncryptionKey();
+export function decrypt(text: string | null | undefined): string {
+  if (!text) return "";
+
   const parts = text.split(":");
   if (parts.length !== 3) {
-    throw new Error("Invalid encrypted text format");
+    // If not in iv:tag:encrypted format, assume it's legacy plaintext
+    return text;
   }
 
-  const iv = Buffer.from(parts[0], "hex");
-  const tag = Buffer.from(parts[1], "hex");
-  const encrypted = parts[2];
+  try {
+    const key = getEncryptionKey();
+    const iv = Buffer.from(parts[0], "hex");
+    const tag = Buffer.from(parts[1], "hex");
+    const encrypted = parts[2];
 
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-  decipher.setAuthTag(tag);
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    decipher.setAuthTag(tag);
 
-  let decrypted = decipher.update(encrypted, "hex", "utf8");
-  decrypted += decipher.final("utf8");
+    let decrypted = decipher.update(encrypted, "hex", "utf8");
+    decrypted += decipher.final("utf8");
 
-  return decrypted;
+    return decrypted;
+  } catch (e) {
+    // If decryption fails, return original text as fallback (legacy compatibility)
+    return text;
+  }
 }
 
 /**

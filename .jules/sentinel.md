@@ -51,3 +51,8 @@
 **Vulnerability:** Opt-in security models (optional ADMIN_API_KEY) can lead to accidental exposure of sensitive dashboards and trading controls if environment variables are omitted or misconfigured in production.
 **Learning:** Security should be "fail-closed" by default in production. While "opt-in" is convenient for development, a production environment must explicitly require authentication credentials to start or accept connections.
 **Prevention:** Implement mandatory environment variable checks during application bootstrap and within authorization guards to refuse operation in production if core security secrets are missing.
+
+## 2026-06-03 - Encryption at Rest for API Credentials
+**Vulnerability:** Binance API keys were stored in plaintext in the database, while only API secrets were encrypted, leaving a partial exposure risk.
+**Learning:** Security coverage for sensitive credentials must be consistent across all related fields (keys, secrets, tokens). When introducing encryption for existing fields, a robust decryption utility with format-aware fallbacks is essential to prevent breaking legacy data.
+**Prevention:** Apply encryption to all sensitive fields at the persistence layer. Ensure decryption logic handles null/undefined inputs and provides a "legacy-aware" fallback mechanism to support non-breaking data migrations.

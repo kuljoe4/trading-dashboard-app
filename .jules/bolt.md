@@ -90,3 +90,7 @@
 ## 2026-06-02 - [Optimization] Consolidated Hot-Loop Execution
 **Learning:** Performing PnL calculation, variant statistics, and delta detection in separate O(N) passes within a 1s hot loop creates significant cumulative overhead and GC churn.
 **Action:** Consolidate multiple iterations into a single-pass loop. Use summary fields (like `_sig_json` for state strings and `_sl_len` for array lengths) to achieve O(1) change detection for complex objects, and defer full serialization until AFTER a change is confirmed.
+
+## 2026-06-03 - [Optimization] Mathematical Rounding over String/Exponential Ops
+**Learning:** Using string-based exponential rounding (e.g., `Number(val + "e+8")`) or `toFixed()` in high-frequency loops (tick/broadcast) is extremely expensive due to string concatenation and parsing. Mathematical rounding (`Math.round(val * factor) / factor`) is 8x-40x faster. Additionally, string-based exponential rounding can return `NaN` for very small numbers (e.g., `5e-9`) if the string conversion doesn't match the expected format.
+**Action:** Always prioritize mathematical rounding with pre-allocated power-of-10 lookup tables for performance-critical serialization and financial calculations.

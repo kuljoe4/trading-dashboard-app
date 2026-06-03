@@ -139,7 +139,7 @@ export class OrderManagerService {
           await this.placeStopLoss(trade, slPrice);
         } catch (err: any) {
           this.logger.warn(
-            `Binance order failed (continuing in paper mode): ${err instanceof Error ? err.message : String(err)}`,
+            `Binance order failed (continuing in paper mode): ${errorMessage}`,
           );
           // If we fallback to paper mode after failure, we should simulate the fee
           trade.realized_fee = roundEight(entryPrice * qty * 0.0004);

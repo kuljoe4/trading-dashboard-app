@@ -11,6 +11,7 @@ import { Trade } from '../models/Trade';
 import { v4 as uuid } from 'uuid';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { decrypt } from '../lib/crypto';
+import { ConfigValidationException } from '../lib/exceptions';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { AnalyticsService } from '../engine/analytics.service';
 import { updateLogLevels } from '../lib/logger';
@@ -49,18 +50,17 @@ export class SessionService implements OnModuleInit {
     setInterval(() => this.cleanupOldData().catch(e => this.logger.error(`Periodic cleanup failed: ${e.message}`)), 12 * 60 * 60 * 1000);
 
     // DEPLOY-02: Check ENCRYPTION_KEY and ADMIN_API_KEY in production
+    // Note: We only log errors here to avoid boot loops. Enforcement happens at the operation level.
     if (process.env.NODE_ENV === "production") {
       if (!process.env.ENCRYPTION_KEY) {
         this.logger.error(
           "CRITICAL: ENCRYPTION_KEY is not set in production! App will fail on sensitive operations.",
         );
-        throw new Error("ENCRYPTION_KEY must be set in production");
       }
       if (!process.env.ADMIN_API_KEY) {
         this.logger.error(
           "CRITICAL: ADMIN_API_KEY is not set in production! App is UNPROTECTED.",
         );
-        throw new Error("ADMIN_API_KEY must be set in production");
       }
     }
 
@@ -326,6 +326,13 @@ export class SessionService implements OnModuleInit {
   }
 
   async startSession(config: SessionConfig, paperMode: boolean, sessionId?: string) {
+    const mode = config.trading_mode || (paperMode ? 'paper' : 'live');
+    if (mode !== 'paper' && !process.env.ENCRYPTION_KEY) {
+      throw new ConfigValidationException(
+        "ENCRYPTION_KEY must be set to start a session in live or testnet mode.",
+      );
+    }
+
     if (this.sessionRunning) {
       throw new ConflictException('Session already running');
     }
@@ -399,7 +406,6 @@ export class SessionService implements OnModuleInit {
 
     // Instantiate Binance client if not in paper mode
     let binanceClient = null;
-    const mode = config.trading_mode || (paperMode ? 'paper' : 'live');
     if (mode !== 'paper') {
       const settings = await this.settingsRepository.findOne({
         where: { id: 'default' },

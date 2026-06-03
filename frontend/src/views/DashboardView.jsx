@@ -758,14 +758,15 @@ export function DashboardView({ initialStrategy }) {
                     <DecisionLog />
                   </Suspense>
                 </div>
-              <div className="mt-2 text-[10px] text-dim font-bold uppercase tracking-widest text-center border-t border-border/20 pt-2">
-                Log Buffer: Latest 500 events
-              </div>
+                <div className="mt-2 text-[10px] text-dim font-bold uppercase tracking-widest text-center border-t border-border/20 pt-2">
+                  Log Buffer: Latest 500 events
+                </div>
               </div>
             </motion.div>
           </div>
+        </div>
 
-        {/* Modals & Drawers */}
+      {/* Modals & Drawers */}
         <Drawer.Root open={showConfig} onOpenChange={setShowConfig}>
           <Drawer.Portal>
             <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />

@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { UpdateKeysDto } from './dto/update-keys.dto';
-import { encrypt } from '../lib/crypto';
+import { encrypt, decrypt } from '../lib/crypto';
 import { ApiKeyGuard } from '../lib/api-key.guard';
 
 @Controller('settings')
@@ -20,12 +20,16 @@ export class SettingsController {
       where: { id: 'default' },
       select: ['id', 'binance_api_key', 'binance_testnet_api_key']
     });
+
+    const apiKey = decrypt(settings?.binance_api_key);
+    const testnetApiKey = decrypt(settings?.binance_testnet_api_key);
+
     return {
-      api_key: settings?.binance_api_key
-        ? `${settings.binance_api_key.slice(0, 4)}...${settings.binance_api_key.slice(-4)}`
+      api_key: apiKey
+        ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`
         : '',
-      testnet_api_key: settings?.binance_testnet_api_key
-        ? `${settings.binance_testnet_api_key.slice(0, 4)}...${settings.binance_testnet_api_key.slice(-4)}`
+      testnet_api_key: testnetApiKey
+        ? `${testnetApiKey.slice(0, 4)}...${testnetApiKey.slice(-4)}`
         : '',
     };
   }
@@ -45,7 +49,7 @@ export class SettingsController {
     if (body.api_key !== undefined) {
       const trimmedKey = body.api_key.trim();
       if (trimmedKey) {
-        settings.binance_api_key = trimmedKey;
+        settings.binance_api_key = encrypt(trimmedKey);
       }
     }
     if (body.api_secret !== undefined) {
@@ -58,7 +62,7 @@ export class SettingsController {
     if (body.testnet_api_key !== undefined) {
       const trimmedKey = body.testnet_api_key.trim();
       if (trimmedKey) {
-        settings.binance_testnet_api_key = trimmedKey;
+        settings.binance_testnet_api_key = encrypt(trimmedKey);
       }
     }
     if (body.testnet_api_secret !== undefined) {

@@ -137,7 +137,7 @@ export class OrderManagerService {
 
           // Place initial Stop Loss order on exchange
           await this.placeStopLoss(trade, slPrice);
-        } catch (err) {
+        } catch (err: any) {
           throw new ExchangeExecutionException(`Binance order failed for ${symbol}: ${err instanceof Error ? err.message : String(err)}`, err);
           this.logger.warn(
             `Binance order failed (continuing in paper mode): ${err instanceof Error ? err.message : String(err)}`,

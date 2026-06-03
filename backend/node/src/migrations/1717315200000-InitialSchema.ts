@@ -80,6 +80,19 @@ export class InitialSchema1717315200000 implements MigrationInterface {
             CONSTRAINT "PK_850261b0981993437299185244" PRIMARY KEY ("id")
         )`);
 
+        // Ensure sessionId columns are UUID type before adding foreign keys, in case they exist as varchar
+        await queryRunner.query(`
+            DO $$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='trade_entity' AND column_name='sessionId' AND data_type='character varying') THEN
+                    ALTER TABLE "trade_entity" ALTER COLUMN "sessionId" TYPE uuid USING "sessionId"::uuid;
+                END IF;
+                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='balance_history' AND column_name='sessionId' AND data_type='character varying') THEN
+                    ALTER TABLE "balance_history" ALTER COLUMN "sessionId" TYPE uuid USING "sessionId"::uuid;
+                END IF;
+            END $$;
+        `);
+
         await queryRunner.query(`
             DO $$
             BEGIN

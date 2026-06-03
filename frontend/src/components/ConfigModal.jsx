@@ -246,9 +246,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                  </div>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {SIGNALS.map(([key, label]) => {
+                {SIGNALS.map(([key, label, desc]) => {
                   const active = (cfg.enabled_signals || []).includes(key);
-                  return <Chip key={key} active={active} onClick={() => setField('enabled_signals', active ? cfg.enabled_signals.filter(s => s !== key) : [...(cfg.enabled_signals || []), key])}>{label}</Chip>
+                  return (
+                    <Tooltip key={key} content={desc} side="bottom">
+                      <Chip active={active} onClick={() => setField('enabled_signals', active ? cfg.enabled_signals.filter(s => s !== key) : [...(cfg.enabled_signals || []), key])}>{label}</Chip>
+                    </Tooltip>
+                  )
                 })}
               </div>
             </section>
@@ -276,20 +280,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                  </div>
                </div>
                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                 {SIGNALS.map(([key, label]) => {
+                 {SIGNALS.map(([key, label, desc]) => {
                    const active = (cfg.exit_signals || []).includes(key);
                    return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setField('exit_signals', active ? cfg.exit_signals.filter(s => s !== key) : [...(cfg.exit_signals || []), key])}
-                      className={cn("flex items-center justify-between px-4 py-3 rounded-xl border transition-all text-left", active ? "border-red/40 bg-red/5" : "border-border hover:border-border-hover bg-surface/50")}
-                    >
-                      <span className={cn("text-xs font-bold", active ? "text-red" : "text-text")}>{label}</span>
-                      <Switch.Root checked={active} className={cn("h-5 w-9 rounded-full transition-colors relative pointer-events-none", active ? "bg-red" : "bg-border")}>
-                        <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
-                      </Switch.Root>
-                    </button>
+                    <Tooltip key={key} content={desc}>
+                      <button
+                        type="button"
+                        onClick={() => setField('exit_signals', active ? cfg.exit_signals.filter(s => s !== key) : [...(cfg.exit_signals || []), key])}
+                        className={cn("w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all text-left", active ? "border-red/40 bg-red/5" : "border-border hover:border-border-hover bg-surface/50")}
+                      >
+                        <span className={cn("text-xs font-bold", active ? "text-red" : "text-text")}>{label}</span>
+                        <Switch.Root checked={active} className={cn("h-5 w-9 rounded-full transition-colors relative pointer-events-none", active ? "bg-red" : "bg-border")}>
+                          <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
+                        </Switch.Root>
+                      </button>
+                    </Tooltip>
                    )
                  })}
                </div>

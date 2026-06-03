@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, AlertCircle, Zap, XCircle, Activity, LayoutGrid } from 'lucide-react'
+import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight } from 'lucide-react'
 import { cn, Btn, Tooltip } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 import { CONFIG_LIMITS } from '../constants/configLimits'
@@ -283,18 +283,36 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                  {SIGNALS.map(([key, label, desc]) => {
                    const active = (cfg.exit_signals || []).includes(key);
                    return (
-                    <Tooltip key={key} content={desc}>
-                      <button
-                        type="button"
-                        onClick={() => setField('exit_signals', active ? cfg.exit_signals.filter(s => s !== key) : [...(cfg.exit_signals || []), key])}
-                        className={cn("w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all text-left", active ? "border-red/40 bg-red/5" : "border-border hover:border-border-hover bg-surface/50")}
-                      >
-                        <span className={cn("text-xs font-bold", active ? "text-red" : "text-text")}>{label}</span>
-                        <Switch.Root checked={active} className={cn("h-5 w-9 rounded-full transition-colors relative pointer-events-none", active ? "bg-red" : "bg-border")}>
-                          <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
-                        </Switch.Root>
-                      </button>
-                    </Tooltip>
+                    <div key={key} className="flex flex-col gap-2">
+                      <Tooltip content={desc}>
+                        <button
+                          type="button"
+                          onClick={() => setField('exit_signals', active ? cfg.exit_signals.filter(s => s !== key) : [...(cfg.exit_signals || []), key])}
+                          className={cn("w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all text-left", active ? "border-red/40 bg-red/5" : "border-border hover:border-border-hover bg-surface/50")}
+                        >
+                          <span className={cn("text-xs font-bold", active ? "text-red" : "text-text")}>{label}</span>
+                          <Switch.Root checked={active} className={cn("h-5 w-9 rounded-full transition-colors relative pointer-events-none", active ? "bg-red" : "bg-border")}>
+                            <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
+                          </Switch.Root>
+                        </button>
+                      </Tooltip>
+                      {active && (
+                        <div className="px-1 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                          <label className="text-[9px] font-bold text-dim uppercase tracking-wider">Delay Trigger (s)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            placeholder="0s"
+                            value={(cfg.exit_signal_delays || {})[key] || ''}
+                            onChange={(e) => {
+                              const val = Math.max(0, parseInt(e.target.value) || 0);
+                              setField('exit_signal_delays', { ...(cfg.exit_signal_delays || {}), [key]: val });
+                            }}
+                            className="w-20 bg-background border border-border rounded-lg px-2 py-1 text-[10px] font-mono font-bold text-right focus:border-red outline-none"
+                          />
+                        </div>
+                      )}
+                    </div>
                    )
                  })}
                </div>

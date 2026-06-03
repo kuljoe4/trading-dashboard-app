@@ -137,10 +137,10 @@ export class OrderManagerService {
 
           // Place initial Stop Loss order on exchange
           await this.placeStopLoss(trade, slPrice);
-        } catch (err: any) {
-          throw new ExchangeExecutionException(`Binance order failed for ${symbol}: ${err instanceof Error ? err.message : String(err)}`, err);
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : String(err);
           this.logger.warn(
-            `Binance order failed (continuing in paper mode): ${err instanceof Error ? err.message : String(err)}`,
+            `Binance order failed (continuing in paper mode): ${errorMessage}`,
           );
           // If we fallback to paper mode after failure, we should simulate the fee
           trade.realized_fee = roundEight(entryPrice * qty * 0.0004);

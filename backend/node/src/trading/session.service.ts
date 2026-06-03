@@ -415,7 +415,7 @@ export class SessionService implements OnModuleInit {
         throw new BadRequestException(`Binance ${isTestnet ? 'Testnet' : 'Live'} API keys are not configured.`);
       }
 
-      binanceClient = this.binanceClientFactory.createClient(key, decrypt(secret), isTestnet);
+      binanceClient = this.binanceClientFactory.createClient(decrypt(key), decrypt(secret), isTestnet);
     }
       
     // 1. Reconciliation: Identify trades that should be closed or resumed

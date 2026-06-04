@@ -440,6 +440,9 @@ export class OrderManagerService {
                if (position && parseFloat(position.positionAmt) === 0) {
                   this.logger.log(`Confirmed: ${symbol} position is already zero. Treating as successfully closed.`);
                   trade.exit_reason = 'EXCHANGE_SL_OR_MANUAL';
+                  // Simulate exit fee since we can't easily fetch it from the exchange SL fill here
+                  const exitFee = roundEight(exitPrice * trade.qty * 0.0004);
+                  trade.realized_fee = roundEight(trade.realized_fee + exitFee);
                } else {
                   this.logger.warn(`Binance close order failed but position still exists for ${symbol}: ${errMsg}`);
                }
@@ -453,12 +456,12 @@ export class OrderManagerService {
           );
           // If close fails/rejected, we might already have exit fees from exchange SL (not easy to catch here without polling)
           // but if we are here and it's paper mode or failed live close, simulate it
-          if (this.paperMode) {
+          if (paperMode) {
              const exitFee = roundEight(exitPrice * trade.qty * 0.0004);
              trade.realized_fee = roundEight(trade.realized_fee + exitFee);
           }
         }
-      } else if (this.paperMode) {
+      } else if (paperMode) {
         // Simulate paper exit fee (0.04% taker)
         const exitFee = roundEight(exitPrice * trade.qty * 0.0004);
         trade.realized_fee = roundEight(trade.realized_fee + exitFee);

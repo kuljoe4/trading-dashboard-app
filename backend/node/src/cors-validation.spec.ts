@@ -44,4 +44,16 @@ describe('checkOrigin', () => {
     expect(checkOrigin('https://api-v2.service.staging.com', complexPatterns)).toBe(true);
     expect(checkOrigin('https://api.service.prod.com', complexPatterns)).toBe(false);
   });
+
+  it('should handle quoted patterns from environment variables', () => {
+    const quotedPatterns = ['"https://*.up.railway.app"', "'http://localhost:5173'"];
+    expect(checkOrigin('https://frontend-staging.up.railway.app', quotedPatterns)).toBe(true);
+    expect(checkOrigin('http://localhost:5173', quotedPatterns)).toBe(true);
+  });
+
+  it('should handle whitespace in patterns', () => {
+    const messyPatterns = ['  https://example.com  ', ' https://*.example.org '];
+    expect(checkOrigin('https://example.com', messyPatterns)).toBe(true);
+    expect(checkOrigin('https://test.example.org', messyPatterns)).toBe(true);
+  });
 });

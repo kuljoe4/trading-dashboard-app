@@ -1,11 +1,11 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useTradingStore } from '../store/trading'
-import { ActiveTradeBar } from '../components/ActiveTradeBar'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
+import { TradeDetailModal } from '../components/TradeDetailModal'
 import { SectionLabel, StatCard } from '../components/ui/primitives'
 import { fmtUSD } from '../lib/theme'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Briefcase, Zap, AlertCircle } from 'lucide-react'
+import { Briefcase, Zap } from 'lucide-react'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 
 const Breadcrumbs = () => (
@@ -18,6 +18,7 @@ const Breadcrumbs = () => (
 
 const TradesView = () => {
   const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config } = useTradingStore()
+  const [selectedTrade, setSelectedTrade] = useState(null)
 
   // Lifecycle-scoped subscription contract
   useResourceFocus('global_trades');
@@ -68,20 +69,23 @@ const TradesView = () => {
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ delay: idx * 0.05 }}
               >
-                <ActiveTradeCard trade={trade} config={config} />
+                <ActiveTradeCard trade={trade} config={config} onClick={() => setSelectedTrade(trade)} />
               </motion.div>
             ))}
           </AnimatePresence>
         )}
       </div>
 
-      {activeTrades.length > 0 && (
-        <div className="mt-10 p-4 bg-accent/5 border border-accent/10 rounded-2xl flex items-start gap-4">
-          <AlertCircle size={18} className="text-accent shrink-0 mt-0.5" />
-          <div className="text-[11px] leading-relaxed text-accent/80 font-medium">
-            <strong>Pro Tip:</strong> Click on a position to expand full details including SL adjustments, technical signals, and the RR ladder. All calculations are performed in real-time using live WebSocket data.
-          </div>
-        </div>
+      {selectedTrade && (
+        <TradeDetailModal
+          isOpen={!!selectedTrade}
+          onClose={() => setSelectedTrade(null)}
+          trade={selectedTrade}
+          onTradeClose={(symbol) => {
+            // Logic to trigger close
+            setSelectedTrade(null)
+          }}
+        />
       )}
     </div>
   )

@@ -11,6 +11,7 @@ import { ENGINE_CONSTANTS } from "./models/constants";
 import { SessionService } from "./trading/session.service";
 import { MonitoringService } from "./engine/monitoring.service";
 import { TradingSessionService } from "./engine/trading_session.service";
+import { checkOrigin } from "./lib/origin";
 
 async function bootstrap() {
   const isProduction = process.env.NODE_ENV === "production";
@@ -63,6 +64,7 @@ async function bootstrap() {
   const serverLogger = new Logger("Server");
   serverLogger.log(`🔒 Allowed Origins: ${allowedOrigins.join(", ")}`);
 
+
   // Security Headers Middleware
   app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader("X-Frame-Options", "DENY");
@@ -93,10 +95,7 @@ async function bootstrap() {
       // Allow requests with no origin (like mobile apps or curl)
       if (!origin) return callback(null, true);
 
-      const normalizedOrigin = origin.replace(/\/$/, "");
-      const isAllowed = allowedOrigins.some(
-        (o) => o.replace(/\/$/, "") === normalizedOrigin,
-      );
+      const isAllowed = checkOrigin(origin, allowedOrigins);
       const isDevFallback = !isAllowed && nodeEnv !== "production";
 
       if (isAllowed || isDevFallback) {
@@ -157,8 +156,7 @@ async function bootstrap() {
     },
     verifyClient: (info, done) => {
       const origin = info.origin ? info.origin.replace(/\/$/, "") : null;
-      const isOriginAllowed =
-        !origin || allowedOrigins.some((o) => o.replace(/\/$/, "") === origin);
+      const isOriginAllowed = !origin || checkOrigin(info.origin, allowedOrigins);
       const isDevFallback = !isOriginAllowed && nodeEnv !== "production";
 
       if (!isOriginAllowed && !isDevFallback) {

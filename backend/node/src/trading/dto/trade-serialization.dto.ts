@@ -1,4 +1,4 @@
-import { SessionConfig } from '../SessionConfig';
+import { SessionConfig } from '../../models/SessionConfig';
 
 export interface TradeSerializationDto {
   id: string;
@@ -23,7 +23,7 @@ export interface TradeSerializationDto {
   tp_mode?: 'fixed' | 'exp_rr_seq';
   tp_ratio?: number;
   exit_signal_logic?: 'any' | 'all';
-  strategy_config?: SessionConfig;
+  strategy_config?: Partial<SessionConfig>;
   _delta?: boolean;
   _thin?: boolean;
   _sl_len?: number;

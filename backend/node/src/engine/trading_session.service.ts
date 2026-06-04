@@ -16,7 +16,7 @@ import { BroadcastService } from './broadcast.service';
 import { SessionStateService } from './session_state.service';
 import { ENGINE_EVENTS } from './events';
 import { v4 as uuid } from 'uuid';
-import { roundEight } from '../lib/math';
+import { roundEight, roundTo } from '../lib/math';
 import { ENGINE_CONSTANTS, CONFIG_LIMITS } from '../models/constants';
 
 function monitoringChangedInternal(curr: any, prev: any): boolean {
@@ -57,17 +57,6 @@ export class TradingSessionService {
     return (config?.strategy_label || (index === 0 ? 'Momentum Strategy' : `Strategy ${index + 1}`)).toString();
   }
 
-  private static readonly ROUND_POWERS = [1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000];
-  /**
-   * BOLT OPTIMIZATION: High-performance rounding for serialization.
-   * Replaced toFixed() + Number() with math-based rounding and a pre-allocated power lookup table.
-   * Approximately 8x faster than previous implementation.
-   */
-  private serializeRound(val: any, p = 8) {
-    if (val === undefined || !Number.isFinite(val)) return val;
-    const factor = p < 10 ? TradingSessionService.ROUND_POWERS[p] : Math.pow(10, p);
-    return Math.round(val * factor) / factor;
-  }
 
   private getStrategyConfigs(): SessionConfig[] {
     if (this.cachedStrategyConfigs) return this.cachedStrategyConfigs;
@@ -263,7 +252,7 @@ export class TradingSessionService {
             this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, tradeConfig);
             const analytics = this.analyticsService.calculateAnalytics(this.sessionState.closedTrades as any, this.config?.paper_mode ? this.config?.paper_starting_balance : this.config?.live_starting_balance);
             this.lastAnalyticsResult = analytics;
-            this.broadcast('trade_event', { event: 'closed', symbol: result.trade.symbol, reason: exitCondition.exitReason, trade: this.serializeTrade(result.trade, currentPrice), pnl: result.trade.pnl, stats: this.sessionState.stats, analytics: { maxDrawdown: Number(analytics.maxDrawdown.toFixed(2)), maxDrawdownPct: Number(analytics.maxDrawdownPct.toFixed(2)), overallWinRate: Number(analytics.overallWinRate.toFixed(2)), cumulativePnL: analytics.cumulativePnL.slice(-20).map((p: any) => ({ ...p, pnl: Number(p.pnl.toFixed(2)) })), } });
+            this.broadcast('trade_event', { event: 'closed', symbol: result.trade.symbol, reason: exitCondition.exitReason, trade: this.serializeTrade(result.trade, currentPrice), pnl: result.trade.pnl, stats: this.sessionState.stats, analytics: { maxDrawdown: roundTo(analytics.maxDrawdown, 2), maxDrawdownPct: roundTo(analytics.maxDrawdownPct, 2), overallWinRate: roundTo(analytics.overallWinRate, 2), cumulativePnL: analytics.cumulativePnL.slice(-20).map((p: any) => ({ ...p, pnl: roundTo(p.pnl, 2) })), } });
           } catch (err: any) { await this.rollbackTradeClosure(result.trade, prevPaper, prevLive); throw err; }
         }
       }
@@ -273,7 +262,7 @@ export class TradingSessionService {
   private async onCandleClose(symbol: string) { if (!this.running || !this.config) return; if (this.config.debug_mode) this.logger.verbose(`Candle closed for ${symbol}`); }
 
   private updateScannerResults(opportunities: any[]) {
-    this.lastScannerResults = opportunities.map((o) => ({ symbol: o.symbol, price: o.price, pct: Number(o.momentum.toFixed(2)), momentum: Number(o.momentum.toFixed(2)), direction: o.direction.toLowerCase(), dir: o.direction.toLowerCase(), vol: o.volume_24h, volume_usdt: o.volume_24h, score: Number((o.score / 10).toFixed(1)), history: o.history, signalResult: o.signalResult, }));
+    this.lastScannerResults = opportunities.map((o) => ({ symbol: o.symbol, price: o.price, pct: roundTo(o.momentum, 2), momentum: roundTo(o.momentum, 2), direction: o.direction.toLowerCase(), dir: o.direction.toLowerCase(), vol: o.volume_24h, volume_usdt: o.volume_24h, score: roundTo(o.score / 10, 1), history: o.history, signalResult: o.signalResult, }));
     this.refreshActiveWindows(this.lastScannerResults);
   }
 
@@ -359,9 +348,9 @@ export class TradingSessionService {
       rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / risk;
     }
 
-    if (minimal) { return { id: trade.id, symbol: trade.symbol, strategy_label: anyTrade.strategy_label || this.getStrategyLabel(anyTrade.strategy_config || this.config), current_price: this.serializeRound(current ?? entry), sl_price: this.serializeRound(anyTrade.current_sl ?? anyTrade.sl_price), tp_price: this.serializeRound(anyTrade.tp ?? anyTrade.tp_price), pnl: this.serializeRound(pnl, 2), realized_fee: this.serializeRound(anyTrade.realized_fee, 2), rr: this.serializeRound(rrValue, 4), max_rr: this.serializeRound(anyTrade.max_rr_achieved ?? anyTrade.max_rr ?? 0, 4), direction, entry_price: this.serializeRound(entry), qty: this.serializeRound(anyTrade.qty ?? 0), paper_mode: this.config?.paper_mode, exit_signals_status: anyTrade.exit_signals_status || {}, sl_adjustments: anyTrade.sl_adjustments || [], live_rr_sequence: anyTrade.strategy_config?.live_rr_sequence || this.config?.live_rr_sequence || [], exit_rr_sequence: anyTrade.strategy_config?.exit_rr_sequence || this.config?.exit_rr_sequence || [], tp_mode: anyTrade.strategy_config?.tp_mode || this.config?.tp_mode || 'fixed', tp_ratio: anyTrade.strategy_config?.tp_ratio || this.config?.tp_ratio || 2, _delta: true, }; }
+    if (minimal) { return { id: trade.id, symbol: trade.symbol, strategy_label: anyTrade.strategy_label || this.getStrategyLabel(anyTrade.strategy_config || this.config), current_price: roundTo(current ?? entry, 8), sl_price: roundTo(anyTrade.current_sl ?? anyTrade.sl_price, 8), tp_price: roundTo(anyTrade.tp ?? anyTrade.tp_price, 8), pnl: roundTo(pnl, 2), realized_fee: roundTo(anyTrade.realized_fee, 2), rr: roundTo(rrValue, 4), max_rr: roundTo(anyTrade.max_rr_achieved ?? anyTrade.max_rr ?? 0, 4), direction, entry_price: roundTo(entry, 8), qty: roundTo(anyTrade.qty ?? 0, 8), paper_mode: this.config?.paper_mode, exit_signals_status: anyTrade.exit_signals_status || {}, sl_adjustments: anyTrade.sl_adjustments || [], live_rr_sequence: anyTrade.strategy_config?.live_rr_sequence || this.config?.live_rr_sequence || [], exit_rr_sequence: anyTrade.strategy_config?.exit_rr_sequence || this.config?.exit_rr_sequence || [], tp_mode: anyTrade.strategy_config?.tp_mode || this.config?.tp_mode || 'fixed', tp_ratio: anyTrade.strategy_config?.tp_ratio || this.config?.tp_ratio || 2, _delta: true, }; }
 
-    return { ...trade, direction, current_price: this.serializeRound(current ?? entry), sl_price: this.serializeRound(anyTrade.current_sl ?? anyTrade.sl_price), tp_price: this.serializeRound(anyTrade.tp ?? anyTrade.tp_price), pnl: this.serializeRound(pnl, 2), realized_fee: this.serializeRound(anyTrade.realized_fee, 2), rr: this.serializeRound(rrValue, 4), paper_mode: this.config?.paper_mode, trading_mode: this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live'), max_rr: this.serializeRound(anyTrade.max_rr_achieved ?? anyTrade.max_rr ?? 0, 4), strategy_label: anyTrade.strategy_label || this.getStrategyLabel(anyTrade.strategy_config || this.config), strategy_config: anyTrade.strategy_config, live_rr_sequence: anyTrade.strategy_config?.live_rr_sequence || this.config?.live_rr_sequence || [], exit_rr_sequence: anyTrade.strategy_config?.exit_rr_sequence || this.config?.exit_rr_sequence || [], exit_signal_logic: anyTrade.strategy_config?.exit_signal_logic || this.config?.exit_signal_logic || 'any', tp_mode: anyTrade.strategy_config?.tp_mode || this.config?.tp_mode || 'fixed', tp_ratio: anyTrade.strategy_config?.tp_ratio || this.config?.tp_ratio || 2, };
+    return { ...trade, direction, current_price: roundTo(current ?? entry, 8), sl_price: roundTo(anyTrade.current_sl ?? anyTrade.sl_price, 8), tp_price: roundTo(anyTrade.tp ?? anyTrade.tp_price, 8), pnl: roundTo(pnl, 2), realized_fee: roundTo(anyTrade.realized_fee, 2), rr: roundTo(rrValue, 4), paper_mode: this.config?.paper_mode, trading_mode: this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live'), max_rr: roundTo(anyTrade.max_rr_achieved ?? anyTrade.max_rr ?? 0, 4), strategy_label: anyTrade.strategy_label || this.getStrategyLabel(anyTrade.strategy_config || this.config), strategy_config: anyTrade.strategy_config, live_rr_sequence: anyTrade.strategy_config?.live_rr_sequence || this.config?.live_rr_sequence || [], exit_rr_sequence: anyTrade.strategy_config?.exit_rr_sequence || this.config?.exit_rr_sequence || [], exit_signal_logic: anyTrade.strategy_config?.exit_signal_logic || this.config?.exit_signal_logic || 'any', tp_mode: anyTrade.strategy_config?.tp_mode || this.config?.tp_mode || 'fixed', tp_ratio: anyTrade.strategy_config?.tp_ratio || this.config?.tp_ratio || 2, };
   }
 
   private lastTickData: any = null; private lastTickTime = 0;
@@ -424,11 +413,11 @@ export class TradingSessionService {
       variantStats = {}; const closedStats = this.sessionState.cachedClosedTradesStats; const configs = this.getStrategyConfigs();
       for (let i = 0; i < configs.length; i++) {
         const l = configs[i].strategy_label!; const a = variantGroups[l] || { pnl: 0, risk: 0, count: 0, hits: 0 }; const c = closedStats[l] || { pnl: 0, count: 0, hits: 0 };
-        variantStats[l] = { totalPnl: roundEight(c.pnl + a.pnl), entryCount: c.count + a.count, hitCount: c.hits + a.hits, totalRiskPct: Number((balance > 0 ? (a.risk / balance) * 100 : 0).toFixed(2)), activeTradeCount: a.count };
+        variantStats[l] = { totalPnl: roundEight(c.pnl + a.pnl), entryCount: c.count + a.count, hitCount: c.hits + a.hits, totalRiskPct: roundTo(balance > 0 ? (a.risk / balance) * 100 : 0, 2), activeTradeCount: a.count };
       }
     }
 
-    const tickData: any = { balance: Number(balance.toFixed(2)), total_pnl: Number(totalPnl.toFixed(2)), total_risk_pct: Number((balance > 0 ? (totalRiskUsdt / balance) * 100 : 0).toFixed(2)), total_sl_used: Number(totalRiskUsdt.toFixed(2)), trades, gateState: this.sessionState.gateState, hibernating: this.sessionState.hibernating, paused: this.sessionState.paused, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused, activeWindows: this.getActiveWindows(), rateLimit: this.getBinanceRateLimit(), stats: this.sessionState.stats, monitoring, isEcoMode: this.isEcoMode(), _statsVersion: this.sessionState.statsVersion, };
+    const tickData: any = { balance: roundTo(balance, 2), total_pnl: roundTo(totalPnl, 2), total_risk_pct: roundTo(balance > 0 ? (totalRiskUsdt / balance) * 100 : 0, 2), total_sl_used: roundTo(totalRiskUsdt, 2), trades, gateState: this.sessionState.gateState, hibernating: this.sessionState.hibernating, paused: this.sessionState.paused, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused, activeWindows: this.getActiveWindows(), rateLimit: this.getBinanceRateLimit(), stats: this.sessionState.stats, monitoring, isEcoMode: this.isEcoMode(), _statsVersion: this.sessionState.statsVersion, };
     if (variantStats) tickData.variant_stats = variantStats;
     const heartbeatInterval = trades.length > 0 ? 10000 : 30000; let shouldBroadcast = !this.lastTickData || (now - this.lastTickTime > heartbeatInterval); if (shouldBroadcast) tickData._heartbeat = true;
     if (!shouldBroadcast) {
@@ -466,7 +455,7 @@ export class TradingSessionService {
     const activeList = activeTrades || this.positionTracker.activeList(); const balance = this.getBalance(); const closedStats = this.sessionState.cachedClosedTradesStats;
     const groups: Record<string, { pnl: number, risk: number, count: number, hits: number }> = {};
     for (let i = 0; i < activeList.length; i++) { const t = activeList[i]; const l = t.strategy_label || 'Momentum Strategy'; if (!groups[l]) groups[l] = { pnl: 0, risk: 0, count: 0, hits: 0 }; groups[l].pnl = roundEight(groups[l].pnl + (t.pnl || 0)); groups[l].risk = roundEight(groups[l].risk + (t.risk_usdt || 0)); groups[l].count++; if ((t.pnl || 0) > 0) groups[l].hits++; }
-    this.getStrategyConfigs().forEach(cfg => { const l = cfg.strategy_label!; const a = groups[l] || { pnl: 0, risk: 0, count: 0, hits: 0 }; const c = closedStats[l] || { pnl: 0, count: 0, hits: 0 }; variantStats[l] = { totalPnl: roundEight(c.pnl + a.pnl), entryCount: c.count + a.count, hitCount: c.hits + a.hits, totalRiskPct: Number((balance > 0 ? (a.risk / balance) * 100 : 0).toFixed(2)), activeTradeCount: a.count }; });
+    this.getStrategyConfigs().forEach(cfg => { const l = cfg.strategy_label!; const a = groups[l] || { pnl: 0, risk: 0, count: 0, hits: 0 }; const c = closedStats[l] || { pnl: 0, count: 0, hits: 0 }; variantStats[l] = { totalPnl: roundEight(c.pnl + a.pnl), entryCount: c.count + a.count, hitCount: c.hits + a.hits, totalRiskPct: roundTo(balance > 0 ? (a.risk / balance) * 100 : 0, 2), activeTradeCount: a.count }; });
     return variantStats;
   }
 
@@ -512,7 +501,7 @@ export class TradingSessionService {
         this.sessionState.setActiveTrades(this.positionTracker.activeList());
         this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, this.config!);
         this.lastAnalyticsResult = this.analyticsService.calculateAnalytics(this.sessionState.closedTrades as any, this.config?.paper_mode ? this.config?.paper_starting_balance : this.config?.live_starting_balance);
-        this.broadcast('trade_event', { event: 'closed', symbol: res.trade.symbol, reason: 'MANUAL_CLOSE', trade: this.serializeTrade(res.trade, cp), pnl: res.trade.pnl, stats: this.sessionState.stats, analytics: { maxDrawdown: Number(this.lastAnalyticsResult.maxDrawdown.toFixed(2)), maxDrawdownPct: Number(this.lastAnalyticsResult.maxDrawdownPct.toFixed(2)), overallWinRate: Number(this.lastAnalyticsResult.overallWinRate.toFixed(2)), cumulativePnL: this.lastAnalyticsResult.cumulativePnL.slice(-20).map((p: any) => ({ ...p, pnl: Number(p.pnl.toFixed(2)) })), } });
+        this.broadcast('trade_event', { event: 'closed', symbol: res.trade.symbol, reason: 'MANUAL_CLOSE', trade: this.serializeTrade(res.trade, cp), pnl: res.trade.pnl, stats: this.sessionState.stats, analytics: { maxDrawdown: roundTo(this.lastAnalyticsResult.maxDrawdown, 2), maxDrawdownPct: roundTo(this.lastAnalyticsResult.maxDrawdownPct, 2), overallWinRate: roundTo(this.lastAnalyticsResult.overallWinRate, 2), cumulativePnL: this.lastAnalyticsResult.cumulativePnL.slice(-20).map((p: any) => ({ ...p, pnl: roundTo(p.pnl, 2) })), } });
         return { success: true, trade: res.trade };
       } catch (err: any) { await this.rollbackTradeClosure(res.trade, pp, pl); return { success: false, error: err.message }; }
     }

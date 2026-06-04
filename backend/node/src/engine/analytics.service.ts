@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TradeEntity } from '../models/entities/Trade.entity';
+import { roundTo } from '../lib/math';
 
 export interface AnalyticsResult {
   cumulativePnL: { ts: string; pnl: number }[];
@@ -67,7 +68,7 @@ export class AnalyticsService {
 
       cumulativePnL[i] = {
         ts: t.exit_ts!.toISOString(),
-        pnl: Number(currentPnL.toFixed(2)),
+        pnl: roundTo(currentPnL, 2),
       };
 
       // Time of Day
@@ -99,14 +100,14 @@ export class AnalyticsService {
 
     return {
       cumulativePnL,
-      maxDrawdown: Number(maxDD.toFixed(2)),
-      maxDrawdownPct: Number(maxDDPct.toFixed(2)),
+      maxDrawdown: roundTo(maxDD, 2),
+      maxDrawdownPct: roundTo(maxDDPct, 2),
       timeOfDay,
       totalTrades,
       overallWinRate: totalTrades > 0 ? (totalWins / totalTrades) * 100 : 0,
-      avgWin: Number(avgWin.toFixed(2)),
-      avgLoss: Number(avgLoss.toFixed(2)),
-      avgWinLossRatio: Number(avgWinLossRatio.toFixed(2)),
+      avgWin: roundTo(avgWin, 2),
+      avgLoss: roundTo(avgLoss, 2),
+      avgWinLossRatio: roundTo(avgWinLossRatio, 2),
     };
   }
 }

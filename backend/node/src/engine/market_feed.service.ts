@@ -105,8 +105,12 @@ export class MarketFeedService {
   private safeClose(ws: WebSocket | null) {
     if (!ws) return;
     try {
-      if (ws.readyState !== WebSocket.CLOSED) {
+      // Only terminate if it's OPEN or CLOSING. 
+      // If it's CONNECTING, 'close()' is safer to avoid "WebSocket closed before connection established" error.
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CLOSING) {
         ws.terminate();
+      } else if (ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
       }
     } catch (err) {
       this.logger.debug(`Error during safeClose: ${err}`);

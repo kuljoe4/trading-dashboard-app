@@ -25,6 +25,9 @@ import { ApiKeyGuard } from '../lib/api-key.guard';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { MonitoringService } from '../engine/monitoring.service';
 import { AnalyticsService } from '../engine/analytics.service';
+import { VariantAnalyticsService } from '../engine/variant-analytics.service';
+import { EngineBroadcasterService } from '../engine/engine-broadcaster.service';
+import { GatingService } from '../engine/gating.service';
 
 @Module({
   imports: [
@@ -47,6 +50,9 @@ import { AnalyticsService } from '../engine/analytics.service';
     SessionService,
     MonitoringService,
     AnalyticsService,
+    VariantAnalyticsService,
+    EngineBroadcasterService,
+    GatingService,
     ApiKeyGuard,
     BinanceClientFactory,
   ],
@@ -64,6 +70,9 @@ import { AnalyticsService } from '../engine/analytics.service';
     SessionStateService,
     MonitoringService,
     AnalyticsService,
+    VariantAnalyticsService,
+    EngineBroadcasterService,
+    GatingService,
   ],
 })
 export class TradingModule {}

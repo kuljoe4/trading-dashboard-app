@@ -301,19 +301,20 @@ export class SessionService implements OnModuleInit {
        throw new BadRequestException('EMA signals require an EMA period to be defined');
     }
 
-    // DATA-02: EMA Convergence validation
+    // DATA-02: Indicator Convergence validation
     const maxCandles = parseInt(process.env.KLINE_MAX_CANDLES || '200', 10);
-    const emaPeriods = [
+    const indicatorPeriods = [
       signalParams.ema_period,
       signalParams.entry_ema_period,
       signalParams.exit_ema_period,
       signalParams.entry_ema_slow,
-      signalParams.exit_ema_slow
+      signalParams.exit_ema_slow,
+      signalParams.ma_period
     ].map(p => parseInt(p, 10)).filter(p => !isNaN(p));
 
-    for (const p of emaPeriods) {
-      if (p >= maxCandles * 0.8) {
-        throw new BadRequestException(`EMA period ${p} is too large for current KLINE_MAX_CANDLES (${maxCandles}). EMA may not converge. Increase KLINE_MAX_CANDLES or reduce period.`);
+    for (const p of indicatorPeriods) {
+      if (p >= maxCandles * 0.5) {
+        throw new BadRequestException(`Indicator period ${p} is too large for current KLINE_MAX_CANDLES (${maxCandles}). Values may not converge for reliable signals. Use a period < ${Math.floor(maxCandles * 0.5)} or increase KLINE_MAX_CANDLES.`);
       }
     }
 

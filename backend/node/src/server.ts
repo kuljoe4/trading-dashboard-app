@@ -7,6 +7,7 @@ import { WebSocketServer } from "ws";
 import { AppModule } from "./app.module";
 import { AllExceptionsFilter } from "./lib/all-exceptions.filter";
 import { safeCompare } from "./lib/crypto";
+import { isThrottled, recordFailure, clearFailures, extractIp } from "./lib/throttle";
 import { ENGINE_CONSTANTS } from "./models/constants";
 import { SessionService } from "./trading/session.service";
 import { MonitoringService } from "./engine/monitoring.service";
@@ -160,10 +161,17 @@ async function bootstrap() {
       const isOriginAllowed =
         !origin || allowedOrigins.some((o) => o.replace(/\/$/, "") === origin);
       const isDevFallback = !isOriginAllowed && nodeEnv !== "production";
+      const clientIp = extractIp(info.req.headers, info.req.socket.remoteAddress || "unknown");
+
+      // SENTINEL: Check WS IP throttle
+      if (isThrottled(clientIp)) {
+        serverLogger.warn(`WS Auth throttle triggered for IP: ${clientIp}`);
+        return done(false, 429, "Too many failed attempts");
+      }
 
       if (!isOriginAllowed && !isDevFallback) {
         serverLogger.warn(
-          `Blocked WebSocket connection from unauthorized origin: ${info.origin}`,
+          `Blocked WebSocket connection from unauthorized origin: ${info.origin} (IP: ${clientIp})`,
         );
         return done(false);
       } else if (isDevFallback) {
@@ -175,15 +183,31 @@ async function bootstrap() {
       // Security: Validate API Key if ADMIN_API_KEY is configured
       const adminKey = configService.get<string>("ADMIN_API_KEY");
       if (adminKey) {
-        const url = new URL(
-          info.req.url || "",
-          `http://${info.req.headers.host}`,
-        );
-        const token = url.searchParams.get("token");
-        if (!token || !safeCompare(token, adminKey)) {
-          serverLogger.warn(
-            `Blocked WebSocket connection: Invalid or missing API Key from ${info.origin}`,
+        try {
+          const url = new URL(
+            info.req.url || "",
+            `http://${info.req.headers.host}`,
           );
+          const token = url.searchParams.get("token");
+
+          // SENTINEL: Validate token length and presence
+          if (!token || token.length > 128) {
+             serverLogger.warn(
+               `Blocked WebSocket connection: Invalid API Key format/length from ${info.origin} (IP: ${clientIp})`,
+             );
+             return done(false);
+          }
+
+          if (!safeCompare(token, adminKey)) {
+            serverLogger.warn(
+              `Blocked WebSocket connection: Invalid API Key from ${info.origin} (IP: ${clientIp})`,
+            );
+            recordFailure(clientIp);
+            return done(false);
+          }
+          clearFailures(clientIp);
+        } catch (err) {
+          serverLogger.error(`WebSocket handshake URL parsing failed for ${info.origin} (IP: ${clientIp})`);
           return done(false);
         }
       } else if (nodeEnv === "production") {

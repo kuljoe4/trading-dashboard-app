@@ -1,3 +1,5 @@
+import { EngineBroadcasterService } from './engine-broadcaster.service';
+import { VariantAnalyticsService } from './variant-analytics.service';
 import { TradingSessionService } from './trading_session.service';
 
 describe('TradingSessionService', () => {
@@ -11,6 +13,9 @@ describe('TradingSessionService', () => {
       { recordHotLoop: jest.fn(), getMetrics: jest.fn().mockReturnValue({}) } as any,
       {} as any, {} as any,
       { reset: jest.fn(), getBalance: () => 10000, closedTrades: [] } as any,
+      {} as any, // variantAnalytics
+      new EngineBroadcasterService({} as any, {} as any, {} as any, {} as any, {} as any, new VariantAnalyticsService()),
+      {} as any, // gatingService
       { emit: jest.fn() } as any
     );
   });
@@ -23,7 +28,7 @@ describe('TradingSessionService', () => {
       qty: 0.1,
       status: 'OPEN'
     };
-    const serialized = (service as any).serializeTrade(trade, 51000);
+    const serialized = (service as any).engineBroadcaster.serializeTrade(trade, {}, 51000);
     expect(serialized.pnl).toBe(100);
     expect(serialized.rr).toBe(1);
   });

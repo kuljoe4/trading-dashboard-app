@@ -273,6 +273,12 @@ export class MarketFeedService {
   }
 
   private async backfillKlines(symbol: string, interval: string) {
+    // PROACTIVE RATE LIMIT: Skip backfill if near rate limits to preserve execution weight
+    if (this.sessionState.isRateLimited()) {
+      this.logger.debug(`Skipping kline backfill for ${symbol} @ ${interval} due to Binance rate limits.`);
+      return;
+    }
+
     const existingCandles = await this.klineStore.getRecentCandles(symbol, interval, 1);
     if (existingCandles.length > 0) {
       const lastCandle = existingCandles[0];

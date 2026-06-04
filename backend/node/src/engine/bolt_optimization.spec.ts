@@ -1,9 +1,12 @@
 import { TradingSessionService } from './trading_session.service';
+import { VariantAnalyticsService } from './variant-analytics.service';
 
 describe('Bolt Optimizations in TradingSessionService', () => {
   let service: TradingSessionService;
+  let variantAnalytics: VariantAnalyticsService;
 
   beforeEach(() => {
+    variantAnalytics = new VariantAnalyticsService();
     service = new TradingSessionService(
       {} as any, {} as any, {} as any, {} as any,
       { activeList: () => [], totalRisk: () => 0 } as any,
@@ -11,7 +14,7 @@ describe('Bolt Optimizations in TradingSessionService', () => {
       { recordHotLoop: jest.fn(), getMetrics: jest.fn().mockReturnValue({}) } as any,
       {} as any, {} as any,
       { reset: jest.fn(), cachedClosedTradesStats: {} } as any,
-      { emit: jest.fn() } as any
+      variantAnalytics, {} as any, {} as any, { emit: jest.fn() } as any
     );
   });
 
@@ -40,7 +43,12 @@ describe('Bolt Optimizations in TradingSessionService', () => {
         { strategy_label: 'Variant B', pnl: -5, risk_usdt: 2 }
       ];
 
-      const stats = (service as any).calculateVariantStats(activeTrades);
+      const stats = variantAnalytics.calculateVariantStats(
+        activeTrades,
+        1000,
+        (service as any).sessionState.cachedClosedTradesStats,
+        (service as any).getStrategyConfigs()
+      );
 
       expect(stats['Momentum Strategy']).toEqual({
         totalPnl: 110,

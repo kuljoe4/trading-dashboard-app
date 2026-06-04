@@ -94,3 +94,14 @@
 ## 2026-06-03 - [Optimization] Mathematical Rounding over String/Exponential Ops
 **Learning:** Using string-based exponential rounding (e.g., `Number(val + "e+8")`) or `toFixed()` in high-frequency loops (tick/broadcast) is extremely expensive due to string concatenation and parsing. Mathematical rounding (`Math.round(val * factor) / factor`) is 8x-40x faster. Additionally, string-based exponential rounding can return `NaN` for very small numbers (e.g., `5e-9`) if the string conversion doesn't match the expected format.
 **Action:** Always prioritize mathematical rounding with pre-allocated power-of-10 lookup tables for performance-critical serialization and financial calculations.
+
+## 2026-06-04 - [Architecture] Modular Service Decomposition
+**Learning:** High-complexity orchestrators (God Objects) like `TradingSessionService` create brittle code and circular dependencies. Decomposing orchestration into specialized services (`GatingService`, `EngineBroadcasterService`, `VariantAnalyticsService`) allows for cleaner state management, easier testing, and immutable data flow.
+**Action:** Move non-core execution logic (broadcasting, analytics, windows) into standalone services. Use strict DTOs (e.g., `TradeSerializationDto`) to decouple core entities from external broadcast formats. Ensure broadcasters remain read-only to prevent side-effect mutations during tick cycles.
+
+## 2026-06-04 - [Roadmap] Strategic Trading Engine Improvements
+**Objective:** Transition to a more robust, multi-exchange capable architecture.
+**Tasks:**
+1. **Abstract Exchange Layer:** Create an `IExchange` interface to decouple the engine from the Binance SDK.
+2. **Result Pattern:** Replace core logic exceptions with `Result<T, E>` types for explicit error handling.
+3. **Event-Driven Decoupling:** Fully migrate gating and monitoring to an `EventEmitter2` model to remove remaining orchestrator coupling.

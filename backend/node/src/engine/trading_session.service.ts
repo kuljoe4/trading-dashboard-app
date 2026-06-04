@@ -18,6 +18,10 @@ import { ENGINE_EVENTS } from './events';
 import { v4 as uuid } from 'uuid';
 import { roundEight, roundTo } from '../lib/math';
 import { ENGINE_CONSTANTS, CONFIG_LIMITS } from '../models/constants';
+import { VariantAnalyticsService } from './variant-analytics.service';
+import { EngineBroadcasterService } from './engine-broadcaster.service';
+import { GatingService } from './gating.service';
+import { TradeSerializationDto } from '../trading/dto/trade-serialization.dto';
 
 function monitoringChangedInternal(curr: any, prev: any): boolean {
   if (!curr || !prev) return true;
@@ -35,17 +39,14 @@ export class TradingSessionService {
   private lastRateLimitCheck = 0;
   private onBalanceUpdate: ((balance: number, pnl: number) => Promise<void> | void) | null = null;
   private onTradeUpdate: ((trade: Trade, balance: number) => Promise<void>) | null = null;
-  private lastScannerResults: any[] = [];
-  private lastVariantScannerResults: any[] = [];
-  private lastAnalyticsResult: any = null;
-  private lastAnalyticsTradeCount = -1;
-  private lastAnalyticsStartingBalance = -1;
-  private activeWindows: Map<string, any> = new Map();
   private mainLoopInterval: NodeJS.Timeout | null = null;
   private hotLoopInterval: NodeJS.Timeout | null = null;
   private balancePollInterval: NodeJS.Timeout | null = null;
   private lastScannerFullBroadcast = 0;
   private lastScannerResultsJson = '';
+  private lastScannerResults: any[] = [];
+  private lastVariantScannerResults: any[] = [];
+  private activeWindows: Map<string, any> = new Map();
   private userDataWs: any = null;
   private listenKey: string | null = null;
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
@@ -86,6 +87,9 @@ export class TradingSessionService {
     private readonly analyticsService: AnalyticsService,
     private readonly broadcastService: BroadcastService,
     private readonly sessionState: SessionStateService,
+    private readonly variantAnalytics: VariantAnalyticsService,
+    private readonly engineBroadcaster: EngineBroadcasterService,
+    private readonly gatingService: GatingService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -172,25 +176,25 @@ export class TradingSessionService {
     if (!this.running || !this.config) return;
     if (this.sessionState.listenerCount === 0 && this.positionTracker.activeCount() === 0) { this.monitoringService.recordHotLoop(0); return; }
     const start = performance.now();
-    try { await this.checkExits(); this.broadcastTick(); this.monitoringService.recordHotLoop(performance.now() - start); } catch (error) {}
+    try { await this.checkExits(); this.engineBroadcaster.broadcastTick(this.positionTracker.activeList(), this.config!, this.getStrategyConfigs(), this.isEcoMode(), () => this.getActiveWindows(), () => this.getBinanceRateLimit()); this.monitoringService.recordHotLoop(performance.now() - start); } catch (error) {}
   }
 
   private async mainLoop() {
     if (!this.running || !this.config) return;
     const activeTrades = this.positionTracker.activeList();
     const prevGateState = this.sessionState.gateState;
-    const isInsideWindow = this.isInsideTradingWindow();
+    const isInsideWindow = this.gatingService.isInsideTradingWindow(this.config!);
 
     const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, this.getBalance(), 'DUMMY', this.config!, this.positionTracker.totalRisk());
     const hasUnscheduledMonitors = this.config.single_symbol_configs?.some(sc => sc.enabled && sc.follow_schedule === false);
 
     if (!isInsideWindow && !hasUnscheduledMonitors) this.sessionState.gateState = 'sleeping';
-    else if (!riskResult.canEnter) { if (!riskResult.reason.includes('Max open trades for')) this.sessionState.gateState = this.mapGateState(riskResult.reason); }
+    else if (!riskResult.canEnter) { if (!riskResult.reason.includes('Max open trades for')) this.sessionState.gateState = this.gatingService.mapGateState(riskResult.reason); }
     else this.sessionState.gateState = null;
 
     const shouldHibernate = this.isGated() && activeTrades.length === 0;
-    if (shouldHibernate && !this.sessionState.hibernating) await this.enterHibernation(riskResult.reason || 'Session gated and idle');
-    else if (!shouldHibernate && this.sessionState.hibernating) await this.exitHibernation();
+    if (shouldHibernate && !this.sessionState.hibernating) await this.gatingService.enterHibernation(riskResult.reason || 'Session gated and idle', this.config!, activeTrades);
+    else if (!shouldHibernate && this.sessionState.hibernating) await this.gatingService.exitHibernation(this.config!);
 
     if (this.sessionState.gateState !== prevGateState) {
       this.broadcast('gate', { gateState: this.sessionState.gateState, reason: riskResult.reason, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused });
@@ -218,7 +222,7 @@ export class TradingSessionService {
         const now = Date.now(); const isFull = now - this.lastScannerFullBroadcast > 30000;
         const nextResultsJson = JSON.stringify(this.lastScannerResults.map(o => o.symbol + o.direction + o.score));
         const resultsChanged = nextResultsJson !== this.lastScannerResultsJson; this.lastScannerResultsJson = nextResultsJson;
-        const priceChanged = this.lastScannerResults.some((o, i) => { const prev = (this.lastTickData as any)?.scannerResults?.[i]; return prev && Math.abs(o.price - prev.price) / prev.price > 0.001; });
+        const priceChanged = this.lastScannerResults.some((o, i) => { const prev = ( (this as any).lastTickData  as any)?.scannerResults?.[i]; return prev && Math.abs(o.price - prev.price) / prev.price > 0.001; });
 
         if (isFull || resultsChanged || priceChanged) {
           if (isFull) this.lastScannerFullBroadcast = now; this.lastScannerResultsJson = nextResultsJson;
@@ -251,8 +255,8 @@ export class TradingSessionService {
             this.sessionState.setActiveTrades(this.positionTracker.activeList());
             this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, tradeConfig);
             const analytics = this.analyticsService.calculateAnalytics(this.sessionState.closedTrades as any, this.config?.paper_mode ? this.config?.paper_starting_balance : this.config?.live_starting_balance);
-            this.lastAnalyticsResult = analytics;
-            this.broadcast('trade_event', { event: 'closed', symbol: result.trade.symbol, reason: exitCondition.exitReason, trade: this.serializeTrade(result.trade, currentPrice), pnl: result.trade.pnl, stats: this.sessionState.stats, analytics: { maxDrawdown: roundTo(analytics.maxDrawdown, 2), maxDrawdownPct: roundTo(analytics.maxDrawdownPct, 2), overallWinRate: roundTo(analytics.overallWinRate, 2), cumulativePnL: analytics.cumulativePnL.slice(-20).map((p: any) => ({ ...p, pnl: roundTo(p.pnl, 2) })), } });
+             (this as any).lastAnalyticsResult  = analytics;
+            this.broadcast('trade_event', { event: 'closed', symbol: result.trade.symbol, reason: exitCondition.exitReason, trade: this.engineBroadcaster.serializeTrade(result.trade, this.config!, currentPrice), pnl: result.trade.pnl, stats: this.sessionState.stats, analytics: { maxDrawdown: roundTo(analytics.maxDrawdown, 2), maxDrawdownPct: roundTo(analytics.maxDrawdownPct, 2), overallWinRate: roundTo(analytics.overallWinRate, 2), cumulativePnL: analytics.cumulativePnL.slice(-20).map((p: any) => ({ ...p, pnl: roundTo(p.pnl, 2) })), } });
           } catch (err: any) { await this.rollbackTradeClosure(result.trade, prevPaper, prevLive); throw err; }
         }
       }
@@ -281,7 +285,7 @@ export class TradingSessionService {
 
       if (!riskResult.canEnter) {
         if (!riskResult.reason.includes('Max open trades for')) {
-          this.sessionState.gateState = this.mapGateState(riskResult.reason);
+          this.sessionState.gateState = this.gatingService.mapGateState(riskResult.reason);
           this.broadcast('gate', { gateState: this.sessionState.gateState, reason: riskResult.reason, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused });
         }
         continue;
@@ -300,7 +304,7 @@ export class TradingSessionService {
         this.positionTracker.addTrade(trade); this.sessionState.updateStatsOnEntry(); if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
         this.sessionState.setActiveTrades(this.positionTracker.activeList());
         this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, strategyConfig);
-        this.broadcast('trade_event', { event: 'opened', symbol: opp.symbol, trade: this.serializeTrade(trade, price), stats: this.sessionState.stats });
+        this.broadcast('trade_event', { event: 'opened', symbol: opp.symbol, trade: this.engineBroadcaster.serializeTrade(trade, this.config!, price), stats: this.sessionState.stats });
       }
     }
   }
@@ -314,125 +318,10 @@ export class TradingSessionService {
 
   private getActiveWindows() { const now = Date.now(); return Array.from(this.activeWindows.values()).map((window) => ({ ...window, remaining_ms: Math.max(0, window.expires_at - now) })); }
 
-  private isInsideTradingWindow(): boolean { if (!this.config?.trading_windows?.length) return true; const now = new Date(); const currentTime = now.getUTCHours() * 100 + now.getUTCMinutes(); return this.config.trading_windows.some(window => { const start = parseInt(window.start.replace(':', ''), 10); const end = parseInt(window.end.replace(':', ''), 10); return start <= end ? (currentTime >= start && currentTime <= end) : (currentTime >= start || currentTime <= end); }); }
-
-  private async enterHibernation(reason: string) {
-    this.logger.log(`Entering DEEP SLEEP (Hibernation) - Reason: ${reason}`);
-    this.sessionState.hibernating = true;
-    const needsKlines = this.positionTracker.activeList().some(t => { const c = { ...this.config!, ...(t as any).strategy_config || {} }; return c.exit_signals && c.exit_signals.length > 0; });
-    if (needsKlines) await this.momentumScanner.stop(); else { await this.marketFeed.stop(); await this.momentumScanner.stop(); this.klineStore.clear(); this.tickerCache.clear(); }
-    this.broadcast('gate', { gateState: this.sessionState.gateState, reason: reason, hibernating: true });
-  }
-
-  private async exitHibernation() {
-    this.logger.log('Exiting DEEP SLEEP (Hibernation)');
-    this.sessionState.hibernating = false; if (this.config) { await this.marketFeed.start(this.config); await this.momentumScanner.start(this.config); }
-    this.broadcast('gate', { gateState: this.sessionState.gateState, hibernating: false });
-  }
-
-  private mapGateState(reason: string): string {
-    if (reason.includes('max open trades')) return 'max_trades'; if (reason.includes('Max trades per period')) return 'max_trades_period';
-    if (reason.includes('Total SL')) return 'sl_guard'; if (reason.includes('Total risk')) return 'risk_pct';
-    if (reason.includes('Historical performance')) return 'tod_risk'; return 'risk';
-  }
-
-  private serializeTrade(trade: Trade, currentPrice?: number, minimal = false) {
-    const anyTrade = trade as any; const direction = (anyTrade.direction || anyTrade.side || 'LONG').toString().toUpperCase(); const entry = anyTrade.entry_price ?? anyTrade.entry ?? 0;
-    const cpv = currentPrice !== undefined && Number.isFinite(currentPrice) && currentPrice > 0; const current = cpv ? currentPrice : anyTrade.exit_price ?? anyTrade.last_price ?? entry; if (cpv) anyTrade.last_price = currentPrice;
-    let pnl = undefined; let rrValue = undefined;
-    if (current !== undefined && Number.isFinite(current) && Number.isFinite(entry)) {
-      const grossPnl = direction === 'LONG' ? (current - entry) * (anyTrade.qty ?? 0) : (entry - current) * (anyTrade.qty ?? 0);
-      pnl = roundEight(grossPnl - (anyTrade.realized_fee || 0));
-      anyTrade.pnl = pnl;
-      const risk = Math.abs(entry - (anyTrade.initial_sl ?? anyTrade.current_sl ?? anyTrade.sl_price ?? anyTrade.sl ?? entry)) || 1;
-      rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / risk;
-    }
-
-    if (minimal) { return { id: trade.id, symbol: trade.symbol, strategy_label: anyTrade.strategy_label || this.getStrategyLabel(anyTrade.strategy_config || this.config), current_price: roundTo(current ?? entry, 8), sl_price: roundTo(anyTrade.current_sl ?? anyTrade.sl_price, 8), tp_price: roundTo(anyTrade.tp ?? anyTrade.tp_price, 8), pnl: roundTo(pnl, 2), realized_fee: roundTo(anyTrade.realized_fee, 2), rr: roundTo(rrValue, 4), max_rr: roundTo(anyTrade.max_rr_achieved ?? anyTrade.max_rr ?? 0, 4), direction, entry_price: roundTo(entry, 8), qty: roundTo(anyTrade.qty ?? 0, 8), paper_mode: this.config?.paper_mode, exit_signals_status: anyTrade.exit_signals_status || {}, sl_adjustments: anyTrade.sl_adjustments || [], live_rr_sequence: anyTrade.strategy_config?.live_rr_sequence || this.config?.live_rr_sequence || [], exit_rr_sequence: anyTrade.strategy_config?.exit_rr_sequence || this.config?.exit_rr_sequence || [], tp_mode: anyTrade.strategy_config?.tp_mode || this.config?.tp_mode || 'fixed', tp_ratio: anyTrade.strategy_config?.tp_ratio || this.config?.tp_ratio || 2, _delta: true, }; }
-
-    return { ...trade, direction, current_price: roundTo(current ?? entry, 8), sl_price: roundTo(anyTrade.current_sl ?? anyTrade.sl_price, 8), tp_price: roundTo(anyTrade.tp ?? anyTrade.tp_price, 8), pnl: roundTo(pnl, 2), realized_fee: roundTo(anyTrade.realized_fee, 2), rr: roundTo(rrValue, 4), paper_mode: this.config?.paper_mode, trading_mode: this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live'), max_rr: roundTo(anyTrade.max_rr_achieved ?? anyTrade.max_rr ?? 0, 4), strategy_label: anyTrade.strategy_label || this.getStrategyLabel(anyTrade.strategy_config || this.config), strategy_config: anyTrade.strategy_config, live_rr_sequence: anyTrade.strategy_config?.live_rr_sequence || this.config?.live_rr_sequence || [], exit_rr_sequence: anyTrade.strategy_config?.exit_rr_sequence || this.config?.exit_rr_sequence || [], exit_signal_logic: anyTrade.strategy_config?.exit_signal_logic || this.config?.exit_signal_logic || 'any', tp_mode: anyTrade.strategy_config?.tp_mode || this.config?.tp_mode || 'fixed', tp_ratio: anyTrade.strategy_config?.tp_ratio || this.config?.tp_ratio || 2, };
-  }
-
-  private lastTickData: any = null; private lastTickTime = 0;
-
-  private broadcastTick() {
-    if (this.sessionState.listenerCount === 0) return;
-    const activeTrades = this.positionTracker.activeList(); const now = Date.now(); const isHeartbeat = !this.lastTickData || (now - this.lastTickTime > 10000);
-    const prevTickMap = new Map<string, any>(); if (this.lastTickData?.trades) { for (const t of this.lastTickData.trades) prevTickMap.set(t.id, t); }
-    const trades: any[] = []; const len = activeTrades.length; let anyPriceChangedSignificant = false; let activePnl = 0;
-    const hasVariants = !!(this.config?.strategy_variants?.length); const variantGroups: Record<string, { pnl: number, risk: number, count: number, hits: number }> = {};
-
-    for (let i = 0; i < len; i++) {
-      const trade = activeTrades[i] as any; const prevTrade = prevTickMap.get(trade.id);
-      let currentPrice = this.tickerCache.getPrice(trade.symbol); if (currentPrice === null && prevTrade) currentPrice = prevTrade.current_price;
-      const current = currentPrice ?? trade.exit_price ?? trade.last_price ?? trade.entry_price; if (currentPrice !== null) trade.last_price = currentPrice;
-      const direction = trade.direction || 'LONG'; const entry = trade.entry_price || 0; const qty = trade.qty || 0;
-      const grossPnl = direction === 'LONG' ? (current - entry) * qty : (entry - current) * qty;
-      const pnlValue = roundEight(grossPnl - (trade.realized_fee || 0)); trade.pnl = pnlValue; activePnl += pnlValue;
-
-      if (hasVariants) {
-        const label = trade.strategy_label || 'Momentum Strategy'; if (!variantGroups[label]) variantGroups[label] = { pnl: 0, risk: 0, count: 0, hits: 0 };
-        const g = variantGroups[label]; g.pnl = roundEight(g.pnl + pnlValue); g.risk = roundEight(g.risk + (trade.risk_usdt || 0)); g.count++; if (pnlValue > 0) g.hits++;
-      }
-
-      let tradeChanged = !prevTrade || isHeartbeat;
-      if (!tradeChanged && prevTrade) {
-        if (trade.current_sl !== prevTrade.sl_price || trade.max_rr_achieved !== prevTrade.max_rr || trade.direction !== prevTrade.direction) { tradeChanged = true; }
-        else if ((trade.sl_adjustments?.length || 0) !== (prevTrade._sl_len || 0)) { tradeChanged = true; }
-        else if (JSON.stringify(trade.exit_signals_status) !== prevTrade._sig_json) { tradeChanged = true; }
-        else {
-          const pnlDelta = Math.abs(pnlValue - (prevTrade.pnl || 0));
-          if (pnlDelta > 0.05) { tradeChanged = true; anyPriceChangedSignificant = true; }
-          else {
-            const priceMoveRatio = Math.abs(current - (prevTrade.current_price || 0)) / (prevTrade.current_price || 1);
-            if (priceMoveRatio >= 0.0001) tradeChanged = true;
-            else {
-              const risk = Math.abs(entry - (trade.initial_sl ?? trade.current_sl ?? entry)) || 1;
-              const rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / risk;
-              if (Math.abs(rrValue - (prevTrade.rr || 0)) >= 0.01) { tradeChanged = true; anyPriceChangedSignificant = true; }
-            }
-          }
-        }
-      }
-      if (tradeChanged) {
-        const serialized = this.serializeTrade(trade, current, true) as any;
-        const { strategy_config, live_rr_sequence, exit_rr_sequence, exit_signals_status, sl_adjustments, tp_mode, tp_ratio, ...thin } = serialized;
-        thin._sl_len = trade.sl_adjustments?.length || 0;
-        thin._sig_json = JSON.stringify(trade.exit_signals_status);
-        trades.push(thin);
-      }
-    }
-
-    const balance = this.getBalance(); const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live'); const startingBalance = (mode === 'paper') ? this.config?.paper_starting_balance : this.config?.live_starting_balance;
-    const realizedPnl = roundEight(balance - (startingBalance ?? balance)); const totalPnl = roundEight(realizedPnl + activePnl); const totalRiskUsdt = this.positionTracker.totalRisk();
-    if (!this.lastAnalyticsResult || this.sessionState.closedTrades.length !== this.lastAnalyticsTradeCount || startingBalance !== this.lastAnalyticsStartingBalance) { this.lastAnalyticsResult = this.analyticsService.calculateAnalytics(this.sessionState.closedTrades as any, startingBalance); this.lastAnalyticsTradeCount = this.sessionState.closedTrades.length; this.lastAnalyticsStartingBalance = startingBalance || 0; }
-    const monitoringInterval = 15000; const lastMonitoringTime = this.lastTickData?._monitoring_ts || 0; const shouldUpdateMonitoring = (now - lastMonitoringTime > monitoringInterval) || !this.lastTickData; const monitoring = shouldUpdateMonitoring ? this.monitoringService.getMetrics() : null;
-
-    let variantStats: Record<string, any> | undefined;
-    if (hasVariants) {
-      variantStats = {}; const closedStats = this.sessionState.cachedClosedTradesStats; const configs = this.getStrategyConfigs();
-      for (let i = 0; i < configs.length; i++) {
-        const l = configs[i].strategy_label!; const a = variantGroups[l] || { pnl: 0, risk: 0, count: 0, hits: 0 }; const c = closedStats[l] || { pnl: 0, count: 0, hits: 0 };
-        variantStats[l] = { totalPnl: roundEight(c.pnl + a.pnl), entryCount: c.count + a.count, hitCount: c.hits + a.hits, totalRiskPct: roundTo(balance > 0 ? (a.risk / balance) * 100 : 0, 2), activeTradeCount: a.count };
-      }
-    }
-
-    const tickData: any = { balance: roundTo(balance, 2), total_pnl: roundTo(totalPnl, 2), total_risk_pct: roundTo(balance > 0 ? (totalRiskUsdt / balance) * 100 : 0, 2), total_sl_used: roundTo(totalRiskUsdt, 2), trades, gateState: this.sessionState.gateState, hibernating: this.sessionState.hibernating, paused: this.sessionState.paused, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused, activeWindows: this.getActiveWindows(), rateLimit: this.getBinanceRateLimit(), stats: this.sessionState.stats, monitoring, isEcoMode: this.isEcoMode(), _statsVersion: this.sessionState.statsVersion, };
-    if (variantStats) tickData.variant_stats = variantStats;
-    const heartbeatInterval = trades.length > 0 ? 10000 : 30000; let shouldBroadcast = !this.lastTickData || (now - this.lastTickTime > heartbeatInterval); if (shouldBroadcast) tickData._heartbeat = true;
-    if (!shouldBroadcast) {
-      const prevTrades = this.lastTickData?.trades || []; const tradesChanged = trades.length > 0 || len !== prevTrades.length || anyPriceChangedSignificant;
-      const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) > 0.1; const gateChanged = tickData.gateState !== this.lastTickData?.gateState;
-      const statsChanged = tickData._statsVersion !== this.lastTickData?._statsVersion; if (!shouldUpdateMonitoring) delete tickData.monitoring; else tickData._monitoring_ts = now;
-      if (tradesChanged || pnlChanged || gateChanged || statsChanged || (shouldUpdateMonitoring && monitoringChangedInternal(monitoring, this.lastTickData?.monitoring))) shouldBroadcast = true;
-    }
-    if (shouldBroadcast) { this.broadcast('tick', tickData); this.lastTickData = tickData; this.lastTickTime = now; }
-  }
-
   private broadcastSnapshot(status: 'started' | 'stopped') {
     const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
     if (status === 'stopped') { this.broadcast('session_terminated', { reason: 'SESSION_TERMINATED', endedAt: new Date().toISOString() }); return; }
-    this.broadcast('session', { status, running: this.running, paused: this.sessionState.paused, mode: this.config?.paper_mode ? 'PAPER' : 'LIVE', tradingMode: mode, balance: this.getBalance(), config: this.config, gateState: this.sessionState.gateState, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period', activeTrades: this.positionTracker.activeList().map((t) => this.serializeTrade(t)), scannerResults: this.lastScannerResults, activeWindows: this.getActiveWindows(), });
+    this.broadcast('session', { status, running: this.running, paused: this.sessionState.paused, mode: this.config?.paper_mode ? 'PAPER' : 'LIVE', tradingMode: mode, balance: this.getBalance(), config: this.config, gateState: this.sessionState.gateState, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period', activeTrades: this.positionTracker.activeList().map((t) => this.engineBroadcaster.serializeTrade(t, this.config!)), scannerResults: this.lastScannerResults, activeWindows: this.getActiveWindows(), });
   }
 
   async fetchBinanceBalance(): Promise<number> { if (!this.binanceClient) return 0; try { this.monitoringService.incrementApiRequests(); const res = await this.binanceClient.restAPI.accountApi.futuresAccountBalanceV2(); const data = res.data || res; const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null; return usdt ? parseFloat(usdt.balance || 0) : 0; } catch (e: any) { this.logger.error(`Balance fetch failed: ${e.message}`); return 0; } }
@@ -450,21 +339,13 @@ export class TradingSessionService {
     } catch (e) { throw e; }
   }
 
-  private calculateVariantStats(activeTrades?: Trade[]): Record<string, any> {
-    const variantStats: Record<string, any> = {}; if (!this.config?.strategy_variants?.length) return variantStats;
-    const activeList = activeTrades || this.positionTracker.activeList(); const balance = this.getBalance(); const closedStats = this.sessionState.cachedClosedTradesStats;
-    const groups: Record<string, { pnl: number, risk: number, count: number, hits: number }> = {};
-    for (let i = 0; i < activeList.length; i++) { const t = activeList[i]; const l = t.strategy_label || 'Momentum Strategy'; if (!groups[l]) groups[l] = { pnl: 0, risk: 0, count: 0, hits: 0 }; groups[l].pnl = roundEight(groups[l].pnl + (t.pnl || 0)); groups[l].risk = roundEight(groups[l].risk + (t.risk_usdt || 0)); groups[l].count++; if ((t.pnl || 0) > 0) groups[l].hits++; }
-    this.getStrategyConfigs().forEach(cfg => { const l = cfg.strategy_label!; const a = groups[l] || { pnl: 0, risk: 0, count: 0, hits: 0 }; const c = closedStats[l] || { pnl: 0, count: 0, hits: 0 }; variantStats[l] = { totalPnl: roundEight(c.pnl + a.pnl), entryCount: c.count + a.count, hitCount: c.hits + a.hits, totalRiskPct: roundTo(balance > 0 ? (a.risk / balance) * 100 : 0, 2), activeTradeCount: a.count }; });
-    return variantStats;
-  }
 
   getActiveTradeCount(): number { return this.positionTracker.activeCount(); }
   getActiveTradeSymbols(): string[] { return this.positionTracker.activeList().map(t => t.symbol); }
   getActiveTradesRaw(): Trade[] { return this.positionTracker.activeList(); }
 
   getStatus() {
-    return { running: this.running, paused: this.sessionState.paused, mode: this.config?.paper_mode ? 'PAPER' : 'LIVE', tradingMode: this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live'), balance_paper: this.sessionState.balancePaper, balance_live: this.sessionState.balanceLive, stats: this.sessionState.stats, activeTrades: this.positionTracker.activeList().map((t) => this.serializeTrade(t)), total_risk: this.positionTracker.totalRisk(), variant_stats: this.calculateVariantStats(), scannerResults: this.lastScannerResults, activeWindows: this.getActiveWindows(), gateState: this.sessionState.gateState, hibernating: this.sessionState.hibernating, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused, history: this.sessionState.closedTrades.slice(0, 50).map((t) => this.serializeTrade(t, t.exit_price)), };
+    return { running: this.running, paused: this.sessionState.paused, mode: this.config?.paper_mode ? 'PAPER' : 'LIVE', tradingMode: this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live'), balance_paper: this.sessionState.balancePaper, balance_live: this.sessionState.balanceLive, stats: this.sessionState.stats, activeTrades: this.positionTracker.activeList().map((t) => this.engineBroadcaster.serializeTrade(t, this.config!)), total_risk: this.positionTracker.totalRisk(), variant_stats: this.variantAnalytics.calculateVariantStats(this.positionTracker.activeList(), this.getBalance(), this.sessionState.cachedClosedTradesStats, this.getStrategyConfigs()), scannerResults: this.lastScannerResults, activeWindows: this.getActiveWindows(), gateState: this.sessionState.gateState, hibernating: this.sessionState.hibernating, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused, history: this.sessionState.closedTrades.slice(0, 50).map((t) => this.engineBroadcaster.serializeTrade(t, this.config!, t.exit_price)), };
   }
 
   setPaused(paused: boolean) { this.sessionState.paused = paused; this.broadcast('tick', { paused }); }
@@ -500,8 +381,8 @@ export class TradingSessionService {
         if (this.onTradeUpdate) await this.onTradeUpdate(res.trade, this.getBalance());
         this.sessionState.setActiveTrades(this.positionTracker.activeList());
         this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, this.config!);
-        this.lastAnalyticsResult = this.analyticsService.calculateAnalytics(this.sessionState.closedTrades as any, this.config?.paper_mode ? this.config?.paper_starting_balance : this.config?.live_starting_balance);
-        this.broadcast('trade_event', { event: 'closed', symbol: res.trade.symbol, reason: 'MANUAL_CLOSE', trade: this.serializeTrade(res.trade, cp), pnl: res.trade.pnl, stats: this.sessionState.stats, analytics: { maxDrawdown: roundTo(this.lastAnalyticsResult.maxDrawdown, 2), maxDrawdownPct: roundTo(this.lastAnalyticsResult.maxDrawdownPct, 2), overallWinRate: roundTo(this.lastAnalyticsResult.overallWinRate, 2), cumulativePnL: this.lastAnalyticsResult.cumulativePnL.slice(-20).map((p: any) => ({ ...p, pnl: roundTo(p.pnl, 2) })), } });
+         (this as any).lastAnalyticsResult  = this.analyticsService.calculateAnalytics(this.sessionState.closedTrades as any, this.config?.paper_mode ? this.config?.paper_starting_balance : this.config?.live_starting_balance);
+        this.broadcast('trade_event', { event: 'closed', symbol: res.trade.symbol, reason: 'MANUAL_CLOSE', trade: this.engineBroadcaster.serializeTrade(res.trade, this.config!, cp), pnl: res.trade.pnl, stats: this.sessionState.stats, analytics: { maxDrawdown: roundTo( (this as any).lastAnalyticsResult .maxDrawdown, 2), maxDrawdownPct: roundTo( (this as any).lastAnalyticsResult .maxDrawdownPct, 2), overallWinRate: roundTo( (this as any).lastAnalyticsResult .overallWinRate, 2), cumulativePnL:  (this as any).lastAnalyticsResult .cumulativePnL.slice(-20).map((p: any) => ({ ...p, pnl: roundTo(p.pnl, 2) })), } });
         return { success: true, trade: res.trade };
       } catch (err: any) { await this.rollbackTradeClosure(res.trade, pp, pl); return { success: false, error: err.message }; }
     }

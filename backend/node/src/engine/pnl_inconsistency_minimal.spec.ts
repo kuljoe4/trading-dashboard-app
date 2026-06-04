@@ -12,7 +12,7 @@ describe('PnL Inconsistency Minimal Reproduction', () => {
       { recordHotLoop: jest.fn(), getMetrics: jest.fn().mockReturnValue({}) } as any,
       {} as any, {} as any,
       { getBalance: () => 10000, closedTrades: [] } as any,
-      { emit: jest.fn() } as any
+      {} as any, {} as any, {} as any, { emit: jest.fn() } as any
     );
   });
 

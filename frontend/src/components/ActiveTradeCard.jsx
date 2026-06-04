@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { fmtUSD, pnlColor } from '../lib/theme'
 import { sessionAPI } from '../api/client'
-import { ShieldCheck } from 'lucide-react'
+import { ShieldCheck, AlertCircle } from 'lucide-react'
 
 const price = (value) => {
   if (value == null || Number.isNaN(Number(value))) return '---'
@@ -37,6 +37,7 @@ const duration = (entryTs) => {
 export const ActiveTradeCard = ({ trade, config, onTradeClose }) => {
   const [isClosing, setIsClosing] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     if (confirmClose) {
@@ -44,6 +45,13 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose }) => {
       return () => clearTimeout(timer)
     }
   }, [confirmClose])
+
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [error])
 
   const handleClose = async () => {
     setConfirmClose(false)
@@ -55,7 +63,7 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose }) => {
       }
     } catch (error) {
       console.error('Failed to close trade:', error)
-      alert(`Error closing trade: ${error.message}`)
+      setError(error.message)
     } finally {
       setIsClosing(false)
     }
@@ -122,6 +130,12 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose }) => {
           <span>{timeSince(entryTime)}</span>
         </div>
       </div>
+      {error && (
+        <div className="flex items-center gap-2 text-red text-[10px] font-bold uppercase tracking-widest animate-in fade-in slide-in-from-top-1" aria-live="polite">
+          <AlertCircle size={12} />
+          {error}
+        </div>
+      )}
       <button
         onClick={() => {
           if (confirmClose) {
@@ -131,7 +145,7 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose }) => {
           }
         }}
         disabled={isClosing}
-        aria-label={isClosing ? "Closing position" : confirmClose ? "Confirm close position" : "Close position"}
+        aria-label={isClosing ? "Closing position" : error ? `Error: ${error}` : confirmClose ? "Confirm close position" : "Close position"}
         className={`mt-2 px-4 py-2 bg-red hover:bg-red/80 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-all ${confirmClose ? 'animate-pulse ring-2 ring-red ring-offset-2 ring-offset-surface' : ''}`}
       >
         <span aria-live="polite">

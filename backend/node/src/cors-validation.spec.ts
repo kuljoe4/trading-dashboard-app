@@ -34,8 +34,8 @@ describe('checkOrigin', () => {
     expect(checkOrigin('https://up.railway.app', allowedOrigins)).toBe(false); // Missing subdomain for *.up.railway.app
   });
 
-  it('should be case sensitive (standard CORS behavior)', () => {
-    expect(checkOrigin('https://EXAMPLE.COM', allowedOrigins)).toBe(false);
+  it('should be case insensitive (hostnames are case-insensitive)', () => {
+    expect(checkOrigin('https://EXAMPLE.COM', allowedOrigins)).toBe(true);
   });
 
   it('should handle complex wildcards', () => {

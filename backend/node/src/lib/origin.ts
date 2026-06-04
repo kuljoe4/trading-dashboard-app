@@ -4,20 +4,18 @@ export const checkOrigin = (origin: string, allowedOrigins: string[]): boolean =
     let normalizedPattern = pattern.trim().replace(/\/$/, "");
 
     // Audit Item: Handle potential quotes from environment variables (e.g., '"http://..."')
-    if (
-      (normalizedPattern.startsWith('"') && normalizedPattern.endsWith('"')) ||
-      (normalizedPattern.startsWith("'") && normalizedPattern.endsWith("'"))
-    ) {
-      normalizedPattern = normalizedPattern.slice(1, -1);
-    }
+    // Sentinel fix: strip quotes even if unbalanced (e.g. from split quoted strings)
+    normalizedPattern = normalizedPattern
+      .replace(/^['"]/, "")
+      .replace(/['"]$/, "");
 
     if (normalizedPattern.includes("*")) {
       const regexPattern = normalizedPattern
         .split("*")
         .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
         .join(".*");
-      return new RegExp(`^${regexPattern}$`).test(normalizedOrigin);
+      return new RegExp(`^${regexPattern}$`, "i").test(normalizedOrigin);
     }
-    return normalizedPattern === normalizedOrigin;
+    return normalizedPattern.toLowerCase() === normalizedOrigin.toLowerCase();
   });
 };

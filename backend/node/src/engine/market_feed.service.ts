@@ -105,9 +105,12 @@ export class MarketFeedService {
   private safeClose(ws: WebSocket | null) {
     if (!ws) return;
     try {
-      if (ws.readyState === WebSocket.CONNECTING) ws.terminate();
-      else if (ws.readyState === WebSocket.OPEN) ws.close();
-    } catch (err) {}
+      if (ws.readyState !== WebSocket.CLOSED) {
+        ws.terminate();
+      }
+    } catch (err) {
+      this.logger.debug(`Error during safeClose: ${err}`);
+    }
   }
 
   async stop() {

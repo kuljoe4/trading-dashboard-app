@@ -25,10 +25,8 @@ const Breadcrumbs = ({ strategyLabel }) => (
 const StrategyDetailView = ({ s, onBack }) => {
   const { config, scannerResults, analytics, wsStatus } = useTradingStore()
 
-  React.useEffect(() => {
-    setFocusMode(true, null, s.strategy_label);
-    return () => setFocusMode(false, null, null);
-  }, [s.strategy_label, setFocusMode]);
+  // Lifecycle-scoped subscription contract
+  useResourceFocus('strategy', s.strategy_label);
 
   const bestOpp = scannerResults[0] || { symbol: '---', pct: 0, dir: '---' }
   const scanMet = Math.abs(bestOpp.pct) >= config.scan_pct_threshold

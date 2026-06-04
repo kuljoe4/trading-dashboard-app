@@ -1,6 +1,7 @@
 import React from 'react'
 import { useTradingStore } from '../store/trading'
 import { ActiveTradeBar } from '../components/ActiveTradeBar'
+import { ActiveTradeCard } from '../components/ActiveTradeCard'
 import { SectionLabel, StatCard } from '../components/ui/primitives'
 import { fmtUSD } from '../lib/theme'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -67,7 +68,7 @@ const TradesView = () => {
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ delay: idx * 0.05 }}
               >
-                <ActiveTradeBar trade={trade} initialExpanded={activeTrades.length === 1} />
+                <ActiveTradeCard trade={trade} config={config} />
               </motion.div>
             ))}
           </AnimatePresence>

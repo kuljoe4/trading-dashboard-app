@@ -38,6 +38,7 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose }) => {
   const [isClosing, setIsClosing] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
   const [error, setError] = useState(null)
+  const [isExpanded, setIsExpanded] = useState(false)
 
   useEffect(() => {
     if (confirmClose) {
@@ -53,7 +54,8 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose }) => {
     }
   }, [error])
 
-  const handleClose = async () => {
+  const handleClose = async (e) => {
+    e.stopPropagation()
     setConfirmClose(false)
     setIsClosing(true)
     try {
@@ -78,7 +80,10 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose }) => {
     : trade.sl_dist != null ? trade.sl_dist : null
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-5 flex flex-col gap-4 w-full flex-1 shadow-sm">
+    <div
+      onClick={() => setIsExpanded(!isExpanded)}
+      className="bg-surface border border-border rounded-2xl p-5 flex flex-col gap-4 w-full flex-1 shadow-sm cursor-pointer hover:border-accent/40 transition-all"
+    >
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2 text-sm font-bold">
           <div className="flex flex-col">
@@ -98,38 +103,80 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose }) => {
           {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
         </div>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-dim">
-        <div className="flex flex-col gap-1">
-          <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">Entry</span>
-          <span>{trade.entry_price != null ? price(trade.entry_price) : 'None'}</span>
+      
+      {isExpanded && (
+        <div className="flex flex-col gap-4 text-xs text-dim border-t border-border/20 pt-4 mt-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="flex flex-col gap-1">
+              <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">Entry</span>
+              <span className="text-text font-medium">{trade.entry_price != null ? price(trade.entry_price) : 'None'}</span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">Current</span>
+              <span className="text-text font-medium">{trade.current_price != null ? price(trade.current_price) : 'None'}</span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">% Change</span>
+              <span className={`font-medium ${pctChange != null ? (pctChange >= 0 ? 'text-green' : 'text-red') : ''}`}>
+                {pctChange != null ? `${pctChange >= 0 ? '+' : ''}${pctChange}%` : '0.00%'}
+              </span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">SL Dist</span>
+              <span className="text-amber font-medium">{slDist != null ? `${slDist}%` : '0.00%'}</span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">Opened</span>
+              <span className="text-text font-medium">{entryTime ? new Date(entryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '---'}</span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">Duration</span>
+              <span className="text-text font-medium">{duration(entryTime)}</span>
+            </div>
+          </div>
+
+          {/* New Sections */}
+          {trade.sl_adjustments?.length > 0 && (
+            <div className="pt-2 border-t border-border/20">
+              <span className="font-semibold text-[11px] uppercase tracking-[0.15em] mb-2 block">SL Adjustments</span>
+              <div className="flex flex-wrap gap-2">
+                {trade.sl_adjustments.map((adj, i) => (
+                  <div key={i} className="px-2 py-1 bg-surface-lighter rounded text-[10px] text-text">
+                    {price(adj.prev_sl)} → {price(adj.new_sl)} ({adj.reason})
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {trade.exit_signals_status && Object.keys(trade.exit_signals_status).length > 0 && (
+            <div className="pt-2 border-t border-border/20">
+              <span className="font-semibold text-[11px] uppercase tracking-[0.15em] mb-2 block">Technical Signals</span>
+              <div className="grid grid-cols-2 gap-2">
+                {Object.entries(trade.exit_signals_status).map(([key, sig]) => (
+                  <div key={key} className={`flex items-center justify-between px-2 py-1 rounded text-[10px] ${sig.fired ? 'bg-green/10 text-green' : sig.active ? 'bg-amber/10 text-amber' : 'bg-surface-lighter text-dim'}`}>
+                    <span>{sig.label}</span>
+                    <span>{sig.value.toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {trade.live_rr_sequence?.length > 0 && (
+            <div className="pt-2 border-t border-border/20">
+              <span className="font-semibold text-[11px] uppercase tracking-[0.15em] mb-2 block">RR Ladder</span>
+              <div className="flex gap-1">
+                {trade.live_rr_sequence.map((rr, i) => (
+                  <div key={i} className={`px-2 py-1 rounded text-[10px] ${i <= trade.rr_sequence_index ? 'bg-accent text-white' : 'bg-surface-lighter text-dim'}`}>
+                    {rr}R
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-        <div className="flex flex-col gap-1">
-          <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">Current</span>
-          <span>{trade.current_price != null ? price(trade.current_price) : 'None'}</span>
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">% Change</span>
-          <span className={pctChange != null ? (pctChange >= 0 ? 'text-green font-bold' : 'text-red font-bold') : ''}>
-            {pctChange != null ? `${pctChange >= 0 ? '+' : ''}${pctChange}%` : '0.00%'}
-          </span>
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">SL Dist</span>
-          <span className="text-amber font-bold">{slDist != null ? `${slDist}%` : '0.00%'}</span>
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">Opened</span>
-          <span>{entryTime ? new Date(entryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '---'}</span>
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">Duration</span>
-          <span>{duration(entryTime)}</span>
-        </div>
-        <div className="flex flex-col gap-1 sm:col-span-2">
-          <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">Time Ago</span>
-          <span>{timeSince(entryTime)}</span>
-        </div>
-      </div>
+      )}
       {error && (
         <div className="flex items-center gap-2 text-red text-[10px] font-bold uppercase tracking-widest animate-in fade-in slide-in-from-top-1" aria-live="polite">
           <AlertCircle size={12} />
@@ -137,21 +184,16 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose }) => {
         </div>
       )}
       <button
-        onClick={() => {
-          if (confirmClose) {
-            handleClose()
-          } else {
-            setConfirmClose(true)
-          }
-        }}
+        onClick={handleClose}
         disabled={isClosing}
         aria-label={isClosing ? "Closing position" : error ? `Error: ${error}` : confirmClose ? "Confirm close position" : "Close position"}
-        className={`mt-2 px-4 py-2 bg-red hover:bg-red/80 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-all ${confirmClose ? 'animate-pulse ring-2 ring-red ring-offset-2 ring-offset-surface' : ''}`}
+        className={`mt-4 px-4 py-3 bg-red hover:bg-red/80 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-all ${confirmClose ? 'animate-pulse ring-2 ring-red ring-offset-2 ring-offset-surface' : ''}`}
       >
         <span aria-live="polite">
           {isClosing ? 'Closing...' : confirmClose ? 'Confirm?' : 'Close Position'}
         </span>
       </button>
     </div>
-)
+  )
 }
+

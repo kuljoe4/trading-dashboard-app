@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { settingsAPI } from '../api/client'
 import { SectionLabel, Btn, StatCard, cn } from '../components/ui/primitives'
-import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap, Eye, EyeOff, RotateCcw, Bug } from 'lucide-react'
+import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap, Eye, EyeOff, RotateCcw, Bug, X } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
 import { Sidebar, BottomNav } from '../components/Navigation'
@@ -224,14 +224,26 @@ export function SettingsView() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="flex flex-col gap-2">
                     <label htmlFor="apiKey" className="text-[10px] text-dim font-bold tracking-widest uppercase">Update Live API Key</label>
-                    <input
-                      id="apiKey"
-                      type="text"
-                      value={apiKey}
-                      onChange={e => setApiKey(e.target.value)}
-                      className="w-full bg-background border border-border focus:border-accent focus:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
-                      placeholder="8080...2025"
-                    />
+                    <div className="relative">
+                      <input
+                        id="apiKey"
+                        type="text"
+                        value={apiKey}
+                        onChange={e => setApiKey(e.target.value)}
+                        className="w-full bg-background border border-border focus:border-accent focus:outline-none rounded-xl px-4 py-3 pr-12 text-sm font-mono text-text transition-all"
+                        placeholder="8080...2025"
+                      />
+                      {apiKey && (
+                        <button
+                          type="button"
+                          onClick={() => setApiKey('')}
+                          aria-label="Clear API Key"
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-dim hover:text-red transition-colors"
+                        >
+                          <X size={18} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="flex flex-col gap-2">
                     <label htmlFor="apiSecret" className="text-[10px] text-dim font-bold tracking-widest uppercase">Update Live API Secret</label>
@@ -241,17 +253,29 @@ export function SettingsView() {
                         type={showLiveSecret ? "text" : "password"}
                         value={apiSecret}
                         onChange={e => setApiSecret(e.target.value)}
-                        className="w-full bg-background border border-border focus:border-accent focus:outline-none rounded-xl px-4 py-3 pr-12 text-sm font-mono text-text transition-all"
+                        className="w-full bg-background border border-border focus:border-accent focus:outline-none rounded-xl px-4 py-3 pr-20 text-sm font-mono text-text transition-all"
                         placeholder="••••••••••••••••"
                       />
-                      <button
-                        type="button"
-                        onClick={() => setShowLiveSecret(!showLiveSecret)}
-                        aria-label={showLiveSecret ? "Hide secret" : "Show secret"}
-                        className="absolute right-4 top-1/2 -translate-y-1/2 text-dim hover:text-accent transition-colors"
-                      >
-                        {showLiveSecret ? <EyeOff size={18} /> : <Eye size={18} />}
-                      </button>
+                      <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 text-dim">
+                        {apiSecret && (
+                          <button
+                            type="button"
+                            onClick={() => setApiSecret('')}
+                            aria-label="Clear API Secret"
+                            className="hover:text-red transition-colors"
+                          >
+                            <X size={18} />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setShowLiveSecret(!showLiveSecret)}
+                          aria-label={showLiveSecret ? "Hide secret" : "Show secret"}
+                          className="hover:text-accent transition-colors"
+                        >
+                          {showLiveSecret ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -278,14 +302,26 @@ export function SettingsView() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="flex flex-col gap-2">
                     <label htmlFor="testnetApiKey" className="text-[10px] text-dim font-bold tracking-widest uppercase">Update Testnet API Key</label>
-                    <input
-                      id="testnetApiKey"
-                      type="text"
-                      value={testnetApiKey}
-                      onChange={e => setTestnetApiKey(e.target.value)}
-                      className="w-full bg-background border border-border focus:border-purple focus:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
-                      placeholder="abcd...1234"
-                    />
+                    <div className="relative">
+                      <input
+                        id="testnetApiKey"
+                        type="text"
+                        value={testnetApiKey}
+                        onChange={e => setTestnetApiKey(e.target.value)}
+                        className="w-full bg-background border border-border focus:border-purple focus:outline-none rounded-xl px-4 py-3 pr-12 text-sm font-mono text-text transition-all"
+                        placeholder="abcd...1234"
+                      />
+                      {testnetApiKey && (
+                        <button
+                          type="button"
+                          onClick={() => setTestnetApiKey('')}
+                          aria-label="Clear Testnet API Key"
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-dim hover:text-red transition-colors"
+                        >
+                          <X size={18} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="flex flex-col gap-2">
                     <label htmlFor="testnetApiSecret" className="text-[10px] text-dim font-bold tracking-widest uppercase">Update Testnet API Secret</label>
@@ -295,17 +331,29 @@ export function SettingsView() {
                         type={showTestnetSecret ? "text" : "password"}
                         value={testnetApiSecret}
                         onChange={e => setTestnetApiSecret(e.target.value)}
-                        className="w-full bg-background border border-border focus:border-purple focus:outline-none rounded-xl px-4 py-3 pr-12 text-sm font-mono text-text transition-all"
+                        className="w-full bg-background border border-border focus:border-purple focus:outline-none rounded-xl px-4 py-3 pr-20 text-sm font-mono text-text transition-all"
                         placeholder="••••••••••••••••"
                       />
-                      <button
-                        type="button"
-                        onClick={() => setShowTestnetSecret(!showTestnetSecret)}
-                        aria-label={showTestnetSecret ? "Hide secret" : "Show secret"}
-                        className="absolute right-4 top-1/2 -translate-y-1/2 text-dim hover:text-purple transition-colors"
-                      >
-                        {showTestnetSecret ? <EyeOff size={18} /> : <Eye size={18} />}
-                      </button>
+                      <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 text-dim">
+                        {testnetApiSecret && (
+                          <button
+                            type="button"
+                            onClick={() => setTestnetApiSecret('')}
+                            aria-label="Clear Testnet API Secret"
+                            className="hover:text-red transition-colors"
+                          >
+                            <X size={18} />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setShowTestnetSecret(!showTestnetSecret)}
+                          aria-label={showTestnetSecret ? "Hide secret" : "Show secret"}
+                          className="hover:text-purple transition-colors"
+                        >
+                          {showTestnetSecret ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

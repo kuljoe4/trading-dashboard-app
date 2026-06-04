@@ -26,22 +26,22 @@ export const PulseDot = React.memo(({ color = "bg-green" }) => (
 
 // --- Stat Card ---
 export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing }) => (
-  <div className="bg-surface border border-border p-5 rounded-2xl shadow-sm hover:border-border-hover transition-colors group relative overflow-hidden">
+  <div className="bg-surface border border-border p-6 rounded-2xl shadow-sm hover:border-border-hover transition-colors group relative overflow-hidden">
     {syncing && (
       <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" />
     )}
-    <div className="text-[10px] text-dim tracking-widest mb-2 uppercase font-bold group-hover:text-dim/80 transition-colors">{label}</div>
+    <div className="text-[11px] text-dim tracking-[0.15em] mb-3 uppercase font-bold group-hover:text-dim/80 transition-colors">{label}</div>
     <div className={cn(
-      "text-xl font-bold font-mono tracking-tight transition-all duration-500",
+      "text-2xl font-bold font-mono tracking-tight transition-all duration-500",
       color,
       syncing && "opacity-40 blur-[1px]"
     )}>{value}</div>
     {subValue && (
       <div className={cn(
-        "text-[10px] text-dim mt-1 font-mono uppercase flex items-center gap-1.5",
+        "text-[11px] text-dim mt-2 font-mono uppercase flex items-center gap-1.5",
         syncing && "text-accent/60 animate-pulse"
       )}>
-        {syncing && <Loader2 size={10} className="animate-spin" />}
+        {syncing && <Loader2 size={12} className="animate-spin" />}
         {subValue}
       </div>
     )}
@@ -150,19 +150,19 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
 
   return (
     <div className={cn(
-      "flex-1 bg-surface border rounded-2xl p-5 transition-all duration-500",
+      "flex-1 bg-surface border rounded-2xl p-6 transition-all duration-500",
       borderColorClass
     )}>
-      <div className="flex justify-between items-start mb-4">
+      <div className="flex justify-between items-start mb-6">
         <div>
-          <div className="text-[10px] text-dim tracking-widest mb-1.5 uppercase font-bold">{label}</div>
+          <div className="text-[11px] text-dim tracking-[0.15em] mb-2 uppercase font-bold">{label}</div>
           <div className={cn("text-2xl font-bold font-mono tracking-tight", textColorClass)}>
             {formattedValue}
           </div>
-          {sublabel && <div className="text-[11px] text-dim mt-1.5 font-bold uppercase tracking-tight">{sublabel}</div>}
+          {sublabel && <div className="text-[11px] text-dim mt-2 font-bold uppercase tracking-tight">{sublabel}</div>}
         </div>
         <div className="text-right">
-          <div className="text-[10px] text-dim mb-1.5 font-bold uppercase tracking-widest">THRESHOLD</div>
+          <div className="text-[10px] text-dim mb-2 font-bold uppercase tracking-[0.15em]">THRESHOLD</div>
           <div className="text-[14px] text-text font-mono font-bold">{thresholdText}</div>
         </div>
       </div>
@@ -174,13 +174,13 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
         />
       </ProgressPrimitive.Root>
 
-      <div className="mt-3.5 flex items-center gap-2">
+      <div className="mt-4 flex items-center gap-2">
         {satisfied ? (
           <CheckCircle2 size={14} className="text-green" />
         ) : (
           <AlertCircle size={14} className="text-amber" />
         )}
-        <span className={cn("text-[11px] font-bold uppercase tracking-widest", textColorClass)}>
+        <span className={cn("text-[11px] font-bold uppercase tracking-[0.15em]", textColorClass)}>
           {satisfied ? "Condition satisfied" : "Awaiting signal…"}
         </span>
       </div>

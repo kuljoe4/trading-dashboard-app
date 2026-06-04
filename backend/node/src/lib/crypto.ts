@@ -7,14 +7,6 @@ const logger = new Logger("Crypto");
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
-if (!ENCRYPTION_KEY) {
-  // We don't want to crash during compilation or when the module is just loaded in some contexts,
-  // but we must not allow actual encryption/decryption without a real key.
-  logger.warn(
-    "⚠️  ENCRYPTION_KEY environment variable is not set. API keys will NOT be encrypted/decrypted correctly.",
-  );
-}
 
 function getEncryptionKey(): Buffer {
   const key = process.env.ENCRYPTION_KEY;

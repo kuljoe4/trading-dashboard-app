@@ -132,27 +132,27 @@ const SessionGroup = React.memo(({ session, trades, colorDrawdown }) => {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-6 md:gap-10">
+        <div className="flex flex-wrap items-center gap-6 md:gap-10 p-5">
           <div className="hidden lg:block w-44">
             <EquityCurve data={curve} height={54} colorDrawdown={colorDrawdown} />
           </div>
           <div className="flex flex-col">
-            <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-1">Config</span>
-            <span className="text-xs font-bold text-dim uppercase tracking-tight flex items-center gap-1.5">
+            <span className="text-[11px] text-dim font-bold uppercase tracking-[0.15em] mb-2">Config</span>
+            <span className="text-xs font-bold text-text uppercase tracking-tight flex items-center gap-1.5">
               <Zap size={10} className="text-accent" />
               {session.config?.scan_interval} · {session.config?.scan_pct_threshold}% · {session.config?.risk_pct_per_trade}%
             </span>
           </div>
           <div className="flex flex-col">
-            <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-1">Win Rate</span>
-            <span className="text-xs font-bold font-mono">{winRate}% ({wins}/{trades.length})</span>
+            <span className="text-[11px] text-dim font-bold uppercase tracking-[0.15em] mb-2">Win Rate</span>
+            <span className="text-xs font-bold font-mono text-text">{winRate}% ({wins}/{trades.length})</span>
           </div>
           <div className="hidden sm:flex flex-col">
-            <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-1">W/L Ratio</span>
+            <span className="text-[11px] text-dim font-bold uppercase tracking-[0.15em] mb-2">W/L Ratio</span>
             <span className="text-xs font-bold font-mono text-accent">{winLossRatio}</span>
           </div>
           <div className="flex flex-col items-end min-w-[100px]">
-            <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-1">Session P&L</span>
+            <span className="text-[11px] text-dim font-bold uppercase tracking-[0.15em] mb-2">Session P&L</span>
             <span className={cn("text-base font-bold font-mono tracking-tighter", pnl >= 0 ? "text-green" : "text-red")}>
               {fmtUSD(pnl)}
             </span>

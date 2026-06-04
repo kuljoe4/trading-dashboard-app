@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { roundTo } from '../lib/math';
 
 @Injectable()
 export class MonitoringService {
@@ -75,9 +76,9 @@ export class MonitoringService {
     // BOLT OPTIMIZATION: Update cached system metrics here to avoid syscalls in getMetrics()
     const mem = process.memoryUsage();
     this.cachedSystemMetrics = {
-      cpu_usage: Number(this.currentCpuPercent.toFixed(2)),
-      memory_rss: Number((mem.rss / 1024 / 1024).toFixed(2)),
-      memory_heap_used: Number((mem.heapUsed / 1024 / 1024).toFixed(2)),
+      cpu_usage: roundTo(this.currentCpuPercent, 2),
+      memory_rss: roundTo(mem.rss / 1024 / 1024, 2),
+      memory_heap_used: roundTo(mem.heapUsed / 1024 / 1024, 2),
       uptime: Math.floor(process.uptime()),
       event_loop_lag: this.eventLoopLag,
     };

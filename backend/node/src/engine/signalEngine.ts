@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { KlineStoreService } from './kline_store.service';
 import { SessionConfig } from '../models/SessionConfig';
+import { roundTo } from '../lib/math';
 
 interface SignalDetail {
   fired: boolean;
@@ -119,7 +120,7 @@ export class SignalEngineService {
     
     return {
       fired,
-      value: Number(pct.toFixed(2)),
+      value: roundTo(pct, 2),
       threshold,
       unit: '%',
       metric: 'Momentum',
@@ -162,7 +163,7 @@ export class SignalEngineService {
 
     return {
       fired,
-      value: Number(value.toFixed(2)),
+      value: roundTo(value, 2),
       threshold: 0,
       unit: 'dist',
       metric: 'Breakout',
@@ -222,8 +223,8 @@ export class SignalEngineService {
       
       return {
         fired,
-        value: Number(currClose.toFixed(2)),
-        threshold: Number(ma.toFixed(2)),
+        value: roundTo(currClose, 2),
+        threshold: roundTo(ma, 2),
         unit: 'price',
         metric: 'MA Cross',
         description: `Price crossed MA(${period})`,
@@ -269,8 +270,8 @@ export class SignalEngineService {
 
       return {
         fired,
-        value: Number(currClose.toFixed(2)),
-        threshold: Number(ema.toFixed(2)),
+        value: roundTo(currClose, 2),
+        threshold: roundTo(ema, 2),
         unit: 'price',
         metric: 'EMA Cross',
         description: `Price crossed EMA(${period})`,
@@ -326,8 +327,8 @@ export class SignalEngineService {
 
       return {
         fired,
-        value: Number(currFast.toFixed(2)),
-        threshold: Number(currSlow.toFixed(2)),
+        value: roundTo(currFast, 2),
+        threshold: roundTo(currSlow, 2),
         unit: 'price',
         metric: 'EMA Dual',
         description: `EMA(${fastPeriod}) crossed EMA(${slowPeriod})`,
@@ -380,8 +381,8 @@ export class SignalEngineService {
 
       return {
         fired,
-        value: Number(currClose.toFixed(2)),
-        threshold: Number(ema.toFixed(2)),
+        value: roundTo(currClose, 2),
+        threshold: roundTo(ema, 2),
         unit: 'price',
         metric: 'EMA Close',
         description: `Price ${fired ? 'crossed' : 'is outside'} EMA(${period})`,

@@ -10,12 +10,14 @@ describe('TradingSessionService', () => {
       {} as any, {} as any, {} as any, {} as any,
       { activeList: () => [], activeCount: () => 0, totalRisk: () => 0 } as any,
       {} as any, {} as any, {} as any,
-      { recordHotLoop: jest.fn(), getMetrics: jest.fn().mockReturnValue({}) } as any,
-      {} as any, {} as any,
+      { recordHotLoop: jest.fn(), recordMainLoop: jest.fn() } as any,
+      {} as any, {} as any, {} as any,
+      { setWsBroadcaster: jest.fn(), broadcast: jest.fn() } as any,
       { reset: jest.fn(), getBalance: () => 10000, closedTrades: [] } as any,
       {} as any, // variantAnalytics
       new EngineBroadcasterService({} as any, {} as any, {} as any, {} as any, {} as any, new VariantAnalyticsService()),
       {} as any, // gatingService
+      { log: jest.fn() } as any, // auditLog
       { emit: jest.fn() } as any
     );
   });

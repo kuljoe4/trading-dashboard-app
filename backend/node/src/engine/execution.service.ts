@@ -1,0 +1,156 @@
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Trade } from '../models/Trade';
+import { SessionConfig } from '../models/SessionConfig';
+import { TickerCacheService } from './ticker_cache.service';
+import { KlineStoreService } from './kline_store.service';
+import { SignalEngineService } from './signalEngine';
+import { RiskEngineService } from './riskEngine';
+import { PositionTrackerService } from './positionTracker';
+import { OrderManagerService } from './orderManager';
+import { SessionStateService } from './session_state.service';
+import { GatingService } from './gating.service';
+import { BroadcastService } from './broadcast.service';
+import { EngineBroadcasterService } from './engine-broadcaster.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ENGINE_EVENTS } from './events';
+import { AnalyticsService } from './analytics.service';
+import { v4 as uuid } from 'uuid';
+import { roundTo } from '../lib/math';
+
+@Injectable()
+export class ExecutionService {
+  private readonly logger = new Logger(ExecutionService.name);
+
+  constructor(
+    private readonly tickerCache: TickerCacheService,
+    private readonly klineStore: KlineStoreService,
+    private readonly signalEngine: SignalEngineService,
+    private readonly riskEngine: RiskEngineService,
+    private readonly positionTracker: PositionTrackerService,
+    private readonly orderManager: OrderManagerService,
+    private readonly sessionState: SessionStateService,
+    private readonly gatingService: GatingService,
+    private readonly broadcastService: BroadcastService,
+    private readonly engineBroadcaster: EngineBroadcasterService,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly analyticsService: AnalyticsService,
+  ) {}
+
+  async checkExits(config: SessionConfig, onTradeUpdate?: (t: Trade, b: number) => Promise<void>) {
+    if (this.positionTracker.activeCount() === 0) return;
+    const activeTrades = this.positionTracker.activeList();
+    const balance = this.sessionState.getBalance(config.paper_mode ?? true);
+
+    for (const trade of activeTrades) {
+      const currentPrice = this.tickerCache.getPrice(trade.symbol);
+      if (!currentPrice) continue;
+
+      const tradeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
+      await this.positionTracker.checkRrSequenceAdjustments(trade.symbol, currentPrice, tradeConfig);
+
+      const exitInterval = tradeConfig.scan_interval || '1m';
+      const exitCondition = this.positionTracker.checkExitConditions(trade.symbol, currentPrice, tradeConfig, exitInterval);
+
+      if (exitCondition?.exitOccurred) {
+        const result = await this.positionTracker.closeTrade(trade.symbol, currentPrice, exitCondition.exitReason, tradeConfig);
+        if (result.exitOccurred && result.trade) {
+          this.sessionState.updateStatsOnClose((result.trade.pnl || 0) > 0);
+
+          this.sessionState.addClosedTrade(result.trade);
+          this.sessionState.setActiveTrades(this.positionTracker.activeList());
+          this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, tradeConfig);
+
+          const analytics = this.analyticsService.calculateAnalytics(
+            this.sessionState.closedTrades as any,
+            config.paper_mode ? config.paper_starting_balance : config.live_starting_balance
+          );
+
+          this.broadcastService.broadcast('trade_event', {
+            event: 'closed',
+            symbol: result.trade.symbol,
+            reason: exitCondition.exitReason,
+            trade: this.engineBroadcaster.serializeTrade(result.trade, config, currentPrice),
+            pnl: result.trade.pnl,
+            stats: this.sessionState.stats,
+            analytics: {
+              maxDrawdown: roundTo(analytics.maxDrawdown, 2),
+              maxDrawdownPct: roundTo(analytics.maxDrawdownPct, 2),
+              overallWinRate: roundTo(analytics.overallWinRate, 2),
+              cumulativePnL: analytics.cumulativePnL.slice(-20).map((p: any) => ({ ...p, pnl: roundTo(p.pnl, 2) })),
+            }
+          });
+
+          if (onTradeUpdate) await onTradeUpdate(result.trade, balance);
+        }
+      }
+    }
+  }
+
+  async processEntries(opportunities: any[], config: SessionConfig, strategyLabel: string, onTradeUpdate?: (t: Trade, b: number) => Promise<void>) {
+    const symbolConfigs = config.single_symbol_configs;
+    const symbolConfigMap = (symbolConfigs && symbolConfigs.length > 0) ? new Map(symbolConfigs.map(sc => [sc.symbol, sc])) : null;
+    const balance = this.sessionState.getBalance(config.paper_mode ?? true);
+
+    for (const opp of opportunities) {
+      if (this.positionTracker.hasSymbol(opp.symbol)) continue;
+
+      const sc = symbolConfigMap?.get(opp.symbol);
+      const symbolConfig = (sc?.use_custom_config && sc.custom_config) ? { ...config, ...sc.custom_config } as SessionConfig : config;
+
+      const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry');
+      if (!signalResult.allFired) continue;
+
+      const activeTrades = this.positionTracker.activeList();
+      const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk());
+
+      if (!riskResult.canEnter) {
+        if (!riskResult.reason.includes('Max open trades for')) {
+          this.sessionState.gateState = this.gatingService.mapGateState(riskResult.reason);
+          this.broadcastService.broadcast('gate', {
+            gateState: this.sessionState.gateState,
+            reason: riskResult.reason,
+            scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused
+          });
+        }
+        continue;
+      }
+
+      const price = this.tickerCache.getPrice(opp.symbol);
+      if (!price) continue;
+
+      const lookback = this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
+      const slPrice = this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.minLow, lookback.maxHigh);
+      const qty = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
+
+      if (qty <= 0) continue;
+      const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
+
+      const trade = await this.orderManager.enter(
+        (this.sessionState.config as any)?.sessionId || uuid().substring(0, 8),
+        opp.symbol,
+        opp.direction.toUpperCase() as any,
+        price,
+        qty,
+        slPrice,
+        tpPrice,
+        { strategy_label: strategyLabel, strategy_config: config }
+      );
+
+      if (trade) {
+        this.positionTracker.addTrade(trade);
+        this.sessionState.updateStatsOnEntry();
+        this.sessionState.setActiveTrades(this.positionTracker.activeList());
+        this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, config);
+
+        this.broadcastService.broadcast('trade_event', {
+          event: 'opened',
+          symbol: opp.symbol,
+          trade: this.engineBroadcaster.serializeTrade(trade, config, price),
+          stats: this.sessionState.stats
+        });
+
+        if (onTradeUpdate) await onTradeUpdate(trade, balance);
+      }
+    }
+  }
+}

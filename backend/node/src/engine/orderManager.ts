@@ -5,6 +5,7 @@ import { SessionConfig } from '../models/SessionConfig';
 import { SignalEngineService } from './signalEngine';
 import { MarketFeedService } from './market_feed.service';
 import { TradingSessionService } from './trading_session.service';
+import { AuditLogService } from '../trading/audit-log.service';
 import { v4 as uuid } from 'uuid';
 import { roundEight, floorStep, roundTo } from '../lib/math';
 import { ENGINE_CONSTANTS } from '../models/constants';
@@ -21,7 +22,8 @@ export class OrderManagerService {
     private readonly signalEngine: SignalEngineService,
     private readonly marketFeed: MarketFeedService,
     @Inject(forwardRef(() => TradingSessionService))
-    private readonly tradingSession: TradingSessionService
+    private readonly tradingSession: TradingSessionService,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   setBinanceClient(client: DerivativesTradingUsdsFutures | null, paperMode = true) {
@@ -137,6 +139,12 @@ export class OrderManagerService {
             `Binance order placed: ${symbol} ${direction} qty=${qty} order_id=${orderData.orderId} fee=${trade.realized_fee}`,
           );
 
+          await this.auditLog.log({
+            action: 'LIVE_ORDER_ENTRY',
+            resourceId: trade.id,
+            details: { symbol, direction, qty, orderId: orderData.orderId }
+          });
+
           // Place initial Stop Loss order on exchange
           try {
             const slOrderId = await this.placeStopLoss(trade, slPrice);
@@ -230,6 +238,12 @@ export class OrderManagerService {
       this.logger.log(
         `Binance SL order placed: ${trade.symbol} at ${slPrice} order_id=${orderData.orderId}`,
       );
+
+      await this.auditLog.log({
+        action: 'LIVE_SL_ORDER_PLACED',
+        resourceId: trade.id,
+        details: { symbol: trade.symbol, slPrice, orderId: orderData.orderId }
+      });
       return orderData.orderId;
     } catch (err) {
       this.logger.error(
@@ -475,6 +489,12 @@ export class OrderManagerService {
             this.logger.log(
               `Binance close order placed: ${symbol} qty=${trade.qty || 0} order_id=${orderData.orderId} total_fee=${trade.realized_fee}`,
             );
+
+            await this.auditLog.log({
+              action: 'LIVE_ORDER_CLOSE',
+              resourceId: trade.id,
+              details: { symbol, qty: trade.qty, orderId: orderData.orderId, reason: exitReason }
+            });
           } catch (err: unknown) {
             const errMsg = err instanceof Error ? err.message : String(err);
             // RISK-04: If close fails, check if it's because position is already closed (SL race)

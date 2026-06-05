@@ -1,22 +1,26 @@
 import { TradingSessionService } from './trading_session.service';
 
-describe('PnL Inconsistency Minimal Reproduction', () => {
+describe('TradingSession Mock', () => {
   let service: TradingSessionService;
 
   beforeEach(() => {
     service = new TradingSessionService(
-      { getPrice: jest.fn() } as any,
+      {} as any, {} as any, {} as any, {} as any,
+      { activeList: () => [], activeCount: () => 0, totalRisk: () => 0 } as any,
       {} as any, {} as any, {} as any,
-      { activeList: () => [], totalRisk: () => 0 } as any,
+      { recordHotLoop: jest.fn(), recordMainLoop: jest.fn() } as any,
       {} as any, {} as any, {} as any,
-      { recordHotLoop: jest.fn(), getMetrics: jest.fn().mockReturnValue({}) } as any,
-      {} as any, {} as any,
-      { getBalance: () => 10000, closedTrades: [] } as any,
-      {} as any, {} as any, {} as any, { emit: jest.fn() } as any
+      { setWsBroadcaster: jest.fn(), broadcast: jest.fn() } as any,
+      { reset: jest.fn(), getBalance: () => 10000, closedTrades: [] } as any,
+      {} as any, // variantAnalytics
+      { broadcastTick: jest.fn(), serializeTrade: (t: any) => t } as any,
+      {} as any, // gatingService
+      { log: jest.fn() } as any, // auditLog
+      { emit: jest.fn() } as any
     );
   });
 
-  it('proves that engine totalPnl includes fees while individual trade.pnl does not', () => {
+  it('instantiates', () => {
     expect(service).toBeDefined();
   });
 });

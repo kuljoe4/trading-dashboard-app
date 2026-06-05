@@ -138,11 +138,45 @@ export class OrderManagerService {
           );
 
           // Place initial Stop Loss order on exchange
-          await this.placeStopLoss(trade, slPrice);
+          try {
+            const slOrderId = await this.placeStopLoss(trade, slPrice);
+            if (!slOrderId) {
+              throw new Error('Stop Loss order failed to return an ID');
+            }
+          } catch (slErr: unknown) {
+            const slErrMsg = slErr instanceof Error ? slErr.message : String(slErr);
+            this.logger.error(`Critical Failure: Market entry succeeded but Stop Loss placement FAILED for ${symbol}: ${slErrMsg}`);
+
+            // EMERGENCY UNWIND: Attempt to close the position immediately to prevent unprotected exposure
+            this.logger.warn(`Attempting emergency unwind for ${symbol}...`);
+            try {
+              const closeDirection = direction === 'LONG' ? 'SELL' : 'BUY';
+              await (this.binanceClient as any).restAPI.tradeApi.newOrder(symbol, closeDirection, 'MARKET', {
+                quantity: qty.toFixed(precision),
+                reduceOnly: 'true',
+              });
+              this.logger.log(`Emergency unwind successful for ${symbol}. Entry aborted.`);
+              return null; // Return null to indicate entry was aborted
+            } catch (unwindErr: unknown) {
+              const unwindMsg = unwindErr instanceof Error ? unwindErr.message : String(unwindErr);
+              this.logger.error(`CRITICAL RISK: Emergency unwind FAILED for ${symbol}: ${unwindMsg}. Position is OPEN and UNPROTECTED.`);
+              // We must throw here to notify the session that we are in an invalid state
+              throw new ExchangeExecutionException(`Market entry succeeded but Stop Loss FAILED and Unwind FAILED for ${symbol}. UNPROTECTED POSITION!`);
+            }
+          }
         } catch (err: unknown) {
+          if (err instanceof ExchangeExecutionException) throw err;
           const errMsg = err instanceof Error ? err.message : String(err);
+
+          // CRITICAL: If market entry already succeeded (we have an order id), we must NOT silently fallback to paper.
+          // The previous try block handled the SL failure. If we are here, it means the entry MARKET order itself failed.
+          if (trade.binance_order_id) {
+            this.logger.error(`Critical Failure: Unexpected error after market entry for ${symbol}: ${errMsg}`);
+            throw new ExchangeExecutionException(`Unexpected error after market entry for ${symbol}: ${errMsg}`);
+          }
+
           this.logger.warn(
-            `Binance order failed (continuing in paper mode): ${errMsg}`,
+            `Binance entry order failed (continuing in paper mode): ${errMsg}`,
           );
           // If we fallback to paper mode after failure, we should simulate the fee
           trade.realized_fee = roundEight(entryPrice * qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
@@ -189,6 +223,9 @@ export class OrderManagerService {
         reduceOnly: 'true',
       });
       const orderData = response.data || response;
+      if (!orderData || !orderData.orderId) {
+        throw new Error(`Invalid response from Binance SL order: ${JSON.stringify(orderData)}`);
+      }
       trade.binance_stop_order_id = orderData.orderId;
       this.logger.log(
         `Binance SL order placed: ${trade.symbol} at ${slPrice} order_id=${orderData.orderId}`,
@@ -373,8 +410,11 @@ export class OrderManagerService {
         ? exitPrice - trade.entry_price
         : trade.entry_price - exitPrice;
 
-      const pnl = roundEight((pnlPoints * trade.qty) || 0);
-      const pnlPct = roundEight((pnlPoints / trade.entry_price) * 100);
+      // GUARD: Prevent NaN PnL
+      const rawPnl = pnlPoints * (trade.qty || 0);
+      const pnl = roundEight(Number.isFinite(rawPnl) ? rawPnl : 0);
+      const rawPnlPct = (trade.qty !== 0) ? (pnlPoints / (trade.entry_price || 1)) * 100 : 0;
+      const pnlPct = roundEight(Number.isFinite(rawPnlPct) ? rawPnlPct : 0);
 
       // Update trade
       trade.exit_price = exitPrice;
@@ -472,7 +512,8 @@ export class OrderManagerService {
       }
 
       // Calculate final net PnL
-      trade.pnl = roundEight((pnlPoints * trade.qty) - trade.realized_fee);
+      const finalNetPnl = (pnlPoints * (trade.qty || 0)) - (trade.realized_fee || 0);
+      trade.pnl = roundEight(Number.isFinite(finalNetPnl) ? finalNetPnl : 0);
 
       this.logger.log(
         `Close: ${symbol} @ ${exitPrice} P&L=${trade.pnl.toFixed(2)} (${pnlPct.toFixed(2)}%) Fee=${trade.realized_fee} Reason=${exitReason}`,

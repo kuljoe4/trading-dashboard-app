@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { TooltipProvider } from './components/ui/tooltip';
 import ErrorBoundary from './components/ErrorBoundary';
 import { useTradingStore } from './store/trading';
-import { sessionAPI, setAdminApiKey } from './api/client';
+import api, { sessionAPI, setAdminApiKey, initializeAuth } from './api/client';
 import { useVisibility } from './hooks/useVisibility';
 import './index.css';
 
@@ -33,12 +33,16 @@ const App = () => {
   useEffect(() => {
     async function initAuth() {
       try {
-        const res = await sessionAPI.get('/auth/config');
+        const res = await api.get('/auth/config');
         if (res.data.adminApiKey) {
           setAdminApiKey(res.data.adminApiKey);
+        } else {
+          // Even if no key is returned, resolve auth to prevent deadlocks
+          initializeAuth();
         }
       } catch (e) {
         console.error("Failed to fetch auth config", e);
+        initializeAuth();
       }
     }
     initAuth();

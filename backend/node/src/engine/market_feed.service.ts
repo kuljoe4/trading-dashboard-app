@@ -138,7 +138,9 @@ export class MarketFeedService {
           const msg = JSON.parse(data as any);
           let tickers: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
           if (tickers.length > 0) this.tickerCache.bulkUpdate(tickers);
-        } catch (err) {}
+        } catch (err) {
+          this.logger.error(`Error processing mini-ticker stream: ${err instanceof Error ? err.message : String(err)}`);
+        }
       });
       ws.on('close', () => { if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS)); });
       this.miniTickerWs = ws;
@@ -259,7 +261,9 @@ export class MarketFeedService {
               this.tickerCache.bulkUpdate([{ s: kline.s, c: kline.c }]);
               if (kline.x && this.onCandeClose) this.onCandeClose(kline.s).catch(() => {});
             }
-          } catch (err) {}
+          } catch (err) {
+            this.logger.error(`Error processing combined kline stream: ${err instanceof Error ? err.message : String(err)}`);
+          }
         });
         ws.on('close', () => { if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS)); });
         this.combinedKlineWsList.push(ws);
@@ -301,6 +305,8 @@ export class MarketFeedService {
         const klines = await response.json();
         if (Array.isArray(klines)) await this.klineStore.seedFromRest(symbol, interval, klines);
       }
-    } catch (error) {}
+    } catch (err) {
+      this.logger.error(`Watchlist update failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 }

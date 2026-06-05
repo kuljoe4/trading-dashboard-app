@@ -7,7 +7,9 @@ import { useTradingStore } from '../store/trading'
 import { Sidebar, BottomNav } from '../components/Navigation'
 
 export function SettingsView() {
-  const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, sidebarCollapsed, logFilters, toggleLogFilter, resetPaperBalance } = useTradingStore()
+  const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, sidebarCollapsed, logFilters, toggleLogFilter, resetPaperBalance, connectWS, disconnectWS } = useTradingStore()
+  const [adminApiKey, setAdminApiKeyValue] = useState(localStorage.getItem('MOMENTUM_ADMIN_API_KEY') || '')
+  const [showAdminKey, setShowAdminKey] = useState(false)
   const [apiKey, setApiKey] = useState('')
   const [apiSecret, setApiSecret] = useState('')
   const [showLiveSecret, setShowLiveSecret] = useState(false)
@@ -64,6 +66,16 @@ export function SettingsView() {
     setLoading(true)
     setStatus(null)
     try {
+      // Save Admin API Key locally
+      if (adminApiKey) {
+        setAdminApiKey(adminApiKey)
+        // Reconnect WS to use new key
+        disconnectWS()
+        connectWS()
+      } else {
+        setAdminApiKey('')
+      }
+
       await settingsAPI.updateKeys({
         api_key: apiKey,
         api_secret: apiSecret,
@@ -101,6 +113,48 @@ export function SettingsView() {
         </div>
 
         <div className="space-y-10">
+          <section>
+            <SectionLabel className="mb-6">Dashboard Security</SectionLabel>
+            <div className="bg-surface border border-border rounded-2xl p-6 md:p-8 shadow-sm">
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-2">
+                  <label htmlFor="adminApiKey" className="text-[10px] text-dim font-bold tracking-widest uppercase">Admin API Key</label>
+                  <p className="text-[11px] text-dim font-medium uppercase mb-2">Required for dashboard authentication in production</p>
+                  <div className="relative">
+                    <input
+                      id="adminApiKey"
+                      type={showAdminKey ? "text" : "password"}
+                      value={adminApiKey}
+                      onChange={e => setAdminApiKeyValue(e.target.value)}
+                      className="w-full bg-background border border-border focus:border-accent focus:outline-none rounded-xl px-4 py-3 pr-20 text-sm font-mono text-text transition-all"
+                      placeholder="••••••••••••••••"
+                    />
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 text-dim">
+                      {adminApiKey && (
+                        <button
+                          type="button"
+                          onClick={() => setAdminApiKeyValue('')}
+                          aria-label="Clear Admin API Key"
+                          className="hover:text-red transition-colors"
+                        >
+                          <X size={18} />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowAdminKey(!showAdminKey)}
+                        aria-label={showAdminKey ? "Hide key" : "Show key"}
+                        className="hover:text-accent transition-colors"
+                      >
+                        {showAdminKey ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
           {window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && (
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}

@@ -2,7 +2,7 @@ import React from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X, ShieldCheck } from 'lucide-react'
 import { fmtUSD, pnlColor } from '../lib/theme'
-import { Btn, cn } from './ui/primitives'
+import { Btn, cn, CopyButton } from './ui/primitives'
 
 const price = (value) => {
   if (value == null || Number.isNaN(Number(value))) return '---'
@@ -21,7 +21,10 @@ export const TradeDetailModal = ({ trade, isOpen, onClose, onTradeClose }) => {
           
           <Dialog.Title className="flex items-center justify-between mb-6">
             <div className="flex flex-col gap-1">
-              <span className="text-lg font-bold">{trade.symbol}</span>
+              <div className="flex items-center gap-1">
+                <span className="text-lg font-bold">{trade.symbol}</span>
+                <CopyButton value={trade.symbol} className="opacity-70 hover:opacity-100" />
+              </div>
               <span className={trade.direction === 'LONG' ? 'text-green' : 'text-red'}>{trade.direction}</span>
             </div>
             <Dialog.Close asChild>

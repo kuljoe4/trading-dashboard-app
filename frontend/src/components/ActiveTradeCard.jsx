@@ -4,10 +4,21 @@ import { sessionAPI } from '../api/client'
 import { ShieldCheck } from 'lucide-react'
 
 export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      onClick()
+    }
+  }
+
   return (
     <div
       onClick={onClick}
-      className="bg-surface border border-border rounded-2xl p-5 flex items-center justify-between w-full shadow-sm cursor-pointer hover:border-accent/40 transition-all"
+      onKeyDown={handleKeyDown}
+      role="button"
+      tabIndex={0}
+      aria-label={`View details for ${trade.symbol} ${trade.direction} trade`}
+      className="bg-surface border border-border rounded-2xl p-5 flex items-center justify-between w-full shadow-sm cursor-pointer hover:border-accent/40 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
     >
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2 text-sm font-bold">

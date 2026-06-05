@@ -20,3 +20,11 @@
 ## 2026-05-28 - Integrated Confirmation Patterns
 **Learning:** Native browser primitives like `confirm()` disrupt the immersive experience of a themed dashboard. Using integrated components like `ConfirmationModal` allows for consistent styling and the addition of async loading states, which provides better feedback during destructive actions.
 **Action:** Replace all instances of `confirm()` with the `ConfirmationModal` component and ensure a `loading` state is passed during async operations.
+
+## 2026-06-05 - Semantic Accessibility for Interactive Cards
+**Learning:** Purely clickable `div` elements are invisible to keyboard users and screen readers. Upgrading them with `role="button"`, `tabIndex={0}`, and explicit `aria-label` along with a keydown listener for Enter/Space creates a truly inclusive dashboard experience.
+**Action:** Always wrap or upgrade top-level clickable containers in dashboards with proper ARIA attributes and keyboard event handlers.
+
+## 2026-06-05 - Utility Micro-Delights
+**Learning:** Adding a "Copy" utility next to primary identifiers (like ticker symbols) in detail views significantly improves user flow for multi-tool workflows (e.g., moving from dashboard to charting software).
+**Action:** Identify primary keys or symbols in modals and provide a one-click `CopyButton` to reduce manual selection friction.

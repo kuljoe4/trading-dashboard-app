@@ -7,12 +7,26 @@ const api = axios.create({
 })
 
 // Dynamically inject Admin API Key
-let adminKey = null;
+let adminKey = localStorage.getItem('MOMENTUM_ADMIN_API_KEY') || null;
 let resolveAuth = null;
-const authInitialized = new Promise((resolve) => { resolveAuth = resolve; });
+const authInitialized = new Promise((resolve) => {
+  resolveAuth = resolve;
+  // If we already have a key from localStorage, we can resolve immediately
+  if (adminKey) resolve();
+});
 
 export const setAdminApiKey = (key) => {
   adminKey = key;
+  if (key) {
+    localStorage.setItem('MOMENTUM_ADMIN_API_KEY', key);
+  } else {
+    localStorage.removeItem('MOMENTUM_ADMIN_API_KEY');
+  }
+  if (resolveAuth) resolveAuth();
+};
+
+// Allow manual initialization if no key is available (to prevent hanging)
+export const initializeAuth = () => {
   if (resolveAuth) resolveAuth();
 };
 

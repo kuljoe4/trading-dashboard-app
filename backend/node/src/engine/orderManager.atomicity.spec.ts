@@ -1,0 +1,154 @@
+import { OrderManagerService } from './orderManager';
+import { ExchangeExecutionException } from '../lib/exceptions';
+
+describe('OrderManagerService Atomicity', () => {
+  let service: OrderManagerService;
+  let mockSignalEngine: any;
+  let mockBinanceClient: any;
+  let mockMarketFeed: any;
+  let mockTradingSession: any;
+
+  beforeEach(() => {
+    mockSignalEngine = {
+      checkEntry: jest.fn(),
+    };
+    mockMarketFeed = {
+      getSymbolFilters: jest.fn().mockReturnValue(null),
+    };
+    mockTradingSession = {
+      isRateLimited: jest.fn().mockReturnValue(false),
+    };
+    service = new OrderManagerService(mockSignalEngine, mockMarketFeed, mockTradingSession);
+
+    mockBinanceClient = {
+      restAPI: {
+        tradeApi: {
+          newOrder: jest.fn(),
+          cancelOrder: jest.fn(),
+        },
+      },
+    };
+  });
+
+  describe('enter atomicity', () => {
+    it('performs emergency unwind if SL placement fails after market entry', async () => {
+      service.setBinanceClient(mockBinanceClient, false); // Live mode
+
+      // First call (Entry) succeeds
+      mockBinanceClient.restAPI.tradeApi.newOrder.mockResolvedValueOnce({ data: { orderId: 'entry_id' } });
+      // Second call (SL) fails
+      mockBinanceClient.restAPI.tradeApi.newOrder.mockRejectedValueOnce(new Error('Binance SL failure'));
+      // Third call (Unwind) succeeds
+      mockBinanceClient.restAPI.tradeApi.newOrder.mockResolvedValueOnce({ data: { orderId: 'unwind_id' } });
+
+      const trade = await service.enter(
+        'session_1',
+        'BTCUSDT',
+        'LONG',
+        50000,
+        0.1,
+        49500,
+        51000
+      );
+
+      // Should return null because it was aborted
+      expect(trade).toBeNull();
+
+      // Check order calls
+      expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledTimes(3);
+
+      // 1. Entry
+      expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenNthCalledWith(
+        1, 'BTCUSDT', 'BUY', 'MARKET', expect.anything()
+      );
+      // 2. SL
+      expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenNthCalledWith(
+        2, 'BTCUSDT', 'SELL', 'STOP_MARKET', expect.anything()
+      );
+      // 3. Unwind
+      expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenNthCalledWith(
+        3, 'BTCUSDT', 'SELL', 'MARKET', expect.objectContaining({ reduceOnly: 'true' })
+      );
+    });
+
+    it('throws ExchangeExecutionException if emergency unwind also fails', async () => {
+      service.setBinanceClient(mockBinanceClient, false); // Live mode
+
+      // First call (Entry) succeeds
+      mockBinanceClient.restAPI.tradeApi.newOrder.mockResolvedValueOnce({ data: { orderId: 'entry_id' } });
+      // Second call (SL) fails
+      mockBinanceClient.restAPI.tradeApi.newOrder.mockRejectedValueOnce(new Error('Binance SL failure'));
+      // Third call (Unwind) fails
+      mockBinanceClient.restAPI.tradeApi.newOrder.mockRejectedValueOnce(new Error('Unwind failure'));
+
+      await expect(service.enter(
+        'session_1',
+        'BTCUSDT',
+        'LONG',
+        50000,
+        0.1,
+        49500,
+        51000
+      )).rejects.toThrow(ExchangeExecutionException);
+
+      expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledTimes(3);
+    });
+
+    it('handles successful entry and SL placement', async () => {
+      service.setBinanceClient(mockBinanceClient, false); // Live mode
+
+      // First call (Entry) succeeds
+      mockBinanceClient.restAPI.tradeApi.newOrder.mockResolvedValueOnce({ data: { orderId: 'entry_id' } });
+      // Second call (SL) succeeds
+      mockBinanceClient.restAPI.tradeApi.newOrder.mockResolvedValueOnce({ data: { orderId: 'sl_id' } });
+
+      const trade = await service.enter(
+        'session_1',
+        'BTCUSDT',
+        'LONG',
+        50000,
+        0.1,
+        49500,
+        51000
+      );
+
+      expect(trade).not.toBeNull();
+      expect(trade?.binance_order_id).toBe('entry_id');
+      expect(trade?.binance_stop_order_id).toBe('sl_id');
+      expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('PnL NaN protection', () => {
+    it('handles zero or invalid values in closeTrade without producing NaN', async () => {
+      const trade = {
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 0, // Zero qty
+        entry_price: 50000,
+        realized_fee: NaN, // Trigger NaN check
+      } as any;
+
+      const result = await service.closeTrade('BTCUSDT', trade, 51000, 'TP_HIT', true);
+
+      expect(result.trade.pnl).toBe(0);
+      expect(Number.isNaN(result.trade.pnl)).toBe(false);
+      expect(result.trade.pnl_pct).toBe(0);
+      expect(Number.isNaN(result.trade.pnl_pct)).toBe(false);
+    });
+
+    it('handles infinity/NaN in prices gracefully', async () => {
+        const trade = {
+          symbol: 'BTCUSDT',
+          direction: 'LONG',
+          qty: 0.1,
+          entry_price: 0, // Could cause division by zero
+        } as any;
+
+        const result = await service.closeTrade('BTCUSDT', trade, 51000, 'TP_HIT', true);
+
+        expect(Number.isFinite(result.trade.pnl)).toBe(true);
+        expect(Number.isFinite(result.trade.pnl_pct)).toBe(true);
+      });
+  });
+});

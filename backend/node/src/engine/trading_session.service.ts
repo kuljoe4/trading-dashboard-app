@@ -180,7 +180,13 @@ export class TradingSessionService {
     if (!this.running || !this.config) return;
     if (this.sessionState.listenerCount === 0 && this.positionTracker.activeCount() === 0) { this.monitoringService.recordHotLoop(0); return; }
     const start = performance.now();
-    try { await this.checkExits(); this.engineBroadcaster.broadcastTick(this.positionTracker.activeList(), this.config!, this.getStrategyConfigs(), this.isEcoMode(), () => this.getActiveWindows(), () => this.getBinanceRateLimit()); this.monitoringService.recordHotLoop(performance.now() - start); } catch (error) {}
+    try {
+      await this.checkExits();
+      this.engineBroadcaster.broadcastTick(this.positionTracker.activeList(), this.config!, this.getStrategyConfigs(), this.isEcoMode(), () => this.getActiveWindows(), () => this.getBinanceRateLimit());
+      this.monitoringService.recordHotLoop(performance.now() - start);
+    } catch (error) {
+      this.logger.error(`Error in hot loop: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private async mainLoop() {
@@ -236,7 +242,9 @@ export class TradingSessionService {
 
       for (const sc of strategyConfigs) { const opps = opportunitiesBySignature.get(this.scanSignature(sc)) || []; await this.processEntries(opps, sc); }
       this.monitoringService.recordMainLoop(performance.now() - start);
-    } catch (error) {}
+    } catch (error) {
+      this.logger.error(`Error in main loop: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private async checkExits() {

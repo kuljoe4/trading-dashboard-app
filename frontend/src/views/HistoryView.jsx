@@ -16,16 +16,22 @@ const price = (value) => {
 
 const strategyLabel = (item = {}) => item.strategy_label || item.strategyLabel || item.config?.strategy_label || 'Momentum Strategy'
 
+const safeNum = (v) => {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : 0
+}
+
 const buildCurve = (trades = []) => {
   let pnl = 0
   return [...trades].reverse().map((trade) => {
-    pnl += Number(trade.pnl || 0)
+    pnl += safeNum(trade.pnl)
     return { ts: trade.exit_ts || trade.entry_ts || trade.createdAt, pnl }
   })
 }
 
 const TradeItem = React.memo(({ trade, session = {} }) => {
-  const isWin = (trade.pnl || 0) >= 0
+  const pnl = safeNum(trade.pnl)
+  const isWin = pnl >= 0
   const durationMs = trade.exit_ts && trade.entry_ts ? new Date(trade.exit_ts).getTime() - new Date(trade.entry_ts).getTime() : 0
   const durationStr = durationMs ? (durationMs / 60000).toFixed(1) + 'm' : 'N/A'
 
@@ -87,7 +93,7 @@ const TradeItem = React.memo(({ trade, session = {} }) => {
         <div className="flex flex-col min-w-[70px]">
           <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Result</span>
           <span className={cn("text-xs font-bold font-mono", isWin ? "text-green" : "text-red")}>
-            {fmtUSD(trade.pnl || 0)}
+            {fmtUSD(pnl)}
           </span>
         </div>
       </div>
@@ -97,15 +103,15 @@ const TradeItem = React.memo(({ trade, session = {} }) => {
 
 const SessionGroup = React.memo(({ session, trades, colorDrawdown }) => {
   const [expanded, setExpanded] = useState(false)
-  const pnl = trades.reduce((sum, t) => sum + (t.pnl || 0), 0)
-  const wins = trades.filter(t => (t.pnl || 0) > 0).length
+  const pnl = useMemo(() => trades.reduce((sum, t) => sum + safeNum(t.pnl), 0), [trades])
+  const wins = useMemo(() => trades.filter(t => safeNum(t.pnl) > 0).length, [trades])
   const winRate = trades.length ? Math.round((wins / trades.length) * 100) : 0
   const curve = useMemo(() => buildCurve(trades), [trades])
   const label = strategyLabel(session)
 
-  const avgWin = wins > 0 ? trades.filter(t => (t.pnl || 0) > 0).reduce((sum, t) => sum + (t.pnl || 0), 0) / wins : 0
+  const avgWin = useMemo(() => wins > 0 ? trades.filter(t => safeNum(t.pnl) > 0).reduce((sum, t) => sum + safeNum(t.pnl), 0) / wins : 0, [trades, wins])
   const losses = trades.length - wins
-  const avgLoss = losses > 0 ? Math.abs(trades.filter(t => (t.pnl || 0) < 0).reduce((sum, t) => sum + (t.pnl || 0), 0)) / losses : 0
+  const avgLoss = useMemo(() => losses > 0 ? Math.abs(trades.filter(t => safeNum(t.pnl) < 0).reduce((sum, t) => sum + safeNum(t.pnl), 0)) / losses : 0, [trades, losses])
   const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) : '∞'
 
   return (
@@ -227,9 +233,9 @@ export const HistoryView = () => {
 
   const currentAnalytics = isLifetime ? lifetimeAnalytics : fullAnalytics
 
-  const totalPnl = currentAnalytics?.cumulativePnL?.length ? currentAnalytics.cumulativePnL[currentAnalytics.cumulativePnL.length - 1].pnl : (isLifetime ? 0 : tradeHistory.reduce((sum, trade) => sum + (trade.pnl || 0), 0))
+  const totalPnl = currentAnalytics?.cumulativePnL?.length ? safeNum(currentAnalytics.cumulativePnL[currentAnalytics.cumulativePnL.length - 1].pnl) : (isLifetime ? 0 : tradeHistory.reduce((sum, trade) => sum + safeNum(trade.pnl), 0))
   const totalTrades = currentAnalytics?.totalTrades || (isLifetime ? 0 : tradeHistory.length)
-  const wins = currentAnalytics ? Math.round((currentAnalytics.overallWinRate / 100) * totalTrades) : tradeHistory.filter((trade) => (trade.pnl || 0) > 0).length
+  const wins = currentAnalytics ? Math.round((safeNum(currentAnalytics.overallWinRate) / 100) * totalTrades) : tradeHistory.filter((trade) => safeNum(trade.pnl) > 0).length
   const winRate = currentAnalytics ? Math.round(currentAnalytics.overallWinRate) : (tradeHistory.length ? Math.round((wins / tradeHistory.length) * 100) : 0)
   const avgPnl = totalTrades ? totalPnl / totalTrades : 0
 
@@ -262,9 +268,9 @@ export const HistoryView = () => {
     )}>
       <Sidebar />
       <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32 lg:pb-8">
-        <div className="flex items-center justify-between gap-4 mb-10 bg-surface border border-border rounded-2xl p-6 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-10 bg-surface border border-border rounded-2xl p-6 shadow-sm">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
               <HistoryIcon size={24} className="text-accent" />
             </div>
             <div>
@@ -272,8 +278,8 @@ export const HistoryView = () => {
               <p className="text-[11px] text-dim font-bold uppercase tracking-widest mt-1">Verified records of all closed positions</p>
             </div>
           </div>
-          <div className="text-right">
-             <span className="text-[9px] text-dim font-bold uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50">
+          <div className="flex items-center gap-3 self-end sm:self-auto">
+             <span className="text-[9px] text-dim font-bold uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50 whitespace-nowrap">
                {isLifetime ? 'Recent 200 Trades' : 'Latest 50 Trades'}
              </span>
           </div>

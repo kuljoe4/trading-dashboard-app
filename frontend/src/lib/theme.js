@@ -21,11 +21,26 @@ export const C = {
 };
 
 export const pnlColor = (pnl) => (pnl >= 0 ? C.green : C.red);
+
+// Performance: Pre-allocate formatters to avoid GC pressure in hot loops
+const usdFormatter2 = new Intl.NumberFormat('en-US', {
+  style: 'decimal',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+});
+
+const usdFormatter4 = new Intl.NumberFormat('en-US', {
+  style: 'decimal',
+  minimumFractionDigits: 4,
+  maximumFractionDigits: 4
+});
+
 export const fmtUSD = (val) => {
   const n = Number(val || 0);
   const absN = Math.abs(n);
-  const precision = (absN < 1 && absN > 0) ? 4 : 2;
-  const formatted = absN.toLocaleString('en', { minimumFractionDigits: precision, maximumFractionDigits: precision });
+  const formatter = (absN < 1 && absN > 0) ? usdFormatter4 : usdFormatter2;
+  const formatted = formatter.format(absN);
+
   // Audit Item 48: Arrow indicators for WCAG win/loss consistency
   const prefix = n >= 0 ? '▲ +$' : '▼ -$';
   return `${prefix}${formatted}`;

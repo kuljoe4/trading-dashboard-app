@@ -136,7 +136,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
           </clipPath>
 
           <filter id={glowId}>
-            <feGaussianBlur stdDeviation="2" result="blur" />
+            <feGaussianBlur stdDeviation="0.8" result="blur" />
             <feComposite in="SourceGraphic" in2="blur" operator="over" />
           </filter>
         </defs>
@@ -158,7 +158,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
           d={pathD}
           fill="none"
           stroke="var(--color-green)"
-          strokeWidth="2.5"
+          strokeWidth="1.2"
           strokeLinecap="round"
           strokeLinejoin="round"
           clipPath={`url(#${gradientId}-clip-above)`}
@@ -171,7 +171,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
           d={pathD}
           fill="none"
           stroke="var(--color-red)"
-          strokeWidth="2.5"
+          strokeWidth="1.2"
           strokeLinecap="round"
           strokeLinejoin="round"
           clipPath={`url(#${gradientId}-clip-below)`}

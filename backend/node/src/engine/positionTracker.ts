@@ -16,6 +16,7 @@ export class PositionTrackerService {
   private rrSequenceIndex: Map<string, number> = new Map(); // symbol -> current milestone index
   private onTradeUpdate: ((trade: Trade) => void) | null = null;
   private _totalRisk = 0;
+  private _activeListCache: Trade[] | null = null;
 
   constructor(
     private readonly riskEngine: RiskEngineService,
@@ -39,7 +40,9 @@ export class PositionTrackerService {
   }
 
   activeList(): Trade[] {
-    return Array.from(this.trades.values());
+    if (this._activeListCache) return this._activeListCache;
+    this._activeListCache = Array.from(this.trades.values());
+    return this._activeListCache;
   }
 
   activeCount(): number {
@@ -63,6 +66,7 @@ export class PositionTrackerService {
     this.trades.set(trade.symbol, trade);
     this.rrSequenceIndex.set(trade.symbol, -1);
     this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt || 0));
+    this._activeListCache = null;
   }
 
   async checkRrSequenceAdjustments(
@@ -286,6 +290,7 @@ export class PositionTrackerService {
     }
     this.trades.delete(symbol);
     this.rrSequenceIndex.delete(symbol);
+    this._activeListCache = null;
 
     this.logger.log(
       `Trade closed: ${symbol} Exit=${exitPrice} P&L=${result.trade.pnl.toFixed(2)} (${(result.trade.pnl_pct ?? 0).toFixed(2)}%) Reason=${exitReason}`,
@@ -301,5 +306,6 @@ export class PositionTrackerService {
     }
     this.trades.delete(symbol);
     this.rrSequenceIndex.delete(symbol);
+    this._activeListCache = null;
   }
 }

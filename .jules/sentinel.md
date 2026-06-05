@@ -56,3 +56,8 @@
 **Vulnerability:** Premature access to `process.env` during module instantiation caused spurious warnings or incorrect initialization before the configuration module had loaded the `.env` file. Furthermore, strict validation (`IsNotEmpty`) in DTOs prevented the UI from clearing sensitive credentials (sending empty strings).
 **Learning:** Application configuration loading must be idempotent and delayed until the runtime environment is fully established. Additionally, DTO validation must be permissive enough to allow legitimate state changes (like clearing a field) while still preventing invalid inputs.
 **Prevention:** Avoid top-level `process.env` lookups in service/library files that run during module import. For DTOs, use `IsOptional` to allow empty values, and use custom validation or service-level logic to handle the business rules for "clearing" sensitive data.
+
+## 2026-06-05 - Audit Logging and Cache Hardening
+**Vulnerability:** Sensitive Binance API credentials could be updated without an audit trail, and API responses containing sensitive trading data lacked cache-control headers, potentially exposing data in browser caches or intermediate proxies.
+**Learning:** High-value administrative actions must always be logged with client context (IP address). Furthermore, real-time trading dashboards should explicitly disable all caching to prevent data leakage in shared or public networking environments.
+**Prevention:** Implement mandatory audit logging for all state-changing administrative endpoints. Enforce strict `Cache-Control: no-store` headers globally for all API responses.

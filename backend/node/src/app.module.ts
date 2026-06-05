@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TradingModule } from './trading/trading.module';
+import { AuthModule } from './auth/auth.module';
 import { Session } from './models/entities/Session.entity';
 import { TradeEntity } from './models/entities/Trade.entity';
 import { Settings } from './models/entities/Settings.entity';
@@ -30,6 +31,7 @@ import { BalanceHistory } from './models/entities/BalanceHistory.entity';
     }),
     EventEmitterModule.forRoot(),
     TradingModule,
+    AuthModule,
   ],
 })
 export class AppModule {}

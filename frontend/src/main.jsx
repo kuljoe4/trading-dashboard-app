@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { TooltipProvider } from './components/ui/tooltip';
 import ErrorBoundary from './components/ErrorBoundary';
 import { useTradingStore } from './store/trading';
-import { sessionAPI } from './api/client';
+import { sessionAPI, setAdminApiKey } from './api/client';
 import { useVisibility } from './hooks/useVisibility';
 import './index.css';
 
@@ -28,6 +28,21 @@ const App = () => {
   } = useTradingStore();
 
   const isHidden = useVisibility();
+
+  // Initialize Auth
+  useEffect(() => {
+    async function initAuth() {
+      try {
+        const res = await sessionAPI.get('/auth/config');
+        if (res.data.adminApiKey) {
+          setAdminApiKey(res.data.adminApiKey);
+        }
+      } catch (e) {
+        console.error("Failed to fetch auth config", e);
+      }
+    }
+    initAuth();
+  }, []);
 
   useEffect(() => {
     setThrottled(isHidden);

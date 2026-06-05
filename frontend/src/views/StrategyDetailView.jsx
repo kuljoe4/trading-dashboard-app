@@ -47,7 +47,13 @@ const StrategyDetailView = ({ s, onBack }) => {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
-        <StatCard label="Total P&L" value={fmtUSD(s.totalPnl)} color={s.totalPnl >= 0 ? "text-green" : "text-red"} subValue={analytics === null ? "Synchronizing..." : undefined} syncing={analytics === null} />
+        <StatCard
+          label="Active P&L"
+          value={fmtUSD(s.activePnl)}
+          color={s.activePnl >= 0 ? "text-green" : "text-red"}
+          subValue={analytics === null ? "Synchronizing..." : `Total Session: ${fmtUSD(s.totalPnl)}`}
+          syncing={analytics === null && s.activePnl === 0}
+        />
         <StatCard label="Hit Count" value={(s.entryCount ?? 0).toString()} color="text-accent" />
         <StatCard label="SL Budget" value={`$${Number(s.totalSlUsed || 0).toFixed(0)} / $${config.total_sl_guard_usdt}`} color={s.totalSlUsed > config.total_sl_guard_usdt * 0.7 ? "text-amber" : "text-text"} />
         <StatCard label="Active Risk" value={`${Number(s.totalRiskPct || 0).toFixed(1)}%`} color={s.totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
@@ -61,13 +67,17 @@ const StrategyDetailView = ({ s, onBack }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-10">
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-10 mb-20">
          <div className="space-y-10">
             <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm"><SectionLabel className="mb-4"><TrendingUp size={14} className="text-accent" /> Performance Curve</SectionLabel><EquityCurve data={analytics?.cumulativePnL || []} height={200} /></div>
          </div>
-         <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm"><SectionLabel className="mb-4"><Activity size={14} className="text-accent" /> Strategy Logs</SectionLabel><DecisionLog /></div>
+         <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm flex flex-col h-[400px]">
+            <SectionLabel className="mb-4"><Activity size={14} className="text-accent" /> Strategy Logs</SectionLabel>
+            <div className="flex-1 overflow-hidden">
+               <DecisionLog />
+            </div>
+         </div>
       </div>
-      <ActiveTradeBar />
     </div>
   )
 }

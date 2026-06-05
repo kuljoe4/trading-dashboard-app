@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { cn } from './ui/primitives'
 import { fmtUSD, pnlColor } from '../lib/theme'
 import { sessionAPI } from '../api/client'
 import { ShieldCheck } from 'lucide-react'

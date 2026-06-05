@@ -239,9 +239,18 @@ export class TradingSessionService {
         const now = Date.now(); const isFull = now - this.lastScannerFullBroadcast > 30000;
         const nextResultsJson = JSON.stringify(this.lastScannerResults.map(o => o.symbol + o.direction + o.score));
         const resultsChanged = nextResultsJson !== this.lastScannerResultsJson; this.lastScannerResultsJson = nextResultsJson;
-        const priceChanged = this.lastScannerResults.some((o, i) => { const prev = ( (this as any).lastTickData  as any)?.scannerResults?.[i]; return prev && Math.abs(o.price - prev.price) / prev.price > 0.001; });
 
-        if (isFull || resultsChanged || priceChanged) {
+        // REFACTOR: Avoid 'as any' casting and property access on non-existent this.lastTickData
+        const resultsPriceChanged = () => {
+           const tickData = (this.engineBroadcaster as any).lastTickData;
+           if (!tickData?.scannerResults) return false;
+           return this.lastScannerResults.some((o, i) => {
+              const prev = tickData.scannerResults[i];
+              return prev && Math.abs(o.price - prev.price) / prev.price > 0.001;
+           });
+        };
+
+        if (isFull || resultsChanged || resultsPriceChanged()) {
           if (isFull) this.lastScannerFullBroadcast = now; this.lastScannerResultsJson = nextResultsJson;
           this.broadcast('scanner', { count: this.lastScannerResults.length, opportunities: this.lastScannerResults.slice(0, 5).map(o => { if (isFull) return o; const { history, ...rest } = o; return rest; }), variant_opportunities: this.lastVariantScannerResults.map(v => ({ ...v, opportunities: v.opportunities.slice(0, 5).map((o: any) => { if (isFull) return o; const { history, ...rest } = o; return rest; }) })), activeWindows: this.getActiveWindows() });
         }
@@ -358,8 +367,24 @@ export class TradingSessionService {
         if (this.onTradeUpdate) await this.onTradeUpdate(res.trade, this.getBalance());
         this.sessionState.setActiveTrades(this.positionTracker.activeList());
         this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, this.config!);
-         (this as any).lastAnalyticsResult  = this.analyticsService.calculateAnalytics(this.sessionState.closedTrades as any, this.config?.paper_mode ? this.config?.paper_starting_balance : this.config?.live_starting_balance);
-        this.broadcast('trade_event', { event: 'closed', symbol: res.trade.symbol, reason: 'MANUAL_CLOSE', trade: this.engineBroadcaster.serializeTrade(res.trade, this.config!, cp), pnl: res.trade.pnl, stats: this.sessionState.stats, analytics: { maxDrawdown: roundTo( (this as any).lastAnalyticsResult .maxDrawdown, 2), maxDrawdownPct: roundTo( (this as any).lastAnalyticsResult .maxDrawdownPct, 2), overallWinRate: roundTo( (this as any).lastAnalyticsResult .overallWinRate, 2), cumulativePnL:  (this as any).lastAnalyticsResult .cumulativePnL.slice(-20).map((p: any) => ({ ...p, pnl: roundTo(p.pnl, 2) })), } });
+
+        // REFACTOR: Use analytics from engineBroadcaster to avoid 'as any' and duplicate calculation
+        const analytics = this.analyticsService.calculateAnalytics(this.sessionState.closedTrades as any, this.config?.paper_mode ? this.config?.paper_starting_balance : this.config?.live_starting_balance);
+
+        this.broadcast('trade_event', {
+          event: 'closed',
+          symbol: res.trade.symbol,
+          reason: 'MANUAL_CLOSE',
+          trade: this.engineBroadcaster.serializeTrade(res.trade, this.config!, cp),
+          pnl: res.trade.pnl,
+          stats: this.sessionState.stats,
+          analytics: {
+            maxDrawdown: roundTo(analytics.maxDrawdown, 2),
+            maxDrawdownPct: roundTo(analytics.maxDrawdownPct, 2),
+            overallWinRate: roundTo(analytics.overallWinRate, 2),
+            cumulativePnL: analytics.cumulativePnL.slice(-20).map((p: any) => ({ ...p, pnl: roundTo(p.pnl, 2) })),
+          }
+        });
         return { success: true, trade: res.trade };
       } catch (err: any) { await this.rollbackTradeClosure(res.trade, pp, pl); return { success: false, error: err.message }; }
     }

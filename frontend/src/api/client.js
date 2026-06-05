@@ -8,13 +8,22 @@ const api = axios.create({
 
 // Dynamically inject Admin API Key
 let adminKey = null;
+let resolveAuth = null;
+const authInitialized = new Promise((resolve) => { resolveAuth = resolve; });
+
 export const setAdminApiKey = (key) => {
   adminKey = key;
+  if (resolveAuth) resolveAuth();
 };
 
-api.interceptors.request.use((config) => {
-  if (adminKey) {
-    config.headers['X-API-Key'] = adminKey;
+api.interceptors.request.use(async (config) => {
+  // If we haven't fetched the key yet, wait until it is set.
+  // Note: auth/config should not be protected by this, or it will deadlock.
+  if (config.url !== '/auth/config') {
+    await authInitialized;
+    if (adminKey) {
+      config.headers['X-API-Key'] = adminKey;
+    }
   }
   return config;
 });

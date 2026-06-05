@@ -161,7 +161,11 @@ export class TradingSessionService {
         await this.updateBalance(res.trade); if (this.onTradeUpdate) await this.onTradeUpdate(res.trade, this.getBalance());
       } else {
         t.status = 'CLOSED'; t.exit_ts = new Date(); t.exit_reason = 'SESSION_TERMINATED'; t.exit_price = ep;
-        const pnlp = t.direction === 'LONG' ? ep - t.entry_price : t.entry_price - ep; t.pnl = roundEight(pnlp * t.qty);
+        const pnlp = t.direction === 'LONG' ? ep - t.entry_price : t.entry_price - ep;
+        // Simulate exit fee (taker rate) for forced closure
+        const exitFee = roundEight(ep * t.qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
+        t.realized_fee = roundEight((t.realized_fee || 0) + exitFee);
+        t.pnl = roundEight((pnlp * t.qty) - t.realized_fee);
         this.sessionState.addClosedTrade(t); this.sessionState.updateStatsOnClose((t.pnl || 0) > 0);
         await this.updateBalance(t); if (this.onTradeUpdate) await this.onTradeUpdate(t, this.getBalance());
         this.positionTracker.removeTrade(t.symbol);

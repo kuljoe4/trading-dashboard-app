@@ -7,6 +7,7 @@ import { MarketFeedService } from './market_feed.service';
 import { TradingSessionService } from './trading_session.service';
 import { v4 as uuid } from 'uuid';
 import { roundEight, floorStep, roundTo } from '../lib/math';
+import { ENGINE_CONSTANTS } from '../models/constants';
 import { ExchangeExecutionException } from '../lib/exceptions';
 
 @Injectable()
@@ -144,11 +145,11 @@ export class OrderManagerService {
             `Binance order failed (continuing in paper mode): ${errMsg}`,
           );
           // If we fallback to paper mode after failure, we should simulate the fee
-          trade.realized_fee = roundEight(entryPrice * qty * 0.0004);
+          trade.realized_fee = roundEight(entryPrice * qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
         }
       } else if (this.paperMode) {
         // Simulate paper entry fee (0.04% taker)
-        trade.realized_fee = roundEight(entryPrice * qty * 0.0004);
+        trade.realized_fee = roundEight(entryPrice * qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
       }
 
       // Initialize PnL as net of entry fees
@@ -444,7 +445,7 @@ export class OrderManagerService {
                   this.logger.log(`Confirmed: ${symbol} position is already zero. Treating as successfully closed.`);
                   trade.exit_reason = 'EXCHANGE_SL_OR_MANUAL';
                   // Simulate exit fee since we can't easily fetch it from the exchange SL fill here
-                  const exitFee = roundEight(exitPrice * trade.qty * 0.0004);
+                  const exitFee = roundEight(exitPrice * trade.qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
                   trade.realized_fee = roundEight(trade.realized_fee + exitFee);
                } else {
                   this.logger.warn(`Binance close order failed but position still exists for ${symbol}: ${errMsg}`);
@@ -460,13 +461,13 @@ export class OrderManagerService {
           // If close fails/rejected, we might already have exit fees from exchange SL (not easy to catch here without polling)
           // but if we are here and it's paper mode or failed live close, simulate it
           if (paperMode) {
-             const exitFee = roundEight(exitPrice * trade.qty * 0.0004);
+             const exitFee = roundEight(exitPrice * trade.qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
              trade.realized_fee = roundEight(trade.realized_fee + exitFee);
           }
         }
       } else if (paperMode) {
         // Simulate paper exit fee (0.04% taker)
-        const exitFee = roundEight(exitPrice * trade.qty * 0.0004);
+        const exitFee = roundEight(exitPrice * trade.qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
         trade.realized_fee = roundEight(trade.realized_fee + exitFee);
       }
 

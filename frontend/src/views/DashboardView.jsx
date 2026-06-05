@@ -338,6 +338,11 @@ export function DashboardView({ initialStrategy }) {
 
   const safeVariantStats = variantStats || {}
 
+  const currentStrategy = useMemo(() => ({
+    sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, hitCount,
+    strategy_label: config.strategy_label || 'Momentum Strategy'
+  }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, hitCount, config.strategy_label])
+
   const activePnlMap = useMemo(() => {
     const map = { [currentStrategy.strategy_label]: 0 };
     (config.strategy_variants || []).forEach(v => {
@@ -370,11 +375,6 @@ export function DashboardView({ initialStrategy }) {
     }
     return () => clearTimeout(timer);
   }, [confirmStop]);
-
-  const currentStrategy = useMemo(() => ({
-    sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, hitCount,
-    strategy_label: config.strategy_label || 'Momentum Strategy'
-  }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, hitCount, config.strategy_label])
 
   const maxRR = useMemo(() => activeTrades.reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
 

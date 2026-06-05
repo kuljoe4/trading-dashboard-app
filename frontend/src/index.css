@@ -66,4 +66,8 @@
     scrollbar-width: none;
     overflow-anchor: none;
   }
+  @keyframes move-stripe {
+    from { background-position: 0 0; }
+    to { background-position: 1rem 0; }
+  }
 }

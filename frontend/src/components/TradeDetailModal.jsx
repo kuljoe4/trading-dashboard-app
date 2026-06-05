@@ -71,17 +71,35 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
     const pnlPct = trade.pnl_pct ?? (entry ? ((mark - entry) / entry) * 100 * (isLong ? 1 : -1) : 0)
 
     let progress = 50
-    if (entry && mark && sl && tp) {
-      const totalRange = isLong ? (tp - sl) : (sl - tp)
-      const currentFromSl = isLong ? (mark - sl) : (sl - mark)
-      progress = Math.max(0, Math.min(100, (currentFromSl / totalRange) * 100))
+    if (entry && mark && sl) {
+      if (tp) {
+        const totalRange = isLong ? (tp - sl) : (sl - tp)
+        const currentFromSl = isLong ? (mark - sl) : (sl - mark)
+        progress = Math.max(0, Math.min(100, (currentFromSl / totalRange) * 100))
+      } else {
+        // Fallback for trailed TP / dynamic RR:
+        // 0% at SL, 50% at Entry, 100% at 3 RR
+        const currentRR = Number(trade.rr || 0)
+        if (currentRR < 0) {
+           // Below entry, toward SL
+           const distToSl = Math.abs(entry - sl)
+           const distToMark = Math.abs(entry - mark)
+           progress = Math.max(0, 50 - (distToMark / distToSl) * 50)
+        } else {
+           // Above entry, toward 3RR
+           progress = Math.min(100, 50 + (currentRR / 3) * 50)
+        }
+      }
     }
 
     const qtyVal = Number(trade.qty)
     const qtyFormatted = Number.isFinite(qtyVal) ? qtyVal.toFixed(4) : '0.0000'
     const riskFormatted = fmtUSD(trade.risk_usdt || 0)
 
-    return { isLong, pnlPct, progress, entry, mark, sl, tp, qtyFormatted, riskFormatted }
+    const slDistPct = entry ? (Math.abs(mark - sl) / entry) * 100 : 0
+    const slFromEntry = entry ? (Math.abs(entry - sl) / entry) * 100 : 0
+
+    return { isLong, pnlPct, progress, entry, mark, sl, tp, qtyFormatted, riskFormatted, slDistPct, slFromEntry }
   }, [trade?.direction, trade?.entry_price, trade?.current_price, trade?.mark_price, trade?.sl_price, trade?.tp_price, trade?.tp, trade?.pnl_pct, trade?.qty, trade?.risk_usdt])
 
   if (!trade) return null
@@ -187,9 +205,11 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
             {/* Core Metrics Grid */}
             <div className="grid grid-cols-2 gap-y-8 gap-x-6">
               <Metric label="Current Mark" value={price(trade.current_price)} tooltip="The latest market price from the exchange feed." />
+              <Metric label="Current RR" value={`${Number(trade.rr || 0).toFixed(2)}x`} tooltip="The current Reward-to-Risk ratio based on current price and stop-loss." />
+              <Metric label="SL Distance" value={`${slDistPct.toFixed(2)}%`} tooltip="The percentage distance between current price and stop loss." />
+              <Metric label="Initial Risk" value={`${slFromEntry.toFixed(2)}%`} tooltip="The percentage risk taken at entry (distance to initial stop loss)." />
               <Metric label="Position Qty" value={`${qtyFormatted} ${trade.symbol.replace('USDT', '')}`} tooltip="The total amount of asset currently held in this position." />
               <Metric label="Equity At Risk" value={riskFormatted} tooltip="Total capital currently exposed based on the entry price and SL distance." />
-              <Metric label="Initial Stop" value={price(trade.initial_sl)} tooltip="The original stop-loss price set at the moment of entry." />
             </div>
 
             {/* Signals & Adjustments */}
@@ -212,7 +232,11 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
                           'bg-white/[0.02] border-border/40 text-dim'
                         )}>
                           <span className="uppercase tracking-widest opacity-60">{sig.label}</span>
-                          <span className="font-mono text-sm">{Number(sig.value || 0).toFixed(2)}</span>
+                          <span className="font-mono text-sm">
+                            {Number(sig.value) < 0.01 && Number(sig.value) !== 0
+                              ? Number(sig.value).toFixed(4)
+                              : Number(sig.value || 0).toFixed(2)}
+                          </span>
                         </div>
                       ))}
                     </div>

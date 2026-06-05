@@ -7,7 +7,7 @@ const api = axios.create({
 })
 
 // Dynamically inject Admin API Key
-let adminKey = localStorage.getItem('MOMENTUM_ADMIN_API_KEY') || null;
+let adminKey = typeof localStorage !== 'undefined' ? localStorage.getItem('MOMENTUM_ADMIN_API_KEY') : null;
 let resolveAuth = null;
 const authInitialized = new Promise((resolve) => {
   resolveAuth = resolve;
@@ -17,10 +17,12 @@ const authInitialized = new Promise((resolve) => {
 
 export const setAdminApiKey = (key) => {
   adminKey = key;
-  if (key) {
-    localStorage.setItem('MOMENTUM_ADMIN_API_KEY', key);
-  } else {
-    localStorage.removeItem('MOMENTUM_ADMIN_API_KEY');
+  if (typeof localStorage !== 'undefined') {
+    if (key) {
+      localStorage.setItem('MOMENTUM_ADMIN_API_KEY', key);
+    } else {
+      localStorage.removeItem('MOMENTUM_ADMIN_API_KEY');
+    }
   }
   if (resolveAuth) resolveAuth();
 };
@@ -29,6 +31,17 @@ export const setAdminApiKey = (key) => {
 export const initializeAuth = () => {
   if (resolveAuth) resolveAuth();
 };
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401 && error.config.url !== '/auth/config') {
+      // Broadcast event for the UI to show auth overlay
+      window.dispatchEvent(new CustomEvent('auth-required'));
+    }
+    return Promise.reject(error);
+  }
+);
 
 api.interceptors.request.use(async (config) => {
   // If we haven't fetched the key yet, wait until it is set.

@@ -32,6 +32,10 @@ async function bootstrap() {
     bodyParser: false, // Disable default body parser to configure limits manually
   });
 
+  // Security: Enable 'trust proxy' for accurate client IP detection behind load balancers/reverse proxies
+  const expressInstance = app.getHttpAdapter().getInstance();
+  expressInstance.set('trust proxy', 1);
+
   // Security: Disable X-Powered-By header to reduce information disclosure
   app.getHttpAdapter().getInstance().disable("x-powered-by");
 

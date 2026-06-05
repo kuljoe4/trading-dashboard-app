@@ -67,6 +67,7 @@ export class ExecutionService {
             config.paper_mode ? config.paper_starting_balance : config.live_starting_balance
           );
 
+          this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
           this.broadcastService.broadcast('trade_event', {
             event: 'closed',
             symbol: result.trade.symbol,
@@ -144,6 +145,7 @@ export class ExecutionService {
         this.sessionState.setActiveTrades(this.positionTracker.activeList());
         this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, config);
 
+        this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
         this.broadcastService.broadcast('trade_event', {
           event: 'opened',
           symbol: opp.symbol,

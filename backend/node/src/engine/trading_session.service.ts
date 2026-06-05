@@ -107,8 +107,9 @@ export class TradingSessionService {
     const prevCount = this.sessionState.listenerCount; this.sessionState.listenerCount = count;
     if (this.running && this.config) {
       if (prevCount > 0 && count === 0) {
-        const ecoMainMs = Math.max(15000, this.config.main_loop_interval_ms || CONFIG_LIMITS.MAIN_LOOP_DEFAULT);
-        const ecoHotMs = Math.max(5000, this.config.hot_loop_interval_ms || CONFIG_LIMITS.HOT_LOOP_DEFAULT);
+        const hasTrades = this.positionTracker.activeCount() > 0;
+        const ecoMainMs = Math.max(hasTrades ? 15000 : 30000, this.config.main_loop_interval_ms || CONFIG_LIMITS.MAIN_LOOP_DEFAULT);
+        const ecoHotMs = Math.max(hasTrades ? 5000 : 10000, this.config.hot_loop_interval_ms || CONFIG_LIMITS.HOT_LOOP_DEFAULT);
         this.restartLoops(ecoHotMs, ecoMainMs);
       } else if (prevCount === 0 && count > 0) {
         this.restartLoops(this.config.hot_loop_interval_ms || CONFIG_LIMITS.HOT_LOOP_DEFAULT, this.config.main_loop_interval_ms || CONFIG_LIMITS.MAIN_LOOP_DEFAULT);

@@ -26,7 +26,9 @@ export class ExecutionService {
     private readonly klineStore: KlineStoreService,
     private readonly signalEngine: SignalEngineService,
     private readonly riskEngine: RiskEngineService,
+    @Inject(forwardRef(() => PositionTrackerService))
     private readonly positionTracker: PositionTrackerService,
+    @Inject(forwardRef(() => OrderManagerService))
     private readonly orderManager: OrderManagerService,
     private readonly sessionState: SessionStateService,
     private readonly gatingService: GatingService,

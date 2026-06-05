@@ -21,9 +21,11 @@ export class SessionLifecycleService {
 
   constructor(
     private readonly sessionState: SessionStateService,
+    @Inject(forwardRef(() => OrderManagerService))
     private readonly orderManager: OrderManagerService,
     private readonly marketFeed: MarketFeedService,
     private readonly momentumScanner: MomentumScannerService,
+    @Inject(forwardRef(() => PositionTrackerService))
     private readonly positionTracker: PositionTrackerService,
     private readonly monitoringService: MonitoringService,
     private readonly auditLog: AuditLogService,
@@ -77,13 +79,6 @@ export class SessionLifecycleService {
     if (this.listenKeyKeepAlive) clearInterval(this.listenKeyKeepAlive);
     if (this.userDataWs) { try { this.userDataWs.disconnect(); } catch (e) {} this.userDataWs = null; }
     if (this.listenKey && bc) { try { await bc.restAPI.userDataStreamsApi.closeUserDataStream(this.listenKey); } catch (e) {} this.listenKey = null; }
-
-    const active = this.positionTracker.activeList();
-    for (const t of active) {
-        // Force closure logic remains in TradingSessionService or can be moved here
-        // For simplicity of this refactor, I'll keep the loop in TradingSessionService
-        // but SessionLifecycleService will handle the cleanup of resources.
-    }
 
     await this.marketFeed.stop();
     await this.momentumScanner.stop();

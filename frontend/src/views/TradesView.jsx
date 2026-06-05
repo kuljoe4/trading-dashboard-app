@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useTradingStore } from '../store/trading'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
+import { ActiveTradeBar } from '../components/ActiveTradeBar'
 import { TradeDetailModal } from '../components/TradeDetailModal'
 import { SectionLabel, StatCard } from '../components/ui/primitives'
 import { fmtUSD } from '../lib/theme'
@@ -25,6 +26,7 @@ const TradesView = () => {
 
   return (
     <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <ActiveTradeBar />
       <Breadcrumbs />
       <div className="flex items-center gap-4 mb-10">
         <div className="w-12 h-12 rounded-2xl bg-accent/10 flex items-center justify-center text-accent shadow-sm border border-accent/20">

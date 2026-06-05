@@ -7,6 +7,7 @@ import {
   StatCard, SectionLabel, Btn, StatusBadge, PaperBadge, EcoBadge, DemoBadge, LiveBadge,
     ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn, Tooltip, VisuallyHidden
   } from '../components/ui/primitives'
+import { ActiveTradeBar } from '../components/ActiveTradeBar'
 import {
   ChevronLeft, Plus, Trash2, LayoutDashboard, History,
   Settings as SettingsIcon, Activity, Zap, ShieldCheck,
@@ -115,11 +116,15 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
               </button>
             </Tooltip>
           </div>
-          <div className="text-2xl font-bold font-mono" style={{ color: pnlColor(s.totalPnl) }}>
-            {fmtUSD(s.totalPnl)}
+          <div className="text-2xl font-bold font-mono" style={{ color: pnlColor(s.activePnl) }}>
+            {fmtUSD(s.activePnl)}
           </div>
-          <div className="text-[10px] text-dim font-bold uppercase tracking-widest mt-1">
-            {s.entryCount} ENTRIES · {s.hitCount} HITS
+          <div className="text-[10px] text-dim font-bold uppercase tracking-widest mt-1 flex flex-col items-end">
+            <div className="flex items-center gap-1.5">
+              <span className="opacity-60">Total:</span>
+              <span style={{ color: pnlColor(s.totalPnl) }}>{fmtUSD(s.totalPnl)}</span>
+            </div>
+            <div className="mt-0.5">{s.entryCount} ENTRIES · {s.hitCount} HITS</div>
           </div>
         </div>
       </div>
@@ -333,6 +338,24 @@ export function DashboardView({ initialStrategy }) {
 
   const safeVariantStats = variantStats || {}
 
+  const activePnlMap = useMemo(() => {
+    const map = { [currentStrategy.strategy_label]: 0 };
+    (config.strategy_variants || []).forEach(v => {
+      const label = v.strategy_label || 'Variant';
+      map[label] = 0;
+    });
+    activeTrades.forEach(t => {
+      if (map[t.strategy_label] !== undefined) {
+        map[t.strategy_label] += (t.pnl || 0);
+      }
+    });
+    return map;
+  }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
+
+  const totalActivePnl = useMemo(() =>
+    Object.values(activePnlMap).reduce((acc, val) => acc + val, 0)
+  , [activePnlMap]);
+
 
   const { updateStats } = useTradingStore(state => ({
     updateStats: state.updateStats
@@ -455,6 +478,13 @@ export function DashboardView({ initialStrategy }) {
   }
 
   if (selected) {
+    const strategyData = {
+      ...currentStrategy,
+      strategy_label: selected,
+      ...safeVariantStats[selected],
+      activePnl: activePnlMap[selected] || 0
+    };
+
     return (
       <div className={cn(
         "pb-32 transition-all duration-300",
@@ -462,7 +492,7 @@ export function DashboardView({ initialStrategy }) {
       )}>
         <Sidebar selected={selected} />
         <Suspense fallback={<LoadingFallback />}>
-          <StrategyDetailView s={currentStrategy} onBack={() => setSelected(null)} />
+          <StrategyDetailView s={strategyData} onBack={() => setSelected(null)} />
         </Suspense>
         <BottomNav selected={selected} />
       </div>
@@ -485,6 +515,7 @@ export function DashboardView({ initialStrategy }) {
       )}
       <Sidebar selected={selected} />
       <div className="max-w-[1600px] mx-auto p-4 md:p-10 pb-32 lg:pb-10">
+        <ActiveTradeBar />
 
         <ConfirmationModal
           isOpen={confirmStop}
@@ -594,52 +625,16 @@ export function DashboardView({ initialStrategy }) {
         >
           <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} />
           <StatCard
-            label="Session P&L"
-            value={fmtUSD(totalPnl)}
-            color={totalPnl >= 0 ? "text-green" : "text-red"}
-            subValue={wsStatus !== 'live' ? "Synchronizing..." : undefined}
+            label="Active P&L"
+            value={fmtUSD(totalActivePnl)}
+            color={totalActivePnl >= 0 ? "text-green" : "text-red"}
+            subValue={`Total Session: ${fmtUSD(totalPnl)}`}
             syncing={wsStatus !== 'live'}
           />
           <StatCard label="Live Risk" value={`${Number(totalRiskPct || 0).toFixed(1)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
           <StatCard label="Peak RR" value={`+${Number(maxRR || 0).toFixed(2)}`} color="text-accent" />
         </motion.div>
 
-        {/* Active Positions Overview Banner */}
-        <AnimatePresence>
-          {activeTrades.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="mb-10 overflow-hidden"
-            >
-              <button
-                onClick={() => window.location.hash = '#/trades'}
-                className="w-full bg-accent/5 border border-accent/20 rounded-2xl p-4 flex items-center justify-between group hover:bg-accent/10 transition-all"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-accent text-white flex items-center justify-center shadow-lg shadow-accent/20">
-                    <Briefcase size={20} />
-                  </div>
-                  <div className="text-left">
-                    <div className="text-sm font-bold flex items-center gap-2">
-                      {activeTrades.length} Active Positions
-                      <span className="text-[10px] bg-accent/20 text-accent px-1.5 py-0.5 rounded uppercase tracking-wider">Live</span>
-                    </div>
-                    <div className="text-[11px] text-dim font-bold uppercase tracking-widest mt-0.5">
-                      Total Unrealized: <span className={activeTrades.reduce((acc, t) => acc + (t.pnl || 0), 0) >= 0 ? "text-green" : "text-red"}>
-                        {fmtUSD(activeTrades.reduce((acc, t) => acc + (t.pnl || 0), 0))}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 text-accent font-bold text-[10px] uppercase tracking-widest">
-                  Monitor All <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
-                </div>
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         {/* Main Grid */}
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] items-start gap-10">
@@ -658,7 +653,8 @@ export function DashboardView({ initialStrategy }) {
                     <StrategyCard
                       s={{
                         ...currentStrategy,
-                        ...safeVariantStats[currentStrategy.strategy_label]
+                        ...safeVariantStats[currentStrategy.strategy_label],
+                        activePnl: activePnlMap[currentStrategy.strategy_label] || 0
                       }}
                       scannerResults={variantScannerResults[currentStrategy.strategy_label]}
                       config={config}
@@ -677,7 +673,8 @@ export function DashboardView({ initialStrategy }) {
                           s={{
                             ...currentStrategy,
                             strategy_label: label,
-                            ...safeVariantStats[label]
+                            ...safeVariantStats[label],
+                            activePnl: activePnlMap[label] || 0
                           }}
                           scannerResults={variantScannerResults[label]}
                           config={variantConfig}

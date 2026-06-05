@@ -42,11 +42,11 @@ export class SessionLifecycleService {
         this.sessionState.balanceLive = b;
         this.sessionState.balancePaper = b;
       } catch (e) {
-        this.logger.debug(`Initial balance fetch failed: ${e.message}`);
+        this.logger.debug(`Initial balance fetch failed: ${e instanceof Error ? e.message : String(e)}`);
       }
 
       this.startUserDataStream(bc).catch((err) => {
-        this.logger.error(`Failed to start user data stream: ${err.message}. Falling back to polling.`);
+        this.logger.error(`Failed to start user data stream: ${err instanceof Error ? err.message : String(err)}. Falling back to polling.`);
         this.balancePollInterval = setInterval(async () => {
           const b = await this.fetchBinanceBalance(bc);
           if (b > 0) {
@@ -82,13 +82,13 @@ export class SessionLifecycleService {
     if (this.listenKeyKeepAlive) clearInterval(this.listenKeyKeepAlive);
     if (this.userDataWs) {
         try { this.userDataWs.disconnect(); } catch (e) {
-            this.logger.debug(`Error disconnecting user data WS: ${e.message}`);
+            this.logger.debug(`Error disconnecting user data WS: ${e instanceof Error ? e.message : String(e)}`);
         }
         this.userDataWs = null;
     }
     if (this.listenKey && bc) {
         try { await bc.restAPI.userDataStreamsApi.closeUserDataStream(this.listenKey); } catch (e) {
-            this.logger.debug(`Error closing user data stream: ${e.message}`);
+            this.logger.debug(`Error closing user data stream: ${e instanceof Error ? e.message : String(e)}`);
         }
         this.listenKey = null;
     }
@@ -113,8 +113,8 @@ export class SessionLifecycleService {
       const data = res.data || res;
       const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
       return usdt ? parseFloat(usdt.balance || 0) : 0;
-    } catch (e: any) {
-      this.logger.error(`Balance fetch failed: ${e.message}`);
+    } catch (e: unknown) {
+      this.logger.error(`Balance fetch failed: ${e instanceof Error ? e.message : String(e)}`);
       return 0;
     }
   }
@@ -138,7 +138,7 @@ export class SessionLifecycleService {
             }
           }
         } catch (err) {
-            this.logger.debug(`Error processing user data WS message: ${err.message}`);
+            this.logger.debug(`Error processing user data WS message: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
       this.userDataWs.userData(this.listenKey);
@@ -148,7 +148,7 @@ export class SessionLifecycleService {
             this.monitoringService.incrementApiRequests();
             await bc.restAPI.userDataStreamsApi.keepaliveUserDataStream(this.listenKey);
           } catch (err) {
-              this.logger.debug(`Error keeping alive user data stream: ${err.message}`);
+              this.logger.debug(`Error keeping alive user data stream: ${err instanceof Error ? err.message : String(err)}`);
           }
         }
       }, ENGINE_CONSTANTS.USER_DATA_KEEPALIVE_MS);

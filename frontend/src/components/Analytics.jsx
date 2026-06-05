@@ -120,12 +120,12 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
       >
         <defs>
           <linearGradient id={`${gradientId}-area-above`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--green)" stopOpacity="0.15" />
-            <stop offset="100%" stopColor="var(--green)" stopOpacity="0" />
+            <stop offset="0%" stopColor="var(--color-green)" stopOpacity="0.15" />
+            <stop offset="100%" stopColor="var(--color-green)" stopOpacity="0" />
           </linearGradient>
           <linearGradient id={`${gradientId}-area-below`} x1="0" y1="1" x2="0" y2="0">
-            <stop offset="0%" stopColor="var(--red)" stopOpacity="0.15" />
-            <stop offset="100%" stopColor="var(--red)" stopOpacity="0" />
+            <stop offset="0%" stopColor="var(--color-red)" stopOpacity="0.15" />
+            <stop offset="100%" stopColor="var(--color-red)" stopOpacity="0" />
           </linearGradient>
 
           <clipPath id={`${gradientId}-clip-above`}>
@@ -157,7 +157,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
         <path
           d={pathD}
           fill="none"
-          stroke="var(--green)"
+          stroke="var(--color-green)"
           strokeWidth="2.5"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -170,7 +170,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
         <path
           d={pathD}
           fill="none"
-          stroke="var(--red)"
+          stroke="var(--color-red)"
           strokeWidth="2.5"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -184,13 +184,13 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
           <g>
             <line
               x1={hoverData.x} y1="0" x2={hoverData.x} y2="100"
-              stroke="var(--accent)" strokeWidth="0.5" strokeDasharray="2,2" className="opacity-50"
+              stroke="var(--color-accent)" strokeWidth="0.5" strokeDasharray="2,2" className="opacity-50"
             />
             <circle
               cx={hoverData.x}
               cy={hoverData.y}
               r="2.5"
-              fill="var(--accent)"
+              fill="var(--color-accent)"
               filter={`url(#${glowId})`}
               className="animate-pulse"
             />
@@ -203,7 +203,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
             cx={points[points.length-1].x}
             cy={points[points.length-1].y}
             r="2"
-            fill="var(--accent)"
+            fill="var(--color-accent)"
             filter={`url(#${glowId})`}
           />
         )}

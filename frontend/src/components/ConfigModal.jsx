@@ -182,18 +182,18 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
       <div className="flex-1 overflow-y-auto p-5 pb-32 overscroll-contain" data-vaul-no-drag>
         {section === 'scan' && (
           <div className="space-y-8 animate-in fade-in duration-300">
-            <section>
+            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
               <SectionHeader icon={Settings2} title="General" subtitle="Basic strategy identification" />
               {field('Strategy label', 'strategy_label', 'text', null, { placeholder: 'Momentum Strategy' })}
             </section>
 
-            <section>
+            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
               <div className="p-4 bg-accent/5 border border-accent/20 rounded-2xl flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><Search size={20} /></div><div><div className="text-sm font-bold">Global Scanner</div><div className="text-[10px] text-dim font-medium uppercase">Automatic opportunity discovery</div></div></div>
+                <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><Search size={20} /></div><div><div className="text-sm font-bold">Global Scanner</div><div className="text-[10px] text-dim font-medium uppercase">Automatic discovery</div></div></div>
                 <Toggle value={cfg.global_scanner_enabled !== false} onChange={(v) => setField('global_scanner_enabled', v)} />
               </div>
 
-              <div className={cn("grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6", cfg.global_scanner_enabled === false && "opacity-40 pointer-events-none")}>
+              <div className={cn("grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6", cfg.global_scanner_enabled === false && "opacity-40 pointer-events-none")}>
                 {field('Timeframe', 'scan_interval', 'text', ['1m', '5m', '15m', '1h'])}
                 {field('% Threshold', 'scan_pct_threshold', 'number', null, { min: CONFIG_LIMITS.SCAN_PCT_THRESHOLD_MIN, step: 0.1 })}
                 {field('Watchlist size', 'watchlist_size', 'number', null, { min: CONFIG_LIMITS.WATCHLIST_MIN, max: CONFIG_LIMITS.WATCHLIST_MAX })}
@@ -213,14 +213,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
               </div>
             </section>
 
-            <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={Plus} title="Static Watchlist" subtitle="Rank only these symbols (leave empty for all)" />
-              <input type="text" placeholder="BTCUSDT,ETHUSDT,SOLUSDT..." value={cfg.symbols?.join(',') || ''} onChange={(e) => setField('symbols', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none hover:border-border-hover transition-colors" />
+            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
+              <SectionHeader icon={Plus} title="Static Watchlist" subtitle="Rank only these symbols (comma separated)" />
+              <input type="text" placeholder="BTCUSDT, ETHUSDT, SOLUSDT..." value={cfg.symbols?.join(', ') || ''} onChange={(e) => setField('symbols', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none hover:border-border-hover transition-colors" />
             </section>
 
-            <section className="pt-6 border-t border-border/40">
+            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
               <SectionHeader icon={XCircle} title="Exclusion List" subtitle="Symbols to never trade" />
-              <input type="text" placeholder="BTCUSDT,ETHUSDT..." value={cfg.excluded_symbols?.join(',') || ''} onChange={(e) => setField('excluded_symbols', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none hover:border-border-hover transition-colors" />
+              <input type="text" placeholder="BTCUSDT, ETHUSDT..." value={cfg.excluded_symbols?.join(', ') || ''} onChange={(e) => setField('excluded_symbols', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none hover:border-border-hover transition-colors" />
             </section>
 
             <section className="pt-6 border-t border-border/40">
@@ -237,7 +237,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
 
         {section === 'strategy' && (
           <div className="space-y-8 animate-in fade-in duration-300">
-            <section>
+            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
               <div className="flex justify-between items-center mb-4">
                 <SectionHeader icon={Zap} title="Entry Signals" subtitle="Triggers for opening positions" />
                 <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
@@ -245,7 +245,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'all' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'all')}>ALL</button>
                  </div>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                 {SIGNALS.map(([key, label, desc]) => {
                   const active = (cfg.enabled_signals || []).includes(key);
                   return (

@@ -11,6 +11,20 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
     }
   }
 
+  const entry = Number(trade.entry_price || 0)
+  const mark = Number(trade.mark_price || trade.last_price || 0)
+  const sl = Number(trade.sl_price || 0)
+  const tp = Number(trade.tp_price || 0)
+  const isLong = trade.direction === 'LONG'
+
+  // Calculate progress relative to SL and TP
+  let progress = 50
+  if (entry && mark && sl && tp) {
+    const totalRange = isLong ? (tp - sl) : (sl - tp)
+    const currentFromSl = isLong ? (mark - sl) : (sl - mark)
+    progress = Math.max(0, Math.min(100, (currentFromSl / totalRange) * 100))
+  }
+
   return (
     <div
       onClick={onClick}
@@ -18,23 +32,49 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
       role="button"
       tabIndex={0}
       aria-label={`View details for ${trade.symbol} ${trade.direction} trade`}
-      className="bg-surface border border-border rounded-2xl p-5 flex items-center justify-between w-full shadow-sm cursor-pointer hover:border-accent/40 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+      className="bg-surface border border-border rounded-2xl p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/40 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.98]"
     >
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-2 text-sm font-bold">
-          <span>{trade.symbol || '---'}</span>
-          <span className={trade.direction === 'LONG' ? 'text-green' : 'text-red'}>{trade.direction || '---'}</span>
-        </div>
-        {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
-          <div className="flex items-center gap-1 mt-0.5">
-            <ShieldCheck size={10} className="text-accent" />
-            <span className="text-[9px] font-bold text-accent uppercase tracking-tighter">Monitored</span>
+      <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2 text-sm font-bold">
+            <span className="font-mono">{trade.symbol || '---'}</span>
+            <span className={isLong ? 'text-green' : 'text-red'}>{trade.direction || '---'}</span>
           </div>
-        )}
+          {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
+            <div className="flex items-center gap-1">
+              <ShieldCheck size={10} className="text-accent" />
+              <span className="text-[9px] font-bold text-accent uppercase tracking-tighter">Monitored</span>
+            </div>
+          )}
+        </div>
+
+        <div className={`text-lg font-bold font-mono ${trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlColor(trade.pnl) : 'text-dim'}`}>
+          {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
+        </div>
       </div>
-      
-      <div className={`text-lg font-bold ${trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlColor(trade.pnl) : 'text-dim'}`}>
-        {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
+
+      {/* Mini Price Runway */}
+      <div className="space-y-1.5">
+        <div className="h-1.5 w-full bg-border rounded-full overflow-hidden relative">
+          {/* Entry Point Marker */}
+          <div
+            className="absolute top-0 bottom-0 w-0.5 bg-text/30 z-10"
+            style={{ left: '50%' }}
+          />
+          {/* Progress Bar */}
+          <div
+            className={cn(
+              "h-full transition-all duration-500",
+              trade.pnl >= 0 ? "bg-green" : "bg-red"
+            )}
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <div className="flex justify-between text-[9px] font-bold text-dim uppercase tracking-widest font-mono">
+          <span>{isLong ? 'SL' : 'TP'}</span>
+          <span className="text-text/40">Entry</span>
+          <span>{isLong ? 'TP' : 'SL'}</span>
+        </div>
       </div>
     </div>
   )

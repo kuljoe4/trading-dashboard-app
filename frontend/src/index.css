@@ -7,14 +7,15 @@
   --color-green: #00e5a0;
   --color-red: #ff4466;
   --color-amber: #f5a623;
-  --color-text: #eef1f5;
-  --color-dim: #5a6a88;
-  --color-border: #1d2633;
-  --color-border-hover: #2d3a4d;
+  --color-text: #f0f3f8;
+  --color-dim: #8ba1c1;
+  --color-border: #1e293b;
+  --color-border-hover: #334155;
 
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-sans: 'Inter', 'Inter var', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Roboto Mono', monospace;
 
+  --radius-2xl: 1.5rem;
   --radius-xl: 1rem;
   --radius-lg: 0.75rem;
   --radius-md: 0.5rem;
@@ -23,29 +24,39 @@
 
 @layer base {
   body {
-    @apply bg-background text-text font-sans antialiased;
+    @apply bg-background text-text font-sans antialiased selection:bg-accent/30 selection:text-white;
     background-color: var(--color-background);
+    -webkit-tap-highlight-color: transparent;
   }
 
   :focus-visible {
     @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-background;
   }
 
-  /* Smooth scroll for the whole app - Removed to prevent Firefox scroll-linked effect warnings */
-  /* html {
-    scroll-behavior: smooth;
-  } */
+  h1, h2, h3, h4, h5, h6 {
+    @apply tracking-tight font-bold;
+  }
+
+  input, button, select, textarea {
+    font-family: inherit;
+  }
 }
 
 @layer utilities {
   .neon-glow-accent {
-    box-shadow: 0 0 20px rgba(91, 111, 255, 0.3);
+    box-shadow: 0 0 20px rgba(91, 111, 255, 0.2);
   }
   .neon-glow-green {
-    box-shadow: 0 0 20px rgba(0, 229, 160, 0.3);
+    box-shadow: 0 0 20px rgba(0, 229, 160, 0.2);
   }
   .neon-glow-red {
-    box-shadow: 0 0 20px rgba(255, 68, 102, 0.3);
+    box-shadow: 0 0 20px rgba(255, 68, 102, 0.2);
+  }
+  .glass-morphism {
+    @apply bg-surface/80 backdrop-blur-md border border-white/5;
+  }
+  .text-shadow-sm {
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
   }
   .no-scrollbar::-webkit-scrollbar {
     display: none;

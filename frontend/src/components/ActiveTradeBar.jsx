@@ -55,16 +55,18 @@ export const ActiveTradeBar = () => {
           </div>
         </div>
 
-        <div className="flex-1 overflow-x-auto no-scrollbar flex gap-2">
+        <div className="flex-1 overflow-x-auto no-scrollbar flex gap-2" role="list">
           {activeTrades.map(t => (
             <button
               key={t.symbol}
               onClick={() => handleClose(t.symbol)}
+              role="listitem"
+              aria-label={closing === t.symbol ? `Confirm closing ${t.symbol} position` : `Close ${t.symbol} position`}
               className={cn(
-                "px-3 py-2 rounded-xl border text-[10px] font-bold font-mono transition-all flex items-center gap-2 shrink-0",
+                "px-3 py-2 rounded-xl border text-[10px] font-bold font-mono transition-all flex items-center gap-2 shrink-0 focus-visible:ring-2 focus-visible:ring-red outline-none",
                 closing === t.symbol ? "bg-red border-red text-white scale-95" :
                 closing === 'CANCELLED' ? "bg-amber/20 border-amber/40 text-amber" :
-                "bg-white/5 border-white/10 hover:bg-white/10"
+                "bg-white/5 border-white/10 hover:bg-white/10 hover:border-red/40"
               )}
             >
               {t.symbol.replace('USDT', '')}

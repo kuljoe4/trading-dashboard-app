@@ -81,4 +81,6 @@ export class Trade {
   strategy_label?: string;
 
   strategy_config?: Partial<import('./SessionConfig').SessionConfig>;
+
+  _sig_json?: string;
 }

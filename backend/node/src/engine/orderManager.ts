@@ -320,6 +320,8 @@ export class OrderManagerService {
 
     // Update trade status for frontend
     trade.exit_signals_status = statuses;
+    // BOLT OPTIMIZATION: Pre-calculate JSON string for hot-loop change detection
+    trade._sig_json = JSON.stringify(statuses);
 
     const allEnabled = config.exit_signals.length;
     let exitTriggered = false;

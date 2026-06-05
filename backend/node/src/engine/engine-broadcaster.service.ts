@@ -160,7 +160,7 @@ export class EngineBroadcasterService {
           tradeChanged = true;
         } else if ((trade.sl_adjustments?.length || 0) !== (prevTrade._sl_len || 0)) {
           tradeChanged = true;
-        } else if (JSON.stringify(trade.exit_signals_status) !== prevTrade._sig_json) {
+        } else if (trade._sig_json !== prevTrade._sig_json) {
           tradeChanged = true;
         } else {
           const pnlDelta = Math.abs(pnlValue - (prevTrade.pnl || 0));
@@ -187,7 +187,7 @@ export class EngineBroadcasterService {
         const serialized = this.serializeTrade(trade, config, current, true) as any;
         const { strategy_config, live_rr_sequence, exit_rr_sequence, exit_signals_status, sl_adjustments, tp_mode, tp_ratio, ...thin } = serialized;
         thin._sl_len = trade.sl_adjustments?.length || 0;
-        thin._sig_json = JSON.stringify(trade.exit_signals_status);
+        thin._sig_json = trade._sig_json || JSON.stringify(trade.exit_signals_status || {});
         trades.push(thin as TickTradeDto);
       }
     }

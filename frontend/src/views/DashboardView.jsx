@@ -552,7 +552,13 @@ export function DashboardView({ initialStrategy }) {
             </Tooltip>
 
             {!sessionActive ? (
-              <Btn variant="success" onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }} disabled={loading} className="flex-1 sm:flex-none">
+              <Btn
+                variant="success"
+                onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
+                disabled={loading}
+                className="flex-1 sm:flex-none"
+                aria-label="Start a new trading session"
+              >
                 <Plus size={16} className="mr-2" /> New Session
               </Btn>
             ) : (
@@ -561,6 +567,7 @@ export function DashboardView({ initialStrategy }) {
                 onClick={() => setConfirmStop(true)}
                 disabled={loading}
                 className="flex-1 sm:flex-none"
+                aria-label="Immediately stop all trading and close positions"
               >
                 <XCircle size={16} className="mr-2" /> Terminate Session
               </Btn>
@@ -638,7 +645,7 @@ export function DashboardView({ initialStrategy }) {
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] items-start gap-10">
 
           {/* Left Workspace */}
-          <div className="space-y-10">
+          <div className="space-y-10 overflow-hidden">
             <motion.div
               initial={{ x: -20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}

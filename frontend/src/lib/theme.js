@@ -23,7 +23,9 @@ export const C = {
 export const pnlColor = (pnl) => (pnl >= 0 ? C.green : C.red);
 export const fmtUSD = (val) => {
   const n = Number(val || 0);
-  const formatted = Math.abs(n).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const absN = Math.abs(n);
+  const precision = (absN < 1 && absN > 0) ? 4 : 2;
+  const formatted = absN.toLocaleString('en', { minimumFractionDigits: precision, maximumFractionDigits: precision });
   // Audit Item 48: Arrow indicators for WCAG win/loss consistency
   const prefix = n >= 0 ? '▲ +$' : '▼ -$';
   return `${prefix}${formatted}`;

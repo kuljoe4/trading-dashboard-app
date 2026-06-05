@@ -26,11 +26,11 @@ export const PulseDot = React.memo(({ color = "bg-green" }) => (
 
 // --- Stat Card ---
 export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing }) => (
-  <div className="bg-surface border border-border p-6 rounded-2xl shadow-sm hover:border-border-hover transition-colors group relative overflow-hidden">
+  <div className="bg-surface border border-border p-6 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.02] transition-all group relative overflow-hidden flex flex-col justify-center min-h-[110px]">
     {syncing && (
       <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" />
     )}
-    <div className="text-[11px] text-dim tracking-[0.15em] mb-3 uppercase font-bold group-hover:text-dim/80 transition-colors">{label}</div>
+    <div className="text-[10px] text-dim tracking-[0.2em] mb-2 uppercase font-black group-hover:text-dim/80 transition-colors">{label}</div>
     <div className={cn(
       "text-2xl font-bold font-mono tracking-tight transition-all duration-500",
       color,
@@ -38,7 +38,7 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
     )}>{value}</div>
     {subValue && (
       <div className={cn(
-        "text-[11px] text-dim mt-2 font-mono uppercase flex items-center gap-1.5",
+        "text-[10px] text-dim mt-2 font-mono font-bold uppercase flex items-center gap-1.5",
         syncing && "text-accent/60 animate-pulse"
       )}>
         {syncing && <Loader2 size={12} className="animate-spin" />}

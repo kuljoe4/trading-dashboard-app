@@ -32,7 +32,7 @@ describe('Industry Fixes Verification', () => {
           ]
         })
       };
-      orderManager = new OrderManagerService(mockSignalEngine, mockMarketFeed, { isRateLimited: () => false } as any);
+      orderManager = new OrderManagerService(mockSignalEngine, mockMarketFeed, { isRateLimited: () => false } as any, { log: jest.fn() } as any);
     });
 
     it('applies PRICE_FILTER and LOT_SIZE during trade entry', async () => {

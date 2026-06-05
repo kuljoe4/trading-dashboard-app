@@ -12,6 +12,8 @@ import { MarketFeedService } from './market_feed.service';
 import { MomentumScannerService } from './momentum_scanner.service';
 import { MonitoringService } from './monitoring.service';
 import { AnalyticsService } from './analytics.service';
+import { ExecutionService } from './execution.service';
+import { SessionLifecycleService } from './session-lifecycle.service';
 import { BroadcastService } from './broadcast.service';
 import { SessionStateService } from './session_state.service';
 import { ENGINE_EVENTS } from './events';
@@ -21,6 +23,7 @@ import { ENGINE_CONSTANTS, CONFIG_LIMITS } from '../models/constants';
 import { VariantAnalyticsService } from './variant-analytics.service';
 import { EngineBroadcasterService } from './engine-broadcaster.service';
 import { GatingService } from './gating.service';
+import { AuditLogService } from '../trading/audit-log.service';
 import { TradeSerializationDto } from '../trading/dto/trade-serialization.dto';
 
 function monitoringChangedInternal(curr: any, prev: any): boolean {
@@ -85,11 +88,14 @@ export class TradingSessionService {
     private readonly momentumScanner: MomentumScannerService,
     private readonly monitoringService: MonitoringService,
     private readonly analyticsService: AnalyticsService,
+    private readonly executionService: ExecutionService,
+    private readonly sessionLifecycle: SessionLifecycleService,
     private readonly broadcastService: BroadcastService,
     private readonly sessionState: SessionStateService,
     private readonly variantAnalytics: VariantAnalyticsService,
     private readonly engineBroadcaster: EngineBroadcasterService,
     private readonly gatingService: GatingService,
+    private readonly auditLog: AuditLogService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -120,25 +126,17 @@ export class TradingSessionService {
   private broadcast(et: string, p: any) { this.broadcastService.broadcast(et, p); }
 
   async start(config: SessionConfig, bc?: any, sid?: string, hist: Trade[] = [], curBal?: number, open: Trade[] = []) {
-    this.running = true; this.sessionState.reset(config, hist, curBal);
-    this.sessionId = sid || null; this.config = config; this.cachedStrategyConfigs = null; this.cachedScanSignatures.clear(); this.binanceClient = bc;
-    const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
-    this.activeWindows.clear(); this.orderManager.setBinanceClient(bc, mode === 'paper'); this.marketFeed.setCandeCloseCallback(this.onCandleClose.bind(this));
+    this.running = true;
+    this.sessionId = sid || null;
+    this.config = config;
+    this.cachedStrategyConfigs = null;
+    this.cachedScanSignatures.clear();
+    this.binanceClient = bc;
+    this.activeWindows.clear();
+    this.marketFeed.setCandeCloseCallback(this.onCandleClose.bind(this));
     this.positionTracker.setTradeUpdateCallback(async (t) => { if (this.onTradeUpdate) await this.onTradeUpdate(t, this.getBalance()); });
 
-    if (mode !== 'paper' && bc) {
-      try { const b = await this.fetchBinanceBalance(); this.sessionState.balanceLive = b; this.sessionState.balancePaper = b; } catch (e) {}
-      this.startUserDataStream().catch(() => {
-        this.balancePollInterval = setInterval(async () => {
-          const b = await this.fetchBinanceBalance();
-          if (b > 0) { this.sessionState.balanceLive = b; this.sessionState.balancePaper = b; if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), 0); }
-        }, ENGINE_CONSTANTS.USER_DATA_POLL_INTERVAL_MS);
-      });
-    }
-
-    await this.marketFeed.start(config); await this.momentumScanner.start(config);
-    if (open.length > 0) { for (const t of open) { this.positionTracker.addTrade(t); this.sessionState.updateStatsOnEntry(); } }
-    this.sessionState.setActiveTrades(this.positionTracker.activeList());
+    await this.sessionLifecycle.start(config, bc, sid, hist, curBal, open);
 
     const hot = config.hot_loop_interval_ms || 5000; this.hotLoopInterval = setInterval(() => this.hotLoop(), hot);
     const main = config.main_loop_interval_ms || 15000; this.mainLoopInterval = setInterval(() => this.mainLoop(), main);
@@ -147,10 +145,8 @@ export class TradingSessionService {
 
   async stop() {
     this.running = false; this.sessionState.paused = false;
-    if (this.mainLoopInterval) clearInterval(this.mainLoopInterval); if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
-    if (this.balancePollInterval) clearInterval(this.balancePollInterval); if (this.listenKeyKeepAlive) clearInterval(this.listenKeyKeepAlive);
-    if (this.userDataWs) { try { this.userDataWs.disconnect(); } catch (e) {} this.userDataWs = null; }
-    if (this.listenKey && this.binanceClient) { try { await this.binanceClient.restAPI.userDataStreamsApi.closeUserDataStream(this.listenKey); } catch (e) {} this.listenKey = null; }
+    if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
+    if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
 
     const active = this.positionTracker.activeList();
     for (const t of active) {
@@ -171,8 +167,10 @@ export class TradingSessionService {
         this.positionTracker.removeTrade(t.symbol);
       }
     }
+
+    await this.sessionLifecycle.stop(this.binanceClient, this.sessionId || undefined, this.config || undefined);
+
     this.sessionState.setActiveTrades([]);
-    await this.marketFeed.stop(); await this.momentumScanner.stop();
     this.broadcastSnapshot('stopped'); return { status: 'stopped' };
   }
 
@@ -240,7 +238,12 @@ export class TradingSessionService {
         }
       } else this.refreshActiveWindows(primaryOpportunities);
 
-      for (const sc of strategyConfigs) { const opps = opportunitiesBySignature.get(this.scanSignature(sc)) || []; await this.processEntries(opps, sc); }
+      for (const sc of strategyConfigs) {
+        const opps = opportunitiesBySignature.get(this.scanSignature(sc)) || [];
+        await this.executionService.processEntries(opps, sc, sc.strategy_label || 'Momentum Strategy', async (t) => {
+          if (this.onTradeUpdate) await this.onTradeUpdate(t, this.getBalance());
+        });
+      }
       this.monitoringService.recordMainLoop(performance.now() - start);
     } catch (error) {
       this.logger.error(`Error in main loop: ${error instanceof Error ? error.message : String(error)}`);
@@ -248,31 +251,10 @@ export class TradingSessionService {
   }
 
   private async checkExits() {
-    if (this.positionTracker.activeCount() === 0) return;
-    const activeTrades = this.positionTracker.activeList();
-    for (const trade of activeTrades) {
-      const currentPrice = this.tickerCache.getPrice(trade.symbol); if (!currentPrice) continue;
-      const tradeConfig = { ...this.config!, ...((trade as any).strategy_config || {}) } as SessionConfig;
-      await this.positionTracker.checkRrSequenceAdjustments(trade.symbol, currentPrice, tradeConfig);
-      const exitInterval = tradeConfig.scan_interval || '1m'; const exitCondition = this.positionTracker.checkExitConditions(trade.symbol, currentPrice, tradeConfig, exitInterval);
-
-      if (exitCondition?.exitOccurred) {
-        const result = await this.positionTracker.closeTrade(trade.symbol, currentPrice, exitCondition.exitReason, tradeConfig);
-        if (result.exitOccurred && result.trade) {
-          this.sessionState.updateStatsOnClose((result.trade.pnl || 0) > 0);
-          const prevPaper = this.sessionState.balancePaper; const prevLive = this.sessionState.balanceLive;
-          try {
-            await this.updateBalance(result.trade); this.sessionState.addClosedTrade(result.trade);
-            if (this.onTradeUpdate) await this.onTradeUpdate(result.trade, this.getBalance());
-            this.sessionState.setActiveTrades(this.positionTracker.activeList());
-            this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, tradeConfig);
-            const analytics = this.analyticsService.calculateAnalytics(this.sessionState.closedTrades as any, this.config?.paper_mode ? this.config?.paper_starting_balance : this.config?.live_starting_balance);
-             (this as any).lastAnalyticsResult  = analytics;
-            this.broadcast('trade_event', { event: 'closed', symbol: result.trade.symbol, reason: exitCondition.exitReason, trade: this.engineBroadcaster.serializeTrade(result.trade, this.config!, currentPrice), pnl: result.trade.pnl, stats: this.sessionState.stats, analytics: { maxDrawdown: roundTo(analytics.maxDrawdown, 2), maxDrawdownPct: roundTo(analytics.maxDrawdownPct, 2), overallWinRate: roundTo(analytics.overallWinRate, 2), cumulativePnL: analytics.cumulativePnL.slice(-20).map((p: any) => ({ ...p, pnl: roundTo(p.pnl, 2) })), } });
-          } catch (err: any) { await this.rollbackTradeClosure(result.trade, prevPaper, prevLive); throw err; }
-        }
-      }
-    }
+    await this.executionService.checkExits(this.config!, async (t) => {
+      await this.updateBalance(t);
+      if (this.onTradeUpdate) await this.onTradeUpdate(t, this.getBalance());
+    });
   }
 
   private async onCandleClose(symbol: string) { if (!this.running || !this.config) return; if (this.config.debug_mode) this.logger.verbose(`Candle closed for ${symbol}`); }
@@ -282,44 +264,6 @@ export class TradingSessionService {
     this.refreshActiveWindows(this.lastScannerResults);
   }
 
-  private async processEntries(opportunities: any[], strategyConfig: SessionConfig = this.config!) {
-    const strategyLabel = this.getStrategyLabel(strategyConfig); const symbolConfigs = strategyConfig.single_symbol_configs;
-    const symbolConfigMap = (symbolConfigs && symbolConfigs.length > 0) ? new Map(symbolConfigs.map(sc => [sc.symbol, sc])) : null;
-
-    for (const opp of opportunities) {
-      if (this.positionTracker.hasSymbol(opp.symbol)) continue;
-      const sc = symbolConfigMap?.get(opp.symbol); const symbolConfig = (sc?.use_custom_config && sc.custom_config) ? { ...strategyConfig, ...sc.custom_config } as SessionConfig : strategyConfig;
-      const signalResult = this.signalEngine.checkEntry(opp.symbol, strategyConfig, strategyConfig.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry');
-      if (!signalResult.allFired) continue;
-
-      const activeTrades = this.positionTracker.activeList();
-      const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, this.getBalance(), opp.symbol, symbolConfig, this.positionTracker.totalRisk());
-
-      if (!riskResult.canEnter) {
-        if (!riskResult.reason.includes('Max open trades for')) {
-          this.sessionState.gateState = this.gatingService.mapGateState(riskResult.reason);
-          this.broadcast('gate', { gateState: this.sessionState.gateState, reason: riskResult.reason, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused });
-        }
-        continue;
-      }
-
-      const price = this.tickerCache.getPrice(opp.symbol); if (!price) continue;
-      const lookback = this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
-      const slPrice = this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.minLow, lookback.maxHigh);
-      const qty = this.riskEngine.computePositionSize(this.getBalance(), price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
-      if (qty <= 0) continue;
-      const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
-      
-      const trade = await this.orderManager.enter(this.sessionId || uuid().substring(0, 8), opp.symbol, opp.direction.toUpperCase() as any, price, qty, slPrice, tpPrice, { strategy_label: strategyLabel, strategy_config: strategyConfig });
-
-      if (trade) {
-        this.positionTracker.addTrade(trade); this.sessionState.updateStatsOnEntry(); if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
-        this.sessionState.setActiveTrades(this.positionTracker.activeList());
-        this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, strategyConfig);
-        this.broadcast('trade_event', { event: 'opened', symbol: opp.symbol, trade: this.engineBroadcaster.serializeTrade(trade, this.config!, price), stats: this.sessionState.stats });
-      }
-    }
-  }
 
   private refreshActiveWindows(opportunities: any[]) {
     if (this.config?.scan_mode !== 'active_window') { this.activeWindows.clear(); return; }
@@ -364,6 +308,13 @@ export class TradingSessionService {
   updateConfig(config: SessionConfig) {
     const prev = this.config; this.config = config; this.cachedStrategyConfigs = null; this.cachedScanSignatures.clear();
     if (prev && (prev.hot_loop_interval_ms !== config.hot_loop_interval_ms || prev.main_loop_interval_ms !== config.main_loop_interval_ms)) { const isEco = this.sessionState.listenerCount === 0; const mainMs = isEco ? Math.max(15000, config.main_loop_interval_ms || 15000) : (config.main_loop_interval_ms || 15000); const hotMs = isEco ? Math.max(5000, config.hot_loop_interval_ms || 5000) : (config.hot_loop_interval_ms || 5000); this.restartLoops(hotMs, mainMs); }
+
+    this.auditLog.log({
+      action: 'UPDATE_CONFIG',
+      resourceId: this.sessionId || undefined,
+      details: { strategy: config.strategy_label }
+    });
+
     this.broadcast('tick', { config: this.config });
   }
 
@@ -390,6 +341,11 @@ export class TradingSessionService {
       const pp = this.sessionState.balancePaper; const pl = this.sessionState.balanceLive;
       try {
         await this.updateBalance(res.trade); this.sessionState.addClosedTrade(res.trade);
+        await this.auditLog.log({
+          action: 'MANUAL_TRADE_CLOSE',
+          resourceId: res.trade.id,
+          details: { symbol, pnl: res.trade.pnl }
+        });
         if (this.onTradeUpdate) await this.onTradeUpdate(res.trade, this.getBalance());
         this.sessionState.setActiveTrades(this.positionTracker.activeList());
         this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, this.config!);

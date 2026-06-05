@@ -25,7 +25,7 @@ describe('OrderManagerService - PnL Consistency', () => {
     mockTradingSession = {
       isRateLimited: jest.fn().mockReturnValue(false)
     };
-    service = new OrderManagerService(mockSignalEngine, mockMarketFeed, mockTradingSession);
+    service = new OrderManagerService(mockSignalEngine, mockMarketFeed, mockTradingSession, { log: jest.fn() } as any);
 
     mockBinanceClient = {
       restAPI: {

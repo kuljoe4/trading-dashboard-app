@@ -7,6 +7,7 @@ import { UpdateKeysDto } from './dto/update-keys.dto';
 import { encrypt, decrypt } from '../lib/crypto';
 import { ApiKeyGuard } from '../lib/api-key.guard';
 import { extractIp } from '../lib/throttle';
+import { AuditLogService } from './audit-log.service';
 
 @Controller('settings')
 @UseGuards(ApiKeyGuard)
@@ -16,6 +17,7 @@ export class SettingsController {
   constructor(
     @InjectRepository(SettingsEntity)
     private settingsRepository: Repository<SettingsEntity>,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   @Get('keys')
@@ -85,6 +87,12 @@ export class SettingsController {
 
     if (updatedFields.length > 0) {
       this.logger.warn(`AUDIT: Binance API credentials (${updatedFields.join(', ')}) updated from IP: ${clientIp}`);
+
+      await this.auditLog.log({
+        action: 'UPDATE_EXCHANGE_CREDENTIALS',
+        actor: clientIp,
+        details: { fields: updatedFields }
+      });
     }
 
     await this.settingsRepository.save(settings);

@@ -10,7 +10,7 @@ describe('OrderManagerService', () => {
     mockSignalEngine = {
       checkEntry: jest.fn(),
     };
-    service = new OrderManagerService(mockSignalEngine, { getSymbolFilters: () => null } as any, { isRateLimited: () => false } as any);
+    service = new OrderManagerService(mockSignalEngine, { getSymbolFilters: () => null } as any, { isRateLimited: () => false } as any, { log: jest.fn() } as any);
     
     mockBinanceClient = {
       restAPI: {

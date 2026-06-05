@@ -5,6 +5,7 @@ import { Session as SessionEntity } from '../models/entities/Session.entity';
 import { TradeEntity } from '../models/entities/Trade.entity';
 import { Log as LogEntity } from '../models/entities/Log.entity';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
+import { AuditLog as AuditLogEntity } from '../models/entities/AuditLog.entity';
 import { BalanceHistory as BalanceHistoryEntity } from '../models/entities/BalanceHistory.entity';
 import { SignalEngineService } from '../engine/signalEngine';
 import { RiskEngineService } from '../engine/riskEngine';
@@ -13,11 +14,14 @@ import { OrderManagerService } from '../engine/orderManager';
 import { TradingSessionService } from '../engine/trading_session.service';
 import { TickerCacheService } from '../engine/ticker_cache.service';
 import { MarketFeedService } from '../engine/market_feed.service';
+import { ExecutionService } from '../engine/execution.service';
+import { SessionLifecycleService } from '../engine/session-lifecycle.service';
 import { MomentumScannerService } from '../engine/momentum_scanner.service';
 import { KlineStoreService } from '../engine/kline_store.service';
 import { BroadcastService } from '../engine/broadcast.service';
 import { SessionStateService } from '../engine/session_state.service';
 import { SessionService } from './session.service';
+import { AuditLogService } from './audit-log.service';
 import { SessionController } from './session.controller';
 import { SettingsController } from './settings.controller';
 import { MonitoringController } from './monitoring.controller';
@@ -32,7 +36,7 @@ import { GatingService } from '../engine/gating.service';
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([SessionEntity, TradeEntity, LogEntity, SettingsEntity, BalanceHistoryEntity]),
+    TypeOrmModule.forFeature([SessionEntity, TradeEntity, LogEntity, SettingsEntity, AuditLogEntity, BalanceHistoryEntity]),
   ],
   controllers: [SessionController, SettingsController, MonitoringController],
   providers: [
@@ -43,11 +47,14 @@ import { GatingService } from '../engine/gating.service';
     TradingSessionService,
     TickerCacheService,
     MarketFeedService,
+    ExecutionService,
+    SessionLifecycleService,
     MomentumScannerService,
     KlineStoreService,
     BroadcastService,
     SessionStateService,
     SessionService,
+    AuditLogService,
     MonitoringService,
     AnalyticsService,
     VariantAnalyticsService,
@@ -64,10 +71,12 @@ import { GatingService } from '../engine/gating.service';
     TradingSessionService,
     TickerCacheService,
     MarketFeedService,
+    ExecutionService,
     MomentumScannerService,
     KlineStoreService,
     BroadcastService,
     SessionStateService,
+    AuditLogService,
     MonitoringService,
     AnalyticsService,
     VariantAnalyticsService,

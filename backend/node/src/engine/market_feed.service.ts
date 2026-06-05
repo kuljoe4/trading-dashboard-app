@@ -133,8 +133,8 @@ export class MarketFeedService {
       if (!this.running) return;
       const ws = new WebSocket(`${ENGINE_CONSTANTS.BINANCE_WS_BASE}/ws/!miniTicker@arr`, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
       ws.on('message', (data: Buffer) => {
+        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) return;
         try {
-          if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) return;
           const msg = JSON.parse(data as any);
           let tickers: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
           if (tickers.length > 0) this.tickerCache.bulkUpdate(tickers);

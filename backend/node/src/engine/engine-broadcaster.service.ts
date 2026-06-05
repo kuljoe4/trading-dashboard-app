@@ -248,7 +248,7 @@ export class EngineBroadcasterService {
 
     if (variantStats) tickData.variant_stats = variantStats;
 
-    const heartbeatInterval = trades.length > 0 ? 10000 : 30000;
+    const heartbeatInterval = trades.length > 0 ? 10000 : (this.sessionState.listenerCount > 0 ? 30000 : 60000);
     let shouldBroadcast = !this.lastTickData || (now - this.lastTickTime > heartbeatInterval);
     if (shouldBroadcast) tickData._heartbeat = true;
 

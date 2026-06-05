@@ -20,10 +20,21 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
 
   // Calculate progress relative to SL and TP
   let progress = 50
-  if (entry && mark && sl && tp) {
-    const totalRange = isLong ? (tp - sl) : (sl - tp)
-    const currentFromSl = isLong ? (mark - sl) : (sl - mark)
-    progress = Math.max(0, Math.min(100, (currentFromSl / totalRange) * 100))
+  if (entry && mark && sl) {
+    if (tp) {
+      const totalRange = isLong ? (tp - sl) : (sl - tp)
+      const currentFromSl = isLong ? (mark - sl) : (sl - mark)
+      progress = Math.max(0, Math.min(100, (currentFromSl / totalRange) * 100))
+    } else {
+      const currentRR = Number(trade.rr || 0)
+      if (currentRR < 0) {
+         const distToSl = Math.abs(entry - sl)
+         const distToMark = Math.abs(entry - mark)
+         progress = Math.max(0, 50 - (distToMark / distToSl) * 50)
+      } else {
+         progress = Math.min(100, 50 + (currentRR / 3) * 50)
+      }
+    }
   }
 
   return (
@@ -49,8 +60,13 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
           )}
         </div>
 
-        <div className={`text-lg font-bold font-mono ${trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlColor(trade.pnl) : 'text-dim'}`}>
-          {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
+        <div className="flex flex-col items-end">
+          <div className={`text-lg font-bold font-mono ${trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlColor(trade.pnl) : 'text-dim'}`}>
+            {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
+          </div>
+          <div className="text-[10px] font-bold font-mono text-dim mt-0.5">
+            {Number(trade.rr || 0).toFixed(2)} RR
+          </div>
         </div>
       </div>
 
@@ -72,7 +88,10 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
           />
         </div>
         <div className="flex justify-between text-[9px] font-bold text-dim uppercase tracking-widest font-mono">
-          <span>{isLong ? 'SL' : 'TP'}</span>
+          <div className="flex flex-col">
+            <span>{isLong ? 'SL' : 'TP'}</span>
+            <span className="text-[8px] opacity-60">{entry ? ((Math.abs(mark - sl) / entry) * 100).toFixed(1) : 0}%</span>
+          </div>
           <span className="text-text/40">Entry</span>
           <span>{isLong ? 'TP' : 'SL'}</span>
         </div>

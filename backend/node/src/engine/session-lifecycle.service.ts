@@ -41,9 +41,12 @@ export class SessionLifecycleService {
         const b = await this.fetchBinanceBalance(bc);
         this.sessionState.balanceLive = b;
         this.sessionState.balancePaper = b;
-      } catch (e) {}
+      } catch (e) {
+        this.logger.debug(`Initial balance fetch failed: ${e.message}`);
+      }
 
-      this.startUserDataStream(bc).catch(() => {
+      this.startUserDataStream(bc).catch((err) => {
+        this.logger.error(`Failed to start user data stream: ${err.message}. Falling back to polling.`);
         this.balancePollInterval = setInterval(async () => {
           const b = await this.fetchBinanceBalance(bc);
           if (b > 0) {
@@ -77,8 +80,18 @@ export class SessionLifecycleService {
   async stop(bc?: any, sid?: string, config?: SessionConfig) {
     if (this.balancePollInterval) clearInterval(this.balancePollInterval);
     if (this.listenKeyKeepAlive) clearInterval(this.listenKeyKeepAlive);
-    if (this.userDataWs) { try { this.userDataWs.disconnect(); } catch (e) {} this.userDataWs = null; }
-    if (this.listenKey && bc) { try { await bc.restAPI.userDataStreamsApi.closeUserDataStream(this.listenKey); } catch (e) {} this.listenKey = null; }
+    if (this.userDataWs) {
+        try { this.userDataWs.disconnect(); } catch (e) {
+            this.logger.debug(`Error disconnecting user data WS: ${e.message}`);
+        }
+        this.userDataWs = null;
+    }
+    if (this.listenKey && bc) {
+        try { await bc.restAPI.userDataStreamsApi.closeUserDataStream(this.listenKey); } catch (e) {
+            this.logger.debug(`Error closing user data stream: ${e.message}`);
+        }
+        this.listenKey = null;
+    }
 
     await this.marketFeed.stop();
     await this.momentumScanner.stop();
@@ -124,7 +137,9 @@ export class SessionLifecycleService {
               this.sessionState.balancePaper = nb;
             }
           }
-        } catch (err) {}
+        } catch (err) {
+            this.logger.debug(`Error processing user data WS message: ${err.message}`);
+        }
       });
       this.userDataWs.userData(this.listenKey);
       this.listenKeyKeepAlive = setInterval(async () => {
@@ -132,7 +147,9 @@ export class SessionLifecycleService {
           try {
             this.monitoringService.incrementApiRequests();
             await bc.restAPI.userDataStreamsApi.keepaliveUserDataStream(this.listenKey);
-          } catch (err) {}
+          } catch (err) {
+              this.logger.debug(`Error keeping alive user data stream: ${err.message}`);
+          }
         }
       }, ENGINE_CONSTANTS.USER_DATA_KEEPALIVE_MS);
     } catch (e) {

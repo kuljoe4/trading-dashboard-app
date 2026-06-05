@@ -1,5 +1,5 @@
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { SessionConfig } from '../models/SessionConfig';
 import { Trade } from '../models/Trade';
 import { TickerCacheService } from './ticker_cache.service';
@@ -187,7 +187,8 @@ export class TradingSessionService {
     }
   }
 
-  private async mainLoop() {
+  @OnEvent(ENGINE_EVENTS.RISK_GATES_UPDATED)
+  async refreshRiskGating() {
     if (!this.running || !this.config) return;
     const activeTrades = this.positionTracker.activeList();
     const prevGateState = this.sessionState.gateState;
@@ -208,6 +209,13 @@ export class TradingSessionService {
       this.broadcast('gate', { gateState: this.sessionState.gateState, reason: riskResult.reason, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused });
       if (!this.sessionState.hibernating) this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, this.config);
     }
+    return riskResult;
+  }
+
+  private async mainLoop() {
+    if (!this.running || !this.config) return;
+    const activeTrades = this.positionTracker.activeList();
+    const riskResult = await this.refreshRiskGating();
 
     if (this.isGated() || this.sessionState.hibernating) {
       if (this.sessionState.listenerCount > 0) {

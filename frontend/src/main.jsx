@@ -5,6 +5,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { useTradingStore } from './store/trading';
 import api, { sessionAPI, setAdminApiKey, initializeAuth } from './api/client';
 import { useVisibility } from './hooks/useVisibility';
+import { AuthOverlay } from './components/AuthOverlay';
 import './index.css';
 
 const DashboardView = lazy(() => import('./views/DashboardView').then(m => ({ default: m.DashboardView })));
@@ -171,6 +172,7 @@ const App = () => {
 
   return (
     <TooltipProvider delayDuration={400}>
+      <AuthOverlay />
       <div className="min-h-screen bg-background text-text font-sans selection:bg-accent selection:text-white">
         <Suspense fallback={<LoadingView />}>
           {renderView()}

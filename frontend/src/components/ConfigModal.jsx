@@ -49,6 +49,7 @@ const flattenConfig = (config) => {
     const params = typeof config.signal_params === 'string' ? JSON.parse(config.signal_params || '{}') : config.signal_params || {};
     return {
       ...config,
+      trading_mode: config.trading_mode || (config.paper_mode ? 'paper' : 'live'),
       signal_params_ma_period: params.ma_period,
       signal_params_ema_period: params.ema_period,
       signal_params_entry_ema_period: params.entry_ema_period,
@@ -70,15 +71,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     console.log('[ConfigModal] Flattened initial config:', flattened)
     return flattened
   })
-  
-  const prevInitialConfigRef = React.useRef(initialConfig);
-
-  useEffect(() => {
-    if (initialConfig !== prevInitialConfigRef.current) {
-      setCfg(flattenConfig(initialConfig));
-      prevInitialConfigRef.current = initialConfig;
-    }
-  }, [initialConfig]);
   const [section, setSection] = useState('scan')
   const [presets, setPresets] = useState([])
   const [presetName, setPresetName] = useState('')
@@ -139,10 +131,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
 
   const setField = (key, value) => { 
     console.log('[ConfigModal] setField called:', key, '=', value)
-    const next = { ...cfg, [key]: value }; 
-    console.log('[ConfigModal] New config state:', next)
-    setCfg(next); 
-    if (Object.keys(errors).length > 0) validate(next); 
+    setCfg(prev => {
+      const next = { ...prev, [key]: value };
+      console.log('[ConfigModal] New config state:', next)
+      if (Object.keys(errors).length > 0) validate(next);
+      return next;
+    });
   }
   
   const handleModeSelect = (mode) => {
@@ -159,8 +153,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
       return
     }
     console.log('[ConfigModal] Proceeding with mode selection:', mode)
-    setField('trading_mode', mode)
-    setField('paper_mode', mode === 'paper')
+    setCfg(prev => ({
+      ...prev,
+      trading_mode: mode,
+      paper_mode: mode === 'paper'
+    }))
   }
 
   const savePreset = () => { if (!validate(cfg)) return; const name = (presetName || generatedPresetName).trim(); if (!name) return; const { strategy_variants, ...pc } = cfg; const next = [...presets.filter(p => p.name !== name), { name, config: { ...pc, strategy_label: name } }]; setPresets(next); localStorage.setItem('strategy_presets', JSON.stringify(next)); setPresetName(''); setSaveSuccess(true); setTimeout(() => setSaveSuccess(false), 2000); }

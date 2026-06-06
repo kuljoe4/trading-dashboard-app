@@ -39,7 +39,10 @@ export function clearFailures(ip: string): void {
 export function extractIp(headers: any, defaultIp: string): string {
   const forwarded = headers?.["x-forwarded-for"];
   if (forwarded) {
-    return (Array.isArray(forwarded) ? forwarded[0] : forwarded).split(',')[0].trim();
+    // When behind a trusted proxy, the last IP in the chain is the most reliable.
+    // The leftmost IP can be spoofed by the client.
+    const ips = (Array.isArray(forwarded) ? forwarded[0] : forwarded).split(',');
+    return ips[ips.length - 1].trim();
   }
   return defaultIp;
 }

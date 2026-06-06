@@ -28,3 +28,7 @@
 ## 2026-06-05 - Utility Micro-Delights
 **Learning:** Adding a "Copy" utility next to primary identifiers (like ticker symbols) in detail views significantly improves user flow for multi-tool workflows (e.g., moving from dashboard to charting software).
 **Action:** Identify primary keys or symbols in modals and provide a one-click `CopyButton` to reduce manual selection friction.
+
+## 2026-06-05 - Semantic Accessibility for Nav and Cards
+**Learning:** Adding aria-current="page" to navigation buttons provides essential context for screen reader users, indicating which view they are currently on.
+**Action:** Always include aria-current for active states in navigation components.

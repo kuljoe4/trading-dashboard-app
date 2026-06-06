@@ -39,6 +39,7 @@ describe('Trade Lifecycle Integration', () => {
       getPrice: jest.fn().mockReturnValue(50000),
       bulkUpdate: jest.fn(),
       getCacheSize: jest.fn().mockReturnValue(1),
+      clear: jest.fn(),
     };
 
     mockKlineStore = {
@@ -46,6 +47,7 @@ describe('Trade Lifecycle Integration', () => {
       getLookbackExtremes: jest.fn().mockReturnValue({ minLow: 49000, maxHigh: 51000 }),
       seedFromRest: jest.fn(),
       getMaxCandles: jest.fn().mockReturnValue(100),
+      clear: jest.fn(),
     };
 
     mockSignalEngine = {
@@ -86,6 +88,7 @@ describe('Trade Lifecycle Integration', () => {
       addClosedTrade: jest.fn(),
       isEcoMode: jest.fn().mockReturnValue(false),
       isGated: jest.fn().mockReturnValue(false),
+      minimize: jest.fn(),
       stats: {},
       closedTrades: [],
     };
@@ -123,14 +126,14 @@ describe('Trade Lifecycle Integration', () => {
         mockOrderManager,
         { start: jest.fn(), stop: jest.fn(), setCandeCloseCallback: jest.fn() } as any,
         { start: jest.fn(), stop: jest.fn(), scan: jest.fn().mockReturnValue([{ symbol: 'BTCUSDT', direction: 'long', momentum: 5, volume_24h: 1000000, score: 80 }]) } as any,
-        { recordHotLoop: jest.fn(), recordMainLoop: jest.fn() } as any,
+        { recordHotLoop: jest.fn(), recordMainLoop: jest.fn(), clearAppMetrics: jest.fn() } as any,
         { calculateAnalytics: jest.fn() } as any,
         executionService,
         mockSessionLifecycle,
         { setWsBroadcaster: jest.fn(), broadcast: jest.fn() } as any,
         mockSessionState,
         { calculateVariantStats: jest.fn() } as any,
-        { broadcastTick: jest.fn(), serializeTrade: jest.fn() } as any,
+        { broadcastTick: jest.fn(), serializeTrade: jest.fn(), minimize: jest.fn() } as any,
         { isInsideTradingWindow: jest.fn().mockReturnValue(true), enterHibernation: jest.fn(), exitHibernation: jest.fn() } as any,
         mockAuditLog,
         new EventEmitter2()

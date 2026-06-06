@@ -172,6 +172,11 @@ export class TradingSessionService {
     await this.sessionLifecycle.stop(this.binanceClient, this.sessionId || undefined, this.config || undefined);
 
     this.sessionState.setActiveTrades([]);
+    this.minimizeMemoryUsage();
+    this.sessionState.minimize();
+    this.tickerCache.clear();
+    this.klineStore.clear();
+
     this.broadcastSnapshot('stopped'); return { status: 'stopped' };
   }
 
@@ -203,8 +208,12 @@ export class TradingSessionService {
     else this.sessionState.gateState = null;
 
     const shouldHibernate = this.isGated() && activeTrades.length === 0;
-    if (shouldHibernate && !this.sessionState.hibernating) await this.gatingService.enterHibernation(riskResult.reason || 'Session gated and idle', this.config!, activeTrades);
-    else if (!shouldHibernate && this.sessionState.hibernating) await this.gatingService.exitHibernation(this.config!);
+    if (shouldHibernate && !this.sessionState.hibernating) {
+      await this.gatingService.enterHibernation(riskResult.reason || 'Session gated and idle', this.config!, activeTrades);
+      this.minimizeMemoryUsage();
+    } else if (!shouldHibernate && this.sessionState.hibernating) {
+      await this.gatingService.exitHibernation(this.config!);
+    }
 
     if (this.sessionState.gateState !== prevGateState) {
       this.broadcast('gate', { gateState: this.sessionState.gateState, reason: riskResult.reason, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused });
@@ -317,6 +326,22 @@ export class TradingSessionService {
   getActiveTradeCount(): number { return this.positionTracker.activeCount(); }
   getActiveTradeSymbols(): string[] { return this.positionTracker.activeList().map(t => t.symbol); }
   getActiveTradesRaw(): Trade[] { return this.positionTracker.activeList(); }
+
+  /**
+   * BOLT OPTIMIZATION: Clears transient caches and state to minimize RAM footprint
+   * during Deep Sleep or after session termination.
+   */
+  minimizeMemoryUsage() {
+    this.activeWindows.clear();
+    this.lastScannerResults = [];
+    this.lastVariantScannerResults = [];
+    this.lastScannerResultsJson = '';
+    this.cachedStrategyConfigs = null;
+    this.cachedScanSignatures.clear();
+    this.monitoringService.clearAppMetrics();
+    this.engineBroadcaster.minimize();
+    this.logger.verbose('TradingSessionService: Transient memory caches cleared');
+  }
 
   getStatus() {
     return { running: this.running, paused: this.sessionState.paused, mode: this.config?.paper_mode ? 'PAPER' : 'LIVE', tradingMode: this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live'), balance_paper: this.sessionState.balancePaper, balance_live: this.sessionState.balanceLive, stats: this.sessionState.stats, activeTrades: this.positionTracker.activeList().map((t) => this.engineBroadcaster.serializeTrade(t, this.config!)), total_risk: this.positionTracker.totalRisk(), variant_stats: this.variantAnalytics.calculateVariantStats(this.positionTracker.activeList(), this.getBalance(), this.sessionState.cachedClosedTradesStats, this.getStrategyConfigs()), scannerResults: this.lastScannerResults, activeWindows: this.getActiveWindows(), gateState: this.sessionState.gateState, hibernating: this.sessionState.hibernating, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused, history: this.sessionState.closedTrades.slice(0, 50).map((t) => this.engineBroadcaster.serializeTrade(t, this.config!, t.exit_price)), };

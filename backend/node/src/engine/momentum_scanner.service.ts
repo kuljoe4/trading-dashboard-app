@@ -94,15 +94,23 @@ export class MomentumScannerService {
         }
 
         // Use a map to prevent duplicate symbols if they are in both global and single
-        const resultMap = new Map(results.map(r => [r.opp.symbol, r]));
+        // BOLT OPTIMIZATION: Populate Map directly from results to avoid results.map() allocation
+        const resultMap = new Map<string, { opp: Opportunity; candles: Candle[] }>();
+        for (const r of results) {
+          resultMap.set(r.opp.symbol, r);
+        }
         for (const r of singleResults) {
           if (r) resultMap.set(r.opp.symbol, r);
         }
 
         results.length = 0;
-        results.push(...resultMap.values());
+        // BOLT OPTIMIZATION: Use direct loop instead of spread results.push(...resultMap.values()) to avoid intermediate array
+        for (const r of resultMap.values()) {
+          results.push(r);
+        }
       }
-      const tempResults = results.filter((r): r is { opp: Opportunity, candles: Candle[] } => r !== null);
+      // BOLT OPTIMIZATION: results are already guaranteed to be non-null
+      const tempResults = results;
 
       // Sort by score descending and take top results
       tempResults.sort((a, b) => b.opp.score - a.opp.score);

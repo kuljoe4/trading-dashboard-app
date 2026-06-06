@@ -1,9 +1,11 @@
-import { Controller, Post, Get, Body, Patch, Delete, Param, ParseUUIDPipe, Query, BadRequestException, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, Patch, Delete, Param, ParseUUIDPipe, Query, BadRequestException, UseGuards, Req } from '@nestjs/common';
+import { Request } from 'express';
 import { SessionService } from './session.service';
 import { ApiKeyGuard } from '../lib/api-key.guard';
 import { SessionConfig } from '../models/SessionConfig';
 import { StartSessionDto, UpdateSessionDto } from './dto/session.dto';
 import { PauseSessionDto } from './dto/pause-session.dto';
+import { extractIp } from '../lib/throttle';
 
 @Controller('session')
 @UseGuards(ApiKeyGuard)
@@ -61,8 +63,9 @@ export class SessionController {
   }
 
   @Delete(':id')
-  async deleteSession(@Param('id', ParseUUIDPipe) id: string) {
-    return this.sessionService.deleteSession(id);
+  async deleteSession(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
+    const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
+    return this.sessionService.deleteSession(id, clientIp);
   }
 
   @Get('status')
@@ -105,7 +108,8 @@ export class SessionController {
   }
 
   @Post('reset-paper-balance')
-  async resetPaperBalance() {
-    return this.sessionService.resetPaperBalance();
+  async resetPaperBalance(@Req() req: Request) {
+    const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
+    return this.sessionService.resetPaperBalance(clientIp);
   }
 }

@@ -10,11 +10,6 @@ import { VariantAnalyticsService } from './variant-analytics.service';
 import { TradeSerializationDto, TickTradeDto } from '../trading/dto/trade-serialization.dto';
 import { roundEight, roundTo } from '../lib/math';
 
-function monitoringChangedInternal(curr: any, prev: any): boolean {
-  if (!curr || !prev) return true;
-  return Math.abs((curr.system?.cpu_usage || 0) - (prev.system?.cpu_usage || 0)) > 8;
-}
-
 @Injectable()
 export class EngineBroadcasterService {
   private readonly logger = new Logger(EngineBroadcasterService.name);
@@ -32,6 +27,23 @@ export class EngineBroadcasterService {
     private readonly broadcastService: BroadcastService,
     private readonly variantAnalytics: VariantAnalyticsService,
   ) {}
+
+  /**
+   * BOLT OPTIMIZATION: Move strategy label helper to class level to avoid re-allocation in hot path.
+   */
+  private getStrategyLabel(c: Partial<SessionConfig> | null | undefined): string {
+    return (c?.strategy_label || 'Momentum Strategy').toString();
+  }
+
+  /**
+   * BOLT OPTIMIZATION: Clears broadcast caches to minimize RAM.
+   */
+  minimize() {
+    this.lastTickData = null;
+    this.lastAnalyticsResult = null;
+    this.lastAnalyticsTradeCount = -1;
+    this.logger.verbose('EngineBroadcasterService: Broadcast caches cleared');
+  }
 
   public serializeTrade(trade: Trade, config: SessionConfig, currentPrice?: number, minimal = false): TradeSerializationDto {
     const direction = (trade.direction || 'LONG').toString().toUpperCase() as 'LONG' | 'SHORT';
@@ -51,15 +63,11 @@ export class EngineBroadcasterService {
       rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / risk;
     }
 
-    const getStrategyLabel = (c: Partial<SessionConfig> | null | undefined) => {
-        return (c?.strategy_label || 'Momentum Strategy').toString();
-    };
-
     if (minimal) {
       return {
         id: trade.id,
         symbol: trade.symbol,
-        strategy_label: trade.strategy_label || getStrategyLabel(trade.strategy_config || config),
+        strategy_label: trade.strategy_label || this.getStrategyLabel(trade.strategy_config || config),
         current_price: roundTo(current ?? entry, 8),
         sl_price: roundTo(trade.current_sl, 8),
         tp_price: roundTo(trade.tp, 8),
@@ -93,7 +101,7 @@ export class EngineBroadcasterService {
       paper_mode: config?.paper_mode,
       trading_mode: config?.trading_mode || (config?.paper_mode ? 'paper' : 'live'),
       max_rr: roundTo(trade.max_rr_achieved ?? 0, 4),
-      strategy_label: trade.strategy_label || getStrategyLabel(trade.strategy_config || config),
+      strategy_label: trade.strategy_label || this.getStrategyLabel(trade.strategy_config || config),
       strategy_config: trade.strategy_config,
       live_rr_sequence: trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || [],
       exit_rr_sequence: trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || [],
@@ -262,7 +270,7 @@ export class EngineBroadcasterService {
       if (!shouldUpdateMonitoring) delete tickData.monitoring;
       else tickData._monitoring_ts = now;
 
-      if (tradesChanged || pnlChanged || gateChanged || statsChanged || (shouldUpdateMonitoring && monitoringChangedInternal(monitoring, this.lastTickData?.monitoring))) {
+      if (tradesChanged || pnlChanged || gateChanged || statsChanged) {
           shouldBroadcast = true;
       }
     }

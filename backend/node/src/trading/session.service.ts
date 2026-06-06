@@ -7,6 +7,7 @@ import { Log as LogEntity } from '../models/entities/Log.entity';
 import { BalanceHistory as BalanceHistoryEntity } from '../models/entities/BalanceHistory.entity';
 import { SessionConfig } from '../models/SessionConfig';
 import { TradingSessionService } from '../engine/trading_session.service';
+import { AuditLogService } from './audit-log.service';
 import { Trade } from '../models/Trade';
 import { v4 as uuid } from 'uuid';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
@@ -42,6 +43,7 @@ export class SessionService implements OnModuleInit {
     private tradingSessionService: TradingSessionService,
     private analyticsService: AnalyticsService,
     private binanceClientFactory: BinanceClientFactory,
+    private readonly auditLog: AuditLogService,
   ) {}
 
   async onModuleInit() {
@@ -540,11 +542,18 @@ export class SessionService implements OnModuleInit {
     return { status: paused ? 'paused' : 'resumed' };
   }
 
-  async deleteSession(id: string) {
+  async deleteSession(id: string, actor?: string) {
     // Security: Prevent deleting the active session
     if (this.sessionRunning && this.currentSessionId === id) {
       throw new ConflictException('Cannot delete an active trading session. Stop it first.');
     }
+
+    await this.auditLog.log({
+      action: 'DELETE_SESSION',
+      resourceId: id,
+      actor,
+    });
+
     // Manually delete session, ensuring no cascade to trades (as there is no FK link in the current entity model)
     await this.sessionRepository.delete(id);
     return { status: 'deleted' };
@@ -777,8 +786,14 @@ export class SessionService implements OnModuleInit {
     });
   }
 
-  async resetPaperBalance() {
+  async resetPaperBalance(actor?: string) {
     const defaultBalance = 10000.0;
+
+    await this.auditLog.log({
+      action: 'RESET_PAPER_BALANCE',
+      actor,
+      details: { balance: defaultBalance }
+    });
 
     await this.settingsRepository.update('default', {
       paper_balance: defaultBalance

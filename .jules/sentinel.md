@@ -61,3 +61,8 @@
 **Vulnerability:** Building the frontend with hardcoded `VITE_` environment variables exposes them in the client bundle, while failing to provide them at build-time (for security) breaks runtime authentication on protected endpoints. Additionally, asynchronous requests made during application startup could trigger authentication guards before the API key was available, causing 401 errors.
 **Learning:** For secure deployment, sensitive configuration should be fetched from the backend at runtime rather than inlined at build-time. Furthermore, frontend state initialization must implement robust synchronization to ensure authentication tokens are available before initiating dependent requests.
 **Prevention:** Implement a `/auth/config` endpoint that returns necessary sensitive configuration. On the frontend, implement an initialization sequence that fetches this config before allowing further API requests. Use a promise-based waiting mechanism in the API client's request interceptor to prevent race conditions.
+
+## 2026-06-06 - IP Spoofing via X-Forwarded-For
+**Vulnerability:** Relying on the first IP in the `X-Forwarded-For` header for throttling and auditing allowed attackers to spoof their identity by providing a custom header.
+**Learning:** In a proxied environment, the leftmost IP in `X-Forwarded-For` is client-controlled and untrusted. The rightmost IP (or the framework-provided `request.ip` when `trust proxy` is enabled) is the reliable source of the client's address.
+**Prevention:** Always use `request.ip` when the server is behind a trusted load balancer. If manually parsing `X-Forwarded-For`, select the last entry in the list.

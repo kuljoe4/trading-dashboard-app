@@ -37,6 +37,16 @@ export class MonitoringService {
     this.enabled = enabled;
   }
 
+  /**
+   * BOLT OPTIMIZATION: Clears application-level loop timing metrics.
+   * Useful when entering Deep Sleep to ensure stale metrics aren't reported.
+   */
+  clearAppMetrics() {
+    this.hotLoopExecutionTime = 0;
+    this.mainLoopExecutionTime = 0;
+    this.logger.verbose('MonitoringService: Application loop metrics cleared');
+  }
+
   private measureEventLoopLag() {
     if (!this.enabled) {
       const disabledTimer = setTimeout(() => this.measureEventLoopLag(), 10000);

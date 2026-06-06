@@ -138,4 +138,18 @@ export class SessionStateService {
   setActiveTrades(trades: Trade[]) {
     this.activeTrades = trades;
   }
+
+  /**
+   * BOLT OPTIMIZATION: Clears non-essential state when session stops.
+   * Keeps starting balances but clears transient history and stats caches.
+   */
+  minimize() {
+    this.closedTrades = [];
+    this.activeTrades = [];
+    this.cachedClosedTradesStats = {};
+    this.binanceRateLimit = {};
+    this.stats = { entryCount: 0, hitCount: 0 };
+    this.statsVersion++;
+    this.logger.verbose('SessionStateService: Memory minimized');
+  }
 }

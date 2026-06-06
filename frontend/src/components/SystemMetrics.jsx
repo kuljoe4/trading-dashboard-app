@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Cpu, HardDrive, Clock, Zap, Leaf } from 'lucide-react';
+import { Activity, Zap, Leaf } from 'lucide-react';
 import { cn, PulseDot } from './ui/primitives';
 import { Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip';
 
@@ -83,23 +83,5 @@ export const SystemMetrics = ({ monitoring, rateLimit, wsStatus, gateState, isEc
       )}
     </>
 
-    {!compact && (
-      <>
-        <SystemMetric
-          icon={Cpu}
-          label="CPU"
-          value={monitoring?.system ? `${monitoring.system.cpu_usage}%` : '---%'}
-          colorClass={monitoring?.system?.cpu_usage > 50 ? "text-red" : "text-amber"}
-          compact={compact}
-        />
-        <SystemMetric
-          icon={Clock}
-          label="Lag"
-          value={monitoring?.system ? `${monitoring.system.event_loop_lag}ms` : '---ms'}
-          colorClass={monitoring?.system?.event_loop_lag > 50 ? "text-red" : "text-green"}
-          compact={compact}
-        />
-      </>
-    )}
   </div>
 );

@@ -60,7 +60,7 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
     return formatDuration(now - start)
   }, [trade?.entry_ts, now])
 
-  const { isLong, pnlPct, progress, entry, mark, sl, tp, qtyFormatted, riskFormatted } = useMemo(() => {
+  const { isLong, pnlPct, progress, entry, mark, sl, tp, qtyFormatted, riskFormatted, slDistPct = 0, slFromEntry = 0 } = useMemo(() => {
     if (!trade) return {}
     const isLong = trade.direction === 'LONG'
     const entry = Number(trade.entry_price || 0)

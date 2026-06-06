@@ -430,34 +430,6 @@ export class OrderManagerService {
       const rawPnlPct = (trade.qty !== 0) ? (pnlPoints / (trade.entry_price || 1)) * 100 : 0;
       const pnlPct = roundEight(Number.isFinite(rawPnlPct) ? rawPnlPct : 0);
 
-      // Update trade
-      trade.exit_price = exitPrice;
-      trade.exit_ts = new Date();
-      trade.pnl = pnl;
-      trade.pnl_pct = pnlPct;
-      trade.exit_reason = exitReason;
-
-      // Ensure exit signal type and reason are passed through to persistence
-      // if they weren't already set by PositionTracker (e.g. for simple SL/TP/Manual)
-      if (!trade.exit_signal_type) {
-        if (exitReason === 'SL_HIT') trade.exit_signal_type = 'STOP_LOSS';
-        else if (exitReason === 'TP_HIT') trade.exit_signal_type = 'TAKE_PROFIT';
-        else if (exitReason === 'MANUAL_CLOSE') trade.exit_signal_type = 'MANUAL';
-        else if (exitReason === 'SESSION_TERMINATED') trade.exit_signal_type = 'SESSION_TERMINATED';
-        else trade.exit_signal_type = 'SIGNAL';
-      }
-
-      // Determine status
-      if (exitReason.includes('SL')) {
-        trade.status = 'CLOSED_SL';
-      } else if (exitReason.includes('TP')) {
-        trade.status = 'CLOSED_TP';
-      } else if (exitReason.includes('SIGNAL')) {
-        trade.status = 'CLOSED_SIGNAL';
-      } else {
-        trade.status = 'CLOSED';
-      }
-
       // In live mode, place close order with reduce-only for safety
       if (!paperMode && this.binanceClient) {
         try {
@@ -509,26 +481,49 @@ export class OrderManagerService {
                   trade.realized_fee = roundEight(trade.realized_fee + exitFee);
                } else {
                   this.logger.warn(`Binance close order failed but position still exists for ${symbol}: ${errMsg}`);
+                  throw err;
                }
             } else {
                this.logger.warn(`Binance close order failed for ${symbol}: ${errMsg}`);
+               throw err;
             }
           }
         } catch (err) {
           this.logger.warn(
             `Binance close operation error: ${err instanceof Error ? err.message : String(err)}`,
           );
-          // If close fails/rejected, we might already have exit fees from exchange SL (not easy to catch here without polling)
-          // but if we are here and it's paper mode or failed live close, simulate it
-          if (paperMode) {
-             const exitFee = roundEight(exitPrice * trade.qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
-             trade.realized_fee = roundEight(trade.realized_fee + exitFee);
-          }
+          throw err;
         }
       } else if (paperMode) {
         // Simulate paper exit fee (0.04% taker)
         const exitFee = roundEight(exitPrice * trade.qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
         trade.realized_fee = roundEight(trade.realized_fee + exitFee);
+      }
+
+      // Update trade AFTER successful closure confirmation
+      trade.exit_price = exitPrice;
+      trade.exit_ts = new Date();
+      trade.pnl_pct = pnlPct;
+      trade.exit_reason = trade.exit_reason || exitReason;
+
+      // Ensure exit signal type and reason are passed through to persistence
+      if (!trade.exit_signal_type) {
+        if (exitReason === 'SL_HIT') trade.exit_signal_type = 'STOP_LOSS';
+        else if (exitReason === 'TP_HIT') trade.exit_signal_type = 'TAKE_PROFIT';
+        else if (exitReason === 'MANUAL_CLOSE') trade.exit_signal_type = 'MANUAL';
+        else if (exitReason === 'SESSION_TERMINATED') trade.exit_signal_type = 'SESSION_TERMINATED';
+        else trade.exit_signal_type = 'SIGNAL';
+      }
+
+      // Determine status
+      if (exitReason.includes('SL')) {
+        trade.status = 'CLOSED_SL';
+      } else if (exitReason.includes('TP')) {
+        trade.status = 'CLOSED_TP';
+      } else if (exitReason.includes('SIGNAL')) {
+        trade.status = 'CLOSED_SIGNAL';
+      } else {
+        trade.status = 'CLOSED';
       }
 
       // Calculate final net PnL

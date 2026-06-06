@@ -294,6 +294,7 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
 export function DashboardView({ initialStrategy }) {
   const [selected, setSelected] = useState(initialStrategy || null)
   const [showConfig, setShowConfig] = useState(false)
+  const [modalConfig, setModalConfig] = useState(null)
   const [showScanner, setShowScanner] = useState(false)
   const [isEditMode, setIsEditMode] = useState(false)
   const [selectedConfig, setSelectedConfig] = useState(null)
@@ -335,6 +336,14 @@ export function DashboardView({ initialStrategy }) {
     entryCount: state.entryCount,
     hitCount: state.hitCount
   }), shallow)
+
+  useEffect(() => {
+    if (showConfig) {
+      setModalConfig(selectedConfig || config);
+    } else {
+      setModalConfig(null);
+    }
+  }, [showConfig, selectedConfig, config]);
 
   const safeVariantStats = variantStats || {}
 
@@ -784,13 +793,15 @@ export function DashboardView({ initialStrategy }) {
               </div>
               <div className="flex-1 overflow-hidden">
                 <Suspense fallback={<LoadingFallback />}>
-                  <ConfigModal
-                    key={isEditMode ? (selectedConfig?.id || strategyId) : 'new'}
-                    initialConfig={selectedConfig || config}
-                    onSave={handleConfigSave}
-                    onClose={() => setShowConfig(false)}
-                    isEdit={isEditMode}
-                  />
+                  {modalConfig && (
+                    <ConfigModal
+                      key={isEditMode ? (selectedConfig?.id || strategyId || 'edit') : 'new'}
+                      initialConfig={modalConfig}
+                      onSave={handleConfigSave}
+                      onClose={() => setShowConfig(false)}
+                      isEdit={isEditMode}
+                    />
+                  )}
                 </Suspense>
               </div>
             </Drawer.Content>

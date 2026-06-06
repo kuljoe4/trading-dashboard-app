@@ -3,6 +3,7 @@ import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Cloc
 import { cn, Btn, Tooltip } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 import { CONFIG_LIMITS } from '../constants/configLimits'
+import { settingsAPI } from '../api/client'
 
 const fmtUSD = (v) => `$${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -63,13 +64,30 @@ const flattenConfig = (config) => {
 };
 
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) => {
-  const [cfg, setCfg] = useState(() => flattenConfig(initialConfig))
+  console.log('[ConfigModal] Mount - initialConfig:', initialConfig)
+  const [cfg, setCfg] = useState(() => {
+    const flattened = flattenConfig(initialConfig)
+    console.log('[ConfigModal] Flattened initial config:', flattened)
+    return flattened
+  })
+  
+  const prevInitialConfigRef = React.useRef(initialConfig);
+
+  useEffect(() => {
+    if (initialConfig !== prevInitialConfigRef.current) {
+      setCfg(flattenConfig(initialConfig));
+      prevInitialConfigRef.current = initialConfig;
+    }
+  }, [initialConfig]);
   const [section, setSection] = useState('scan')
   const [presets, setPresets] = useState([])
   const [presetName, setPresetName] = useState('')
   const [errors, setErrors] = useState({})
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [symbolSearch, setSymbolSearch] = useState('')
+  const [testnetConfigured, setTestnetConfigured] = useState(false)
+  const [liveConfigured, setLiveConfigured] = useState(false)
+  const [modeWarning, setModeWarning] = useState(null)
 
   const validate = (c) => {
     const errs = {}; if (!c.scan_interval) errs.scan_interval = 'Required'; if (c.scan_lookback < 1) errs.scan_lookback = 'Min 1';
@@ -97,7 +115,54 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
 
   useEffect(() => { const saved = localStorage.getItem('strategy_presets'); if (saved) setPresets(JSON.parse(saved)); }, [])
 
-  const setField = (key, value) => { const next = { ...cfg, [key]: value }; setCfg(next); if (Object.keys(errors).length > 0) validate(next); }
+  // Check API key configuration for testnet and live modes
+  useEffect(() => {
+    const checkConfig = async () => {
+      try {
+        const res = await settingsAPI.getKeys()
+        console.log('[ConfigModal] API keys response:', res)
+        console.log('[ConfigModal] Keys data:', res.data)
+        const tn = !!res.data.testnet_api_key
+        const ln = !!res.data.api_key
+        console.log('[ConfigModal] Testnet configured:', tn, 'Live configured:', ln)
+        setTestnetConfigured(tn)
+        setLiveConfigured(ln)
+      } catch (e) {
+        console.log('[ConfigModal] Error checking keys:', e.message)
+        // If we can't check, assume not configured
+        setTestnetConfigured(false)
+        setLiveConfigured(false)
+      }
+    }
+    checkConfig()
+  }, [])
+
+  const setField = (key, value) => { 
+    console.log('[ConfigModal] setField called:', key, '=', value)
+    const next = { ...cfg, [key]: value }; 
+    console.log('[ConfigModal] New config state:', next)
+    setCfg(next); 
+    if (Object.keys(errors).length > 0) validate(next); 
+  }
+  
+  const handleModeSelect = (mode) => {
+    console.log('[ConfigModal] Mode selected:', mode, 'testnetConfigured:', testnetConfigured, 'liveConfigured:', liveConfigured)
+    setModeWarning(null)
+    if (mode === 'testnet' && !testnetConfigured) {
+      console.log('[ConfigModal] Blocking testnet - not configured')
+      setModeWarning('Testnet API keys not configured. Please add them in Settings first.')
+      return
+    }
+    if (mode === 'live' && !liveConfigured) {
+      console.log('[ConfigModal] Blocking live - not configured')
+      setModeWarning('Live API keys not configured. Please add them in Settings first.')
+      return
+    }
+    console.log('[ConfigModal] Proceeding with mode selection:', mode)
+    setField('trading_mode', mode)
+    setField('paper_mode', mode === 'paper')
+  }
+
   const savePreset = () => { if (!validate(cfg)) return; const name = (presetName || generatedPresetName).trim(); if (!name) return; const { strategy_variants, ...pc } = cfg; const next = [...presets.filter(p => p.name !== name), { name, config: { ...pc, strategy_label: name } }]; setPresets(next); localStorage.setItem('strategy_presets', JSON.stringify(next)); setPresetName(''); setSaveSuccess(true); setTimeout(() => setSaveSuccess(false), 2000); }
   const loadPreset = (p) => { setCfg({ ...p.config }); setSection('scan'); setErrors({}); }
   const deletePreset = (e, name) => { e.stopPropagation(); const next = presets.filter(p => p.name !== name); setPresets(next); localStorage.setItem('strategy_presets', JSON.stringify(next)); }
@@ -454,13 +519,24 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
             <section>
               <SectionHeader icon={Briefcase} title="Execution Environment" subtitle="Target exchange and mode" />
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {['paper', 'testnet', 'live'].map(m => (
-                  <button key={m} type="button" onClick={() => { setField('trading_mode', m); setField('paper_mode', m === 'paper'); }} className={cn("p-4 rounded-xl border-2 text-left transition-all relative group", (cfg.trading_mode === m || (m === 'paper' && cfg.paper_mode && !cfg.trading_mode)) ? "border-accent bg-accent/5" : "border-border bg-surface hover:border-border-hover")}>
-                    <div className="flex items-center justify-between mb-1"><span className="text-xs font-black uppercase tracking-tighter capitalize">{m}</span>{(cfg.trading_mode === m || (m === 'paper' && cfg.paper_mode && !cfg.trading_mode)) && <CheckCircle2 size={14} className="text-accent" />}</div>
-                    <p className="text-[9px] text-dim font-bold uppercase tracking-widest">{m === 'paper' ? 'Simulated' : m === 'testnet' ? 'Demo API' : 'Real Capital'}</p>
-                  </button>
-                ))}
+                {console.log('[ConfigModal] Rendering mode buttons, cfg.trading_mode:', cfg.trading_mode, 'cfg.paper_mode:', cfg.paper_mode)}
+                {['paper', 'testnet', 'live'].map(m => {
+                  const isSelected = cfg.trading_mode === m || (m === 'paper' && cfg.paper_mode && !cfg.trading_mode)
+                  console.log(`[ConfigModal] Button ${m}: isSelected=${isSelected}, trading_mode=${cfg.trading_mode}`)
+                  return (
+                    <button key={m} type="button" onClick={() => handleModeSelect(m)} className={cn("p-4 rounded-xl border-2 text-left transition-all relative group", isSelected ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover")}>
+                      <div className="flex items-center justify-between mb-1"><span className="text-xs font-black uppercase tracking-tighter capitalize">{m}</span>{isSelected && <CheckCircle2 size={16} className="text-accent" />}</div>
+                      <p className="text-[9px] text-dim font-bold uppercase tracking-widest">{m === 'paper' ? 'Simulated' : m === 'testnet' ? 'Demo API' : 'Real Capital'}</p>
+                    </button>
+                  )
+                })}
               </div>
+              {modeWarning && (
+                <div className="mt-4 p-3 bg-orange/10 border border-orange/30 rounded-lg flex items-start gap-3 animate-in slide-in-from-top">
+                  <XCircle size={16} className="text-orange mt-0.5 flex-shrink-0" />
+                  <div className="text-xs text-orange">{modeWarning}</div>
+                </div>
+              )}
             </section>
 
             <section className="pt-6 border-t border-border/40">

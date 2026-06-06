@@ -157,6 +157,7 @@ export const sessionAPI = createSessionAPI()
 
 export const settingsAPI = {
   getKeys: () => api.get('/settings/keys'),
+  validateKeys: (keys) => api.post('/settings/keys/validate', keys),
   updateKeys: (keys) => api.post('/settings/keys', keys),
 }
 

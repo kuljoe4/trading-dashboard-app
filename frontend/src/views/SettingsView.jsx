@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { settingsAPI } from '../api/client'
+import { settingsAPI, setAdminApiKey } from '../api/client'
 import { SectionLabel, Btn, StatCard, cn } from '../components/ui/primitives'
 import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap, Eye, EyeOff, RotateCcw, Bug, X } from 'lucide-react'
 import { motion } from 'framer-motion'
@@ -20,6 +20,8 @@ export function SettingsView() {
   const [maskedTestnetKey, setMaskedTestnetKey] = useState('')
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState(null)
+  const [validating, setValidating] = useState(false)
+  const [validationResults, setValidationResults] = useState(null)
 
   useEffect(() => {
     loadKeys()
@@ -32,6 +34,30 @@ export function SettingsView() {
       setMaskedTestnetKey(res.data.testnet_api_key)
     } catch (e) {
       console.error('Failed to load keys', e)
+    }
+  }
+
+  async function handleValidate() {
+    setValidating(true)
+    setValidationResults(null)
+    try {
+      const res = await settingsAPI.validateKeys({
+        api_key: apiKey,
+        testnet_api_key: testnetApiKey
+      })
+      setValidationResults(res.data)
+    } catch (e) {
+      setValidationResults({
+        valid: false,
+        checks: [{
+          type: 'error',
+          status: 'error',
+          message: `Validation request failed: ${e.message || 'Unknown error'}`
+        }]
+      })
+      console.error('Validation failed', e)
+    } finally {
+      setValidating(false)
     }
   }
 
@@ -76,12 +102,20 @@ export function SettingsView() {
         setAdminApiKey('')
       }
 
-      await settingsAPI.updateKeys({
+      console.log('[DEBUG] Sending credentials update...', { 
+        has_api_key: !!apiKey, 
+        has_api_secret: !!apiSecret,
+        has_testnet_api_key: !!testnetApiKey, 
+        has_testnet_api_secret: !!testnetApiSecret 
+      })
+      
+      const response = await settingsAPI.updateKeys({
         api_key: apiKey,
         api_secret: apiSecret,
         testnet_api_key: testnetApiKey,
         testnet_api_secret: testnetApiSecret
       })
+      
       setStatus({ type: 'success', msg: 'Credentials updated successfully!' })
       setApiKey('')
       setApiSecret('')
@@ -89,7 +123,8 @@ export function SettingsView() {
       setTestnetApiSecret('')
       loadKeys()
     } catch (e) {
-      setStatus({ type: 'error', msg: 'Update failed. Check backend logs.' })
+      const errorMsg = e.response?.data?.message || e.message || 'Update failed. Check backend logs.'
+      setStatus({ type: 'error', msg: errorMsg })
     } finally {
       setLoading(false)
     }
@@ -411,6 +446,57 @@ export function SettingsView() {
                     </div>
                   </div>
                 </div>
+
+                {(apiKey || testnetApiKey) && (
+                  <div className="flex flex-col gap-4 pt-4 border-t border-border/50">
+                    <div className="flex items-center gap-2">
+                      <Bug size={16} className="text-purple" />
+                      <h4 className="text-xs font-bold uppercase tracking-tight">Validate API Keys</h4>
+                    </div>
+                    <p className="text-[10px] text-dim font-medium">Test your Binance API keys before saving. This will attempt to authenticate with Binance without modifying anything.</p>
+                    <Btn
+                      onClick={handleValidate}
+                      disabled={validating || (!apiKey && !testnetApiKey)}
+                      loading={validating}
+                      className="w-full"
+                      variant="secondary"
+                    >
+                      {validating ? 'Validating...' : 'Test API Keys'}
+                    </Btn>
+                    
+                    {validationResults && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className={cn("rounded-xl border p-4", validationResults.valid ? "bg-green/10 border-green/30" : "bg-red/10 border-red/30")}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5">
+                            {validationResults.valid ? (
+                              <CheckCircle2 size={16} className="text-green" />
+                            ) : (
+                              <AlertCircle size={16} className="text-red" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className={cn("text-xs font-bold uppercase tracking-tight mb-2", validationResults.valid ? "text-green" : "text-red")}>
+                              {validationResults.valid ? 'All Keys Valid ✓' : 'Validation Failed'}
+                            </p>
+                            <div className="space-y-1">
+                              {validationResults.checks && validationResults.checks.map((check, i) => (
+                                <div key={i} className="text-[10px] text-dim font-medium">
+                                  <span className={check.status === 'valid' ? 'text-green' : 'text-red'}>
+                                    {check.type}: {check.message}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pt-4 border-t border-border/50">
                   <div className="max-w-md">

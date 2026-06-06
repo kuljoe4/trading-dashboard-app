@@ -19,7 +19,9 @@ export class ApiKeyGuard implements CanActivate {
     const adminKey = this.configService.get<string>("ADMIN_API_KEY");
     const request = context.switchToHttp().getRequest<Request>();
     const isProduction = this.configService.get<string>("NODE_ENV") === "production";
-    const clientIp = extractIp(request.headers, request.ip || request.socket?.remoteAddress || "unknown");
+    // Security: request.ip is populated by Express using 'trust proxy' if enabled.
+    // We prefer it as it's more reliable than manually parsing headers.
+    const clientIp = request.ip || extractIp(request.headers, request.socket?.remoteAddress || "unknown");
 
     // SENTINEL: Check IP throttle
     if (isThrottled(clientIp)) {

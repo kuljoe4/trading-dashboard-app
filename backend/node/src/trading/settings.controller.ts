@@ -51,7 +51,7 @@ export class SettingsController {
     }
 
     const updatedFields: string[] = [];
-    const clientIp = extractIp(req.headers, req.ip || req.socket?.remoteAddress || 'unknown');
+    const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
 
     // Security: Only update if explicitly provided to prevent accidental deletion
     // Also trim whitespace to prevent common copy-paste issues

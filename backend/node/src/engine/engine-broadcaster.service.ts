@@ -78,13 +78,8 @@ export class EngineBroadcasterService {
         direction,
         entry_price: roundTo(entry, 8),
         qty: roundTo(trade.qty ?? 0, 8),
-        paper_mode: config?.paper_mode,
         exit_signals_status: trade.exit_signals_status || {},
         sl_adjustments: trade.sl_adjustments || [],
-        live_rr_sequence: trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || [],
-        exit_rr_sequence: trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || [],
-        tp_mode: trade.strategy_config?.tp_mode || config?.tp_mode || 'fixed',
-        tp_ratio: trade.strategy_config?.tp_ratio || config?.tp_ratio || 2,
         _delta: true,
       };
     }

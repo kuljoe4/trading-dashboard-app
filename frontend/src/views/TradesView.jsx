@@ -8,6 +8,7 @@ import { fmtUSD } from '../lib/theme'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Briefcase, Zap } from 'lucide-react'
 import { useResourceFocus } from '../hooks/useResourceFocus'
+import { sessionAPI } from '../api/client'
 
 const Breadcrumbs = () => (
   <nav className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-dim mb-6">
@@ -23,6 +24,15 @@ const TradesView = () => {
 
   // Lifecycle-scoped subscription contract
   useResourceFocus('global_trades');
+
+  const handleCloseTrade = async (symbol) => {
+    try {
+      await sessionAPI.closeTrade(symbol)
+      setSelectedTrade(null)
+    } catch (e) {
+      alert('Failed to close trade: ' + (e?.response?.data?.message || e.message))
+    }
+  }
 
   return (
     <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -83,10 +93,7 @@ const TradesView = () => {
           isOpen={!!selectedTrade}
           onClose={() => setSelectedTrade(null)}
           trade={selectedTrade}
-          onTradeClose={(symbol) => {
-            // Logic to trigger close
-            setSelectedTrade(null)
-          }}
+          onTradeClose={handleCloseTrade}
         />
       )}
     </div>

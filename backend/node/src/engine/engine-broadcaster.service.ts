@@ -10,11 +10,6 @@ import { VariantAnalyticsService } from './variant-analytics.service';
 import { TradeSerializationDto, TickTradeDto } from '../trading/dto/trade-serialization.dto';
 import { roundEight, roundTo } from '../lib/math';
 
-function monitoringChangedInternal(curr: any, prev: any): boolean {
-  if (!curr || !prev) return true;
-  return Math.abs((curr.system?.cpu_usage || 0) - (prev.system?.cpu_usage || 0)) > 8;
-}
-
 @Injectable()
 export class EngineBroadcasterService {
   private readonly logger = new Logger(EngineBroadcasterService.name);
@@ -275,7 +270,7 @@ export class EngineBroadcasterService {
       if (!shouldUpdateMonitoring) delete tickData.monitoring;
       else tickData._monitoring_ts = now;
 
-      if (tradesChanged || pnlChanged || gateChanged || statsChanged || (shouldUpdateMonitoring && monitoringChangedInternal(monitoring, this.lastTickData?.monitoring))) {
+      if (tradesChanged || pnlChanged || gateChanged || statsChanged) {
           shouldBroadcast = true;
       }
     }

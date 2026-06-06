@@ -33,6 +33,13 @@ export class EngineBroadcasterService {
     private readonly variantAnalytics: VariantAnalyticsService,
   ) {}
 
+  /**
+   * BOLT OPTIMIZATION: Move strategy label helper to class level to avoid re-allocation in hot path.
+   */
+  private getStrategyLabel(c: Partial<SessionConfig> | null | undefined): string {
+    return (c?.strategy_label || 'Momentum Strategy').toString();
+  }
+
   public serializeTrade(trade: Trade, config: SessionConfig, currentPrice?: number, minimal = false): TradeSerializationDto {
     const direction = (trade.direction || 'LONG').toString().toUpperCase() as 'LONG' | 'SHORT';
     const entry = trade.entry_price ?? 0;
@@ -51,15 +58,11 @@ export class EngineBroadcasterService {
       rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / risk;
     }
 
-    const getStrategyLabel = (c: Partial<SessionConfig> | null | undefined) => {
-        return (c?.strategy_label || 'Momentum Strategy').toString();
-    };
-
     if (minimal) {
       return {
         id: trade.id,
         symbol: trade.symbol,
-        strategy_label: trade.strategy_label || getStrategyLabel(trade.strategy_config || config),
+        strategy_label: trade.strategy_label || this.getStrategyLabel(trade.strategy_config || config),
         current_price: roundTo(current ?? entry, 8),
         sl_price: roundTo(trade.current_sl, 8),
         tp_price: roundTo(trade.tp, 8),
@@ -93,7 +96,7 @@ export class EngineBroadcasterService {
       paper_mode: config?.paper_mode,
       trading_mode: config?.trading_mode || (config?.paper_mode ? 'paper' : 'live'),
       max_rr: roundTo(trade.max_rr_achieved ?? 0, 4),
-      strategy_label: trade.strategy_label || getStrategyLabel(trade.strategy_config || config),
+      strategy_label: trade.strategy_label || this.getStrategyLabel(trade.strategy_config || config),
       strategy_config: trade.strategy_config,
       live_rr_sequence: trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || [],
       exit_rr_sequence: trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || [],

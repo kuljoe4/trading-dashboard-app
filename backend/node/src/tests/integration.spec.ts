@@ -133,7 +133,7 @@ describe('Trade Lifecycle Integration', () => {
         { setWsBroadcaster: jest.fn(), broadcast: jest.fn() } as any,
         mockSessionState,
         { calculateVariantStats: jest.fn() } as any,
-        { broadcastTick: jest.fn(), serializeTrade: jest.fn() } as any,
+        { broadcastTick: jest.fn(), serializeTrade: jest.fn(), minimize: jest.fn() } as any,
         { isInsideTradingWindow: jest.fn().mockReturnValue(true), enterHibernation: jest.fn(), exitHibernation: jest.fn() } as any,
         mockAuditLog,
         new EventEmitter2()

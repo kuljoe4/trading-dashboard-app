@@ -43,6 +43,7 @@ export const Sidebar = ({ selected }) => {
             <button
               onClick={() => window.location.hash = `#${item.path}`}
               aria-label={`${item.label} [${item.shortcut}]`}
+              aria-current={isActive(item.path) ? 'page' : undefined}
               className={cn(
                 "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all relative",
                 isExpanded ? "flex-row px-4 gap-3" : "justify-center px-0",
@@ -113,6 +114,7 @@ export const BottomNav = ({ selected }) => {
           <button
             key={item.path}
             onClick={() => window.location.hash = `#${item.path}`}
+            aria-current={isActive(item.path) ? 'page' : undefined}
             className={cn(
               "flex flex-col items-center justify-center w-full h-full gap-1 transition-all",
               isActive(item.path) ? "text-accent" : "text-dim hover:text-text"

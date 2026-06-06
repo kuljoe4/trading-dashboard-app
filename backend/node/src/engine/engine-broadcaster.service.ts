@@ -40,6 +40,16 @@ export class EngineBroadcasterService {
     return (c?.strategy_label || 'Momentum Strategy').toString();
   }
 
+  /**
+   * BOLT OPTIMIZATION: Clears broadcast caches to minimize RAM.
+   */
+  minimize() {
+    this.lastTickData = null;
+    this.lastAnalyticsResult = null;
+    this.lastAnalyticsTradeCount = -1;
+    this.logger.verbose('EngineBroadcasterService: Broadcast caches cleared');
+  }
+
   public serializeTrade(trade: Trade, config: SessionConfig, currentPrice?: number, minimal = false): TradeSerializationDto {
     const direction = (trade.direction || 'LONG').toString().toUpperCase() as 'LONG' | 'SHORT';
     const entry = trade.entry_price ?? 0;

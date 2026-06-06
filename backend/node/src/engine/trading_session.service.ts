@@ -339,6 +339,7 @@ export class TradingSessionService {
     this.cachedStrategyConfigs = null;
     this.cachedScanSignatures.clear();
     this.monitoringService.clearAppMetrics();
+    this.engineBroadcaster.minimize();
     this.logger.verbose('TradingSessionService: Transient memory caches cleared');
   }
 

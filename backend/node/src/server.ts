@@ -77,13 +77,15 @@ async function bootstrap() {
     res.setHeader("X-XSS-Protection", "1; mode=block");
     res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
     res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+    res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
     // Prevent sensitive trading data from being cached by browsers or intermediate proxies
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
     res.setHeader(
       "Content-Security-Policy",
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests;",
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; upgrade-insecure-requests;",
     );
     res.setHeader(
       "Permissions-Policy",
@@ -201,6 +203,7 @@ async function bootstrap() {
              serverLogger.warn(
                `Blocked WebSocket connection: Invalid API Key format/length from ${info.origin} (IP: ${clientIp})`,
              );
+             recordFailure(clientIp);
              return done(false);
           }
 

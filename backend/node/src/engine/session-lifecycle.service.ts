@@ -121,7 +121,7 @@ export class SessionLifecycleService {
     try {
       this.monitoringService.incrementApiRequests();
       const res = await bc.restAPI.accountApi.futuresAccountBalanceV2();
-      const data = res.data || res;
+      const data = typeof res.data === 'function' ? await res.data() : (res.data || res);
       const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
       return usdt ? parseFloat(usdt.balance || 0) : 0;
     } catch (e: unknown) {
@@ -135,8 +135,9 @@ export class SessionLifecycleService {
     try {
       this.monitoringService.incrementApiRequests();
       const res = await bc.restAPI.userDataStreamsApi.startUserDataStream();
-      this.listenKey = res.data.listenKey;
-      this.userDataWs = await bc.websocketStreams.connect({ listenKey: this.listenKey });
+      const initialListenKey = typeof res.data === 'function' ? (await res.data()).listenKey : res.data.listenKey;
+      this.listenKey = initialListenKey;
+      this.userDataWs = await bc.websocketStreams.connect({ stream: this.listenKey });
       this.userDataWs.on('message', async (msg: any) => {
         try {
           const data = typeof msg === 'string' ? JSON.parse(msg) : msg;

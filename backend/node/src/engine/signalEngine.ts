@@ -22,7 +22,6 @@ export class SignalEngineService {
     (symbol: string, config: any, interval: string, side?: 'LONG' | 'SHORT', purpose?: 'entry' | 'exit') => boolean | SignalDetail
   > = {
     momentum_pct: this.momentumPctSignal.bind(this),
-    breakback_hl: this.breakoutHlSignal.bind(this), // Typo in existing code? It's breakout_hl
     breakout_hl: this.breakoutHlSignal.bind(this),
     engulfing: this.engulfingSignal.bind(this),
     ma: this.maSignal.bind(this),

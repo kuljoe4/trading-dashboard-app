@@ -59,7 +59,7 @@ describe('OrderManagerService', () => {
         expect.objectContaining({
           algoType: 'CONDITIONAL',
           type: 'STOP_MARKET',
-          stopPrice: '49500.00000000',
+          triggerPrice: '49500.00000000',
         })
       );
 
@@ -110,7 +110,7 @@ describe('OrderManagerService', () => {
       expect(mockBinanceClient.restAPI.tradeApi.newAlgoOrder).toHaveBeenCalledWith(
         expect.objectContaining({
           algoType: 'CONDITIONAL',
-          stopPrice: '50500.00000000'
+          triggerPrice: '50500.00000000'
         })
       );
       expect(trade.binance_stop_order_id).toBe('new_sl_id');

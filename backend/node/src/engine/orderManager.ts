@@ -197,7 +197,7 @@ export class OrderManagerService {
                 side: closeDirection,
                 type: 'STOP_MARKET',
                 quantity: qty.toFixed(precision),
-                stopPrice: slPrice.toFixed(pricePrecision),
+                triggerPrice: slPrice.toFixed(pricePrecision),
                 reduceOnly: 'true',
             });
             const slOrderResult = typeof slResponse.data === 'function' ? await slResponse.data() : (slResponse.data || slResponse);
@@ -298,7 +298,7 @@ export class OrderManagerService {
         side: closeDirection,
         type: 'STOP_MARKET',
         quantity: (trade.qty || 0).toFixed(qtyPrecision),
-        stopPrice: slPrice.toFixed(pricePrecision),
+        triggerPrice: slPrice.toFixed(pricePrecision),
         reduceOnly: 'true',
       });
       const slOrderResult = typeof response.data === 'function' ? await response.data() : (response.data || response);

@@ -210,6 +210,10 @@ export class OrderManagerService {
               throw new Error(`Stop Loss order failed: ${JSON.stringify(slOrderData)}`);
             }
             trade.binance_stop_order_id = String(stopLossId);
+
+            this.logger.log(
+              `Binance SL order placed: ${symbol} at ${slPrice} algo_id=${stopLossId}`,
+            );
           } catch (slErr: unknown) {
             this.recordFailure();
             const slErrMsg = slErr instanceof Error ? slErr.message : String(slErr);
@@ -321,9 +325,9 @@ export class OrderManagerService {
       await this.auditLog.log({
         action: 'LIVE_SL_ORDER_PLACED',
         resourceId: trade.id,
-        details: { symbol: trade.symbol, slPrice, orderId: orderData.orderId }
+        details: { symbol: trade.symbol, slPrice, orderId: stopLossId }
       });
-      return orderData.orderId;
+      return String(stopLossId);
     } catch (err) {
       this.logger.error(
         `Failed to place Binance SL: ${err instanceof Error ? err.message : String(err)}`,
@@ -388,7 +392,10 @@ export class OrderManagerService {
     if (this.paperMode || !this.binanceClient) return true;
 
     try {
-      await (this.binanceClient as any).restAPI.tradeApi.cancelAlgoOrder({ symbol, algoId });
+      // Large IDs must be handled as BigInt to prevent precision loss,
+      // but we handle non-numeric strings for testing/robustness.
+      const numericAlgoId = /^\d+$/.test(algoId) ? BigInt(algoId) : algoId;
+      await (this.binanceClient as any).restAPI.tradeApi.cancelAlgoOrder({ symbol, algoId: numericAlgoId });
       this.logger.log(`Binance algo order canceled: ${symbol} algo_id=${algoId}`);
       return true;
     } catch (err) {

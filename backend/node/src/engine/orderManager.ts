@@ -167,10 +167,23 @@ export class OrderManagerService {
           const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
           trade.binance_order_id = orderData.orderId;
 
-          // Capture realized fees from entry fills
+          // Capture realized fees and actual entry price from fills
           if (orderData.fills && Array.isArray(orderData.fills)) {
-            const entryFee = ((orderData.fills as any[]).reduce)((sum: number, fill: { commission: string }) => sum + parseFloat(fill.commission || '0'), 0);
-            trade.realized_fee = roundEight(trade.realized_fee + entryFee);
+            let totalQty = 0;
+            let totalCost = 0;
+            let entryFee = 0;
+            for (const fill of orderData.fills) {
+              const fQty = parseFloat(fill.qty || fill.executedQty || '0');
+              const fPrice = parseFloat(fill.price || '0');
+              totalQty += fQty;
+              totalCost += fQty * fPrice;
+              entryFee += parseFloat(fill.commission || '0');
+            }
+            if (totalQty > 0) {
+              trade.entry_price = roundEight(totalCost / totalQty);
+              trade.qty = totalQty;
+            }
+            trade.realized_fee = roundEight(entryFee);
           }
 
           this.logger.log(
@@ -513,12 +526,19 @@ export class OrderManagerService {
     return { exitTriggered, exitSignalType };
   }
 
-  private async fetchPosition(symbol: string): Promise<any | null> {
+  public async fetchPosition(symbol: string): Promise<any | null> {
     if (!this.binanceClient) return null;
     try {
       const response = await (this.binanceClient as any).restAPI.tradeApi.positionInformationV2({ symbol });
       const data = typeof response.data === 'function' ? await response.data() : (response.data || response);
-      return Array.isArray(data) ? data[0] : data;
+
+      if (Array.isArray(data)) {
+        // Find position with non-zero amount (Hedge Mode support)
+        const activePosition = data.find(p => parseFloat(p.positionAmt) !== 0);
+        // If no active position, return the 'BOTH' side if available, or just the first one
+        return activePosition || data.find(p => p.positionSide === 'BOTH') || data[0];
+      }
+      return data;
     } catch (err) {
       this.logger.warn(`Failed to fetch position for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
       return null;
@@ -570,9 +590,21 @@ export class OrderManagerService {
             const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
             trade.binance_close_order_id = orderData.orderId;
 
-            // Capture realized fees from exit fills
+            // Capture realized fees and actual exit price from fills
             if (orderData.fills && Array.isArray(orderData.fills)) {
-              const exitFee = ((orderData.fills as any[]).reduce)((sum: number, fill: { commission: string }) => sum + parseFloat(fill.commission || '0'), 0);
+              let totalQty = 0;
+              let totalCost = 0;
+              let exitFee = 0;
+              for (const fill of orderData.fills) {
+                const fQty = parseFloat(fill.qty || fill.executedQty || '0');
+                const fPrice = parseFloat(fill.price || '0');
+                totalQty += fQty;
+                totalCost += fQty * fPrice;
+                exitFee += parseFloat(fill.commission || '0');
+              }
+              if (totalQty > 0) {
+                exitPrice = roundEight(totalCost / totalQty);
+              }
               trade.realized_fee = roundEight(trade.realized_fee + exitFee);
             }
 
@@ -588,7 +620,7 @@ export class OrderManagerService {
           } catch (err: unknown) {
             const errMsg = err instanceof Error ? err.message : String(err);
             // RISK-04: If close fails, check if it's because position is already closed (SL race)
-            if (errMsg.includes('REDUCE_ONLY') || errMsg.includes('Position side does not match')) {
+              if (errMsg.toUpperCase().includes('REDUCE_ONLY') || errMsg.includes('Position side does not match')) {
                this.logger.log(`Binance close order for ${symbol} rejected (possibly already closed by exchange SL). Verifying...`);
                const position = await this.fetchPosition(symbol);
                if (position && parseFloat(position.positionAmt) === 0) {

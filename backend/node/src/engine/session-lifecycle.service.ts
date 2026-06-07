@@ -40,8 +40,18 @@ export class SessionLifecycleService {
       try {
         const b = await this.fetchBinanceBalance(bc);
         this.logger.log(`[Lifecycle] Initial Binance ${mode} balance fetch: ${b} USDT`);
-        this.sessionState.balanceLive = b;
-        this.sessionState.balancePaper = b;
+
+        if (b === 0 && (curBal || 0) > 0) {
+          this.logger.warn(`[Lifecycle] Binance ${mode} returned 0 balance. Falling back to local configuration: ${curBal} USDT. Please check if your Testnet account needs funds from the faucet.`);
+          this.sessionState.balanceLive = curBal!;
+          this.sessionState.balancePaper = curBal!;
+        } else {
+          this.sessionState.balanceLive = b;
+          this.sessionState.balancePaper = b;
+          if (b === 0) {
+            this.logger.warn(`[Lifecycle] Binance ${mode} balance is actually 0. Engine will be gated until funds are available.`);
+          }
+        }
       } catch (e) {
         this.logger.debug(`Initial balance fetch failed: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -126,7 +136,7 @@ export class SessionLifecycleService {
       this.monitoringService.incrementApiRequests();
       const res = await bc.restAPI.userDataStreamsApi.startUserDataStream();
       this.listenKey = res.data.listenKey;
-      this.userDataWs = await bc.websocketStreams.connect();
+      this.userDataWs = await bc.websocketStreams.connect({ listenKey: this.listenKey });
       this.userDataWs.on('message', async (msg: any) => {
         try {
           const data = typeof msg === 'string' ? JSON.parse(msg) : msg;

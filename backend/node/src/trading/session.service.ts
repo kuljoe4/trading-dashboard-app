@@ -390,7 +390,7 @@ export class SessionService implements OnModuleInit {
         running: true,
         paperMode,
         tradingMode: config.trading_mode || (paperMode ? 'paper' : 'live'),
-        balance: paperMode ? config.paper_starting_balance : config.live_starting_balance,
+        balance: mode === 'paper' ? config.paper_starting_balance : (mode === 'testnet' ? (config as any).testnet_starting_balance : config.live_starting_balance),
         strategyLabel: config.strategy_label || 'Momentum Strategy',
         config,
       });
@@ -516,9 +516,9 @@ export class SessionService implements OnModuleInit {
     const currentSettings = await this.settingsRepository.findOne({ where: { id: 'default' } });
     const currentGlobalBalance = currentSettings
       ? (mode === 'paper' ? Number(currentSettings.paper_balance) : (mode === 'testnet' ? Number(currentSettings.testnet_balance) : Number(currentSettings.live_balance)))
-      : undefined;
+      : (mode === 'paper' ? (config.paper_starting_balance || 10000) : (mode === 'testnet' ? (config as any).testnet_starting_balance : config.live_starting_balance));
 
-    this.logger.log(`[Lifecycle] Starting session ${this.currentSessionId} in ${mode} mode. Detected starting balance from settings: ${currentGlobalBalance}`);
+    this.logger.log(`[Lifecycle] Starting session ${this.currentSessionId} in ${mode} mode. Detected starting balance: ${currentGlobalBalance}`);
 
     // Update global log levels based on session config
     updateLogLevels(!!config.debug_mode);

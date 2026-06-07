@@ -320,6 +320,7 @@ export class TradingSessionService {
   private getBalance(): number { return this.sessionState.getBalance(this.config?.paper_mode ?? true); }
   private async rollbackTradeClosure(t: Trade, pp: number, pl: number) { this.logger.warn(`Rolling back trade closure for ${t.symbol}.`); this.sessionState.balancePaper = pp; this.sessionState.balanceLive = pl; this.sessionState.rollbackClosedTrade(t); t.status = 'OPEN'; this.positionTracker.addTrade(t); if (this.onBalanceUpdate) await this.onBalanceUpdate(this.getBalance(), 0); }
 
+
   getActiveTradeCount(): number { return this.positionTracker.activeCount(); }
   getActiveTradeSymbols(): string[] { return this.positionTracker.activeList().map(t => t.symbol); }
   getActiveTradesRaw(): Trade[] { return this.positionTracker.activeList(); }

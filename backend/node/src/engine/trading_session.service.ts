@@ -313,16 +313,6 @@ export class TradingSessionService {
   private getBalance(): number { return this.sessionState.getBalance(this.config?.paper_mode ?? true); }
   private async rollbackTradeClosure(t: Trade, pp: number, pl: number) { this.logger.warn(`Rolling back trade closure for ${t.symbol}.`); this.sessionState.balancePaper = pp; this.sessionState.balanceLive = pl; this.sessionState.rollbackClosedTrade(t); t.status = 'OPEN'; this.positionTracker.addTrade(t); if (this.onBalanceUpdate) await this.onBalanceUpdate(this.getBalance(), 0); }
 
-  private async startUserDataStream() {
-    if (!this.binanceClient) return;
-    try {
-      this.monitoringService.incrementApiRequests(); const res = await this.binanceClient.restAPI.userDataStreamsApi.startUserDataStream(); this.listenKey = res.data.listenKey;
-      this.userDataWs = await this.binanceClient.websocketStreams.connect();
-      this.userDataWs.on('message', async (msg: any) => { try { const data = typeof msg === 'string' ? JSON.parse(msg) : msg; if (data.e === 'ACCOUNT_UPDATE' && data.a && data.a.B) { const usdt = data.a.B.find((b: any) => b.a === 'USDT'); if (usdt) { const nb = parseFloat(usdt.wb); this.sessionState.balanceLive = nb; this.sessionState.balancePaper = nb; if (this.onBalanceUpdate) await this.onBalanceUpdate(this.getBalance(), 0); } } } catch (err) {} });
-      this.userDataWs.userData(this.listenKey); this.listenKeyKeepAlive = setInterval(async () => { if (this.listenKey) { try { this.monitoringService.incrementApiRequests(); await this.binanceClient.restAPI.userDataStreamsApi.keepaliveUserDataStream(this.listenKey); } catch (err) {} } }, ENGINE_CONSTANTS.USER_DATA_KEEPALIVE_MS);
-    } catch (e) { throw e; }
-  }
-
 
   getActiveTradeCount(): number { return this.positionTracker.activeCount(); }
   getActiveTradeSymbols(): string[] { return this.positionTracker.activeList().map(t => t.symbol); }

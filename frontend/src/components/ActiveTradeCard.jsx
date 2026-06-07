@@ -81,11 +81,13 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
           {/* Progress Bar */}
           <div
             className={cn(
-              "h-full transition-all duration-500",
+              "h-full transition-all duration-500 relative",
               trade.pnl >= 0 ? "bg-green" : "bg-red"
             )}
             style={{ width: `${progress}%` }}
-          />
+          >
+             <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.1)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.1)_50%,rgba(255,255,255,0.1)_75%,transparent_75%,transparent)] bg-[length:1rem_1rem] animate-[move-stripe_1s_linear_infinite]" />
+          </div>
         </div>
         <div className="flex justify-between text-[9px] font-bold text-dim uppercase tracking-widest font-mono">
           <div className="flex flex-col">

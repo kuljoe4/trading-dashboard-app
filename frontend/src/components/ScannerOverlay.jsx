@@ -1,6 +1,6 @@
 import React from 'react'
 import { fmtVol } from '../lib/theme'
-import { PulseDot, Sparkline, cn } from './ui/primitives'
+import { PulseDot, Sparkline, cn, CopyButton } from './ui/primitives'
 import { useTradingStore } from '../store/trading'
 import { X, Search, ShieldCheck } from 'lucide-react'
 
@@ -85,9 +85,10 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                 )}>
                 <span className="text-[11px] text-dim font-mono">#{i + 1}</span>
                 <div className="flex flex-col justify-center overflow-hidden">
-                   <div className="flex items-baseline gap-0.5">
+                   <div className="flex items-baseline gap-1 group/sym">
                      <span className="text-[14px] font-bold font-mono truncate">{opp.symbol.replace("USDT", "")}</span>
                      <span className="text-[9px] text-dim font-mono opacity-50">/U</span>
+                     <CopyButton value={opp.symbol} className="opacity-0 group-hover/sym:opacity-100 transition-opacity p-0.5" />
                    </div>
                    {isSingleMonitor && (
                      <div className="flex items-center gap-1 mt-0.5">

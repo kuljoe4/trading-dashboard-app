@@ -175,6 +175,22 @@ export class KlineStoreService {
   }
 
   /**
+   * BOLT OPTIMIZATION: Prune klines for symbols/intervals no longer in active use.
+   */
+  prune(activeKeys: Set<string>) {
+    let deletedCount = 0;
+    for (const key of this.klines.keys()) {
+      if (!activeKeys.has(key)) {
+        this.klines.delete(key);
+        deletedCount++;
+      }
+    }
+    if (deletedCount > 0) {
+      this.logger.verbose(`Pruned ${deletedCount} inactive kline series from memory`);
+    }
+  }
+
+  /**
    * Clear all stored klines to free up memory (Deep Sleep)
    */
   clear() {

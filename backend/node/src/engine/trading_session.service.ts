@@ -312,7 +312,19 @@ export class TradingSessionService {
     this.broadcast('session', { status, running: this.running, paused: this.sessionState.paused, mode: this.config?.paper_mode ? 'PAPER' : 'LIVE', tradingMode: mode, balance: this.getBalance(), config: this.config, gateState: this.sessionState.gateState, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period', activeTrades: this.positionTracker.activeList().map((t) => this.engineBroadcaster.serializeTrade(t, this.config!)), scannerResults: this.lastScannerResults, activeWindows: this.getActiveWindows(), });
   }
 
-  async fetchBinanceBalance(): Promise<number> { if (!this.binanceClient) return 0; try { this.monitoringService.incrementApiRequests(); const res = await this.binanceClient.restAPI.accountApi.futuresAccountBalanceV2(); const data = res.data || res; const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null; return usdt ? parseFloat(usdt.balance || 0) : 0; } catch (e: any) { this.logger.error(`Balance fetch failed: ${e.message}`); return 0; } }
+  async fetchBinanceBalance(): Promise<number> {
+    if (!this.binanceClient) return 0;
+    try {
+      this.monitoringService.incrementApiRequests();
+      const res = await this.binanceClient.restAPI.accountApi.futuresAccountBalanceV2();
+      const data = typeof res.data === 'function' ? await res.data() : (res.data || res);
+      const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
+      return usdt ? parseFloat(usdt.balance || 0) : 0;
+    } catch (e: any) {
+      this.logger.error(`Balance fetch failed: ${e.message}`);
+      return 0;
+    }
+  }
   private async updateBalance(t: Trade) { const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live'); if (mode === 'paper') this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + (t.pnl || 0)); else if (this.binanceClient) { const b = await this.fetchBinanceBalance(); if (b > 0) { this.sessionState.balanceLive = b; this.sessionState.balancePaper = b; } else { this.sessionState.balanceLive = roundEight(this.sessionState.balanceLive + (t.pnl || 0)); this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + (t.pnl || 0)); } } if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), t.pnl || 0); }
   private getBalance(): number { return this.sessionState.getBalance(this.config?.paper_mode ?? true); }
   private async rollbackTradeClosure(t: Trade, pp: number, pl: number) { this.logger.warn(`Rolling back trade closure for ${t.symbol}.`); this.sessionState.balancePaper = pp; this.sessionState.balanceLive = pl; this.sessionState.rollbackClosedTrade(t); t.status = 'OPEN'; this.positionTracker.addTrade(t); if (this.onBalanceUpdate) await this.onBalanceUpdate(this.getBalance(), 0); }

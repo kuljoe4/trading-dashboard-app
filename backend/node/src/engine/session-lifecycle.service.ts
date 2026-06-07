@@ -122,7 +122,7 @@ export class SessionLifecycleService {
       this.monitoringService.incrementApiRequests();
       // Try primary endpoint: futuresAccountBalanceV2
       const res = await bc.restAPI.accountApi.futuresAccountBalanceV2();
-      const data = res.data || res;
+      const data = typeof res.data === 'function' ? await res.data() : (res.data || res);
       const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
 
       if (usdt) {
@@ -153,14 +153,9 @@ export class SessionLifecycleService {
     try {
       this.monitoringService.incrementApiRequests();
       const res = await bc.restAPI.userDataStreamsApi.startUserDataStream();
-      const lk = res.data?.listenKey || (res as any).listenKey;
-
-      if (!lk) {
-        throw new Error(`Failed to retrieve listenKey from Binance. Response: ${JSON.stringify(res).substring(0, 100)}`);
-      }
-
-      this.listenKey = lk;
-      this.userDataWs = await bc.websocketStreams.connect();
+      const initialListenKey = typeof res.data === 'function' ? (await res.data()).listenKey : res.data.listenKey;
+      this.listenKey = initialListenKey;
+      this.userDataWs = await bc.websocketStreams.connect({ stream: this.listenKey });
       this.userDataWs.on('message', async (msg: any) => {
         try {
           const data = typeof msg === 'string' ? JSON.parse(msg) : msg;

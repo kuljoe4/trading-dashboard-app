@@ -125,8 +125,8 @@ export class OrderManagerService {
           const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder(symbol, binanceDirection, 'MARKET', {
             quantity: qty.toFixed(precision),
           });
-          const orderData = response.data || response;
-          trade.binance_order_id = orderData.orderId;
+          const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
+          finalBinanceOrderId = orderData.orderId;
 
           // Capture realized fees from entry fills
           if (orderData.fills && Array.isArray(orderData.fills)) {
@@ -146,8 +146,18 @@ export class OrderManagerService {
 
           // Place initial Stop Loss order on exchange
           try {
-            const slOrderId = await this.placeStopLoss(trade, slPrice);
-            if (!slOrderId) {
+            const closeDirection = direction === 'LONG' ? 'SELL' : 'BUY';
+            const priceFilters = filters?.filters.find((f: { filterType: string; tickSize?: string; stepSize?: string; notional?: string; minNotional?: string }) => f.filterType === 'PRICE_FILTER');
+            const tickSize = parseFloat(priceFilters?.tickSize || '0');
+            const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
+
+            const slResponse = await (this.binanceClient as any).restAPI.tradeApi.newOrder(symbol, closeDirection, 'STOP_MARKET', {
+              stopPrice: slPrice.toFixed(pricePrecision),
+              closePosition: 'true',
+              reduceOnly: 'true',
+            });
+            const slOrderData = typeof slResponse.data === 'function' ? await slResponse.data() : (slResponse.data || slResponse);
+            if (!slOrderData || !slOrderData.orderId) {
               throw new Error('Stop Loss order failed to return an ID');
             }
           } catch (slErr: unknown) {
@@ -229,7 +239,7 @@ export class OrderManagerService {
         closePosition: 'true',
         reduceOnly: 'true',
       });
-      const orderData = response.data || response;
+      const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
       if (!orderData || !orderData.orderId) {
         throw new Error(`Invalid response from Binance SL order: ${JSON.stringify(orderData)}`);
       }
@@ -402,7 +412,7 @@ export class OrderManagerService {
     if (!this.binanceClient) return null;
     try {
       const response = await (this.binanceClient as any).restAPI.accountApi.futuresPositionRiskV2({ symbol });
-      const data = response.data || response;
+      const data = typeof response.data === 'function' ? await response.data() : (response.data || response);
       return Array.isArray(data) ? data[0] : data;
     } catch (err) {
       this.logger.warn(`Failed to fetch position for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
@@ -448,8 +458,8 @@ export class OrderManagerService {
               quantity: (trade.qty || 0).toFixed(precision),
               reduceOnly: true,
             });
-            const orderData = response.data || response;
-            trade.binance_close_order_id = orderData.orderId;
+            const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
+            finalBinanceCloseOrderId = orderData.orderId;
 
             // Capture realized fees from exit fills
             if (orderData.fills && Array.isArray(orderData.fills)) {

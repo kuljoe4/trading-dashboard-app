@@ -1,7 +1,6 @@
 import React from 'react'
 import { pnlColor, fmtUSD } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
-import { ActiveTradeBar } from '../components/ActiveTradeBar'
 import { DecisionLog } from '../components/DecisionLog'
 import { 
   StatCard, SectionLabel, StatusBadge, PaperBadge, DemoBadge, LiveBadge,

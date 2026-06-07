@@ -249,7 +249,7 @@ export class SessionConfig {
   @IsNumber()
   @Min(0)
   @IsOptional()
-  testnet_starting_balance?: number = 0;
+  testnet_starting_balance?: number = 10000.0;
 
   @IsNumber()
   @Min(0)

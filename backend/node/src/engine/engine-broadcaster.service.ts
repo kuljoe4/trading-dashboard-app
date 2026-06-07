@@ -18,7 +18,6 @@ export class EngineBroadcasterService {
   private lastAnalyticsResult: any = null;
   private lastAnalyticsTradeCount = -1;
   private lastAnalyticsStartingBalance = -1;
-  private lastSentTrades: Map<string, TickTradeDto> = new Map();
 
   constructor(
     private readonly tickerCache: TickerCacheService,
@@ -43,42 +42,7 @@ export class EngineBroadcasterService {
     this.lastTickData = null;
     this.lastAnalyticsResult = null;
     this.lastAnalyticsTradeCount = -1;
-    this.lastSentTrades.clear();
     this.logger.verbose('EngineBroadcasterService: Broadcast caches cleared');
-  }
-
-  /**
-   * BOLT OPTIMIZATION: Zero-allocation serialization for high-frequency tick updates.
-   * Directly creates the thin TickTradeDto without intermediate object destructuring.
-   */
-  public serializeTickTrade(trade: Trade, config: SessionConfig, currentPrice: number): TickTradeDto {
-    const direction = (trade.direction || 'LONG').toString().toUpperCase() as 'LONG' | 'SHORT';
-    const entry = trade.entry_price ?? 0;
-    const qty = trade.qty ?? 0;
-
-    const grossPnl = direction === 'LONG' ? (currentPrice - entry) * qty : (entry - currentPrice) * qty;
-    const pnl = roundEight(grossPnl - (trade.realized_fee || 0));
-    const risk = Math.abs(entry - (trade.initial_sl ?? trade.current_sl ?? entry)) || 1;
-    const rrValue = (direction === 'LONG' ? (currentPrice - entry) : (entry - currentPrice)) / risk;
-
-    return {
-      id: trade.id,
-      symbol: trade.symbol,
-      strategy_label: trade.strategy_label || this.getStrategyLabel(trade.strategy_config || config),
-      current_price: roundTo(currentPrice, 8),
-      sl_price: roundTo(trade.current_sl, 8),
-      tp_price: roundTo(trade.tp, 8),
-      pnl: roundTo(pnl, 2),
-      realized_fee: roundTo(trade.realized_fee, 2),
-      rr: roundTo(rrValue, 4),
-      max_rr: roundTo(trade.max_rr_achieved ?? 0, 4),
-      direction,
-      entry_price: roundTo(entry, 8),
-      qty: roundTo(qty, 8),
-      _thin: true,
-      _sl_len: trade.sl_adjustments?.length || 0,
-      _sig_json: trade._sig_json || JSON.stringify(trade.exit_signals_status || {}),
-    };
   }
 
   public serializeTrade(trade: Trade, config: SessionConfig, currentPrice?: number, minimal = false): TradeSerializationDto {
@@ -142,6 +106,66 @@ export class EngineBroadcasterService {
     };
   }
 
+  /**
+   * Refactor: Move tiered fidelity logic from server.ts to a dedicated method
+   * to decouple business/display logic from the transport layer.
+   */
+  public getFidelityTick(payload: any, client: any): any {
+    if (payload.type !== 'tick') return payload;
+
+    const tick = { ...payload };
+
+    if (tick.trades && Array.isArray(tick.trades)) {
+      tick.trades = tick.trades.map((trade: any) => {
+        // 1. Full Fidelity: ONLY for a specific focused trade ID
+        const isFullFidelity = client.focusMode && client.focusTradeId === trade.id;
+
+        // 2. Mid Fidelity: For a strategy list or the global trades view
+        const isMidFidelity = client.focusMode &&
+          (client.focusTradeId === 'all' || client.focusStrategyLabel === trade.strategy_label);
+
+        if (isFullFidelity) {
+          return trade;
+        }
+
+        // Strip heavy diagnostics for everyone else
+        const {
+          strategy_config,
+          live_rr_sequence,
+          exit_rr_sequence,
+          exit_signals_status,
+          sl_adjustments,
+          tp_mode,
+          tp_ratio,
+          exit_signal_logic,
+          ...thinTrade
+        } = trade;
+
+        if (isMidFidelity) {
+          return {
+            ...thinTrade,
+            live_rr_sequence: trade.live_rr_sequence,
+            exit_rr_sequence: trade.exit_rr_sequence,
+            _thin: true,
+          };
+        }
+
+        // Low Fidelity: For Dashboard overview (No sequences, no logs)
+        return { ...thinTrade, _thin: true };
+      });
+    }
+
+    if (!client.focusMode) {
+      tick.activeWindows = [];
+    }
+
+    if (client.monitoringEnabled === false) {
+      delete tick.monitoring;
+    }
+
+    return tick;
+  }
+
   public broadcastTick(
     activeTrades: Trade[],
     config: SessionConfig,
@@ -154,22 +178,21 @@ export class EngineBroadcasterService {
 
     const now = Date.now();
     const isHeartbeat = !this.lastTickData || (now - this.lastTickTime > 10000);
+    const prevTickMap = new Map<string, TickTradeDto>();
+    if (this.lastTickData?.trades) {
+      for (const t of this.lastTickData.trades) prevTickMap.set(t.id, t);
+    }
 
     const trades: TickTradeDto[] = [];
     const len = activeTrades.length;
-    const prevTradeCount = this.lastSentTrades.size;
     let anyPriceChangedSignificant = false;
     let activePnl = 0;
     const hasVariants = !!(config?.strategy_variants?.length);
     const variantGroups: Record<string, { pnl: number, risk: number, count: number, hits: number }> = {};
 
-    const currentIds = new Set<string>();
-
     for (let i = 0; i < len; i++) {
       const trade = activeTrades[i];
-      currentIds.add(trade.id);
-
-      const prevTrade = this.lastSentTrades.get(trade.id);
+      const prevTrade = prevTickMap.get(trade.id);
       let currentPrice = this.tickerCache.getPrice(trade.symbol);
       if (currentPrice === null && prevTrade) currentPrice = prevTrade.current_price;
 
@@ -224,9 +247,11 @@ export class EngineBroadcasterService {
       }
 
       if (tradeChanged) {
-        const thin = this.serializeTickTrade(trade, config, current);
-        trades.push(thin);
-        this.lastSentTrades.set(trade.id, thin);
+        const serialized = this.serializeTrade(trade, config, current, true) as any;
+        const { strategy_config, live_rr_sequence, exit_rr_sequence, exit_signals_status, sl_adjustments, tp_mode, tp_ratio, ...thin } = serialized;
+        thin._sl_len = trade.sl_adjustments?.length || 0;
+        thin._sig_json = trade._sig_json || JSON.stringify(trade.exit_signals_status || {});
+        trades.push(thin as TickTradeDto);
       }
     }
 
@@ -291,7 +316,8 @@ export class EngineBroadcasterService {
     if (shouldBroadcast) tickData._heartbeat = true;
 
     if (!shouldBroadcast) {
-      const tradesChanged = trades.length > 0 || prevTradeCount !== len || anyPriceChangedSignificant;
+      const prevTrades = this.lastTickData?.trades || [];
+      const tradesChanged = trades.length > 0 || len !== prevTrades.length || anyPriceChangedSignificant;
       const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) > 0.1;
       const gateChanged = tickData.gateState !== this.lastTickData?.gateState;
       const statsChanged = tickData._statsVersion !== this.lastTickData?._statsVersion;
@@ -305,15 +331,6 @@ export class EngineBroadcasterService {
     }
 
     if (shouldBroadcast) {
-      // BOLT OPTIMIZATION: Prune lastSentTrades to avoid memory leaks for closed trades
-      if (this.lastSentTrades.size > len) {
-        const idsToDelete: string[] = [];
-        for (const id of this.lastSentTrades.keys()) {
-          if (!currentIds.has(id)) idsToDelete.push(id);
-        }
-        for (const id of idsToDelete) this.lastSentTrades.delete(id);
-      }
-
       this.broadcastService.broadcast('tick', tickData);
       this.lastTickData = tickData;
       this.lastTickTime = now;

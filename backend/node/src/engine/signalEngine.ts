@@ -16,12 +16,14 @@ interface SignalDetail {
 @Injectable()
 export class SignalEngineService {
   private readonly logger = new Logger(SignalEngineService.name);
+  private readonly warningCache: Set<string> = new Set();
 
   private readonly signalHandlers: Record<
     string,
     (symbol: string, config: any, interval: string, side?: 'LONG' | 'SHORT', purpose?: 'entry' | 'exit') => boolean | SignalDetail
   > = {
     momentum_pct: this.momentumPctSignal.bind(this),
+    breakback_hl: this.breakoutHlSignal.bind(this), // Typo in existing code? It's breakout_hl
     breakout_hl: this.breakoutHlSignal.bind(this),
     engulfing: this.engulfingSignal.bind(this),
     ma: this.maSignal.bind(this),
@@ -252,7 +254,8 @@ export class SignalEngineService {
         return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Cross', description: 'Insufficient data', insufficientData: true };
       }
 
-      const ema = this.calculateEMA(candles, period);
+      const emaRes = this.calculateEMA(candles, period, symbol, `EMA(${period})`);
+      const ema = emaRes.value;
       const prevClose = candles[candles.length - 2].close;
       const currClose = candles[candles.length - 1].close;
 
@@ -271,6 +274,7 @@ export class SignalEngineService {
         fired,
         value: roundTo(currClose, 2),
         threshold: roundTo(ema, 2),
+        insufficientData: emaRes.insufficientData,
         unit: 'price',
         metric: 'EMA Cross',
         description: `Price crossed EMA(${period})`,
@@ -303,15 +307,15 @@ export class SignalEngineService {
         return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Dual', description: 'Insufficient data', insufficientData: true };
       }
 
-      const fastEmas = this.calculateEMALastTwo(candles, fastPeriod);
-      const slowEmas = this.calculateEMALastTwo(candles, slowPeriod);
+      const fastRes = this.calculateEMALastTwo(candles, fastPeriod, symbol);
+      const slowRes = this.calculateEMALastTwo(candles, slowPeriod, symbol);
 
-      if (!fastEmas || !slowEmas) {
+      if (!fastRes || !slowRes) {
         return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Dual', description: 'Insufficient EMA data', insufficientData: true };
       }
 
-      const [prevFast, currFast] = fastEmas;
-      const [prevSlow, currSlow] = slowEmas;
+      const [prevFast, currFast] = fastRes.values;
+      const [prevSlow, currSlow] = slowRes.values;
 
       let fired = false;
       if (purpose === 'entry') {
@@ -328,6 +332,7 @@ export class SignalEngineService {
         fired,
         value: roundTo(currFast, 2),
         threshold: roundTo(currSlow, 2),
+        insufficientData: fastRes.insufficientData || slowRes.insufficientData,
         unit: 'price',
         metric: 'EMA Dual',
         description: `EMA(${fastPeriod}) crossed EMA(${slowPeriod})`,
@@ -364,7 +369,8 @@ export class SignalEngineService {
         };
       }
 
-      const ema = this.calculateEMA(candles, period);
+      const emaRes = this.calculateEMA(candles, period, symbol, `EMA Close(${period})`);
+      const ema = emaRes.value;
       const currClose = candles[candles.length - 1].close;
 
       let fired = false;
@@ -382,6 +388,7 @@ export class SignalEngineService {
         fired,
         value: roundTo(currClose, 2),
         threshold: roundTo(ema, 2),
+        insufficientData: emaRes.insufficientData,
         unit: 'price',
         metric: 'EMA Close',
         description: `Price ${fired ? 'crossed' : 'is outside'} EMA(${period})`,
@@ -403,8 +410,18 @@ export class SignalEngineService {
    * BOLT OPTIMIZATION: Returns only the last two EMA values [previous, current]
    * to avoid large array allocations in the hot scanner path.
    */
-  private calculateEMALastTwo(candles: any[], period: number): [number, number] | null {
+  private calculateEMALastTwo(candles: any[], period: number, symbol?: string): { values: [number, number]; insufficientData: boolean } | null {
     if (candles.length < period + 1) return null;
+
+    const insufficientData = candles.length < period * 2;
+    if (insufficientData && symbol) {
+      const cacheKey = `${symbol}:EMA:${period}`;
+      if (!this.warningCache.has(cacheKey)) {
+        this.logger.warn(`[Convergence] ${symbol}: Insufficient data for EMA(${period}). Available: ${candles.length}, Recommended: ${period * 2}. Signal may be unreliable.`);
+        this.warningCache.add(cacheKey);
+      }
+    }
+
     const multiplier = 2 / (period + 1);
 
     const lookback = Math.min(candles.length, period * 2);
@@ -419,7 +436,7 @@ export class SignalEngineService {
     }
 
     if (Number.isNaN(prevEma)) return null;
-    return [prevEma, ema];
+    return { values: [prevEma, ema], insufficientData };
   }
 
   private calculateSMA(candles: any[], start: number, end: number): number {
@@ -433,12 +450,23 @@ export class SignalEngineService {
     return sum / count;
   }
 
-  private calculateEMA(candles: any[], period: number): number {
-    if (candles.length === 0) return 0;
+  private calculateEMA(candles: any[], period: number, symbol?: string, metric?: string): { value: number; insufficientData: boolean } {
+    if (candles.length === 0) return { value: 0, insufficientData: true };
+
+    const insufficientData = candles.length < period * 2;
+    // Indicator Convergence Check: Burn-in period
+    // Standard EMA convergence requires ~2x the period.
+    if (insufficientData && symbol) {
+      const cacheKey = `${symbol}:${metric || 'EMA'}:${period}`;
+      if (!this.warningCache.has(cacheKey)) {
+        this.logger.warn(`[Convergence] ${symbol}: Insufficient data for ${metric || 'EMA'}(${period}). Available: ${candles.length}, Recommended: ${period * 2}. Signal may be unreliable.`);
+        this.warningCache.add(cacheKey);
+      }
+    }
 
     // For smaller histories, just use SMA
     if (candles.length < period + 1) {
-      return this.calculateSMA(candles, 0, candles.length);
+      return { value: this.calculateSMA(candles, 0, candles.length), insufficientData: true };
     }
 
     const multiplier = 2 / (period + 1);
@@ -458,6 +486,6 @@ export class SignalEngineService {
       ema = candles[i].close * multiplier + ema * (1 - multiplier);
     }
 
-    return ema;
+    return { value: ema, insufficientData };
   }
 }

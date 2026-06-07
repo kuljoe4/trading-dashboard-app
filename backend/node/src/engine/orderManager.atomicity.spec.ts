@@ -25,8 +25,10 @@ describe('OrderManagerService Atomicity', () => {
         tradeApi: {
           newOrder: jest.fn(),
           cancelOrder: jest.fn(),
-          placeMultipleOrders: jest.fn(),
         },
+        algoApi: {
+          newOrder: jest.fn(),
+        }
       },
     };
   });
@@ -37,9 +39,9 @@ describe('OrderManagerService Atomicity', () => {
 
       // First call (Entry) succeeds
       mockBinanceClient.restAPI.tradeApi.newOrder.mockResolvedValueOnce({ data: { orderId: 'entry_id' } });
-      // Second call (SL via placeMultipleOrders) fails
-      mockBinanceClient.restAPI.tradeApi.placeMultipleOrders.mockRejectedValueOnce(new Error('Binance SL failure'));
-      // Third call (Unwind via newOrder) succeeds
+      // Second call (SL via algoApi.newOrder) fails
+      mockBinanceClient.restAPI.algoApi.newOrder.mockRejectedValueOnce(new Error('Binance SL failure'));
+      // Third call (Unwind via tradeApi.newOrder) succeeds
       mockBinanceClient.restAPI.tradeApi.newOrder.mockResolvedValueOnce({ data: { orderId: 'unwind_id' } });
 
       const trade = await service.enter(
@@ -57,17 +59,17 @@ describe('OrderManagerService Atomicity', () => {
 
       // Check order calls
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledTimes(2);
-      expect(mockBinanceClient.restAPI.tradeApi.placeMultipleOrders).toHaveBeenCalledTimes(1);
+      expect(mockBinanceClient.restAPI.algoApi.newOrder).toHaveBeenCalledTimes(1);
 
       // 1. Entry
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenNthCalledWith(
         1, expect.objectContaining({ symbol: 'BTCUSDT', side: 'BUY', type: 'MARKET' })
       );
-      // 2. SL via placeMultipleOrders
-      expect(mockBinanceClient.restAPI.tradeApi.placeMultipleOrders).toHaveBeenCalledWith(
-        expect.objectContaining({ batchOrders: expect.stringContaining('"type":"STOP_MARKET"') })
+      // 2. SL via algoApi.newOrder
+      expect(mockBinanceClient.restAPI.algoApi.newOrder).toHaveBeenCalledWith(
+        expect.objectContaining({ symbol: 'BTCUSDT', type: 'STOP_MARKET' })
       );
-      // 3. Unwind via newOrder
+      // 3. Unwind via tradeApi.newOrder
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenNthCalledWith(
         2, expect.objectContaining({ symbol: 'BTCUSDT', side: 'SELL', type: 'MARKET', reduceOnly: 'true' })
       );
@@ -78,9 +80,9 @@ describe('OrderManagerService Atomicity', () => {
 
       // First call (Entry) succeeds
       mockBinanceClient.restAPI.tradeApi.newOrder.mockResolvedValueOnce({ data: { orderId: 'entry_id' } });
-      // Second call (SL via placeMultipleOrders) fails
-      mockBinanceClient.restAPI.tradeApi.placeMultipleOrders.mockRejectedValueOnce(new Error('Binance SL failure'));
-      // Third call (Unwind via newOrder) fails
+      // Second call (SL via algoApi.newOrder) fails
+      mockBinanceClient.restAPI.algoApi.newOrder.mockRejectedValueOnce(new Error('Binance SL failure'));
+      // Third call (Unwind via tradeApi.newOrder) fails
       mockBinanceClient.restAPI.tradeApi.newOrder.mockRejectedValueOnce(new Error('Unwind failure'));
 
       await expect(service.enter(
@@ -94,7 +96,7 @@ describe('OrderManagerService Atomicity', () => {
       )).rejects.toThrow(ExchangeExecutionException);
 
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledTimes(2);
-      expect(mockBinanceClient.restAPI.tradeApi.placeMultipleOrders).toHaveBeenCalledTimes(1);
+      expect(mockBinanceClient.restAPI.algoApi.newOrder).toHaveBeenCalledTimes(1);
     });
 
     it('handles successful entry and SL placement', async () => {
@@ -102,8 +104,8 @@ describe('OrderManagerService Atomicity', () => {
 
       // First call (Entry) succeeds
       mockBinanceClient.restAPI.tradeApi.newOrder.mockResolvedValueOnce({ data: { orderId: 'entry_id' } });
-      // Second call (SL via placeMultipleOrders) succeeds
-      mockBinanceClient.restAPI.tradeApi.placeMultipleOrders.mockResolvedValueOnce({ data: [{ orderId: 'sl_id' }] });
+      // Second call (SL via algoApi.newOrder) succeeds
+      mockBinanceClient.restAPI.algoApi.newOrder.mockResolvedValueOnce({ data: { orderId: 'sl_id' } });
 
       const trade = await service.enter(
         'session_1',
@@ -119,7 +121,7 @@ describe('OrderManagerService Atomicity', () => {
       expect(trade?.binance_order_id).toBe('entry_id');
       expect(trade?.binance_stop_order_id).toBe('sl_id');
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledTimes(1);
-      expect(mockBinanceClient.restAPI.tradeApi.placeMultipleOrders).toHaveBeenCalledTimes(1);
+      expect(mockBinanceClient.restAPI.algoApi.newOrder).toHaveBeenCalledTimes(1);
     });
   });
 

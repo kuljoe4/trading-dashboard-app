@@ -355,7 +355,7 @@ export class OrderManagerService {
       return String(stopLossId);
     } catch (err) {
       this.logger.error(
-        `Failed to place Binance SL: ${err instanceof Error ? err.message : String(err)}`,
+        `Failed to place Binance SL for ${trade.symbol}: ${err instanceof Error ? err.message : String(err)}`,
       );
       return null;
     }

@@ -50,9 +50,10 @@ const TradesView = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
         <StatCard
-          label="Unrealized P&L"
+          label="Active P&L"
           value={fmtUSD(activeTrades.reduce((acc, t) => acc + (t.pnl || 0), 0))}
           color={activeTrades.reduce((acc, t) => acc + (t.pnl || 0), 0) >= 0 ? "text-green" : "text-red"}
+          subValue={`Total Session: ${fmtUSD(totalPnl)}`}
         />
         <StatCard label="Active Risk" value={`${totalRiskPct.toFixed(2)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
         <StatCard label="Positions" value={activeTrades.length.toString()} color="text-accent" />

@@ -172,8 +172,8 @@ export class SessionLifecycleService {
             this.logger.debug(`Error processing user data WS message: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
-      this.logger.log(`[Lifecycle] Subscribing to User Data Stream with listenKey: ${lk.substring(0, 10)}...`);
-      this.userDataWs.userData(lk);
+      this.logger.log(`[Lifecycle] Subscribing to User Data Stream with listenKey: ${this.listenKey?.substring(0, 10)}...`);
+      this.userDataWs.userData(this.listenKey);
       this.listenKeyKeepAlive = setInterval(async () => {
         if (this.listenKey) {
           try {

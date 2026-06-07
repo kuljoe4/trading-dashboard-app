@@ -126,7 +126,7 @@ export class OrderManagerService {
             quantity: qty.toFixed(precision),
           });
           const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
-          finalBinanceOrderId = orderData.orderId;
+          trade.binance_order_id = orderData.orderId;
 
           // Capture realized fees from entry fills
           if (orderData.fills && Array.isArray(orderData.fills)) {
@@ -160,6 +160,7 @@ export class OrderManagerService {
             if (!slOrderData || !slOrderData.orderId) {
               throw new Error('Stop Loss order failed to return an ID');
             }
+            trade.binance_stop_order_id = slOrderData.orderId;
           } catch (slErr: unknown) {
             const slErrMsg = slErr instanceof Error ? slErr.message : String(slErr);
             this.logger.error(`Critical Failure: Market entry succeeded but Stop Loss placement FAILED for ${symbol}: ${slErrMsg}`);
@@ -459,7 +460,7 @@ export class OrderManagerService {
               reduceOnly: true,
             });
             const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
-            finalBinanceCloseOrderId = orderData.orderId;
+            trade.binance_close_order_id = orderData.orderId;
 
             // Capture realized fees from exit fills
             if (orderData.fills && Array.isArray(orderData.fills)) {

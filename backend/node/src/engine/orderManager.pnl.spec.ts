@@ -32,6 +32,7 @@ describe('OrderManagerService - PnL Consistency', () => {
         tradeApi: {
           newOrder: jest.fn(),
           cancelOrder: jest.fn(),
+          positionInformationV2: jest.fn(),
         },
         accountApi: {
           futuresPositionRiskV2: jest.fn(),
@@ -57,7 +58,7 @@ describe('OrderManagerService - PnL Consistency', () => {
 
     // Simulate Binance rejecting the close order because position is already closed
     mockBinanceClient.restAPI.tradeApi.newOrder.mockRejectedValue(new Error('Position side does not match'));
-    mockBinanceClient.restAPI.accountApi.futuresPositionRiskV2.mockResolvedValue({ data: [{ positionAmt: '0' }] });
+    mockBinanceClient.restAPI.tradeApi.positionInformationV2.mockResolvedValue({ data: [{ positionAmt: '0' }] });
     mockBinanceClient.restAPI.tradeApi.cancelOrder.mockResolvedValue({ data: {} });
 
     const result = await service.closeTrade('BTCUSDT', trade, exitPrice, 'SL_HIT', false);

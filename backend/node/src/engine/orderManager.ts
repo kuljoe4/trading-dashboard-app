@@ -122,7 +122,10 @@ export class OrderManagerService {
           const stepSize = parseFloat(lotSize?.stepSize || '0');
           const precision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
 
-          const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder(symbol, binanceDirection, 'MARKET', {
+          const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder({
+            symbol,
+            side: binanceDirection,
+            type: 'MARKET',
             quantity: qty.toFixed(precision),
           });
           const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
@@ -151,7 +154,10 @@ export class OrderManagerService {
             const tickSize = parseFloat(priceFilters?.tickSize || '0');
             const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
 
-            const slResponse = await (this.binanceClient as any).restAPI.tradeApi.newOrder(symbol, closeDirection, 'STOP_MARKET', {
+            const slResponse = await (this.binanceClient as any).restAPI.tradeApi.newOrder({
+              symbol,
+              side: closeDirection,
+              type: 'STOP_MARKET',
               stopPrice: slPrice.toFixed(pricePrecision),
               closePosition: 'true',
               reduceOnly: 'true',
@@ -169,7 +175,10 @@ export class OrderManagerService {
             this.logger.warn(`Attempting emergency unwind for ${symbol}...`);
             try {
               const closeDirection = direction === 'LONG' ? 'SELL' : 'BUY';
-              await (this.binanceClient as any).restAPI.tradeApi.newOrder(symbol, closeDirection, 'MARKET', {
+            await (this.binanceClient as any).restAPI.tradeApi.newOrder({
+              symbol,
+              side: closeDirection,
+              type: 'MARKET',
                 quantity: qty.toFixed(precision),
                 reduceOnly: 'true',
               });
@@ -235,7 +244,10 @@ export class OrderManagerService {
       const precision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
 
       // Use STOP_MARKET with closePosition: true for optimal efficiency and robustness
-      const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder(trade.symbol, closeDirection, 'STOP_MARKET', {
+      const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder({
+        symbol: trade.symbol,
+        side: closeDirection,
+        type: 'STOP_MARKET',
         stopPrice: slPrice.toFixed(precision),
         closePosition: 'true',
         reduceOnly: 'true',
@@ -296,7 +308,7 @@ export class OrderManagerService {
     if (this.paperMode || !this.binanceClient) return true;
 
     try {
-      await (this.binanceClient as any).restAPI.tradeApi.cancelOrder(symbol, { orderId });
+      await (this.binanceClient as any).restAPI.tradeApi.cancelOrder({ symbol, orderId });
       this.logger.log(`Binance order canceled: ${symbol} order_id=${orderId}`);
       return true;
     } catch (err) {
@@ -412,7 +424,7 @@ export class OrderManagerService {
   private async fetchPosition(symbol: string): Promise<any | null> {
     if (!this.binanceClient) return null;
     try {
-      const response = await (this.binanceClient as any).restAPI.accountApi.futuresPositionRiskV2({ symbol });
+      const response = await (this.binanceClient as any).restAPI.tradeApi.positionInformationV2({ symbol });
       const data = typeof response.data === 'function' ? await response.data() : (response.data || response);
       return Array.isArray(data) ? data[0] : data;
     } catch (err) {
@@ -455,9 +467,12 @@ export class OrderManagerService {
             const stepSize = parseFloat(lotSize?.stepSize || '0');
             const precision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
 
-            const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder(symbol, closeDirection, 'MARKET', {
+            const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder({
+              symbol,
+              side: closeDirection,
+              type: 'MARKET',
               quantity: (trade.qty || 0).toFixed(precision),
-              reduceOnly: true,
+              reduceOnly: 'true',
             });
             const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
             trade.binance_close_order_id = orderData.orderId;

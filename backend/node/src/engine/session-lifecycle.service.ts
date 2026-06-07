@@ -129,9 +129,9 @@ export class SessionLifecycleService {
         return parseFloat(usdt.balance || 0);
       }
 
-      // Fallback: try futuresAccountV2 (full account details)
-      this.logger.debug(`futuresAccountBalanceV2 did not return USDT. Trying futuresAccountV2 fallback...`);
-      const accRes = await bc.restAPI.accountApi.futuresAccountV2();
+      // Fallback: try accountInformationV2 (full account details)
+      this.logger.debug(`futuresAccountBalanceV2 did not return USDT. Trying accountInformationV2 fallback...`);
+      const accRes = await bc.restAPI.accountApi.accountInformationV2();
       const accData = accRes.data || accRes;
       if (accData && Array.isArray(accData.assets)) {
         const accUsdt = accData.assets.find((a: any) => a.asset === 'USDT');
@@ -153,7 +153,12 @@ export class SessionLifecycleService {
     try {
       this.monitoringService.incrementApiRequests();
       const res = await bc.restAPI.userDataStreamsApi.startUserDataStream();
-      const lk = res.data.listenKey;
+      const lk = res.data?.listenKey || (res as any).listenKey;
+
+      if (!lk) {
+        throw new Error(`Failed to retrieve listenKey from Binance. Response: ${JSON.stringify(res).substring(0, 100)}`);
+      }
+
       this.listenKey = lk;
       this.userDataWs = await bc.websocketStreams.connect();
       this.userDataWs.on('message', async (msg: any) => {

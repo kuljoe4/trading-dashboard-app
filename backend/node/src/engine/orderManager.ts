@@ -182,17 +182,23 @@ export class OrderManagerService {
             const closeDirection = direction === 'LONG' ? 'SELL' : 'BUY';
             
             // USE ALGO API FOR STOP ORDERS (Fixes -4120)
-            const algoApi = (this.binanceClient as any)?.restAPI?.algoApi;
-            if (!algoApi) {
-              throw new Error('Binance Algo API is not initialized');
+            const tradeApi = (this.binanceClient as any)?.restAPI?.tradeApi;
+            if (!tradeApi) {
+              throw new Error('Binance Trade API is not initialized');
             }
-            const slResponse = await algoApi.newOrder({
+
+            const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
+            const tickSize = parseFloat(priceFilter?.tickSize || '0');
+            const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
+
+            const slResponse = await tradeApi.newAlgoOrder({
+                algoType: 'CONDITIONAL',
                 symbol,
                 side: closeDirection,
                 type: 'STOP_MARKET',
                 quantity: qty.toFixed(precision),
-                stopPrice: slPrice.toFixed(precision),
-                reduceOnly: true,
+                stopPrice: slPrice.toFixed(pricePrecision),
+                reduceOnly: 'true',
             });
             const slOrderResult = typeof slResponse.data === 'function' ? await slResponse.data() : (slResponse.data || slResponse);
             const slOrderData = Array.isArray(slOrderResult) ? slOrderResult[0] : slOrderResult;
@@ -276,18 +282,24 @@ export class OrderManagerService {
     try {
       const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
       const filters = this.marketFeed.getSymbolFilters(trade.symbol);
-      const priceFilter = filters?.filters.find((f: { filterType: string; tickSize?: string; stepSize?: string; notional?: string; minNotional?: string }) => f.filterType === 'PRICE_FILTER');
+
+      const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
+      const stepSize = parseFloat(lotSize?.stepSize || '0');
+      const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
+
+      const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
       const tickSize = parseFloat(priceFilter?.tickSize || '0');
-      const precision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
+      const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
 
       // Use Algo API for stop orders
-      const response = await (this.binanceClient as any).restAPI.algoApi.newOrder({
+      const response = await (this.binanceClient as any).restAPI.tradeApi.newAlgoOrder({
+        algoType: 'CONDITIONAL',
         symbol: trade.symbol,
         side: closeDirection,
         type: 'STOP_MARKET',
-        quantity: (trade.qty || 0).toFixed(precision),
-        stopPrice: slPrice.toFixed(precision),
-        reduceOnly: true,
+        quantity: (trade.qty || 0).toFixed(qtyPrecision),
+        stopPrice: slPrice.toFixed(pricePrecision),
+        reduceOnly: 'true',
       });
       const slOrderResult = typeof response.data === 'function' ? await response.data() : (response.data || response);
       const orderData = Array.isArray(slOrderResult) ? slOrderResult[0] : slOrderResult;

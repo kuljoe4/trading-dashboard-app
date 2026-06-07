@@ -95,6 +95,7 @@ describe('OrderManagerService', () => {
       const trade = {
         symbol: 'BTCUSDT',
         direction: 'LONG',
+        binance_order_id: 'mock_order_id',
         binance_stop_order_id: 'old_sl_id',
       } as Trade;
 
@@ -126,6 +127,7 @@ describe('OrderManagerService', () => {
         direction: 'LONG',
         qty: 0.1,
         entry_price: 50000,
+        binance_order_id: 'mock_order_id',
         binance_stop_order_id: 'active_sl_id',
       } as Trade;
 

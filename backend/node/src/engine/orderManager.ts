@@ -303,7 +303,13 @@ export class OrderManagerService {
     const filtered = this.applyFilters(trade.symbol, slPrice, trade.qty);
     slPrice = filtered.price;
 
-    if (this.paperMode || !this.binanceClient) return null;
+    if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return null;
+
+    // BOLT: Fail early if no filters found for live mode to prevent "Invalid symbol"
+    if (!this.marketFeed.getSymbolFilters(trade.symbol)) {
+      this.logger.error(`Live SL rejected: No exchange filters found for ${trade.symbol} in current environment.`);
+      return null;
+    }
 
     try {
       const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
@@ -349,7 +355,7 @@ export class OrderManagerService {
       return String(stopLossId);
     } catch (err) {
       this.logger.error(
-        `Failed to place Binance SL: ${err instanceof Error ? err.message : String(err)}`,
+        `Failed to place Binance SL for ${trade.symbol}: ${err instanceof Error ? err.message : String(err)}`,
       );
       return null;
     }
@@ -359,7 +365,7 @@ export class OrderManagerService {
    * Update an existing stop loss by canceling and replacing it
    */
   async updateStopLoss(trade: Trade, newSlPrice: number): Promise<void> {
-    if (this.paperMode || !this.binanceClient) return;
+    if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return;
 
     // BOLT: Proactive Rate Limit - Skip non-critical SL updates if near limits
     // We only skip if the gap is small, otherwise it's critical protection
@@ -529,6 +535,11 @@ export class OrderManagerService {
   public async fetchPosition(symbol: string): Promise<any | null> {
     if (!this.binanceClient) return null;
     try {
+      // BOLT: Verify symbol exists in exchange info before calling API to prevent "Invalid symbol"
+      if (!this.marketFeed.getSymbolFilters(symbol)) {
+        this.logger.warn(`fetchPosition: Symbol ${symbol} not found in exchangeInfo for current environment.`);
+        return null;
+      }
       const response = await (this.binanceClient as any).restAPI.tradeApi.positionInformationV2({ symbol });
       const data = typeof response.data === 'function' ? await response.data() : (response.data || response);
 
@@ -565,7 +576,7 @@ export class OrderManagerService {
       const pnlPct = roundEight(Number.isFinite(rawPnlPct) ? rawPnlPct : 0);
 
       // In live mode, place close order with reduce-only for safety
-      if (!paperMode && this.binanceClient) {
+      if (!paperMode && this.binanceClient && trade.binance_order_id) {
         try {
           // If there is an exchange stop loss, cancel it to prevent orphans
           if (trade.binance_stop_order_id) {

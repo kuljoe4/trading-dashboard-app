@@ -322,15 +322,32 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
 
             <section className="pt-6 border-t border-border/40">
               <SectionHeader icon={Activity} title="Signal Parameters" subtitle="Technical indicator periods" />
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
                 {field('MA Period', 'signal_params_ma_period', 'number', null, { min: 1 })}
-                {field('EMA Period', 'signal_params_ema_period', 'number', null, { min: 1 })}
-                {field('Entry EMA TF', 'signal_params_entry_ema_period', 'number', null, { min: 1 })}
-                {field('Exit EMA TF', 'signal_params_exit_ema_period', 'number', null, { min: 1 })}
-                {field('Entry Fast', 'signal_params_entry_ema_fast', 'number', null, { min: 1 })}
-                {field('Entry Slow', 'signal_params_entry_ema_slow', 'number', null, { min: 1 })}
-                {field('Exit Fast', 'signal_params_exit_ema_fast', 'number', null, { min: 1 })}
-                {field('Exit Slow', 'signal_params_exit_ema_slow', 'number', null, { min: 1 })}
+                <Tooltip content="Global fallback period used if specific Entry/Exit EMA is not set">
+                  {field('EMA (Global Fallback)', 'signal_params_ema_period', 'number', null, { min: 1 })}
+                </Tooltip>
+              </div>
+
+              <div className="space-y-6">
+                <div className="bg-background/20 p-4 rounded-2xl border border-border/50">
+                  <div className="text-[9px] font-black text-dim uppercase tracking-[0.2em] mb-4">Entry Specific EMAs</div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+                    {field('Entry Period', 'signal_params_entry_ema_period', 'number', null, { min: 1 })}
+                    {field('Entry Fast', 'signal_params_entry_ema_fast', 'number', null, { min: 1 })}
+                    {field('Entry Slow', 'signal_params_entry_ema_slow', 'number', null, { min: 1 })}
+                  </div>
+                </div>
+
+                <div className="bg-background/20 p-4 rounded-2xl border border-border/50">
+                  <div className="text-[9px] font-black text-dim uppercase tracking-[0.2em] mb-4">Exit Specific EMAs</div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+                    {field('Exit Period', 'signal_params_exit_ema_period', 'number', null, { min: 1 })}
+                    {field('Exit Fast', 'signal_params_exit_ema_fast', 'number', null, { min: 1 })}
+                    {field('Exit Slow', 'signal_params_exit_ema_slow', 'number', null, { min: 1 })}
+                  </div>
+                </div>
               </div>
             </section>
 

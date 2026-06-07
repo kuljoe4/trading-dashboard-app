@@ -89,30 +89,11 @@ export class OrderManagerService {
         return null;
       }
 
-      const trade = {
-        id: uuid(),
-        symbol,
-        direction,
-        entry_price: entryPrice,
-        qty,
-        initial_sl: slPrice,
-        current_sl: slPrice,
-        tp: tpPrice,
-        entry_ts: new Date(),
-        max_rr_achieved: 0.0,
-        rr_sequence_index: -1,
-        sl_adjustments: [],
-        status: 'OPEN',
-        entry_signal_type: 'combo',
-        entry_signal_confidence: 1.0,
-        pnl: 0,
-        realized_fee: 0,
-        pnl_pct: 0,
-        risk_usdt: roundEight(Math.max(0, direction === 'LONG' ? entryPrice - slPrice : slPrice - entryPrice) * qty),
-        sessionId,
-        strategy_label: metadata.strategy_label,
-        strategy_config: metadata.strategy_config,
-      } as Trade;
+      // BOLT: Use local variables for all calculations to ensure atomicity
+      const tradeId = uuid();
+      let finalRealizedFee = 0;
+      let finalBinanceOrderId: string | undefined = undefined;
+      let finalBinanceStopOrderId: string | undefined = undefined;
 
       // In live mode, attempt to place actual order
       if (!this.paperMode && this.binanceClient) {
@@ -127,30 +108,51 @@ export class OrderManagerService {
             quantity: qty.toFixed(precision),
           });
           const orderData = response.data || response;
-          trade.binance_order_id = orderData.orderId;
+          finalBinanceOrderId = orderData.orderId;
 
           // Capture realized fees from entry fills
           if (orderData.fills && Array.isArray(orderData.fills)) {
             const entryFee = ((orderData.fills as any[]).reduce)((sum: number, fill: { commission: string }) => sum + parseFloat(fill.commission || '0'), 0);
-            trade.realized_fee = roundEight(trade.realized_fee + entryFee);
+            finalRealizedFee = roundEight(finalRealizedFee + entryFee);
           }
 
           this.logger.log(
-            `Binance order placed: ${symbol} ${direction} qty=${qty} order_id=${orderData.orderId} fee=${trade.realized_fee}`,
+            `Binance order placed: ${symbol} ${direction} qty=${qty} order_id=${finalBinanceOrderId} fee=${finalRealizedFee}`,
           );
 
           await this.auditLog.log({
             action: 'LIVE_ORDER_ENTRY',
-            resourceId: trade.id,
-            details: { symbol, direction, qty, orderId: orderData.orderId }
+            resourceId: tradeId,
+            details: { symbol, direction, qty, orderId: finalBinanceOrderId }
           });
 
           // Place initial Stop Loss order on exchange
           try {
-            const slOrderId = await this.placeStopLoss(trade, slPrice);
-            if (!slOrderId) {
+            const closeDirection = direction === 'LONG' ? 'SELL' : 'BUY';
+            const priceFilters = filters?.filters.find((f: { filterType: string; tickSize?: string; stepSize?: string; notional?: string; minNotional?: string }) => f.filterType === 'PRICE_FILTER');
+            const tickSize = parseFloat(priceFilters?.tickSize || '0');
+            const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
+
+            const slResponse = await (this.binanceClient as any).restAPI.tradeApi.newOrder(symbol, closeDirection, 'STOP_MARKET', {
+              stopPrice: slPrice.toFixed(pricePrecision),
+              closePosition: 'true',
+              reduceOnly: 'true',
+            });
+            const slOrderData = slResponse.data || slResponse;
+            if (!slOrderData || !slOrderData.orderId) {
               throw new Error('Stop Loss order failed to return an ID');
             }
+            finalBinanceStopOrderId = slOrderData.orderId;
+
+            this.logger.log(
+              `Binance SL order placed: ${symbol} at ${slPrice} order_id=${finalBinanceStopOrderId}`,
+            );
+
+            await this.auditLog.log({
+              action: 'LIVE_SL_ORDER_PLACED',
+              resourceId: tradeId,
+              details: { symbol, slPrice, orderId: finalBinanceStopOrderId }
+            });
           } catch (slErr: unknown) {
             const slErrMsg = slErr instanceof Error ? slErr.message : String(slErr);
             this.logger.error(`Critical Failure: Market entry succeeded but Stop Loss placement FAILED for ${symbol}: ${slErrMsg}`);
@@ -178,7 +180,7 @@ export class OrderManagerService {
 
           // CRITICAL: If market entry already succeeded (we have an order id), we must NOT silently fallback to paper.
           // The previous try block handled the SL failure. If we are here, it means the entry MARKET order itself failed.
-          if (trade.binance_order_id) {
+          if (finalBinanceOrderId) {
             this.logger.error(`Critical Failure: Unexpected error after market entry for ${symbol}: ${errMsg}`);
             throw new ExchangeExecutionException(`Unexpected error after market entry for ${symbol}: ${errMsg}`);
           }
@@ -187,15 +189,39 @@ export class OrderManagerService {
             `Binance entry order failed (continuing in paper mode): ${errMsg}`,
           );
           // If we fallback to paper mode after failure, we should simulate the fee
-          trade.realized_fee = roundEight(entryPrice * qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
+          finalRealizedFee = roundEight(entryPrice * qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
         }
       } else if (this.paperMode) {
         // Simulate paper entry fee (0.04% taker)
-        trade.realized_fee = roundEight(entryPrice * qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
+        finalRealizedFee = roundEight(entryPrice * qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
       }
 
-      // Initialize PnL as net of entry fees
-      trade.pnl = roundEight(-trade.realized_fee);
+      const trade = {
+        id: tradeId,
+        symbol,
+        direction,
+        entry_price: entryPrice,
+        qty,
+        initial_sl: slPrice,
+        current_sl: slPrice,
+        tp: tpPrice,
+        entry_ts: new Date(),
+        max_rr_achieved: 0.0,
+        rr_sequence_index: -1,
+        sl_adjustments: [],
+        status: 'OPEN',
+        entry_signal_type: 'combo',
+        entry_signal_confidence: 1.0,
+        pnl: roundEight(-finalRealizedFee),
+        realized_fee: finalRealizedFee,
+        pnl_pct: 0,
+        risk_usdt: roundEight(Math.max(0, direction === 'LONG' ? entryPrice - slPrice : slPrice - entryPrice) * qty),
+        sessionId,
+        strategy_label: metadata.strategy_label,
+        strategy_config: metadata.strategy_config,
+        binance_order_id: finalBinanceOrderId,
+        binance_stop_order_id: finalBinanceStopOrderId,
+      } as Trade;
 
       this.logger.log(
         `Enter: ${symbol} ${direction} @ ${entryPrice} qty=${qty} SL=${slPrice} TP=${tpPrice}`,
@@ -419,14 +445,16 @@ export class OrderManagerService {
     paperMode = this.paperMode,
   ): Promise<{ trade: Trade; exitOccurred: boolean }> {
     try {
-      // Calculate P&L
+      // BOLT: Use local variables for all calculations to ensure atomicity
+      let finalRealizedFee = trade.realized_fee || 0;
+      let finalBinanceCloseOrderId: string | undefined = undefined;
+      let finalExitReason = exitReason;
+
+      // Calculate P&L metrics locally
       const pnlPoints = trade.direction === 'LONG'
         ? exitPrice - trade.entry_price
         : trade.entry_price - exitPrice;
 
-      // GUARD: Prevent NaN PnL
-      const rawPnl = pnlPoints * (trade.qty || 0);
-      const pnl = roundEight(Number.isFinite(rawPnl) ? rawPnl : 0);
       const rawPnlPct = (trade.qty !== 0) ? (pnlPoints / (trade.entry_price || 1)) * 100 : 0;
       const pnlPct = roundEight(Number.isFinite(rawPnlPct) ? rawPnlPct : 0);
 
@@ -450,41 +478,48 @@ export class OrderManagerService {
               reduceOnly: true,
             });
             const orderData = response.data || response;
-            trade.binance_close_order_id = orderData.orderId;
+            finalBinanceCloseOrderId = orderData.orderId;
 
             // Capture realized fees from exit fills
             if (orderData.fills && Array.isArray(orderData.fills)) {
               const exitFee = ((orderData.fills as any[]).reduce)((sum: number, fill: { commission: string }) => sum + parseFloat(fill.commission || '0'), 0);
-              trade.realized_fee = roundEight(trade.realized_fee + exitFee);
+              finalRealizedFee = roundEight(finalRealizedFee + exitFee);
             }
 
             this.logger.log(
-              `Binance close order placed: ${symbol} qty=${trade.qty || 0} order_id=${orderData.orderId} total_fee=${trade.realized_fee}`,
+              `Binance close order placed: ${symbol} qty=${trade.qty || 0} order_id=${finalBinanceCloseOrderId} total_fee=${finalRealizedFee}`,
             );
 
             await this.auditLog.log({
               action: 'LIVE_ORDER_CLOSE',
               resourceId: trade.id,
-              details: { symbol, qty: trade.qty, orderId: orderData.orderId, reason: exitReason }
+              details: { symbol, qty: trade.qty, orderId: finalBinanceCloseOrderId, reason: exitReason }
             });
           } catch (err: unknown) {
             const errMsg = err instanceof Error ? err.message : String(err);
             // RISK-04: If close fails, check if it's because position is already closed (SL race)
             if (errMsg.includes('REDUCE_ONLY') || errMsg.includes('Position side does not match')) {
-               this.logger.log(`Binance close order for ${symbol} rejected (possibly already closed by exchange SL). Verifying...`);
-               const position = await this.fetchPosition(symbol);
+               this.logger.log(`Binance close order for ${trade.symbol} rejected (possibly already closed by exchange SL). Verifying...`);
+               const position = await this.fetchPosition(trade.symbol);
                if (position && parseFloat(position.positionAmt) === 0) {
-                  this.logger.log(`Confirmed: ${symbol} position is already zero. Treating as successfully closed.`);
-                  trade.exit_reason = 'EXCHANGE_SL_OR_MANUAL';
+                  this.logger.log(`Confirmed: ${trade.symbol} position is already zero. Treating as successfully closed.`);
+                  finalExitReason = 'EXCHANGE_SL_OR_MANUAL';
                   // Simulate exit fee since we can't easily fetch it from the exchange SL fill here
                   const exitFee = roundEight(exitPrice * trade.qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
-                  trade.realized_fee = roundEight(trade.realized_fee + exitFee);
+                  finalRealizedFee = roundEight(finalRealizedFee + exitFee);
+
+                  // Log audit even for implicit closure
+                  await this.auditLog.log({
+                    action: 'LIVE_ORDER_CLOSE_CONFIRMED',
+                    resourceId: trade.id,
+                    details: { symbol: trade.symbol, qty: trade.qty, reason: 'EXCHANGE_SL_OR_MANUAL' }
+                  });
                } else {
-                  this.logger.warn(`Binance close order failed but position still exists for ${symbol}: ${errMsg}`);
+                  this.logger.warn(`Binance close order failed but position still exists for ${trade.symbol}: ${errMsg}`);
                   throw err;
                }
             } else {
-               this.logger.warn(`Binance close order failed for ${symbol}: ${errMsg}`);
+               this.logger.warn(`Binance close order failed for ${trade.symbol}: ${errMsg}`);
                throw err;
             }
           }
@@ -497,14 +532,16 @@ export class OrderManagerService {
       } else if (paperMode) {
         // Simulate paper exit fee (0.04% taker)
         const exitFee = roundEight(exitPrice * trade.qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
-        trade.realized_fee = roundEight(trade.realized_fee + exitFee);
+        finalRealizedFee = roundEight(finalRealizedFee + exitFee);
       }
 
-      // Update trade AFTER successful closure confirmation
+      // BOLT: Atomic commit to trade object only after all fallible operations succeed
+      trade.realized_fee = finalRealizedFee;
+      trade.binance_close_order_id = finalBinanceCloseOrderId;
       trade.exit_price = exitPrice;
       trade.exit_ts = new Date();
       trade.pnl_pct = pnlPct;
-      trade.exit_reason = trade.exit_reason || exitReason;
+      trade.exit_reason = finalExitReason;
 
       // Ensure exit signal type and reason are passed through to persistence
       if (!trade.exit_signal_type) {

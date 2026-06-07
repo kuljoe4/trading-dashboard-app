@@ -175,10 +175,10 @@ export class OrderManagerService {
             this.logger.warn(`Attempting emergency unwind for ${symbol}...`);
             try {
               const closeDirection = direction === 'LONG' ? 'SELL' : 'BUY';
-            await (this.binanceClient as any).restAPI.tradeApi.newOrder({
-              symbol,
-              side: closeDirection,
-              type: 'MARKET',
+              await (this.binanceClient as any).restAPI.tradeApi.newOrder({
+                symbol,
+                side: closeDirection,
+                type: 'MARKET',
                 quantity: qty.toFixed(precision),
                 reduceOnly: 'true',
               });

@@ -27,6 +27,7 @@ describe('OrderManagerService Atomicity', () => {
           newOrder: jest.fn(),
           newAlgoOrder: jest.fn(),
           cancelOrder: jest.fn(),
+          cancelAlgoOrder: jest.fn(),
         }
       },
     };
@@ -105,7 +106,7 @@ describe('OrderManagerService Atomicity', () => {
       // First call (Entry) succeeds
       mockBinanceClient.restAPI.tradeApi.newOrder.mockResolvedValueOnce({ data: { orderId: 'entry_id' } });
       // Second call (SL via tradeApi.newAlgoOrder) succeeds
-      mockBinanceClient.restAPI.tradeApi.newAlgoOrder.mockResolvedValueOnce({ data: { orderId: 'sl_id' } });
+      mockBinanceClient.restAPI.tradeApi.newAlgoOrder.mockResolvedValueOnce({ data: { algoId: 'sl_id' } });
 
       const result = await service.enter(
         'session_1',

@@ -203,10 +203,13 @@ export class OrderManagerService {
             const slOrderResult = typeof slResponse.data === 'function' ? await slResponse.data() : (slResponse.data || slResponse);
             const slOrderData = Array.isArray(slOrderResult) ? slOrderResult[0] : slOrderResult;
 
-            if (!slOrderData || !slOrderData.orderId) {
+            // Algo orders return 'algoId' instead of 'orderId'
+            const stopLossId = slOrderData.algoId || slOrderData.orderId;
+
+            if (!slOrderData || !stopLossId) {
               throw new Error(`Stop Loss order failed: ${JSON.stringify(slOrderData)}`);
             }
-            trade.binance_stop_order_id = slOrderData.orderId;
+            trade.binance_stop_order_id = String(stopLossId);
           } catch (slErr: unknown) {
             this.recordFailure();
             const slErrMsg = slErr instanceof Error ? slErr.message : String(slErr);
@@ -304,12 +307,15 @@ export class OrderManagerService {
       const slOrderResult = typeof response.data === 'function' ? await response.data() : (response.data || response);
       const orderData = Array.isArray(slOrderResult) ? slOrderResult[0] : slOrderResult;
 
-      if (!orderData || !orderData.orderId) {
+      // Algo orders return 'algoId' instead of 'orderId'
+      const stopLossId = orderData.algoId || orderData.orderId;
+
+      if (!orderData || !stopLossId) {
         throw new Error(`Invalid response from Binance SL order: ${JSON.stringify(orderData)}`);
       }
-      trade.binance_stop_order_id = orderData.orderId;
+      trade.binance_stop_order_id = String(stopLossId);
       this.logger.log(
-        `Binance SL order placed: ${trade.symbol} at ${slPrice} order_id=${orderData.orderId}`,
+        `Binance SL order placed: ${trade.symbol} at ${slPrice} algo_id=${stopLossId}`,
       );
 
       await this.auditLog.log({
@@ -345,7 +351,8 @@ export class OrderManagerService {
 
     // Cancel existing SL order if it exists
     if (trade.binance_stop_order_id) {
-      await this.cancelBinanceOrder(trade.symbol, trade.binance_stop_order_id);
+      // Algo orders use cancelAlgoOrder
+      await this.cancelBinanceAlgoOrder(trade.symbol, trade.binance_stop_order_id);
     }
 
     // Place new SL order
@@ -370,6 +377,27 @@ export class OrderManagerService {
         return true;
       }
       this.logger.warn(`Failed to cancel Binance order ${orderId}: ${errMsg}`);
+      return false;
+    }
+  }
+
+  /**
+   * Cancel an algorithmic order on Binance
+   */
+  async cancelBinanceAlgoOrder(symbol: string, algoId: string): Promise<boolean> {
+    if (this.paperMode || !this.binanceClient) return true;
+
+    try {
+      await (this.binanceClient as any).restAPI.tradeApi.cancelAlgoOrder({ symbol, algoId });
+      this.logger.log(`Binance algo order canceled: ${symbol} algo_id=${algoId}`);
+      return true;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg.includes('Order has been filled') || errMsg.includes('UNKNOWN_ORDER') || errMsg.includes('not found')) {
+        this.logger.debug(`Algo order ${algoId} already closed or not found: ${errMsg}`);
+        return true;
+      }
+      this.logger.warn(`Failed to cancel Binance algo order ${algoId}: ${errMsg}`);
       return false;
     }
   }
@@ -508,7 +536,8 @@ export class OrderManagerService {
         try {
           // If there is an exchange stop loss, cancel it to prevent orphans
           if (trade.binance_stop_order_id) {
-            await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id);
+            // SL is an algo order
+            await this.cancelBinanceAlgoOrder(symbol, trade.binance_stop_order_id);
           }
 
           const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';

@@ -42,19 +42,21 @@ describe('OrderManagerService', () => {
       // First call: Entry MARKET order
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenNthCalledWith(
         1,
-        'BTCUSDT',
-        'BUY',
-        'MARKET',
-        expect.objectContaining({ quantity: '0.10000000' })
+        expect.objectContaining({
+          symbol: 'BTCUSDT',
+          side: 'BUY',
+          type: 'MARKET',
+          quantity: '0.10000000'
+        })
       );
 
       // Second call: Initial STOP_MARKET order
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenNthCalledWith(
         2,
-        'BTCUSDT',
-        'SELL',
-        'STOP_MARKET',
         expect.objectContaining({
+          symbol: 'BTCUSDT',
+          side: 'SELL',
+          type: 'STOP_MARKET',
           stopPrice: '49500.00000000',
           closePosition: 'true',
           reduceOnly: 'true',
@@ -98,14 +100,18 @@ describe('OrderManagerService', () => {
       await service.updateStopLoss(trade, 50500);
 
       expect(mockBinanceClient.restAPI.tradeApi.cancelOrder).toHaveBeenCalledWith(
-        'BTCUSDT',
-        { orderId: 'old_sl_id' }
+        expect.objectContaining({
+          symbol: 'BTCUSDT',
+          orderId: 'old_sl_id'
+        })
       );
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledWith(
-        'BTCUSDT',
-        'SELL',
-        'STOP_MARKET',
-        expect.objectContaining({ stopPrice: '50500.00000000' })
+        expect.objectContaining({
+          symbol: 'BTCUSDT',
+          side: 'SELL',
+          type: 'STOP_MARKET',
+          stopPrice: '50500.00000000'
+        })
       );
       expect(trade.binance_stop_order_id).toBe('new_sl_id');
     });
@@ -125,16 +131,18 @@ describe('OrderManagerService', () => {
       await service.closeTrade('BTCUSDT', trade, 51000, 'TP_HIT');
 
       expect(mockBinanceClient.restAPI.tradeApi.cancelOrder).toHaveBeenCalledWith(
-        'BTCUSDT',
-        { orderId: 'active_sl_id' }
+        expect.objectContaining({
+          symbol: 'BTCUSDT',
+          orderId: 'active_sl_id'
+        })
       );
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledWith(
-        'BTCUSDT',
-        'SELL',
-        'MARKET',
         expect.objectContaining({
+          symbol: 'BTCUSDT',
+          side: 'SELL',
+          type: 'MARKET',
           quantity: '0.10000000',
-          reduceOnly: true,
+          reduceOnly: 'true',
         })
       );
     });

@@ -59,15 +59,15 @@ describe('OrderManagerService Atomicity', () => {
 
       // 1. Entry
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenNthCalledWith(
-        1, 'BTCUSDT', 'BUY', 'MARKET', expect.anything()
+        1, expect.objectContaining({ symbol: 'BTCUSDT', side: 'BUY', type: 'MARKET' })
       );
       // 2. SL
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenNthCalledWith(
-        2, 'BTCUSDT', 'SELL', 'STOP_MARKET', expect.anything()
+        2, expect.objectContaining({ symbol: 'BTCUSDT', side: 'SELL', type: 'STOP_MARKET' })
       );
       // 3. Unwind
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenNthCalledWith(
-        3, 'BTCUSDT', 'SELL', 'MARKET', expect.objectContaining({ reduceOnly: 'true' })
+        3, expect.objectContaining({ symbol: 'BTCUSDT', side: 'SELL', type: 'MARKET', reduceOnly: 'true' })
       );
     });
 

@@ -93,6 +93,8 @@ export class OrderManagerService {
         this.logger.error(`Invalid entry parameters: symbol=${symbol}, qty=${qty}`);
         return null;
       }
+
+      const trade = {
         id: uuid(),
         symbol,
         direction,

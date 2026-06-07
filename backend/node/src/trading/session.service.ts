@@ -524,8 +524,32 @@ export class SessionService implements OnModuleInit {
     // Update global log levels based on session config
     updateLogLevels(!!config.debug_mode);
 
+    // BOLT: Set binance client before reconciliation so fetchPosition works
+    this.tradingSessionService.setBinanceClient(binanceClient, mode === 'paper');
+
+    // Reconcile open trades with actual exchange positions
+    if (mode !== 'paper' && binanceClient) {
+      for (const trade of sessionOpenTrades) {
+        try {
+          const position = await this.tradingSessionService.fetchPosition(trade.symbol);
+          const hasPosition = position && Math.abs(parseFloat(position.positionAmt)) > 0;
+
+          if (!hasPosition) {
+            this.logger.log(`Live position for ${trade.symbol} not found on exchange. Marking as closed (orphaned).`);
+            await this.logMessage(`Live position for ${trade.symbol} was not found on exchange during reconciliation. Marking as orphaned.`, 'warn');
+            await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date() });
+            (trade as any).reconciled_out = true;
+          }
+        } catch (e) {
+          this.logger.warn(`Failed to reconcile live position for ${trade.symbol}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    }
+
+    const filteredOpenTrades = sessionOpenTrades.filter(t => !(t as any).reconciled_out);
+
     // Start the actual trading engine
-    await this.tradingSessionService.start(config, binanceClient, this.currentSessionId, initialHistory as any, currentGlobalBalance, sessionOpenTrades as any);
+    await this.tradingSessionService.start(config, binanceClient, this.currentSessionId, initialHistory as any, currentGlobalBalance, filteredOpenTrades as any);
 
     this.logger.log(`Session ${this.currentSessionId} ${sessionId ? 'restarted' : 'started'} in ${mode} mode`);
     await this.logMessage(`Session started in ${mode} mode with ${currentGlobalBalance} starting balance.`, 'info');
@@ -804,6 +828,14 @@ export class SessionService implements OnModuleInit {
       level,
       msg,
     });
+  }
+
+  /**
+   * Directly sets the binance client on the underlying trading service.
+   * Useful for reconciliation before the full engine start.
+   */
+  setBinanceClient(client: any, paperMode: boolean) {
+    this.tradingSessionService.setBinanceClient(client, paperMode);
   }
 
   async resetPaperBalance(actor?: string) {

@@ -38,6 +38,21 @@ export class SessionLifecycleService {
 
     if (mode !== 'paper' && bc) {
       try {
+        // Enforce One-Way Mode (Disable Hedge Mode)
+        this.monitoringService.incrementApiRequests();
+        try {
+          const modeRes = await bc.restAPI.tradeApi.changePositionMode({ dualSidePosition: 'false' });
+          const modeData = typeof modeRes.data === 'function' ? await modeRes.data() : (modeRes.data || modeRes);
+          this.logger.log(`Binance position mode set to One-Way: ${JSON.stringify(modeData)}`);
+        } catch (modeErr: any) {
+          // Error -4059 means it's already in that mode
+          if (modeErr.message?.includes('-4059') || modeErr.data?.code === -4059) {
+            this.logger.debug('Binance position mode is already One-Way.');
+          } else {
+            this.logger.warn(`Failed to set Binance position mode to One-Way: ${modeErr.message}`);
+          }
+        }
+
         const b = await this.fetchBinanceBalance(bc);
         this.logger.log(`[Lifecycle] Initial Binance ${mode} balance fetch: ${b} USDT`);
 

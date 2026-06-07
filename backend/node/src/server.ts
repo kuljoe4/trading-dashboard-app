@@ -12,6 +12,7 @@ import { ENGINE_CONSTANTS } from "./models/constants";
 import { SessionService } from "./trading/session.service";
 import { MonitoringService } from "./engine/monitoring.service";
 import { TradingSessionService } from "./engine/trading_session.service";
+import { EngineBroadcasterService } from "./engine/engine-broadcaster.service";
 import { checkOrigin } from "./lib/origin";
 
 async function bootstrap() {
@@ -146,6 +147,7 @@ async function bootstrap() {
   const httpServer = app.getHttpServer();
   const sessionService = app.get(SessionService);
   const monitoringService = app.get(MonitoringService);
+  const engineBroadcaster = app.get(EngineBroadcasterService);
 
   const wss = new WebSocketServer({
     server: httpServer,
@@ -294,57 +296,7 @@ async function bootstrap() {
       if (payload.type === "scanner" && client.focusMode === true) return;
 
       if (payload.type === "tick") {
-        const tick = { ...payload };
-
-          // BOLT: Tiered Data Fidelity Logic
-        if (tick.trades && Array.isArray(tick.trades)) {
-          tick.trades = tick.trades.map((trade: any) => {
-              // 1. Full Fidelity: ONLY for a specific focused trade ID
-              const isFullFidelity = client.focusMode && client.focusTradeId === trade.id;
-
-              // 2. Mid Fidelity: For a strategy list or the global trades view
-              const isMidFidelity = client.focusMode &&
-                (client.focusTradeId === "all" || client.focusStrategyLabel === trade.strategy_label);
-
-              if (isFullFidelity) {
-                return trade;
-              }
-
-              // Strip heavy diagnostics for everyone else
-              const {
-                strategy_config,
-                live_rr_sequence,
-                exit_rr_sequence,
-                exit_signals_status,
-                sl_adjustments,
-                tp_mode,
-                tp_ratio,
-                exit_signal_logic,
-                ...thinTrade
-              } = trade;
-
-              if (isMidFidelity) {
-                return {
-                  ...thinTrade,
-                  live_rr_sequence: trade.live_rr_sequence,
-                  exit_rr_sequence: trade.exit_rr_sequence,
-                  _thin: true,
-                };
-            }
-
-              // Low Fidelity: For Dashboard overview (No sequences, no logs)
-              return { ...thinTrade, _thin: true };
-          });
-        }
-
-        if (!client.focusMode) {
-          tick.activeWindows = [];
-        }
-
-        if (client.monitoringEnabled === false) {
-          delete tick.monitoring;
-        }
-
+        const tick = engineBroadcaster.getFidelityTick(payload, client);
         client.send(JSON.stringify(tick));
         return;
       }

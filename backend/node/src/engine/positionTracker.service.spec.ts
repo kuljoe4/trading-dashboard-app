@@ -9,6 +9,7 @@ describe('PositionTrackerService', () => {
   let mockOrderManager: any;
   let mockTickerCache: any;
   let mockKlineStore: any;
+  let mockEventEmitter: any;
 
   beforeEach(() => {
     mockRiskEngine = {};
@@ -18,13 +19,18 @@ describe('PositionTrackerService', () => {
     };
     mockTickerCache = {};
     mockKlineStore = {};
+    mockEventEmitter = {
+      emit: jest.fn(),
+    };
 
     service = new PositionTrackerService(
       mockRiskEngine,
       mockSignalEngine,
       mockOrderManager,
       mockTickerCache,
-      mockKlineStore
+      mockKlineStore,
+      {} as any,
+      mockEventEmitter
     );
   });
 

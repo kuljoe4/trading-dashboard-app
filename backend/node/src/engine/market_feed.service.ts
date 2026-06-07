@@ -29,7 +29,7 @@ export class MarketFeedService {
   private lastExchangeInfoBase = '';
   private activeWatchlist: Map<string, Set<string>> = new Map();
   private subscriptionTasks: any[] = [];
-  private onCandeClose: ((symbol: string) => Promise<void>) | null = null;
+  private onCandleClose: ((symbol: string) => Promise<void>) | null = null;
   private watchlistInterval: NodeJS.Timeout | null = null;
   private watchlistUpdatePending = false;
   private watchlistUpdateTimeout: NodeJS.Timeout | null = null;
@@ -41,8 +41,8 @@ export class MarketFeedService {
     private monitoringService: MonitoringService,
   ) {}
 
-  setCandeCloseCallback(cb: (symbol: string) => Promise<void>) {
-    this.onCandeClose = cb;
+  setCandleCloseCallback(cb: (symbol: string) => Promise<void>) {
+    this.onCandleClose = cb;
   }
 
   async start(config: SessionConfig) {
@@ -269,7 +269,7 @@ export class MarketFeedService {
             if (kline) {
               this.klineStore.upsertCandle(kline.s, kline.i, kline);
               this.tickerCache.bulkUpdate([{ s: kline.s, c: kline.c }]);
-              if (kline.x && this.onCandeClose) this.onCandeClose(kline.s).catch(() => {});
+              if (kline.x && this.onCandleClose) this.onCandleClose(kline.s).catch(() => {});
             }
           } catch (err) {
             this.logger.error(`Error processing combined kline stream: ${err instanceof Error ? err.message : String(err)}`);

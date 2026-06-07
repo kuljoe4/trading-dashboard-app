@@ -367,16 +367,22 @@ export class SessionService implements OnModuleInit {
       }
     } else {
       // Ensure starting balance is explicitly in the config for new sessions
-      if (paperMode) {
+      if (mode === 'paper') {
         // Inherit from settings if not explicitly provided
         if (config.paper_starting_balance === undefined || config.paper_starting_balance === null) {
           const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
           config.paper_starting_balance = settings ? Number(settings.paper_balance) : 10000.0;
         }
+      } else if (mode === 'testnet') {
+        if (config.testnet_starting_balance === undefined || config.testnet_starting_balance === null) {
+          const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+          // Note: If Binance fetch is used later, this acts as a fallback for the risk engine
+          config.testnet_starting_balance = settings ? Number(settings.testnet_balance) : 0;
+        }
       } else {
         if (config.live_starting_balance === undefined || config.live_starting_balance === null) {
           const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
-          config.live_starting_balance = settings ? Number(settings.live_balance) : 10000.0;
+          config.live_starting_balance = settings ? Number(settings.live_balance) : 0;
         }
       }
 
@@ -512,6 +518,8 @@ export class SessionService implements OnModuleInit {
       ? (mode === 'paper' ? Number(currentSettings.paper_balance) : (mode === 'testnet' ? Number(currentSettings.testnet_balance) : Number(currentSettings.live_balance)))
       : undefined;
 
+    this.logger.log(`[Lifecycle] Starting session ${this.currentSessionId} in ${mode} mode. Detected starting balance from settings: ${currentGlobalBalance}`);
+
     // Update global log levels based on session config
     updateLogLevels(!!config.debug_mode);
 
@@ -519,6 +527,8 @@ export class SessionService implements OnModuleInit {
     await this.tradingSessionService.start(config, binanceClient, this.currentSessionId, initialHistory as any, currentGlobalBalance, sessionOpenTrades as any);
 
     this.logger.log(`Session ${this.currentSessionId} ${sessionId ? 'restarted' : 'started'} in ${mode} mode`);
+    await this.logMessage(`Session started in ${mode} mode with ${currentGlobalBalance} starting balance.`, 'info');
+
     return { strategyId: this.currentSessionId, status: 'started' };
   }
 
@@ -687,9 +697,18 @@ export class SessionService implements OnModuleInit {
       }
     });
 
-    const result = this.analyticsService.calculateAnalytics(trades as any);
+    const result = this.analyticsService.calculateAnalytics(trades as any, this.currentSessionId ? await this.getStartingBalanceForSession(this.currentSessionId) : undefined);
     this.analyticsCache = { data: result, ts: now };
     return result;
+  }
+
+  private async getStartingBalanceForSession(sessionId: string): Promise<number | undefined> {
+    const session = await this.sessionRepository.findOne({ where: { id: sessionId } });
+    if (!session || !session.config) return undefined;
+    const mode = session.tradingMode || (session.paperMode ? 'paper' : 'live');
+    if (mode === 'paper') return session.config.paper_starting_balance;
+    if (mode === 'testnet') return (session.config as any).testnet_starting_balance;
+    return session.config.live_starting_balance;
   }
 
   async getBinanceRateLimit() {
@@ -839,7 +858,7 @@ export class SessionService implements OnModuleInit {
 
     // 2. Fetch balance history snapshots for high-fidelity curve
     const history = await this.balanceHistoryRepository.find({
-      where: { tradingMode: mode },
+      where: { tradingMode: mode as any },
       order: { timestamp: 'ASC' }
     });
 

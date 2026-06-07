@@ -187,7 +187,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     return c;
   }
 
-  const riskAmount = ((cfg.paper_starting_balance || 10000) * ((cfg.risk_pct_per_trade || 0) / 100))
+  const currentModeBalance = cfg.trading_mode === 'paper' ? (cfg.paper_starting_balance || 10000) : cfg.trading_mode === 'testnet' ? (cfg.testnet_starting_balance || 0) : (cfg.live_starting_balance || 0);
+  const riskAmount = (currentModeBalance * ((cfg.risk_pct_per_trade || 0) / 100))
   const sequence = useMemo(() => {
     const l = Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [];
     const ex = Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [];
@@ -538,8 +539,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
 
             <section className="pt-6 border-t border-border/40">
               <SectionHeader icon={TrendingUp} title="Initial Capital" subtitle="Starting balance for sessions" />
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                 {field('Paper Balance ($)', 'paper_starting_balance', 'number', null, { min: 0 })}
+                {field('Demo Balance ($)', 'testnet_starting_balance', 'number', null, { min: 0 })}
                 {field('Live Balance ($)', 'live_starting_balance', 'number', null, { min: 0 })}
               </div>
             </section>

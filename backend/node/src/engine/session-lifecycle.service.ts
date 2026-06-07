@@ -39,6 +39,7 @@ export class SessionLifecycleService {
     if (mode !== 'paper' && bc) {
       try {
         const b = await this.fetchBinanceBalance(bc);
+        this.logger.log(`[Lifecycle] Initial Binance ${mode} balance fetch: ${b} USDT`);
         this.sessionState.balanceLive = b;
         this.sessionState.balancePaper = b;
       } catch (e) {

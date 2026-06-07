@@ -137,6 +137,7 @@ export class TradingSessionService {
     this.marketFeed.setCandeCloseCallback(this.onCandleClose.bind(this));
     this.positionTracker.setTradeUpdateCallback(async (t) => { if (this.onTradeUpdate) await this.onTradeUpdate(t, this.getBalance()); });
 
+    this.logger.log(`[Lifecycle] Starting trading engine for session ${this.sessionId} (curBal: ${curBal})`);
     await this.sessionLifecycle.start(config, bc, sid, hist, curBal, open);
 
     const hot = config.hot_loop_interval_ms || 5000; this.hotLoopInterval = setInterval(() => this.hotLoop(), hot);

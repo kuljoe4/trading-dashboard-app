@@ -36,7 +36,7 @@ describe('Industry Fixes Verification', () => {
     });
 
     it('applies PRICE_FILTER and LOT_SIZE during trade entry', async () => {
-      const trade = await orderManager.enter(
+      const result = await orderManager.enter(
         'session-1',
         'BTCUSDT',
         'LONG',
@@ -46,6 +46,7 @@ describe('Industry Fixes Verification', () => {
         51000.77   // Should round to 51000.8 (tick 0.1)
       );
 
+      const trade = result.data;
       expect(trade?.entry_price).toBe(50000.1);
       expect(trade?.qty).toBe(0.12);
       expect(trade?.initial_sl).toBe(49000.6);
@@ -55,7 +56,7 @@ describe('Industry Fixes Verification', () => {
     it('handles symbols with no filter data gracefully', async () => {
       mockMarketFeed.getSymbolFilters.mockReturnValue(null);
 
-      const trade = await orderManager.enter(
+      const result = await orderManager.enter(
         'session-1',
         'UNKNOWN',
         'LONG',
@@ -65,7 +66,7 @@ describe('Industry Fixes Verification', () => {
         2.0
       );
 
-      expect(trade?.entry_price).toBe(1.23456);
+      expect(result.data?.entry_price).toBe(1.23456);
     });
   });
 });

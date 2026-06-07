@@ -1,5 +1,6 @@
 import { OrderManagerService } from './orderManager';
 import { ExchangeExecutionException } from '../lib/exceptions';
+import { ExecutionStatus } from '../models/ExecutionResult';
 
 describe('OrderManagerService Atomicity', () => {
   let service: OrderManagerService;
@@ -44,7 +45,7 @@ describe('OrderManagerService Atomicity', () => {
       // Third call (Unwind via tradeApi.newOrder) succeeds
       mockBinanceClient.restAPI.tradeApi.newOrder.mockResolvedValueOnce({ data: { orderId: 'unwind_id' } });
 
-      const trade = await service.enter(
+      const result = await service.enter(
         'session_1',
         'BTCUSDT',
         'LONG',
@@ -54,8 +55,9 @@ describe('OrderManagerService Atomicity', () => {
         51000
       );
 
-      // Should return null because it was aborted
-      expect(trade).toBeNull();
+      // Should return SL_FAILED because SL failed and unwind was performed
+      expect(result.status).toBe(ExecutionStatus.SL_FAILED);
+      expect(result.unwindPerformed).toBe(true);
 
       // Check order calls
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledTimes(2);
@@ -107,7 +109,7 @@ describe('OrderManagerService Atomicity', () => {
       // Second call (SL via algoApi.newOrder) succeeds
       mockBinanceClient.restAPI.algoApi.newOrder.mockResolvedValueOnce({ data: { orderId: 'sl_id' } });
 
-      const trade = await service.enter(
+      const result = await service.enter(
         'session_1',
         'BTCUSDT',
         'LONG',
@@ -117,7 +119,9 @@ describe('OrderManagerService Atomicity', () => {
         51000
       );
 
-      expect(trade).not.toBeNull();
+      expect(result.status).toBe(ExecutionStatus.SUCCESS);
+      const trade = result.data;
+      expect(trade).not.toBeUndefined();
       expect(trade?.binance_order_id).toBe('entry_id');
       expect(trade?.binance_stop_order_id).toBe('sl_id');
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledTimes(1);

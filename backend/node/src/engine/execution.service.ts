@@ -16,6 +16,7 @@ import { ENGINE_EVENTS } from './events';
 import { AnalyticsService } from './analytics.service';
 import { v4 as uuid } from 'uuid';
 import { roundTo } from '../lib/math';
+import { ExecutionStatus } from '../models/ExecutionResult';
 
 @Injectable()
 export class ExecutionService {
@@ -128,7 +129,7 @@ export class ExecutionService {
       if (qty <= 0) continue;
       const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
 
-      const trade = await this.orderManager.enter(
+      const result = await this.orderManager.enter(
         (this.sessionState.config as any)?.sessionId || uuid().substring(0, 8),
         opp.symbol,
         opp.direction.toUpperCase() as any,
@@ -139,7 +140,8 @@ export class ExecutionService {
         { strategy_label: strategyLabel, strategy_config: config }
       );
 
-      if (trade) {
+      if (result.status === ExecutionStatus.SUCCESS && result.data) {
+        const trade = result.data;
         this.positionTracker.addTrade(trade);
         this.sessionState.updateStatsOnEntry();
         this.sessionState.setActiveTrades(this.positionTracker.activeList());

@@ -1,5 +1,6 @@
 import { OrderManagerService } from './orderManager';
 import { Trade } from '../models/Trade';
+import { ExecutionStatus } from '../models/ExecutionResult';
 
 describe('OrderManagerService', () => {
   let service: OrderManagerService;
@@ -79,7 +80,7 @@ describe('OrderManagerService', () => {
         51000
       );
 
-      expect(result.status).toBe('SUCCESS');
+      expect(result.status).toBe(ExecutionStatus.SUCCESS);
       const trade = result.data;
       expect(trade).toBeDefined();
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).not.toHaveBeenCalled();

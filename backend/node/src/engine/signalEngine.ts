@@ -276,7 +276,7 @@ export class SignalEngineService {
         threshold: roundTo(ema, 2),
         insufficientData: emaRes.insufficientData,
         unit: 'price',
-        metric: 'EMA Cross',
+        metric: purpose === 'exit' ? 'Exit EMA Cross' : 'Entry EMA Cross',
         description: `Price crossed EMA(${period})`,
       };
     } catch (error) {
@@ -334,7 +334,7 @@ export class SignalEngineService {
         threshold: roundTo(currSlow, 2),
         insufficientData: fastRes.insufficientData || slowRes.insufficientData,
         unit: 'price',
-        metric: 'EMA Dual',
+        metric: purpose === 'exit' ? 'Exit EMA Dual' : 'Entry EMA Dual',
         description: `EMA(${fastPeriod}) crossed EMA(${slowPeriod})`,
       };
     } catch (error) {
@@ -390,7 +390,7 @@ export class SignalEngineService {
         threshold: roundTo(ema, 2),
         insufficientData: emaRes.insufficientData,
         unit: 'price',
-        metric: 'EMA Close',
+        metric: purpose === 'exit' ? 'Exit EMA Close' : 'Entry EMA Close',
         description: `Price ${fired ? 'crossed' : 'is outside'} EMA(${period})`,
       };
     } catch (error) {
@@ -409,28 +409,30 @@ export class SignalEngineService {
   /**
    * BOLT OPTIMIZATION: Returns only the last two EMA values [previous, current]
    * to avoid large array allocations in the hot scanner path.
+   * Uses the full available candle history for maximum convergence.
    */
   private calculateEMALastTwo(candles: any[], period: number, symbol?: string): { values: [number, number]; insufficientData: boolean } | null {
-    if (candles.length < period + 1) return null;
+    const minNeeded = period + 1;
+    if (candles.length < minNeeded) return null;
 
+    // Convergence check: EMA needs time to stabilize.
+    // We flag insufficient if < period * 2, but we only block if < period + 1.
     const insufficientData = candles.length < period * 2;
     if (insufficientData && symbol) {
       const cacheKey = `${symbol}:EMA:${period}`;
       if (!this.warningCache.has(cacheKey)) {
-        this.logger.warn(`[Convergence] ${symbol}: Insufficient data for EMA(${period}). Available: ${candles.length}, Recommended: ${period * 2}. Signal may be unreliable.`);
+        this.logger.warn(`[Convergence] ${symbol}: Sub-optimal data for EMA(${period}). Available: ${candles.length}, Recommended: ${period * 2}.`);
         this.warningCache.add(cacheKey);
       }
     }
 
     const multiplier = 2 / (period + 1);
-
-    const lookback = Math.min(candles.length, period * 2);
-    const startIndex = candles.length - lookback;
+    const startIndex = 0;
 
     let prevEma = NaN;
-    let ema = this.calculateSMA(candles, startIndex, startIndex + period);
+    let ema = this.calculateSMA(candles, startIndex, period);
 
-    for (let i = startIndex + period; i < candles.length; i++) {
+    for (let i = period; i < candles.length; i++) {
       prevEma = ema;
       ema = candles[i].close * multiplier + ema * (1 - multiplier);
     }
@@ -450,39 +452,34 @@ export class SignalEngineService {
     return sum / count;
   }
 
+  /**
+   * Calculates EMA using the full available candle history for maximum convergence.
+   */
   private calculateEMA(candles: any[], period: number, symbol?: string, metric?: string): { value: number; insufficientData: boolean } {
     if (candles.length === 0) return { value: 0, insufficientData: true };
 
+    const minNeeded = period + 1;
     const insufficientData = candles.length < period * 2;
-    // Indicator Convergence Check: Burn-in period
-    // Standard EMA convergence requires ~2x the period.
+
     if (insufficientData && symbol) {
       const cacheKey = `${symbol}:${metric || 'EMA'}:${period}`;
       if (!this.warningCache.has(cacheKey)) {
-        this.logger.warn(`[Convergence] ${symbol}: Insufficient data for ${metric || 'EMA'}(${period}). Available: ${candles.length}, Recommended: ${period * 2}. Signal may be unreliable.`);
+        this.logger.warn(`[Convergence] ${symbol}: Sub-optimal data for ${metric || 'EMA'}(${period}). Available: ${candles.length}, Recommended: ${period * 2}.`);
         this.warningCache.add(cacheKey);
       }
     }
 
-    // For smaller histories, just use SMA
-    if (candles.length < period + 1) {
+    // For absolute minimum histories (less than period + 1), just use SMA
+    if (candles.length < minNeeded) {
       return { value: this.calculateSMA(candles, 0, candles.length), insufficientData: true };
     }
 
     const multiplier = 2 / (period + 1);
+    const startIndex = 0;
 
-    // BOLT: We want the EMA at the current index (end of array).
-    // To correctly seed the EMA, we go back in time.
-    // Given MAX_CANDLES=500, we can afford a full array pass or a reasonably sized window.
-    // For consistency with typical indicator libraries, we seed with SMA of the first 'period' candles
-    // in our available window.
+    let ema = this.calculateSMA(candles, startIndex, period);
 
-    const lookback = Math.min(candles.length, period * 2);
-    const startIndex = candles.length - lookback;
-
-    let ema = this.calculateSMA(candles, startIndex, startIndex + period);
-
-    for (let i = startIndex + period; i < candles.length; i++) {
+    for (let i = period; i < candles.length; i++) {
       ema = candles[i].close * multiplier + ema * (1 - multiplier);
     }
 

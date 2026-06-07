@@ -532,13 +532,37 @@ export class SessionService implements OnModuleInit {
       for (const trade of sessionOpenTrades) {
         try {
           const position = await this.tradingSessionService.fetchPosition(trade.symbol);
-          const hasPosition = position && Math.abs(parseFloat(position.positionAmt)) > 0;
+          const posAmt = position ? parseFloat(position.positionAmt) : 0;
+          const hasPosition = Math.abs(posAmt) > 0;
 
           if (!hasPosition) {
             this.logger.log(`Live position for ${trade.symbol} not found on exchange. Marking as closed (orphaned).`);
             await this.logMessage(`Live position for ${trade.symbol} was not found on exchange during reconciliation. Marking as orphaned.`, 'warn');
             await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date() });
             (trade as any).reconciled_out = true;
+          } else {
+            // BOLT: Sync local trade state with actual exchange position to ensure entry price and qty accuracy
+            const exEntryPrice = parseFloat(position.entryPrice);
+            if (exEntryPrice > 0 && Math.abs(exEntryPrice - Number(trade.entry_price)) > (exEntryPrice * 0.0001)) {
+               this.logger.log(`Syncing entry price for ${trade.symbol}: ${trade.entry_price} -> ${exEntryPrice}`);
+               trade.entry_price = exEntryPrice;
+            }
+            if (Math.abs(posAmt) !== Math.abs(Number(trade.qty))) {
+               this.logger.log(`Syncing quantity for ${trade.symbol}: ${trade.qty} -> ${Math.abs(posAmt)}`);
+               trade.qty = Math.abs(posAmt);
+            }
+            // Update direction if mismatch (rare but safe)
+            const exDir = posAmt > 0 ? 'LONG' : 'SHORT';
+            if (trade.direction !== exDir) {
+               this.logger.warn(`Syncing direction for ${trade.symbol}: ${trade.direction} -> ${exDir}`);
+               trade.direction = exDir;
+            }
+
+            // Recalculate risk based on synced values
+            const riskPoints = Math.abs(Number(trade.entry_price) - Number(trade.current_sl));
+            trade.risk_usdt = roundEight(riskPoints * Number(trade.qty));
+
+            await this.tradeRepository.save(trade);
           }
         } catch (e) {
           this.logger.warn(`Failed to reconcile live position for ${trade.symbol}: ${e instanceof Error ? e.message : String(e)}`);

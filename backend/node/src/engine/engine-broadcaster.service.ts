@@ -57,7 +57,11 @@ export class EngineBroadcasterService {
     let rrValue = 0;
     if (current !== undefined && Number.isFinite(current) && Number.isFinite(entry)) {
       const grossPnl = direction === 'LONG' ? (current - entry) * (trade.qty ?? 0) : (entry - current) * (trade.qty ?? 0);
-      pnl = roundEight(grossPnl - (trade.realized_fee || 0));
+
+      // BOLT: For active trades, we display Unrealized PnL (Gross) to match exchange UI.
+      // Total wallet balance already accounts for entry fees, so we only subtract realized_fee
+      // during the final trade closure recording in the database.
+      pnl = roundEight(grossPnl);
       (trade as any).pnl = pnl;
       const risk = Math.abs(entry - (trade.initial_sl ?? trade.current_sl ?? entry)) || 1;
       rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / risk;
@@ -203,7 +207,9 @@ export class EngineBroadcasterService {
       const entry = trade.entry_price || 0;
       const qty = trade.qty || 0;
       const grossPnl = direction === 'LONG' ? (current - entry) * qty : (entry - current) * qty;
-      const pnlValue = roundEight(grossPnl - (trade.realized_fee || 0));
+
+      // BOLT: Match exchange Unrealized PnL (Gross)
+      const pnlValue = roundEight(grossPnl);
       (trade as any).pnl = pnlValue;
       activePnl += pnlValue;
 

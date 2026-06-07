@@ -7,7 +7,6 @@ import {
   StatCard, SectionLabel, Btn, StatusBadge, PaperBadge, EcoBadge, DemoBadge, LiveBadge,
     ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn, Tooltip, VisuallyHidden
   } from '../components/ui/primitives'
-import { ActiveTradeBar } from '../components/ActiveTradeBar'
 import {
   ChevronLeft, Plus, Trash2, LayoutDashboard, History,
   Settings as SettingsIcon, Activity, Zap, ShieldCheck,
@@ -524,7 +523,6 @@ export function DashboardView({ initialStrategy }) {
       )}
       <Sidebar selected={selected} />
       <div className="max-w-[1600px] mx-auto p-4 md:p-10 pb-32 lg:pb-10">
-        <ActiveTradeBar />
 
         <ConfirmationModal
           isOpen={confirmStop}

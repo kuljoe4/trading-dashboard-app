@@ -163,27 +163,39 @@ export class OrderManagerService {
             side: binanceDirection,
             type: 'MARKET',
             quantity: qty.toFixed(precision),
+            newOrderRespType: 'RESULT',
           });
           const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
           trade.binance_order_id = orderData.orderId;
 
-          // Capture realized fees and actual entry price from fills
-          if (orderData.fills && Array.isArray(orderData.fills)) {
-            let totalQty = 0;
-            let totalCost = 0;
+          // Capture actual execution price and quantity from Binance response
+          const avgPrice = parseFloat(orderData.avgPrice || '0');
+          const executedQty = parseFloat(orderData.executedQty || '0');
+
+          if (avgPrice > 0) {
+            trade.entry_price = roundEight(avgPrice);
+            entryPrice = trade.entry_price; // Update local for subsequent operations
+          }
+          if (executedQty > 0) {
+            trade.qty = executedQty;
+            qty = trade.qty; // Update local for SL placement
+          }
+
+          // Re-calculate risk USDT with actual entry price
+          trade.risk_usdt = roundEight(Math.max(0, direction === 'LONG' ? trade.entry_price - slPrice : slPrice - trade.entry_price) * trade.qty);
+
+          // Capture realized fees from fills if available, otherwise estimate
+          if (orderData.fills && Array.isArray(orderData.fills) && orderData.fills.length > 0) {
             let entryFee = 0;
             for (const fill of orderData.fills) {
-              const fQty = parseFloat(fill.qty || fill.executedQty || '0');
-              const fPrice = parseFloat(fill.price || '0');
-              totalQty += fQty;
-              totalCost += fQty * fPrice;
               entryFee += parseFloat(fill.commission || '0');
             }
-            if (totalQty > 0) {
-              trade.entry_price = roundEight(totalCost / totalQty);
-              trade.qty = totalQty;
-            }
             trade.realized_fee = roundEight(entryFee);
+          } else {
+            // Standard Binance Futures taker fee is 0.05% (or 0.04% with BNB)
+            // We use a conservative estimate if fills are not provided in the response
+            const estimatedFee = trade.entry_price * trade.qty * 0.0005;
+            trade.realized_fee = roundEight(estimatedFee);
           }
 
           this.logger.log(
@@ -564,17 +576,6 @@ export class OrderManagerService {
     paperMode = this.paperMode,
   ): Promise<{ trade: Trade; exitOccurred: boolean }> {
     try {
-      // Calculate P&L
-      const pnlPoints = trade.direction === 'LONG'
-        ? exitPrice - trade.entry_price
-        : trade.entry_price - exitPrice;
-
-      // GUARD: Prevent NaN PnL
-      const rawPnl = pnlPoints * (trade.qty || 0);
-      const pnl = roundEight(Number.isFinite(rawPnl) ? rawPnl : 0);
-      const rawPnlPct = (trade.qty !== 0) ? (pnlPoints / (trade.entry_price || 1)) * 100 : 0;
-      const pnlPct = roundEight(Number.isFinite(rawPnlPct) ? rawPnlPct : 0);
-
       // In live mode, place close order with reduce-only for safety
       if (!paperMode && this.binanceClient && trade.binance_order_id) {
         try {
@@ -597,26 +598,27 @@ export class OrderManagerService {
               type: 'MARKET',
               quantity: (trade.qty || 0).toFixed(precision),
               reduceOnly: 'true',
+              newOrderRespType: 'RESULT',
             });
             const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
             trade.binance_close_order_id = orderData.orderId;
 
-            // Capture realized fees and actual exit price from fills
-            if (orderData.fills && Array.isArray(orderData.fills)) {
-              let totalQty = 0;
-              let totalCost = 0;
+            // Capture actual execution price from Binance response
+            const avgExitPrice = parseFloat(orderData.avgPrice || '0');
+            if (avgExitPrice > 0) {
+              exitPrice = roundEight(avgExitPrice);
+            }
+
+            // Capture realized fees from fills if available, otherwise estimate
+            if (orderData.fills && Array.isArray(orderData.fills) && orderData.fills.length > 0) {
               let exitFee = 0;
               for (const fill of orderData.fills) {
-                const fQty = parseFloat(fill.qty || fill.executedQty || '0');
-                const fPrice = parseFloat(fill.price || '0');
-                totalQty += fQty;
-                totalCost += fQty * fPrice;
                 exitFee += parseFloat(fill.commission || '0');
               }
-              if (totalQty > 0) {
-                exitPrice = roundEight(totalCost / totalQty);
-              }
               trade.realized_fee = roundEight(trade.realized_fee + exitFee);
+            } else {
+              const estimatedExitFee = exitPrice * trade.qty * 0.0005;
+              trade.realized_fee = roundEight(trade.realized_fee + estimatedExitFee);
             }
 
             this.logger.log(
@@ -664,7 +666,18 @@ export class OrderManagerService {
       // Update trade AFTER successful closure confirmation
       trade.exit_price = exitPrice;
       trade.exit_ts = new Date();
-      trade.pnl_pct = pnlPct;
+
+      // BOLT: Final PnL calculation using the finalized exitPrice (potentially from fills)
+      const finalPnlPoints = trade.direction === 'LONG'
+        ? exitPrice - trade.entry_price
+        : trade.entry_price - exitPrice;
+
+      const finalPnlPct = (trade.qty !== 0) ? (finalPnlPoints / (trade.entry_price || 1)) * 100 : 0;
+      trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
+
+      const finalNetPnl = (finalPnlPoints * (trade.qty || 0)) - (trade.realized_fee || 0);
+      trade.pnl = roundEight(Number.isFinite(finalNetPnl) ? finalNetPnl : 0);
+
       trade.exit_reason = trade.exit_reason || exitReason;
 
       // Ensure exit signal type and reason are passed through to persistence
@@ -687,12 +700,8 @@ export class OrderManagerService {
         trade.status = 'CLOSED';
       }
 
-      // Calculate final net PnL
-      const finalNetPnl = (pnlPoints * (trade.qty || 0)) - (trade.realized_fee || 0);
-      trade.pnl = roundEight(Number.isFinite(finalNetPnl) ? finalNetPnl : 0);
-
       this.logger.log(
-        `Close: ${symbol} @ ${exitPrice} P&L=${trade.pnl.toFixed(2)} (${pnlPct.toFixed(2)}%) Fee=${trade.realized_fee} Reason=${exitReason}`,
+        `Close: ${symbol} @ ${exitPrice} P&L=${trade.pnl.toFixed(2)} (${trade.pnl_pct.toFixed(2)}%) Fee=${trade.realized_fee} Reason=${exitReason}`,
       );
 
       return { trade, exitOccurred: true };

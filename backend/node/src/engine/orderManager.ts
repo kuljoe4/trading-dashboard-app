@@ -305,6 +305,12 @@ export class OrderManagerService {
 
     if (this.paperMode || !this.binanceClient) return null;
 
+    // BOLT: Fail early if no filters found for live mode to prevent "Invalid symbol"
+    if (!this.marketFeed.getSymbolFilters(trade.symbol)) {
+      this.logger.error(`Live SL rejected: No exchange filters found for ${trade.symbol} in current environment.`);
+      return null;
+    }
+
     try {
       const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
       const filters = this.marketFeed.getSymbolFilters(trade.symbol);
@@ -529,6 +535,11 @@ export class OrderManagerService {
   public async fetchPosition(symbol: string): Promise<any | null> {
     if (!this.binanceClient) return null;
     try {
+      // BOLT: Verify symbol exists in exchange info before calling API to prevent "Invalid symbol"
+      if (!this.marketFeed.getSymbolFilters(symbol)) {
+        this.logger.warn(`fetchPosition: Symbol ${symbol} not found in exchangeInfo for current environment.`);
+        return null;
+      }
       const response = await (this.binanceClient as any).restAPI.tradeApi.positionInformationV2({ symbol });
       const data = typeof response.data === 'function' ? await response.data() : (response.data || response);
 

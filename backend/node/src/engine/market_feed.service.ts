@@ -85,7 +85,12 @@ export class MarketFeedService {
         const data: any = await response.json();
         if (data && Array.isArray(data.symbols)) {
           this.exchangeInfo.clear();
-          for (const s of data.symbols) this.exchangeInfo.set(s.symbol, s);
+          for (const s of data.symbols) {
+            // BOLT: Only include symbols that are actively trading in the target environment
+            if (s.status === 'TRADING' || s.status === 'SETTLING') {
+              this.exchangeInfo.set(s.symbol, s);
+            }
+          }
           this.lastExchangeInfoFetch = now;
           this.lastExchangeInfoBase = restBase;
         }

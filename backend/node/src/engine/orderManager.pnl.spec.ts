@@ -33,6 +33,7 @@ describe('OrderManagerService - PnL Consistency', () => {
           newOrder: jest.fn(),
           cancelOrder: jest.fn(),
           positionInformationV2: jest.fn(),
+          placeMultipleOrders: jest.fn(),
         },
         accountApi: {
           futuresPositionRiskV2: jest.fn(),

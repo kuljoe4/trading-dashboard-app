@@ -154,17 +154,22 @@ export class OrderManagerService {
             const tickSize = parseFloat(priceFilters?.tickSize || '0');
             const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
 
-            const slResponse = await (this.binanceClient as any).restAPI.tradeApi.newOrder({
-              symbol,
-              side: closeDirection,
-              type: 'STOP_MARKET',
-              stopPrice: slPrice.toFixed(pricePrecision),
-              closePosition: 'true',
-              reduceOnly: 'true',
+            // BOLT: Using placeMultipleOrders for SL because newOrder signature in this SDK version lacks stopPrice support
+            const slResponse = await (this.binanceClient as any).restAPI.tradeApi.placeMultipleOrders({
+              batchOrders: JSON.stringify([{
+                symbol,
+                side: closeDirection,
+                type: 'STOP_MARKET',
+                quantity: qty.toFixed(precision),
+                stopPrice: slPrice.toFixed(pricePrecision),
+                reduceOnly: 'true',
+              }])
             });
-            const slOrderData = typeof slResponse.data === 'function' ? await slResponse.data() : (slResponse.data || slResponse);
+            const slOrderResult = typeof slResponse.data === 'function' ? await slResponse.data() : (slResponse.data || slResponse);
+            const slOrderData = Array.isArray(slOrderResult) ? slOrderResult[0] : slOrderResult;
+
             if (!slOrderData || !slOrderData.orderId) {
-              throw new Error('Stop Loss order failed to return an ID');
+              throw new Error(`Stop Loss order failed: ${JSON.stringify(slOrderData)}`);
             }
             trade.binance_stop_order_id = slOrderData.orderId;
           } catch (slErr: unknown) {
@@ -243,16 +248,20 @@ export class OrderManagerService {
       const tickSize = parseFloat(priceFilter?.tickSize || '0');
       const precision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
 
-      // Use STOP_MARKET with closePosition: true for optimal efficiency and robustness
-      const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder({
-        symbol: trade.symbol,
-        side: closeDirection,
-        type: 'STOP_MARKET',
-        stopPrice: slPrice.toFixed(precision),
-        closePosition: 'true',
-        reduceOnly: 'true',
+      // Use placeMultipleOrders as workaround for SDK newOrder stopPrice limitation
+      const response = await (this.binanceClient as any).restAPI.tradeApi.placeMultipleOrders({
+        batchOrders: JSON.stringify([{
+          symbol: trade.symbol,
+          side: closeDirection,
+          type: 'STOP_MARKET',
+          quantity: (trade.qty || 0).toFixed(precision),
+          stopPrice: slPrice.toFixed(precision),
+          reduceOnly: 'true',
+        }])
       });
-      const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
+      const slOrderResult = typeof response.data === 'function' ? await response.data() : (response.data || response);
+      const orderData = Array.isArray(slOrderResult) ? slOrderResult[0] : slOrderResult;
+
       if (!orderData || !orderData.orderId) {
         throw new Error(`Invalid response from Binance SL order: ${JSON.stringify(orderData)}`);
       }

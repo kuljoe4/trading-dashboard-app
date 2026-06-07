@@ -17,8 +17,9 @@ describe('OrderManagerService', () => {
       restAPI: {
         tradeApi: {
           newOrder: jest.fn().mockResolvedValue({ data: { orderId: 'mock_order_id' } }),
-          newAlgoOrder: jest.fn().mockResolvedValue({ data: { orderId: 'mock_order_id' } }),
+          newAlgoOrder: jest.fn().mockResolvedValue({ data: { algoId: 'mock_algo_id' } }),
           cancelOrder: jest.fn().mockResolvedValue({ data: {} }),
+          cancelAlgoOrder: jest.fn().mockResolvedValue({ data: {} }),
         }
       },
     };
@@ -63,7 +64,7 @@ describe('OrderManagerService', () => {
         })
       );
 
-      expect(trade?.binance_stop_order_id).toBe('mock_order_id');
+      expect(trade?.binance_stop_order_id).toBe('mock_algo_id');
     });
 
     it('does not place binance orders in paper mode', async () => {
@@ -97,14 +98,14 @@ describe('OrderManagerService', () => {
         binance_stop_order_id: 'old_sl_id',
       } as Trade;
 
-      mockBinanceClient.restAPI.tradeApi.newAlgoOrder.mockResolvedValueOnce({ data: { orderId: 'new_sl_id' } });
+      mockBinanceClient.restAPI.tradeApi.newAlgoOrder.mockResolvedValueOnce({ data: { algoId: 'new_sl_id' } });
 
       await service.updateStopLoss(trade, 50500);
 
-      expect(mockBinanceClient.restAPI.tradeApi.cancelOrder).toHaveBeenCalledWith(
+      expect(mockBinanceClient.restAPI.tradeApi.cancelAlgoOrder).toHaveBeenCalledWith(
         expect.objectContaining({
           symbol: 'BTCUSDT',
-          orderId: 'old_sl_id'
+          algoId: 'old_sl_id'
         })
       );
       expect(mockBinanceClient.restAPI.tradeApi.newAlgoOrder).toHaveBeenCalledWith(
@@ -130,10 +131,10 @@ describe('OrderManagerService', () => {
 
       await service.closeTrade('BTCUSDT', trade, 51000, 'TP_HIT');
 
-      expect(mockBinanceClient.restAPI.tradeApi.cancelOrder).toHaveBeenCalledWith(
+      expect(mockBinanceClient.restAPI.tradeApi.cancelAlgoOrder).toHaveBeenCalledWith(
         expect.objectContaining({
           symbol: 'BTCUSDT',
-          orderId: 'active_sl_id'
+          algoId: 'active_sl_id'
         })
       );
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledWith(

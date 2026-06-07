@@ -50,9 +50,6 @@ export class TradingSessionService {
   private lastScannerResults: any[] = [];
   private lastVariantScannerResults: any[] = [];
   private activeWindows: Map<string, any> = new Map();
-  private userDataWs: any = null;
-  private listenKey: string | null = null;
-  private listenKeyKeepAlive: NodeJS.Timeout | null = null;
 
   private cachedStrategyConfigs: SessionConfig[] | null = null;
   private cachedScanSignatures: Map<SessionConfig, string> = new Map();
@@ -230,8 +227,18 @@ export class TradingSessionService {
 
     if (this.isGated() || this.sessionState.hibernating) {
       if (this.sessionState.listenerCount > 0) {
-        const now = Date.now(); const isFull = now - this.lastScannerFullBroadcast > 30000; if (isFull) this.lastScannerFullBroadcast = now;
-        this.broadcast('scanner', { count: this.lastScannerResults.length, hibernating: this.sessionState.hibernating, opportunities: this.lastScannerResults.slice(0, 5).map(o => { if (isFull) return o; const { history, ...rest } = o; return rest; }), variant_opportunities: this.lastVariantScannerResults.map(v => ({ ...v, opportunities: v.opportunities.slice(0, 5).map((o: any) => { if (isFull) return o; const { history, ...rest } = o; return rest; }) })), activeWindows: this.getActiveWindows() });
+        const now = Date.now();
+        const isFull = now - this.lastScannerFullBroadcast > 30000;
+        if (isFull) {
+          this.lastScannerFullBroadcast = now;
+          this.broadcast('scanner', {
+            count: this.lastScannerResults.length,
+            hibernating: this.sessionState.hibernating,
+            opportunities: this.lastScannerResults.slice(0, 5).map(o => { const { history, ...rest } = o; return rest; }),
+            variant_opportunities: this.lastVariantScannerResults.map(v => ({ ...v, opportunities: v.opportunities.slice(0, 5).map((o: any) => { const { history, ...rest } = o; return rest; }) })),
+            activeWindows: this.getActiveWindows()
+          });
+        }
       }
       return;
     }
@@ -312,17 +319,6 @@ export class TradingSessionService {
   private async updateBalance(t: Trade) { const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live'); if (mode === 'paper') this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + (t.pnl || 0)); else if (this.binanceClient) { const b = await this.fetchBinanceBalance(); if (b > 0) { this.sessionState.balanceLive = b; this.sessionState.balancePaper = b; } else { this.sessionState.balanceLive = roundEight(this.sessionState.balanceLive + (t.pnl || 0)); this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + (t.pnl || 0)); } } if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), t.pnl || 0); }
   private getBalance(): number { return this.sessionState.getBalance(this.config?.paper_mode ?? true); }
   private async rollbackTradeClosure(t: Trade, pp: number, pl: number) { this.logger.warn(`Rolling back trade closure for ${t.symbol}.`); this.sessionState.balancePaper = pp; this.sessionState.balanceLive = pl; this.sessionState.rollbackClosedTrade(t); t.status = 'OPEN'; this.positionTracker.addTrade(t); if (this.onBalanceUpdate) await this.onBalanceUpdate(this.getBalance(), 0); }
-
-  private async startUserDataStream() {
-    if (!this.binanceClient) return;
-    try {
-      this.monitoringService.incrementApiRequests(); const res = await this.binanceClient.restAPI.userDataStreamsApi.startUserDataStream(); this.listenKey = res.data.listenKey;
-      this.userDataWs = await this.binanceClient.websocketStreams.connect();
-      this.userDataWs.on('message', async (msg: any) => { try { const data = typeof msg === 'string' ? JSON.parse(msg) : msg; if (data.e === 'ACCOUNT_UPDATE' && data.a && data.a.B) { const usdt = data.a.B.find((b: any) => b.a === 'USDT'); if (usdt) { const nb = parseFloat(usdt.wb); this.sessionState.balanceLive = nb; this.sessionState.balancePaper = nb; if (this.onBalanceUpdate) await this.onBalanceUpdate(this.getBalance(), 0); } } } catch (err) {} });
-      this.userDataWs.userData(this.listenKey); this.listenKeyKeepAlive = setInterval(async () => { if (this.listenKey) { try { this.monitoringService.incrementApiRequests(); await this.binanceClient.restAPI.userDataStreamsApi.keepaliveUserDataStream(this.listenKey); } catch (err) {} } }, ENGINE_CONSTANTS.USER_DATA_KEEPALIVE_MS);
-    } catch (e) { throw e; }
-  }
-
 
   getActiveTradeCount(): number { return this.positionTracker.activeCount(); }
   getActiveTradeSymbols(): string[] { return this.positionTracker.activeList().map(t => t.symbol); }

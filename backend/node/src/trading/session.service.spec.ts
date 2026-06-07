@@ -42,14 +42,22 @@ describe('SessionService Validation', () => {
     update: jest.fn(),
   } as any;
 
+  const mockLogRepository = {
+    find: jest.fn().mockResolvedValue([]),
+    count: jest.fn().mockResolvedValue(0),
+    insert: jest.fn().mockResolvedValue({}),
+    delete: jest.fn().mockResolvedValue({}),
+    findOne: jest.fn().mockResolvedValue(null),
+  } as any;
+
   beforeEach(() => {
     jest.clearAllMocks();
     service = new SessionService(
-      mockRepository,
-      mockTradeRepository,
-      mockRepository,
-      mockRepository,
-      mockRepository,
+      mockRepository, // Session
+      mockTradeRepository, // Trade
+      mockLogRepository, // Log
+      mockRepository, // Settings
+      mockRepository, // BalanceHistory
       mockTradingSessionService,
       mockAnalyticsService,
       mockBinanceClientFactory,

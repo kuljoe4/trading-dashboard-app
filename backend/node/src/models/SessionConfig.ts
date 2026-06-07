@@ -249,6 +249,11 @@ export class SessionConfig {
   @IsNumber()
   @Min(0)
   @IsOptional()
+  testnet_starting_balance?: number = 0;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
   live_starting_balance?: number = CONFIG_LIMITS.LIVE_STARTING_BALANCE_DEFAULT;
 
   // API & Monitoring

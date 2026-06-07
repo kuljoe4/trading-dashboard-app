@@ -57,13 +57,20 @@ export class SessionStateService {
       if (mode === 'paper') {
         this.balancePaper = currentBalance;
         this.balanceLive = config.live_starting_balance || 0;
+      } else if (mode === 'testnet') {
+        this.balanceLive = currentBalance;
+        this.balancePaper = config.paper_starting_balance || 10000;
       } else {
         this.balanceLive = currentBalance;
         this.balancePaper = config.paper_starting_balance || 10000;
       }
     } else {
       this.balancePaper = config.paper_starting_balance || 10000;
-      this.balanceLive = config.live_starting_balance || 0;
+      if (mode === 'testnet') {
+        this.balanceLive = (config as any).testnet_starting_balance || 0;
+      } else {
+        this.balanceLive = config.live_starting_balance || 0;
+      }
     }
   }
 

@@ -664,7 +664,15 @@ export class OrderManagerService {
       // Update trade AFTER successful closure confirmation
       trade.exit_price = exitPrice;
       trade.exit_ts = new Date();
-      trade.pnl_pct = pnlPct;
+
+      // BOLT: Final PnL and PnL % calculation using the finalized exitPrice (potentially from fills)
+      const finalPnlPoints = trade.direction === 'LONG'
+        ? exitPrice - trade.entry_price
+        : trade.entry_price - exitPrice;
+
+      const finalPnlPct = (trade.qty !== 0) ? (finalPnlPoints / (trade.entry_price || 1)) * 100 : 0;
+      trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
+
       trade.exit_reason = trade.exit_reason || exitReason;
 
       // Ensure exit signal type and reason are passed through to persistence

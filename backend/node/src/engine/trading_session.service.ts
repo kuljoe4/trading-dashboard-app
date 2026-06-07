@@ -50,6 +50,9 @@ export class TradingSessionService {
   private lastScannerResults: any[] = [];
   private lastVariantScannerResults: any[] = [];
   private activeWindows: Map<string, any> = new Map();
+  private userDataWs: any = null;
+  private listenKey: string | null = null;
+  private listenKeyKeepAlive: NodeJS.Timeout | null = null;
 
   private cachedStrategyConfigs: SessionConfig[] | null = null;
   private cachedScanSignatures: Map<SessionConfig, string> = new Map();
@@ -227,18 +230,8 @@ export class TradingSessionService {
 
     if (this.isGated() || this.sessionState.hibernating) {
       if (this.sessionState.listenerCount > 0) {
-        const now = Date.now();
-        const isFull = now - this.lastScannerFullBroadcast > 30000;
-        if (isFull) {
-          this.lastScannerFullBroadcast = now;
-          this.broadcast('scanner', {
-            count: this.lastScannerResults.length,
-            hibernating: this.sessionState.hibernating,
-            opportunities: this.lastScannerResults.slice(0, 5).map(o => { const { history, ...rest } = o; return rest; }),
-            variant_opportunities: this.lastVariantScannerResults.map(v => ({ ...v, opportunities: v.opportunities.slice(0, 5).map((o: any) => { const { history, ...rest } = o; return rest; }) })),
-            activeWindows: this.getActiveWindows()
-          });
-        }
+        const now = Date.now(); const isFull = now - this.lastScannerFullBroadcast > 30000; if (isFull) this.lastScannerFullBroadcast = now;
+        this.broadcast('scanner', { count: this.lastScannerResults.length, hibernating: this.sessionState.hibernating, opportunities: this.lastScannerResults.slice(0, 5).map(o => { if (isFull) return o; const { history, ...rest } = o; return rest; }), variant_opportunities: this.lastVariantScannerResults.map(v => ({ ...v, opportunities: v.opportunities.slice(0, 5).map((o: any) => { if (isFull) return o; const { history, ...rest } = o; return rest; }) })), activeWindows: this.getActiveWindows() });
       }
       return;
     }

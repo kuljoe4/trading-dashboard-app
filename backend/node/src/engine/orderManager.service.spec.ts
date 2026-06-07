@@ -17,10 +17,8 @@ describe('OrderManagerService', () => {
       restAPI: {
         tradeApi: {
           newOrder: jest.fn().mockResolvedValue({ data: { orderId: 'mock_order_id' } }),
+          newAlgoOrder: jest.fn().mockResolvedValue({ data: { orderId: 'mock_order_id' } }),
           cancelOrder: jest.fn().mockResolvedValue({ data: {} }),
-        },
-        algoApi: {
-          newOrder: jest.fn().mockResolvedValue({ data: { orderId: 'mock_order_id' } }),
         }
       },
     };
@@ -44,7 +42,7 @@ describe('OrderManagerService', () => {
       const trade = result.data;
       expect(trade).toBeDefined();
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledTimes(1);
-      expect(mockBinanceClient.restAPI.algoApi.newOrder).toHaveBeenCalledTimes(1);
+      expect(mockBinanceClient.restAPI.tradeApi.newAlgoOrder).toHaveBeenCalledTimes(1);
       
       // First call: Entry MARKET order
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledWith(
@@ -56,9 +54,10 @@ describe('OrderManagerService', () => {
         })
       );
 
-      // Second call: Initial STOP_MARKET order via algoApi.newOrder
-      expect(mockBinanceClient.restAPI.algoApi.newOrder).toHaveBeenCalledWith(
+      // Second call: Initial STOP_MARKET order via tradeApi.newAlgoOrder
+      expect(mockBinanceClient.restAPI.tradeApi.newAlgoOrder).toHaveBeenCalledWith(
         expect.objectContaining({
+          algoType: 'CONDITIONAL',
           type: 'STOP_MARKET',
           stopPrice: '49500.00000000',
         })
@@ -98,7 +97,7 @@ describe('OrderManagerService', () => {
         binance_stop_order_id: 'old_sl_id',
       } as Trade;
 
-      mockBinanceClient.restAPI.algoApi.newOrder.mockResolvedValueOnce({ data: { orderId: 'new_sl_id' } });
+      mockBinanceClient.restAPI.tradeApi.newAlgoOrder.mockResolvedValueOnce({ data: { orderId: 'new_sl_id' } });
 
       await service.updateStopLoss(trade, 50500);
 
@@ -108,8 +107,9 @@ describe('OrderManagerService', () => {
           orderId: 'old_sl_id'
         })
       );
-      expect(mockBinanceClient.restAPI.algoApi.newOrder).toHaveBeenCalledWith(
+      expect(mockBinanceClient.restAPI.tradeApi.newAlgoOrder).toHaveBeenCalledWith(
         expect.objectContaining({
+          algoType: 'CONDITIONAL',
           stopPrice: '50500.00000000'
         })
       );

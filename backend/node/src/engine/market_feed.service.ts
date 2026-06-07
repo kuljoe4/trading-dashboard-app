@@ -142,16 +142,7 @@ export class MarketFeedService {
           this.logger.error(`Error processing mini-ticker stream: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
-      ws.on('close', () => {
-        if (this.running) {
-          const task = setTimeout(() => {
-            const idx = this.subscriptionTasks.indexOf(task);
-            if (idx !== -1) this.subscriptionTasks.splice(idx, 1);
-            connect();
-          }, ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS);
-          this.subscriptionTasks.push(task);
-        }
-      });
+      ws.on('close', () => { if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS)); });
       this.miniTickerWs = ws;
     };
     connect();
@@ -234,17 +225,12 @@ export class MarketFeedService {
         const prevWatchlist = this.activeWatchlist;
         this.activeWatchlist = newWatchlist;
         await this.rebuildCombinedKlineStream();
-
-        const activeKeys = new Set<string>();
         for (const [symbol, intervals] of newWatchlist) {
           for (const interval of intervals) {
-            const key = `${symbol}_${interval}`;
-            activeKeys.add(key);
             const oldIntervals = prevWatchlist.get(symbol);
             if (!oldIntervals || !oldIntervals.has(interval)) await this.backfillKlines(symbol, interval);
           }
         }
-        this.klineStore.prune(activeKeys);
       }
     } catch (err) {}
   }
@@ -279,16 +265,7 @@ export class MarketFeedService {
             this.logger.error(`Error processing combined kline stream: ${err instanceof Error ? err.message : String(err)}`);
           }
         });
-        ws.on('close', () => {
-          if (this.running) {
-            const task = setTimeout(() => {
-              const idx = this.subscriptionTasks.indexOf(task);
-              if (idx !== -1) this.subscriptionTasks.splice(idx, 1);
-              connect();
-            }, ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS);
-            this.subscriptionTasks.push(task);
-          }
-        });
+        ws.on('close', () => { if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS)); });
         this.combinedKlineWsList.push(ws);
       };
       connect();

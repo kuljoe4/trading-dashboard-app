@@ -120,10 +120,28 @@ export class SessionLifecycleService {
     if (!bc) return 0;
     try {
       this.monitoringService.incrementApiRequests();
+      // Try primary endpoint: futuresAccountBalanceV2
       const res = await bc.restAPI.accountApi.futuresAccountBalanceV2();
       const data = res.data || res;
       const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
-      return usdt ? parseFloat(usdt.balance || 0) : 0;
+
+      if (usdt) {
+        return parseFloat(usdt.balance || 0);
+      }
+
+      // Fallback: try futuresAccountV2 (full account details)
+      this.logger.debug(`futuresAccountBalanceV2 did not return USDT. Trying futuresAccountV2 fallback...`);
+      const accRes = await bc.restAPI.accountApi.futuresAccountV2();
+      const accData = accRes.data || accRes;
+      if (accData && Array.isArray(accData.assets)) {
+        const accUsdt = accData.assets.find((a: any) => a.asset === 'USDT');
+        if (accUsdt) {
+          return parseFloat(accUsdt.walletBalance || 0);
+        }
+      }
+
+      this.logger.warn(`Could not find USDT balance in Binance response. Data received: ${JSON.stringify(data).substring(0, 200)}`);
+      return 0;
     } catch (e: unknown) {
       this.logger.error(`Balance fetch failed: ${e instanceof Error ? e.message : String(e)}`);
       return 0;
@@ -135,8 +153,9 @@ export class SessionLifecycleService {
     try {
       this.monitoringService.incrementApiRequests();
       const res = await bc.restAPI.userDataStreamsApi.startUserDataStream();
-      this.listenKey = res.data.listenKey;
-      this.userDataWs = await bc.websocketStreams.connect({ listenKey: this.listenKey });
+      const lk = res.data.listenKey;
+      this.listenKey = lk;
+      this.userDataWs = await bc.websocketStreams.connect();
       this.userDataWs.on('message', async (msg: any) => {
         try {
           const data = typeof msg === 'string' ? JSON.parse(msg) : msg;
@@ -144,6 +163,7 @@ export class SessionLifecycleService {
             const usdt = data.a.B.find((b: any) => b.a === 'USDT');
             if (usdt) {
               const nb = parseFloat(usdt.wb);
+              this.logger.log(`[Lifecycle] Received real-time balance update: ${nb} USDT`);
               this.sessionState.balanceLive = nb;
               this.sessionState.balancePaper = nb;
             }
@@ -152,7 +172,8 @@ export class SessionLifecycleService {
             this.logger.debug(`Error processing user data WS message: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
-      this.userDataWs.userData(this.listenKey);
+      this.logger.log(`[Lifecycle] Subscribing to User Data Stream with listenKey: ${lk.substring(0, 10)}...`);
+      this.userDataWs.userData(lk);
       this.listenKeyKeepAlive = setInterval(async () => {
         if (this.listenKey) {
           try {

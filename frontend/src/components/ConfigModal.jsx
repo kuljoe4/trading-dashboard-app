@@ -541,7 +541,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
               <SectionHeader icon={TrendingUp} title="Initial Capital" subtitle="Starting balance for sessions" />
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                 {field('Paper Balance ($)', 'paper_starting_balance', 'number', null, { min: 0 })}
-                {field('Demo Balance ($)', 'testnet_starting_balance', 'number', null, { min: 0 })}
+                {field('Demo Balance ($)', 'testnet_starting_balance', 'number', null, { min: 0, placeholder: '10000' })}
                 {field('Live Balance ($)', 'live_starting_balance', 'number', null, { min: 0 })}
               </div>
             </section>

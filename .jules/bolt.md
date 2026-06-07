@@ -109,7 +109,3 @@
 1. **Abstract Exchange Layer:** Create an `IExchange` interface to decouple the engine from the Binance SDK.
 2. **Result Pattern:** Replace core logic exceptions with `Result<T, E>` types for explicit error handling.
 3. **Event-Driven Decoupling:** Fully migrate gating and monitoring to an `EventEmitter2` model to remove remaining orchestrator coupling.
-
-## 2026-06-07 - [Optimization] Persistent State Tracking for Delta Broadcasts
-**Learning:** Relying on the partial delta-array from the previous broadcast for change detection in a high-frequency tick loop creates a "shadowing" bug where unchanging trades are re-sent every other tick. This doubles bandwidth and increases frontend normalization cost. Using specialized, thin serialization methods (zero-allocation) for these ticks further reduces GC pressure.
-**Action:** Use a persistent private Map in the broadcaster service to track the last sent state of all active trades across all ticks. Implement specialized thin DTO creators to avoid intermediate object allocations in the hot path.

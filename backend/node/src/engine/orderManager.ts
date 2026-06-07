@@ -303,7 +303,7 @@ export class OrderManagerService {
     const filtered = this.applyFilters(trade.symbol, slPrice, trade.qty);
     slPrice = filtered.price;
 
-    if (this.paperMode || !this.binanceClient) return null;
+    if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return null;
 
     // BOLT: Fail early if no filters found for live mode to prevent "Invalid symbol"
     if (!this.marketFeed.getSymbolFilters(trade.symbol)) {
@@ -365,7 +365,7 @@ export class OrderManagerService {
    * Update an existing stop loss by canceling and replacing it
    */
   async updateStopLoss(trade: Trade, newSlPrice: number): Promise<void> {
-    if (this.paperMode || !this.binanceClient) return;
+    if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return;
 
     // BOLT: Proactive Rate Limit - Skip non-critical SL updates if near limits
     // We only skip if the gap is small, otherwise it's critical protection
@@ -576,7 +576,7 @@ export class OrderManagerService {
       const pnlPct = roundEight(Number.isFinite(rawPnlPct) ? rawPnlPct : 0);
 
       // In live mode, place close order with reduce-only for safety
-      if (!paperMode && this.binanceClient) {
+      if (!paperMode && this.binanceClient && trade.binance_order_id) {
         try {
           // If there is an exchange stop loss, cancel it to prevent orphans
           if (trade.binance_stop_order_id) {

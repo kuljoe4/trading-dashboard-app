@@ -10,6 +10,7 @@ import { v4 as uuid } from 'uuid';
 import { roundEight, floorStep, roundTo } from '../lib/math';
 import { ENGINE_CONSTANTS } from '../models/constants';
 import { ExchangeExecutionException } from '../lib/exceptions';
+import { ExecutionResult, ExecutionStatus } from '../models/ExecutionResult';
 
 @Injectable()
 export class OrderManagerService {
@@ -18,12 +19,31 @@ export class OrderManagerService {
   private binanceClient: DerivativesTradingUsdsFutures | null = null;
   private paperMode = true;
 
+  private consecutiveFailures = 0;
+  private readonly MAX_CONSECUTIVE_FAILURES = 3;
+
   constructor(
     private readonly signalEngine: SignalEngineService,
     private readonly marketFeed: MarketFeedService,
     private readonly sessionState: SessionStateService,
     private readonly auditLog: AuditLogService,
   ) {}
+
+  private checkCircuitBreaker(): boolean {
+    return this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES;
+  }
+
+  private recordFailure() {
+    this.consecutiveFailures++;
+    this.logger.warn(`Failure recorded. Consecutive failures: ${this.consecutiveFailures}`);
+  }
+
+  private recordSuccess() {
+    if (this.consecutiveFailures > 0) {
+      this.logger.log('Circuit breaker reset.');
+    }
+    this.consecutiveFailures = 0;
+  }
 
   setBinanceClient(client: DerivativesTradingUsdsFutures | null, paperMode = true) {
     this.binanceClient = client;
@@ -72,7 +92,11 @@ export class OrderManagerService {
     slPrice: number,
     tpPrice: number | null,
     metadata: Pick<Trade, 'strategy_label' | 'strategy_config'> = {},
-  ): Promise<Trade | null> {
+  ): Promise<ExecutionResult<Trade>> {
+    if (this.checkCircuitBreaker()) {
+      return { status: ExecutionStatus.CIRCUIT_OPEN, error: 'Circuit breaker is open' };
+    }
+    
     try {
       const filtered = this.applyFilters(symbol, entryPrice, qty);
       const filteredSl = this.applyFilters(symbol, slPrice, qty).price;
@@ -85,13 +109,13 @@ export class OrderManagerService {
 
       if (qty <= 0) {
         this.logger.warn(`${symbol}: Position size too small after LOT_SIZE filtering.`);
-        return null;
+        return { status: ExecutionStatus.ORDER_REJECTED, error: 'Position size too small after LOT_SIZE filtering.' };
       }
 
       // Immediate parameter validation
       if (!symbol || qty <= 0) {
         this.logger.error(`Invalid entry parameters: symbol=${symbol}, qty=${qty}`);
-        return null;
+        return { status: ExecutionStatus.ORDER_REJECTED, error: 'Invalid entry parameters' };
       }
 
       const trade = {
@@ -158,7 +182,11 @@ export class OrderManagerService {
             const closeDirection = direction === 'LONG' ? 'SELL' : 'BUY';
             
             // USE ALGO API FOR STOP ORDERS (Fixes -4120)
-            const slResponse = await (this.binanceClient as any).restAPI.algoApi.newOrder({
+            const algoApi = (this.binanceClient as any)?.restAPI?.algoApi;
+            if (!algoApi) {
+              throw new Error('Binance Algo API is not initialized');
+            }
+            const slResponse = await algoApi.newOrder({
                 symbol,
                 side: closeDirection,
                 type: 'STOP_MARKET',
@@ -174,6 +202,7 @@ export class OrderManagerService {
             }
             trade.binance_stop_order_id = slOrderData.orderId;
           } catch (slErr: unknown) {
+            this.recordFailure();
             const slErrMsg = slErr instanceof Error ? slErr.message : String(slErr);
             this.logger.error(`Critical Failure: Market entry succeeded but Stop Loss placement FAILED for ${symbol}: ${slErrMsg}`);
 
@@ -189,7 +218,7 @@ export class OrderManagerService {
                 reduceOnly: 'true',
               });
               this.logger.log(`Emergency unwind successful for ${symbol}. Entry aborted.`);
-              return null; // Return null to indicate entry was aborted
+              return { status: ExecutionStatus.SL_FAILED, error: `Stop Loss placement FAILED for ${symbol}: ${slErrMsg}`, unwindPerformed: true };
             } catch (unwindErr: unknown) {
               const unwindMsg = unwindErr instanceof Error ? unwindErr.message : String(unwindErr);
               this.logger.error(`CRITICAL RISK: Emergency unwind FAILED for ${symbol}: ${unwindMsg}. Position is OPEN and UNPROTECTED.`);
@@ -211,6 +240,7 @@ export class OrderManagerService {
           this.logger.warn(
             `Binance entry order failed (continuing in paper mode): ${errMsg}`,
           );
+          this.recordFailure();
           // If we fallback to paper mode after failure, we should simulate the fee
           trade.realized_fee = roundEight(entryPrice * qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
         }
@@ -225,11 +255,12 @@ export class OrderManagerService {
       this.logger.log(
         `Enter: ${symbol} ${direction} @ ${entryPrice} qty=${qty} SL=${slPrice} TP=${tpPrice}`,
       );
-      return trade;
+      this.recordSuccess();
+      return { status: ExecutionStatus.SUCCESS, data: trade };
     } catch (error) {
       if (error instanceof ExchangeExecutionException) throw error;
       this.logger.error(`Enter failed: ${error instanceof Error ? error.message : String(error)}`);
-      return null;
+      return { status: ExecutionStatus.UNSPECIFIED_ERROR, error: error instanceof Error ? error.message : String(error) };
     }
   }
 

@@ -29,7 +29,7 @@ describe('OrderManagerService', () => {
     it('places initial stop loss in live mode', async () => {
       service.setBinanceClient(mockBinanceClient, false); // Live mode
 
-      const trade = await service.enter(
+      const result = await service.enter(
         'session_1',
         'BTCUSDT',
         'LONG',
@@ -39,6 +39,8 @@ describe('OrderManagerService', () => {
         51000
       );
 
+      expect(result.status).toBe('SUCCESS');
+      const trade = result.data;
       expect(trade).toBeDefined();
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledTimes(1);
       expect(mockBinanceClient.restAPI.algoApi.newOrder).toHaveBeenCalledTimes(1);
@@ -67,7 +69,7 @@ describe('OrderManagerService', () => {
     it('does not place binance orders in paper mode', async () => {
       service.setBinanceClient(mockBinanceClient, true); // Paper mode
 
-      const trade = await service.enter(
+      const result = await service.enter(
         'session_1',
         'BTCUSDT',
         'LONG',
@@ -77,6 +79,8 @@ describe('OrderManagerService', () => {
         51000
       );
 
+      expect(result.status).toBe('SUCCESS');
+      const trade = result.data;
       expect(trade).toBeDefined();
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).not.toHaveBeenCalled();
       expect(trade?.binance_order_id).toBeUndefined();

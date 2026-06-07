@@ -1,10 +1,10 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { DerivativesTradingUsdsFutures } from '@binance/derivatives-trading-usds-futures';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
 import { SignalEngineService } from './signalEngine';
 import { MarketFeedService } from './market_feed.service';
-import { TradingSessionService } from './trading_session.service';
+import { SessionStateService } from './session_state.service';
 import { AuditLogService } from '../trading/audit-log.service';
 import { v4 as uuid } from 'uuid';
 import { roundEight, floorStep, roundTo } from '../lib/math';
@@ -21,8 +21,7 @@ export class OrderManagerService {
   constructor(
     private readonly signalEngine: SignalEngineService,
     private readonly marketFeed: MarketFeedService,
-    @Inject(forwardRef(() => TradingSessionService))
-    private readonly tradingSession: TradingSessionService,
+    private readonly sessionState: SessionStateService,
     private readonly auditLog: AuditLogService,
   ) {}
 
@@ -261,7 +260,7 @@ export class OrderManagerService {
 
     // BOLT: Proactive Rate Limit - Skip non-critical SL updates if near limits
     // We only skip if the gap is small, otherwise it's critical protection
-    if (this.tradingSession.isRateLimited()) {
+    if (this.sessionState.isRateLimited()) {
        const risk = Math.abs(trade.entry_price - trade.initial_sl);
        const move = Math.abs(newSlPrice - trade.current_sl);
        if (move < (risk * 0.1)) {

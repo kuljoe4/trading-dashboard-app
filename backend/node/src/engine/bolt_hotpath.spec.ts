@@ -10,7 +10,9 @@ describe('Bolt Optimizations: Hot-Path Performance', () => {
       {} as any,
       {} as any,
       {} as any,
-      {} as any
+      {} as any,
+      {} as any,
+      { emit: jest.fn() } as any
     );
   });
 

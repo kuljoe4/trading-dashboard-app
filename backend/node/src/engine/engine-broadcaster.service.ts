@@ -106,6 +106,66 @@ export class EngineBroadcasterService {
     };
   }
 
+  /**
+   * Refactor: Move tiered fidelity logic from server.ts to a dedicated method
+   * to decouple business/display logic from the transport layer.
+   */
+  public getFidelityTick(payload: any, client: any): any {
+    if (payload.type !== 'tick') return payload;
+
+    const tick = { ...payload };
+
+    if (tick.trades && Array.isArray(tick.trades)) {
+      tick.trades = tick.trades.map((trade: any) => {
+        // 1. Full Fidelity: ONLY for a specific focused trade ID
+        const isFullFidelity = client.focusMode && client.focusTradeId === trade.id;
+
+        // 2. Mid Fidelity: For a strategy list or the global trades view
+        const isMidFidelity = client.focusMode &&
+          (client.focusTradeId === 'all' || client.focusStrategyLabel === trade.strategy_label);
+
+        if (isFullFidelity) {
+          return trade;
+        }
+
+        // Strip heavy diagnostics for everyone else
+        const {
+          strategy_config,
+          live_rr_sequence,
+          exit_rr_sequence,
+          exit_signals_status,
+          sl_adjustments,
+          tp_mode,
+          tp_ratio,
+          exit_signal_logic,
+          ...thinTrade
+        } = trade;
+
+        if (isMidFidelity) {
+          return {
+            ...thinTrade,
+            live_rr_sequence: trade.live_rr_sequence,
+            exit_rr_sequence: trade.exit_rr_sequence,
+            _thin: true,
+          };
+        }
+
+        // Low Fidelity: For Dashboard overview (No sequences, no logs)
+        return { ...thinTrade, _thin: true };
+      });
+    }
+
+    if (!client.focusMode) {
+      tick.activeWindows = [];
+    }
+
+    if (client.monitoringEnabled === false) {
+      delete tick.monitoring;
+    }
+
+    return tick;
+  }
+
   public broadcastTick(
     activeTrades: Trade[],
     config: SessionConfig,

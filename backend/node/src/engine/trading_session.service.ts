@@ -135,7 +135,6 @@ export class TradingSessionService {
     this.binanceClient = bc;
     this.activeWindows.clear();
     this.marketFeed.setCandeCloseCallback(this.onCandleClose.bind(this));
-    this.positionTracker.setTradeUpdateCallback(async (t) => { if (this.onTradeUpdate) await this.onTradeUpdate(t, this.getBalance()); });
 
     this.logger.log(`[Lifecycle] Starting trading engine for session ${this.sessionId} (curBal: ${curBal})`);
     await this.sessionLifecycle.start(config, bc, sid, hist, curBal, open);
@@ -192,6 +191,11 @@ export class TradingSessionService {
     } catch (error) {
       this.logger.error(`Error in hot loop: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+
+  @OnEvent(ENGINE_EVENTS.TRADE_UPDATED)
+  async handleTradeUpdate(trade: Trade) {
+    if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
   }
 
   @OnEvent(ENGINE_EVENTS.RISK_GATES_UPDATED)

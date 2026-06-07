@@ -1,4 +1,5 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
 import { RiskEngineService } from './riskEngine';
@@ -6,7 +7,9 @@ import { SignalEngineService } from './signalEngine';
 import { OrderManagerService } from './orderManager';
 import { TickerCacheService } from './ticker_cache.service';
 import { KlineStoreService } from './kline_store.service';
+import { SessionStateService } from './session_state.service';
 import { roundEight } from '../lib/math';
+import { ENGINE_EVENTS } from './events';
 
 @Injectable()
 export class PositionTrackerService {
@@ -14,26 +17,18 @@ export class PositionTrackerService {
 
   private trades: Map<string, Trade> = new Map(); // symbol -> Trade
   private rrSequenceIndex: Map<string, number> = new Map(); // symbol -> current milestone index
-  private onTradeUpdate: ((trade: Trade) => void) | null = null;
   private _totalRisk = 0;
   private _activeListCache: Trade[] | null = null;
 
   constructor(
     private readonly riskEngine: RiskEngineService,
     private readonly signalEngine: SignalEngineService,
-    @Inject(forwardRef(() => OrderManagerService))
     private readonly orderManager: OrderManagerService,
     private readonly tickerCache: TickerCacheService,
     private readonly klineStore: KlineStoreService,
+    private readonly sessionState: SessionStateService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
-
-  setCallbacks(onClose: (closed: any) => void, onTick: () => void) {
-    // Callbacks would be set from server
-  }
-
-  setTradeUpdateCallback(cb: (trade: Trade) => void) {
-    this.onTradeUpdate = cb;
-  }
 
   hasSymbol(symbol: string): boolean {
     return this.trades.has(symbol);
@@ -134,7 +129,7 @@ export class PositionTrackerService {
             this.logger.error(`Failed to update exchange SL for ${symbol}: ${err.message}`);
           });
           // Notify of trade state change for persistence
-          if (this.onTradeUpdate) this.onTradeUpdate(trade);
+          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, trade);
         }
       } else if (trade.direction === 'SHORT' && newSl) {
         if (newSl < trade.current_sl) {
@@ -150,7 +145,7 @@ export class PositionTrackerService {
             this.logger.error(`Failed to update exchange SL for ${symbol}: ${err.message}`);
           });
           // Notify of trade state change for persistence
-          if (this.onTradeUpdate) this.onTradeUpdate(trade);
+          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, trade);
         }
       }
     }

@@ -16,7 +16,11 @@ describe('MomentumScannerService', () => {
       topByVolume: jest.fn().mockReturnValue([{ symbol: 'BTCUSDT' }]),
     }
 
-    service = new MomentumScannerService(klineStore, tickerCache)
+    const marketFeed = {
+        getSymbolFilters: jest.fn().mockReturnValue({ filters: [] })
+    }
+
+    service = new MomentumScannerService(klineStore, tickerCache, marketFeed as any)
   })
 
   it('skips scanning symbols with invalid candle prices', () => {

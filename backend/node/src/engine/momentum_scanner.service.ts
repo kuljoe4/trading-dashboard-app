@@ -3,6 +3,7 @@ import { SessionConfig } from '../models/SessionConfig';
 import { ENGINE_CONSTANTS } from '../models/constants';
 import { KlineStoreService, Candle } from './kline_store.service';
 import { TickerCacheService } from './ticker_cache.service';
+import { MarketFeedService } from './market_feed.service';
 
 export interface Opportunity {
   symbol: string;
@@ -21,6 +22,7 @@ export class MomentumScannerService {
   constructor(
     private readonly klineStore: KlineStoreService,
     private readonly tickerCache: TickerCacheService,
+    private readonly marketFeed: MarketFeedService,
   ) {}
 
   private isValidPrice(value: number): boolean {
@@ -183,6 +185,12 @@ export class MomentumScannerService {
       momentumPct,
       config,
     );
+
+    // Filter out symbols that are not in the current exchange info (e.g. not on Testnet)
+    const filters = this.marketFeed.getSymbolFilters(symbol);
+    if (!filters) {
+      return null;
+    }
 
     // Get current price and volume
     // BOLT OPTIMIZATION: Use O(1) ticker lookup instead of O(N) array search

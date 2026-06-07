@@ -124,7 +124,7 @@ describe('Trade Lifecycle Integration', () => {
         mockRiskEngine,
         mockPositionTracker,
         mockOrderManager,
-        { start: jest.fn(), stop: jest.fn(), setCandeCloseCallback: jest.fn() } as any,
+        { start: jest.fn(), stop: jest.fn(), setCandleCloseCallback: jest.fn() } as any,
         { start: jest.fn(), stop: jest.fn(), scan: jest.fn().mockReturnValue([{ symbol: 'BTCUSDT', direction: 'long', momentum: 5, volume_24h: 1000000, score: 80 }]) } as any,
         { recordHotLoop: jest.fn(), recordMainLoop: jest.fn(), clearAppMetrics: jest.fn() } as any,
         { calculateAnalytics: jest.fn() } as any,

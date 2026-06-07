@@ -134,7 +134,7 @@ export class TradingSessionService {
     this.cachedScanSignatures.clear();
     this.binanceClient = bc;
     this.activeWindows.clear();
-    this.marketFeed.setCandeCloseCallback(this.onCandleClose.bind(this));
+    this.marketFeed.setCandleCloseCallback(this.onCandleClose.bind(this));
 
     this.logger.log(`[Lifecycle] Starting trading engine for session ${this.sessionId} (curBal: ${curBal})`);
     await this.sessionLifecycle.start(config, bc, sid, hist, curBal, open);

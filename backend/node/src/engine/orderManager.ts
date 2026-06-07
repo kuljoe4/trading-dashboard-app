@@ -107,6 +107,12 @@ export class OrderManagerService {
       slPrice = filteredSl;
       tpPrice = filteredTp;
 
+      // Fail early if no filters found for live mode
+      if (!this.paperMode && !this.marketFeed.getSymbolFilters(symbol)) {
+        this.logger.error(`Live order rejected: No exchange filters found for ${symbol} in current environment.`);
+        return { status: ExecutionStatus.ORDER_REJECTED, error: `Symbol ${symbol} is not tradable in the current environment.` };
+      }
+
       if (qty <= 0) {
         this.logger.warn(`${symbol}: Position size too small after LOT_SIZE filtering.`);
         return { status: ExecutionStatus.ORDER_REJECTED, error: 'Position size too small after LOT_SIZE filtering.' };

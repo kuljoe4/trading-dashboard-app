@@ -26,9 +26,10 @@ export class MarketFeedService {
   private combinedKlineWsList: WebSocket[] = [];
   private exchangeInfo: Map<string, any> = new Map();
   private lastExchangeInfoFetch = 0;
+  private lastExchangeInfoBase = '';
   private activeWatchlist: Map<string, Set<string>> = new Map();
   private subscriptionTasks: any[] = [];
-  private onCandeClose: ((symbol: string) => Promise<void>) | null = null;
+  private onCandleClose: ((symbol: string) => Promise<void>) | null = null;
   private watchlistInterval: NodeJS.Timeout | null = null;
   private watchlistUpdatePending = false;
   private watchlistUpdateTimeout: NodeJS.Timeout | null = null;
@@ -40,14 +41,20 @@ export class MarketFeedService {
     private monitoringService: MonitoringService,
   ) {}
 
-  setCandeCloseCallback(cb: (symbol: string) => Promise<void>) {
-    this.onCandeClose = cb;
+  setCandleCloseCallback(cb: (symbol: string) => Promise<void>) {
+    this.onCandleClose = cb;
   }
 
   async start(config: SessionConfig) {
     if (this.running) await this.stop();
     this.running = true;
-    await this.fetchExchangeInfo();
+
+    const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
+    const restBase = mode === 'testnet'
+        ? 'https://testnet.binancefuture.com'
+        : ENGINE_CONSTANTS.BINANCE_REST_BASE;
+
+    await this.fetchExchangeInfo(restBase);
     this.startMiniTickerStream();
 
     const waitForWs = new Promise<void>((resolve) => {
@@ -67,12 +74,12 @@ export class MarketFeedService {
     if (weight) this.sessionState.updateRateLimit(parseInt(weight));
   }
 
-  private async fetchExchangeInfo() {
+  private async fetchExchangeInfo(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
     const now = Date.now();
-    if (this.exchangeInfo.size > 0 && now - this.lastExchangeInfoFetch < 3600000) return;
+    if (this.exchangeInfo.size > 0 && this.lastExchangeInfoBase === restBase && now - this.lastExchangeInfoFetch < 3600000) return;
     try {
       this.monitoringService.incrementApiRequests();
-      const response = await fetch(`${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/exchangeInfo`);
+      const response = await fetch(`${restBase}/fapi/v1/exchangeInfo`);
       this.updateWeight(response.headers);
       if (response.ok) {
         const data: any = await response.json();
@@ -80,9 +87,12 @@ export class MarketFeedService {
           this.exchangeInfo.clear();
           for (const s of data.symbols) this.exchangeInfo.set(s.symbol, s);
           this.lastExchangeInfoFetch = now;
+          this.lastExchangeInfoBase = restBase;
         }
       }
-    } catch (error) {}
+    } catch (error) {
+      this.logger.error(`Failed to fetch exchange info from ${restBase}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   getSymbolFilters(symbol: string) { return this.exchangeInfo.get(symbol); }
@@ -259,7 +269,7 @@ export class MarketFeedService {
             if (kline) {
               this.klineStore.upsertCandle(kline.s, kline.i, kline);
               this.tickerCache.bulkUpdate([{ s: kline.s, c: kline.c }]);
-              if (kline.x && this.onCandeClose) this.onCandeClose(kline.s).catch(() => {});
+              if (kline.x && this.onCandleClose) this.onCandleClose(kline.s).catch(() => {});
             }
           } catch (err) {
             this.logger.error(`Error processing combined kline stream: ${err instanceof Error ? err.message : String(err)}`);

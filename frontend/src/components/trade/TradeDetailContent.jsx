@@ -149,19 +149,6 @@ const ExitMonitor = ({ status, logic }) => {
 }
 
 export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClosing, confirmClose, setConfirmClose, layout = "grid" }) => {
-  const [now, setNow] = useState(Date.now())
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [])
-
-  const duration = useMemo(() => {
-    if (!trade?.entry_ts) return '---'
-    const start = new Date(trade.entry_ts).getTime()
-    return formatDuration(now - start)
-  }, [trade?.entry_ts, now])
-
   const { isLong, pnlPct, progress, entry, mark, sl, tp, qtyFormatted, riskFormatted, slDistPct = 0, slFromEntry = 0 } = useMemo(() => {
     if (!trade) return {}
     const isLong = trade.direction === 'LONG'
@@ -246,13 +233,6 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               {isClosing ? 'Closing...' : confirmClose ? 'Confirm Close?' : 'Force Liquidation'}
             </span>
           </button>
-          
-          <div className="p-4 bg-surface border border-border rounded-2xl flex items-center justify-between">
-            <div className="text-[10px] text-dim font-black uppercase tracking-widest">Duration</div>
-            <div className="flex items-center gap-2 text-accent font-mono font-bold">
-              <Clock size={14} /> {duration}
-            </div>
-          </div>
         </div>
       </div>
 
@@ -297,10 +277,10 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
 
       {/* Primary Metrics Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-         <StatCard label="Entry Price" value={price(entry)} />
-         <StatCard label="Current Mark" value={price(mark)} color={trade.pnl >= 0 ? "text-green" : "text-red"} syncing={isSyncing} />
-         <StatCard label="Active SL" value={price(sl)} color="text-amber" />
-         <StatCard label="Duration" value={duration} color="text-accent" />
+         <StatCard label="Mark Price" value={price(mark)} color={trade.pnl >= 0 ? "text-green" : "text-red"} syncing={isSyncing} />
+         <StatCard label="Quantity" value={`${qtyFormatted} ${trade.symbol.replace('USDT', '')}`} color="text-text" />
+         <StatCard label="Equity at Risk" value={riskFormatted} color="text-red" />
+         <StatCard label="Entry Price" value={price(entry)} color="text-dim" />
       </div>
 
       <div className={cn("grid gap-8", layout === "grid" ? "grid-cols-1 lg:grid-cols-3" : "grid-cols-1")}>
@@ -329,12 +309,9 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               </SectionLabel>
               <div className="space-y-4">
                  {[
-                   { label: 'Direction', value: trade.direction, color: isLong ? 'text-green' : 'text-red' },
-                   { label: 'Quantity', value: `${qtyFormatted} ${trade.symbol.replace('USDT', '')}` },
                    { label: 'TP Mode', value: trade.tp_mode === 'exp_rr_seq' ? 'Expansion RR' : 'Fixed Ratio' },
                    { label: 'SL Distance', value: `${slDistPct.toFixed(2)}%` },
                    { label: 'Initial Risk', value: `${slFromEntry.toFixed(2)}%` },
-                   { label: 'Equity At Risk', value: riskFormatted },
                  ].map(item => (
                    <div key={item.label} className="flex justify-between items-center py-3 border-b border-border/40 last:border-0">
                       <span className="text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>

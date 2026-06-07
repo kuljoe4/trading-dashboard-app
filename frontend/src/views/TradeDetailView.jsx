@@ -1,12 +1,13 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useTradingStore } from '../store/trading'
 import {
   StatusBadge, PaperBadge, cn, CopyButton
 } from '../components/ui/primitives'
-import { ChevronLeft, ArrowLeft, Activity } from 'lucide-react'
+import { ChevronLeft, ArrowLeft, Activity, Clock } from 'lucide-react'
 import { sessionAPI } from '../api/client'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { TradeDetailContent } from '../components/trade/TradeDetailContent'
+import { formatDuration } from '../lib/formatters'
 
 const Breadcrumbs = ({ strategyLabel, symbol }) => (
   <nav className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-dim mb-6">
@@ -21,11 +22,23 @@ const Breadcrumbs = ({ strategyLabel, symbol }) => (
 const TradeDetailView = ({ tradeId }) => {
   const { activeTrades, wsStatus, updateStats } = useTradingStore()
   const trade = activeTrades.find(t => t.id === tradeId || t.symbol === tradeId)
+  const [now, setNow] = useState(Date.now())
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  const duration = useMemo(() => {
+    if (!trade?.entry_ts) return '---'
+    const start = new Date(trade.entry_ts).getTime()
+    return formatDuration(now - start)
+  }, [trade?.entry_ts, now])
 
   // Lifecycle-scoped subscription contract
   useResourceFocus('trade', tradeId);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (tradeId) {
       // REST Hydration: Fetch immediate state to avoid waiting for tick
       sessionAPI.getTrade(tradeId).then(res => {
@@ -96,12 +109,23 @@ const TradeDetailView = ({ tradeId }) => {
            <div>
              <div className="flex items-center gap-3 mb-1">
                <h1 className="text-3xl font-black tracking-tight">{trade.symbol}</h1>
+               <span className={cn("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider", trade.direction === 'LONG' ? 'bg-green/10 text-green border border-green/20' : 'bg-red/10 text-red border border-red/20')}>
+                 {trade.direction}
+               </span>
                <StatusBadge status="live" />
                <PaperBadge />
              </div>
-             <div className="flex items-center gap-2 text-[11px] text-dim font-bold uppercase tracking-widest">
-                {trade.strategy_label} · ID: {trade.id?.substring(0, 8)}
-                <CopyButton value={trade.id} className="p-1" />
+             <div className="flex items-center gap-3 text-[11px] text-dim font-bold uppercase tracking-widest">
+                <span>{trade.strategy_label}</span>
+                <span className="text-dim/30">•</span>
+                <span className="flex items-center gap-1.5">
+                  <Clock size={12} className="text-accent" /> {duration}
+                </span>
+                <span className="text-dim/30">•</span>
+                <span className="flex items-center gap-1.5">
+                  ID: {trade.id?.substring(0, 8)}
+                  <CopyButton value={trade.id} className="p-1" />
+                </span>
              </div>
            </div>
         </div>

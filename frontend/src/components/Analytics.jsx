@@ -84,32 +84,42 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
     );
   }
 
+  const currentPnl = data[data.length - 1].pnl;
+
   return (
     <div
       ref={containerRef}
       className="relative group cursor-crosshair select-none"
       role="img"
-      aria-label={`Cumulative profit and loss chart, latest value ${fmtUSD(data[data.length-1].pnl)}.`}
+      aria-label={`Cumulative profit and loss chart, latest value ${fmtUSD(currentPnl)}.`}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
     >
-      <div className="absolute top-2 left-2 flex flex-col gap-0.5 z-10 pointer-events-none">
-        <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Cumulative P&L</span>
-        <span className={cn("text-lg font-bold font-mono tracking-tighter", data[data.length-1].pnl >= 0 ? "text-green" : "text-red")}>
-          {fmtUSD(hoverData ? hoverData.pnl : data[data.length-1].pnl)}
-        </span>
-        {hoverData?.ts && (
-          <span className="text-[8px] text-dim font-mono uppercase">
-            {/* Audit Item 42: Show full date if trades span multiple days */}
-            {new Date(hoverData.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+      {/* Header Info - Moved above chart plot to prevent overlap */}
+      <div className="flex items-start justify-between mb-6">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Cumulative P&L</span>
+          <span className={cn("text-2xl font-bold font-mono tracking-tighter", currentPnl >= 0 ? "text-green" : "text-red")}>
+            {fmtUSD(hoverData ? hoverData.pnl : currentPnl)}
           </span>
-        )}
-      </div>
+          {hoverData?.ts && (
+            <span className="text-[9px] text-dim font-mono uppercase mt-1">
+              {new Date(hoverData.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </span>
+          )}
+        </div>
 
-      <div className="absolute top-2 right-2 flex flex-col items-end gap-1 z-10 pointer-events-none opacity-40">
-        <span className="text-[8px] text-dim font-mono">{fmtUSD(viewMax)}</span>
-        <div className="h-20" />
-        <span className="text-[8px] text-dim font-mono">{fmtUSD(viewMin)}</span>
+        {/* High/Low Markers - Improved Contrast & Visibility */}
+        <div className="flex flex-col items-end gap-1.5 pt-1">
+          <div className="flex items-center gap-2">
+             <span className="text-[9px] text-dim font-bold uppercase tracking-tight">High</span>
+             <span className="text-[11px] text-text font-bold font-mono">{fmtUSD(viewMax)}</span>
+          </div>
+          <div className="flex items-center gap-2">
+             <span className="text-[9px] text-dim font-bold uppercase tracking-tight">Low</span>
+             <span className="text-[11px] text-text font-bold font-mono">{fmtUSD(viewMin)}</span>
+          </div>
+        </div>
       </div>
 
       <svg
@@ -158,7 +168,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
           d={pathD}
           fill="none"
           stroke="var(--color-green)"
-          strokeWidth="0.8"
+          strokeWidth="0.65"
           strokeLinecap="round"
           strokeLinejoin="round"
           clipPath={`url(#${gradientId}-clip-above)`}
@@ -171,7 +181,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
           d={pathD}
           fill="none"
           stroke="var(--color-red)"
-          strokeWidth="0.8"
+          strokeWidth="0.65"
           strokeLinecap="round"
           strokeLinejoin="round"
           clipPath={`url(#${gradientId}-clip-below)`}
@@ -184,12 +194,12 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
           <g>
             <line
               x1={hoverData.x} y1="0" x2={hoverData.x} y2="100"
-              stroke="var(--color-accent)" strokeWidth="0.3" strokeDasharray="2,2" className="opacity-40"
+              stroke="var(--color-accent)" strokeWidth="0.2" strokeDasharray="1,2" className="opacity-40"
             />
             <circle
               cx={hoverData.x}
               cy={hoverData.y}
-              r="1.5"
+              r="1.2"
               fill="var(--color-accent)"
               filter={`url(#${glowId})`}
               className="animate-pulse"
@@ -197,13 +207,13 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
           </g>
         )}
 
-        {/* Current Value Dot (if not hovering) */}
+        {/* Current Value Dot (if not hovering) - Trend Matching Color */}
         {!hoverData && points.length > 0 && (
           <circle
             cx={points[points.length-1].x}
             cy={points[points.length-1].y}
-            r="1.2"
-            fill="var(--color-accent)"
+            r="1"
+            fill={points[points.length-1].pnl >= 0 ? "var(--color-green)" : "var(--color-red)"}
             filter={`url(#${glowId})`}
           />
         )}

@@ -328,16 +328,18 @@ export const HistoryView = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
           <div className="lg:col-span-2 bg-surface border border-border rounded-2xl p-6 shadow-sm overflow-hidden relative">
-             <div className="flex items-center justify-end mb-2">
-               <button
-                 onClick={() => setColorDrawdown(v => !v)}
-                 className={cn(
-                   "px-3 py-1.5 rounded-md border text-[9px] font-bold uppercase tracking-widest transition-colors",
-                   colorDrawdown ? "border-red/30 bg-red/10 text-red" : "border-border text-dim hover:text-accent"
-                 )}
-               >
-                 Drawdown Colors
-               </button>
+             <div className="absolute top-6 right-6 z-20">
+               <Tooltip content="Toggle Drawdown Visualization">
+                 <button
+                   onClick={() => setColorDrawdown(v => !v)}
+                   className={cn(
+                     "p-2 rounded-lg border transition-all active:scale-95",
+                     colorDrawdown ? "border-red/30 bg-red/10 text-red" : "border-border text-dim hover:text-accent"
+                   )}
+                 >
+                   <SettingsIcon size={16} />
+                 </button>
+               </Tooltip>
              </div>
              <EquityCurve data={currentAnalytics?.cumulativePnL || []} colorDrawdown={colorDrawdown} />
           </div>
@@ -410,7 +412,7 @@ export const HistoryView = () => {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                   >
-                    <SectionLabel className="mt-10 mb-6">Uncategorized Trades</SectionLabel>
+                    <SectionLabel className="mt-10 mb-6">Standalone Records</SectionLabel>
                     <div className="space-y-3">
                       {orphans.map((trade) => (
                         <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} />

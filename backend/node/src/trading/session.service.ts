@@ -85,6 +85,20 @@ export class SessionService implements OnModuleInit {
       this.logger.verbose(`Cleaned up ${updateResult.affected} stale running sessions`);
     }
 
+    // DATA-03: One-time population of strategy_label for legacy trades to fix 'Uncategorized' issue
+    try {
+      const tradeUpdateResult = await this.tradeRepository.createQueryBuilder()
+        .update(TradeEntity)
+        .set({ strategy_label: 'Momentum Strategy' })
+        .where("strategy_label IS NULL")
+        .execute();
+      if (tradeUpdateResult.affected && tradeUpdateResult.affected > 0) {
+        this.logger.log(`Initialized strategy_label for ${tradeUpdateResult.affected} legacy trades`);
+      }
+    } catch (e: any) {
+      this.logger.error(`Failed to initialize legacy trade labels: ${e.message}`);
+    }
+
     // Wire balance updates to persistence (legacy/standalone updates)
     this.tradingSessionService.setBalanceUpdateCallback(async (balance, pnl) => {
       const sessionId = this.currentSessionId;
@@ -899,7 +913,7 @@ export class SessionService implements OnModuleInit {
   async getLifetimeAnalytics(mode: 'paper' | 'testnet' | 'live' = 'paper') {
     // 1. Fetch all closed trades across all sessions for the specific mode
     const trades = await this.tradeRepository.find({
-      select: ['pnl', 'exit_ts', 'status', 'strategy_config'],
+      select: ['pnl', 'exit_ts', 'status', 'strategy_config', 'strategy_label'],
       where: {
         status: In(TERMINAL_STATUSES as any),
       },
@@ -909,7 +923,7 @@ export class SessionService implements OnModuleInit {
     // Filter trades by mode
     const filteredTrades = trades.filter(t => {
         const tConfig = t.strategy_config || {};
-        const tMode = tConfig.trading_mode || (tConfig.paper_mode !== false ? 'paper' : 'live');
+        const tMode = tConfig.trading_mode || (tConfig.paper_mode === false ? 'live' : 'paper');
         return tMode === mode;
     });
 

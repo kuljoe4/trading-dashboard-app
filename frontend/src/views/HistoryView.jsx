@@ -372,7 +372,7 @@ export const HistoryView = () => {
           <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
              <TODPerformance data={currentAnalytics?.timeOfDay || []} />
           </div>
-        </div>
+        </motion.div>
 
         {sessionSummary && (
           <motion.div

@@ -308,7 +308,8 @@ export function DashboardView({ initialStrategy }) {
     updateConfig, gateState, gateReason, hibernating,
     scannerPaused, sessionList, fetchSessions, wsStatus,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
-    healthEnabled
+    healthEnabled,
+    sessionSummary, clearSessionSummary
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -336,7 +337,9 @@ export function DashboardView({ initialStrategy }) {
     isEcoMode: state.isEcoMode,
     entryCount: state.entryCount,
     hitCount: state.hitCount,
-    healthEnabled: state.healthEnabled
+    healthEnabled: state.healthEnabled,
+    sessionSummary: state.sessionSummary,
+    clearSessionSummary: state.clearSessionSummary
   }), shallow)
 
   useEffect(() => {
@@ -551,6 +554,49 @@ export function DashboardView({ initialStrategy }) {
           loading={loading}
         />
 
+        <AnimatePresence>
+        {sessionSummary && (
+        <ConfirmationModal
+          isOpen={!!sessionSummary}
+          onClose={clearSessionSummary}
+          onConfirm={clearSessionSummary}
+          title="Session Summary"
+          message={
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="space-y-4 py-2"
+            >
+              <div className="flex justify-between items-center border-b border-border/50 pb-2">
+                <span className="text-dim text-[10px] font-bold uppercase tracking-widest">Outcome</span>
+                <span className={cn("text-sm font-bold font-mono", (sessionSummary?.pnl || 0) >= 0 ? "text-green" : "text-red")}>
+                  {fmtUSD(sessionSummary?.pnl || 0)}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-3 bg-surface border border-border rounded-xl">
+                  <div className="text-dim text-[9px] font-bold uppercase tracking-widest mb-1">Total Hits</div>
+                  <div className="text-lg font-bold font-mono">{sessionSummary?.hits || 0}</div>
+                </div>
+                <div className="p-3 bg-surface border border-border rounded-xl">
+                  <div className="text-dim text-[9px] font-bold uppercase tracking-widest mb-1">Peak RR</div>
+                  <div className="text-lg font-bold font-mono text-accent">+{Number(sessionSummary?.peakRR || 0).toFixed(2)}</div>
+                </div>
+              </div>
+              {sessionSummary?.reason && (
+                <div className="p-4 bg-amber/10 border border-amber/20 rounded-xl">
+                   <div className="text-amber text-[9px] font-bold uppercase tracking-widest mb-1">Termination Reason</div>
+                   <div className="text-xs font-medium text-amber/90">{sessionSummary.reason}</div>
+                </div>
+              )}
+            </motion.div>
+          }
+          confirmText="Acknowledge"
+          loading={false}
+        />
+        )}
+        </AnimatePresence>
+
         {/* Header Bar */}
         <motion.div
           initial={{ y: -20, opacity: 0 }}
@@ -583,14 +629,22 @@ export function DashboardView({ initialStrategy }) {
               <button
                 onClick={() => setThrottled(!isThrottled)}
                 className={cn(
-                  "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2",
+                  "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2 relative overflow-hidden",
                   isThrottled
                     ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
                     : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
                 )}
               >
-                <Leaf size={18} fill={isThrottled ? "currentColor" : "none"} />
-                <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest">
+                {isThrottled && (
+                  <motion.div
+                    layoutId="eco-pulse"
+                    className="absolute inset-0 bg-green/5 animate-pulse"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                  />
+                )}
+                <Leaf size={18} fill={isThrottled ? "currentColor" : "none"} className={cn(isThrottled && "animate-bounce-subtle")} />
+                <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest relative z-10">
                   {isThrottled ? "Eco Active" : "Eco Mode"}
                 </span>
               </button>

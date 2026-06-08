@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import { pnlColor, fmtUSD } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
 import { DecisionLog } from '../components/DecisionLog'
@@ -22,7 +22,7 @@ const Breadcrumbs = ({ strategyLabel }) => (
 )
 
 const StrategyDetailView = ({ s, onBack }) => {
-  const { config, scannerResults, analytics, wsStatus } = useTradingStore()
+  const { config, scannerResults, analytics, wsStatus, isSyncing } = useTradingStore()
 
   // Lifecycle-scoped subscription contract
   useResourceFocus('strategy', s.strategy_label);
@@ -54,7 +54,7 @@ const StrategyDetailView = ({ s, onBack }) => {
           value={fmtUSD(s.activePnl)}
           color={s.activePnl >= 0 ? "text-green" : "text-red"}
           subValue={analytics === null ? "Synchronizing..." : `Total Session: ${fmtUSD(s.totalPnl)}`}
-          syncing={analytics === null && s.activePnl === 0}
+          syncing={isSyncing || (analytics === null && s.activePnl === 0)}
         />
         <StatCard label="Hit Count" value={(s.entryCount ?? 0).toString()} color="text-accent" />
         <StatCard label="SL Budget" value={`$${Number(s.totalSlUsed || 0).toFixed(0)} / $${config.total_sl_guard_usdt}`} color={s.totalSlUsed > config.total_sl_guard_usdt * 0.7 ? "text-amber" : "text-text"} />

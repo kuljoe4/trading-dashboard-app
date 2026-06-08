@@ -95,6 +95,24 @@ export const Sidebar = ({ selected }) => {
   )
 }
 
+export const MobileHealthBar = () => {
+  const { healthEnabled, monitoring, rateLimit, wsStatus, gateState, isEcoMode } = useTradingStore()
+  if (!healthEnabled) return null
+
+  return (
+    <div className="lg:hidden fixed top-0 left-0 right-0 bg-surface/80 backdrop-blur-md border-b border-border z-[60] px-4 py-2">
+      <SystemMetrics
+        monitoring={monitoring}
+        rateLimit={rateLimit}
+        wsStatus={wsStatus}
+        gateState={gateState}
+        isEcoMode={isEcoMode}
+        compact={true}
+      />
+    </div>
+  )
+}
+
 export const BottomNav = ({ selected }) => {
   const { wsStatus, monitoring, rateLimit, gateState, isEcoMode } = useTradingStore()
   const isActive = (path) => {
@@ -104,6 +122,7 @@ export const BottomNav = ({ selected }) => {
 
   return (
     <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-surface/90 backdrop-blur-md border-t border-border z-40">
+      <MobileHealthBar />
       <div className="flex justify-around items-center h-16">
         {[
           { path: '/', label: 'Cockpit', icon: LayoutDashboard },

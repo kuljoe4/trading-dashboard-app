@@ -29,71 +29,76 @@ const buildCurve = (trades = []) => {
   })
 }
 
-const TradeItem = React.memo(({ trade, session = {} }) => {
+const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
   const pnl = safeNum(trade.pnl)
   const isWin = pnl >= 0
   const durationMs = trade.exit_ts && trade.entry_ts ? new Date(trade.exit_ts).getTime() - new Date(trade.entry_ts).getTime() : 0
   const durationStr = durationMs ? (durationMs / 60000).toFixed(1) + 'm' : 'N/A'
 
   return (
-    <div className="flex items-center justify-between p-4 bg-surface border border-border/60 rounded-xl hover:border-border-hover transition-colors group/trade">
-      <div className="flex items-center gap-4">
-        <div className="flex flex-col">
-          <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-xs font-bold font-mono">{trade.symbol}</span>
-            <a href={`#/history?session=${trade.sessionId || session?.id}`} className="text-[8px] font-bold px-1.5 py-0.5 rounded border border-accent/20 bg-accent/10 text-accent uppercase">
-              {strategyLabel(trade)}
-            </a>
-            <span className={cn("text-[8px] font-bold px-1 py-0 rounded border uppercase", trade.direction?.toLowerCase() === 'long' ? "text-green border-green/20" : "text-red border-red/20")}>
-              {trade.direction}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] text-dim font-mono">{new Date(trade.entry_ts || trade.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-            <span className="text-[9px] text-dim/40 font-mono">·</span>
-            <Tooltip content={
-              <div className="flex flex-col gap-1">
-                <div>Entry: {new Date(trade.entry_ts || trade.createdAt).toLocaleString()}</div>
-                <div>Exit: {trade.exit_ts ? new Date(trade.exit_ts).toLocaleString() : 'Open'}</div>
-              </div>
-            }>
-              <span className="text-[9px] text-dim font-mono flex items-center gap-1 cursor-help">
-                <Clock size={8} /> {durationStr}
+    <div className="flex flex-col gap-3 p-4 bg-surface border border-border/60 rounded-xl hover:border-border-hover transition-colors group/trade">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="text-xs font-bold font-mono">{trade.symbol}</span>
+              {showStrategy && (
+                <a href={`#/history?session=${trade.sessionId || session?.id}`} className="text-[8px] font-bold px-1.5 py-0.5 rounded border border-accent/20 bg-accent/10 text-accent uppercase">
+                  {strategyLabel(trade)}
+                </a>
+              )}
+              <span className={cn("text-[8px] font-bold px-1 py-0 rounded border uppercase", trade.direction?.toLowerCase() === 'long' ? "text-green border-green/20" : "text-red border-red/20")}>
+                {trade.direction}
               </span>
-            </Tooltip>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] text-dim font-mono">{new Date(trade.entry_ts || trade.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              <span className="text-[9px] text-dim/40 font-mono">·</span>
+              <Tooltip content={
+                <div className="flex flex-col gap-1">
+                  <div>Entry: {new Date(trade.entry_ts || trade.createdAt).toLocaleString()}</div>
+                  <div>Exit: {trade.exit_ts ? new Date(trade.exit_ts).toLocaleString() : 'Open'}</div>
+                </div>
+              }>
+                <span className="text-[9px] text-dim font-mono flex items-center gap-1 cursor-help">
+                  <Clock size={8} /> {durationStr}
+                </span>
+              </Tooltip>
+            </div>
           </div>
         </div>
+        <div className="flex flex-col items-end min-w-[70px]">
+          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Result</span>
+          <span className={cn("text-xs font-bold font-mono", isWin ? "text-green" : "text-red")}>
+            {fmtUSD(pnl)}
+          </span>
+        </div>
       </div>
-      <div className="flex gap-6 md:gap-10 text-right items-center">
-        <div className="hidden xl:flex flex-col">
+
+      <div className="flex items-center justify-between pt-3 border-t border-border/10">
+        <div className="flex flex-col">
           <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Entry/Exit</span>
           <span className="text-[10px] font-bold text-dim font-mono">{price(trade.entry_price)} → {price(trade.exit_price)}</span>
         </div>
-        <div className="hidden md:flex flex-col">
+        <div className="flex flex-col items-center">
           <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Size</span>
           <span className="text-[10px] font-bold text-dim font-mono">{Number(trade.qty || 0).toFixed(2)}</span>
         </div>
-        <div className="hidden sm:flex flex-col">
+        <div className="flex flex-col items-center">
           <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Max RR</span>
           <span className="text-[10px] font-bold text-accent font-mono">{Number(trade.max_rr_achieved || 0).toFixed(2)}R</span>
         </div>
-        <div className="hidden sm:flex flex-col">
+        <div className="flex flex-col items-end max-w-[120px]">
           <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Trigger</span>
-          <span className="text-[10px] font-bold text-dim/80 uppercase">
+          <span className="text-[9px] font-bold text-dim/80 uppercase text-right">
             {trade.exit_signal_type ? (
               <span className="flex flex-col items-end">
-                <span className="text-accent">{trade.exit_signal_type.replace(/_/g, ' ')}</span>
-                <span className="text-[8px] text-dim/60 normal-case">{trade.exit_reason || trade.exit_signal_reason}</span>
+                <span className="text-accent leading-tight">{trade.exit_signal_type.replace(/_/g, ' ')}</span>
+                <span className="text-[8px] text-dim/60 normal-case font-medium truncate w-full">{trade.exit_reason || trade.exit_signal_reason}</span>
               </span>
             ) : (
               trade.exit_reason || 'Manual'
             )}
-          </span>
-        </div>
-        <div className="flex flex-col min-w-[70px]">
-          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Result</span>
-          <span className={cn("text-xs font-bold font-mono", isWin ? "text-green" : "text-red")}>
-            {fmtUSD(pnl)}
           </span>
         </div>
       </div>
@@ -184,7 +189,7 @@ const SessionGroup = React.memo(({ session, trades, colorDrawdown }) => {
                 <div className="py-8 text-center text-[11px] text-dim font-bold uppercase tracking-widest">No trades recorded for this session</div>
               ) : (
                 trades.map((trade) => (
-                  <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} session={session} />
+                  <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} session={session} showStrategy={false} />
                 ))
               )}
             </div>
@@ -201,8 +206,7 @@ const PAGE_SIZE = 5
 export const HistoryView = () => {
   const { tradeHistory, updateStats, sessionSummary, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics } = useTradingStore()
   const [fullAnalytics, setFullAnalytics] = useState(null)
-  const [isLifetime, setIsLifetime] = useState(false)
-  const [lifetimeMode, setLifetimeMode] = useState('paper')
+  const [lifetimeMode, setLifetimeMode] = useState(localStorage.getItem('history_trade_mode') || 'paper')
   const [loading, setLoading] = useState(true)
   const [visibleSessions, setVisibleSessions] = useState(PAGE_SIZE)
   const [colorDrawdown, setColorDrawdown] = useState(true)
@@ -231,12 +235,12 @@ export const HistoryView = () => {
     return tradeHistory.filter(t => !t.sessionId || !sessionIds.has(t.sessionId))
   }, [sessionList, tradeHistory])
 
-  const currentAnalytics = isLifetime ? lifetimeAnalytics : fullAnalytics
+  const currentAnalytics = lifetimeAnalytics
 
-  const totalPnl = currentAnalytics?.cumulativePnL?.length ? safeNum(currentAnalytics.cumulativePnL[currentAnalytics.cumulativePnL.length - 1].pnl) : (isLifetime ? 0 : tradeHistory.reduce((sum, trade) => sum + safeNum(trade.pnl), 0))
-  const totalTrades = currentAnalytics?.totalTrades || (isLifetime ? 0 : tradeHistory.length)
-  const wins = currentAnalytics ? Math.round((safeNum(currentAnalytics.overallWinRate) / 100) * totalTrades) : tradeHistory.filter((trade) => safeNum(trade.pnl) > 0).length
-  const winRate = currentAnalytics ? Math.round(currentAnalytics.overallWinRate) : (tradeHistory.length ? Math.round((wins / tradeHistory.length) * 100) : 0)
+  const totalPnl = currentAnalytics?.cumulativePnL?.length ? safeNum(currentAnalytics.cumulativePnL[currentAnalytics.cumulativePnL.length - 1].pnl) : 0
+  const totalTrades = currentAnalytics?.totalTrades || 0
+  const wins = currentAnalytics ? Math.round((safeNum(currentAnalytics.overallWinRate) / 100) * totalTrades) : 0
+  const winRate = currentAnalytics ? Math.round(currentAnalytics.overallWinRate) : 0
   const avgPnl = totalTrades ? totalPnl / totalTrades : 0
 
   useEffect(() => {
@@ -280,56 +284,29 @@ export const HistoryView = () => {
           </div>
           <div className="flex items-center gap-3 self-end sm:self-auto">
              <span className="text-[9px] text-dim font-bold uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50 whitespace-nowrap">
-               {isLifetime ? 'Recent 200 Trades' : 'Latest 50 Trades'}
+               Latest 200 Trades
              </span>
           </div>
         </div>
 
         <div className="flex flex-col md:flex-row md:items-center gap-4 mb-8">
           <div className="flex items-center gap-2 p-1 bg-surface border border-border rounded-xl w-fit">
-            <button
-              onClick={() => setIsLifetime(false)}
-              className={cn(
-                "px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
-                !isLifetime ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:text-text"
-              )}
-            >
-              Current Session
-            </button>
-            <button
-              onClick={() => setIsLifetime(true)}
-              className={cn(
-                "px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
-                isLifetime ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:text-text"
-              )}
-            >
-              Lifetime Performance
-            </button>
-          </div>
-
-          <AnimatePresence>
-            {isLifetime && (
-              <motion.div
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -10 }}
-                className="flex items-center gap-2 p-1 bg-surface border border-border rounded-xl w-fit"
+            {['paper', 'testnet', 'live'].map(m => (
+              <button
+                key={m}
+                onClick={() => {
+                  setLifetimeMode(m);
+                  localStorage.setItem('history_trade_mode', m);
+                }}
+                className={cn(
+                  "px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
+                  lifetimeMode === m ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:text-text"
+                )}
               >
-                {['paper', 'testnet', 'live'].map(m => (
-                  <button
-                    key={m}
-                    onClick={() => setLifetimeMode(m)}
-                    className={cn(
-                      "px-3 py-2 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all",
-                      lifetimeMode === m ? "bg-surface-lighter border border-accent/20 text-accent" : "text-dim hover:text-text"
-                    )}
-                  >
-                    {m}
-                  </button>
-                ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
+                {m}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">

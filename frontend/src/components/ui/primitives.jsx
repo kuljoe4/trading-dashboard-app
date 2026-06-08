@@ -38,25 +38,27 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
 
   return (
     <div
-      className="bg-surface border border-border p-5 md:p-6 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.02] transition-all group relative overflow-hidden flex flex-col justify-center min-h-[90px] md:min-h-[110px]"
+      className="bg-surface border border-border p-3 md:p-6 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.02] transition-all group relative overflow-hidden flex flex-col justify-center min-h-[60px] md:min-h-[110px]"
       role="region"
       aria-label={`${label}: ${value}`}
     >
       {syncing && (
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />
       )}
-      <div className="text-[10px] md:text-[11px] text-dim tracking-[0.15em] mb-2 md:mb-3 uppercase font-bold group-hover:text-dim/80 transition-colors" aria-hidden="true">{label}</div>
-      <div className={cn(
-        "text-xl md:text-2xl font-bold font-mono tracking-tight transition-all duration-500",
-        color,
-        syncing && "opacity-40 blur-[1px]"
-      )}>{sanitizedValue}</div>
+      <div className="flex flex-row md:flex-col items-center md:items-start justify-between md:justify-start gap-2">
+        <div className="text-[7px] md:text-[11px] text-dim tracking-[0.15em] md:mb-3 uppercase font-bold group-hover:text-dim/80 transition-colors shrink-0" aria-hidden="true">{label}</div>
+        <div className={cn(
+          "text-sm md:text-2xl font-bold font-mono tracking-tight transition-all duration-500",
+          color,
+          syncing && "opacity-40 blur-[1px]"
+        )}>{sanitizedValue}</div>
+      </div>
       {subValue && (
         <div className={cn(
-          "text-[11px] text-dim mt-2.5 font-mono font-bold uppercase flex items-center gap-1.5",
+          "text-[8px] md:text-[11px] text-dim mt-1 md:mt-2.5 font-mono font-bold uppercase flex items-center gap-1.5",
           syncing && "text-accent/60 animate-pulse"
         )}>
-          {syncing && <Loader2 size={12} className="animate-spin" aria-hidden="true" />}
+          {syncing && <Loader2 size={8} className="animate-spin" aria-hidden="true" />}
           {subValue}
         </div>
       )}

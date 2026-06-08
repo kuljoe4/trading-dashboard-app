@@ -3,6 +3,7 @@ import { cn } from './ui/primitives'
 import { fmtUSD, pnlColor } from '../lib/theme'
 import { sessionAPI } from '../api/client'
 import { ShieldCheck } from 'lucide-react'
+import { motion } from 'framer-motion'
 
 export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
   const handleKeyDown = (e) => {
@@ -38,7 +39,9 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
   }
 
   return (
-    <div
+    <motion.div
+      layout
+      whileHover={{ scale: 1.01 }}
       onClick={onClick}
       onKeyDown={handleKeyDown}
       role="button"
@@ -46,26 +49,29 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
       className="bg-surface border border-border rounded-2xl p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/40 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.98]"
       aria-label={`View details for ${trade.symbol} ${trade.direction} trade, ${fmtUSD(trade.pnl)} P&L, ${Number(trade.rr || 0).toFixed(2)} RR`}
     >
-      <div className="flex items-center justify-between">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2 text-sm font-bold">
-            <span className="font-mono">{trade.symbol || '---'}</span>
-            <span className={isLong ? 'text-green' : 'text-red'}>{trade.direction || '---'}</span>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <div className="flex items-center gap-1.5 text-xs md:text-sm font-bold">
+            <span className="font-mono truncate">{trade.symbol || '---'}</span>
+            <span className={cn("text-[9px] md:text-xs", isLong ? 'text-green' : 'text-red')}>{trade.direction || '---'}</span>
           </div>
           {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
             <div className="flex items-center gap-1">
-              <ShieldCheck size={10} className="text-accent" />
-              <span className="text-[9px] font-bold text-accent uppercase tracking-tighter">Monitored</span>
+              <ShieldCheck size={8} className="text-accent" />
+              <span className="text-[8px] font-bold text-accent uppercase tracking-tighter">Monitored</span>
             </div>
           )}
         </div>
 
-        <div className="flex flex-col items-end">
-          <div className={`text-base md:text-lg font-bold font-mono ${trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlColor(trade.pnl) : 'text-dim'}`}>
+        <div className="flex flex-row md:flex-col items-center md:items-end gap-2 md:gap-0.5">
+          <div className={cn(
+            "text-xs md:text-lg font-bold font-mono",
+            trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlColor(trade.pnl) : 'text-dim'
+          )}>
             {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
           </div>
-          <div className="text-[10px] font-bold font-mono text-dim mt-0.5">
-            {Number(trade.rr || 0).toFixed(2)} RR
+          <div className="text-[8px] md:text-[10px] font-bold font-mono text-dim uppercase tracking-wider bg-white/5 md:bg-transparent px-1.5 py-0.5 md:p-0 rounded md:rounded-none">
+            {Number(trade.rr || 0).toFixed(2)}R
           </div>
         </div>
       </div>
@@ -104,7 +110,7 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
           <span>{isLong ? 'TP' : 'SL'}</span>
         </div>
       </div>
-    </div>
+    </motion.div>
   )
 }
 

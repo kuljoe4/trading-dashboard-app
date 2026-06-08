@@ -39,6 +39,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
   return (
     <motion.div
       layout
+      whileHover={{ scale: 1.01 }}
       onClick={onClick}
       className={cn(
         "bg-surface border border-border rounded-2xl p-6 cursor-pointer transition-all relative group shadow-sm h-full",
@@ -604,17 +605,7 @@ export function DashboardView({ initialStrategy }) {
               </button>
             </Tooltip>
 
-            {!sessionActive ? (
-              <Btn
-                variant="success"
-                onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
-                disabled={loading}
-                className="flex-1 sm:flex-none"
-                aria-label="Start a new trading session"
-              >
-                <Plus size={16} className="mr-2" /> New Session
-              </Btn>
-            ) : (
+            {sessionActive && (
               <Btn
                 variant="danger"
                 onClick={() => setConfirmStop(true)}
@@ -712,11 +703,11 @@ export function DashboardView({ initialStrategy }) {
                 ) : (
                   <button
                     onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
-                    disabled={loading}
+                    disabled={loading || isSyncing}
                     aria-label="Create new trading session"
                     className={cn(
                       "bg-background border-2 border-dashed border-border rounded-2xl p-10 flex flex-col items-center justify-center gap-4 text-dim transition-all group h-[256px]",
-                      loading ? "opacity-40 grayscale cursor-not-allowed" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
+                      (loading || isSyncing) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
                     )}
                   >
                     <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
@@ -803,33 +794,16 @@ export function DashboardView({ initialStrategy }) {
         </Drawer.Root>
 
         {/* Mobile Floating Controls */}
-        <div className="lg:hidden fixed bottom-24 right-6 flex flex-col gap-4 z-40">
-          {!sessionActive && (
-            <Tooltip content="Start New Session" side="left">
-              <motion.button
-                whileHover={loading ? {} : { scale: 1.1 }}
-                whileTap={loading ? {} : { scale: 0.9 }}
-                onClick={() => { if (!loading) { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); } }}
-                disabled={loading}
-                aria-label="Start New Session"
-                className={cn(
-                  "w-14 h-14 rounded-full bg-green text-white shadow-2xl flex items-center justify-center animate-in fade-in zoom-in duration-500 transition-all",
-                  loading && "opacity-40 grayscale cursor-not-allowed"
-                )}
-              >
-                <Plus size={28} />
-              </motion.button>
-            </Tooltip>
-          )}
+        <div className="lg:hidden fixed bottom-24 right-6 flex flex-col gap-4 z-[100]">
           <Tooltip content="Open Market Scanner" side="left">
             <motion.button
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
               onClick={() => setShowScanner(true)}
               aria-label="Open Market Scanner"
-              className="w-16 h-16 rounded-full bg-accent text-white shadow-2xl flex items-center justify-center animate-in fade-in zoom-in duration-500"
+              className="w-10 h-10 rounded-full bg-accent text-white shadow-2xl flex items-center justify-center animate-in fade-in zoom-in duration-500"
             >
-              <Zap size={28} />
+              <Zap size={20} />
             </motion.button>
           </Tooltip>
         </div>

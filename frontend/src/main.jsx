@@ -6,7 +6,6 @@ import { useTradingStore } from './store/trading';
 import api, { sessionAPI, setAdminApiKey, initializeAuth } from './api/client';
 import { useVisibility } from './hooks/useVisibility';
 import { AuthOverlay } from './components/AuthOverlay';
-import { Notifications } from './components/Notifications';
 import './index.css';
 
 const DashboardView = lazy(() => import('./views/DashboardView').then(m => ({ default: m.DashboardView })));
@@ -26,7 +25,7 @@ const LoadingView = () => (
 
 const App = () => {
   const { 
-    setSessionActive, updateStats, setThrottled, debugToolsEnabled, addNotification
+    setSessionActive, updateStats, setThrottled, debugToolsEnabled
   } = useTradingStore();
 
   const isHidden = useVisibility();
@@ -52,15 +51,7 @@ const App = () => {
 
   useEffect(() => {
     setThrottled(isHidden);
-    if (!isHidden) {
-      addNotification({
-        title: 'Syncing Session',
-        message: 'Resuming real-time market data feed...',
-        type: 'info',
-        duration: 2000
-      });
-    }
-  }, [isHidden, setThrottled, addNotification]);
+  }, [isHidden, setThrottled]);
 
   useEffect(() => {
     let script = null;
@@ -182,7 +173,6 @@ const App = () => {
   return (
     <TooltipProvider delayDuration={400}>
       <AuthOverlay />
-      <Notifications />
       <div className="min-h-screen bg-background text-text font-sans selection:bg-accent selection:text-white">
         <Suspense fallback={<LoadingView />}>
           {renderView()}

@@ -33,13 +33,11 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
     setIsClosing(true)
     try {
       await onTradeClose(symbol)
-      // We don't close the modal here immediately.
-      // The WebSocket will naturally remove the trade, which will cause this modal to close via parent state.
-      // If we want to keep it open until the confirmation of 'closed' event, we should NOT call onClose().
+      onClose()
     } catch (e) {
       console.error('Failed to force close trade from modal:', e)
+    } finally {
       setIsClosing(false)
-      setConfirmClose(false)
     }
   }
 

@@ -14,7 +14,12 @@ describe('OrderManagerService Atomicity', () => {
       checkEntry: jest.fn(),
     };
     mockMarketFeed = {
-      getSymbolFilters: jest.fn().mockReturnValue(null),
+      getSymbolFilters: jest.fn().mockImplementation((symbol) => {
+        if (symbol === 'BTCUSDT' || symbol === 'TRADABLE') {
+          return { filters: [] };
+        }
+        return null;
+      }),
     };
     mockTradingSession = {
       isRateLimited: jest.fn().mockReturnValue(false),

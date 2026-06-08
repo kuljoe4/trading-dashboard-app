@@ -42,6 +42,7 @@ export class SignalEngineService {
     interval: string = '1m',
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
+    minimal: boolean = false,
   ): { allFired: boolean; firedSignals: string[]; reason: string; details?: Record<string, SignalDetail> } {
     if (!config.enabled_signals || config.enabled_signals.length === 0) {
       return {
@@ -54,11 +55,13 @@ export class SignalEngineService {
     const firedSignals: string[] = [];
     const failedSignals: string[] = [];
     const details: Record<string, SignalDetail> = {};
+    const logic = config.signal_logic || 'all';
 
     for (const signalType of config.enabled_signals) {
       const handler = this.signalHandlers[signalType];
       if (!handler) {
         failedSignals.push(signalType);
+        if (minimal && logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
         continue;
       }
 
@@ -66,25 +69,30 @@ export class SignalEngineService {
         const result = handler(symbol, config, interval, side, purpose);
         const fired = typeof result === 'boolean' ? result : result.fired;
         
-        if (typeof result !== 'boolean') {
+        if (!minimal && typeof result !== 'boolean') {
           details[signalType] = result;
         }
 
         if (fired) {
           firedSignals.push(signalType);
+          if (minimal && logic === 'any') return { allFired: true, firedSignals: [], reason: 'minimal' };
         } else {
           failedSignals.push(signalType);
+          if (minimal && logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
         }
       } catch (error) {
         this.logger.warn(`Signal ${signalType} error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
         failedSignals.push(signalType);
+        if (minimal && logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
       }
     }
 
-    const logic = config.signal_logic || 'all';
     const allFired = logic === 'any'
       ? firedSignals.length > 0
       : failedSignals.length === 0;
+
+    if (minimal) return { allFired, firedSignals: [], reason: 'minimal' };
+
     const reason =
       `Signals fired: ${firedSignals.length}/${config.enabled_signals.length}` +
       (firedSignals.length > 0 ? ` (${firedSignals.join(', ')})` : '') +
@@ -434,7 +442,7 @@ export class SignalEngineService {
 
     for (let i = period; i < candles.length; i++) {
       prevEma = ema;
-      ema = candles[i].close * multiplier + ema * (1 - multiplier);
+      ema += multiplier * (candles[i].close - ema);
     }
 
     if (Number.isNaN(prevEma)) return null;
@@ -480,7 +488,7 @@ export class SignalEngineService {
     let ema = this.calculateSMA(candles, startIndex, period);
 
     for (let i = period; i < candles.length; i++) {
-      ema = candles[i].close * multiplier + ema * (1 - multiplier);
+      ema += multiplier * (candles[i].close - ema);
     }
 
     return { value: ema, insufficientData };

@@ -143,6 +143,13 @@ export class MomentumScannerService {
     interval: string,
     config: SessionConfig,
   ): { opp: Opportunity, candles: Candle[] } | null {
+    // BOLT OPTIMIZATION: Filter out symbols that are not in the current exchange info (e.g. not on Testnet)
+    // before performing any calculations.
+    const filters = this.marketFeed.getSymbolFilters(symbol);
+    if (!filters) {
+      return null;
+    }
+
     // Get recent candles for momentum calculation
     const lookback = Math.max(config.scan_lookback || 1, 1);
     const candles = this.klineStore.getRawCandles(symbol, interval);
@@ -185,12 +192,6 @@ export class MomentumScannerService {
       momentumPct,
       config,
     );
-
-    // Filter out symbols that are not in the current exchange info (e.g. not on Testnet)
-    const filters = this.marketFeed.getSymbolFilters(symbol);
-    if (!filters) {
-      return null;
-    }
 
     // Get current price and volume
     // BOLT OPTIMIZATION: Use O(1) ticker lookup instead of O(N) array search

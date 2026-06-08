@@ -101,7 +101,7 @@ export class ExecutionService {
       const sc = symbolConfigMap?.get(opp.symbol);
       const symbolConfig = (sc?.use_custom_config && sc.custom_config) ? { ...config, ...sc.custom_config } as SessionConfig : config;
 
-      const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry');
+      const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry', true);
       if (!signalResult.allFired) continue;
 
       const activeTrades = this.positionTracker.activeList();

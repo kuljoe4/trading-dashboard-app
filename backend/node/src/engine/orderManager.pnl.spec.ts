@@ -52,7 +52,7 @@ describe('OrderManagerService - PnL Consistency', () => {
       qty: 0.1,
       entry_price: 50000,
       realized_fee: 2.0, // Initial fee (0.04% of 50000 * 0.1)
-      binance_order_id: 'mock_order_id',
+      binance_order_id: 'entry_id',
       binance_stop_order_id: 'sl_order_id',
       status: 'OPEN'
     } as Trade;

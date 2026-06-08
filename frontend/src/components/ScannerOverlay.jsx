@@ -1,6 +1,6 @@
 import React from 'react'
 import { fmtVol } from '../lib/theme'
-import { PulseDot, Sparkline, cn } from './ui/primitives'
+import { PulseDot, Sparkline, cn, CopyButton } from './ui/primitives'
 import { useTradingStore } from '../store/trading'
 import { X, Search, ShieldCheck } from 'lucide-react'
 
@@ -78,7 +78,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
             return (
               <div key={opp.symbol}
                 className={cn(
-                  "grid grid-cols-[30px_1fr_80px_60px] md:grid-cols-[30px_100px_1fr_60px_1fr_1fr_50px] items-center px-4 py-3 border-b border-border/50 transition-all h-[64px]",
+                  "grid grid-cols-[30px_1fr_80px_60px] md:grid-cols-[30px_100px_1fr_60px_1fr_1fr_50px] items-center px-4 py-3 border-b border-border/50 transition-all h-[64px] group",
                   !passing && "opacity-45 grayscale-[0.5]",
                   isSingleMonitor && "bg-accent/5",
                   passing && "hover:bg-white/5 active:bg-white/10"
@@ -88,6 +88,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                    <div className="flex items-baseline gap-0.5">
                      <span className="text-[14px] font-bold font-mono truncate">{opp.symbol.replace("USDT", "")}</span>
                      <span className="text-[9px] text-dim font-mono opacity-50">/U</span>
+                     <CopyButton value={opp.symbol} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ml-1" />
                    </div>
                    {isSingleMonitor && (
                      <div className="flex items-center gap-1 mt-0.5">

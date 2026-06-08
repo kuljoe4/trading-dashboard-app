@@ -71,11 +71,14 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   sessionActive: false, sessionPaused: false, strategyId: null, balance: 10000, totalPnl: 0, totalRiskPct: 0, totalSlUsed: 0,
   activeTrades: [], logs: [], logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
   gateState: null, gateReason: null, hibernating: false, scannerPaused: false, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
+  sessionSummary: null,
   rateLimit: { used_weight_1m: 0, limit: ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT, used_pct: 0 }, config: defaultConfig,
   sidebarCollapsed: localStorage.getItem('sidebar_collapsed') === 'true', 
   healthEnabled: localStorage.getItem('health_enabled') !== 'false',
   streamingEnabled: localStorage.getItem('streaming_enabled') !== 'false',
+  debugToolsEnabled: localStorage.getItem('debug_tools_enabled') === 'true',
   isThrottled: false, entryCount: 0, hitCount: 0,
+  notifications: [],
   
   _subscriptions: { trades: new Map(), strategies: new Map(), globalTrades: 0, scanner: 0 },
   _focusTimer: null,
@@ -113,12 +116,21 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   toggleSidebar: () => { const n = !get().sidebarCollapsed; localStorage.setItem('sidebar_collapsed', n); set({ sidebarCollapsed: n }); },
   setHealthEnabled: (e) => { localStorage.setItem('health_enabled', e); set({ healthEnabled: e }); },
   setStreamingEnabled: (e) => { localStorage.setItem('streaming_enabled', e); set({ streamingEnabled: e }); },
+  setDebugToolsEnabled: (e) => { localStorage.setItem('debug_tools_enabled', e); set({ debugToolsEnabled: e }); },
   toggleLogFilter: (level) => set((st) => ({ logFilters: { ...st.logFilters, [level]: !st.logFilters[level] } })),
   setThrottled: (t) => { set({ isThrottled: t }); const ws = get().ws; if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_active', active: !t })); },
   setFocusMode: (f, tid = null, s = null) => { const ws = get().ws; if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: f, tradeId: tid, strategyLabel: s })); },
   setSessionActive: (a, id) => { set({ sessionActive: a, strategyId: id }); if (a) get().connectWS(); else get().disconnectWS(); },
   fetchSessions: async () => { try { const r = await sessionAPI.list(); set({ sessionList: r.data }); } catch (e) {} },
   fetchLifetimeAnalytics: async (m = 'paper') => { try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} },
+  resetPaperBalance: async () => { try { await sessionAPI.resetPaperBalance(); } catch (e) {} },
+  clearSessionSummary: () => set({ sessionSummary: null }),
+  addNotification: (n) => {
+    const id = Math.random().toString(36).substring(2, 9);
+    set(st => ({ notifications: [...st.notifications, { ...n, id }] }));
+    if (n.duration !== 0) setTimeout(() => get().removeNotification(id), n.duration || 3000);
+  },
+  removeNotification: (id) => set(st => ({ notifications: st.notifications.filter(x => x.id !== id) })),
   updateStats: (s) => set((st) => ({ ...st, ...s })),
   updateConfig: (c) => {
     if (c.trading_mode) {
@@ -145,8 +157,10 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
         set((st) => {
           const stop = d.status === 'stopped' || d.running === false;
           let nt = st.activeTrades; if (stop) nt = []; else if (d.activeTrades) { const m = new Map(st.activeTrades.map(t => [t.symbol, t])); nt = d.activeTrades.map(t => normalizeTrade(t, m.get(t.symbol))).filter(Boolean); }
-          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, scannerResults: d.scannerResults?.map(normalizeOpportunity) || st.scannerResults, activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: d.history?.map(t => normalizeTrade(t)).filter(Boolean) || st.tradeHistory, gateState: d.gateState ?? st.gateState, scannerPaused: d.scannerPaused ?? st.scannerPaused, config: d.config ? { ...st.config, ...d.config } : st.config };
+          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, scannerResults: d.scannerResults?.map(normalizeOpportunity) || st.scannerResults, activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: d.history?.map(t => normalizeTrade(t)).filter(Boolean) || st.tradeHistory, gateState: d.gateState ?? st.gateState, scannerPaused: d.scannerPaused ?? st.scannerPaused, config: d.config ? { ...st.config, ...d.config } : st.config, sessionSummary: d.summary || st.sessionSummary };
         });
+      } else if (d.type === 'session_terminated') {
+        set({ sessionActive: false, activeTrades: [], sessionSummary: d.summary || null });
       } else if (d.type === 'tick') {
         set((st) => {
           let nt = st.activeTrades; if (d.trades) { const m = new Map(st.activeTrades.map(t => [t.id, t])); d.trades.forEach(t => { const p = m.get(t.id); const n = normalizeTrade(t, p); if (n) m.set(t.id, n); }); if (d._heartbeat) { const ids = new Set(d.trades.map(t => t.id)); for (const id of m.keys()) if (!ids.has(id)) m.delete(id); } nt = Array.from(m.values()); }

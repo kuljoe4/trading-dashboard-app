@@ -7,7 +7,7 @@ import { useTradingStore } from '../store/trading'
 import { Sidebar, BottomNav } from '../components/Navigation'
 
 export function SettingsView() {
-  const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, sidebarCollapsed, logFilters, toggleLogFilter, resetPaperBalance, connectWS, disconnectWS } = useTradingStore()
+  const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, debugToolsEnabled, setDebugToolsEnabled, sidebarCollapsed, logFilters, toggleLogFilter, resetPaperBalance, connectWS, disconnectWS } = useTradingStore()
   const [adminApiKey, setAdminApiKeyValue] = useState(localStorage.getItem('MOMENTUM_ADMIN_API_KEY') || '')
   const [showAdminKey, setShowAdminKey] = useState(false)
   const [apiKey, setApiKey] = useState('')
@@ -235,6 +235,33 @@ export function SettingsView() {
                   <div className={cn(
                     "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
                     healthEnabled ? "translate-x-7" : "translate-x-1"
+                  )} />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between gap-4 pt-8 border-t border-border/50">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-purple/10 flex items-center justify-center">
+                    <Bug size={20} className="text-purple" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold uppercase tracking-tight">Debug Support Tools</h3>
+                    <p className="text-[11px] text-dim font-medium uppercase mt-1">Enable eruda mobile devtools on all views</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setDebugToolsEnabled(!debugToolsEnabled)}
+                  role="switch"
+                  aria-checked={debugToolsEnabled}
+                  aria-label="Toggle Debug Tools"
+                  className={cn(
+                    "w-12 h-6 rounded-full transition-colors relative shrink-0",
+                    debugToolsEnabled ? "bg-green" : "bg-border"
+                  )}
+                >
+                  <div className={cn(
+                    "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
+                    debugToolsEnabled ? "translate-x-7" : "translate-x-1"
                   )} />
                 </button>
               </div>

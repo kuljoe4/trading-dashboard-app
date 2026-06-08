@@ -14,7 +14,7 @@ const price = (value) => {
   return n >= 100 ? `$${n.toFixed(2)}` : `$${n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}`
 }
 
-const strategyLabel = (item = {}) => item.strategy_label || item.strategyLabel || item.config?.strategy_label || 'Momentum Strategy'
+const strategyLabel = (item = {}) => item.strategy_label || item.strategyLabel || item.config?.strategy_label || item.strategy_config?.strategy_label || 'Momentum Strategy'
 
 const safeNum = (v) => {
   const n = Number(v)
@@ -36,7 +36,7 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
   const durationStr = durationMs ? (durationMs / 60000).toFixed(1) + 'm' : 'N/A'
 
   return (
-    <div className="flex flex-col gap-3 p-4 bg-surface border border-border/60 rounded-xl hover:border-border-hover transition-colors group/trade">
+    <div className="flex flex-col gap-3 p-4 bg-surface border border-border/60 rounded-xl hover:border-border-hover transition-colors group/trade shadow-sm">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="flex flex-col">
@@ -75,22 +75,22 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
         </div>
       </div>
 
-      <div className="flex items-center justify-between pt-3 border-t border-border/10">
+      <div className="flex items-center justify-between pt-3 border-t border-border/20">
         <div className="flex flex-col">
-          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Entry/Exit</span>
-          <span className="text-[10px] font-bold text-dim font-mono">{price(trade.entry_price)} → {price(trade.exit_price)}</span>
+          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-0.5">Entry/Exit</span>
+          <span className="text-[11px] font-bold text-text/90 font-mono">{price(trade.entry_price)} → {price(trade.exit_price)}</span>
         </div>
         <div className="flex flex-col items-center">
-          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Size</span>
-          <span className="text-[10px] font-bold text-dim font-mono">{Number(trade.qty || 0).toFixed(2)}</span>
+          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-0.5">Size</span>
+          <span className="text-[11px] font-bold text-text/90 font-mono">{Number(trade.qty || 0).toFixed(2)}</span>
         </div>
         <div className="flex flex-col items-center">
-          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Max RR</span>
-          <span className="text-[10px] font-bold text-accent font-mono">{Number(trade.max_rr_achieved || 0).toFixed(2)}R</span>
+          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-0.5">Max RR</span>
+          <span className="text-[11px] font-bold text-accent font-mono">{Number(trade.max_rr_achieved || 0).toFixed(2)}R</span>
         </div>
         <div className="flex flex-col items-end max-w-[120px]">
-          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Trigger</span>
-          <span className="text-[9px] font-bold text-dim/80 uppercase text-right">
+          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-0.5">Trigger</span>
+          <span className="text-[10px] font-bold text-text/80 uppercase text-right leading-tight">
             {trade.exit_signal_type ? (
               <span className="flex flex-col items-end">
                 <span className="text-accent leading-tight">{trade.exit_signal_type.replace(/_/g, ' ')}</span>
@@ -232,6 +232,9 @@ export const HistoryView = () => {
 
   const orphans = useMemo(() => {
     const sessionIds = new Set(sessionList.map(s => s.id))
+    // Only show orphans that are not already matched to sessions in allSessionsWithTrades
+    // Actually allSessionsWithTrades already includes trades matched to existing sessions.
+    // Orphans are trades whose sessionId is missing or not in our session list.
     return tradeHistory.filter(t => !t.sessionId || !sessionIds.has(t.sessionId))
   }, [sessionList, tradeHistory])
 

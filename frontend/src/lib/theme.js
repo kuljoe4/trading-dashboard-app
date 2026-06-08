@@ -41,8 +41,9 @@ export const fmtUSD = (val) => {
   const formatter = (absN < 1 && absN > 0) ? usdFormatter4 : usdFormatter2;
   const formatted = formatter.format(absN);
 
-  // Audit Item 48: Arrow indicators for WCAG win/loss consistency
-  const prefix = n >= 0 ? '▲ +$' : '▼ -$';
+  // BOLT: Clean up visuals - use either arrow OR sign, not both (Double Negative issue)
+  // We'll keep the arrow as it's more distinct in the financial context.
+  const prefix = n >= 0 ? '▲ $' : '▼ $';
   return `${prefix}${formatted}`;
 };
 export const fmt = (n, d = 2) => {

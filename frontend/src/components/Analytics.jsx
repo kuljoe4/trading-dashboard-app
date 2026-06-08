@@ -96,17 +96,19 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
       onMouseLeave={handleMouseLeave}
     >
       {/* Header Info - Moved above chart plot to prevent overlap */}
-      <div className="flex items-start justify-between mb-6">
+      <div className="flex items-start justify-between mb-6 min-h-[64px]">
         <div className="flex flex-col gap-0.5">
           <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Cumulative P&L</span>
           <span className={cn("text-2xl font-bold font-mono tracking-tighter", currentPnl >= 0 ? "text-green" : "text-red")}>
             {fmtUSD(hoverData ? hoverData.pnl : currentPnl)}
           </span>
-          {hoverData?.ts && (
-            <span className="text-[9px] text-dim font-mono uppercase mt-1">
-              {new Date(hoverData.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-            </span>
-          )}
+          <div className="h-4"> {/* Fix CLS by pre-allocating space for date */}
+            {hoverData?.ts && (
+              <span className="text-[9px] text-dim font-mono uppercase mt-1">
+                {new Date(hoverData.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* High/Low Markers - Improved Contrast & Visibility */}

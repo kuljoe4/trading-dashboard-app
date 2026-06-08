@@ -55,7 +55,7 @@ const TradesView = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 lg:mb-12">
         <StatCard
           label="Active P&L"
           value={fmtUSD(activeTrades.reduce((acc, t) => acc + (t.pnl || 0), 0))}

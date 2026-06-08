@@ -30,7 +30,8 @@ describe('OrderManagerService Resilience', () => {
       mockSignalEngine as any,
       mockMarketFeed as any,
       mockSessionState as any,
-      mockAuditLog as any
+      mockAuditLog as any,
+      { emit: jest.fn() } as any
     );
 
     mockBinanceClient = {

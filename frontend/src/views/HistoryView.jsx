@@ -356,7 +356,12 @@ export const HistoryView = () => {
           <StatCard label="W/L Ratio" value={Number(currentAnalytics?.avgWinLossRatio || 0).toFixed(2)} color="text-accent" syncing={loading} />
         </motion.div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 lg:mb-10">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 lg:mb-10"
+        >
           <div className="lg:col-span-2 bg-surface border border-border rounded-2xl p-5 md:p-8 shadow-sm overflow-hidden relative">
              <div className="absolute top-6 right-6 z-20">
                <Tooltip content="Toggle Drawdown Visualization">

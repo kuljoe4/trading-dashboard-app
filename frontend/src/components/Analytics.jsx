@@ -16,7 +16,7 @@ const downsample = (data, threshold = 100) => {
   return result;
 };
 
-export const EquityCurve = ({ data = [], height = 180 }) => {
+export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) => {
   const gradientId = useId().replace(/:/g, '')
   const glowId = `${gradientId}-glow`
   const containerRef = useRef(null);
@@ -92,7 +92,6 @@ export const EquityCurve = ({ data = [], height = 180 }) => {
   }
 
   const currentPnl = data[data.length - 1].pnl;
-  const displayPnl = hoverData ? hoverData.pnl : currentPnl;
 
   return (
     <div
@@ -107,28 +106,30 @@ export const EquityCurve = ({ data = [], height = 180 }) => {
       onTouchEnd={handleMouseLeave}
     >
       {/* Header Info - Moved above chart plot to prevent overlap */}
-      <div className="flex items-start justify-between mb-6 min-h-[70px]">
+      <div className="flex items-start justify-between mb-6 min-h-[64px]">
         <div className="flex flex-col gap-0.5">
           <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Cumulative P&L</span>
-          <span className={cn("text-2xl font-bold font-mono tracking-tighter tabular-nums", displayPnl >= 0 ? "text-green" : "text-red")}>
-            {fmtUSD(displayPnl)}
+          <span className={cn("text-2xl font-bold font-mono tracking-tighter", currentPnl >= 0 ? "text-green" : "text-red")}>
+            {fmtUSD(hoverData ? hoverData.pnl : currentPnl)}
           </span>
-          <div className="h-5 flex items-center"> {/* Fix CLS by pre-allocating space for date and always showing latest if not hovering */}
-            <span className="text-[9px] text-dim font-mono uppercase tabular-nums">
-              {new Date(hoverData?.ts || data[data.length - 1]?.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-            </span>
+          <div className="h-4"> {/* Fix CLS by pre-allocating space for date */}
+            {hoverData?.ts && (
+              <span className="text-[9px] text-dim font-mono uppercase mt-1">
+                {new Date(hoverData.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
+            )}
           </div>
         </div>
 
-        {/* High/Low Markers - Improved Contrast & Visibility with Trend Matching Colors */}
-        <div className="flex flex-col items-end gap-2 pt-1">
-          <div className="flex items-center gap-3">
-             <span className="text-[9px] text-dim font-black uppercase tracking-widest opacity-60">High</span>
-             <span className={cn("text-[11px] font-bold font-mono tabular-nums", viewMax >= 0 ? "text-green" : "text-red")}>{fmtUSD(viewMax)}</span>
+        {/* High/Low Markers - Improved Contrast & Visibility */}
+        <div className="flex flex-col items-end gap-1.5 pt-1">
+          <div className="flex items-center gap-2">
+             <span className="text-[9px] text-dim font-bold uppercase tracking-tight">High</span>
+             <span className="text-[11px] text-text font-bold font-mono">{fmtUSD(viewMax)}</span>
           </div>
-          <div className="flex items-center gap-3">
-             <span className="text-[9px] text-dim font-black uppercase tracking-widest opacity-60">Low</span>
-             <span className={cn("text-[11px] font-bold font-mono tabular-nums", viewMin >= 0 ? "text-green" : "text-red")}>{fmtUSD(viewMin)}</span>
+          <div className="flex items-center gap-2">
+             <span className="text-[9px] text-dim font-bold uppercase tracking-tight">Low</span>
+             <span className="text-[11px] text-text font-bold font-mono">{fmtUSD(viewMin)}</span>
           </div>
         </div>
       </div>

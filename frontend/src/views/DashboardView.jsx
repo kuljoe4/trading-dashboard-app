@@ -406,6 +406,7 @@ export function DashboardView({ initialStrategy }) {
 
   async function handleConfigSave(newConfig) {
     setLoading(true)
+    useTradingStore.getState().setSyncing(true)
     setShowConfig(false)
     try {
       let finalConfig = newConfig;
@@ -432,6 +433,7 @@ export function DashboardView({ initialStrategy }) {
       alert(msg)
     } finally {
       setLoading(false)
+      useTradingStore.getState().setSyncing(false)
       setIsEditMode(false)
       setEditingVariantIndex(null)
     }
@@ -449,6 +451,7 @@ export function DashboardView({ initialStrategy }) {
     if (sessionList.length === 0) return;
     const last = sessionList[0];
     setLoading(true);
+    useTradingStore.getState().setSyncing(true);
     try {
       const res = await sessionAPI.start(last.config, last.paperMode, last.id);
       setSessionActive(true, res.data.strategyId || res.data.strategy_id);
@@ -456,11 +459,13 @@ export function DashboardView({ initialStrategy }) {
       alert('Failed to resume session');
     } finally {
       setLoading(false);
+      useTradingStore.getState().setSyncing(false);
     }
   }
 
   async function handleStop() {
     setLoading(true)
+    useTradingStore.getState().setSyncing(true)
     try {
       await sessionAPI.stop()
       setSessionActive(false, null)
@@ -470,6 +475,7 @@ export function DashboardView({ initialStrategy }) {
       await fetchSessions()
     } finally {
       setLoading(false)
+      useTradingStore.getState().setSyncing(false)
       setConfirmStop(false)
     }
   }
@@ -477,6 +483,7 @@ export function DashboardView({ initialStrategy }) {
   async function handleDeleteSession() {
     if (!sessionToDelete) return
     setLoading(true)
+    useTradingStore.getState().setSyncing(true)
     try {
       await sessionAPI.delete(sessionToDelete)
       await fetchSessions()
@@ -484,6 +491,7 @@ export function DashboardView({ initialStrategy }) {
       alert('Failed to delete session')
     } finally {
       setLoading(false)
+      useTradingStore.getState().setSyncing(false)
       setSessionToDelete(null)
     }
   }
@@ -704,8 +712,12 @@ export function DashboardView({ initialStrategy }) {
                 ) : (
                   <button
                     onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
+                    disabled={loading}
                     aria-label="Create new trading session"
-                    className="bg-background border-2 border-dashed border-border rounded-2xl p-10 flex flex-col items-center justify-center gap-4 text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all group h-[256px]"
+                    className={cn(
+                      "bg-background border-2 border-dashed border-border rounded-2xl p-10 flex flex-col items-center justify-center gap-4 text-dim transition-all group h-[256px]",
+                      loading ? "opacity-40 grayscale cursor-not-allowed" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
+                    )}
                   >
                     <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
                       <Plus size={24} />
@@ -795,11 +807,15 @@ export function DashboardView({ initialStrategy }) {
           {!sessionActive && (
             <Tooltip content="Start New Session" side="left">
               <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
+                whileHover={loading ? {} : { scale: 1.1 }}
+                whileTap={loading ? {} : { scale: 0.9 }}
+                onClick={() => { if (!loading) { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); } }}
+                disabled={loading}
                 aria-label="Start New Session"
-                className="w-14 h-14 rounded-full bg-green text-white shadow-2xl flex items-center justify-center animate-in fade-in zoom-in duration-500"
+                className={cn(
+                  "w-14 h-14 rounded-full bg-green text-white shadow-2xl flex items-center justify-center animate-in fade-in zoom-in duration-500 transition-all",
+                  loading && "opacity-40 grayscale cursor-not-allowed"
+                )}
               >
                 <Plus size={28} />
               </motion.button>

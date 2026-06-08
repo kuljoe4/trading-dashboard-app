@@ -309,7 +309,7 @@ export function DashboardView({ initialStrategy }) {
     updateConfig, gateState, gateReason, hibernating,
     scannerPaused, sessionList, fetchSessions, wsStatus,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
-    healthEnabled, isSyncing
+    healthEnabled, isSyncing, setSyncing
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -338,7 +338,8 @@ export function DashboardView({ initialStrategy }) {
     entryCount: state.entryCount,
     hitCount: state.hitCount,
     healthEnabled: state.healthEnabled,
-    isSyncing: state.isSyncing
+    isSyncing: state.isSyncing,
+    setSyncing: state.setSyncing
   }), shallow)
 
   useEffect(() => {
@@ -408,7 +409,7 @@ export function DashboardView({ initialStrategy }) {
 
   async function handleConfigSave(newConfig) {
     setLoading(true)
-    useTradingStore.getState().setSyncing(true)
+    setSyncing(true)
     setShowConfig(false)
     try {
       let finalConfig = newConfig;
@@ -435,7 +436,7 @@ export function DashboardView({ initialStrategy }) {
       alert(msg)
     } finally {
       setLoading(false)
-      useTradingStore.getState().setSyncing(false)
+      setSyncing(false)
       setIsEditMode(false)
       setEditingVariantIndex(null)
     }
@@ -453,7 +454,7 @@ export function DashboardView({ initialStrategy }) {
     if (sessionList.length === 0) return;
     const last = sessionList[0];
     setLoading(true);
-    useTradingStore.getState().setSyncing(true);
+    setSyncing(true);
     try {
       const res = await sessionAPI.start(last.config, last.paperMode, last.id);
       setSessionActive(true, res.data.strategyId || res.data.strategy_id);
@@ -461,13 +462,13 @@ export function DashboardView({ initialStrategy }) {
       alert('Failed to resume session');
     } finally {
       setLoading(false);
-      useTradingStore.getState().setSyncing(false);
+      setSyncing(false);
     }
   }
 
   async function handleStop() {
     setLoading(true)
-    useTradingStore.getState().setSyncing(true)
+    setSyncing(true)
     try {
       await sessionAPI.stop()
       setSessionActive(false, null)
@@ -477,7 +478,7 @@ export function DashboardView({ initialStrategy }) {
       await fetchSessions()
     } finally {
       setLoading(false)
-      useTradingStore.getState().setSyncing(false)
+      setSyncing(false)
       setConfirmStop(false)
     }
   }
@@ -485,7 +486,7 @@ export function DashboardView({ initialStrategy }) {
   async function handleDeleteSession() {
     if (!sessionToDelete) return
     setLoading(true)
-    useTradingStore.getState().setSyncing(true)
+    setSyncing(true)
     try {
       await sessionAPI.delete(sessionToDelete)
       await fetchSessions()
@@ -493,7 +494,7 @@ export function DashboardView({ initialStrategy }) {
       alert('Failed to delete session')
     } finally {
       setLoading(false)
-      useTradingStore.getState().setSyncing(false)
+      setSyncing(false)
       setSessionToDelete(null)
     }
   }

@@ -4,7 +4,7 @@ import { sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip } from '../components/ui/primitives'
 import { motion, AnimatePresence } from 'framer-motion'
-import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap, BarChart3, LineChart, Target } from 'lucide-react'
+import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap, BarChart3, LineChart, Target, Loader2 } from 'lucide-react'
 import { Sidebar, BottomNav } from '../components/Navigation'
 import { EquityCurve, TODPerformance } from '../components/Analytics'
 
@@ -290,40 +290,73 @@ export const HistoryView = () => {
         </div>
 
         <div className="flex flex-col md:flex-row md:items-center gap-4 mb-8">
-          <div className="flex items-center gap-2 p-1 bg-surface border border-border rounded-xl w-fit">
-            {['paper', 'testnet', 'live'].map(m => (
-              <button
-                key={m}
-                onClick={() => {
-                  setLifetimeMode(m);
-                  localStorage.setItem('history_trade_mode', m);
-                }}
-                className={cn(
-                  "px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
-                  lifetimeMode === m ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:text-text"
-                )}
-              >
-                {m}
-              </button>
-            ))}
+          <div className="flex items-center gap-2 p-1 bg-surface border border-border rounded-xl w-fit relative z-10">
+            {['paper', 'testnet', 'live'].map(m => {
+              const active = lifetimeMode === m;
+              return (
+                <button
+                  key={m}
+                  onClick={() => {
+                    setLifetimeMode(m);
+                    localStorage.setItem('history_trade_mode', m);
+                  }}
+                  className={cn(
+                    "px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all relative z-10",
+                    active ? "text-white" : "text-dim hover:text-text"
+                  )}
+                >
+                  {active && (
+                    <motion.div
+                      layoutId="activeTab"
+                      className="absolute inset-0 bg-accent rounded-lg shadow-lg shadow-accent/20 -z-10"
+                      transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                    />
+                  )}
+                  {m}
+                </button>
+              )
+            })}
           </div>
+          {loading && (
+            <motion.div
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="flex items-center gap-2 text-[10px] text-accent font-bold uppercase tracking-widest"
+            >
+              <Loader2 className="animate-spin" size={14} />
+              Switching Context...
+            </motion.div>
+          )}
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
-          <StatCard label="Total Performance" value={fmtUSD(totalPnl)} color={totalPnl >= 0 ? "text-green" : "text-red"} />
-          <StatCard label="Win Rate" value={`${winRate}%`} color="text-accent" subValue={`${wins} Wins / ${totalTrades - wins} Losses`} />
+        <motion.div
+          key={lifetimeMode}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+          className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8"
+        >
+          <StatCard label="Total Performance" value={fmtUSD(totalPnl)} color={totalPnl >= 0 ? "text-green" : "text-red"} syncing={loading} />
+          <StatCard label="Win Rate" value={`${winRate}%`} color="text-accent" subValue={`${wins} Wins / ${totalTrades - wins} Losses`} syncing={loading} />
           <StatCard
             label="Max Drawdown"
             value={currentAnalytics ? fmtUSD(-currentAnalytics.maxDrawdown) : '$0.00'}
             color="text-red"
             subValue={currentAnalytics ? `${Number(currentAnalytics.maxDrawdownPct || 0).toFixed(1)}% Peak-to-Valley` : '0%'}
+            syncing={loading}
           />
-          <StatCard label="Avg Win" value={fmtUSD(currentAnalytics?.avgWin || 0)} color="text-green" />
-          <StatCard label="Avg Loss" value={fmtUSD(-(currentAnalytics?.avgLoss || 0))} color="text-red" />
-          <StatCard label="W/L Ratio" value={Number(currentAnalytics?.avgWinLossRatio || 0).toFixed(2)} color="text-accent" />
-        </div>
+          <StatCard label="Avg Win" value={fmtUSD(currentAnalytics?.avgWin || 0)} color="text-green" syncing={loading} />
+          <StatCard label="Avg Loss" value={fmtUSD(-(currentAnalytics?.avgLoss || 0))} color="text-red" syncing={loading} />
+          <StatCard label="W/L Ratio" value={Number(currentAnalytics?.avgWinLossRatio || 0).toFixed(2)} color="text-accent" syncing={loading} />
+        </motion.div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
+        <motion.div
+          key={`charts-${lifetimeMode}`}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.6 }}
+          className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10"
+        >
           <div className="lg:col-span-2 bg-surface border border-border rounded-2xl p-6 shadow-sm overflow-hidden relative">
              <div className="flex items-center justify-end mb-2">
                <button
@@ -341,7 +374,7 @@ export const HistoryView = () => {
           <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
              <TODPerformance data={currentAnalytics?.timeOfDay || []} />
           </div>
-        </div>
+        </motion.div>
 
         {sessionSummary && (
           <motion.div

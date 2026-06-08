@@ -78,6 +78,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   streamingEnabled: localStorage.getItem('streaming_enabled') !== 'false',
   debugToolsEnabled: localStorage.getItem('debug_tools_enabled') === 'true',
   isThrottled: false, entryCount: 0, hitCount: 0,
+  notifications: [],
   
   _subscriptions: { trades: new Map(), strategies: new Map(), globalTrades: 0, scanner: 0 },
   _focusTimer: null,
@@ -124,6 +125,12 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   fetchLifetimeAnalytics: async (m = 'paper') => { try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} },
   resetPaperBalance: async () => { try { await sessionAPI.resetPaperBalance(); } catch (e) {} },
   clearSessionSummary: () => set({ sessionSummary: null }),
+  addNotification: (n) => {
+    const id = Math.random().toString(36).substring(2, 9);
+    set(st => ({ notifications: [...st.notifications, { ...n, id }] }));
+    if (n.duration !== 0) setTimeout(() => get().removeNotification(id), n.duration || 3000);
+  },
+  removeNotification: (id) => set(st => ({ notifications: st.notifications.filter(x => x.id !== id) })),
   updateStats: (s) => set((st) => ({ ...st, ...s })),
   updateConfig: (c) => {
     if (c.trading_mode) {

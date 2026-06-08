@@ -548,13 +548,19 @@ export function DashboardView({ initialStrategy }) {
           loading={loading}
         />
 
+        <AnimatePresence>
+        {sessionSummary && (
         <ConfirmationModal
           isOpen={!!sessionSummary}
           onClose={clearSessionSummary}
           onConfirm={clearSessionSummary}
           title="Session Summary"
           message={
-            <div className="space-y-4 py-2">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="space-y-4 py-2"
+            >
               <div className="flex justify-between items-center border-b border-border/50 pb-2">
                 <span className="text-dim text-[10px] font-bold uppercase tracking-widest">Outcome</span>
                 <span className={cn("text-sm font-bold font-mono", (sessionSummary?.pnl || 0) >= 0 ? "text-green" : "text-red")}>
@@ -577,11 +583,13 @@ export function DashboardView({ initialStrategy }) {
                    <div className="text-xs font-medium text-amber/90">{sessionSummary.reason}</div>
                 </div>
               )}
-            </div>
+            </motion.div>
           }
           confirmText="Acknowledge"
           loading={false}
         />
+        )}
+        </AnimatePresence>
 
         {/* Header Bar */}
         <motion.div
@@ -615,14 +623,22 @@ export function DashboardView({ initialStrategy }) {
               <button
                 onClick={() => setThrottled(!isThrottled)}
                 className={cn(
-                  "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2",
+                  "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2 relative overflow-hidden",
                   isThrottled
                     ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
                     : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
                 )}
               >
-                <Leaf size={18} fill={isThrottled ? "currentColor" : "none"} />
-                <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest">
+                {isThrottled && (
+                  <motion.div
+                    layoutId="eco-pulse"
+                    className="absolute inset-0 bg-green/5 animate-pulse"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                  />
+                )}
+                <Leaf size={18} fill={isThrottled ? "currentColor" : "none"} className={cn(isThrottled && "animate-bounce-subtle")} />
+                <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest relative z-10">
                   {isThrottled ? "Eco Active" : "Eco Mode"}
                 </span>
               </button>

@@ -27,7 +27,7 @@ const StrategyDetailView = ({ s, onBack }) => {
   // Lifecycle-scoped subscription contract
   useResourceFocus('strategy', s.strategy_label);
 
-  const bestOpp = scannerResults[0] || { symbol: '---', pct: 0, dir: '---' }
+  const bestOpp = useMemo(() => scannerResults[0] || { symbol: '---', pct: 0, dir: '---' }, [scannerResults])
   const scanMet = Math.abs(bestOpp.pct) >= config.scan_pct_threshold
   const signalResult = bestOpp.signalResult || { allFired: false, firedSignals: [] }
   const entryMet = scanMet && signalResult.allFired
@@ -36,8 +36,11 @@ const StrategyDetailView = ({ s, onBack }) => {
   const signalLogic = config.signal_logic || 'all'
 
   return (
-    <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32 lg:pb-10">
-      <div className="flex items-center gap-5 mb-10">
+    <motion.div
+      layout
+      className="max-w-[1200px] mx-auto p-3 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32 lg:pb-10"
+    >
+      <div className="flex items-center gap-4 mb-6 md:mb-10">
         <button onClick={onBack} aria-label="Go back" className="p-2.5 hover:bg-surface border border-border rounded-xl transition-all active:scale-90 group"><ChevronLeft size={20} className="text-dim group-hover:text-text" /></button>
         <div className="flex-1">
           <div className="flex items-center gap-3"><span className="text-2xl font-bold">Strategy Console</span><StatusBadge status={s.sessionActive} />{config.trading_mode === 'paper' && <PaperBadge />}{config.trading_mode === 'testnet' && <DemoBadge />}{config.trading_mode === 'live' && <LiveBadge />}</div>
@@ -45,7 +48,7 @@ const StrategyDetailView = ({ s, onBack }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-10">
         <StatCard
           label="Active P&L"
           value={fmtUSD(s.activePnl)}
@@ -66,18 +69,7 @@ const StrategyDetailView = ({ s, onBack }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-10 mb-20">
-         <div className="space-y-10">
-            <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm"><SectionLabel className="mb-4"><TrendingUp size={14} className="text-accent" /> Performance Curve</SectionLabel><EquityCurve data={analytics?.cumulativePnL || []} height={200} /></div>
-         </div>
-         <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm flex flex-col h-[400px]">
-            <SectionLabel className="mb-4"><Activity size={14} className="text-accent" /> Strategy Logs</SectionLabel>
-            <div className="flex-1 overflow-hidden">
-               <DecisionLog />
-            </div>
-         </div>
-      </div>
-    </div>
+    </motion.div>
   )
 }
 export default StrategyDetailView

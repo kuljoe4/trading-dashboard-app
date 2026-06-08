@@ -39,6 +39,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
   return (
     <motion.div
       layout
+      whileHover={{ scale: 1.01 }}
       onClick={onClick}
       className={cn(
         "bg-surface border border-border rounded-2xl p-6 cursor-pointer transition-all relative group shadow-sm h-full",
@@ -406,6 +407,7 @@ export function DashboardView({ initialStrategy }) {
 
   async function handleConfigSave(newConfig) {
     setLoading(true)
+    useTradingStore.getState().setSyncing(true)
     setShowConfig(false)
     try {
       let finalConfig = newConfig;
@@ -432,6 +434,7 @@ export function DashboardView({ initialStrategy }) {
       alert(msg)
     } finally {
       setLoading(false)
+      useTradingStore.getState().setSyncing(false)
       setIsEditMode(false)
       setEditingVariantIndex(null)
     }
@@ -449,6 +452,7 @@ export function DashboardView({ initialStrategy }) {
     if (sessionList.length === 0) return;
     const last = sessionList[0];
     setLoading(true);
+    useTradingStore.getState().setSyncing(true);
     try {
       const res = await sessionAPI.start(last.config, last.paperMode, last.id);
       setSessionActive(true, res.data.strategyId || res.data.strategy_id);
@@ -456,11 +460,13 @@ export function DashboardView({ initialStrategy }) {
       alert('Failed to resume session');
     } finally {
       setLoading(false);
+      useTradingStore.getState().setSyncing(false);
     }
   }
 
   async function handleStop() {
     setLoading(true)
+    useTradingStore.getState().setSyncing(true)
     try {
       await sessionAPI.stop()
       setSessionActive(false, null)
@@ -470,6 +476,7 @@ export function DashboardView({ initialStrategy }) {
       await fetchSessions()
     } finally {
       setLoading(false)
+      useTradingStore.getState().setSyncing(false)
       setConfirmStop(false)
     }
   }
@@ -477,6 +484,7 @@ export function DashboardView({ initialStrategy }) {
   async function handleDeleteSession() {
     if (!sessionToDelete) return
     setLoading(true)
+    useTradingStore.getState().setSyncing(true)
     try {
       await sessionAPI.delete(sessionToDelete)
       await fetchSessions()
@@ -484,6 +492,7 @@ export function DashboardView({ initialStrategy }) {
       alert('Failed to delete session')
     } finally {
       setLoading(false)
+      useTradingStore.getState().setSyncing(false)
       setSessionToDelete(null)
     }
   }
@@ -596,17 +605,7 @@ export function DashboardView({ initialStrategy }) {
               </button>
             </Tooltip>
 
-            {!sessionActive ? (
-              <Btn
-                variant="success"
-                onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
-                disabled={loading}
-                className="flex-1 sm:flex-none"
-                aria-label="Start a new trading session"
-              >
-                <Plus size={16} className="mr-2" /> New Session
-              </Btn>
-            ) : (
+            {sessionActive && (
               <Btn
                 variant="danger"
                 onClick={() => setConfirmStop(true)}
@@ -654,7 +653,7 @@ export function DashboardView({ initialStrategy }) {
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] items-start gap-6 lg:gap-10">
 
           {/* Left Workspace */}
-          <div className="space-y-6 lg:space-y-10 overflow-hidden">
+          <div className="space-y-6 lg:space-y-10 no-scrollbar overflow-hidden">
             <motion.div
               initial={{ x: -20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
@@ -704,8 +703,12 @@ export function DashboardView({ initialStrategy }) {
                 ) : (
                   <button
                     onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
+                    disabled={loading || isSyncing}
                     aria-label="Create new trading session"
-                    className="bg-background border-2 border-dashed border-border rounded-2xl p-10 flex flex-col items-center justify-center gap-4 text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all group h-[256px]"
+                    className={cn(
+                      "bg-background border-2 border-dashed border-border rounded-2xl p-10 flex flex-col items-center justify-center gap-4 text-dim transition-all group h-[256px]",
+                      (loading || isSyncing) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
+                    )}
                   >
                     <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
                       <Plus size={24} />
@@ -791,29 +794,16 @@ export function DashboardView({ initialStrategy }) {
         </Drawer.Root>
 
         {/* Mobile Floating Controls */}
-        <div className="lg:hidden fixed bottom-24 right-6 flex flex-col gap-4 z-40">
-          {!sessionActive && (
-            <Tooltip content="Start New Session" side="left">
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
-                aria-label="Start New Session"
-                className="w-14 h-14 rounded-full bg-green text-white shadow-2xl flex items-center justify-center animate-in fade-in zoom-in duration-500"
-              >
-                <Plus size={28} />
-              </motion.button>
-            </Tooltip>
-          )}
+        <div className="lg:hidden fixed bottom-24 right-6 flex flex-col gap-4 z-[100]">
           <Tooltip content="Open Market Scanner" side="left">
             <motion.button
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
               onClick={() => setShowScanner(true)}
               aria-label="Open Market Scanner"
-              className="w-16 h-16 rounded-full bg-accent text-white shadow-2xl flex items-center justify-center animate-in fade-in zoom-in duration-500"
+              className="w-10 h-10 rounded-full bg-accent text-white shadow-2xl flex items-center justify-center animate-in fade-in zoom-in duration-500"
             >
-              <Zap size={28} />
+              <Zap size={20} />
             </motion.button>
           </Tooltip>
         </div>

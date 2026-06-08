@@ -107,7 +107,7 @@ const ExitMonitor = ({ status, logic }) => {
 
           return (
             <div key={key} className={cn(
-              "p-4 rounded-xl border transition-all",
+              "p-3 md:p-4 rounded-xl border transition-all",
               s.fired && s.active ? "bg-red/5 border-red/30" : "bg-background/20 border-border"
             )}>
               <div className="flex justify-between items-start mb-3">
@@ -119,21 +119,34 @@ const ExitMonitor = ({ status, logic }) => {
                      {s.fired && s.active ? <CheckCircle2 size={16} /> : <Activity size={16} />}
                    </div>
                    <div>
-                     <div className="text-sm font-bold">{s.label || key}</div>
-                     <div className="text-[10px] text-dim font-bold uppercase tracking-tight">{s.description || 'Condition monitoring'}</div>
+                     <div className="text-xs md:text-sm font-bold">{s.label || key}</div>
+                     <div className="text-[8px] md:text-[9px] text-dim font-bold uppercase tracking-tight">{s.description || 'Condition monitoring'}</div>
                    </div>
                 </div>
                 <div className="text-right">
-                   <div className={cn("text-sm font-mono font-bold", s.fired && s.active ? "text-red" : "text-text")}>
+                   <div className={cn("text-[10px] md:text-sm font-mono font-bold", s.fired && s.active ? "text-red" : "text-text")}>
                      {s.insufficientData ? 'n/a' : Number(value).toFixed(4)}{s.unit || ''}
                    </div>
-                   <div className="text-[10px] text-dim font-bold uppercase tracking-widest">Limit: {s.threshold}</div>
+                   <div className="text-[8px] md:text-[9px] text-dim font-bold uppercase tracking-[0.15em]">{s.threshold}</div>
                 </div>
               </div>
-              <div className="h-1.5 bg-background rounded-full overflow-hidden">
-                <div
-                  className={cn("h-full transition-all duration-500", s.fired && s.active ? "bg-red" : "bg-accent")}
-                  style={{ width: `${progress}%` }}
+              <div className="flex justify-between items-center mb-1">
+                <div className="text-[7px] md:text-[8px] font-black text-dim uppercase tracking-tighter">Proximity</div>
+                <motion.div
+                  initial={{ opacity: 0, x: 5 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  key={s.distPct}
+                  className="text-[8px] md:text-[9px] font-bold text-accent font-mono"
+                >
+                  {s.distPct ? s.distPct.toFixed(1) : '0.0'}%
+                </motion.div>
+              </div>
+              <div className="h-1 bg-background rounded-full overflow-hidden relative">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${progress}%` }}
+                  transition={{ type: "spring", stiffness: 50, damping: 20 }}
+                  className={cn("absolute top-0 left-0 h-full", s.fired && s.active ? "bg-red shadow-[0_0_8px_rgba(255,68,102,0.4)]" : "bg-accent shadow-[0_0_8px_rgba(91,111,255,0.4)]")}
                 />
               </div>
             </div>
@@ -184,38 +197,51 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
     const slDistPct = entry ? (Math.abs(mark - sl) / entry) * 100 : 0
     const slFromEntry = entry ? (Math.abs(entry - sl) / entry) * 100 : 0
 
-    return { isLong, pnlPct, progress, entry, mark, sl, tp, qtyFormatted, riskFormatted, slDistPct, slFromEntry }
+    // Enhanced Exit Signals with proximity
+    const exitSignals = trade.exit_signals_status || {}
+    const enhancedExitSignals = Object.entries(exitSignals).reduce((acc, [key, s]) => {
+      const value = Number(s.value) || 0
+      const threshold = Number(s.threshold) || 1
+      const dist = Math.abs(threshold - value)
+      const distPct = threshold !== 0 ? (dist / Math.abs(threshold)) * 100 : 0
+      acc[key] = { ...s, distPct, label: (s.label || key).replace(/price/gi, '').trim() }
+      return acc
+    }, {})
+
+    return { isLong, pnlPct, progress, entry, mark, sl, tp, qtyFormatted, riskFormatted, slDistPct, slFromEntry, enhancedExitSignals }
   }, [trade])
 
   if (!trade) return null
 
   return (
-    <div className="flex flex-col gap-10">
+    <div className="flex flex-col gap-3 md:gap-6">
       {/* PnL Hero Section */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 md:gap-6">
         <div className="relative group flex-1">
-          <div className="absolute -inset-1 bg-gradient-to-r from-accent/20 to-purple/20 rounded-[2rem] blur opacity-25 group-hover:opacity-40 transition duration-1000" />
-          <div className="relative bg-white/[0.03] border border-white/[0.05] rounded-[2rem] p-8 flex flex-col items-center text-center shadow-inner overflow-hidden">
+          <div className="absolute -inset-1 bg-gradient-to-r from-accent/20 to-purple/20 rounded-xl md:rounded-[2rem] blur opacity-25 group-hover:opacity-40 transition duration-1000" />
+          <div className="relative bg-white/[0.03] border border-white/[0.05] rounded-xl md:rounded-[2rem] p-3 md:p-8 flex flex-col items-center text-center shadow-inner overflow-hidden">
             <div className="absolute top-0 right-0 p-4 opacity-10">
-              <Activity size={80} />
+              <Activity size={32} className="md:w-20 md:h-20" />
             </div>
-            <span className="text-[11px] font-black text-dim uppercase tracking-[0.3em] mb-3">Unrealized Performance</span>
-            <div className={cn("text-5xl font-black font-mono tracking-tighter mb-2", pnlColor(trade.pnl))}>
-              {fmtUSD(trade.pnl)}
+            <div className="flex items-center gap-2 mb-1 md:mb-2">
+              <span className="text-[7px] md:text-[10px] font-black text-dim uppercase tracking-[0.2em]">Performance</span>
+              <div className={cn("text-lg md:text-4xl font-black font-mono tracking-tighter", pnlColor(trade.pnl))}>
+                {fmtUSD(trade.pnl)}
+              </div>
             </div>
-            <div className={cn("px-4 py-1.5 rounded-full text-xs font-black font-mono shadow-sm", trade.pnl >= 0 ? "bg-green/10 text-green" : "bg-red/10 text-red")}>
+            <div className={cn("px-2 py-0.5 md:px-4 md:py-1.5 rounded-full text-[8px] md:text-xs font-black font-mono shadow-sm", trade.pnl >= 0 ? "bg-green/10 text-green" : "bg-red/10 text-red")}>
               {pnlPct >= 0 ? '▲' : '▼'} {Math.abs(pnlPct).toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
             </div>
           </div>
         </div>
 
-        <div className="flex flex-col gap-4 min-w-[240px]">
+        <div className="flex flex-col gap-4 min-w-[200px]">
           <button
             onClick={() => confirmClose ? onTradeClose(trade.symbol) : setConfirmClose(true)}
             disabled={isClosing}
             aria-label={isClosing ? "Closing position" : confirmClose ? "Confirm close position" : "Close position"}
             className={cn(
-              "h-16 px-6 rounded-2xl font-bold uppercase text-[11px] tracking-[0.2em] transition-all flex items-center justify-center gap-3 relative overflow-hidden",
+              "h-12 md:h-16 px-6 rounded-xl md:rounded-2xl font-bold uppercase text-[10px] md:text-[11px] tracking-[0.2em] transition-all flex items-center justify-center gap-3 relative overflow-hidden",
               confirmClose ? "bg-red text-white animate-pulse" : "bg-red/10 text-red border border-red/20 hover:bg-red/20"
             )}
           >
@@ -237,19 +263,19 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       </div>
 
       {/* Price Runway */}
-      <div className="space-y-4">
+      <div className="space-y-2 md:space-y-4">
         <div className="flex justify-between items-end">
-          <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-black text-red uppercase tracking-widest flex items-center gap-1">
-              <ShieldAlert size={10} /> Stop Loss
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[9px] font-black text-red uppercase tracking-widest flex items-center gap-1">
+              <ShieldAlert size={8} /> SL
             </span>
-            <span className="font-mono text-xs font-bold text-dim">{price(sl)}</span>
+            <span className="font-mono text-[10px] font-bold text-dim">{price(sl)}</span>
           </div>
-          <div className="flex flex-col items-end gap-1">
-            <span className="text-[10px] font-black text-green uppercase tracking-widest flex items-center gap-1">
-              Take Profit <Zap size={10} fill="currentColor" />
+          <div className="flex flex-col items-end gap-0.5">
+            <span className="text-[9px] font-black text-green uppercase tracking-widest flex items-center gap-1">
+              TP <Zap size={8} fill="currentColor" />
             </span>
-            <span className="font-mono text-xs font-bold text-dim">{tp ? price(tp) : 'TRAILED'}</span>
+            <span className="font-mono text-[10px] font-bold text-dim">{tp ? price(tp) : 'TRAILED'}</span>
           </div>
         </div>
 
@@ -268,40 +294,28 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
         </div>
 
         <div className="flex justify-center">
-          <div className="bg-surface border border-border/50 px-3 py-1 rounded-lg">
-            <span className="text-[10px] font-black text-dim uppercase tracking-widest">Entry: </span>
-            <span className="font-mono text-[11px] font-bold text-text/80">{price(entry)}</span>
+          <div className="bg-surface border border-border/50 px-2 py-0.5 rounded-lg">
+            <span className="text-[9px] font-black text-dim uppercase tracking-widest">Entry: </span>
+            <span className="font-mono text-[10px] font-bold text-text/80">{price(entry)}</span>
           </div>
         </div>
       </div>
 
       {/* Primary Metrics Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-         <StatCard label="Mark Price" value={price(mark)} color={trade.pnl >= 0 ? "text-green" : "text-red"} syncing={isSyncing} />
-         <StatCard label="Quantity" value={`${qtyFormatted} ${trade.symbol.replace('USDT', '')}`} color="text-text" />
-         <StatCard label="Equity at Risk" value={riskFormatted} color="text-red" />
-         <StatCard label="Entry Price" value={price(entry)} color="text-dim" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
+         <StatCard label="Mark" value={price(mark)} color={trade.pnl >= 0 ? "text-green" : "text-red"} syncing={isSyncing} />
+         <StatCard label="Size" value={`${qtyFormatted} ${trade.symbol.replace('USDT', '')}`} color="text-text" />
+         <StatCard label="Risk" value={riskFormatted} color="text-red" />
+         <StatCard label="Entry" value={price(entry)} color="text-dim" />
       </div>
 
-      <div className={cn("grid gap-8", layout === "grid" ? "grid-cols-1 lg:grid-cols-3" : "grid-cols-1")}>
-         <div className={cn(layout === "grid" ? "lg:col-span-2 space-y-8" : "space-y-8")}>
+      <div className={cn("grid gap-4 md:gap-8", layout === "grid" ? "grid-cols-1 lg:grid-cols-3" : "grid-cols-1")}>
+         <div className={cn(layout === "grid" ? "lg:col-span-2 space-y-4 md:space-y-8" : "space-y-4 md:space-y-8")}>
             <RRLadder trade={trade} />
-
-            <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
-              <SectionLabel className="mb-6">
-                <BarChart3 size={14} className="text-accent" /> Price Action Context
-              </SectionLabel>
-              <div className="h-[200px] flex items-center justify-center text-dim/20">
-                 <div className="flex flex-col items-center gap-4">
-                    <TrendingUp size={48} />
-                    <span className="text-[10px] font-bold uppercase tracking-widest">Real-time Depth Visualization</span>
-                 </div>
-              </div>
-            </div>
          </div>
 
-         <div className="space-y-8">
-            <ExitMonitor status={trade.exit_signals_status} logic={trade.exit_signal_logic} />
+         <div className="space-y-4 md:space-y-8">
+            <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} />
 
             <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
               <SectionLabel className="mb-6">

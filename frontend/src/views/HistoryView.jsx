@@ -36,11 +36,11 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
   const durationStr = durationMs ? (durationMs / 60000).toFixed(1) + 'm' : 'N/A'
 
   return (
-    <div className="flex flex-col gap-3 p-4 bg-surface border border-border/60 rounded-xl hover:border-border-hover transition-colors group/trade shadow-sm mb-3">
+    <div className="flex flex-col gap-3 p-4 bg-surface border border-border/60 rounded-xl hover:border-border-hover transition-colors group/trade shadow-sm">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           <div className="flex flex-col">
-            <div className="flex items-center flex-wrap gap-2 mb-0.5">
+            <div className="flex items-center gap-2 mb-0.5">
               <span className="text-xs font-bold font-mono">{trade.symbol}</span>
               {showStrategy && (
                 <a href={`#/history?session=${trade.sessionId || session?.id}`} className="text-[8px] font-bold px-1.5 py-0.5 rounded border border-accent/20 bg-accent/10 text-accent uppercase">
@@ -68,33 +68,33 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
           </div>
         </div>
         <div className="flex flex-col items-end min-w-[70px]">
-          <span className="text-[9px] text-dim font-bold uppercase tracking-widest opacity-60">PnL</span>
+          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Result</span>
           <span className={cn("text-xs font-bold font-mono", isWin ? "text-green" : "text-red")}>
             {fmtUSD(pnl)}
           </span>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 xs:grid-cols-4 gap-4 pt-3 border-t border-border/20">
+      <div className="flex items-center justify-between pt-3 border-t border-border/20">
         <div className="flex flex-col">
           <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-0.5">Entry/Exit</span>
-          <span className="text-[10px] font-bold text-text/90 font-mono leading-tight">{price(trade.entry_price)} → {price(trade.exit_price)}</span>
+          <span className="text-[11px] font-bold text-text/90 font-mono">{price(trade.entry_price)} → {price(trade.exit_price)}</span>
         </div>
-        <div className="flex flex-col sm:items-center">
+        <div className="flex flex-col items-center">
           <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-0.5">Size</span>
-          <span className="text-[10px] font-bold text-text/90 font-mono leading-tight">{Number(trade.qty || 0).toFixed(2)}</span>
+          <span className="text-[11px] font-bold text-text/90 font-mono">{Number(trade.qty || 0).toFixed(2)}</span>
         </div>
-        <div className="flex flex-col sm:items-center">
+        <div className="flex flex-col items-center">
           <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-0.5">Max RR</span>
-          <span className="text-[10px] font-bold text-accent font-mono leading-tight">{Number(trade.max_rr_achieved || 0).toFixed(2)}R</span>
+          <span className="text-[11px] font-bold text-accent font-mono">{Number(trade.max_rr_achieved || 0).toFixed(2)}R</span>
         </div>
-        <div className="flex flex-col items-end">
+        <div className="flex flex-col items-end max-w-[120px]">
           <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-0.5">Trigger</span>
           <span className="text-[10px] font-bold text-text/80 uppercase text-right leading-tight">
             {trade.exit_signal_type ? (
               <span className="flex flex-col items-end">
-                <span className="text-accent leading-none">{trade.exit_signal_type.replace(/_/g, ' ')}</span>
-                <span className="text-[8px] text-dim/60 normal-case font-medium truncate w-full max-w-[80px]">{trade.exit_reason || trade.exit_signal_reason}</span>
+                <span className="text-accent leading-tight">{trade.exit_signal_type.replace(/_/g, ' ')}</span>
+                <span className="text-[8px] text-dim/60 normal-case font-medium truncate w-full">{trade.exit_reason || trade.exit_signal_reason}</span>
               </span>
             ) : (
               trade.exit_reason || 'Manual'
@@ -123,28 +123,27 @@ const SessionGroup = React.memo(({ session, trades }) => {
     <div id={`session-${session.id}`} className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 lg:mb-12 shadow-sm transition-all hover:border-border-hover scroll-mt-8">
       <div
         onClick={() => setExpanded(!expanded)}
-        className="p-5 sm:p-6 flex flex-col xl:flex-row xl:items-center justify-between gap-6 cursor-pointer select-none bg-surface/30 group"
+        className="p-6 flex flex-col xl:flex-row xl:items-center justify-between gap-6 cursor-pointer select-none bg-surface/30 group"
       >
         {/* Left: Strategy Info */}
-        <div className="flex items-center gap-4 sm:gap-5">
+        <div className="flex items-center gap-5">
           <div className={cn(
-            "w-10 h-10 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center border transition-all duration-300 shrink-0",
+            "w-12 h-12 rounded-2xl flex items-center justify-center border transition-all duration-300",
             expanded ? "bg-accent/10 border-accent/20 scale-105" : "bg-surface border-border group-hover:border-accent/30"
           )}>
-            {expanded ? <ChevronDown size={20} className="text-accent sm:hidden" /> : <ChevronRight size={20} className="text-dim sm:hidden" />}
-            {expanded ? <ChevronDown size={24} className="text-accent hidden sm:block" /> : <ChevronRight size={24} className="text-dim hidden sm:block" />}
+            {expanded ? <ChevronDown size={24} className="text-accent" /> : <ChevronRight size={24} className="text-dim" />}
           </div>
-          <div className="flex flex-col gap-1 min-w-0">
-            <div className="flex items-center flex-wrap gap-2 sm:gap-3">
-              <a href={`#/history?session=${session.id}`} onClick={(e) => e.stopPropagation()} className="text-base sm:text-lg font-bold tracking-tight hover:text-accent transition-colors truncate">
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-3">
+              <a href={`#/history?session=${session.id}`} onClick={(e) => e.stopPropagation()} className="text-lg font-bold tracking-tight hover:text-accent transition-colors">
                 {label}
               </a>
-              <span className="text-[9px] sm:text-[10px] text-dim font-mono bg-background/50 px-2 py-0.5 rounded border border-border/50 shrink-0">#{session.id.substring(0, 8)}</span>
+              <span className="text-[10px] text-dim font-mono bg-background/50 px-2 py-0.5 rounded border border-border/50">#{session.id.substring(0, 8)}</span>
               {session.paperMode && <PaperBadge />}
             </div>
-            <div className="text-[10px] sm:text-[11px] text-dim font-bold uppercase tracking-[0.1em] flex items-center flex-wrap gap-x-3 gap-y-1">
+            <div className="text-[11px] text-dim font-bold uppercase tracking-[0.1em] flex items-center gap-3">
               <span className="flex items-center gap-1.5"><Clock size={12} className="text-accent" /> {new Date(session.startTime).toLocaleDateString()}</span>
-              <span className="hidden sm:block w-1 h-1 rounded-full bg-dim/30" />
+              <span className="w-1 h-1 rounded-full bg-dim/30" />
               <span>{new Date(session.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
           </div>
@@ -157,25 +156,25 @@ const SessionGroup = React.memo(({ session, trades }) => {
             <EquityCurve data={curve} height={40} />
           </div>
 
-          <div className="grid grid-cols-2 xs:grid-cols-4 gap-x-6 gap-y-4 sm:gap-8 xl:gap-12 w-full sm:w-auto">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-8 xl:gap-12">
             <div className="flex flex-col">
-              <span className="text-[9px] sm:text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1 opacity-60">Interval</span>
+              <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Interval</span>
               <span className="text-xs font-bold text-text flex items-center gap-1.5">
                 <Zap size={10} className="text-accent" />
                 {session.config?.scan_interval}
               </span>
             </div>
             <div className="flex flex-col">
-              <span className="text-[9px] sm:text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1 opacity-60 whitespace-nowrap">Win Rate</span>
+              <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Win Rate</span>
               <span className="text-xs font-bold font-mono text-text">{winRate}% <span className="text-[10px] opacity-40 font-bold ml-1">({wins}/{trades.length})</span></span>
             </div>
             <div className="flex flex-col">
-              <span className="text-[9px] sm:text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1 opacity-60">Ratio</span>
+              <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Ratio</span>
               <span className="text-xs font-bold font-mono text-accent">{winLossRatio}</span>
             </div>
             <div className="flex flex-col items-end">
-              <span className="text-[9px] sm:text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1 opacity-60 whitespace-nowrap">Net P&L</span>
-              <span className={cn("text-base sm:text-lg font-bold font-mono tracking-tighter leading-none", pnl >= 0 ? "text-green" : "text-red")}>
+              <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Net P&L</span>
+              <span className={cn("text-lg font-bold font-mono tracking-tighter leading-none", pnl >= 0 ? "text-green" : "text-red")}>
                 {fmtUSD(pnl)}
               </span>
             </div>
@@ -216,7 +215,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
 const PAGE_SIZE = 5
 
 export const HistoryView = () => {
-  const { tradeHistory, updateStats, sessionSummary, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing } = useTradingStore()
+  const { tradeHistory, updateStats, sessionSummary, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory } = useTradingStore()
   const [fullAnalytics, setFullAnalytics] = useState(null)
   const [lifetimeMode, setLifetimeMode] = useState(localStorage.getItem('history_trade_mode') || 'paper')
   const [loading, setLoading] = useState(true)
@@ -283,17 +282,16 @@ export const HistoryView = () => {
   useEffect(() => {
     setLoading(true)
     Promise.all([
-      sessionAPI.history(),
+      fetchTradeHistory(),
       sessionAPI.analytics(),
       fetchLifetimeAnalytics(lifetimeMode),
       fetchSessions()
-    ]).then(([historyRes, analyticsRes]) => {
-      updateStats({ tradeHistory: historyRes.data.trades || [] })
+    ]).then(([_, analyticsRes]) => {
       setFullAnalytics(analyticsRes.data)
     }).finally(() => {
       setLoading(false)
     })
-  }, [updateStats, fetchSessions, fetchLifetimeAnalytics, lifetimeMode])
+  }, [updateStats, fetchSessions, fetchLifetimeAnalytics, lifetimeMode, fetchTradeHistory])
 
   useEffect(() => {
     if (loading) return
@@ -306,7 +304,7 @@ export const HistoryView = () => {
 
   return (
     <div className={cn(
-      "min-h-screen transition-all duration-300",
+      "min-h-screen transition-all duration-300 no-scrollbar",
       sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
     )}>
       <Sidebar />

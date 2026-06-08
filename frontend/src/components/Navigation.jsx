@@ -81,22 +81,6 @@ export const Sidebar = ({ selected }) => {
         </Tooltip>
       </nav>
 
-      {!sessionActive && (
-        <div className={cn("mt-4 pt-4 border-t border-border/50", !isExpanded && "flex justify-center px-0")}>
-          <Tooltip content="Start New Session" side="right">
-            <button
-              onClick={() => window.location.hash = '#/'}
-              className={cn(
-                "group flex items-center justify-center gap-2 py-3 rounded-xl bg-green text-white font-bold text-[13px] transition-all shadow-lg shadow-green/20 hover:scale-[1.02] active:scale-95",
-                isExpanded ? "w-full px-4" : "w-10 h-10 px-0"
-              )}
-            >
-              <Plus size={20} className="shrink-0" />
-              {isExpanded && <span>New Session</span>}
-            </button>
-          </Tooltip>
-        </div>
-      )}
 
       <Tooltip content={collapsed ? "Expand sidebar" : "Collapse sidebar"} side="right">
         <button 

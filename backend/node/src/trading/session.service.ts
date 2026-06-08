@@ -645,11 +645,12 @@ export class SessionService implements OnModuleInit {
     const sessionIds = sessions.map(s => s.id);
 
     const queryBuilder = this.tradeRepository.createQueryBuilder()
-      .delete()
-      .where("sessionId IS NULL");
+      .delete();
 
     if (sessionIds.length > 0) {
-        queryBuilder.orWhere("sessionId NOT IN (:...ids)", { ids: sessionIds });
+      queryBuilder.where("sessionId IS NULL OR sessionId NOT IN (:...ids)", { ids: sessionIds });
+    } else {
+      queryBuilder.where("1=1"); // All trades are orphans if no sessions exist
     }
 
     const result = await queryBuilder.execute();
@@ -660,7 +661,7 @@ export class SessionService implements OnModuleInit {
       details: { affected: result.affected }
     });
 
-    return { status: 'deleted', affected: result.affected };
+    return { status: 'deleted', affected: result.affected || 0 };
   }
 
   async listSessions() {

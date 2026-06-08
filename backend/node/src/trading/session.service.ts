@@ -640,6 +640,29 @@ export class SessionService implements OnModuleInit {
     return { status: 'deleted' };
   }
 
+  async deleteOrphanedTrades(actor?: string) {
+    const sessions = await this.sessionRepository.find({ select: ['id'] });
+    const sessionIds = sessions.map(s => s.id);
+
+    const queryBuilder = this.tradeRepository.createQueryBuilder()
+      .delete()
+      .where("sessionId IS NULL");
+
+    if (sessionIds.length > 0) {
+        queryBuilder.orWhere("sessionId NOT IN (:...ids)", { ids: sessionIds });
+    }
+
+    const result = await queryBuilder.execute();
+
+    await this.auditLog.log({
+      action: 'DELETE_ORPHANED_TRADES',
+      actor,
+      details: { affected: result.affected }
+    });
+
+    return { status: 'deleted', affected: result.affected };
+  }
+
   async listSessions() {
     return this.sessionRepository.find({
       order: { startTime: 'DESC' },

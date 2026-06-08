@@ -4,7 +4,7 @@ import { sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip } from '../components/ui/primitives'
 import { motion, AnimatePresence } from 'framer-motion'
-import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap, BarChart3, LineChart, Target, Loader2 } from 'lucide-react'
+import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap, BarChart3, LineChart, Target, Trash2 } from 'lucide-react'
 import { Sidebar, BottomNav } from '../components/Navigation'
 import { EquityCurve, TODPerformance } from '../components/Analytics'
 
@@ -238,6 +238,26 @@ export const HistoryView = () => {
     return tradeHistory.filter(t => !t.sessionId || !sessionIds.has(t.sessionId))
   }, [sessionList, tradeHistory])
 
+  const [deletingOrphans, setDeletingOrphans] = useState(false)
+
+  const handleDeleteOrphans = async () => {
+    if (!confirm('Are you sure you want to permanently delete all standalone trade records? This cannot be undone.')) return
+    setDeletingOrphans(true)
+    try {
+      await sessionAPI.deleteOrphans()
+      // Refresh history and analytics
+      const [historyRes, analyticsRes] = await Promise.all([
+        sessionAPI.history(),
+        fetchLifetimeAnalytics(lifetimeMode)
+      ])
+      updateStats({ tradeHistory: historyRes.data.trades || [] })
+    } catch (e) {
+      alert('Failed to delete standalone records')
+    } finally {
+      setDeletingOrphans(false)
+    }
+  }
+
   const currentAnalytics = lifetimeAnalytics
 
   const totalPnl = currentAnalytics?.cumulativePnL?.length ? safeNum(currentAnalytics.cumulativePnL[currentAnalytics.cumulativePnL.length - 1].pnl) : 0
@@ -296,65 +316,38 @@ export const HistoryView = () => {
         </div>
 
         <div className="flex flex-col md:flex-row md:items-center gap-4 mb-8">
-          <div className="flex items-center gap-2 p-1 bg-surface border border-border rounded-xl w-fit relative z-10">
-            {['paper', 'testnet', 'live'].map(m => {
-              const active = lifetimeMode === m;
-              return (
-                <button
-                  key={m}
-                  onClick={() => {
-                    setLifetimeMode(m);
-                    localStorage.setItem('history_trade_mode', m);
-                  }}
-                  className={cn(
-                    "px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all relative z-10",
-                    active ? "text-white" : "text-dim hover:text-text"
-                  )}
-                >
-                  {active && (
-                    <motion.div
-                      layoutId="activeTab"
-                      className="absolute inset-0 bg-accent rounded-lg shadow-lg shadow-accent/20 -z-10"
-                      transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-                    />
-                  )}
-                  {m}
-                </button>
-              )
-            })}
+          <div className="flex items-center gap-2 p-1 bg-surface border border-border rounded-xl w-fit">
+            {['paper', 'testnet', 'live'].map(m => (
+              <button
+                key={m}
+                onClick={() => {
+                  setLifetimeMode(m);
+                  localStorage.setItem('history_trade_mode', m);
+                }}
+                className={cn(
+                  "px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
+                  lifetimeMode === m ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:text-text"
+                )}
+              >
+                {m}
+              </button>
+            ))}
           </div>
-          {loading && (
-            <motion.div
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="flex items-center gap-2 text-[10px] text-accent font-bold uppercase tracking-widest"
-            >
-              <Loader2 className="animate-spin" size={14} />
-              Switching Context...
-            </motion.div>
-          )}
         </div>
 
-        <motion.div
-          key={lifetimeMode}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-          className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8"
-        >
-          <StatCard label="Total Performance" value={fmtUSD(totalPnl)} color={totalPnl >= 0 ? "text-green" : "text-red"} syncing={loading} />
-          <StatCard label="Win Rate" value={`${winRate}%`} color="text-accent" subValue={`${wins} Wins / ${totalTrades - wins} Losses`} syncing={loading} />
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
+          <StatCard label="Total Performance" value={fmtUSD(totalPnl)} color={totalPnl >= 0 ? "text-green" : "text-red"} />
+          <StatCard label="Win Rate" value={`${winRate}%`} color="text-accent" subValue={`${wins} Wins / ${totalTrades - wins} Losses`} />
           <StatCard
             label="Max Drawdown"
             value={currentAnalytics ? fmtUSD(-currentAnalytics.maxDrawdown) : '$0.00'}
             color="text-red"
             subValue={currentAnalytics ? `${Number(currentAnalytics.maxDrawdownPct || 0).toFixed(1)}% Peak-to-Valley` : '0%'}
-            syncing={loading}
           />
-          <StatCard label="Avg Win" value={fmtUSD(currentAnalytics?.avgWin || 0)} color="text-green" syncing={loading} />
-          <StatCard label="Avg Loss" value={fmtUSD(-(currentAnalytics?.avgLoss || 0))} color="text-red" syncing={loading} />
-          <StatCard label="W/L Ratio" value={Number(currentAnalytics?.avgWinLossRatio || 0).toFixed(2)} color="text-accent" syncing={loading} />
-        </motion.div>
+          <StatCard label="Avg Win" value={fmtUSD(currentAnalytics?.avgWin || 0)} color="text-green" />
+          <StatCard label="Avg Loss" value={fmtUSD(-(currentAnalytics?.avgLoss || 0))} color="text-red" />
+          <StatCard label="W/L Ratio" value={Number(currentAnalytics?.avgWinLossRatio || 0).toFixed(2)} color="text-accent" />
+        </div>
 
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -381,7 +374,7 @@ export const HistoryView = () => {
           <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
              <TODPerformance data={currentAnalytics?.timeOfDay || []} />
           </div>
-        </motion.div>
+        </div>
 
         {sessionSummary && (
           <motion.div
@@ -447,7 +440,21 @@ export const HistoryView = () => {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                   >
-                    <SectionLabel className="mt-10 mb-6">Standalone Records</SectionLabel>
+                    <div className="flex items-center justify-between mt-10 mb-6">
+                      <SectionLabel className="mb-0">Standalone Records</SectionLabel>
+                      <button
+                        onClick={handleDeleteOrphans}
+                        disabled={deletingOrphans}
+                        className="text-[10px] font-bold text-red hover:text-red/80 transition-colors uppercase tracking-widest flex items-center gap-2"
+                      >
+                        {deletingOrphans ? (
+                          <div className="w-3 h-3 border-2 border-red border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <Trash2 size={12} />
+                        )}
+                        Clear All
+                      </button>
+                    </div>
                     <div className="space-y-3">
                       {orphans.map((trade) => (
                         <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} />

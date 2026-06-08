@@ -26,11 +26,15 @@ export const PulseDot = React.memo(({ color = "bg-green" }) => (
 
 // --- Stat Card ---
 export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing }) => (
-  <div className="bg-surface border border-border p-6 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.02] transition-all group relative overflow-hidden flex flex-col justify-center min-h-[110px]">
+  <div
+    className="bg-surface border border-border p-6 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.02] transition-all group relative overflow-hidden flex flex-col justify-center min-h-[110px]"
+    role="region"
+    aria-label={`${label}: ${value}`}
+  >
     {syncing && (
-      <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" />
+      <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />
     )}
-    <div className="text-[10px] text-dim tracking-[0.2em] mb-2 uppercase font-black group-hover:text-dim/80 transition-colors">{label}</div>
+    <div className="text-[10px] text-dim tracking-[0.2em] mb-2 uppercase font-black group-hover:text-dim/80 transition-colors" aria-hidden="true">{label}</div>
     <div className={cn(
       "text-2xl font-bold font-mono tracking-tight transition-all duration-500",
       color,
@@ -41,7 +45,7 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
         "text-[10px] text-dim mt-2 font-mono font-bold uppercase flex items-center gap-1.5",
         syncing && "text-accent/60 animate-pulse"
       )}>
-        {syncing && <Loader2 size={12} className="animate-spin" />}
+        {syncing && <Loader2 size={12} className="animate-spin" aria-hidden="true" />}
         {subValue}
       </div>
     )}
@@ -149,10 +153,14 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
     : "Trigger: 0";
 
   return (
-    <div className={cn(
-      "flex-1 bg-surface border rounded-2xl p-6 transition-all duration-500",
-      borderColorClass
-    )}>
+    <div
+      className={cn(
+        "flex-1 bg-surface border rounded-2xl p-6 transition-all duration-500",
+        borderColorClass
+      )}
+      role="region"
+      aria-label={`${label}: ${satisfied ? 'Satisfied' : 'Awaiting'}`}
+    >
       <div className="flex justify-between items-start mb-6">
         <div>
           <div className="text-[11px] text-dim tracking-[0.15em] mb-2 uppercase font-bold">{label}</div>
@@ -167,7 +175,11 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
         </div>
       </div>
 
-      <ProgressPrimitive.Root className="h-1.5 bg-border rounded-full overflow-hidden">
+      <ProgressPrimitive.Root
+        className="h-1.5 bg-border rounded-full overflow-hidden"
+        value={pct}
+        aria-label={`${label} progress: ${Math.round(pct)}%`}
+      >
         <ProgressPrimitive.Indicator
           className={cn("h-full transition-all duration-700 ease-out", colorClass)}
           style={{ width: `${pct}%` }}
@@ -262,7 +274,7 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
 };
 
 export const VisuallyHidden = ({ children }) => (
-  <span className="absolute w-[1px] h-[1px] p-0 -m-[1px] overflow-hidden whitespace-nowrap border-0">
+  <span className="absolute w-[1px] h-[1px] p-0 -m-[1px] overflow-hidden whitespace-nowrap border-0 clip-[rect(0,0,0,0)]">
     {children}
   </span>
 )

@@ -16,14 +16,14 @@ describe('OrderManagerService Atomicity', () => {
     mockMarketFeed = {
       getSymbolFilters: jest.fn().mockImplementation((symbol) => {
         if (symbol === 'BTCUSDT' || symbol === 'TRADABLE') {
-          return { filters: [] };
+          return {
+            filters: [
+              { filterType: 'LOT_SIZE', stepSize: '0.001' },
+              { filterType: 'PRICE_FILTER', tickSize: '0.01' }
+            ]
+          };
         }
         return null;
-      getSymbolFilters: jest.fn().mockReturnValue({
-        filters: [
-          { filterType: 'LOT_SIZE', stepSize: '0.001' },
-          { filterType: 'PRICE_FILTER', tickSize: '0.01' }
-        ]
       }),
     };
     mockTradingSession = {

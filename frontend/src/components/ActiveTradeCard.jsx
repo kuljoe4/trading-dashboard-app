@@ -43,8 +43,8 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
       onKeyDown={handleKeyDown}
       role="button"
       tabIndex={0}
-      aria-label={`View details for ${trade.symbol} ${trade.direction} trade`}
       className="bg-surface border border-border rounded-2xl p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/40 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.98]"
+      aria-label={`View details for ${trade.symbol} ${trade.direction} trade, ${fmtUSD(trade.pnl)} P&L, ${Number(trade.rr || 0).toFixed(2)} RR`}
     >
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-1">
@@ -72,11 +72,19 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
 
       {/* Mini Price Runway */}
       <div className="space-y-1.5">
-        <div className="h-1.5 w-full bg-border rounded-full overflow-hidden relative">
+        <div
+          className="h-1.5 w-full bg-border rounded-full overflow-hidden relative"
+          role="progressbar"
+          aria-valuenow={Math.round(progress)}
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-label={`Trade progress from SL to TP: ${Math.round(progress)}%`}
+        >
           {/* Entry Point Marker */}
           <div
             className="absolute top-0 bottom-0 w-0.5 bg-text/30 z-10"
             style={{ left: '50%' }}
+            aria-hidden="true"
           />
           {/* Progress Bar */}
           <div

@@ -216,7 +216,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
 const PAGE_SIZE = 5
 
 export const HistoryView = () => {
-  const { tradeHistory, updateStats, sessionSummary, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled } = useTradingStore()
+  const { tradeHistory, updateStats, sessionSummary, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing } = useTradingStore()
   const [fullAnalytics, setFullAnalytics] = useState(null)
   const [lifetimeMode, setLifetimeMode] = useState(localStorage.getItem('history_trade_mode') || 'paper')
   const [loading, setLoading] = useState(true)
@@ -256,6 +256,7 @@ export const HistoryView = () => {
     if (!confirm('Are you sure you want to permanently delete all standalone trade records? This cannot be undone.')) return
     setDeletingOrphans(true)
     try {
+      updateStats({ isSyncing: true })
       await sessionAPI.deleteOrphans()
       // Refresh history and analytics
       const [historyRes, analyticsRes] = await Promise.all([
@@ -267,6 +268,7 @@ export const HistoryView = () => {
       alert('Failed to delete standalone records')
     } finally {
       setDeletingOrphans(false)
+      updateStats({ isSyncing: false })
     }
   }
 
@@ -288,7 +290,9 @@ export const HistoryView = () => {
     ]).then(([historyRes, analyticsRes]) => {
       updateStats({ tradeHistory: historyRes.data.trades || [] })
       setFullAnalytics(analyticsRes.data)
-    }).finally(() => setLoading(false))
+    }).finally(() => {
+      setLoading(false)
+    })
   }, [updateStats, fetchSessions, fetchLifetimeAnalytics, lifetimeMode])
 
   useEffect(() => {

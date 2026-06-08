@@ -1,11 +1,11 @@
 import React, { useState } from 'react'
 import { SystemMetrics } from './SystemMetrics'
-import { LayoutDashboard, Briefcase, History, Settings as SettingsIcon, ChevronLeft, ChevronRight, Zap } from 'lucide-react'
+import { LayoutDashboard, Briefcase, History, Settings as SettingsIcon, ChevronLeft, ChevronRight, Zap, Plus } from 'lucide-react'
 import { useTradingStore } from '../store/trading'
 import { cn, Tooltip } from './ui/primitives'
 
 export const Sidebar = ({ selected }) => {
-  const { wsStatus, sidebarCollapsed: collapsed, toggleSidebar, monitoring, rateLimit, gateState, isEcoMode } = useTradingStore()
+  const { wsStatus, sidebarCollapsed: collapsed, toggleSidebar, monitoring, rateLimit, gateState, isEcoMode, isSyncing, sessionActive } = useTradingStore()
   const [isHovered, setIsHovered] = React.useState(false)
   const isExpanded = !collapsed || isHovered
 
@@ -31,6 +31,11 @@ export const Sidebar = ({ selected }) => {
           <LayoutDashboard size={24} className="text-white" />
         </div>
         {isExpanded && <span className="text-xl font-black tracking-tighter uppercase italic text-text whitespace-nowrap">Momentum</span>}
+        {isSyncing && (
+          <div className="absolute top-0 left-0 right-0 h-1 overflow-hidden">
+            <div className="h-full bg-accent animate-progress-fast shadow-[0_0_10px_var(--color-accent)]" />
+          </div>
+        )}
       </div>
 
       <nav className="flex-1 space-y-2">
@@ -75,6 +80,23 @@ export const Sidebar = ({ selected }) => {
           </button>
         </Tooltip>
       </nav>
+
+      {!sessionActive && (
+        <div className={cn("mt-4 pt-4 border-t border-border/50", !isExpanded && "flex justify-center px-0")}>
+          <Tooltip content="Start New Session" side="right">
+            <button
+              onClick={() => window.location.hash = '#/'}
+              className={cn(
+                "group flex items-center justify-center gap-2 py-3 rounded-xl bg-green text-white font-bold text-[13px] transition-all shadow-lg shadow-green/20 hover:scale-[1.02] active:scale-95",
+                isExpanded ? "w-full px-4" : "w-10 h-10 px-0"
+              )}
+            >
+              <Plus size={20} className="shrink-0" />
+              {isExpanded && <span>New Session</span>}
+            </button>
+          </Tooltip>
+        </div>
+      )}
 
       <Tooltip content={collapsed ? "Expand sidebar" : "Collapse sidebar"} side="right">
         <button 
@@ -126,7 +148,7 @@ export const MobileHealthBar = () => {
 }
 
 export const BottomNav = ({ selected }) => {
-  const { wsStatus, monitoring, rateLimit, gateState, isEcoMode, healthEnabled } = useTradingStore()
+  const { wsStatus, monitoring, rateLimit, gateState, isEcoMode, healthEnabled, isSyncing } = useTradingStore()
   const isActive = (path) => {
     if (path === '/') return !selected && window.location.hash === '#/'
     return window.location.hash.startsWith(`#${path}`)
@@ -134,6 +156,11 @@ export const BottomNav = ({ selected }) => {
 
   return (
     <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-surface/95 backdrop-blur-md border-t border-border z-[60] shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
+      {isSyncing && (
+        <div className="absolute top-0 left-0 right-0 h-0.5 overflow-hidden">
+          <div className="h-full bg-accent animate-progress-fast" />
+        </div>
+      )}
       <MobileHealthBar />
       <div className="flex justify-around items-center h-16">
         {[

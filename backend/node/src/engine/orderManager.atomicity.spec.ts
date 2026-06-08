@@ -7,7 +7,8 @@ describe('OrderManagerService Atomicity', () => {
   let mockSignalEngine: any;
   let mockBinanceClient: any;
   let mockMarketFeed: any;
-  let mockTradingSession: any;
+  let mockSessionState: any;
+  let mockAuditLog: any;
 
   beforeEach(() => {
     mockSignalEngine = {
@@ -16,20 +17,23 @@ describe('OrderManagerService Atomicity', () => {
     mockMarketFeed = {
       getSymbolFilters: jest.fn().mockImplementation((symbol) => {
         if (symbol === 'BTCUSDT' || symbol === 'TRADABLE') {
-          return { filters: [] };
+          return {
+            filters: [
+              { filterType: 'LOT_SIZE', stepSize: '0.001' },
+              { filterType: 'PRICE_FILTER', tickSize: '0.01' }
+            ]
+          };
         }
         return null;
-      getSymbolFilters: jest.fn().mockReturnValue({
-        filters: [
-          { filterType: 'LOT_SIZE', stepSize: '0.001' },
-          { filterType: 'PRICE_FILTER', tickSize: '0.01' }
-        ]
       }),
     };
-    mockTradingSession = {
+    mockSessionState = {
       isRateLimited: jest.fn().mockReturnValue(false),
     };
-    service = new OrderManagerService(mockSignalEngine, mockMarketFeed, mockTradingSession, { log: jest.fn() } as any);
+    mockAuditLog = {
+      log: jest.fn(),
+    };
+    service = new OrderManagerService(mockSignalEngine, mockMarketFeed, mockSessionState, mockAuditLog);
 
     mockBinanceClient = {
       restAPI: {

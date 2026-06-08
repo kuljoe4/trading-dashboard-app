@@ -62,8 +62,8 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
             {tradingMode === 'testnet' && <DemoBadge />}
             {tradingMode === 'live' && <LiveBadge />}
           </div>
-          <div className="text-[17px] font-bold">{s.strategy_label}</div>
-          <div className="text-[11px] text-dim mt-1.5 font-bold uppercase tracking-wider flex flex-col gap-1">
+          <div className="text-base md:text-[17px] font-bold">{s.strategy_label}</div>
+          <div className="text-[10px] md:text-[11px] text-dim mt-1.5 font-bold uppercase tracking-wider flex flex-col gap-1">
             <div className="flex items-center gap-2">
               <Zap size={12} className={cn("text-accent", config.global_scanner_enabled === false && "text-dim")} />
               <span className={cn(config.global_scanner_enabled === false && "line-through decoration-red/40 decoration-2")}>
@@ -115,7 +115,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
               </button>
             </Tooltip>
           </div>
-          <div className="text-2xl font-bold font-mono" style={{ color: pnlColor(s.activePnl) }}>
+          <div className="text-xl md:text-2xl font-bold font-mono" style={{ color: pnlColor(s.activePnl) }}>
             {fmtUSD(s.activePnl)}
           </div>
           <div className="text-[10px] text-dim font-bold uppercase tracking-widest mt-1 flex flex-col items-end">
@@ -693,7 +693,8 @@ export function DashboardView({ initialStrategy }) {
                           onClick={() => setSelected(label)}
                         />
                       );
-                    })}                  </>
+                    })}
+                  </>
                 ) : (
                   <button
                     onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
@@ -707,51 +708,6 @@ export function DashboardView({ initialStrategy }) {
                   </button>
                 )}
 
-                {sessionList
-                  .filter(s => s.id !== strategyId)
-                  .slice(0, 1)
-                  .map(s => (
-                  <div key={s.id} className="bg-surface/40 border border-border/60 rounded-2xl p-6 flex flex-col gap-6 opacity-90 h-[256px] relative group/prev">
-                    {!sessionActive && (
-                      <div className="absolute inset-0 bg-accent/5 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center opacity-0 group-hover/prev:opacity-100 transition-opacity">
-                        <button
-                          onClick={handleResumeLast}
-                          disabled={loading}
-                          className="bg-accent text-white px-6 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-xl active:scale-95 transition-transform"
-                        >
-                          <RefreshCw size={14} className={cn(loading && "animate-spin")} /> Resume Session
-                        </button>
-                      </div>
-                    )}
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="text-[10px] text-dim font-bold tracking-widest uppercase mb-2">Previous Session</div>
-                        <div className="text-base font-bold">{s.config?.strategy_label || 'Momentum Strategy'}</div>
-                        <div className="text-[10px] text-dim font-bold uppercase mt-1 tracking-tight">
-                          {s.config?.scan_interval} · {s.config?.scan_pct_threshold}% threshold
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className={cn("text-xl font-bold font-mono", s.totalPnl >= 0 ? "text-green" : "text-red")}>
-                          {fmtUSD(s.totalPnl)}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="mt-auto pt-5 border-t border-border/20 flex justify-between items-center relative z-20">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] text-dim font-bold font-mono">ID: {s.id.substring(0, 8)}</span>
-                        <CopyButton value={s.id} className="p-1" />
-                      </div>
-                      <button
-                        onClick={() => setSessionToDelete(s.id)}
-                        aria-label="Delete session history"
-                        className="text-dim hover:text-red transition-colors"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
               </div>
             </motion.div>
 

@@ -57,6 +57,7 @@ const defaultConfig = {
   sl_lookback_period: 5,
   sl_min_pct: 0.3,
   sl_max_pct: 3,
+  trading_mode: localStorage.getItem('global_trading_mode') || 'paper',
   risk_pct_per_trade: CONFIG_LIMITS.RISK_PER_TRADE_DEFAULT,
   max_open_trades: CONFIG_LIMITS.MAX_OPEN_TRADES_DEFAULT,
   paper_starting_balance: CONFIG_LIMITS.PAPER_STARTING_BALANCE_DEFAULT,
@@ -119,7 +120,12 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   fetchSessions: async () => { try { const r = await sessionAPI.list(); set({ sessionList: r.data }); } catch (e) {} },
   fetchLifetimeAnalytics: async (m = 'paper') => { try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} },
   updateStats: (s) => set((st) => ({ ...st, ...s })),
-  updateConfig: (c) => set((st) => ({ config: { ...st.config, ...c } })),
+  updateConfig: (c) => {
+    if (c.trading_mode) {
+      localStorage.setItem('global_trading_mode', c.trading_mode);
+    }
+    set((st) => ({ config: { ...st.config, ...c } }));
+  },
   
   ws: null, reconnectAttempts: 0,
   connectWS: () => {

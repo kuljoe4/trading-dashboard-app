@@ -27,16 +27,16 @@ export const PulseDot = React.memo(({ color = "bg-green" }) => (
 // --- Stat Card ---
 export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing }) => (
   <div
-    className="bg-surface border border-border p-6 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.02] transition-all group relative overflow-hidden flex flex-col justify-center min-h-[110px]"
+    className="bg-surface border border-border p-5 md:p-6 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.02] transition-all group relative overflow-hidden flex flex-col justify-center min-h-[90px] md:min-h-[110px]"
     role="region"
     aria-label={`${label}: ${value}`}
   >
     {syncing && (
       <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />
     )}
-    <div className="text-[10px] text-dim tracking-[0.2em] mb-2 uppercase font-black group-hover:text-dim/80 transition-colors" aria-hidden="true">{label}</div>
+    <div className="text-[9px] md:text-[10px] text-dim tracking-[0.2em] mb-1.5 md:mb-2 uppercase font-black group-hover:text-dim/80 transition-colors" aria-hidden="true">{label}</div>
     <div className={cn(
-      "text-2xl font-bold font-mono tracking-tight transition-all duration-500",
+      "text-xl md:text-2xl font-bold font-mono tracking-tight transition-all duration-500",
       color,
       syncing && "opacity-40 blur-[1px]"
     )}>{value}</div>
@@ -155,16 +155,16 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
   return (
     <div
       className={cn(
-        "flex-1 bg-surface border rounded-2xl p-6 transition-all duration-500",
+        "flex-1 bg-surface border rounded-2xl p-5 md:p-6 transition-all duration-500",
         borderColorClass
       )}
       role="region"
       aria-label={`${label}: ${satisfied ? 'Satisfied' : 'Awaiting'}`}
     >
-      <div className="flex justify-between items-start mb-6">
+      <div className="flex justify-between items-start mb-4 md:mb-6">
         <div>
-          <div className="text-[11px] text-dim tracking-[0.15em] mb-2 uppercase font-bold">{label}</div>
-          <div className={cn("text-2xl font-bold font-mono tracking-tight", textColorClass)}>
+          <div className="text-[10px] md:text-[11px] text-dim tracking-[0.15em] mb-1.5 md:mb-2 uppercase font-bold">{label}</div>
+          <div className={cn("text-xl md:text-2xl font-bold font-mono tracking-tight", textColorClass)}>
             {formattedValue}
           </div>
           {sublabel && <div className="text-[11px] text-dim mt-2 font-bold uppercase tracking-tight">{sublabel}</div>}

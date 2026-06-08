@@ -33,7 +33,7 @@ describe('OrderManagerService Atomicity', () => {
     mockAuditLog = {
       log: jest.fn(),
     };
-    service = new OrderManagerService(mockSignalEngine, mockMarketFeed, mockSessionState, mockAuditLog);
+    service = new OrderManagerService(mockSignalEngine, mockMarketFeed, mockSessionState, mockAuditLog, { emit: jest.fn() } as any);
 
     mockBinanceClient = {
       restAPI: {

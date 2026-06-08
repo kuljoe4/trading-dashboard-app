@@ -4,7 +4,7 @@ import { sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip } from '../components/ui/primitives'
 import { motion, AnimatePresence } from 'framer-motion'
-import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap, BarChart3, LineChart, Target } from 'lucide-react'
+import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap, BarChart3, LineChart, Target, Trash2 } from 'lucide-react'
 import { Sidebar, BottomNav } from '../components/Navigation'
 import { EquityCurve, TODPerformance } from '../components/Analytics'
 
@@ -238,6 +238,26 @@ export const HistoryView = () => {
     return tradeHistory.filter(t => !t.sessionId || !sessionIds.has(t.sessionId))
   }, [sessionList, tradeHistory])
 
+  const [deletingOrphans, setDeletingOrphans] = useState(false)
+
+  const handleDeleteOrphans = async () => {
+    if (!confirm('Are you sure you want to permanently delete all standalone trade records? This cannot be undone.')) return
+    setDeletingOrphans(true)
+    try {
+      await sessionAPI.deleteOrphans()
+      // Refresh history and analytics
+      const [historyRes, analyticsRes] = await Promise.all([
+        sessionAPI.history(),
+        fetchLifetimeAnalytics(lifetimeMode)
+      ])
+      updateStats({ tradeHistory: historyRes.data.trades || [] })
+    } catch (e) {
+      alert('Failed to delete standalone records')
+    } finally {
+      setDeletingOrphans(false)
+    }
+  }
+
   const currentAnalytics = lifetimeAnalytics
 
   const totalPnl = currentAnalytics?.cumulativePnL?.length ? safeNum(currentAnalytics.cumulativePnL[currentAnalytics.cumulativePnL.length - 1].pnl) : 0
@@ -415,7 +435,21 @@ export const HistoryView = () => {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                   >
-                    <SectionLabel className="mt-10 mb-6">Standalone Records</SectionLabel>
+                    <div className="flex items-center justify-between mt-10 mb-6">
+                      <SectionLabel className="mb-0">Standalone Records</SectionLabel>
+                      <button
+                        onClick={handleDeleteOrphans}
+                        disabled={deletingOrphans}
+                        className="text-[10px] font-bold text-red hover:text-red/80 transition-colors uppercase tracking-widest flex items-center gap-2"
+                      >
+                        {deletingOrphans ? (
+                          <div className="w-3 h-3 border-2 border-red border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <Trash2 size={12} />
+                        )}
+                        Clear All
+                      </button>
+                    </div>
                     <div className="space-y-3">
                       {orphans.map((trade) => (
                         <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} />

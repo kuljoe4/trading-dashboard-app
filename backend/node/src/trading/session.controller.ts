@@ -62,6 +62,12 @@ export class SessionController {
     return this.sessionService.pauseSession(body.paused);
   }
 
+  @Delete('trades/orphans')
+  async deleteOrphanedTrades(@Req() req: Request) {
+    const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
+    return this.sessionService.deleteOrphanedTrades(clientIp);
+  }
+
   @Delete(':id')
   async deleteSession(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
     const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');

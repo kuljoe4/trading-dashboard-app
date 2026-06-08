@@ -36,7 +36,7 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
   const durationStr = durationMs ? (durationMs / 60000).toFixed(1) + 'm' : 'N/A'
 
   return (
-    <div className="flex flex-col gap-3 p-4 bg-surface border border-border/60 rounded-xl hover:border-border-hover transition-colors group/trade shadow-sm">
+    <div className="flex flex-col gap-3 p-4 bg-surface border border-border/60 rounded-xl hover:border-border-hover transition-colors group/trade shadow-sm mb-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="flex flex-col">

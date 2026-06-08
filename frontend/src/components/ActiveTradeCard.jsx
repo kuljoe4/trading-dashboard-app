@@ -43,7 +43,7 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
       onKeyDown={handleKeyDown}
       role="button"
       tabIndex={0}
-      className="bg-surface border border-border rounded-2xl p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/40 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.98]"
+      className="bg-surface border border-border rounded-2xl p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/40 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.98] mb-4 md:mb-6"
       aria-label={`View details for ${trade.symbol} ${trade.direction} trade, ${fmtUSD(trade.pnl)} P&L, ${Number(trade.rr || 0).toFixed(2)} RR`}
     >
       <div className="flex items-center justify-between">

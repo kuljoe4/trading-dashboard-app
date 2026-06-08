@@ -25,32 +25,44 @@ export const PulseDot = React.memo(({ color = "bg-green" }) => (
 ))
 
 // --- Stat Card ---
-export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing }) => (
-  <div
-    className="bg-surface border border-border p-5 md:p-6 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.02] transition-all group relative overflow-hidden flex flex-col justify-center min-h-[90px] md:min-h-[110px]"
-    role="region"
-    aria-label={`${label}: ${value}`}
-  >
-    {syncing && (
-      <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />
-    )}
-    <div className="text-[9px] md:text-[10px] text-dim tracking-[0.2em] mb-1.5 md:mb-2 uppercase font-black group-hover:text-dim/80 transition-colors" aria-hidden="true">{label}</div>
-    <div className={cn(
-      "text-xl md:text-2xl font-bold font-mono tracking-tight transition-all duration-500",
-      color,
-      syncing && "opacity-40 blur-[1px]"
-    )}>{value}</div>
-    {subValue && (
+export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing }) => {
+  // BOLT: Clean up double-negative visuals: if value starts with '-', don't show negative arrow in label/icon.
+  // This component currently doesn't show an icon, but if the value passed from parent has both '-' and an arrow,
+  // it might look redundant. The user pointed out: "Total Performance" displays ▼ - $9,920.52.
+  // We should ensure the parent (HistoryView or Dashboard) doesn't pass both.
+  // However, we can also sanitize it here.
+
+  const sanitizedValue = typeof value === 'string' && (value.includes('▼') || value.includes('▲')) && value.includes('-')
+    ? value.replace('-', '') // Remove the minus if an arrow is already present
+    : value;
+
+  return (
+    <div
+      className="bg-surface border border-border p-5 md:p-6 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.02] transition-all group relative overflow-hidden flex flex-col justify-center min-h-[90px] md:min-h-[110px]"
+      role="region"
+      aria-label={`${label}: ${value}`}
+    >
+      {syncing && (
+        <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />
+      )}
+      <div className="text-[10px] md:text-[11px] text-dim tracking-[0.15em] mb-2 md:mb-3 uppercase font-bold group-hover:text-dim/80 transition-colors" aria-hidden="true">{label}</div>
       <div className={cn(
-        "text-[10px] text-dim mt-2 font-mono font-bold uppercase flex items-center gap-1.5",
-        syncing && "text-accent/60 animate-pulse"
-      )}>
-        {syncing && <Loader2 size={12} className="animate-spin" aria-hidden="true" />}
-        {subValue}
-      </div>
-    )}
-  </div>
-))
+        "text-xl md:text-2xl font-bold font-mono tracking-tight transition-all duration-500",
+        color,
+        syncing && "opacity-40 blur-[1px]"
+      )}>{sanitizedValue}</div>
+      {subValue && (
+        <div className={cn(
+          "text-[11px] text-dim mt-2.5 font-mono font-bold uppercase flex items-center gap-1.5",
+          syncing && "text-accent/60 animate-pulse"
+        )}>
+          {syncing && <Loader2 size={12} className="animate-spin" aria-hidden="true" />}
+          {subValue}
+        </div>
+      )}
+    </div>
+  );
+})
 
 // --- Section Label ---
 export const SectionLabel = ({ children, className }) => (

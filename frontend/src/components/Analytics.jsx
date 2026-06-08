@@ -120,11 +120,11 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
       >
         <defs>
           <linearGradient id={`${gradientId}-area-above`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--color-green)" stopOpacity="0.15" />
+            <stop offset="0%" stopColor="var(--color-green)" stopOpacity="0.08" />
             <stop offset="100%" stopColor="var(--color-green)" stopOpacity="0" />
           </linearGradient>
           <linearGradient id={`${gradientId}-area-below`} x1="0" y1="1" x2="0" y2="0">
-            <stop offset="0%" stopColor="var(--color-red)" stopOpacity="0.15" />
+            <stop offset="0%" stopColor="var(--color-red)" stopOpacity="0.08" />
             <stop offset="100%" stopColor="var(--color-red)" stopOpacity="0" />
           </linearGradient>
 
@@ -136,18 +136,18 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
           </clipPath>
 
           <filter id={glowId}>
-            <feGaussianBlur stdDeviation="0.8" result="blur" />
+            <feGaussianBlur stdDeviation="0.4" result="blur" />
             <feComposite in="SourceGraphic" in2="blur" operator="over" />
           </filter>
         </defs>
 
         {/* Grid Lines */}
-        <line x1="0" y1="25" x2="100" y2="25" stroke="currentColor" className="text-border/20" strokeWidth="0.15" />
-        <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" className="text-border/20" strokeWidth="0.15" />
-        <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" className="text-border/20" strokeWidth="0.15" />
+        <line x1="0" y1="25" x2="100" y2="25" stroke="currentColor" className="text-border/10" strokeWidth="0.1" />
+        <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" className="text-border/10" strokeWidth="0.1" />
+        <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" className="text-border/10" strokeWidth="0.1" />
 
         {/* Zero Baseline */}
-        <line x1="0" y1={zeroY} x2="100" y2={zeroY} stroke="currentColor" className="text-border/60" strokeWidth="0.5" strokeDasharray="1,2" />
+        <line x1="0" y1={zeroY} x2="100" y2={zeroY} stroke="currentColor" className="text-border/40" strokeWidth="0.3" strokeDasharray="1,2" />
 
         {/* Areas */}
         <path d={areaAboveD} fill={`url(#${gradientId}-area-above)`} clipPath={`url(#${gradientId}-clip-above)`} className="transition-all duration-700" />
@@ -158,7 +158,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
           d={pathD}
           fill="none"
           stroke="var(--color-green)"
-          strokeWidth="1.2"
+          strokeWidth="0.8"
           strokeLinecap="round"
           strokeLinejoin="round"
           clipPath={`url(#${gradientId}-clip-above)`}
@@ -171,7 +171,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
           d={pathD}
           fill="none"
           stroke="var(--color-red)"
-          strokeWidth="1.2"
+          strokeWidth="0.8"
           strokeLinecap="round"
           strokeLinejoin="round"
           clipPath={`url(#${gradientId}-clip-below)`}
@@ -184,12 +184,12 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
           <g>
             <line
               x1={hoverData.x} y1="0" x2={hoverData.x} y2="100"
-              stroke="var(--color-accent)" strokeWidth="0.5" strokeDasharray="2,2" className="opacity-50"
+              stroke="var(--color-accent)" strokeWidth="0.3" strokeDasharray="2,2" className="opacity-40"
             />
             <circle
               cx={hoverData.x}
               cy={hoverData.y}
-              r="2.5"
+              r="1.5"
               fill="var(--color-accent)"
               filter={`url(#${glowId})`}
               className="animate-pulse"
@@ -202,7 +202,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
           <circle
             cx={points[points.length-1].x}
             cy={points[points.length-1].y}
-            r="2"
+            r="1.2"
             fill="var(--color-accent)"
             filter={`url(#${glowId})`}
           />

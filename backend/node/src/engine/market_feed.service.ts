@@ -141,6 +141,9 @@ export class MarketFeedService {
     this.combinedKlineWsList = [];
     for (const task of this.subscriptionTasks) clearTimeout(task);
     this.subscriptionTasks = [];
+    this.exchangeInfo.clear();
+    this.activeWatchlist.clear();
+    this.logger.verbose('MarketFeedService: Resources cleared');
   }
 
   private startMiniTickerStream() {

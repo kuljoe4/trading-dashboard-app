@@ -43,7 +43,9 @@ export class SessionStateService {
     this.cachedClosedTradesStats = {};
 
     for (const trade of initialHistory) {
-      const label = trade.strategy_label || 'Momentum Strategy';
+      const label = trade.strategy_label || config.strategy_label || 'Momentum Strategy';
+      if (!trade.strategy_label) trade.strategy_label = label;
+
       if (!this.cachedClosedTradesStats[label]) {
         this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
       }
@@ -112,7 +114,9 @@ export class SessionStateService {
   }
 
   addClosedTrade(trade: Trade) {
-    const label = trade.strategy_label || 'Momentum Strategy';
+    const label = trade.strategy_label || this.config?.strategy_label || 'Momentum Strategy';
+    if (!trade.strategy_label) trade.strategy_label = label;
+
     if (!this.cachedClosedTradesStats[label]) {
       this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
     }
@@ -157,6 +161,15 @@ export class SessionStateService {
     this.binanceRateLimit = {};
     this.stats = { entryCount: 0, hitCount: 0 };
     this.statsVersion++;
+
+    // Suggest explicit GC if --expose-gc is enabled
+    if (typeof global !== 'undefined' && (global as any).gc) {
+      try {
+        (global as any).gc();
+        this.logger.log('Manual Garbage Collection triggered');
+      } catch (e) {}
+    }
+
     this.logger.verbose('SessionStateService: Memory minimized');
   }
 }

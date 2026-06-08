@@ -309,7 +309,7 @@ export function DashboardView({ initialStrategy }) {
     updateConfig, gateState, gateReason, hibernating,
     scannerPaused, sessionList, fetchSessions, wsStatus,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
-    healthEnabled
+    healthEnabled, isSyncing
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -337,7 +337,8 @@ export function DashboardView({ initialStrategy }) {
     isEcoMode: state.isEcoMode,
     entryCount: state.entryCount,
     hitCount: state.hitCount,
-    healthEnabled: state.healthEnabled
+    healthEnabled: state.healthEnabled,
+    isSyncing: state.isSyncing
   }), shallow)
 
   useEffect(() => {

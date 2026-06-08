@@ -54,10 +54,10 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
   const areaAboveD = points.length >= 2 ? `${pathD} L 100 ${zeroY} L 0 ${zeroY} Z` : '';
   const areaBelowD = points.length >= 2 ? `${pathD} L 100 ${zeroY} L 0 ${zeroY} Z` : '';
 
-  const handleMouseMove = (e) => {
+  const handleInteraction = (clientX) => {
     if (!containerRef.current || points.length < 2) return;
     const rect = containerRef.current.getBoundingClientRect();
-    const xPct = ((e.clientX - rect.left) / rect.width) * 100;
+    const xPct = ((clientX - rect.left) / rect.width) * 100;
 
     // Find closest point
     let closest = points[0];
@@ -71,7 +71,14 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
       }
     }
 
-    setHoverData({ ...closest, clientX: e.clientX, clientY: rect.top + (closest.y * rect.height / 100) });
+    setHoverData({ ...closest, clientX: clientX, clientY: rect.top + (closest.y * rect.height / 100) });
+  };
+
+  const handleMouseMove = (e) => handleInteraction(e.clientX);
+  const handleTouchMove = (e) => {
+    if (e.touches && e.touches[0]) {
+      handleInteraction(e.touches[0].clientX);
+    }
   };
 
   const handleMouseLeave = () => setHoverData(null);
@@ -89,11 +96,14 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
   return (
     <div
       ref={containerRef}
-      className="relative group cursor-crosshair select-none"
+      className="relative group cursor-crosshair select-none touch-none"
       role="img"
       aria-label={`Cumulative profit and loss chart, latest value ${fmtUSD(currentPnl)}.`}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
+      onTouchMove={handleTouchMove}
+      onTouchStart={handleTouchMove}
+      onTouchEnd={handleMouseLeave}
     >
       {/* Header Info - Moved above chart plot to prevent overlap */}
       <div className="flex items-start justify-between mb-6 min-h-[64px]">
@@ -154,12 +164,12 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
         </defs>
 
         {/* Grid Lines */}
-        <line x1="0" y1="25" x2="100" y2="25" stroke="currentColor" className="text-border/10" strokeWidth="0.1" />
-        <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" className="text-border/10" strokeWidth="0.1" />
-        <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" className="text-border/10" strokeWidth="0.1" />
+        <line x1="0" y1="25" x2="100" y2="25" stroke="currentColor" className="text-border/5" strokeWidth="0.1" />
+        <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" className="text-border/5" strokeWidth="0.1" />
+        <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" className="text-border/5" strokeWidth="0.1" />
 
         {/* Zero Baseline */}
-        <line x1="0" y1={zeroY} x2="100" y2={zeroY} stroke="currentColor" className="text-border/40" strokeWidth="0.3" strokeDasharray="1,2" />
+        <line x1="0" y1={zeroY} x2="100" y2={zeroY} stroke="currentColor" className="text-border/20" strokeWidth="0.3" strokeDasharray="1,2" />
 
         {/* Areas */}
         <path d={areaAboveD} fill={`url(#${gradientId}-area-above)`} clipPath={`url(#${gradientId}-clip-above)`} className="transition-all duration-700" />
@@ -170,7 +180,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
           d={pathD}
           fill="none"
           stroke="var(--color-green)"
-          strokeWidth="0.65"
+          strokeWidth="0.5"
           strokeLinecap="round"
           strokeLinejoin="round"
           clipPath={`url(#${gradientId}-clip-above)`}
@@ -183,7 +193,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
           d={pathD}
           fill="none"
           stroke="var(--color-red)"
-          strokeWidth="0.65"
+          strokeWidth="0.5"
           strokeLinecap="round"
           strokeLinejoin="round"
           clipPath={`url(#${gradientId}-clip-below)`}

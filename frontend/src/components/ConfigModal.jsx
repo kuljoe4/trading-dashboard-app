@@ -242,9 +242,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-5 pb-32 overscroll-contain" data-vaul-no-drag>
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 pb-32 overscroll-contain" data-vaul-no-drag>
         {section === 'scan' && (
-          <div className="space-y-8 animate-in fade-in duration-300">
+          <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-300">
             <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
               <SectionHeader icon={Settings2} title="General" subtitle="Basic strategy identification" />
               {field('Strategy label', 'strategy_label', 'text', null, { placeholder: 'Momentum Strategy' })}
@@ -299,7 +299,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
         )}
 
         {section === 'strategy' && (
-          <div className="space-y-8 animate-in fade-in duration-300">
+          <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-300">
             <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
               <div className="flex justify-between items-center mb-4">
                 <SectionHeader icon={Zap} title="Entry Signals" subtitle="Triggers for opening positions" />
@@ -401,7 +401,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
         )}
 
         {section === 'risk' && (
-          <div className="space-y-8 animate-in fade-in duration-300">
+          <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-300">
             <section>
               <SectionHeader icon={ShieldCheck} title="Capital Guards" subtitle="Global safety limits" />
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -530,7 +530,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
         )}
 
         {section === 'advanced' && (
-          <div className="space-y-8 animate-in fade-in duration-300">
+          <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-300">
             <section>
               <SectionHeader icon={Briefcase} title="Execution Environment" subtitle="Target exchange and mode" />
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -585,7 +585,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
         )}
 
         {section === 'presets' && (
-          <div className="space-y-8 animate-in fade-in duration-300">
+          <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-300">
             <section>
               <SectionHeader icon={Save} title="Save Strategy" subtitle="Store current configuration as a preset" />
               <div className="flex gap-2">

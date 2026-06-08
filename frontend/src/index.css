@@ -70,4 +70,14 @@
     from { background-position: 0 0; }
     to { background-position: 1rem 0; }
   }
+
+  @keyframes progress-fast {
+    0% { transform: translateX(-100%); }
+    50% { transform: translateX(0%); }
+    100% { transform: translateX(100%); }
+  }
+
+  .animate-progress-fast {
+    animation: progress-fast 1s infinite linear;
+  }
 }

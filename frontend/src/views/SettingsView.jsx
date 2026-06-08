@@ -77,6 +77,7 @@ export function SettingsView() {
       return
     }
     setResetting(true)
+    useTradingStore.getState().setSyncing(true)
     try {
       await resetPaperBalance()
       setStatus({ type: 'success', msg: 'Paper balance reset to $10,000' })
@@ -85,6 +86,7 @@ export function SettingsView() {
     } finally {
       setResetting(false)
       setResetConfirm(false)
+      useTradingStore.getState().setSyncing(false)
     }
   }
 
@@ -150,10 +152,10 @@ export function SettingsView() {
           </div>
         </div>
 
-        <div className="space-y-10">
+        <div className="space-y-6 lg:space-y-8">
           <section>
-            <SectionLabel className="mb-6">Dashboard Security</SectionLabel>
-            <div className="bg-surface border border-border rounded-2xl p-6 md:p-8 shadow-sm">
+            <SectionLabel className="mb-4">Dashboard Security</SectionLabel>
+            <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm">
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-2">
                   <label htmlFor="adminApiKey" className="text-[10px] text-dim font-bold tracking-widest uppercase">Admin API Key</label>
@@ -213,8 +215,8 @@ export function SettingsView() {
           )}
 
           <section>
-            <SectionLabel className="mb-6">Dashboard & Streaming</SectionLabel>
-            <div className="bg-surface border border-border rounded-2xl p-6 md:p-8 shadow-sm space-y-8">
+            <SectionLabel className="mb-4">Dashboard & Streaming</SectionLabel>
+            <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm space-y-6">
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
@@ -298,8 +300,8 @@ export function SettingsView() {
           </section>
 
           <section>
-            <SectionLabel className="mb-6">Exchange Integration (Live)</SectionLabel>
-            <div className="bg-surface border border-border rounded-2xl p-6 md:p-8 shadow-sm">
+            <SectionLabel className="mb-4">Exchange Integration (Live)</SectionLabel>
+            <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm">
               <div className="grid grid-cols-1 gap-8">
                 <div className="flex flex-col gap-2">
                   <div className="text-[10px] text-dim font-bold tracking-widest uppercase mb-1">Live Credentials</div>
@@ -376,8 +378,8 @@ export function SettingsView() {
           </section>
 
           <section>
-            <SectionLabel className="mb-6 text-purple">Binance Demo (Testnet)</SectionLabel>
-            <div className="bg-surface border border-border rounded-2xl p-6 md:p-8 shadow-sm">
+            <SectionLabel className="mb-4 text-purple">Binance Demo (Testnet)</SectionLabel>
+            <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm">
               <div className="grid grid-cols-1 gap-8">
                 <div className="flex flex-col gap-2">
                   <div className="text-[10px] text-dim font-bold tracking-widest uppercase mb-1">Demo Credentials</div>
@@ -528,8 +530,8 @@ export function SettingsView() {
           </section>
 
           <section>
-            <SectionLabel className="mb-6">Account Maintenance</SectionLabel>
-            <div className="bg-surface border border-border rounded-2xl p-6 md:p-8 shadow-sm">
+            <SectionLabel className="mb-4">Account Maintenance</SectionLabel>
+            <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-xl bg-red/10 flex items-center justify-center">

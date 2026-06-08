@@ -744,8 +744,8 @@ export function DashboardView({ initialStrategy }) {
       {/* Modals & Drawers */}
         <Drawer.Root open={showConfig} onOpenChange={setShowConfig}>
           <Drawer.Portal>
-            <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
-            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-full max-h-[96%] fixed bottom-0 left-0 right-0 z-50 focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[800px] lg:mx-auto">
+            <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
+            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-full max-h-[96%] fixed bottom-0 left-0 right-0 z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[800px] lg:mx-auto">
               <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
                 <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
                 <VisuallyHidden>
@@ -772,8 +772,8 @@ export function DashboardView({ initialStrategy }) {
 
         <Drawer.Root open={showScanner} onOpenChange={setShowScanner}>
           <Drawer.Portal>
-            <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
-            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-full max-h-[96%] fixed bottom-0 left-0 right-0 z-50 focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto">
+            <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
+            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-full max-h-[96%] fixed bottom-0 left-0 right-0 z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto">
               <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
                 <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
                 <VisuallyHidden>
@@ -791,17 +791,32 @@ export function DashboardView({ initialStrategy }) {
         </Drawer.Root>
 
         {/* Mobile Floating Controls */}
-        <Tooltip content="Open Market Scanner" side="left">
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={() => setShowScanner(true)}
-            aria-label="Open Market Scanner"
-            className="lg:hidden fixed bottom-24 right-6 w-16 h-16 rounded-full bg-accent text-white shadow-2xl flex items-center justify-center z-40 animate-in fade-in zoom-in duration-500"
-          >
-            <Zap size={28} />
-          </motion.button>
-        </Tooltip>
+        <div className="lg:hidden fixed bottom-24 right-6 flex flex-col gap-4 z-40">
+          {!sessionActive && (
+            <Tooltip content="Start New Session" side="left">
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
+                aria-label="Start New Session"
+                className="w-14 h-14 rounded-full bg-green text-white shadow-2xl flex items-center justify-center animate-in fade-in zoom-in duration-500"
+              >
+                <Plus size={28} />
+              </motion.button>
+            </Tooltip>
+          )}
+          <Tooltip content="Open Market Scanner" side="left">
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={() => setShowScanner(true)}
+              aria-label="Open Market Scanner"
+              className="w-16 h-16 rounded-full bg-accent text-white shadow-2xl flex items-center justify-center animate-in fade-in zoom-in duration-500"
+            >
+              <Zap size={28} />
+            </motion.button>
+          </Tooltip>
+        </div>
 
         <BottomNav selected={selected} />
       </div>

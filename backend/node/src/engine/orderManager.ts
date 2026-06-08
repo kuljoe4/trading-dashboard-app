@@ -413,7 +413,8 @@ export class OrderManagerService {
     } catch (err) {
       // If order is already filled or canceled, we can ignore the error
       const errMsg = err instanceof Error ? err.message : String(err);
-      if (errMsg.includes('Order has been filled') || errMsg.includes('UNKNOWN_ORDER')) {
+      const upperMsg = errMsg.toUpperCase();
+      if (upperMsg.includes('ORDER HAS BEEN FILLED') || upperMsg.includes('UNKNOWN_ORDER') || upperMsg.includes('UNKNOWN ORDER')) {
         this.logger.debug(`Order ${orderId} already closed: ${errMsg}`);
         return true;
       }
@@ -437,7 +438,8 @@ export class OrderManagerService {
       return true;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      if (errMsg.includes('Order has been filled') || errMsg.includes('UNKNOWN_ORDER') || errMsg.includes('not found')) {
+      const upperMsg = errMsg.toUpperCase();
+      if (upperMsg.includes('ORDER HAS BEEN FILLED') || upperMsg.includes('UNKNOWN_ORDER') || upperMsg.includes('UNKNOWN ORDER') || upperMsg.includes('NOT FOUND')) {
         this.logger.debug(`Algo order ${algoId} already closed or not found: ${errMsg}`);
         return true;
       }
@@ -632,8 +634,10 @@ export class OrderManagerService {
             });
           } catch (err: unknown) {
             const errMsg = err instanceof Error ? err.message : String(err);
+            const upperMsg = errMsg.toUpperCase();
             // RISK-04: If close fails, check if it's because position is already closed (SL race)
-              if (errMsg.toUpperCase().includes('REDUCE_ONLY') || errMsg.includes('Position side does not match')) {
+            // Note: Binance can return "ReduceOnly Order is rejected." or "REDUCE_ONLY"
+            if (upperMsg.includes('REDUCE_ONLY') || upperMsg.includes('REDUCEONLY') || upperMsg.includes('POSITION SIDE DOES NOT MATCH')) {
                this.logger.log(`Binance close order for ${symbol} rejected (possibly already closed by exchange SL). Verifying...`);
                const position = await this.fetchPosition(symbol);
                if (position && parseFloat(position.positionAmt) === 0) {

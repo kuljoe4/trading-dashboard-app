@@ -19,6 +19,11 @@ describe('OrderManagerService Atomicity', () => {
           return { filters: [] };
         }
         return null;
+      getSymbolFilters: jest.fn().mockReturnValue({
+        filters: [
+          { filterType: 'LOT_SIZE', stepSize: '0.001' },
+          { filterType: 'PRICE_FILTER', tickSize: '0.01' }
+        ]
       }),
     };
     mockTradingSession = {

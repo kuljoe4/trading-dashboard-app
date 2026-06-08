@@ -251,13 +251,14 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     className={cn(
-                      "flex items-center gap-4 p-4 transition-colors hover:bg-white/5 h-[64px]",
+                      "flex items-center gap-4 p-4 transition-colors hover:bg-white/5 h-[64px] group",
                       !isLast && "border-b border-border/40",
                       !passing && "opacity-60"
                     )}
                   >
                     <span className="text-[10px] text-dim font-mono w-4">#{i + 1}</span>
                     <strong className="text-xs font-mono w-16">{opp.symbol.replace('USDT', '')}</strong>
+                    <CopyButton value={opp.symbol} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 -ml-2" />
                     <div className="flex-1 flex justify-center h-8">
                       <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={48} height={20} />
                     </div>

@@ -32,3 +32,7 @@
 ## 2026-06-05 - Semantic Accessibility for Nav and Cards
 **Learning:** Adding aria-current="page" to navigation buttons provides essential context for screen reader users, indicating which view they are currently on.
 **Action:** Always include aria-current for active states in navigation components.
+
+## 2026-06-06 - Accessible Hover Utilities
+**Learning:** Utilities that are only visible on hover (like 'Copy' buttons in dense grids) must also be visible on focus to ensure keyboard accessibility. Using `opacity-0 group-hover:opacity-100 focus-visible:opacity-100` ensures a clean UI for mouse users while remaining fully inclusive.
+**Action:** When adding hover-activated secondary controls, always include `focus-visible` or `group-focus-within` visibility classes.

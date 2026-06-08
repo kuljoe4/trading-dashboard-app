@@ -14,7 +14,12 @@ describe('OrderManagerService Atomicity', () => {
       checkEntry: jest.fn(),
     };
     mockMarketFeed = {
-      getSymbolFilters: jest.fn().mockReturnValue(null),
+      getSymbolFilters: jest.fn().mockReturnValue({
+        filters: [
+          { filterType: 'LOT_SIZE', stepSize: '0.001' },
+          { filterType: 'PRICE_FILTER', tickSize: '0.01' }
+        ]
+      }),
     };
     mockTradingSession = {
       isRateLimited: jest.fn().mockReturnValue(false),

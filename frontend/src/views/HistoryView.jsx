@@ -75,22 +75,22 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 xs:grid-cols-4 gap-4 pt-3 border-t border-border/20">
-        <div className="flex flex-col">
-          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-0.5">Entry/Exit</span>
-          <span className="text-[10px] font-bold text-text/90 font-mono leading-tight">{price(trade.entry_price)} → {price(trade.exit_price)}</span>
+      <div className="grid grid-cols-2 xs:grid-cols-4 gap-x-4 gap-y-3 pt-3 border-t border-border/20">
+        <div className="flex flex-col min-w-0">
+          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-1 opacity-60">Entry/Exit</span>
+          <span className="text-[10px] font-bold text-text/90 font-mono leading-tight truncate">{price(trade.entry_price)} → {price(trade.exit_price)}</span>
         </div>
-        <div className="flex flex-col sm:items-center">
-          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-0.5">Size</span>
+        <div className="flex flex-col items-end xs:items-center min-w-0">
+          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-1 opacity-60">Size</span>
           <span className="text-[10px] font-bold text-text/90 font-mono leading-tight">{Number(trade.qty || 0).toFixed(2)}</span>
         </div>
-        <div className="flex flex-col sm:items-center">
-          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-0.5">Max RR</span>
+        <div className="flex flex-col min-w-0">
+          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-1 opacity-60">Max RR</span>
           <span className="text-[10px] font-bold text-accent font-mono leading-tight">{Number(trade.max_rr_achieved || 0).toFixed(2)}R</span>
         </div>
-        <div className="flex flex-col items-end">
-          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-0.5">Trigger</span>
-          <span className="text-[10px] font-bold text-text/80 uppercase text-right leading-tight">
+        <div className="flex flex-col items-end min-w-0">
+          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-1 opacity-60">Trigger</span>
+          <span className="text-[10px] font-bold text-text/80 uppercase text-right leading-tight truncate w-full">
             {trade.exit_signal_type ? (
               <span className="flex flex-col items-end">
                 <span className="text-accent leading-none">{trade.exit_signal_type.replace(/_/g, ' ')}</span>
@@ -151,13 +151,13 @@ const SessionGroup = React.memo(({ session, trades }) => {
         </div>
 
         {/* Center/Right: Metrics Grid */}
-        <div className="flex flex-col md:flex-row items-start md:items-center gap-6 xl:gap-12 xl:ml-auto">
+        <div className="flex flex-col md:flex-row items-start md:items-center gap-6 xl:gap-10 xl:ml-auto">
           {/* Equity Preview */}
           <div className="hidden lg:block w-32 xl:w-40 h-10">
             <EquityCurve data={curve} height={40} />
           </div>
 
-          <div className="grid grid-cols-2 xs:grid-cols-4 gap-x-6 gap-y-4 sm:gap-8 xl:gap-12 w-full sm:w-auto">
+          <div className="grid grid-cols-2 xs:grid-cols-4 gap-x-4 sm:gap-x-8 gap-y-4 xl:gap-10 w-full sm:w-auto">
             <div className="flex flex-col">
               <span className="text-[9px] sm:text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1 opacity-60">Interval</span>
               <span className="text-xs font-bold text-text flex items-center gap-1.5">
@@ -280,6 +280,9 @@ export const HistoryView = () => {
 
   useEffect(() => {
     setLoading(true)
+    const store = useTradingStore.getState()
+    store._startSync()
+
     Promise.all([
       sessionAPI.history(),
       sessionAPI.analytics(),
@@ -288,7 +291,10 @@ export const HistoryView = () => {
     ]).then(([historyRes, analyticsRes]) => {
       updateStats({ tradeHistory: historyRes.data.trades || [] })
       setFullAnalytics(analyticsRes.data)
-    }).finally(() => setLoading(false))
+    }).finally(() => {
+      setLoading(false)
+      store._endSync()
+    })
   }, [updateStats, fetchSessions, fetchLifetimeAnalytics, lifetimeMode])
 
   useEffect(() => {
@@ -308,7 +314,7 @@ export const HistoryView = () => {
       <Sidebar />
       <div className={cn(
         "max-w-[1200px] mx-auto p-4 md:p-10 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:pb-10 transition-all",
-        healthEnabled ? "pb-48" : "pb-32"
+        healthEnabled ? "pb-56" : "pb-40"
       )}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5 mb-8 lg:mb-10 bg-surface border border-border rounded-2xl p-6 shadow-sm">
           <div className="flex items-center gap-4">

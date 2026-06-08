@@ -19,7 +19,7 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
         initial={{ opacity: 0, scale: 0.9, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.9, y: 20 }}
-        className="relative bg-surface border border-border rounded-2xl p-6 w-full max-w-md shadow-2xl overflow-hidden"
+        className="relative bg-surface border border-border w-full max-w-md rounded-[2rem] p-8 shadow-2xl overflow-hidden z-[1001]"
       >
         <div className="flex justify-between items-start mb-4">
           <div className={cn(

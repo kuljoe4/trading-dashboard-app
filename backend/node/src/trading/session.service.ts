@@ -641,6 +641,8 @@ export class SessionService implements OnModuleInit {
   }
 
   async deleteOrphanedTrades(actor?: string) {
+    this.logger.log(`Starting bulk deletion of orphaned trades (requested by ${actor})...`);
+
     const sessions = await this.sessionRepository.find({ select: ['id'] });
     const sessionIds = sessions.map(s => s.id);
 
@@ -648,20 +650,24 @@ export class SessionService implements OnModuleInit {
       .delete();
 
     if (sessionIds.length > 0) {
+      // Robust filter: match trades with NULL sessionId OR a sessionId that no longer exists in our session list
       queryBuilder.where("sessionId IS NULL OR sessionId NOT IN (:...ids)", { ids: sessionIds });
     } else {
-      queryBuilder.where("1=1"); // All trades are orphans if no sessions exist
+      queryBuilder.where("1=1"); // No sessions exist -> all trades are orphaned
     }
 
     const result = await queryBuilder.execute();
+    const affected = result.affected || 0;
+
+    this.logger.log(`Deleted ${affected} orphaned trades.`);
 
     await this.auditLog.log({
       action: 'DELETE_ORPHANED_TRADES',
       actor,
-      details: { affected: result.affected }
+      details: { affected }
     });
 
-    return { status: 'deleted', affected: result.affected || 0 };
+    return { status: 'deleted', affected };
   }
 
   async listSessions() {

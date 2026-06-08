@@ -76,6 +76,28 @@ export const EquityCurve = ({ data = [], height = 180 }) => {
 
   const handleMouseLeave = () => setHoverData(null);
 
+  const handleTouchMove = (e) => {
+    if (!containerRef.current || points.length < 2 || !e.touches[0]) return;
+    if (e.cancelable) e.preventDefault();
+    const rect = containerRef.current.getBoundingClientRect();
+    const touch = e.touches[0];
+    const xPct = ((touch.clientX - rect.left) / rect.width) * 100;
+
+    // Find closest point
+    let closest = points[0];
+    let minDiff = Math.abs(points[0].x - xPct);
+
+    for (const p of points) {
+      const diff = Math.abs(p.x - xPct);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = p;
+      }
+    }
+
+    setHoverData({ ...closest, clientX: touch.clientX, clientY: rect.top + (closest.y * rect.height / 100) });
+  };
+
   if (data.length < 2) {
     return (
       <div className="flex flex-col items-center justify-center h-[180px] bg-surface/20 border border-border/40 rounded-2xl border-dashed">
@@ -90,17 +112,20 @@ export const EquityCurve = ({ data = [], height = 180 }) => {
   return (
     <div
       ref={containerRef}
-      className="relative group cursor-crosshair select-none"
+      className="relative group cursor-crosshair select-none touch-none"
       role="img"
       aria-label={`Cumulative profit and loss chart, latest value ${fmtUSD(currentPnl)}.`}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
+      onTouchStart={handleTouchMove}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleMouseLeave}
     >
       {/* Header Info - Moved above chart plot to prevent overlap */}
       <div className="flex items-start justify-between mb-6 min-h-[70px]">
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-0.5 min-w-[200px]">
           <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Cumulative P&L</span>
-          <span className={cn("text-2xl font-bold font-mono tracking-tighter tabular-nums", displayPnl >= 0 ? "text-green" : "text-red")}>
+          <span className={cn("text-2xl font-bold font-mono tracking-tighter tabular-nums leading-none", displayPnl >= 0 ? "text-green" : "text-red")}>
             {fmtUSD(displayPnl)}
           </span>
           <div className="h-5 flex items-center"> {/* Fix CLS by pre-allocating space for date and always showing latest if not hovering */}

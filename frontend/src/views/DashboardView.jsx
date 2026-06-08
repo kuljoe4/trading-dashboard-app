@@ -397,7 +397,7 @@ export function DashboardView({ initialStrategy }) {
     }
   }, [showScanner]);
   useEffect(() => {
-    fetchSessions();
+    useTradingStore.getState().fetchSessions();
 
     const toggleScanner = () => setShowScanner(prev => !prev);
     window.addEventListener('toggle-scanner', toggleScanner);
@@ -499,7 +499,7 @@ export function DashboardView({ initialStrategy }) {
     return (
       <div className={cn(
         "transition-all duration-300",
-        healthEnabled ? "pb-48 lg:pb-8" : "pb-32 lg:pb-8",
+        healthEnabled ? "pb-56 lg:pb-8" : "pb-40 lg:pb-8",
         sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
       )}>
         <Sidebar selected={selected} />
@@ -528,7 +528,7 @@ export function DashboardView({ initialStrategy }) {
       <Sidebar selected={selected} />
       <div className={cn(
         "max-w-[1600px] mx-auto p-4 md:p-10 lg:pb-10 transition-all",
-        healthEnabled ? "pb-48" : "pb-32"
+        healthEnabled ? "pb-56" : "pb-40"
       )}>
 
         <ConfirmationModal
@@ -744,8 +744,8 @@ export function DashboardView({ initialStrategy }) {
       {/* Modals & Drawers */}
         <Drawer.Root open={showConfig} onOpenChange={setShowConfig}>
           <Drawer.Portal>
-            <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
-            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-full max-h-[96%] fixed bottom-0 left-0 right-0 z-50 focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[800px] lg:mx-auto">
+            <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
+            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-full max-h-[96%] fixed bottom-0 left-0 right-0 z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[800px] lg:mx-auto">
               <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
                 <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
                 <VisuallyHidden>
@@ -772,8 +772,8 @@ export function DashboardView({ initialStrategy }) {
 
         <Drawer.Root open={showScanner} onOpenChange={setShowScanner}>
           <Drawer.Portal>
-            <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
-            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-full max-h-[96%] fixed bottom-0 left-0 right-0 z-50 focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto">
+            <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
+            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-full max-h-[96%] fixed bottom-0 left-0 right-0 z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto">
               <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
                 <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
                 <VisuallyHidden>

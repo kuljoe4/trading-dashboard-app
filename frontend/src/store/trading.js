@@ -76,6 +76,8 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   healthEnabled: localStorage.getItem('health_enabled') !== 'false',
   streamingEnabled: localStorage.getItem('streaming_enabled') !== 'false',
   isThrottled: false, entryCount: 0, hitCount: 0,
+  isSyncing: false,
+  _syncCount: 0,
   
   _subscriptions: { trades: new Map(), strategies: new Map(), globalTrades: 0, scanner: 0 },
   _focusTimer: null,
@@ -117,8 +119,21 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   setThrottled: (t) => { set({ isThrottled: t }); const ws = get().ws; if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_active', active: !t })); },
   setFocusMode: (f, tid = null, s = null) => { const ws = get().ws; if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: f, tradeId: tid, strategyLabel: s })); },
   setSessionActive: (a, id) => { set({ sessionActive: a, strategyId: id }); if (a) get().connectWS(); else get().disconnectWS(); },
-  fetchSessions: async () => { try { const r = await sessionAPI.list(); set({ sessionList: r.data }); } catch (e) {} },
-  fetchLifetimeAnalytics: async (m = 'paper') => { try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} },
+
+  _startSync: () => set(st => ({ _syncCount: st._syncCount + 1, isSyncing: true })),
+  _endSync: () => set(st => { const c = Math.max(0, st._syncCount - 1); return { _syncCount: c, isSyncing: c > 0 }; }),
+
+  fetchSessions: async () => {
+    if (get()._syncCount > 5) return; // Prevent runaway syncs
+    get()._startSync();
+    try { const r = await sessionAPI.list(); set({ sessionList: r.data }); }
+    catch (e) {} finally { get()._endSync(); }
+  },
+  fetchLifetimeAnalytics: async (m = 'paper') => {
+    get()._startSync();
+    try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); }
+    catch (e) {} finally { get()._endSync(); }
+  },
   updateStats: (s) => set((st) => ({ ...st, ...s })),
   updateConfig: (c) => {
     if (c.trading_mode) {

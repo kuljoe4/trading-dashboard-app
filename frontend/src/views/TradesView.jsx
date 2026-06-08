@@ -42,7 +42,7 @@ const TradesView = () => {
       <Sidebar />
       <div className={cn(
         "max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:pb-8 transition-all",
-        healthEnabled ? "pb-48" : "pb-32"
+        healthEnabled ? "pb-56" : "pb-40"
       )}>
         <Breadcrumbs />
       <div className="flex items-center gap-4 mb-10">

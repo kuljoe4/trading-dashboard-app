@@ -5,7 +5,7 @@ import { useTradingStore } from '../store/trading'
 import { cn, Tooltip } from './ui/primitives'
 
 export const Sidebar = ({ selected }) => {
-  const { wsStatus, sidebarCollapsed: collapsed, toggleSidebar, monitoring, rateLimit, gateState, isEcoMode } = useTradingStore()
+  const { wsStatus, sidebarCollapsed: collapsed, toggleSidebar, monitoring, rateLimit, gateState, isEcoMode, isSyncing } = useTradingStore()
   const [isHovered, setIsHovered] = React.useState(false)
   const isExpanded = !collapsed || isHovered
 
@@ -27,10 +27,21 @@ export const Sidebar = ({ selected }) => {
     >
       <div className={cn("flex-1 flex flex-col p-6 overflow-hidden", !isExpanded && "px-4")}>
         <div className={cn("flex items-center gap-3 mb-12", !isExpanded && "justify-center")}>
-        <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center shadow-lg shadow-accent/20 shrink-0">
-          <LayoutDashboard size={24} className="text-white" />
+        <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center shadow-lg shadow-accent/20 shrink-0 relative">
+          {isSyncing ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-accent rounded-xl">
+              <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            </div>
+          ) : (
+            <LayoutDashboard size={24} className="text-white" />
+          )}
         </div>
-        {isExpanded && <span className="text-xl font-black tracking-tighter uppercase italic text-text whitespace-nowrap">Momentum</span>}
+        {isExpanded && (
+          <div className="flex flex-col">
+            <span className="text-xl font-black tracking-tighter uppercase italic text-text whitespace-nowrap leading-none">Momentum</span>
+            {isSyncing && <span className="text-[8px] font-bold text-accent animate-pulse uppercase tracking-widest mt-1">Syncing Data...</span>}
+          </div>
+        )}
       </div>
 
       <nav className="flex-1 space-y-2">
@@ -133,7 +144,7 @@ export const BottomNav = ({ selected }) => {
   }
 
   return (
-    <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-surface/95 backdrop-blur-md border-t border-border z-[60] shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
+    <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-surface/95 backdrop-blur-md border-t border-border z-40 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
       <MobileHealthBar />
       <div className="flex justify-around items-center h-16">
         {[

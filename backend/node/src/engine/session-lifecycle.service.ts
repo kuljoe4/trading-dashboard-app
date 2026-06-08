@@ -7,6 +7,8 @@ import { MarketFeedService } from './market_feed.service';
 import { MomentumScannerService } from './momentum_scanner.service';
 import { PositionTrackerService } from './positionTracker';
 import { MonitoringService } from './monitoring.service';
+import { ENGINE_EVENTS } from './events';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditLogService } from '../trading/audit-log.service';
 import { roundEight } from '../lib/math';
 import { ENGINE_CONSTANTS } from '../models/constants';
@@ -29,6 +31,7 @@ export class SessionLifecycleService {
     private readonly positionTracker: PositionTrackerService,
     private readonly monitoringService: MonitoringService,
     private readonly auditLog: AuditLogService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async start(config: SessionConfig, bc?: any, sid?: string, hist: Trade[] = [], curBal?: number, open: Trade[] = []) {
@@ -43,7 +46,9 @@ export class SessionLifecycleService {
         try {
           const modeRes = await bc.restAPI.tradeApi.changePositionMode({ dualSidePosition: 'false' });
           const modeData = typeof modeRes.data === 'function' ? await modeRes.data() : (modeRes.data || modeRes);
-          this.logger.log(`Binance position mode set to One-Way: ${JSON.stringify(modeData)}`);
+          const modeMsg = `Binance position mode set to One-Way: ${JSON.stringify(modeData)}`;
+          this.logger.log(modeMsg);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: modeMsg, level: 'info' });
         } catch (modeErr: any) {
           // Error -4059 means it's already in that mode
           if (modeErr.message?.includes('-4059') || modeErr.data?.code === -4059) {
@@ -54,17 +59,23 @@ export class SessionLifecycleService {
         }
 
         const b = await this.fetchBinanceBalance(bc);
-        this.logger.log(`[Lifecycle] Initial Binance ${mode} balance fetch: ${b} USDT`);
+        const balMsg = `[Lifecycle] Initial Binance ${mode} balance fetch: ${b} USDT`;
+        this.logger.log(balMsg);
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: balMsg, level: 'info' });
 
         if (b === 0 && (curBal || 0) > 0) {
-          this.logger.warn(`[Lifecycle] Binance ${mode} returned 0 balance. Falling back to local configuration: ${curBal} USDT. Please check if your Testnet account needs funds from the faucet.`);
+          const fallbackMsg = `[Lifecycle] Binance ${mode} returned 0 balance. Falling back to local configuration: ${curBal} USDT. Please check if your Testnet account needs funds from the faucet.`;
+          this.logger.warn(fallbackMsg);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: fallbackMsg, level: 'warn' });
           this.sessionState.balanceLive = curBal!;
           this.sessionState.balancePaper = curBal!;
         } else {
           this.sessionState.balanceLive = b;
           this.sessionState.balancePaper = b;
           if (b === 0) {
-            this.logger.warn(`[Lifecycle] Binance ${mode} balance is actually 0. Engine will be gated until funds are available.`);
+            const zeroBalMsg = `[Lifecycle] Binance ${mode} balance is actually 0. Engine will be gated until funds are available.`;
+            this.logger.warn(zeroBalMsg);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: zeroBalMsg, level: 'warn' });
           }
         }
       } catch (e) {
@@ -178,7 +189,9 @@ export class SessionLifecycleService {
             const usdt = data.a.B.find((b: any) => b.a === 'USDT');
             if (usdt) {
               const nb = parseFloat(usdt.wb);
-              this.logger.log(`[Lifecycle] Received real-time balance update: ${nb} USDT`);
+              const liveBalMsg = `[Lifecycle] Received real-time balance update: ${nb} USDT`;
+              this.logger.log(liveBalMsg);
+              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: liveBalMsg, level: 'info' });
               this.sessionState.balanceLive = nb;
               this.sessionState.balancePaper = nb;
             }
@@ -187,7 +200,9 @@ export class SessionLifecycleService {
             this.logger.debug(`Error processing user data WS message: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
-      this.logger.log(`[Lifecycle] Subscribing to User Data Stream with listenKey: ${this.listenKey?.substring(0, 10)}...`);
+      const subMsg = `[Lifecycle] Subscribing to User Data Stream with listenKey: ${this.listenKey?.substring(0, 10)}...`;
+      this.logger.log(subMsg);
+      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: subMsg, level: 'info' });
       this.userDataWs.userData(this.listenKey);
       this.listenKeyKeepAlive = setInterval(async () => {
         if (this.listenKey) {

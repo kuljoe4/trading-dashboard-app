@@ -7,6 +7,8 @@ import { Log as LogEntity } from '../models/entities/Log.entity';
 import { BalanceHistory as BalanceHistoryEntity } from '../models/entities/BalanceHistory.entity';
 import { SessionConfig } from '../models/SessionConfig';
 import { TradingSessionService } from '../engine/trading_session.service';
+import { ENGINE_EVENTS } from '../engine/events';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { AuditLogService } from './audit-log.service';
 import { Trade } from '../models/Trade';
 import { v4 as uuid } from 'uuid';
@@ -41,6 +43,7 @@ export class SessionService implements OnModuleInit {
     @InjectRepository(BalanceHistoryEntity)
     private balanceHistoryRepository: Repository<BalanceHistoryEntity>,
     private tradingSessionService: TradingSessionService,
+    private eventEmitter: EventEmitter2,
     private analyticsService: AnalyticsService,
     private binanceClientFactory: BinanceClientFactory,
     private readonly auditLog: AuditLogService,
@@ -145,6 +148,11 @@ export class SessionService implements OnModuleInit {
     this.tradingSessionService.setTradeUpdateCallback(async (trade, balance) => {
       await this.saveTradeAtomic(trade, balance);
     });
+  }
+
+  @OnEvent(ENGINE_EVENTS.LOG_MESSAGE)
+  async handleEngineLog(payload: { msg: string, level: 'info' | 'warn' | 'error' }) {
+    await this.logMessage(payload.msg, payload.level);
   }
 
   private validateTrade(trade: any): boolean {

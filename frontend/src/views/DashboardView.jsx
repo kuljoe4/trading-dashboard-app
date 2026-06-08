@@ -645,10 +645,10 @@ export function DashboardView({ initialStrategy }) {
 
 
         {/* Main Grid */}
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] items-start gap-10">
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] items-start gap-6 lg:gap-10">
 
           {/* Left Workspace */}
-          <div className="space-y-10 overflow-hidden">
+          <div className="space-y-6 lg:space-y-10 overflow-hidden">
             <motion.div
               initial={{ x: -20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
@@ -710,28 +710,29 @@ export function DashboardView({ initialStrategy }) {
 
               </div>
             </motion.div>
-
-            {/* Right Workspace (Context) */}
-            <motion.div
-              initial={{ x: 20, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              transition={{ delay: 0.5 }}
-              className="space-y-10">
-              <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col h-[450px] shadow-sm">
-                <SectionLabel className="mb-4">
-                  <Activity size={14} className="text-accent" /> Session Logs
-                </SectionLabel>
-                <div className="flex-1 overflow-hidden">
-                  <Suspense fallback={<LoadingFallback />}>
-                    <DecisionLog />
-                  </Suspense>
-                </div>
-                <div className="mt-2 text-[10px] text-dim font-bold uppercase tracking-widest text-center border-t border-border/20 pt-2">
-                  Log Buffer: Latest 500 events
-                </div>
-              </div>
-            </motion.div>
           </div>
+
+          {/* Right Workspace (Context) - Properly outside the Left Workspace div to use the xl grid column */}
+          <motion.div
+            initial={{ x: 20, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            transition={{ delay: 0.5 }}
+            className="space-y-6 lg:space-y-10"
+          >
+            <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col h-[450px] shadow-sm">
+              <SectionLabel className="mb-4">
+                <Activity size={14} className="text-accent" /> Session Logs
+              </SectionLabel>
+              <div className="flex-1 overflow-hidden">
+                <Suspense fallback={<LoadingFallback />}>
+                  <DecisionLog />
+                </Suspense>
+              </div>
+              <div className="mt-2 text-[10px] text-dim font-bold uppercase tracking-widest text-center border-t border-border/20 pt-2">
+                Log Buffer: Latest 500 events
+              </div>
+            </div>
+          </motion.div>
         </div>
 
       {/* Modals & Drawers */}

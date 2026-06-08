@@ -274,8 +274,8 @@ export const HistoryView = () => {
       sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
     )}>
       <Sidebar />
-      <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32 lg:pb-8">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-10 bg-surface border border-border rounded-2xl p-6 shadow-sm">
+      <div className="max-w-[1200px] mx-auto p-4 md:p-10 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32 lg:pb-10">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5 mb-8 lg:mb-10 bg-surface border border-border rounded-2xl p-6 shadow-sm">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
               <HistoryIcon size={24} className="text-accent" />
@@ -326,8 +326,8 @@ export const HistoryView = () => {
           <StatCard label="W/L Ratio" value={Number(currentAnalytics?.avgWinLossRatio || 0).toFixed(2)} color="text-accent" />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
-          <div className="lg:col-span-2 bg-surface border border-border rounded-2xl p-6 shadow-sm overflow-hidden relative">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 lg:mb-10">
+          <div className="lg:col-span-2 bg-surface border border-border rounded-2xl p-5 md:p-8 shadow-sm overflow-hidden relative">
              <div className="absolute top-6 right-6 z-20">
                <Tooltip content="Toggle Drawdown Visualization">
                  <button

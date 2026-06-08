@@ -9,6 +9,8 @@ import { AuditLogService } from '../trading/audit-log.service';
 import { v4 as uuid } from 'uuid';
 import { roundEight, floorStep, roundTo } from '../lib/math';
 import { ENGINE_CONSTANTS } from '../models/constants';
+import { ENGINE_EVENTS } from './events';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ExchangeExecutionException } from '../lib/exceptions';
 import { ExecutionResult, ExecutionStatus } from '../models/ExecutionResult';
 
@@ -27,6 +29,7 @@ export class OrderManagerService {
     private readonly marketFeed: MarketFeedService,
     private readonly sessionState: SessionStateService,
     private readonly auditLog: AuditLogService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   private checkCircuitBreaker(): boolean {
@@ -198,9 +201,9 @@ export class OrderManagerService {
             trade.realized_fee = roundEight(estimatedFee);
           }
 
-          this.logger.log(
-            `Binance order placed: ${symbol} ${direction} qty=${qty} order_id=${orderData.orderId} fee=${trade.realized_fee}`,
-          );
+          const msg = `Binance order placed: ${symbol} ${direction} qty=${qty} order_id=${orderData.orderId} fee=${trade.realized_fee}`;
+          this.logger.log(msg);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
 
           await this.auditLog.log({
             action: 'LIVE_ORDER_ENTRY',
@@ -242,16 +245,20 @@ export class OrderManagerService {
             }
             trade.binance_stop_order_id = String(stopLossId);
 
-            this.logger.log(
-              `Binance SL order placed: ${symbol} at ${slPrice} algo_id=${stopLossId}`,
-            );
+            const msgSl = `Binance SL order placed: ${symbol} at ${slPrice} algo_id=${stopLossId}`;
+            this.logger.log(msgSl);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgSl, level: 'info' });
           } catch (slErr: unknown) {
             this.recordFailure();
             const slErrMsg = slErr instanceof Error ? slErr.message : String(slErr);
-            this.logger.error(`Critical Failure: Market entry succeeded but Stop Loss placement FAILED for ${symbol}: ${slErrMsg}`);
+            const errSl = `Critical Failure: Market entry succeeded but Stop Loss placement FAILED for ${symbol}: ${slErrMsg}`;
+            this.logger.error(errSl);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: errSl, level: 'error' });
 
             // EMERGENCY UNWIND: Attempt to close the position immediately to prevent unprotected exposure
-            this.logger.warn(`Attempting emergency unwind for ${symbol}...`);
+            const unwindMsg = `Attempting emergency unwind for ${symbol}...`;
+            this.logger.warn(unwindMsg);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: unwindMsg, level: 'warn' });
             try {
               const closeDirection = direction === 'LONG' ? 'SELL' : 'BUY';
               await (this.binanceClient as any).restAPI.tradeApi.newOrder({
@@ -261,7 +268,9 @@ export class OrderManagerService {
                 quantity: qty.toFixed(precision),
                 reduceOnly: 'true',
               });
-              this.logger.log(`Emergency unwind successful for ${symbol}. Entry aborted.`);
+              const okUnwind = `Emergency unwind successful for ${symbol}. Entry aborted.`;
+              this.logger.log(okUnwind);
+              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: okUnwind, level: 'info' });
               return { status: ExecutionStatus.SL_FAILED, error: `Stop Loss placement FAILED for ${symbol}: ${slErrMsg}`, unwindPerformed: true };
             } catch (unwindErr: unknown) {
               const unwindMsg = unwindErr instanceof Error ? unwindErr.message : String(unwindErr);
@@ -296,9 +305,9 @@ export class OrderManagerService {
       // Initialize PnL as net of entry fees
       trade.pnl = roundEight(-trade.realized_fee);
 
-      this.logger.log(
-        `Enter: ${symbol} ${direction} @ ${entryPrice} qty=${qty} SL=${slPrice} TP=${tpPrice}`,
-      );
+      const msgEnter = `Enter: ${symbol} ${direction} @ ${entryPrice} qty=${qty} SL=${slPrice} TP=${tpPrice}`;
+      this.logger.log(msgEnter);
+      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgEnter, level: 'info' });
       this.recordSuccess();
       return { status: ExecutionStatus.SUCCESS, data: trade };
     } catch (error) {
@@ -355,9 +364,9 @@ export class OrderManagerService {
         throw new Error(`Invalid response from Binance SL order: ${JSON.stringify(orderData)}`);
       }
       trade.binance_stop_order_id = String(stopLossId);
-      this.logger.log(
-        `Binance SL order placed: ${trade.symbol} at ${slPrice} algo_id=${stopLossId}`,
-      );
+      const msgSl = `Binance SL order placed: ${trade.symbol} at ${slPrice} algo_id=${stopLossId}`;
+      this.logger.log(msgSl);
+      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgSl, level: 'info' });
 
       await this.auditLog.log({
         action: 'LIVE_SL_ORDER_PLACED',
@@ -623,9 +632,9 @@ export class OrderManagerService {
               trade.realized_fee = roundEight(trade.realized_fee + estimatedExitFee);
             }
 
-            this.logger.log(
-              `Binance close order placed: ${symbol} qty=${trade.qty || 0} order_id=${orderData.orderId} total_fee=${trade.realized_fee}`,
-            );
+            const msgClose = `Binance close order placed: ${symbol} qty=${trade.qty || 0} order_id=${orderData.orderId} total_fee=${trade.realized_fee}`;
+            this.logger.log(msgClose);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgClose, level: 'info' });
 
             await this.auditLog.log({
               action: 'LIVE_ORDER_CLOSE',
@@ -704,9 +713,9 @@ export class OrderManagerService {
         trade.status = 'CLOSED';
       }
 
-      this.logger.log(
-        `Close: ${symbol} @ ${exitPrice} P&L=${trade.pnl.toFixed(2)} (${trade.pnl_pct.toFixed(2)}%) Fee=${trade.realized_fee} Reason=${exitReason}`,
-      );
+      const msgCloseFinal = `Close: ${symbol} @ ${exitPrice} P&L=${trade.pnl.toFixed(2)} (${trade.pnl_pct.toFixed(2)}%) Fee=${trade.realized_fee} Reason=${exitReason}`;
+      this.logger.log(msgCloseFinal);
+      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgCloseFinal, level: 'info' });
 
       return { trade, exitOccurred: true };
     } catch (error) {

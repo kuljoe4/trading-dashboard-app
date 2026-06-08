@@ -21,11 +21,12 @@ export const Sidebar = ({ selected }) => {
       onMouseEnter={() => collapsed && setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       className={cn(
-        "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 bg-surface border-r border-border z-50 transition-all duration-300 overflow-hidden",
-        isExpanded ? "w-[260px] p-6" : "w-[80px] p-4"
+        "hidden lg:flex flex-col fixed left-0 top-0 bottom-0 bg-surface border-r border-border z-50 transition-all duration-300",
+        isExpanded ? "w-[260px]" : "w-[80px]"
       )}
     >
-      <div className={cn("flex items-center gap-3 mb-12", !isExpanded && "justify-center")}>
+      <div className={cn("flex-1 flex flex-col p-6 overflow-hidden", !isExpanded && "px-4")}>
+        <div className={cn("flex items-center gap-3 mb-12", !isExpanded && "justify-center")}>
         <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center shadow-lg shadow-accent/20 shrink-0">
           <LayoutDashboard size={24} className="text-white" />
         </div>
@@ -85,12 +86,23 @@ export const Sidebar = ({ selected }) => {
         </button>
       </Tooltip>
 
-      <div className={cn(
-        "pt-6 border-t border-border/50",
-        !isExpanded ? "px-0" : "px-2"
-      )}>
-        <SystemMetrics monitoring={monitoring} rateLimit={rateLimit} wsStatus={wsStatus} gateState={gateState} isEcoMode={isEcoMode} compact={!isExpanded} />
+        <div className={cn(
+          "pt-6 border-t border-border/50",
+          !isExpanded ? "px-0" : "px-2"
+        )}>
+          <SystemMetrics monitoring={monitoring} rateLimit={rateLimit} wsStatus={wsStatus} gateState={gateState} isEcoMode={isEcoMode} compact={!isExpanded} />
+        </div>
       </div>
+
+      <Tooltip content={collapsed ? "Expand sidebar" : "Collapse sidebar"} side="right">
+        <button
+          onClick={toggleSidebar}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className="absolute -right-4 top-8 w-8 h-8 bg-surface border border-border rounded-full flex items-center justify-center text-dim hover:text-text z-[60] shadow-md transition-transform active:scale-95"
+        >
+          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+        </button>
+      </Tooltip>
     </div>
   )
 }
@@ -100,7 +112,7 @@ export const MobileHealthBar = () => {
   if (!healthEnabled) return null
 
   return (
-    <div className="lg:hidden fixed top-0 left-0 right-0 bg-surface/80 backdrop-blur-md border-b border-border z-[60] px-4 py-2">
+    <div className="lg:hidden bg-surface/30 px-4 py-3 border-b border-border/40">
       <SystemMetrics
         monitoring={monitoring}
         rateLimit={rateLimit}
@@ -114,14 +126,14 @@ export const MobileHealthBar = () => {
 }
 
 export const BottomNav = ({ selected }) => {
-  const { wsStatus, monitoring, rateLimit, gateState, isEcoMode } = useTradingStore()
+  const { wsStatus, monitoring, rateLimit, gateState, isEcoMode, healthEnabled } = useTradingStore()
   const isActive = (path) => {
     if (path === '/') return !selected && window.location.hash === '#/'
     return window.location.hash.startsWith(`#${path}`)
   }
 
   return (
-    <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-surface/90 backdrop-blur-md border-t border-border z-40">
+    <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-surface/95 backdrop-blur-md border-t border-border z-[60] shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
       <MobileHealthBar />
       <div className="flex justify-around items-center h-16">
         {[

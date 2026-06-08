@@ -307,7 +307,8 @@ export function DashboardView({ initialStrategy }) {
     totalSlUsed, activeTrades, config, setSessionActive,
     updateConfig, gateState, gateReason, hibernating,
     scannerPaused, sessionList, fetchSessions, wsStatus,
-    sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount
+    sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
+    healthEnabled
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -334,7 +335,8 @@ export function DashboardView({ initialStrategy }) {
     setThrottled: state.setThrottled,
     isEcoMode: state.isEcoMode,
     entryCount: state.entryCount,
-    hitCount: state.hitCount
+    hitCount: state.hitCount,
+    healthEnabled: state.healthEnabled
   }), shallow)
 
   useEffect(() => {
@@ -496,7 +498,8 @@ export function DashboardView({ initialStrategy }) {
 
     return (
       <div className={cn(
-        "pb-32 transition-all duration-300",
+        "transition-all duration-300",
+        healthEnabled ? "pb-48 lg:pb-8" : "pb-32 lg:pb-8",
         sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
       )}>
         <Sidebar selected={selected} />
@@ -523,7 +526,10 @@ export function DashboardView({ initialStrategy }) {
         <div className="fixed top-0 left-0 right-0 h-1 bg-amber z-[100] shadow-[0_2px_10px_rgba(245,166,35,0.5)]" />
       )}
       <Sidebar selected={selected} />
-      <div className="max-w-[1600px] mx-auto p-4 md:p-10 pb-32 lg:pb-10">
+      <div className={cn(
+        "max-w-[1600px] mx-auto p-4 md:p-10 lg:pb-10 transition-all",
+        healthEnabled ? "pb-48" : "pb-32"
+      )}>
 
         <ConfirmationModal
           isOpen={confirmStop}

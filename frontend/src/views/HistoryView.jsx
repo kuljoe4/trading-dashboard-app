@@ -204,7 +204,7 @@ const SessionGroup = React.memo(({ session, trades, colorDrawdown }) => {
 const PAGE_SIZE = 5
 
 export const HistoryView = () => {
-  const { tradeHistory, updateStats, sessionSummary, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics } = useTradingStore()
+  const { tradeHistory, updateStats, sessionSummary, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled } = useTradingStore()
   const [fullAnalytics, setFullAnalytics] = useState(null)
   const [lifetimeMode, setLifetimeMode] = useState(localStorage.getItem('history_trade_mode') || 'paper')
   const [loading, setLoading] = useState(true)
@@ -274,7 +274,10 @@ export const HistoryView = () => {
       sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
     )}>
       <Sidebar />
-      <div className="max-w-[1200px] mx-auto p-4 md:p-10 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32 lg:pb-10">
+      <div className={cn(
+        "max-w-[1200px] mx-auto p-4 md:p-10 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:pb-10 transition-all",
+        healthEnabled ? "pb-48" : "pb-32"
+      )}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5 mb-8 lg:mb-10 bg-surface border border-border rounded-2xl p-6 shadow-sm">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">

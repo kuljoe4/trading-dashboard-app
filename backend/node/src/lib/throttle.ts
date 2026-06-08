@@ -2,6 +2,7 @@
 const FAILURES = new Map<string, { count: number; lastFailure: number }>();
 const MAX_FAILURES = 10;
 const FAILURE_WINDOW_MS = 60000;
+const MAX_TRACKED_IPS = 5000;
 
 // PERIODIC CLEANUP: Evict stale records every 10 minutes to prevent memory leaks
 setInterval(() => {
@@ -25,6 +26,12 @@ export function isThrottled(ip: string): boolean {
 }
 
 export function recordFailure(ip: string): number {
+  // SENTINEL: Implement FIFO eviction if map exceeds MAX_TRACKED_IPS to prevent memory exhaustion DoS
+  if (!FAILURES.has(ip) && FAILURES.size >= MAX_TRACKED_IPS) {
+    const oldestIp = FAILURES.keys().next().value;
+    if (oldestIp) FAILURES.delete(oldestIp);
+  }
+
   const record = FAILURES.get(ip) || { count: 0, lastFailure: 0 };
   record.count++;
   record.lastFailure = Date.now();

@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ENGINE_EVENTS } from './events';
 import { SessionConfig } from '../models/SessionConfig';
 import { SessionStateService } from './session_state.service';
 import { MomentumScannerService } from './momentum_scanner.service';
@@ -19,6 +21,7 @@ export class GatingService {
     private readonly klineStore: KlineStoreService,
     private readonly tickerCache: TickerCacheService,
     private readonly broadcastService: BroadcastService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   public mapGateState(reason: string): string {
@@ -44,7 +47,9 @@ export class GatingService {
   }
 
   public async enterHibernation(reason: string, config: SessionConfig, activeTrades: any[]) {
-    this.logger.log(`Entering DEEP SLEEP (Hibernation) - Reason: ${reason}`);
+    const msg = `Entering DEEP SLEEP (Hibernation) - Reason: ${reason}`;
+    this.logger.log(msg);
+    this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
     this.sessionState.hibernating = true;
     const needsKlines = activeTrades.some(t => {
       const c = { ...config, ...(t.strategy_config || {}) };
@@ -68,7 +73,9 @@ export class GatingService {
   }
 
   public async exitHibernation(config: SessionConfig) {
-    this.logger.log('Exiting DEEP SLEEP (Hibernation)');
+    const msg = 'Exiting DEEP SLEEP (Hibernation)';
+    this.logger.log(msg);
+    this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
     this.sessionState.hibernating = false;
     await this.marketFeed.start(config);
     await this.momentumScanner.start(config);

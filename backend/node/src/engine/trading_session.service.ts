@@ -137,7 +137,9 @@ export class TradingSessionService {
     this.activeWindows.clear();
     this.marketFeed.setCandleCloseCallback(this.onCandleClose.bind(this));
 
-    this.logger.log(`[Lifecycle] Starting trading engine for session ${this.sessionId} (curBal: ${curBal})`);
+    const startMsg = `[Lifecycle] Starting trading engine for session ${this.sessionId} (curBal: ${curBal})`;
+    this.logger.log(startMsg);
+    this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: startMsg, level: 'info' });
     await this.sessionLifecycle.start(config, bc, sid, hist, curBal, open);
 
     const hot = config.hot_loop_interval_ms || 5000; this.hotLoopInterval = setInterval(() => this.hotLoop(), hot);

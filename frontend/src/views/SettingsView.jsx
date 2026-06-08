@@ -136,7 +136,10 @@ export function SettingsView() {
       sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
     )}>
       <Sidebar />
-      <div className="max-w-[800px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32 lg:pb-8">
+      <div className={cn(
+        "max-w-[800px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:pb-8 transition-all",
+        healthEnabled ? "pb-48" : "pb-32"
+      )}>
         <div className="flex items-center gap-4 mb-10 bg-surface border border-border rounded-2xl p-6 shadow-sm">
           <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center">
             <SettingsIcon size={24} className="text-accent" />

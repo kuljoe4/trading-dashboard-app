@@ -308,6 +308,7 @@ export function DashboardView({ initialStrategy }) {
     updateConfig, gateState, gateReason, hibernating,
     scannerPaused, sessionList, fetchSessions, wsStatus,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
+    healthEnabled,
     sessionSummary, clearSessionSummary
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
@@ -336,6 +337,7 @@ export function DashboardView({ initialStrategy }) {
     isEcoMode: state.isEcoMode,
     entryCount: state.entryCount,
     hitCount: state.hitCount,
+    healthEnabled: state.healthEnabled,
     sessionSummary: state.sessionSummary,
     clearSessionSummary: state.clearSessionSummary
   }), shallow)
@@ -499,7 +501,8 @@ export function DashboardView({ initialStrategy }) {
 
     return (
       <div className={cn(
-        "pb-32 transition-all duration-300",
+        "transition-all duration-300",
+        healthEnabled ? "pb-48 lg:pb-8" : "pb-32 lg:pb-8",
         sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
       )}>
         <Sidebar selected={selected} />
@@ -526,7 +529,10 @@ export function DashboardView({ initialStrategy }) {
         <div className="fixed top-0 left-0 right-0 h-1 bg-amber z-[100] shadow-[0_2px_10px_rgba(245,166,35,0.5)]" />
       )}
       <Sidebar selected={selected} />
-      <div className="max-w-[1600px] mx-auto p-4 md:p-10 pb-32 lg:pb-10">
+      <div className={cn(
+        "max-w-[1600px] mx-auto p-4 md:p-10 lg:pb-10 transition-all",
+        healthEnabled ? "pb-48" : "pb-32"
+      )}>
 
         <ConfirmationModal
           isOpen={confirmStop}
@@ -699,10 +705,10 @@ export function DashboardView({ initialStrategy }) {
 
 
         {/* Main Grid */}
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] items-start gap-10">
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] items-start gap-6 lg:gap-10">
 
           {/* Left Workspace */}
-          <div className="space-y-10 overflow-hidden">
+          <div className="space-y-6 lg:space-y-10 overflow-hidden">
             <motion.div
               initial={{ x: -20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
@@ -764,15 +770,15 @@ export function DashboardView({ initialStrategy }) {
 
               </div>
             </motion.div>
-
           </div>
 
-          {/* Right Workspace (Context) */}
+          {/* Right Workspace (Context) - Properly outside the Left Workspace div to use the xl grid column */}
           <motion.div
             initial={{ x: 20, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             transition={{ delay: 0.5 }}
-            className="space-y-10">
+            className="space-y-6 lg:space-y-10"
+          >
             <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col h-[450px] shadow-sm">
               <SectionLabel className="mb-4">
                 <Activity size={14} className="text-accent" /> Session Logs

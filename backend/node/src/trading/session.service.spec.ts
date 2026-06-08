@@ -62,6 +62,7 @@ describe('SessionService Validation', () => {
       mockRepository, // Settings
       mockRepository, // BalanceHistory
       mockTradingSessionService,
+      { emit: jest.fn() } as any, // EventEmitter2
       mockAnalyticsService,
       mockBinanceClientFactory,
       mockAuditLogService
@@ -199,6 +200,7 @@ describe('SessionService Validation', () => {
         mockRepository, // Settings
         mockRepository, // BalanceHistory
         mockTradingSessionService,
+        { emit: jest.fn() } as any, // EventEmitter2
         mockAnalyticsService,
         mockBinanceClientFactory,
         mockAuditLogService

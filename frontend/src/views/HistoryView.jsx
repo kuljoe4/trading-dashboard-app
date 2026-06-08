@@ -204,7 +204,7 @@ const SessionGroup = React.memo(({ session, trades, colorDrawdown }) => {
 const PAGE_SIZE = 5
 
 export const HistoryView = () => {
-  const { tradeHistory, updateStats, sessionSummary, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics } = useTradingStore()
+  const { tradeHistory, updateStats, sessionSummary, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled } = useTradingStore()
   const [fullAnalytics, setFullAnalytics] = useState(null)
   const [lifetimeMode, setLifetimeMode] = useState(localStorage.getItem('history_trade_mode') || 'paper')
   const [loading, setLoading] = useState(true)
@@ -274,8 +274,11 @@ export const HistoryView = () => {
       sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
     )}>
       <Sidebar />
-      <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32 lg:pb-8">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-10 bg-surface border border-border rounded-2xl p-6 shadow-sm">
+      <div className={cn(
+        "max-w-[1200px] mx-auto p-4 md:p-10 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:pb-10 transition-all",
+        healthEnabled ? "pb-48" : "pb-32"
+      )}>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5 mb-8 lg:mb-10 bg-surface border border-border rounded-2xl p-6 shadow-sm">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
               <HistoryIcon size={24} className="text-accent" />
@@ -353,24 +356,20 @@ export const HistoryView = () => {
           <StatCard label="W/L Ratio" value={Number(currentAnalytics?.avgWinLossRatio || 0).toFixed(2)} color="text-accent" syncing={loading} />
         </motion.div>
 
-        <motion.div
-          key={`charts-${lifetimeMode}`}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.6 }}
-          className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10"
-        >
-          <div className="lg:col-span-2 bg-surface border border-border rounded-2xl p-6 shadow-sm overflow-hidden relative">
-             <div className="flex items-center justify-end mb-2">
-               <button
-                 onClick={() => setColorDrawdown(v => !v)}
-                 className={cn(
-                   "px-3 py-1.5 rounded-md border text-[9px] font-bold uppercase tracking-widest transition-colors",
-                   colorDrawdown ? "border-red/30 bg-red/10 text-red" : "border-border text-dim hover:text-accent"
-                 )}
-               >
-                 Drawdown Colors
-               </button>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 lg:mb-10">
+          <div className="lg:col-span-2 bg-surface border border-border rounded-2xl p-5 md:p-8 shadow-sm overflow-hidden relative">
+             <div className="absolute top-6 right-6 z-20">
+               <Tooltip content="Toggle Drawdown Visualization">
+                 <button
+                   onClick={() => setColorDrawdown(v => !v)}
+                   className={cn(
+                     "p-2 rounded-lg border transition-all active:scale-95",
+                     colorDrawdown ? "border-red/30 bg-red/10 text-red" : "border-border text-dim hover:text-accent"
+                   )}
+                 >
+                   <SettingsIcon size={16} />
+                 </button>
+               </Tooltip>
              </div>
              <EquityCurve data={currentAnalytics?.cumulativePnL || []} colorDrawdown={colorDrawdown} />
           </div>
@@ -443,7 +442,7 @@ export const HistoryView = () => {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                   >
-                    <SectionLabel className="mt-10 mb-6">Uncategorized Trades</SectionLabel>
+                    <SectionLabel className="mt-10 mb-6">Standalone Records</SectionLabel>
                     <div className="space-y-3">
                       {orphans.map((trade) => (
                         <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} />

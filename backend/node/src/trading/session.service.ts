@@ -7,6 +7,8 @@ import { Log as LogEntity } from '../models/entities/Log.entity';
 import { BalanceHistory as BalanceHistoryEntity } from '../models/entities/BalanceHistory.entity';
 import { SessionConfig } from '../models/SessionConfig';
 import { TradingSessionService } from '../engine/trading_session.service';
+import { ENGINE_EVENTS } from '../engine/events';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { AuditLogService } from './audit-log.service';
 import { Trade } from '../models/Trade';
 import { v4 as uuid } from 'uuid';
@@ -41,6 +43,7 @@ export class SessionService implements OnModuleInit {
     @InjectRepository(BalanceHistoryEntity)
     private balanceHistoryRepository: Repository<BalanceHistoryEntity>,
     private tradingSessionService: TradingSessionService,
+    private eventEmitter: EventEmitter2,
     private analyticsService: AnalyticsService,
     private binanceClientFactory: BinanceClientFactory,
     private readonly auditLog: AuditLogService,
@@ -83,6 +86,20 @@ export class SessionService implements OnModuleInit {
     const updateResult = await this.sessionRepository.update({ running: true }, { running: false });
     if (updateResult.affected && updateResult.affected > 0) {
       this.logger.verbose(`Cleaned up ${updateResult.affected} stale running sessions`);
+    }
+
+    // DATA-03: One-time population of strategy_label for legacy trades to fix 'Uncategorized' issue
+    try {
+      const tradeUpdateResult = await this.tradeRepository.createQueryBuilder()
+        .update(TradeEntity)
+        .set({ strategy_label: 'Momentum Strategy' })
+        .where("strategy_label IS NULL")
+        .execute();
+      if (tradeUpdateResult.affected && tradeUpdateResult.affected > 0) {
+        this.logger.log(`Initialized strategy_label for ${tradeUpdateResult.affected} legacy trades`);
+      }
+    } catch (e: any) {
+      this.logger.error(`Failed to initialize legacy trade labels: ${e.message}`);
     }
 
     // Wire balance updates to persistence (legacy/standalone updates)
@@ -131,6 +148,11 @@ export class SessionService implements OnModuleInit {
     this.tradingSessionService.setTradeUpdateCallback(async (trade, balance) => {
       await this.saveTradeAtomic(trade, balance);
     });
+  }
+
+  @OnEvent(ENGINE_EVENTS.LOG_MESSAGE)
+  async handleEngineLog(payload: { msg: string, level: 'info' | 'warn' | 'error' }) {
+    await this.logMessage(payload.msg, payload.level);
   }
 
   private validateTrade(trade: any): boolean {
@@ -899,7 +921,7 @@ export class SessionService implements OnModuleInit {
   async getLifetimeAnalytics(mode: 'paper' | 'testnet' | 'live' = 'paper') {
     // 1. Fetch all closed trades across all sessions for the specific mode
     const trades = await this.tradeRepository.find({
-      select: ['pnl', 'exit_ts', 'status', 'strategy_config'],
+      select: ['pnl', 'exit_ts', 'status', 'strategy_config', 'strategy_label'],
       where: {
         status: In(TERMINAL_STATUSES as any),
       },
@@ -909,7 +931,7 @@ export class SessionService implements OnModuleInit {
     // Filter trades by mode
     const filteredTrades = trades.filter(t => {
         const tConfig = t.strategy_config || {};
-        const tMode = tConfig.trading_mode || (tConfig.paper_mode !== false ? 'paper' : 'live');
+        const tMode = tConfig.trading_mode || (tConfig.paper_mode === false ? 'live' : 'paper');
         return tMode === mode;
     });
 

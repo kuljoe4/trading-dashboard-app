@@ -242,7 +242,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 pb-32 overscroll-contain" data-vaul-no-drag>
+      <div className="flex-1 overflow-y-auto no-scrollbar p-4 md:p-6 pb-32 overscroll-contain" data-vaul-no-drag>
         {section === 'scan' && (
           <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-300">
             <section className="bg-background/40 p-5 rounded-2xl border border-border/40">

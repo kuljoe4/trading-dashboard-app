@@ -304,7 +304,7 @@ export const HistoryView = () => {
 
   return (
     <div className={cn(
-      "min-h-screen transition-all duration-300",
+      "min-h-screen transition-all duration-300 no-scrollbar",
       sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
     )}>
       <Sidebar />

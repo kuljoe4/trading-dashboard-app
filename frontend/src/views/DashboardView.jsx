@@ -653,7 +653,7 @@ export function DashboardView({ initialStrategy }) {
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] items-start gap-6 lg:gap-10">
 
           {/* Left Workspace */}
-          <div className="space-y-6 lg:space-y-10 overflow-hidden">
+          <div className="space-y-6 lg:space-y-10 no-scrollbar overflow-hidden">
             <motion.div
               initial={{ x: -20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}

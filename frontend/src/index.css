@@ -66,6 +66,15 @@
   }
 }
 
+/* Hide scrollbars for clean UI where not strictly necessary */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 @layer utilities {
   .neon-glow-accent {
     box-shadow: 0 0 20px rgba(91, 111, 255, 0.2);

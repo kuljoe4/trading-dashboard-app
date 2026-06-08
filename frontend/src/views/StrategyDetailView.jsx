@@ -36,7 +36,7 @@ const StrategyDetailView = ({ s, onBack }) => {
   const signalLogic = config.signal_logic || 'all'
 
   return (
-    <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32 lg:pb-10">
       <div className="flex items-center gap-5 mb-10">
         <button onClick={onBack} aria-label="Go back" className="p-2.5 hover:bg-surface border border-border rounded-xl transition-all active:scale-90 group"><ChevronLeft size={20} className="text-dim group-hover:text-text" /></button>
         <div className="flex-1">

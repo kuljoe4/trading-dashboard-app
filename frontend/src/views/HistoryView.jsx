@@ -106,7 +106,7 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
   )
 })
 
-const SessionGroup = React.memo(({ session, trades, colorDrawdown }) => {
+const SessionGroup = React.memo(({ session, trades }) => {
   const [expanded, setExpanded] = useState(false)
   const pnl = useMemo(() => trades.reduce((sum, t) => sum + safeNum(t.pnl), 0), [trades])
   const wins = useMemo(() => trades.filter(t => safeNum(t.pnl) > 0).length, [trades])
@@ -120,53 +120,64 @@ const SessionGroup = React.memo(({ session, trades, colorDrawdown }) => {
   const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) : '∞'
 
   return (
-    <div id={`session-${session.id}`} className="bg-surface border border-border rounded-2xl overflow-hidden mb-4 shadow-sm transition-all hover:border-border-hover scroll-mt-8">
+    <div id={`session-${session.id}`} className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 lg:mb-12 shadow-sm transition-all hover:border-border-hover scroll-mt-8">
       <div
         onClick={() => setExpanded(!expanded)}
-        className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 cursor-pointer select-none bg-surface/30"
+        className="p-6 flex flex-col xl:flex-row xl:items-center justify-between gap-6 cursor-pointer select-none bg-surface/30 group"
       >
-        <div className="flex items-center gap-4">
-          <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center border transition-colors", expanded ? "bg-accent/10 border-accent/20" : "bg-surface border-border")}>
-            {expanded ? <ChevronDown size={20} className="text-accent" /> : <ChevronRight size={20} className="text-dim" />}
+        {/* Left: Strategy Info */}
+        <div className="flex items-center gap-5">
+          <div className={cn(
+            "w-12 h-12 rounded-2xl flex items-center justify-center border transition-all duration-300",
+            expanded ? "bg-accent/10 border-accent/20 scale-105" : "bg-surface border-border group-hover:border-accent/30"
+          )}>
+            {expanded ? <ChevronDown size={24} className="text-accent" /> : <ChevronRight size={24} className="text-dim" />}
           </div>
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <a href={`#/history?session=${session.id}`} onClick={(e) => e.stopPropagation()} className="text-sm font-bold tracking-tight hover:text-accent transition-colors">
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-3">
+              <a href={`#/history?session=${session.id}`} onClick={(e) => e.stopPropagation()} className="text-lg font-bold tracking-tight hover:text-accent transition-colors">
                 {label}
               </a>
-              <span className="text-[10px] text-dim font-mono">#{session.id.substring(0, 8)}</span>
+              <span className="text-[10px] text-dim font-mono bg-background/50 px-2 py-0.5 rounded border border-border/50">#{session.id.substring(0, 8)}</span>
               {session.paperMode && <PaperBadge />}
             </div>
-            <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2">
-              <Clock size={10} /> {new Date(session.startTime).toLocaleDateString()} · {new Date(session.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            <div className="text-[11px] text-dim font-bold uppercase tracking-[0.1em] flex items-center gap-3">
+              <span className="flex items-center gap-1.5"><Clock size={12} className="text-accent" /> {new Date(session.startTime).toLocaleDateString()}</span>
+              <span className="w-1 h-1 rounded-full bg-dim/30" />
+              <span>{new Date(session.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-6 md:gap-10 p-5">
-          <div className="hidden lg:block w-44">
-            <EquityCurve data={curve} height={54} colorDrawdown={colorDrawdown} />
+        {/* Center/Right: Metrics Grid */}
+        <div className="flex flex-col md:flex-row items-start md:items-center gap-6 xl:gap-12 xl:ml-auto">
+          {/* Equity Preview */}
+          <div className="hidden lg:block w-32 xl:w-40 h-10">
+            <EquityCurve data={curve} height={40} />
           </div>
-          <div className="flex flex-col">
-            <span className="text-[11px] text-dim font-bold uppercase tracking-[0.15em] mb-2">Config</span>
-            <span className="text-xs font-bold text-text uppercase tracking-tight flex items-center gap-1.5">
-              <Zap size={10} className="text-accent" />
-              {session.config?.scan_interval} · {session.config?.scan_pct_threshold}% · {session.config?.risk_pct_per_trade}%
-            </span>
-          </div>
-          <div className="flex flex-col">
-            <span className="text-[11px] text-dim font-bold uppercase tracking-[0.15em] mb-2">Win Rate</span>
-            <span className="text-xs font-bold font-mono text-text">{winRate}% ({wins}/{trades.length})</span>
-          </div>
-          <div className="hidden sm:flex flex-col">
-            <span className="text-[11px] text-dim font-bold uppercase tracking-[0.15em] mb-2">W/L Ratio</span>
-            <span className="text-xs font-bold font-mono text-accent">{winLossRatio}</span>
-          </div>
-          <div className="flex flex-col items-end min-w-[100px]">
-            <span className="text-[11px] text-dim font-bold uppercase tracking-[0.15em] mb-2">Session P&L</span>
-            <span className={cn("text-base font-bold font-mono tracking-tighter", pnl >= 0 ? "text-green" : "text-red")}>
-              {fmtUSD(pnl)}
-            </span>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-8 xl:gap-12">
+            <div className="flex flex-col">
+              <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Interval</span>
+              <span className="text-xs font-bold text-text flex items-center gap-1.5">
+                <Zap size={10} className="text-accent" />
+                {session.config?.scan_interval}
+              </span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Win Rate</span>
+              <span className="text-xs font-bold font-mono text-text">{winRate}% <span className="text-[10px] opacity-40 font-bold ml-1">({wins}/{trades.length})</span></span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Ratio</span>
+              <span className="text-xs font-bold font-mono text-accent">{winLossRatio}</span>
+            </div>
+            <div className="flex flex-col items-end">
+              <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Net P&L</span>
+              <span className={cn("text-lg font-bold font-mono tracking-tighter leading-none", pnl >= 0 ? "text-green" : "text-red")}>
+                {fmtUSD(pnl)}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -181,8 +192,8 @@ const SessionGroup = React.memo(({ session, trades, colorDrawdown }) => {
           >
             <div className="p-4 space-y-2 bg-background/30">
               {curve.length >= 2 && (
-                <div className="bg-surface border border-border/60 rounded-xl p-4 mb-3">
-                  <EquityCurve data={curve} height={150} colorDrawdown={colorDrawdown} />
+                <div className="bg-surface border border-border/60 rounded-xl p-6 mb-6 shadow-inner">
+                  <EquityCurve data={curve} height={200} />
                 </div>
               )}
               {trades.length === 0 ? (
@@ -209,7 +220,6 @@ export const HistoryView = () => {
   const [lifetimeMode, setLifetimeMode] = useState(localStorage.getItem('history_trade_mode') || 'paper')
   const [loading, setLoading] = useState(true)
   const [visibleSessions, setVisibleSessions] = useState(PAGE_SIZE)
-  const [colorDrawdown, setColorDrawdown] = useState(true)
 
   const allSessionsWithTrades = useMemo(() => {
     // BOLT: Optimize O(N*M) join to O(N+M) using a lookup object
@@ -239,6 +249,7 @@ export const HistoryView = () => {
   }, [sessionList, tradeHistory])
 
   const [deletingOrphans, setDeletingOrphans] = useState(false)
+  const [orphansExpanded, setOrphansExpanded] = useState(false)
 
   const handleDeleteOrphans = async () => {
     if (!confirm('Are you sure you want to permanently delete all standalone trade records? This cannot be undone.')) return
@@ -335,7 +346,7 @@ export const HistoryView = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8 lg:mb-12">
           <StatCard label="Total Performance" value={fmtUSD(totalPnl)} color={totalPnl >= 0 ? "text-green" : "text-red"} />
           <StatCard label="Win Rate" value={`${winRate}%`} color="text-accent" subValue={`${wins} Wins / ${totalTrades - wins} Losses`} />
           <StatCard
@@ -356,20 +367,7 @@ export const HistoryView = () => {
           className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 lg:mb-10"
         >
           <div className="lg:col-span-2 bg-surface border border-border rounded-2xl p-5 md:p-8 shadow-sm overflow-hidden relative">
-             <div className="absolute top-6 right-6 z-20">
-               <Tooltip content="Toggle Drawdown Visualization">
-                 <button
-                   onClick={() => setColorDrawdown(v => !v)}
-                   className={cn(
-                     "p-2 rounded-lg border transition-all active:scale-95",
-                     colorDrawdown ? "border-red/30 bg-red/10 text-red" : "border-border text-dim hover:text-accent"
-                   )}
-                 >
-                   <SettingsIcon size={16} />
-                 </button>
-               </Tooltip>
-             </div>
-             <EquityCurve data={currentAnalytics?.cumulativePnL || []} colorDrawdown={colorDrawdown} />
+             <EquityCurve data={currentAnalytics?.cumulativePnL || []} />
           </div>
           <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
              <TODPerformance data={currentAnalytics?.timeOfDay || []} />
@@ -414,7 +412,7 @@ export const HistoryView = () => {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: Math.min(i * 0.05, 0.5) }}
                   >
-                    <SessionGroup session={s} trades={s.trades} colorDrawdown={colorDrawdown} />
+                    <SessionGroup session={s} trades={s.trades} />
                   </motion.div>
                 ))}
 
@@ -439,13 +437,27 @@ export const HistoryView = () => {
                     layout
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
+                    className="mt-12 bg-surface/30 border border-border rounded-2xl overflow-hidden"
                   >
-                    <div className="flex items-center justify-between mt-10 mb-6">
-                      <SectionLabel className="mb-0">Standalone Records</SectionLabel>
+                    <div
+                      onClick={() => setOrphansExpanded(!orphansExpanded)}
+                      className="p-5 flex items-center justify-between cursor-pointer hover:bg-surface/50 transition-colors"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center border transition-colors", orphansExpanded ? "bg-accent/10 border-accent/20" : "bg-surface border-border")}>
+                          {orphansExpanded ? <ChevronDown size={20} className="text-accent" /> : <ChevronRight size={20} className="text-dim" />}
+                        </div>
+                        <div>
+                          <div className="text-sm font-bold tracking-tight uppercase">Standalone Records</div>
+                          <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2 mt-1">
+                            <ArrowLeftRight size={10} /> {orphans.length} trades without a valid session
+                          </div>
+                        </div>
+                      </div>
                       <button
-                        onClick={handleDeleteOrphans}
+                        onClick={(e) => { e.stopPropagation(); handleDeleteOrphans(); }}
                         disabled={deletingOrphans}
-                        className="text-[10px] font-bold text-red hover:text-red/80 transition-colors uppercase tracking-widest flex items-center gap-2"
+                        className="px-4 py-2 bg-red/10 border border-red/20 text-red rounded-lg text-[10px] font-bold hover:bg-red/20 transition-all uppercase tracking-widest flex items-center gap-2 active:scale-95"
                       >
                         {deletingOrphans ? (
                           <div className="w-3 h-3 border-2 border-red border-t-transparent rounded-full animate-spin" />
@@ -455,11 +467,23 @@ export const HistoryView = () => {
                         Clear All
                       </button>
                     </div>
-                    <div className="space-y-3">
-                      {orphans.map((trade) => (
-                        <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} />
-                      ))}
-                    </div>
+
+                    <AnimatePresence>
+                      {orphansExpanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="overflow-hidden border-t border-border/40"
+                        >
+                          <div className="p-4 space-y-3 bg-background/30">
+                            {orphans.map((trade) => (
+                              <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} />
+                            ))}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </motion.div>
                 )}
               </AnimatePresence>

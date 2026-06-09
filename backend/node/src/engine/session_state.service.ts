@@ -89,10 +89,10 @@ export class SessionStateService {
     this.binanceRateLimit.used_1m = used1m;
   }
 
-  isRateLimited(): boolean {
+  isRateLimited(threshold = 0.8): boolean {
     const used = this.binanceRateLimit.used_1m || 0;
     const limit = ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT;
-    return (used / limit) > 0.8;
+    return (used / limit) > threshold;
   }
 
   getBinanceRateLimit() {

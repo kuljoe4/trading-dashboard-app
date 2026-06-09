@@ -104,6 +104,7 @@ describe('OrderManagerService', () => {
     it('cancels old SL and places new one in live mode', async () => {
       await service.setBinanceClient(mockBinanceClient, false);
       const trade = {
+        id: 'test-id-12345678',
         symbol: 'BTCUSDT',
         direction: 'LONG',
         binance_order_id: 'mock_order_id',
@@ -135,6 +136,7 @@ describe('OrderManagerService', () => {
     it('cancels active SL order before closing trade', async () => {
       await service.setBinanceClient(mockBinanceClient, false);
       const trade = {
+        id: 'test-id-12345678',
         symbol: 'BTCUSDT',
         direction: 'LONG',
         qty: 0.1,
@@ -164,6 +166,7 @@ describe('OrderManagerService', () => {
 
     it('assigns CLOSED status for manual and termination reasons', async () => {
       const trade = {
+        id: 'test-id-12345678',
         symbol: 'BTCUSDT',
         direction: 'LONG',
         qty: 0.1,

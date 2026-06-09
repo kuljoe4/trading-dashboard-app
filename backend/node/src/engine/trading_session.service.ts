@@ -449,6 +449,52 @@ export class TradingSessionService {
     return this.sessionState.closedTrades.find(t => t.id === idOrSymbol || t.symbol === idOrSymbol);
   }
 
+  @OnEvent('trade.exchange_close')
+  async handleExchangeClose(payload: { symbol: string, exitPrice: number, reason: string }) {
+    if (!this.running) return;
+    const { symbol, exitPrice, reason } = payload;
+
+    const trade = this.positionTracker.activeList().find(t => t.symbol === symbol);
+    if (!trade) return;
+
+    this.logger.log(`Handling exchange-triggered close for ${symbol} @ ${exitPrice} (${reason})`);
+
+    // We pass paperMode=true to closeTrade to ensure it only updates local state
+    // and doesn't try to send another close order to Binance,
+    // since the exchange already closed it.
+    const res = await this.positionTracker.closeTrade(symbol, exitPrice, reason, this.config!, true);
+
+    if (res.exitOccurred && res.trade) {
+      await this.finalizeTradeClosure(res.trade, exitPrice, reason);
+    }
+  }
+
+  private async finalizeTradeClosure(trade: Trade, exitPrice: number, reason: string) {
+      this.sessionState.updateStatsOnClose((trade.pnl || 0) > 0);
+      await this.updateBalance(trade);
+      this.sessionState.addClosedTrade(trade);
+      if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
+      this.sessionState.setActiveTrades(this.positionTracker.activeList());
+      this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, this.config!);
+
+      const analytics = this.analyticsService.calculateAnalytics(this.sessionState.closedTrades as any, this.config?.paper_mode ? this.config?.paper_starting_balance : this.config?.live_starting_balance);
+
+      this.broadcast('trade_event', {
+        event: 'closed',
+        symbol: trade.symbol,
+        reason: reason,
+        trade: this.engineBroadcaster.serializeTrade(trade, this.config!, exitPrice),
+        pnl: trade.pnl,
+        stats: this.sessionState.stats,
+        analytics: {
+          maxDrawdown: roundTo(analytics.maxDrawdown, 2),
+          maxDrawdownPct: roundTo(analytics.maxDrawdownPct, 2),
+          overallWinRate: roundTo(analytics.overallWinRate, 2),
+          cumulativePnL: analytics.cumulativePnL.slice(-20).map((p: any) => ({ ...p, pnl: roundTo(p.pnl, 2) })),
+        }
+      });
+  }
+
   async closeTradeManually(symbol: string): Promise<{ success: boolean; trade?: Trade; error?: string }> {
     if (!this.running) return { success: false, error: 'No session running' };
     const trade = this.positionTracker.activeList().find(t => t.symbol === symbol);
@@ -456,35 +502,13 @@ export class TradingSessionService {
     const cp = await this.tickerCache.getPrice(symbol); if (!cp) return { success: false, error: `Could not fetch price for ${symbol}` };
     const res = await this.positionTracker.closeTrade(symbol, cp, 'MANUAL_CLOSE', this.config!);
     if (res.exitOccurred && res.trade) {
-      this.sessionState.updateStatsOnClose((res.trade.pnl || 0) > 0);
       const pp = this.sessionState.balancePaper; const pl = this.sessionState.balanceLive;
       try {
-        await this.updateBalance(res.trade); this.sessionState.addClosedTrade(res.trade);
+        await this.finalizeTradeClosure(res.trade, cp, 'MANUAL_CLOSE');
         await this.auditLog.log({
           action: 'MANUAL_TRADE_CLOSE',
           resourceId: res.trade.id,
           details: { symbol, pnl: res.trade.pnl }
-        });
-        if (this.onTradeUpdate) await this.onTradeUpdate(res.trade, this.getBalance());
-        this.sessionState.setActiveTrades(this.positionTracker.activeList());
-        this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, this.config!);
-
-        // REFACTOR: Use analytics from engineBroadcaster to avoid 'as any' and duplicate calculation
-        const analytics = this.analyticsService.calculateAnalytics(this.sessionState.closedTrades as any, this.config?.paper_mode ? this.config?.paper_starting_balance : this.config?.live_starting_balance);
-
-        this.broadcast('trade_event', {
-          event: 'closed',
-          symbol: res.trade.symbol,
-          reason: 'MANUAL_CLOSE',
-          trade: this.engineBroadcaster.serializeTrade(res.trade, this.config!, cp),
-          pnl: res.trade.pnl,
-          stats: this.sessionState.stats,
-          analytics: {
-            maxDrawdown: roundTo(analytics.maxDrawdown, 2),
-            maxDrawdownPct: roundTo(analytics.maxDrawdownPct, 2),
-            overallWinRate: roundTo(analytics.overallWinRate, 2),
-            cumulativePnL: analytics.cumulativePnL.slice(-20).map((p: any) => ({ ...p, pnl: roundTo(p.pnl, 2) })),
-          }
         });
         return { success: true, trade: res.trade };
       } catch (err: any) { await this.rollbackTradeClosure(res.trade, pp, pl); return { success: false, error: err.message }; }

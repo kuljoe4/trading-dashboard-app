@@ -324,6 +324,8 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               <div className="space-y-4">
                  {[
                    { label: 'TP Mode', value: trade.tp_mode === 'exp_rr_seq' ? 'Expansion RR' : 'Fixed Ratio' },
+                    { label: 'Commission', value: fmtUSD(-(trade.realized_fee || 0)), color: 'text-red/70' },
+                    { label: 'Funding Fee', value: fmtUSD(-(trade.funding_fee || 0)), color: trade.funding_fee > 0 ? 'text-red/70' : 'text-green/70' },
                    { label: 'SL Distance', value: `${slDistPct.toFixed(2)}%` },
                    { label: 'Initial Risk', value: `${slFromEntry.toFixed(2)}%` },
                  ].map(item => (

@@ -14,10 +14,10 @@ describe('OrderManagerService', () => {
     service = new OrderManagerService(
       mockSignalEngine,
       { getSymbolFilters: (symbol: string) => ({ filters: [] }) } as any,
-      { getPrice: jest.fn().mockReturnValue(600) } as any,
-      { isRateLimited: () => false } as any,
-      { log: jest.fn() } as any,
-      { emit: jest.fn() } as any
+      null as any, // tickerCache
+      { isRateLimited: () => false } as any, // sessionState
+      { log: jest.fn() } as any, // auditLog
+      { emit: jest.fn() } as any, // eventEmitter
     );
     
     mockBinanceClient = {

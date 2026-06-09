@@ -37,7 +37,7 @@ export class SessionLifecycleService {
   async start(config: SessionConfig, bc?: any, sid?: string, hist: Trade[] = [], curBal?: number, open: Trade[] = []) {
     this.sessionState.reset(config, hist, curBal);
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
-    this.orderManager.setBinanceClient(bc, mode === 'paper');
+    await this.orderManager.setBinanceClient(bc, mode === 'paper');
 
     if (mode !== 'paper' && bc) {
       try {

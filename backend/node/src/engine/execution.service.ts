@@ -57,9 +57,10 @@ export class ExecutionService {
       if (exitCondition?.exitOccurred) {
         const result = await this.positionTracker.closeTrade(trade.symbol, currentPrice, exitCondition.exitReason, tradeConfig);
         if (result.exitOccurred && result.trade) {
-          this.sessionState.updateStatsOnClose((result.trade.pnl || 0) > 0);
+          const closedTrade = result.trade;
+          this.sessionState.updateStatsOnClose((closedTrade.pnl || 0) > 0);
 
-          this.sessionState.addClosedTrade(result.trade);
+          this.sessionState.addClosedTrade(closedTrade);
           this.sessionState.setActiveTrades(this.positionTracker.activeList());
           this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, tradeConfig);
 
@@ -71,10 +72,10 @@ export class ExecutionService {
           this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
           this.broadcastService.broadcast('trade_event', {
             event: 'closed',
-            symbol: result.trade.symbol,
+            symbol: closedTrade.symbol,
             reason: exitCondition.exitReason,
-            trade: this.engineBroadcaster.serializeTrade(result.trade, config, currentPrice),
-            pnl: result.trade.pnl,
+            trade: this.engineBroadcaster.serializeTrade(closedTrade, config, currentPrice),
+            pnl: closedTrade.pnl,
             stats: this.sessionState.stats,
             analytics: {
               maxDrawdown: roundTo(analytics.maxDrawdown, 2),
@@ -84,7 +85,7 @@ export class ExecutionService {
             }
           });
 
-          if (onTradeUpdate) await onTradeUpdate(result.trade, balance);
+          if (onTradeUpdate) await onTradeUpdate(closedTrade, balance);
         }
       }
     }
@@ -144,6 +145,12 @@ export class ExecutionService {
         const trade = result.data;
         this.positionTracker.addTrade(trade);
         this.sessionState.updateStatsOnEntry();
+
+        // Immediately apply entry fee to balance
+        if (onTradeUpdate) {
+            await onTradeUpdate(trade, balance);
+        }
+
         this.sessionState.setActiveTrades(this.positionTracker.activeList());
         this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, config);
 

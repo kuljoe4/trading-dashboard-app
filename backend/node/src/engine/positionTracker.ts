@@ -129,7 +129,7 @@ export class PositionTrackerService {
             this.logger.error(`Failed to update exchange SL for ${symbol}: ${err.message}`);
           });
           // Notify of trade state change for persistence
-          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, trade);
+          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
         }
       } else if (trade.direction === 'SHORT' && newSl) {
         if (newSl < trade.current_sl) {
@@ -145,7 +145,7 @@ export class PositionTrackerService {
             this.logger.error(`Failed to update exchange SL for ${symbol}: ${err.message}`);
           });
           // Notify of trade state change for persistence
-          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, trade);
+          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
         }
       }
     }

@@ -90,8 +90,8 @@ export class SessionController {
   }
 
   @Get('history')
-  async getHistory() {
-    return this.sessionService.getHistory();
+  async getHistory(@Query('sessionId') sessionId?: string) {
+    return this.sessionService.getHistory(sessionId);
   }
 
   @Post('trade/:symbol/close')

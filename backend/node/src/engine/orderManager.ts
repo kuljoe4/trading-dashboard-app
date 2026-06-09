@@ -4,6 +4,7 @@ import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
 import { SignalEngineService } from './signalEngine';
 import { MarketFeedService } from './market_feed.service';
+import { TickerCacheService } from './ticker_cache.service';
 import { SessionStateService } from './session_state.service';
 import { AuditLogService } from '../trading/audit-log.service';
 import { v4 as uuid } from 'uuid';
@@ -27,6 +28,7 @@ export class OrderManagerService {
   constructor(
     private readonly signalEngine: SignalEngineService,
     private readonly marketFeed: MarketFeedService,
+    private readonly tickerCache: TickerCacheService,
     private readonly sessionState: SessionStateService,
     private readonly auditLog: AuditLogService,
     private readonly eventEmitter: EventEmitter2,
@@ -176,31 +178,48 @@ export class OrderManagerService {
           const avgPrice = parseFloat(orderData.avgPrice || '0');
           const executedQty = parseFloat(orderData.executedQty || '0');
 
-          if (avgPrice > 0) {
-            trade.entry_price = roundEight(avgPrice);
-            entryPrice = trade.entry_price; // Update local for subsequent operations
+          // Capture realized fees and weighted average price from fills
+          let realizedFeeUsdt = 0;
+          let weightedSum = 0;
+          let totalFilledQty = 0;
+
+          if (orderData.fills && Array.isArray(orderData.fills) && orderData.fills.length > 0) {
+            for (const fill of orderData.fills) {
+              const fillPrice = parseFloat(fill.price || '0');
+              const fillQty = parseFloat(fill.qty || '0');
+              const commission = parseFloat(fill.commission || '0');
+              const commissionAsset = (fill.commissionAsset || 'USDT').toUpperCase();
+
+              weightedSum += (fillPrice * fillQty);
+              totalFilledQty += fillQty;
+
+              if (commissionAsset === 'USDT') {
+                realizedFeeUsdt += commission;
+              } else {
+                // Convert other assets (like BNB) to USDT
+                const conversionPrice = this.tickerCache.getPrice(`${commissionAsset}USDT`) ||
+                                      (commissionAsset === 'BNB' ? (this.tickerCache.getPrice('BNBUSDT') || 600) : 1);
+                realizedFeeUsdt += (commission * conversionPrice);
+              }
+            }
           }
-          if (executedQty > 0) {
-            trade.qty = executedQty;
-            qty = trade.qty; // Update local for SL placement
+
+          if (totalFilledQty > 0) {
+            trade.entry_price = roundEight(weightedSum / totalFilledQty);
+            trade.qty = totalFilledQty;
+            trade.realized_fee = roundEight(realizedFeeUsdt);
+          } else {
+            if (avgPrice > 0) trade.entry_price = roundEight(avgPrice);
+            if (executedQty > 0) trade.qty = executedQty;
+            // Fallback estimation if no fills provided
+            trade.realized_fee = roundEight(trade.entry_price * trade.qty * 0.0005);
           }
+
+          entryPrice = trade.entry_price;
+          qty = trade.qty;
 
           // Re-calculate risk USDT with actual entry price
           trade.risk_usdt = roundEight(Math.max(0, direction === 'LONG' ? trade.entry_price - slPrice : slPrice - trade.entry_price) * trade.qty);
-
-          // Capture realized fees from fills if available, otherwise estimate
-          if (orderData.fills && Array.isArray(orderData.fills) && orderData.fills.length > 0) {
-            let entryFee = 0;
-            for (const fill of orderData.fills) {
-              entryFee += parseFloat(fill.commission || '0');
-            }
-            trade.realized_fee = roundEight(entryFee);
-          } else {
-            // Standard Binance Futures taker fee is 0.05% (or 0.04% with BNB)
-            // We use a conservative estimate if fills are not provided in the response
-            const estimatedFee = trade.entry_price * trade.qty * 0.0005;
-            trade.realized_fee = roundEight(estimatedFee);
-          }
 
           const msg = `Binance order placed: ${symbol} ${direction} qty=${qty} order_id=${orderData.orderId} fee=${trade.realized_fee}`;
           this.logger.log(msg);
@@ -305,6 +324,8 @@ export class OrderManagerService {
 
       // Initialize PnL as net of entry fees
       trade.pnl = roundEight(-trade.realized_fee);
+      // BOLT: Track entry PnL to prevent double-deduction during closing balance updates
+      (trade as any)._entry_pnl = trade.pnl;
 
       const msgEnter = `Enter: ${symbol} ${direction} @ ${entryPrice} qty=${qty} SL=${slPrice} TP=${tpPrice}`;
       this.logger.log(msgEnter);
@@ -615,22 +636,41 @@ export class OrderManagerService {
             const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
             trade.binance_close_order_id = orderData.orderId;
 
-            // Capture actual execution price from Binance response
-            const avgExitPrice = parseFloat(orderData.avgPrice || '0');
-            if (avgExitPrice > 0) {
-              exitPrice = roundEight(avgExitPrice);
+            // Capture actual execution price and realized fees from fills
+            let exitWeightedSum = 0;
+            let exitFilledQty = 0;
+            let exitFeeUsdt = 0;
+
+            if (orderData.fills && Array.isArray(orderData.fills) && orderData.fills.length > 0) {
+              for (const fill of orderData.fills) {
+                const fillPrice = parseFloat(fill.price || '0');
+                const fillQty = parseFloat(fill.qty || '0');
+                const commission = parseFloat(fill.commission || '0');
+                const commissionAsset = (fill.commissionAsset || 'USDT').toUpperCase();
+
+                exitWeightedSum += (fillPrice * fillQty);
+                exitFilledQty += fillQty;
+
+                if (commissionAsset === 'USDT') {
+                  exitFeeUsdt += commission;
+                } else {
+                  const conversionPrice = this.tickerCache.getPrice(`${commissionAsset}USDT`) ||
+                                        (commissionAsset === 'BNB' ? (this.tickerCache.getPrice('BNBUSDT') || 600) : 1);
+                  exitFeeUsdt += (commission * conversionPrice);
+                }
+              }
             }
 
-            // Capture realized fees from fills if available, otherwise estimate
-            if (orderData.fills && Array.isArray(orderData.fills) && orderData.fills.length > 0) {
-              let exitFee = 0;
-              for (const fill of orderData.fills) {
-                exitFee += parseFloat(fill.commission || '0');
-              }
-              trade.realized_fee = roundEight(trade.realized_fee + exitFee);
+            if (exitFilledQty > 0) {
+              exitPrice = roundEight(exitWeightedSum / exitFilledQty);
+              trade.realized_fee = roundEight((trade.realized_fee || 0) + exitFeeUsdt);
             } else {
+              const avgExitPrice = parseFloat(orderData.avgPrice || '0');
+              if (avgExitPrice > 0) {
+                exitPrice = roundEight(avgExitPrice);
+              }
               const estimatedExitFee = exitPrice * trade.qty * 0.0005;
-              trade.realized_fee = roundEight(trade.realized_fee + estimatedExitFee);
+              trade.realized_fee = roundEight((trade.realized_fee || 0) + estimatedExitFee);
             }
 
             const msgClose = `Binance close order placed: ${symbol} qty=${trade.qty || 0} order_id=${orderData.orderId} total_fee=${trade.realized_fee}`;

@@ -121,7 +121,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   setSessionActive: (a, id) => { set({ sessionActive: a, strategyId: id }); if (a) get().connectWS(); else get().disconnectWS(); },
   fetchSessions: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.list(); set({ sessionList: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchLifetimeAnalytics: async (m = 'paper') => { set({ isSyncing: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
-  fetchTradeHistory: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.history(); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
+  fetchTradeHistory: async (sid = 'all') => { set({ isSyncing: true }); try { const r = await sessionAPI.history(sid); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
   updateStats: (s) => set((st) => ({ ...st, ...s })),
   updateConfig: (c) => {
     if (c.trading_mode) {
@@ -148,7 +148,19 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
         set((st) => {
           const stop = d.status === 'stopped' || d.running === false;
           let nt = st.activeTrades; if (stop) nt = []; else if (d.activeTrades) { const m = new Map(st.activeTrades.map(t => [t.symbol, t])); nt = d.activeTrades.map(t => normalizeTrade(t, m.get(t.symbol))).filter(Boolean); }
-          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, scannerResults: d.scannerResults?.map(normalizeOpportunity) || st.scannerResults, activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: d.history?.map(t => normalizeTrade(t)).filter(Boolean) || st.tradeHistory, gateState: d.gateState ?? st.gateState, scannerPaused: d.scannerPaused ?? st.scannerPaused, config: d.config ? { ...st.config, ...d.config } : st.config };
+
+          // BOLT: Smart history merging to prevent flickering or data loss.
+          // We only update history if the backend provides a non-empty list.
+          // This allows session-specific updates without wiping global history.
+          let nextHistory = st.tradeHistory;
+          if (d.history && d.history.length > 0) {
+            const incoming = d.history.map(t => normalizeTrade(t)).filter(Boolean);
+            const m = new Map(st.tradeHistory.map(t => [t.id, t]));
+            incoming.forEach(t => m.set(t.id, t));
+            nextHistory = Array.from(m.values()).sort((a, b) => new Date(b.exit_ts || b.createdAt).getTime() - new Date(a.exit_ts || a.createdAt).getTime());
+          }
+
+          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, scannerResults: d.scannerResults?.map(normalizeOpportunity) || st.scannerResults, activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: nextHistory, gateState: d.gateState ?? st.gateState, scannerPaused: d.scannerPaused ?? st.scannerPaused, config: d.config ? { ...st.config, ...d.config } : st.config };
         });
       } else if (d.type === 'tick') {
         set((st) => {

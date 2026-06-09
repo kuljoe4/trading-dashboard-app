@@ -279,7 +279,8 @@ export class TradingSessionService {
       for (const sc of strategyConfigs) {
         const opps = opportunitiesBySignature.get(this.scanSignature(sc)) || [];
         await this.executionService.processEntries(opps, sc, sc.strategy_label || 'Momentum Strategy', async (t) => {
-          await this.updateBalance(t, true);
+          // Immediately deduct entry fee from session balance to keep total PnL accurate
+          await this.updateBalance(t);
           if (this.onTradeUpdate) await this.onTradeUpdate(t, this.getBalance());
         });
       }
@@ -363,12 +364,11 @@ export class TradingSessionService {
   private async updateBalance(t: Trade, isEntry = false, isFunding = false) {
     const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
     if (mode === 'paper') {
-      let pnl = 0;
-      if (isEntry) pnl = -(t.realized_fee || 0);
-      else if (isFunding) pnl = -(t._last_funding_delta || 0);
-      else pnl = (t.pnl || 0);
-
-      this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + pnl);
+      // BOLT: Net out entry fees already deducted from balance if this is a trade closure
+      const pnlChange = (t.status !== 'OPEN' && (t as any)._entry_pnl !== undefined)
+        ? roundEight(t.pnl - (t as any)._entry_pnl)
+        : (t.pnl || 0);
+      this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + pnlChange);
     } else if (this.binanceClient) {
       // Small delay to allow Binance to process the trade and update account balance
       await new Promise(resolve => setTimeout(resolve, 1000));

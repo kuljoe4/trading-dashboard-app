@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, lazy, Suspense } from 'react'
 import { shallow } from 'zustand/shallow'
-import { pnlColor, fmtUSD, C } from '../lib/theme'
+import { pnlColor, fmtUSD, C, safeNum } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
 import { sessionAPI } from '../api/client'
 import { 
@@ -365,7 +365,7 @@ export function DashboardView({ initialStrategy }) {
     });
     activeTrades.forEach(t => {
       if (map[t.strategy_label] !== undefined) {
-        map[t.strategy_label] += (t.pnl || 0);
+        map[t.strategy_label] += safeNum(t.pnl);
       }
     });
     return map;

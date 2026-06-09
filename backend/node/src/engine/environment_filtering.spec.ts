@@ -55,10 +55,11 @@ describe('MomentumScannerService Environment Filtering', () => {
     const mockAuditLog = { log: jest.fn() }
     const orderManager = new OrderManagerService(
         mockSignalEngine as any,
-        null as any, // marketFeed will be injected
+        marketFeed as any,
+        null as any, // tickerCache
         null as any, // sessionState
         mockAuditLog as any,
-        { emit: jest.fn() } as any
+        { emit: jest.fn() } as any,
     );
     (orderManager as any).marketFeed = marketFeed;
     orderManager.setBinanceClient({} as any, false); // Live mode

@@ -29,9 +29,10 @@ describe('OrderManagerService Resilience', () => {
     service = new OrderManagerService(
       mockSignalEngine as any,
       mockMarketFeed as any,
+      null as any, // tickerCache
       mockSessionState as any,
       mockAuditLog as any,
-      { emit: jest.fn() } as any
+      { emit: jest.fn() } as any,
     );
 
     mockBinanceClient = {

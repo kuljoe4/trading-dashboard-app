@@ -3,7 +3,7 @@ import { useTradingStore } from '../store/trading'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
 import { TradeDetailModal } from '../components/TradeDetailModal'
 import { SectionLabel, StatCard, cn } from '../components/ui/primitives'
-import { fmtUSD } from '../lib/theme'
+import { fmtUSD, safeNum } from '../lib/theme'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Briefcase, Zap } from 'lucide-react'
 import { useResourceFocus } from '../hooks/useResourceFocus'
@@ -58,8 +58,8 @@ const TradesView = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 lg:mb-12">
         <StatCard
           label="Active P&L"
-          value={fmtUSD(activeTrades.reduce((acc, t) => acc + (t.pnl || 0), 0))}
-          color={activeTrades.reduce((acc, t) => acc + (t.pnl || 0), 0) >= 0 ? "text-green" : "text-red"}
+          value={fmtUSD(activeTrades.reduce((acc, t) => acc + safeNum(t.pnl), 0))}
+          color={activeTrades.reduce((acc, t) => acc + safeNum(t.pnl), 0) >= 0 ? "text-green" : "text-red"}
           subValue={`Total Session: ${fmtUSD(totalPnl)}`}
         />
         <StatCard label="Active Risk" value={`${totalRiskPct.toFixed(2)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />

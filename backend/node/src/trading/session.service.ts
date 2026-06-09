@@ -565,10 +565,13 @@ export class SessionService implements OnModuleInit {
           } else {
             // BOLT: Sync local trade state with actual exchange position to ensure entry price and qty accuracy
             const exEntryPrice = parseFloat(position.entryPrice);
+            const exUnrealizedPnl = parseFloat(position.unRealizedProfit);
+
             if (exEntryPrice > 0 && Math.abs(exEntryPrice - Number(trade.entry_price)) > (exEntryPrice * 0.0001)) {
                this.logger.log(`Syncing entry price for ${trade.symbol}: ${trade.entry_price} -> ${exEntryPrice}`);
                trade.entry_price = exEntryPrice;
             }
+
             if (Math.abs(posAmt) !== Math.abs(Number(trade.qty))) {
                this.logger.log(`Syncing quantity for ${trade.symbol}: ${trade.qty} -> ${Math.abs(posAmt)}`);
                trade.qty = Math.abs(posAmt);
@@ -755,7 +758,7 @@ export class SessionService implements OnModuleInit {
       activeWindows: engineStatus.activeWindows,
       gateState: engineStatus.gateState,
       scannerPaused: engineStatus.scannerPaused,
-      history: engineStatus.history || [],
+      history: (await this.getHistory(session.id)).trades || [],
       totalRiskPct: session.paperMode ? (engineStatus.balance_paper > 0 ? (engineStatus.total_risk / engineStatus.balance_paper) * 100 : 0) : (engineStatus.balance_live > 0 ? (engineStatus.total_risk / engineStatus.balance_live) * 100 : 0),
       totalSlUsed: engineStatus.total_risk,
       config: session.config,
@@ -763,11 +766,15 @@ export class SessionService implements OnModuleInit {
     };
   }
 
-  async getHistory() {
+  async getHistory(sessionId?: string) {
+    // If no sessionId is provided, we default to the current session ID if one is running.
+    // If we want GLOBAL history (all sessions), we must explicitly pass 'all' or similar.
+    const filterId = sessionId === 'all' ? undefined : (sessionId || this.currentSessionId);
+
     const closedTrades = await this.tradeRepository.find({
       where: {
         status: In(TERMINAL_STATUSES as any),
-        ...(this.currentSessionId ? { sessionId: this.currentSessionId } : {})
+        ...(filterId ? { sessionId: filterId } : {})
       },
       order: { exit_ts: 'DESC' },
       take: 200,

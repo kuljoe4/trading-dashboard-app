@@ -416,8 +416,8 @@ async function bootstrap() {
           // If becoming focused, immediately broadcast the current session state to the client
           // to prevent UI "data gaps" during transition.
           if (!wasFocused && socket.focusMode) {
-            const tradingSessionService = app.get(TradingSessionService);
-            const status = tradingSessionService.getStatus();
+            const sessionService = app.get(SessionService);
+            const status = await sessionService.getStatus();
             socket.send(JSON.stringify({
               type: "status",
               ...status,

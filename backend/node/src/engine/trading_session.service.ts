@@ -276,6 +276,8 @@ export class TradingSessionService {
       for (const sc of strategyConfigs) {
         const opps = opportunitiesBySignature.get(this.scanSignature(sc)) || [];
         await this.executionService.processEntries(opps, sc, sc.strategy_label || 'Momentum Strategy', async (t) => {
+          // Immediately deduct entry fee from session balance to keep total PnL accurate
+          await this.updateBalance(t);
           if (this.onTradeUpdate) await this.onTradeUpdate(t, this.getBalance());
         });
       }
@@ -331,7 +333,11 @@ export class TradingSessionService {
   private async updateBalance(t: Trade) {
     const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
     if (mode === 'paper') {
-      this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + (t.pnl || 0));
+      // BOLT: Net out entry fees already deducted from balance if this is a trade closure
+      const pnlChange = (t.status !== 'OPEN' && (t as any)._entry_pnl !== undefined)
+        ? roundEight(t.pnl - (t as any)._entry_pnl)
+        : (t.pnl || 0);
+      this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + pnlChange);
     } else if (this.binanceClient) {
       // Small delay to allow Binance to process the trade and update account balance
       await new Promise(resolve => setTimeout(resolve, 1000));

@@ -145,7 +145,7 @@ export const createSessionAPI = (apiInstance = api) => ({
   pause: (paused) => apiInstance.post('/session/pause', { paused }),
   delete: (id) => apiInstance.delete(`/session/${id}`),
   rateLimit: () => apiInstance.get('/session/binance/rate-limit'),
-  history: () => apiInstance.get('/session/history'),
+  history: (sessionId) => apiInstance.get('/session/history', { params: { sessionId } }),
   getTrade: (id) => apiInstance.get(`/session/trade/${id}`),
   closeTrade: (symbol) => apiInstance.post(`/session/trade/${symbol}/close`),
   analytics: () => apiInstance.get('/session/analytics'),

@@ -276,7 +276,7 @@ export class MarketFeedService {
             const kline = msg.data?.k;
             if (kline) {
               this.klineStore.upsertCandle(kline.s, kline.i, kline);
-              this.tickerCache.bulkUpdate([{ s: kline.s, c: kline.c }]);
+              this.tickerCache.updateTicker(kline.s, kline.c);
               if (kline.x && this.onCandleClose) this.onCandleClose(kline.s).catch(() => {});
             }
           } catch (err) {

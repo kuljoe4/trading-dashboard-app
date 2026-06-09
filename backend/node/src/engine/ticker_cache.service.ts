@@ -26,24 +26,35 @@ export class TickerCacheService {
       const t = tickers[i];
       const symbol = t.s || t.symbol;
       if (symbol) {
-        const existing = this.tickers.get(symbol);
-
         // Handle both WS (!miniTicker) and REST (ticker/24hr) field names
-        const priceStr = t.c || t.lastPrice || t.price;
-        const volumeStr = t.q || t.quoteVolume || t.v || t.volume_24h;
-
-        if (existing) {
-          // Mutate existing object to avoid new allocations every 2s
-          if (priceStr !== undefined) existing.price = parseFloat(priceStr);
-          if (volumeStr !== undefined) existing.volume_24h = parseFloat(volumeStr);
-        } else {
-          this.tickers.set(symbol, {
-            symbol,
-            price: priceStr !== undefined ? parseFloat(priceStr) : 0,
-            volume_24h: volumeStr !== undefined ? parseFloat(volumeStr) : 0,
-          });
-        }
+        const price = t.c || t.lastPrice || t.price;
+        const volume = t.q || t.quoteVolume || t.v || t.volume_24h;
+        this.updateTicker(symbol, price, volume);
       }
+    }
+  }
+
+  /**
+   * BOLT OPTIMIZATION: Zero-allocation update for a single ticker.
+   * Directly updates the Map to avoid temporary object/array allocations.
+   */
+  updateTicker(symbol: string, price?: string | number, volume?: string | number) {
+    if (!symbol) return;
+    const existing = this.tickers.get(symbol);
+
+    const p = typeof price === 'string' ? parseFloat(price) : price;
+    const v = typeof volume === 'string' ? parseFloat(volume) : volume;
+
+    if (existing) {
+      // Mutate existing object to avoid new allocations
+      if (p !== undefined && !Number.isNaN(p)) existing.price = p;
+      if (v !== undefined && !Number.isNaN(v)) existing.volume_24h = v;
+    } else {
+      this.tickers.set(symbol, {
+        symbol,
+        price: (p !== undefined && !Number.isNaN(p)) ? p : 0,
+        volume_24h: (v !== undefined && !Number.isNaN(v)) ? v : 0,
+      });
     }
   }
 

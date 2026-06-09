@@ -158,7 +158,7 @@ export class TradingSessionService {
     const active = this.positionTracker.activeList();
     for (const t of active) {
       const cp = await this.tickerCache.getPrice(t.symbol); const ep = cp ?? t.last_price ?? t.entry_price;
-      const res = await this.positionTracker.closeTrade(t.symbol, ep, 'SESSION_TERMINATED', this.config!);
+      const res = await this.positionTracker.closeTrade(t.symbol, ep, 'SESSION_TERMINATED', this.config!, this.config?.paper_mode ?? true);
       if (res.exitOccurred && res.trade) {
         this.sessionState.updateStatsOnClose((res.trade.pnl || 0) > 0); this.sessionState.addClosedTrade(res.trade);
         await this.updateBalance(res.trade); if (this.onTradeUpdate) await this.onTradeUpdate(res.trade, this.getBalance());
@@ -459,10 +459,10 @@ export class TradingSessionService {
 
     this.logger.log(`Handling exchange-triggered close for ${symbol} @ ${exitPrice} (${reason})`);
 
-    // We pass paperMode=true to closeTrade to ensure it only updates local state
+    // We pass localOnly=true to closeTrade to ensure it only updates local state
     // and doesn't try to send another close order to Binance,
     // since the exchange already closed it.
-    const res = await this.positionTracker.closeTrade(symbol, exitPrice, reason, this.config!, true);
+    const res = await this.positionTracker.closeTrade(symbol, exitPrice, reason, this.config!, this.config?.paper_mode ?? true, true);
 
     if (res.exitOccurred && res.trade) {
       await this.finalizeTradeClosure(res.trade, exitPrice, reason);
@@ -500,7 +500,7 @@ export class TradingSessionService {
     const trade = this.positionTracker.activeList().find(t => t.symbol === symbol);
     if (!trade) return { success: false, error: `No open position for ${symbol}` };
     const cp = await this.tickerCache.getPrice(symbol); if (!cp) return { success: false, error: `Could not fetch price for ${symbol}` };
-    const res = await this.positionTracker.closeTrade(symbol, cp, 'MANUAL_CLOSE', this.config!);
+    const res = await this.positionTracker.closeTrade(symbol, cp, 'MANUAL_CLOSE', this.config!, this.config?.paper_mode ?? true);
     if (res.exitOccurred && res.trade) {
       const pp = this.sessionState.balancePaper; const pl = this.sessionState.balanceLive;
       try {

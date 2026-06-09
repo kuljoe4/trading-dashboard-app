@@ -58,8 +58,9 @@ export class OrderManagerService {
       const trade = activeTrades.find(t => t.symbol === symbol);
 
       if (trade) {
+        const tradeIdShort = trade.id.replace(/-/g, '').substring(0, 16);
         // Check if this was our SL order
-        if (trade.binance_stop_order_id === orderId || (clientOrderId && clientOrderId.startsWith('sl-') && trade.id === clientOrderId.split('-')[1])) {
+        if (trade.binance_stop_order_id === orderId || (clientOrderId && clientOrderId.startsWith('sl-') && clientOrderId.includes(tradeIdShort))) {
           this.logger.log(`Binance SL HIT for ${symbol}. Closing trade locally.`);
           const exitPrice = parseFloat(order.ap || order.p || '0');
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
@@ -264,7 +265,7 @@ export class OrderManagerService {
           const tickSize = parseFloat(priceFilter?.tickSize || '0');
           const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
 
-          const entryOrderId = `ent-${trade.id.substring(0, 8)}`;
+          const entryOrderId = `ent-${trade.id.replace(/-/g, '').substring(0, 20)}`;
           const entryOrder = {
             symbol,
             side: binanceDirection as any,
@@ -408,7 +409,7 @@ export class OrderManagerService {
         quantity: (trade.qty || 0).toFixed(qtyPrecision),
         reduceOnly: true,
         workingType: 'MARK_PRICE' as any,
-        newClientOrderId: `sl-${trade.id.substring(0, 8)}`,
+        newClientOrderId: `sl-${trade.id.replace(/-/g, '').substring(0, 16)}-${Date.now()}`,
       };
 
       this.logger.log(`Placing Binance SL order: ${JSON.stringify(slOrderParams)}`);
@@ -646,10 +647,11 @@ export class OrderManagerService {
     exitPrice: number,
     exitReason: string,
     paperMode = this.paperMode,
+    localOnly = false,
   ): Promise<{ trade: Trade; exitOccurred: boolean }> {
     try {
       // In live mode, place close order with reduce-only for safety
-      if (!paperMode && this.binanceClient && trade.binance_order_id) {
+      if (!paperMode && !localOnly && this.binanceClient && trade.binance_order_id) {
         try {
           // If there is an exchange stop loss, cancel it to prevent orphans
           if (trade.binance_stop_order_id) {
@@ -671,7 +673,7 @@ export class OrderManagerService {
               quantity: (trade.qty || 0).toFixed(precision),
               reduceOnly: true,
               newOrderRespType: 'RESULT',
-              newClientOrderId: `cls-${trade.id.substring(0, 8)}`,
+              newClientOrderId: `cls-${trade.id.replace(/-/g, '').substring(0, 20)}`,
             });
 
             this.updateWeight(response.headers);

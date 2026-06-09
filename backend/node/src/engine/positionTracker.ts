@@ -259,6 +259,8 @@ export class PositionTrackerService {
     exitPrice: number,
     exitReason: string,
     config?: SessionConfig,
+    paperMode?: boolean,
+    localOnly?: boolean,
   ): Promise<{ trade: Trade | null; exitOccurred: boolean }> {
     const trade = this.trades.get(symbol);
     if (!trade || trade.status !== 'OPEN') {
@@ -273,7 +275,7 @@ export class PositionTrackerService {
       trade.exit_signal_reason = 'Trading session was stopped by user';
     }
 
-    const result = await this.orderManager.closeTrade(symbol, trade, exitPrice, exitReason);
+    const result = await this.orderManager.closeTrade(symbol, trade, exitPrice, exitReason, paperMode, localOnly);
     if (!result.exitOccurred || !result.trade) {
       return { trade: null, exitOccurred: false };
     }

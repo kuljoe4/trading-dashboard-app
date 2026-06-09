@@ -68,11 +68,25 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
             </div>
           </div>
         </div>
-        <div className="flex flex-col items-end min-w-[70px]">
-          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Result</span>
-          <span className={cn("text-xs font-bold font-mono", isWin ? "text-green" : "text-red")}>
-            {fmtUSD(pnl)}
-          </span>
+        <div className="flex flex-col items-end min-w-[80px]">
+          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Net P&L</span>
+          <div className="flex flex-col items-end">
+            <span className={cn("text-xs font-bold font-mono", isWin ? "text-green" : "text-red")}>
+              {fmtUSD(pnl)}
+            </span>
+            {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
+              <Tooltip content={
+                <div className="flex flex-col gap-1">
+                   <div className="flex justify-between gap-4"><span>Commission:</span> <span>-{fmtUSD(trade.realized_fee || 0)}</span></div>
+                   <div className="flex justify-between gap-4"><span>Funding:</span> <span>{trade.funding_fee > 0 ? '-' : '+'}{fmtUSD(Math.abs(trade.funding_fee || 0))}</span></div>
+                </div>
+              }>
+                <span className="text-[9px] text-dim/60 font-mono italic cursor-help border-b border-dotted border-dim/30">
+                  -{fmtUSD((trade.realized_fee || 0) + (trade.funding_fee || 0))} fees
+                </span>
+              </Tooltip>
+            )}
+          </div>
         </div>
       </div>
 

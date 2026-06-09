@@ -73,6 +73,13 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
           <div className="text-[8px] md:text-[10px] font-bold font-mono text-dim uppercase tracking-wider bg-white/5 md:bg-transparent px-1.5 py-0.5 md:p-0 rounded md:rounded-none">
             {Number(trade.rr || 0).toFixed(2)}R
           </div>
+          {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
+            <Tooltip content={`Commission: -${fmtUSD(trade.realized_fee || 0)} | Funding: ${trade.funding_fee > 0 ? '-' : '+'}${fmtUSD(Math.abs(trade.funding_fee || 0))}`}>
+              <div className="text-[7px] md:text-[8px] font-bold font-mono text-red/50 uppercase tracking-tighter cursor-help border-b border-dotted border-red/20">
+                -{fmtUSD((trade.realized_fee || 0) + (trade.funding_fee || 0))} Fees
+              </div>
+            </Tooltip>
+          )}
         </div>
       </div>
 

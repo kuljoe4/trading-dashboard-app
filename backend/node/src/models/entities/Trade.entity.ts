@@ -45,6 +45,9 @@ export class TradeEntity {
   realized_fee: number;
 
   @Column('decimal', { precision: 20, scale: 8, default: 0 })
+  funding_fee: number;
+
+  @Column('decimal', { precision: 20, scale: 8, default: 0 })
   risk_usdt: number;
 
   @Index()

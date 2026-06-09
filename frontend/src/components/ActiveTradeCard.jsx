@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { cn, Tooltip } from './ui/primitives'
-import { fmtUSD, pnlColor } from '../lib/theme'
+import { fmtUSD, pnlColor, safeNum } from '../lib/theme'
 import { sessionAPI } from '../api/client'
 import { ShieldCheck } from 'lucide-react'
 import { motion } from 'framer-motion'
@@ -76,7 +76,7 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
           {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
             <Tooltip content={`Commission: -${fmtUSD(trade.realized_fee || 0)} | Funding: ${trade.funding_fee > 0 ? '-' : '+'}${fmtUSD(Math.abs(trade.funding_fee || 0))}`}>
               <div className="text-[7px] md:text-[8px] font-bold font-mono text-red/50 uppercase tracking-tighter cursor-help border-b border-dotted border-red/20">
-                -{fmtUSD((trade.realized_fee || 0) + (trade.funding_fee || 0))} Fees
+                -{fmtUSD(safeNum(trade.realized_fee) + safeNum(trade.funding_fee))} Fees
               </div>
             </Tooltip>
           )}

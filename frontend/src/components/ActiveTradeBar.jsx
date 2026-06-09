@@ -1,7 +1,7 @@
 import React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
-import { fmtUSD, pnlColor, C } from '../lib/theme'
+import { fmtUSD, pnlColor, C, safeNum } from '../lib/theme'
 import { ArrowLeftRight, ChevronRight, XCircle } from 'lucide-react'
 import { cn, Btn } from './ui/primitives'
 import { sessionAPI } from '../api/client'
@@ -13,7 +13,7 @@ export const ActiveTradeBar = () => {
 
   if (!sessionActive || activeTrades.length === 0) return null
 
-  const totalPnl = activeTrades.reduce((sum, t) => sum + (t.pnl || 0), 0)
+  const totalPnl = activeTrades.reduce((sum, t) => sum + safeNum(t.pnl), 0)
 
   const handleClose = async (symbol) => {
     if (closing === symbol) {

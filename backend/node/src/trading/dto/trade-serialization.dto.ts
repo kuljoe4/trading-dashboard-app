@@ -9,7 +9,6 @@ export interface TradeSerializationDto {
   tp_price: number | null;
   pnl: number;
   realized_fee: number;
-  funding_fee?: number;
   rr: number;
   max_rr: number;
   direction: 'LONG' | 'SHORT';
@@ -40,7 +39,6 @@ export interface TickTradeDto {
   tp_price: number | null;
   pnl: number;
   realized_fee: number;
-  funding_fee?: number;
   rr: number;
   max_rr: number;
   direction: 'LONG' | 'SHORT';

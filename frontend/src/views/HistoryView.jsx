@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { fmtUSD, pnlColor, safeNum } from '../lib/theme'
 import { sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
-import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton } from '../components/ui/primitives'
+import { SectionLabel, StatCard, cn, PaperBadge, Tooltip } from '../components/ui/primitives'
 import { motion, AnimatePresence } from 'framer-motion'
 import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap, BarChart3, LineChart, Target, Trash2 } from 'lucide-react'
 import { Sidebar, BottomNav } from '../components/Navigation'
@@ -37,7 +37,6 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
           <div className="flex flex-col">
             <div className="flex items-center gap-2 mb-0.5">
               <span className="text-xs font-bold font-mono">{trade.symbol}</span>
-              <CopyButton value={trade.symbol} className="opacity-0 group-hover/trade:opacity-100 focus-visible:opacity-100 -ml-1" />
               {showStrategy && (
                 <a href={`#/history?session=${trade.sessionId || session?.id}`} className="text-[8px] font-bold px-1.5 py-0.5 rounded border border-accent/20 bg-accent/10 text-accent uppercase">
                   {strategyLabel(trade)}
@@ -118,14 +117,6 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
 
 const SessionGroup = React.memo(({ session, trades }) => {
   const [expanded, setExpanded] = useState(false)
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      setExpanded(!expanded);
-    }
-  }
-
   const pnl = useMemo(() => trades.reduce((sum, t) => sum + safeNum(t.pnl), 0), [trades])
   const wins = useMemo(() => trades.filter(t => safeNum(t.pnl) > 0).length, [trades])
   const winRate = trades.length ? Math.round((wins / trades.length) * 100) : 0
@@ -141,11 +132,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
     <div id={`session-${session.id}`} className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 lg:mb-12 shadow-sm transition-all hover:border-border-hover scroll-mt-8">
       <div
         onClick={() => setExpanded(!expanded)}
-        onKeyDown={handleKeyDown}
-        role="button"
-        tabIndex={0}
-        aria-expanded={expanded}
-        className="p-6 flex flex-col xl:flex-row xl:items-center justify-between gap-6 cursor-pointer select-none bg-surface/30 group focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset focus-visible:outline-none"
+        className="p-6 flex flex-col xl:flex-row xl:items-center justify-between gap-6 cursor-pointer select-none bg-surface/30 group"
       >
         {/* Left: Strategy Info */}
         <div className="flex items-center gap-5">
@@ -160,10 +147,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
               <a href={`#/history?session=${session.id}`} onClick={(e) => e.stopPropagation()} className="text-lg font-bold tracking-tight hover:text-accent transition-colors">
                 {label}
               </a>
-              <div className="flex items-center gap-1">
-                <span className="text-[10px] text-dim font-mono bg-background/50 px-2 py-0.5 rounded border border-border/50">#{session.id.substring(0, 8)}</span>
-                <CopyButton value={session.id} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100" />
-              </div>
+              <span className="text-[10px] text-dim font-mono bg-background/50 px-2 py-0.5 rounded border border-border/50">#{session.id.substring(0, 8)}</span>
               {session.paperMode && <PaperBadge />}
             </div>
             <div className="text-[11px] text-dim font-bold uppercase tracking-[0.1em] flex items-center gap-3">

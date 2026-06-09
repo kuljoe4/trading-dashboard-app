@@ -147,7 +147,6 @@ export class OrderManagerService {
         entry_signal_confidence: 1.0,
         pnl: 0,
         realized_fee: 0,
-        funding_fee: 0,
         pnl_pct: 0,
         risk_usdt: roundEight(Math.max(0, direction === 'LONG' ? entryPrice - slPrice : slPrice - entryPrice) * qty),
         sessionId,
@@ -729,7 +728,7 @@ export class OrderManagerService {
       const finalPnlPct = (trade.qty !== 0) ? (finalPnlPoints / (trade.entry_price || 1)) * 100 : 0;
       trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
 
-      const finalNetPnl = (finalPnlPoints * (trade.qty || 0)) - (trade.realized_fee || 0) - (trade.funding_fee || 0);
+      const finalNetPnl = (finalPnlPoints * (trade.qty || 0)) - (trade.realized_fee || 0);
       trade.pnl = roundEight(Number.isFinite(finalNetPnl) ? finalNetPnl : 0);
 
       trade.exit_reason = trade.exit_reason || exitReason;

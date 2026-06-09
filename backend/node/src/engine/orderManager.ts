@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { DerivativesTradingUsdsFutures } from '@binance/derivatives-trading-usds-futures';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
@@ -36,6 +37,59 @@ export class OrderManagerService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
+  @OnEvent('binance.order_update')
+  async handleBinanceOrderUpdate(payload: any) {
+    const order = payload.o;
+    const symbol = order.s;
+    const status = order.X; // Order Status
+    const clientOrderId = order.c;
+    const orderId = String(order.i);
+    const side = order.S;
+    const type = order.ot;
+
+    this.logger.debug(`Processing Binance order update: ${symbol} ${side} ${status} (${orderId}, clientOrderId=${clientOrderId})`);
+
+    // Proactively update weight from WS message if available (not standard but some messages might have it in other formats, usually it's headers only though)
+    // For now we rely on the REST updates.
+
+    // We only care about FILLED status for SL/TP or potential external closes
+    if (status === 'FILLED') {
+      const activeTrades = this.sessionState.activeTrades;
+      const trade = activeTrades.find(t => t.symbol === symbol);
+
+      if (trade) {
+        // Check if this was our SL order
+        if (trade.binance_stop_order_id === orderId || (clientOrderId && clientOrderId.startsWith('sl-') && trade.id === clientOrderId.split('-')[1])) {
+          this.logger.log(`Binance SL HIT for ${symbol}. Closing trade locally.`);
+          const exitPrice = parseFloat(order.ap || order.p || '0');
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+            msg: `Exchange SL hit for ${symbol} at ${exitPrice}`,
+            level: 'info'
+          });
+
+          // Trigger local closure
+          this.eventEmitter.emit('trade.exchange_close', {
+            symbol,
+            exitPrice,
+            reason: 'SL_HIT'
+          });
+        }
+        // Check if this was our TP or some other closing order
+        else if (side !== (trade.direction === 'LONG' ? 'BUY' : 'SELL')) {
+           this.logger.log(`Non-entry order FILLED for ${symbol} (${side}). Closing trade locally.`);
+           const exitPrice = parseFloat(order.ap || order.p || '0');
+           this.eventEmitter.emit('trade.exchange_close', {
+             symbol,
+             exitPrice,
+             reason: 'EXCHANGE_FILL'
+           });
+        }
+      }
+    } else if (status === 'EXPIRED' || status === 'CANCELED') {
+        // Handle canceled SL orders if necessary
+    }
+  }
+
   private checkCircuitBreaker(): boolean {
     return this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES;
   }
@@ -71,9 +125,16 @@ export class OrderManagerService {
   }
 
   private updateWeight(headers: any) {
-    if (headers && headers['x-mbx-used-weight-1m']) {
-      this.currentWeight1m = parseInt(headers['x-mbx-used-weight-1m'], 10);
-      this.sessionState.updateRateLimit(this.currentWeight1m);
+    if (headers) {
+      const weight = headers['x-mbx-used-weight-1m'] || headers['X-MBX-USED-WEIGHT-1M'];
+      if (weight) {
+        this.currentWeight1m = parseInt(weight, 10);
+        this.sessionState.updateRateLimit(this.currentWeight1m);
+
+        if (this.currentWeight1m > 2000) {
+           this.logger.warn(`Binance Rate Limit Warning: ${this.currentWeight1m}/2400`);
+        }
+      }
     }
   }
 
@@ -203,12 +264,14 @@ export class OrderManagerService {
           const tickSize = parseFloat(priceFilter?.tickSize || '0');
           const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
 
+          const entryOrderId = `ent-${trade.id.substring(0, 8)}`;
           const entryOrder = {
             symbol,
             side: binanceDirection as any,
             type: 'MARKET',
             quantity: qty.toFixed(qtyPrecision),
             newOrderRespType: 'RESULT',
+            newClientOrderId: entryOrderId,
           };
 
           this.logger.log(`Placing entry order: ${JSON.stringify(entryOrder)}`);
@@ -345,6 +408,7 @@ export class OrderManagerService {
         quantity: (trade.qty || 0).toFixed(qtyPrecision),
         reduceOnly: true,
         workingType: 'MARK_PRICE' as any,
+        newClientOrderId: `sl-${trade.id.substring(0, 8)}`,
       };
 
       this.logger.log(`Placing Binance SL order: ${JSON.stringify(slOrderParams)}`);
@@ -385,10 +449,10 @@ export class OrderManagerService {
 
     // BOLT: Proactive Rate Limit - Skip non-critical SL updates if near limits
     // We only skip if the gap is small, otherwise it's critical protection
-    if (this.sessionState.isRateLimited()) {
+    if (this.sessionState.isRateLimited(0.7)) {
        const risk = Math.abs(trade.entry_price - trade.initial_sl);
        const move = Math.abs(newSlPrice - trade.current_sl);
-       if (move < (risk * 0.1)) {
+       if (move < (risk * 0.15)) {
           this.logger.debug(`Skipping SL update for ${trade.symbol} due to rate limits (small move: ${move.toFixed(4)})`);
           return;
        }
@@ -607,6 +671,7 @@ export class OrderManagerService {
               quantity: (trade.qty || 0).toFixed(precision),
               reduceOnly: true,
               newOrderRespType: 'RESULT',
+              newClientOrderId: `cls-${trade.id.substring(0, 8)}`,
             });
 
             this.updateWeight(response.headers);

@@ -185,6 +185,7 @@ export class SessionLifecycleService {
       this.userDataWs.on('message', async (msg: any) => {
         try {
           const data = typeof msg === 'string' ? JSON.parse(msg) : msg;
+
           if (data.e === 'ACCOUNT_UPDATE' && data.a && data.a.B) {
             const usdt = data.a.B.find((b: any) => b.a === 'USDT');
             if (usdt) {
@@ -195,6 +196,10 @@ export class SessionLifecycleService {
               this.sessionState.balanceLive = nb;
               this.sessionState.balancePaper = nb;
             }
+          } else if (data.e === 'ORDER_TRADE_UPDATE') {
+            const order = data.o;
+            this.logger.log(`[Lifecycle] Order Update: ${order.s} ${order.S} ${order.X} (id=${order.i}, client_id=${order.c})`);
+            this.eventEmitter.emit('binance.order_update', data);
           }
         } catch (err) {
             this.logger.debug(`Error processing user data WS message: ${err instanceof Error ? err.message : String(err)}`);

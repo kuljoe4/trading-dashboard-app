@@ -206,30 +206,15 @@ export class OrderManagerService {
             side: binanceDirection as any,
             type: 'MARKET',
             quantity: qty.toFixed(qtyPrecision),
+            newOrderRespType: 'RESULT',
           };
 
-          const slOrder = {
-            symbol,
-            side: closeDirection as any,
-            type: 'STOP_MARKET',
-            stopPrice: slPrice.toFixed(pricePrecision),
-            closePosition: 'true',
-            workingType: 'MARK_PRICE' as any, // Targets Mark Price to avoid PERCENT_PRICE issues
-          };
-
-          const response = await (this.binanceClient as any).restAPI.tradeApi.placeMultipleOrders({
-            batchOrders: [entryOrder, slOrder],
-          });
+          this.logger.log(`Placing entry order: ${JSON.stringify(entryOrder)}`);
+          const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder(entryOrder);
 
           this.updateWeight(response.headers);
-          const orderDataArray = typeof response.data === 'function' ? await response.data() : (response.data || response);
-
-          if (!Array.isArray(orderDataArray) || orderDataArray.length < 1) {
-            throw new Error(`Invalid batchOrders response: ${JSON.stringify(orderDataArray)}`);
-          }
-
-          const entryReceipt = orderDataArray[0];
-          const slReceipt = orderDataArray[1];
+          const entryReceipt = typeof response.data === 'function' ? await response.data() : (response.data || response);
+          this.logger.log(`Entry receipt: ${JSON.stringify(entryReceipt)}`);
 
           if (entryReceipt.code && entryReceipt.code !== 0) {
             throw new Error(`Entry order failed: ${entryReceipt.msg}`);
@@ -238,7 +223,8 @@ export class OrderManagerService {
           trade.binance_order_id = entryReceipt.orderId;
 
           // Zero-RAM Price Tracking: Extract exact execution details from REST response
-          const absoluteEntryPrice = parseFloat(entryReceipt.avgPrice || '0');
+          // BOLT: Handle both single-order 'avgPrice' and potential batch 'price' fields
+          const absoluteEntryPrice = parseFloat(entryReceipt.avgPrice || entryReceipt.price || '0');
           const executedQty = parseFloat(entryReceipt.executedQty || '0');
 
           if (absoluteEntryPrice > 0) trade.entry_price = roundEight(absoluteEntryPrice);
@@ -264,21 +250,21 @@ export class OrderManagerService {
             details: { symbol, direction, qty, orderId: entryReceipt.orderId }
           });
 
-          // Handle SL receipt
-          if (slReceipt) {
-            if (slReceipt.code && slReceipt.code !== 0) {
-              this.logger.warn(`Batch SL placement failed for ${symbol}: ${slReceipt.msg}. Attempting manual placement...`);
-              // Fallback to manual SL placement if batch SL failed
-              await this.placeStopLoss(trade, slPrice);
-            } else {
-              trade.binance_stop_order_id = String(slReceipt.orderId);
-              const msgSl = `Binance SL order placed via batch: ${symbol} at ${slPrice} order_id=${slReceipt.orderId}`;
-              this.logger.log(msgSl);
-              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgSl, level: 'info' });
+          // Place SL separately to avoid Algo Order API issues in batch
+          const slOrderId = await this.placeStopLoss(trade, slPrice);
+          if (!slOrderId) {
+            this.logger.warn(`SL placement failed for ${symbol}. Performing emergency unwind...`);
+            try {
+              const unwindResult = await this.closeTrade(symbol, trade, entryPrice, 'SL_PLACEMENT_FAILURE');
+              if (unwindResult.exitOccurred) {
+                return { status: ExecutionStatus.SL_FAILED, data: trade, unwindPerformed: true };
+              } else {
+                throw new Error('Emergency unwind failed');
+              }
+            } catch (unwindErr) {
+              this.logger.error(`CRITICAL: Emergency unwind failed for ${symbol}: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);
+              throw new ExchangeExecutionException(`SL placement failed and emergency unwind also failed for ${symbol}`);
             }
-          } else {
-             // If SL was somehow missing from response but entry succeeded, try manual placement
-             await this.placeStopLoss(trade, slPrice);
           }
 
         } catch (err: unknown) {
@@ -343,12 +329,13 @@ export class OrderManagerService {
         side: closeDirection as any,
         type: 'STOP_MARKET',
         stopPrice: slPrice.toFixed(pricePrecision),
-        closePosition: 'true',
+        closePosition: true, // Use boolean instead of string
         workingType: 'MARK_PRICE' as any,
       });
 
       this.updateWeight(response.headers);
       const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
+      this.logger.log(`Manual SL placement response for ${trade.symbol}: ${JSON.stringify(orderData)}`);
       const stopLossId = orderData.orderId;
 
       if (!orderData || !stopLossId) {
@@ -601,12 +588,13 @@ export class OrderManagerService {
               side: closeDirection as any,
               type: 'MARKET',
               quantity: (trade.qty || 0).toFixed(precision),
-              reduceOnly: 'true',
+              reduceOnly: true,
               newOrderRespType: 'RESULT',
             });
 
             this.updateWeight(response.headers);
             const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
+            this.logger.log(`Close order response for ${symbol}: ${JSON.stringify(orderData)}`);
             trade.binance_close_order_id = orderData.orderId;
 
             // Zero-RAM Price Tracking for exits

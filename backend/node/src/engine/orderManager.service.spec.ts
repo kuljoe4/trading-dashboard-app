@@ -36,7 +36,7 @@ describe('OrderManagerService', () => {
   });
 
   describe('enter', () => {
-    it('places initial stop loss in live mode via batchOrders', async () => {
+    it('places entry and stop loss in live mode separately', async () => {
       await service.setBinanceClient(mockBinanceClient, false); // Live mode
 
       const result = await service.enter(
@@ -52,29 +52,29 @@ describe('OrderManagerService', () => {
       expect(result.status).toBe('SUCCESS');
       const trade = result.data;
       expect(trade).toBeDefined();
-      expect(mockBinanceClient.restAPI.tradeApi.placeMultipleOrders).toHaveBeenCalledTimes(1);
+      expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledTimes(2);
       
-      expect(mockBinanceClient.restAPI.tradeApi.placeMultipleOrders).toHaveBeenCalledWith(
+      expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenNthCalledWith(1,
         expect.objectContaining({
-          batchOrders: expect.arrayContaining([
-            expect.objectContaining({
-              symbol: 'BTCUSDT',
-              side: 'BUY',
-              type: 'MARKET',
-              quantity: '0.10000000'
-            }),
-            expect.objectContaining({
-              symbol: 'BTCUSDT',
-              side: 'SELL',
-              type: 'STOP_MARKET',
-              stopPrice: '49500.00000000',
-              workingType: 'MARK_PRICE'
-            })
-          ])
+          symbol: 'BTCUSDT',
+          side: 'BUY',
+          type: 'MARKET',
+          quantity: '0.10000000'
         })
       );
 
-      expect(trade?.binance_stop_order_id).toBe('mock_sl_id');
+      expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenNthCalledWith(2,
+        expect.objectContaining({
+          symbol: 'BTCUSDT',
+          side: 'SELL',
+          type: 'STOP_MARKET',
+          stopPrice: '49500.00000000',
+          workingType: 'MARK_PRICE',
+          closePosition: true
+        })
+      );
+
+      expect(trade?.binance_stop_order_id).toBe('mock_order_id');
     });
 
     it('does not place binance orders in paper mode', async () => {
@@ -156,7 +156,7 @@ describe('OrderManagerService', () => {
           side: 'SELL',
           type: 'MARKET',
           quantity: '0.10000000',
-          reduceOnly: 'true',
+          reduceOnly: true,
         })
       );
     });

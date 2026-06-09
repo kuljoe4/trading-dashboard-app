@@ -32,7 +32,14 @@ describe('Industry Fixes Verification', () => {
           ]
         })
       };
-      orderManager = new OrderManagerService(mockSignalEngine, mockMarketFeed, { isRateLimited: () => false } as any, { log: jest.fn() } as any, { emit: jest.fn() } as any);
+      orderManager = new OrderManagerService(
+        mockSignalEngine,
+        mockMarketFeed,
+        null as any, // tickerCache
+        { isRateLimited: () => false } as any, // sessionState
+        { log: jest.fn() } as any, // auditLog
+        { emit: jest.fn() } as any, // eventEmitter
+      );
     });
 
     it('applies PRICE_FILTER and LOT_SIZE during trade entry', async () => {

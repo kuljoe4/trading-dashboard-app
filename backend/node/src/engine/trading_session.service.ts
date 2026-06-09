@@ -44,6 +44,7 @@ export class TradingSessionService {
   private onTradeUpdate: ((trade: Trade, balance: number) => Promise<void>) | null = null;
   private mainLoopInterval: NodeJS.Timeout | null = null;
   private hotLoopInterval: NodeJS.Timeout | null = null;
+  private fundingCheckInterval: NodeJS.Timeout | null = null;
   private balancePollInterval: NodeJS.Timeout | null = null;
   private lastScannerFullBroadcast = 0;
   private lastScannerResultsJson = '';
@@ -144,6 +145,7 @@ export class TradingSessionService {
 
     const hot = config.hot_loop_interval_ms || 5000; this.hotLoopInterval = setInterval(() => this.hotLoop(), hot);
     const main = config.main_loop_interval_ms || 15000; this.mainLoopInterval = setInterval(() => this.mainLoop(), main);
+    this.fundingCheckInterval = setInterval(() => this.checkFundingFees(), 60000); // Check every minute
     this.broadcastSnapshot('started'); return { status: 'started' };
   }
 
@@ -151,6 +153,7 @@ export class TradingSessionService {
     this.running = false; this.sessionState.paused = false;
     if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
     if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
+    if (this.fundingCheckInterval) clearInterval(this.fundingCheckInterval);
 
     const active = this.positionTracker.activeList();
     for (const t of active) {
@@ -309,6 +312,34 @@ export class TradingSessionService {
 
   private async onCandleClose(symbol: string) { if (!this.running || !this.config) return; if (this.config.debug_mode) this.logger.verbose(`Candle closed for ${symbol}`); }
 
+  private async checkFundingFees() {
+    if (!this.running || !this.config) return;
+    const now = new Date();
+    const isFundingTime = now.getUTCHours() % ENGINE_CONSTANTS.FUNDING_INTERVAL_HOURS === 0 && now.getUTCMinutes() === 0;
+
+    if (isFundingTime) {
+      const activeTrades = this.positionTracker.activeList();
+      for (const trade of activeTrades) {
+        if (this.config.paper_mode) {
+          // Simulate funding fee for paper mode
+          // Positive rate: Longs pay Shorts.
+          const isLong = trade.direction === 'LONG';
+          const notional = (trade.mark_price || trade.last_price || trade.entry_price) * trade.qty;
+          const fundingDelta = roundEight(notional * ENGINE_CONSTANTS.SIMULATED_FUNDING_RATE * (isLong ? 1 : -1));
+
+          trade.funding_fee = roundEight((trade.funding_fee || 0) + fundingDelta);
+          trade.pnl = roundEight(trade.pnl - fundingDelta);
+          (trade as any)._last_funding_delta = fundingDelta;
+
+          await this.updateBalance(trade, false, true);
+          if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
+
+          this.logger.log(`[Funding] Applied ${fundingDelta} funding fee to ${trade.symbol} (Paper)`);
+        }
+      }
+    }
+  }
+
   private updateScannerResults(opportunities: any[]) {
     this.lastScannerResults = opportunities.map((o) => ({ symbol: o.symbol, price: o.price, pct: roundTo(o.momentum, 2), momentum: roundTo(o.momentum, 2), direction: o.direction.toLowerCase(), dir: o.direction.toLowerCase(), vol: o.volume_24h, volume_usdt: o.volume_24h, score: roundTo(o.score / 10, 1), history: o.history, signalResult: o.signalResult, }));
     this.refreshActiveWindows(this.lastScannerResults);
@@ -343,7 +374,7 @@ export class TradingSessionService {
       return 0;
     }
   }
-  private async updateBalance(t: Trade) {
+  private async updateBalance(t: Trade, isEntry = false, isFunding = false) {
     const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
     if (mode === 'paper') {
       // Simplified balance update: apply pnl delta directly.

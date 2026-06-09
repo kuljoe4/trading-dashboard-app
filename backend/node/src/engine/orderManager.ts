@@ -77,7 +77,7 @@ export class OrderManagerService {
     }
   }
 
-  private applyFilters(symbol: string, price: number, qty: number) {
+  public applyFilters(symbol: string, price: number, qty: number, options: { priceRounding?: 'round' | 'floor' | 'ceil' } = {}) {
     const filters = this.marketFeed.getSymbolFilters(symbol);
     if (!filters) return { price, qty };
 
@@ -87,7 +87,10 @@ export class OrderManagerService {
     const priceFilter = filters.filters.find((f: { filterType: string; tickSize?: string; stepSize?: string; notional?: string; minNotional?: string }) => f.filterType === 'PRICE_FILTER');
     if (priceFilter) {
       const tickSize = parseFloat(priceFilter.tickSize);
-      finalPrice = roundEight(Math.round(price / tickSize) * tickSize);
+      const rounding = options.priceRounding || 'round';
+      if (rounding === 'floor') finalPrice = roundEight(Math.floor(price / tickSize) * tickSize);
+      else if (rounding === 'ceil') finalPrice = roundEight(Math.ceil(price / tickSize) * tickSize);
+      else finalPrice = roundEight(Math.round(price / tickSize) * tickSize);
     }
 
     const lotSize = filters.filters.find((f: { filterType: string; tickSize?: string; stepSize?: string; notional?: string; minNotional?: string }) => f.filterType === 'LOT_SIZE');
@@ -175,6 +178,7 @@ export class OrderManagerService {
         entry_signal_confidence: 1.0,
         pnl: 0,
         realized_fee: 0,
+        funding_fee: 0,
         pnl_pct: 0,
         risk_usdt: roundEight(Math.max(0, direction === 'LONG' ? entryPrice - slPrice : slPrice - entryPrice) * qty),
         sessionId,
@@ -672,7 +676,7 @@ export class OrderManagerService {
       const finalPnlPct = (trade.qty !== 0) ? (finalPnlPoints / (trade.entry_price || 1)) * 100 : 0;
       trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
 
-      const finalNetPnl = (finalPnlPoints * (trade.qty || 0)) - (trade.realized_fee || 0);
+      const finalNetPnl = (finalPnlPoints * (trade.qty || 0)) - (trade.realized_fee || 0) - (trade.funding_fee || 0);
       trade.pnl = roundEight(Number.isFinite(finalNetPnl) ? finalNetPnl : 0);
 
       trade.exit_reason = trade.exit_reason || exitReason;

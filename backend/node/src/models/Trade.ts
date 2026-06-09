@@ -25,6 +25,8 @@ export class Trade {
 
   realized_fee: number = 0;
 
+  funding_fee: number = 0;
+
   risk_usdt: number = 0;
 
   status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL' | 'CLOSED_ORPHANED' = 'OPEN';
@@ -32,6 +34,8 @@ export class Trade {
   exit_ts?: Date;
 
   exit_price?: number;
+
+  mark_price?: number;
 
   last_price?: number;
 
@@ -83,4 +87,6 @@ export class Trade {
   strategy_config?: Partial<import('./SessionConfig').SessionConfig>;
 
   _sig_json?: string;
+
+  _last_funding_delta?: number;
 }

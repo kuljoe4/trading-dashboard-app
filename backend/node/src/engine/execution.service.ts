@@ -124,10 +124,22 @@ export class ExecutionService {
       if (!price) continue;
 
       const lookback = this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
-      const slPrice = this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.minLow, lookback.maxHigh);
+      let slPrice = this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.minLow, lookback.maxHigh);
+
+      // BOLT: Apply exchange filters to SL price BEFORE position sizing.
+      // We use risk-averse rounding: floor for LONG SL (farther), ceil for SHORT SL (farther)
+      // to ensure we don't underestimate the risk distance.
+      const slFiltered = this.orderManager.applyFilters(opp.symbol, slPrice, 1, {
+         priceRounding: opp.direction.toUpperCase() === 'LONG' ? 'floor' : 'ceil'
+      });
+      slPrice = slFiltered.price;
+
       const qty = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
 
-      if (qty <= 0) continue;
+      if (qty <= 0) {
+        this.logger.debug(`${opp.symbol}: Position size is 0 after SL filtering. SL: ${slPrice}, Entry: ${price}`);
+        continue;
+      }
       const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
 
       const result = await this.orderManager.enter(
@@ -161,8 +173,6 @@ export class ExecutionService {
           trade: this.engineBroadcaster.serializeTrade(trade, config, price),
           stats: this.sessionState.stats
         });
-
-        if (onTradeUpdate) await onTradeUpdate(trade, balance);
       }
     }
   }

@@ -33,6 +33,8 @@ export class MarketFeedService {
   private watchlistInterval: NodeJS.Timeout | null = null;
   private watchlistUpdatePending = false;
   private watchlistUpdateTimeout: NodeJS.Timeout | null = null;
+  private backfillQueue: { symbol: string, interval: string }[] = [];
+  private backfillProcessing = false;
 
   constructor(
     private tickerCache: TickerCacheService,
@@ -71,7 +73,7 @@ export class MarketFeedService {
 
   private updateWeight(headers: Headers) {
     const weight = headers.get('X-MBX-USED-WEIGHT-1M');
-    if (weight) this.sessionState.updateRateLimit(parseInt(weight));
+    if (weight) this.sessionState.updateRateLimit(parseInt(weight, 10));
   }
 
   private async fetchExchangeInfo(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
@@ -246,9 +248,12 @@ export class MarketFeedService {
         for (const [symbol, intervals] of newWatchlist) {
           for (const interval of intervals) {
             const oldIntervals = prevWatchlist.get(symbol);
-            if (!oldIntervals || !oldIntervals.has(interval)) await this.backfillKlines(symbol, interval);
+            if (!oldIntervals || !oldIntervals.has(interval)) {
+              this.backfillQueue.push({ symbol, interval });
+            }
           }
         }
+        this.processBackfillQueue();
       }
     } catch (err) {}
   }
@@ -301,12 +306,33 @@ export class MarketFeedService {
     }
   }
 
-  private async backfillKlines(symbol: string, interval: string) {
-    // PROACTIVE RATE LIMIT: Skip backfill if near rate limits to preserve execution weight
-    if (this.sessionState.isRateLimited()) {
-      this.logger.debug(`Skipping kline backfill for ${symbol} @ ${interval} due to Binance rate limits.`);
-      return;
+  private async processBackfillQueue() {
+    if (this.backfillProcessing || this.backfillQueue.length === 0) return;
+    this.backfillProcessing = true;
+
+    while (this.backfillQueue.length > 0) {
+      if (!this.running) break;
+
+      // Stricter rate limit for background tasks (1200 weight threshold)
+      const usedWeight = this.sessionState.getBinanceRateLimit().used_weight_1m;
+      if (usedWeight > 1200) {
+        this.logger.debug(`Pausing kline backfill queue (Weight: ${usedWeight})...`);
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        continue;
+      }
+
+      const task = this.backfillQueue.shift();
+      if (task) {
+        await this.backfillKlines(task.symbol, task.interval);
+        // Small delay between requests to smooth out weight consumption
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
     }
+
+    this.backfillProcessing = false;
+  }
+
+  private async backfillKlines(symbol: string, interval: string) {
 
     const existingCandles = await this.klineStore.getRecentCandles(symbol, interval, 1);
     if (existingCandles.length > 0) {

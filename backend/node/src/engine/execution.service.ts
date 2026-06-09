@@ -130,7 +130,8 @@ export class ExecutionService {
       // We use risk-averse rounding: floor for LONG SL (farther), ceil for SHORT SL (farther)
       // to ensure we don't underestimate the risk distance.
       const slFiltered = this.orderManager.applyFilters(opp.symbol, slPrice, 1, {
-         priceRounding: opp.direction.toUpperCase() === 'LONG' ? 'floor' : 'ceil'
+         priceRounding: opp.direction.toUpperCase() === 'LONG' ? 'floor' : 'ceil',
+         skipNotionalCheck: true
       });
       slPrice = slFiltered.price;
 

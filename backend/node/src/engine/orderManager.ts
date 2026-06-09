@@ -77,7 +77,7 @@ export class OrderManagerService {
     }
   }
 
-  public applyFilters(symbol: string, price: number, qty: number, options: { priceRounding?: 'round' | 'floor' | 'ceil' } = {}) {
+  public applyFilters(symbol: string, price: number, qty: number, options: { priceRounding?: 'round' | 'floor' | 'ceil', skipNotionalCheck?: boolean } = {}) {
     const filters = this.marketFeed.getSymbolFilters(symbol);
     if (!filters) return { price, qty };
 
@@ -100,13 +100,15 @@ export class OrderManagerService {
     }
 
     // MIN_NOTIONAL Check
-    const minNotionalFilter = filters.filters.find((f: { filterType: string; tickSize?: string; stepSize?: string; notional?: string; minNotional?: string }) => f.filterType === 'MIN_NOTIONAL') ||
-                             filters.filters.find((f: { filterType: string; tickSize?: string; stepSize?: string; notional?: string; minNotional?: string }) => f.filterType === 'NOTIONAL');
-    if (minNotionalFilter) {
-      const minNotional = parseFloat(minNotionalFilter.notional || minNotionalFilter.minNotional || '0');
-      if (finalQty * finalPrice < minNotional) {
-        this.logger.warn(`${symbol}: Order notional ${finalQty * finalPrice} is below minimum ${minNotional}`);
-        return { price: finalPrice, qty: 0 }; // Zero qty will block entry
+    if (!options.skipNotionalCheck) {
+      const minNotionalFilter = filters.filters.find((f: { filterType: string; tickSize?: string; stepSize?: string; notional?: string; minNotional?: string }) => f.filterType === 'MIN_NOTIONAL') ||
+                               filters.filters.find((f: { filterType: string; tickSize?: string; stepSize?: string; notional?: string; minNotional?: string }) => f.filterType === 'NOTIONAL');
+      if (minNotionalFilter) {
+        const minNotional = parseFloat(minNotionalFilter.notional || minNotionalFilter.minNotional || '0');
+        if (finalQty * finalPrice < minNotional) {
+          this.logger.warn(`${symbol}: Order notional ${finalQty * finalPrice} is below minimum ${minNotional}`);
+          return { price: finalPrice, qty: 0 }; // Zero qty will block entry
+        }
       }
     }
 
@@ -135,8 +137,8 @@ export class OrderManagerService {
     
     try {
       const filtered = this.applyFilters(symbol, entryPrice, qty);
-      const filteredSl = this.applyFilters(symbol, slPrice, qty).price;
-      const filteredTp = tpPrice ? this.applyFilters(symbol, tpPrice, qty).price : null;
+      const filteredSl = this.applyFilters(symbol, slPrice, qty, { skipNotionalCheck: true }).price;
+      const filteredTp = tpPrice ? this.applyFilters(symbol, tpPrice, qty, { skipNotionalCheck: true }).price : null;
 
       entryPrice = filtered.price;
       qty = filtered.qty;
@@ -224,7 +226,14 @@ export class OrderManagerService {
 
           // Zero-RAM Price Tracking: Extract exact execution details from REST response
           // BOLT: Handle both single-order 'avgPrice' and potential batch 'price' fields
-          const absoluteEntryPrice = parseFloat(entryReceipt.avgPrice || entryReceipt.price || '0');
+          let absoluteEntryPrice = parseFloat(entryReceipt.avgPrice || entryReceipt.price || '0');
+
+          if (absoluteEntryPrice === 0 && entryReceipt.fills && Array.isArray(entryReceipt.fills) && entryReceipt.fills.length > 0) {
+             const totalQty = entryReceipt.fills.reduce((sum: number, fill: any) => sum + parseFloat(fill.qty), 0);
+             const weightedSum = entryReceipt.fills.reduce((sum: number, fill: any) => sum + parseFloat(fill.qty) * parseFloat(fill.price), 0);
+             if (totalQty > 0) absoluteEntryPrice = weightedSum / totalQty;
+          }
+
           const executedQty = parseFloat(entryReceipt.executedQty || '0');
 
           if (absoluteEntryPrice > 0) trade.entry_price = roundEight(absoluteEntryPrice);
@@ -304,7 +313,7 @@ export class OrderManagerService {
    * Place a STOP_MARKET order on Binance for stop loss protection
    */
   async placeStopLoss(trade: Trade, slPrice: number): Promise<string | null> {
-    const filtered = this.applyFilters(trade.symbol, slPrice, trade.qty);
+    const filtered = this.applyFilters(trade.symbol, slPrice, trade.qty, { skipNotionalCheck: true });
     slPrice = filtered.price;
 
     if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return null;
@@ -324,14 +333,22 @@ export class OrderManagerService {
       const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
 
       // Switch to standard STOP_MARKET for consistency and simpler batch support
-      const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder({
+      const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
+      const stepSize = parseFloat(lotSize?.stepSize || '0');
+      const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
+
+      const slOrderParams = {
         symbol: trade.symbol,
         side: closeDirection as any,
         type: 'STOP_MARKET',
         stopPrice: slPrice.toFixed(pricePrecision),
-        closePosition: true, // Use boolean instead of string
+        quantity: (trade.qty || 0).toFixed(qtyPrecision),
+        reduceOnly: true,
         workingType: 'MARK_PRICE' as any,
-      });
+      };
+
+      this.logger.log(`Placing Binance SL order: ${JSON.stringify(slOrderParams)}`);
+      const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder(slOrderParams);
 
       this.updateWeight(response.headers);
       const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
@@ -598,7 +615,14 @@ export class OrderManagerService {
             trade.binance_close_order_id = orderData.orderId;
 
             // Zero-RAM Price Tracking for exits
-            const absoluteExitPrice = parseFloat(orderData.avgPrice || '0');
+            let absoluteExitPrice = parseFloat(orderData.avgPrice || orderData.price || '0');
+
+            if (absoluteExitPrice === 0 && orderData.fills && Array.isArray(orderData.fills) && orderData.fills.length > 0) {
+               const totalQty = orderData.fills.reduce((sum: number, fill: any) => sum + parseFloat(fill.qty), 0);
+               const weightedSum = orderData.fills.reduce((sum: number, fill: any) => sum + parseFloat(fill.qty) * parseFloat(fill.price), 0);
+               if (totalQty > 0) absoluteExitPrice = weightedSum / totalQty;
+            }
+
             const executedExitQty = parseFloat(orderData.executedQty || '0');
 
             if (absoluteExitPrice > 0) exitPrice = roundEight(absoluteExitPrice);

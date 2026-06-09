@@ -70,7 +70,8 @@ describe('OrderManagerService', () => {
           type: 'STOP_MARKET',
           stopPrice: '49500.00000000',
           workingType: 'MARK_PRICE',
-          closePosition: true
+          quantity: '0.10000000',
+          reduceOnly: true
         })
       );
 

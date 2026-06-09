@@ -203,11 +203,10 @@ export class SessionService implements OnModuleInit {
       }
 
       // 1. Save Trade record
-      // BOLT: Preserve negative PnL (realized fees) for OPEN trades so session totalPnl is accurate
+      // BOLT: Ensure OPEN trades have 0 PnL in DB to avoid corrupting realized totalPnl sum
       const persistenceTrade = { ...trade };
       if (trade.status === 'OPEN') {
-        // Only allow negative PnL (fees) for OPEN trades. Positive unrealized PnL is NOT saved.
-        persistenceTrade.pnl = Math.min(0, Number(trade.pnl || 0));
+        persistenceTrade.pnl = 0;
         persistenceTrade.pnl_pct = 0;
       }
 
@@ -248,7 +247,7 @@ export class SessionService implements OnModuleInit {
           timestamp: new Date(),
           balance: balance,
           pnl: roundEight(trade.pnl || 0),
-          type: trade.status === 'OPEN' ? 'TRADE_OPEN' : 'TRADE_CLOSE',
+          type: 'TRADE_CLOSE',
           sessionId: sessionId,
           tradeId: trade.id,
           tradingMode: mode as any

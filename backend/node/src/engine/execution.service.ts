@@ -161,6 +161,8 @@ export class ExecutionService {
           trade: this.engineBroadcaster.serializeTrade(trade, config, price),
           stats: this.sessionState.stats
         });
+
+        if (onTradeUpdate) await onTradeUpdate(trade, balance);
       }
     }
   }

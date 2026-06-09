@@ -25,7 +25,7 @@ FROM node:20-alpine
 
 WORKDIR /app
 ENV NODE_ENV=production \
-    NODE_OPTIONS=--max-old-space-size=256 \
+    NODE_OPTIONS=--max-old-space-size=512 \
     KLINE_MAX_CANDLES=200
 
 COPY --from=deps /app/node_modules ./node_modules

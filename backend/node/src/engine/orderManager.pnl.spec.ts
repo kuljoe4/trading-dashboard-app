@@ -38,6 +38,7 @@ describe('OrderManagerService - PnL Consistency', () => {
       restAPI: {
         tradeApi: {
           newOrder: jest.fn(),
+          newAlgoOrder: jest.fn(),
           cancelOrder: jest.fn(),
           cancelAlgoOrder: jest.fn(),
           positionInformationV2: jest.fn(),
@@ -54,6 +55,7 @@ describe('OrderManagerService - PnL Consistency', () => {
     service.setBinanceClient(mockBinanceClient, false); // Live mode
 
     const trade = {
+      id: 'test-id-pnl-1',
       symbol: 'BTCUSDT',
       direction: 'LONG',
       qty: 0.1,
@@ -69,7 +71,7 @@ describe('OrderManagerService - PnL Consistency', () => {
     // Simulate Binance rejecting the close order because position is already closed
     mockBinanceClient.restAPI.tradeApi.newOrder.mockRejectedValue(new Error('Position side does not match'));
     mockBinanceClient.restAPI.tradeApi.positionInformationV2.mockResolvedValue({ data: [{ positionAmt: '0' }] });
-    mockBinanceClient.restAPI.tradeApi.cancelOrder.mockResolvedValue({ data: {} });
+    mockBinanceClient.restAPI.tradeApi.cancelAlgoOrder.mockResolvedValue({ data: {} });
 
     const result = await service.closeTrade('BTCUSDT', trade, exitPrice, 'SL_HIT', false);
 
@@ -89,6 +91,7 @@ describe('OrderManagerService - PnL Consistency', () => {
     service.setBinanceClient(mockBinanceClient, false);
 
     const trade = {
+      id: 'test-id-pnl-2',
       symbol: 'BTCUSDT',
       direction: 'LONG',
       qty: 0.1,

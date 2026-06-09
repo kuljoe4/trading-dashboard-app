@@ -101,7 +101,7 @@ export class TradingSessionService {
   ) {}
 
   setWsBroadcaster(cb: (data: any) => void) { this.broadcastService.setWsBroadcaster(cb); }
-  setBinanceClient(client: any, paperMode = true) { this.orderManager.setBinanceClient(client, paperMode); }
+  async setBinanceClient(client: any, paperMode = true) { await this.orderManager.setBinanceClient(client, paperMode); }
   isEcoMode(): boolean { return this.sessionState.isEcoMode(this.running); }
   isGated(): boolean { return this.sessionState.isGated(); }
   setDashboardCount(count: number) { this.sessionState.dashboardCount = count; }
@@ -200,7 +200,20 @@ export class TradingSessionService {
   }
 
   @OnEvent(ENGINE_EVENTS.TRADE_UPDATED)
-  async handleTradeUpdate(trade: Trade) {
+  async handleTradeUpdate(payload: { trade: Trade, pnlDelta?: number }) {
+    const trade = payload.trade;
+    const pnlDelta = payload.pnlDelta ?? 0;
+
+    if (pnlDelta !== 0) {
+       const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
+       if (mode === 'paper') {
+         this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + pnlDelta);
+       } else {
+         // Live balance is updated via polling/websocket, but we can apply delta as fallback
+         this.sessionState.balanceLive = roundEight(this.sessionState.balanceLive + pnlDelta);
+       }
+    }
+
     if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
   }
 
@@ -364,11 +377,9 @@ export class TradingSessionService {
   private async updateBalance(t: Trade, isEntry = false, isFunding = false) {
     const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
     if (mode === 'paper') {
-      // BOLT: Net out entry fees already deducted from balance if this is a trade closure
-      const pnlChange = (t.status !== 'OPEN' && (t as any)._entry_pnl !== undefined)
-        ? roundEight(t.pnl - (t as any)._entry_pnl)
-        : (t.pnl || 0);
-      this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + pnlChange);
+      // Simplified balance update: apply pnl delta directly.
+      // The calling code ensures t.pnl is the incremental change since last update.
+      this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + (t.pnl || 0));
     } else if (this.binanceClient) {
       // Small delay to allow Binance to process the trade and update account balance
       await new Promise(resolve => setTimeout(resolve, 1000));

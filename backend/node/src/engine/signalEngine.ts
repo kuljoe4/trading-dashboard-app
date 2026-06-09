@@ -17,6 +17,7 @@ interface SignalDetail {
 export class SignalEngineService {
   private readonly logger = new Logger(SignalEngineService.name);
   private readonly warningCache: Set<string> = new Set();
+  private readonly MIN_WARMUP_PERIOD = 100;
 
   private readonly signalHandlers: Record<
     string,
@@ -56,6 +57,29 @@ export class SignalEngineService {
     const failedSignals: string[] = [];
     const details: Record<string, SignalDetail> = {};
     const logic = config.signal_logic || 'all';
+
+    // Warm-up check for technical indicators
+    if (purpose === 'entry') {
+      const candles = this.klineStore.getRawCandles(symbol, interval);
+      if (candles.length < this.MIN_WARMUP_PERIOD) {
+        return {
+          allFired: false,
+          firedSignals: [],
+          reason: `Indicator warm-up in progress (${candles.length}/${this.MIN_WARMUP_PERIOD} candles)`,
+          details: {
+            warmup: {
+              fired: false,
+              value: candles.length,
+              threshold: this.MIN_WARMUP_PERIOD,
+              unit: 'candles',
+              metric: 'Warmup',
+              description: 'Waiting for mathematical convergence',
+              insufficientData: true,
+            }
+          }
+        };
+      }
+    }
 
     for (const signalType of config.enabled_signals) {
       const handler = this.signalHandlers[signalType];

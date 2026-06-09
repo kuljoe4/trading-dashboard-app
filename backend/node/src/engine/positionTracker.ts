@@ -52,11 +52,6 @@ export class PositionTrackerService {
   }
 
   addTrade(trade: Trade): void {
-    // BOLT: Initialize entry PnL tracking to ensure consistent balance updates
-    if (trade.status === 'OPEN' && (trade as any)._entry_pnl === undefined) {
-      (trade as any)._entry_pnl = trade.pnl || 0;
-    }
-
     // Correctly handle symbol overwrites to prevent double-counting risk
     const existing = this.trades.get(trade.symbol);
     if (existing) {
@@ -134,7 +129,7 @@ export class PositionTrackerService {
             this.logger.error(`Failed to update exchange SL for ${symbol}: ${err.message}`);
           });
           // Notify of trade state change for persistence
-          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, trade);
+          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
         }
       } else if (trade.direction === 'SHORT' && newSl) {
         if (newSl < trade.current_sl) {
@@ -150,7 +145,7 @@ export class PositionTrackerService {
             this.logger.error(`Failed to update exchange SL for ${symbol}: ${err.message}`);
           });
           // Notify of trade state change for persistence
-          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, trade);
+          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
         }
       }
     }
@@ -282,10 +277,6 @@ export class PositionTrackerService {
     if (!result.exitOccurred || !result.trade) {
       return { trade: null, exitOccurred: false };
     }
-
-    // BOLT: Net out the already-deducted entry PnL (fees) to avoid double counting on balance update
-    const entryPnL = (trade as any)._entry_pnl || 0;
-    result.trade.pnl = roundEight(result.trade.pnl - entryPnL);
 
     // Remove from tracking after exchange close/recording
     const existing = this.trades.get(symbol);

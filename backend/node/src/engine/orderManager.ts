@@ -21,6 +21,8 @@ export class OrderManagerService {
 
   private binanceClient: DerivativesTradingUsdsFutures | null = null;
   private paperMode = true;
+  private takerFeeRate = 0.0004; // Default taker fee (0.04%)
+  private currentWeight1m = 0;
 
   private consecutiveFailures = 0;
   private readonly MAX_CONSECUTIVE_FAILURES = 3;
@@ -50,9 +52,29 @@ export class OrderManagerService {
     this.consecutiveFailures = 0;
   }
 
-  setBinanceClient(client: DerivativesTradingUsdsFutures | null, paperMode = true) {
+  async setBinanceClient(client: DerivativesTradingUsdsFutures | null, paperMode = true) {
     this.binanceClient = client;
     this.paperMode = paperMode;
+
+    if (this.binanceClient && !this.paperMode) {
+      try {
+        const response = await (this.binanceClient as any).restAPI.accountApi.userCommissionRate({ symbol: 'BTCUSDT' });
+        const data = typeof response.data === 'function' ? await response.data() : (response.data || response);
+        if (data && data.takerCommissionRate) {
+          this.takerFeeRate = parseFloat(data.takerCommissionRate);
+          this.logger.log(`Taker fee rate cached: ${(this.takerFeeRate * 100).toFixed(4)}%`);
+        }
+      } catch (err) {
+        this.logger.warn(`Failed to fetch commission rate, using default: ${this.takerFeeRate}`);
+      }
+    }
+  }
+
+  private updateWeight(headers: any) {
+    if (headers && headers['x-mbx-used-weight-1m']) {
+      this.currentWeight1m = parseInt(headers['x-mbx-used-weight-1m'], 10);
+      this.sessionState.updateRateLimit(this.currentWeight1m);
+    }
   }
 
   private applyFilters(symbol: string, price: number, qty: number) {
@@ -100,6 +122,12 @@ export class OrderManagerService {
   ): Promise<ExecutionResult<Trade>> {
     if (this.checkCircuitBreaker()) {
       return { status: ExecutionStatus.CIRCUIT_OPEN, error: 'Circuit breaker is open' };
+    }
+
+    // Zero-CPU Rate Limiter Guard
+    if (!this.paperMode && this.currentWeight1m > 2200) {
+      this.logger.warn(`Approaching Binance rate limit (${this.currentWeight1m}). Blocking entry for ${symbol}.`);
+      return { status: ExecutionStatus.CIRCUIT_OPEN, error: 'Rate limit protection active' };
     }
     
     try {
@@ -155,65 +183,67 @@ export class OrderManagerService {
         strategy_config: metadata.strategy_config,
       } as Trade;
 
-      // In live mode, attempt to place actual order
+      // In live mode, attempt to place actual order using batchOrders for zero-cost network optimization
       if (!this.paperMode && this.binanceClient) {
         try {
           const binanceDirection = direction === 'LONG' ? 'BUY' : 'SELL';
+          const closeDirection = direction === 'LONG' ? 'SELL' : 'BUY';
           const filters = this.marketFeed.getSymbolFilters(symbol);
-          const lotSize = filters?.filters.find((f: { filterType: string; tickSize?: string; stepSize?: string; notional?: string; minNotional?: string }) => f.filterType === 'LOT_SIZE');
+
+          const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
           const stepSize = parseFloat(lotSize?.stepSize || '0');
-          const precision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
+          const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
 
-          const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder({
+          const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
+          const tickSize = parseFloat(priceFilter?.tickSize || '0');
+          const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
+
+          const entryOrder = {
             symbol,
-            side: binanceDirection,
+            side: binanceDirection as any,
             type: 'MARKET',
-            quantity: qty.toFixed(precision),
-            newOrderRespType: 'RESULT',
+            quantity: qty.toFixed(qtyPrecision),
+          };
+
+          const slOrder = {
+            symbol,
+            side: closeDirection as any,
+            type: 'STOP_MARKET',
+            stopPrice: slPrice.toFixed(pricePrecision),
+            closePosition: 'true',
+            workingType: 'MARK_PRICE' as any, // Targets Mark Price to avoid PERCENT_PRICE issues
+          };
+
+          const response = await (this.binanceClient as any).restAPI.tradeApi.placeMultipleOrders({
+            batchOrders: [entryOrder, slOrder],
           });
-          const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
-          trade.binance_order_id = orderData.orderId;
 
-          // Capture actual execution price and quantity from Binance response
-          const avgPrice = parseFloat(orderData.avgPrice || '0');
-          const executedQty = parseFloat(orderData.executedQty || '0');
+          this.updateWeight(response.headers);
+          const orderDataArray = typeof response.data === 'function' ? await response.data() : (response.data || response);
 
-          // Capture realized fees and weighted average price from fills
-          let realizedFeeUsdt = 0;
-          let weightedSum = 0;
-          let totalFilledQty = 0;
-
-          if (orderData.fills && Array.isArray(orderData.fills) && orderData.fills.length > 0) {
-            for (const fill of orderData.fills) {
-              const fillPrice = parseFloat(fill.price || '0');
-              const fillQty = parseFloat(fill.qty || '0');
-              const commission = parseFloat(fill.commission || '0');
-              const commissionAsset = (fill.commissionAsset || 'USDT').toUpperCase();
-
-              weightedSum += (fillPrice * fillQty);
-              totalFilledQty += fillQty;
-
-              if (commissionAsset === 'USDT') {
-                realizedFeeUsdt += commission;
-              } else {
-                // Convert other assets (like BNB) to USDT
-                const conversionPrice = this.tickerCache.getPrice(`${commissionAsset}USDT`) ||
-                                      (commissionAsset === 'BNB' ? (this.tickerCache.getPrice('BNBUSDT') || 600) : 1);
-                realizedFeeUsdt += (commission * conversionPrice);
-              }
-            }
+          if (!Array.isArray(orderDataArray) || orderDataArray.length < 1) {
+            throw new Error(`Invalid batchOrders response: ${JSON.stringify(orderDataArray)}`);
           }
 
-          if (totalFilledQty > 0) {
-            trade.entry_price = roundEight(weightedSum / totalFilledQty);
-            trade.qty = totalFilledQty;
-            trade.realized_fee = roundEight(realizedFeeUsdt);
-          } else {
-            if (avgPrice > 0) trade.entry_price = roundEight(avgPrice);
-            if (executedQty > 0) trade.qty = executedQty;
-            // Fallback estimation if no fills provided
-            trade.realized_fee = roundEight(trade.entry_price * trade.qty * 0.0005);
+          const entryReceipt = orderDataArray[0];
+          const slReceipt = orderDataArray[1];
+
+          if (entryReceipt.code && entryReceipt.code !== 0) {
+            throw new Error(`Entry order failed: ${entryReceipt.msg}`);
           }
+
+          trade.binance_order_id = entryReceipt.orderId;
+
+          // Zero-RAM Price Tracking: Extract exact execution details from REST response
+          const absoluteEntryPrice = parseFloat(entryReceipt.avgPrice || '0');
+          const executedQty = parseFloat(entryReceipt.executedQty || '0');
+
+          if (absoluteEntryPrice > 0) trade.entry_price = roundEight(absoluteEntryPrice);
+          if (executedQty > 0) trade.qty = executedQty;
+
+          // Zero-Cost Math Estimation for fees
+          const notionalValue = trade.qty * trade.entry_price;
+          trade.realized_fee = roundEight(notionalValue * this.takerFeeRate);
 
           entryPrice = trade.entry_price;
           qty = trade.qty;
@@ -221,111 +251,53 @@ export class OrderManagerService {
           // Re-calculate risk USDT with actual entry price
           trade.risk_usdt = roundEight(Math.max(0, direction === 'LONG' ? trade.entry_price - slPrice : slPrice - trade.entry_price) * trade.qty);
 
-          const msg = `Binance order placed: ${symbol} ${direction} qty=${qty} order_id=${orderData.orderId} fee=${trade.realized_fee}`;
+          const msg = `Binance order placed: ${symbol} ${direction} qty=${qty} order_id=${entryReceipt.orderId} est_fee=${trade.realized_fee}`;
           this.logger.log(msg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
 
           await this.auditLog.log({
             action: 'LIVE_ORDER_ENTRY',
             resourceId: trade.id,
-            details: { symbol, direction, qty, orderId: orderData.orderId }
+            details: { symbol, direction, qty, orderId: entryReceipt.orderId }
           });
 
-          // Place initial Stop Loss order on exchange
-          try {
-            const closeDirection = direction === 'LONG' ? 'SELL' : 'BUY';
-            
-            // USE ALGO API FOR STOP ORDERS (Fixes -4120)
-            const tradeApi = (this.binanceClient as any)?.restAPI?.tradeApi;
-            if (!tradeApi) {
-              throw new Error('Binance Trade API is not initialized');
+          // Handle SL receipt
+          if (slReceipt) {
+            if (slReceipt.code && slReceipt.code !== 0) {
+              this.logger.warn(`Batch SL placement failed for ${symbol}: ${slReceipt.msg}. Attempting manual placement...`);
+              // Fallback to manual SL placement if batch SL failed
+              await this.placeStopLoss(trade, slPrice);
+            } else {
+              trade.binance_stop_order_id = String(slReceipt.orderId);
+              const msgSl = `Binance SL order placed via batch: ${symbol} at ${slPrice} order_id=${slReceipt.orderId}`;
+              this.logger.log(msgSl);
+              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgSl, level: 'info' });
             }
-
-            const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
-            const tickSize = parseFloat(priceFilter?.tickSize || '0');
-            const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
-
-            const slResponse = await tradeApi.newAlgoOrder({
-                algoType: 'CONDITIONAL',
-                symbol,
-                side: closeDirection,
-                type: 'STOP_MARKET',
-                quantity: qty.toFixed(precision),
-                triggerPrice: slPrice.toFixed(pricePrecision),
-                reduceOnly: 'true',
-            });
-            const slOrderResult = typeof slResponse.data === 'function' ? await slResponse.data() : (slResponse.data || slResponse);
-            const slOrderData = Array.isArray(slOrderResult) ? slOrderResult[0] : slOrderResult;
-
-            // Algo orders return 'algoId' instead of 'orderId'
-            const stopLossId = slOrderData.algoId || slOrderData.orderId;
-
-            if (!slOrderData || !stopLossId) {
-              throw new Error(`Stop Loss order failed: ${JSON.stringify(slOrderData)}`);
-            }
-            trade.binance_stop_order_id = String(stopLossId);
-
-            const msgSl = `Binance SL order placed: ${symbol} at ${slPrice} algo_id=${stopLossId}`;
-            this.logger.log(msgSl);
-            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgSl, level: 'info' });
-          } catch (slErr: unknown) {
-            this.recordFailure();
-            const slErrMsg = slErr instanceof Error ? slErr.message : String(slErr);
-            const errSl = `Critical Failure: Market entry succeeded but Stop Loss placement FAILED for ${symbol}: ${slErrMsg}`;
-            this.logger.error(errSl);
-            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: errSl, level: 'error' });
-
-            // EMERGENCY UNWIND: Attempt to close the position immediately to prevent unprotected exposure
-            const unwindMsg = `Attempting emergency unwind for ${symbol}...`;
-            this.logger.warn(unwindMsg);
-            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: unwindMsg, level: 'warn' });
-            try {
-              const closeDirection = direction === 'LONG' ? 'SELL' : 'BUY';
-              await (this.binanceClient as any).restAPI.tradeApi.newOrder({
-                symbol,
-                side: closeDirection,
-                type: 'MARKET',
-                quantity: qty.toFixed(precision),
-                reduceOnly: 'true',
-              });
-              const okUnwind = `Emergency unwind successful for ${symbol}. Entry aborted.`;
-              this.logger.log(okUnwind);
-              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: okUnwind, level: 'info' });
-              return { status: ExecutionStatus.SL_FAILED, error: `Stop Loss placement FAILED for ${symbol}: ${slErrMsg}`, unwindPerformed: true };
-            } catch (unwindErr: unknown) {
-              const unwindMsg = unwindErr instanceof Error ? unwindErr.message : String(unwindErr);
-              this.logger.error(`CRITICAL RISK: Emergency unwind FAILED for ${symbol}: ${unwindMsg}. Position is OPEN and UNPROTECTED.`);
-              // We must throw here to notify the session that we are in an invalid state
-              throw new ExchangeExecutionException(`Market entry succeeded but Stop Loss FAILED and Unwind FAILED for ${symbol}. UNPROTECTED POSITION!`);
-            }
+          } else {
+             // If SL was somehow missing from response but entry succeeded, try manual placement
+             await this.placeStopLoss(trade, slPrice);
           }
+
         } catch (err: unknown) {
           if (err instanceof ExchangeExecutionException) throw err;
           const errMsg = err instanceof Error ? err.message : String(err);
 
-          // CRITICAL: If market entry already succeeded (we have an order id), we must NOT silently fallback to paper.
-          // The previous try block handled the SL failure. If we are here, it means the entry MARKET order itself failed.
           if (trade.binance_order_id) {
             this.logger.error(`Critical Failure: Unexpected error after market entry for ${symbol}: ${errMsg}`);
             throw new ExchangeExecutionException(`Unexpected error after market entry for ${symbol}: ${errMsg}`);
           }
 
-          this.logger.warn(
-            `Binance entry order failed (continuing in paper mode): ${errMsg}`,
-          );
+          this.logger.warn(`Binance batch entry failed (continuing in paper mode): ${errMsg}`);
           this.recordFailure();
-          // If we fallback to paper mode after failure, we should simulate the fee
           trade.realized_fee = roundEight(entryPrice * qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
         }
       } else if (this.paperMode) {
-        // Simulate paper entry fee (0.04% taker)
+        // Simulate paper entry fee (taker rate)
         trade.realized_fee = roundEight(entryPrice * qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
       }
 
-      // Initialize PnL as net of entry fees
+      // Initialize PnL as net of entry fees (immediately realized)
       trade.pnl = roundEight(-trade.realized_fee);
-      // BOLT: Track entry PnL to prevent double-deduction during closing balance updates
-      (trade as any)._entry_pnl = trade.pnl;
 
       const msgEnter = `Enter: ${symbol} ${direction} @ ${entryPrice} qty=${qty} SL=${slPrice} TP=${tpPrice}`;
       this.logger.log(msgEnter);
@@ -358,35 +330,29 @@ export class OrderManagerService {
       const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
       const filters = this.marketFeed.getSymbolFilters(trade.symbol);
 
-      const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
-      const stepSize = parseFloat(lotSize?.stepSize || '0');
-      const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
-
       const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
       const tickSize = parseFloat(priceFilter?.tickSize || '0');
       const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
 
-      // Use Algo API for stop orders
-      const response = await (this.binanceClient as any).restAPI.tradeApi.newAlgoOrder({
-        algoType: 'CONDITIONAL',
+      // Switch to standard STOP_MARKET for consistency and simpler batch support
+      const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder({
         symbol: trade.symbol,
-        side: closeDirection,
+        side: closeDirection as any,
         type: 'STOP_MARKET',
-        quantity: (trade.qty || 0).toFixed(qtyPrecision),
-        triggerPrice: slPrice.toFixed(pricePrecision),
-        reduceOnly: 'true',
+        stopPrice: slPrice.toFixed(pricePrecision),
+        closePosition: 'true',
+        workingType: 'MARK_PRICE' as any,
       });
-      const slOrderResult = typeof response.data === 'function' ? await response.data() : (response.data || response);
-      const orderData = Array.isArray(slOrderResult) ? slOrderResult[0] : slOrderResult;
 
-      // Algo orders return 'algoId' instead of 'orderId'
-      const stopLossId = orderData.algoId || orderData.orderId;
+      this.updateWeight(response.headers);
+      const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
+      const stopLossId = orderData.orderId;
 
       if (!orderData || !stopLossId) {
         throw new Error(`Invalid response from Binance SL order: ${JSON.stringify(orderData)}`);
       }
       trade.binance_stop_order_id = String(stopLossId);
-      const msgSl = `Binance SL order placed: ${trade.symbol} at ${slPrice} algo_id=${stopLossId}`;
+      const msgSl = `Binance SL order placed: ${trade.symbol} at ${slPrice} order_id=${stopLossId}`;
       this.logger.log(msgSl);
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgSl, level: 'info' });
 
@@ -423,8 +389,7 @@ export class OrderManagerService {
 
     // Cancel existing SL order if it exists
     if (trade.binance_stop_order_id) {
-      // Algo orders use cancelAlgoOrder
-      await this.cancelBinanceAlgoOrder(trade.symbol, trade.binance_stop_order_id);
+      await this.cancelBinanceOrder(trade.symbol, trade.binance_stop_order_id);
     }
 
     // Place new SL order
@@ -438,7 +403,8 @@ export class OrderManagerService {
     if (this.paperMode || !this.binanceClient) return true;
 
     try {
-      await (this.binanceClient as any).restAPI.tradeApi.cancelOrder({ symbol, orderId });
+      const response = await (this.binanceClient as any).restAPI.tradeApi.cancelOrder({ symbol, orderId });
+      this.updateWeight(response.headers);
       this.logger.log(`Binance order canceled: ${symbol} order_id=${orderId}`);
       return true;
     } catch (err) {
@@ -464,7 +430,8 @@ export class OrderManagerService {
       // Large IDs must be handled as BigInt to prevent precision loss,
       // but we handle non-numeric strings for testing/robustness.
       const numericAlgoId = /^\d+$/.test(algoId) ? BigInt(algoId) : algoId;
-      await (this.binanceClient as any).restAPI.tradeApi.cancelAlgoOrder({ symbol, algoId: numericAlgoId });
+      const response = await (this.binanceClient as any).restAPI.tradeApi.cancelAlgoOrder({ symbol, algoId: numericAlgoId });
+      this.updateWeight(response.headers);
       this.logger.log(`Binance algo order canceled: ${symbol} algo_id=${algoId}`);
       return true;
     } catch (err) {
@@ -586,6 +553,7 @@ export class OrderManagerService {
         return null;
       }
       const response = await (this.binanceClient as any).restAPI.tradeApi.positionInformationV2({ symbol });
+      this.updateWeight(response.headers);
       const data = typeof response.data === 'function' ? await response.data() : (response.data || response);
 
       if (Array.isArray(data)) {
@@ -614,66 +582,42 @@ export class OrderManagerService {
         try {
           // If there is an exchange stop loss, cancel it to prevent orphans
           if (trade.binance_stop_order_id) {
-            // SL is an algo order
-            await this.cancelBinanceAlgoOrder(symbol, trade.binance_stop_order_id);
+            // Standard order cancel if we switched away from algoId
+            await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id);
           }
 
           const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
           try {
             const filters = this.marketFeed.getSymbolFilters(symbol);
-            const lotSize = filters?.filters.find((f: { filterType: string; tickSize?: string; stepSize?: string; notional?: string; minNotional?: string }) => f.filterType === 'LOT_SIZE');
+            const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
             const stepSize = parseFloat(lotSize?.stepSize || '0');
             const precision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
 
             const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder({
               symbol,
-              side: closeDirection,
+              side: closeDirection as any,
               type: 'MARKET',
               quantity: (trade.qty || 0).toFixed(precision),
               reduceOnly: 'true',
               newOrderRespType: 'RESULT',
             });
+
+            this.updateWeight(response.headers);
             const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
             trade.binance_close_order_id = orderData.orderId;
 
-            // Capture actual execution price and realized fees from fills
-            let exitWeightedSum = 0;
-            let exitFilledQty = 0;
-            let exitFeeUsdt = 0;
+            // Zero-RAM Price Tracking for exits
+            const absoluteExitPrice = parseFloat(orderData.avgPrice || '0');
+            const executedExitQty = parseFloat(orderData.executedQty || '0');
 
-            if (orderData.fills && Array.isArray(orderData.fills) && orderData.fills.length > 0) {
-              for (const fill of orderData.fills) {
-                const fillPrice = parseFloat(fill.price || '0');
-                const fillQty = parseFloat(fill.qty || '0');
-                const commission = parseFloat(fill.commission || '0');
-                const commissionAsset = (fill.commissionAsset || 'USDT').toUpperCase();
+            if (absoluteExitPrice > 0) exitPrice = roundEight(absoluteExitPrice);
 
-                exitWeightedSum += (fillPrice * fillQty);
-                exitFilledQty += fillQty;
+            // Zero-Cost Math Estimation for exit fees
+            const exitNotional = (executedExitQty > 0 ? executedExitQty : trade.qty) * exitPrice;
+            const exitFee = roundEight(exitNotional * this.takerFeeRate);
+            trade.realized_fee = roundEight((trade.realized_fee || 0) + exitFee);
 
-                if (commissionAsset === 'USDT') {
-                  exitFeeUsdt += commission;
-                } else {
-                  const conversionPrice = this.tickerCache.getPrice(`${commissionAsset}USDT`) ||
-                                        (commissionAsset === 'BNB' ? (this.tickerCache.getPrice('BNBUSDT') || 600) : 1);
-                  exitFeeUsdt += (commission * conversionPrice);
-                }
-              }
-            }
-
-            if (exitFilledQty > 0) {
-              exitPrice = roundEight(exitWeightedSum / exitFilledQty);
-              trade.realized_fee = roundEight((trade.realized_fee || 0) + exitFeeUsdt);
-            } else {
-              const avgExitPrice = parseFloat(orderData.avgPrice || '0');
-              if (avgExitPrice > 0) {
-                exitPrice = roundEight(avgExitPrice);
-              }
-              const estimatedExitFee = exitPrice * trade.qty * 0.0005;
-              trade.realized_fee = roundEight((trade.realized_fee || 0) + estimatedExitFee);
-            }
-
-            const msgClose = `Binance close order placed: ${symbol} qty=${trade.qty || 0} order_id=${orderData.orderId} total_fee=${trade.realized_fee}`;
+            const msgClose = `Binance close order placed: ${symbol} qty=${trade.qty || 0} order_id=${orderData.orderId} est_exit_fee=${exitFee}`;
             this.logger.log(msgClose);
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgClose, level: 'info' });
 
@@ -695,7 +639,7 @@ export class OrderManagerService {
                   trade.exit_reason = 'EXCHANGE_SL_OR_MANUAL';
                   // Simulate exit fee since we can't easily fetch it from the exchange SL fill here
                   const exitFee = roundEight(exitPrice * trade.qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
-                  trade.realized_fee = roundEight(trade.realized_fee + exitFee);
+                  trade.realized_fee = roundEight((trade.realized_fee || 0) + exitFee);
                } else {
                   this.logger.warn(`Binance close order failed but position still exists for ${symbol}: ${errMsg}`);
                   throw err;
@@ -712,9 +656,9 @@ export class OrderManagerService {
           throw err;
         }
       } else if (paperMode) {
-        // Simulate paper exit fee (0.04% taker)
+        // Simulate paper exit fee (taker rate)
         const exitFee = roundEight(exitPrice * trade.qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
-        trade.realized_fee = roundEight(trade.realized_fee + exitFee);
+        trade.realized_fee = roundEight((trade.realized_fee || 0) + exitFee);
       }
 
       // Update trade AFTER successful closure confirmation

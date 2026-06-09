@@ -51,10 +51,7 @@ export class EngineBroadcasterService {
     const cpv = currentPrice !== undefined && Number.isFinite(currentPrice) && currentPrice > 0;
     const current = cpv ? currentPrice : trade.exit_price ?? trade.last_price ?? entry;
 
-    if (cpv) {
-      (trade as any).last_price = currentPrice;
-      trade.mark_price = currentPrice;
-    }
+    if (cpv) (trade as any).last_price = currentPrice;
 
     let pnl = 0;
     let rrValue = 0;
@@ -80,7 +77,6 @@ export class EngineBroadcasterService {
         tp_price: roundTo(trade.tp, 8),
         pnl: roundTo(pnl, 2),
         realized_fee: roundTo(trade.realized_fee, 2),
-        funding_fee: roundTo(trade.funding_fee || 0, 2),
         rr: roundTo(rrValue, 4),
         max_rr: roundTo(trade.max_rr_achieved ?? 0, 4),
         direction,
@@ -100,7 +96,6 @@ export class EngineBroadcasterService {
       tp_price: roundTo(trade.tp, 8),
       pnl: roundTo(pnl, 2),
       realized_fee: roundTo(trade.realized_fee, 2),
-      funding_fee: roundTo(trade.funding_fee || 0, 2),
       rr: roundTo(rrValue, 4),
       paper_mode: config?.paper_mode,
       trading_mode: config?.trading_mode || (config?.paper_mode ? 'paper' : 'live'),
@@ -206,10 +201,7 @@ export class EngineBroadcasterService {
       if (currentPrice === null && prevTrade) currentPrice = prevTrade.current_price;
 
       const current = currentPrice ?? (trade as any).exit_price ?? (trade as any).last_price ?? trade.entry_price;
-      if (currentPrice !== null) {
-        (trade as any).last_price = currentPrice;
-        trade.mark_price = currentPrice;
-      }
+      if (currentPrice !== null) (trade as any).last_price = currentPrice;
 
       const direction = trade.direction || 'LONG';
       const entry = trade.entry_price || 0;

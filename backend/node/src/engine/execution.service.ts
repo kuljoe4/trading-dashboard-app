@@ -144,12 +144,6 @@ export class ExecutionService {
         const trade = result.data;
         this.positionTracker.addTrade(trade);
         this.sessionState.updateStatsOnEntry();
-
-        // BOLT: Update balance immediately for realized entry fees to ensure PnL/Balance consistency
-        if (onTradeUpdate) {
-            await onTradeUpdate(trade, balance);
-        }
-
         this.sessionState.setActiveTrades(this.positionTracker.activeList());
         this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, config);
 
@@ -160,6 +154,8 @@ export class ExecutionService {
           trade: this.engineBroadcaster.serializeTrade(trade, config, price),
           stats: this.sessionState.stats
         });
+
+        if (onTradeUpdate) await onTradeUpdate(trade, balance);
       }
     }
   }

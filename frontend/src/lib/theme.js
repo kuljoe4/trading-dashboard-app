@@ -22,6 +22,11 @@ export const C = {
 
 export const pnlColor = (pnl) => (pnl >= 0 ? C.green : C.red);
 
+export const safeNum = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
 // Performance: Pre-allocate formatters to avoid GC pressure in hot loops
 const usdFormatter2 = new Intl.NumberFormat('en-US', {
   style: 'decimal',

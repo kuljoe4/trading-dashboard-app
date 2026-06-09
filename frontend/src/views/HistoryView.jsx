@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { fmtUSD, pnlColor } from '../lib/theme'
+import { fmtUSD, pnlColor, safeNum } from '../lib/theme'
 import { sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton } from '../components/ui/primitives'
@@ -15,11 +15,6 @@ const price = (value) => {
 }
 
 const strategyLabel = (item = {}) => item.strategy_label || item.strategyLabel || item.config?.strategy_label || item.strategy_config?.strategy_label || 'Momentum Strategy'
-
-const safeNum = (v) => {
-  const n = Number(v)
-  return Number.isFinite(n) ? n : 0
-}
 
 const buildCurve = (trades = []) => {
   let pnl = 0
@@ -82,7 +77,7 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
                 </div>
               }>
                 <span className="text-[9px] text-dim/60 font-mono italic cursor-help border-b border-dotted border-dim/30">
-                  -{fmtUSD((trade.realized_fee || 0) + (trade.funding_fee || 0))} fees
+                  -{fmtUSD(safeNum(trade.realized_fee) + safeNum(trade.funding_fee))} fees
                 </span>
               </Tooltip>
             )}

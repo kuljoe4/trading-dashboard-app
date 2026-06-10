@@ -46,45 +46,49 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
       onKeyDown={handleKeyDown}
       role="button"
       tabIndex={0}
-      className="bg-surface border border-border rounded-2xl p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/40 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.98]"
+      className="bg-surface border border-border/40 rounded-2xl p-4 md:p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.98]"
       aria-label={`View details for ${trade.symbol} ${trade.direction} trade, ${fmtUSD(trade.pnl)} P&L, ${Number(trade.rr || 0).toFixed(2)} RR`}
     >
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex flex-col gap-0.5 min-w-0">
-          <div className="flex items-center gap-1.5 text-xs md:text-sm font-bold">
-            <span className="font-mono truncate">{trade.symbol || '---'}</span>
-            <span className={cn("text-[9px] md:text-xs", isLong ? 'text-green' : 'text-red')}>{trade.direction || '---'}</span>
+      <div className="flex items-center justify-between gap-3 min-w-0">
+        <div className="flex flex-col gap-1 min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm md:text-base font-black font-mono tracking-tight shrink-0">{trade.symbol || '---'}</span>
+            <span className={cn("text-[9px] md:text-xs font-black px-1.5 py-0.5 rounded border uppercase shrink-0", isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5')}>
+              {isLong ? '▲' : '▼'} {trade.direction || '---'}
+            </span>
           </div>
           {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
             <div className="flex items-center gap-1">
-              <ShieldCheck size={8} className="text-accent" />
-              <span className="text-[8px] font-bold text-accent uppercase tracking-tighter">Monitored</span>
+              <ShieldCheck size={10} className="text-accent" />
+              <span className="text-[9px] font-black text-accent uppercase tracking-widest opacity-80">Monitored</span>
             </div>
           )}
         </div>
 
-        <div className="flex flex-row md:flex-col items-center md:items-end gap-2 md:gap-0.5">
+        <div className="flex flex-col items-end shrink-0 min-w-[80px]">
           <div className={cn(
-            "text-xs md:text-lg font-bold font-mono",
+            "text-base md:text-xl font-black font-mono tracking-tighter leading-none mb-1",
             trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlClass(trade.pnl) : 'text-dim'
           )}>
             {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
           </div>
-          <div className="text-[8px] md:text-[10px] font-bold font-mono text-dim uppercase tracking-wider bg-white/5 md:bg-transparent px-1.5 py-0.5 md:p-0 rounded md:rounded-none">
-            {Number(trade.rr || 0).toFixed(2)}R
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] md:text-[11px] font-black font-mono text-dim/60 uppercase tracking-widest">
+              {Number(trade.rr || 0).toFixed(2)}R
+            </span>
+            {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
+              <Tooltip content={`Commission: -${fmtUSD(trade.realized_fee || 0)} | Funding: ${trade.funding_fee > 0 ? '-' : '+'}${fmtUSD(Math.abs(trade.funding_fee || 0))}`}>
+                <div className="text-[8px] md:text-[9px] font-black font-mono text-red/40 uppercase tracking-tighter cursor-help border-b border-dotted border-red/10">
+                  -{fmtUSD(safeNum(trade.realized_fee) + safeNum(trade.funding_fee))}
+                </div>
+              </Tooltip>
+            )}
           </div>
-          {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
-            <Tooltip content={`Commission: -${fmtUSD(trade.realized_fee || 0)} | Funding: ${trade.funding_fee > 0 ? '-' : '+'}${fmtUSD(Math.abs(trade.funding_fee || 0))}`}>
-              <div className="text-[7px] md:text-[8px] font-bold font-mono text-red/50 uppercase tracking-tighter cursor-help border-b border-dotted border-red/20">
-                -{fmtUSD(safeNum(trade.realized_fee) + safeNum(trade.funding_fee))} Fees
-              </div>
-            </Tooltip>
-          )}
         </div>
       </div>
 
       {/* Mini Price Runway */}
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <div
           className="h-1.5 w-full bg-border rounded-full overflow-hidden relative"
           role="progressbar"

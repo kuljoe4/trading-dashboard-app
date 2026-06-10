@@ -5,13 +5,13 @@ import { useTradingStore } from '../store/trading'
 import { cn } from './ui/primitives'
 
 const LogEntry = React.memo(({ log }) => (
-  <div className="flex gap-3 text-[12px] font-mono border-b border-border pb-1">
-    <span className="text-dim whitespace-nowrap">[{log.ts}]</span>
+  <div className="flex gap-2.5 text-[11px] font-mono border-b border-border/40 pb-1.5 min-w-0">
+    <span className="text-dim/60 whitespace-nowrap shrink-0">[{log.ts}]</span>
     <span className={cn(
-      "transition-colors",
-      log.level === 'warn' ? "text-amber font-bold" :
-      log.level === 'error' ? "text-red font-bold" :
-      "text-text font-normal"
+      "transition-colors truncate",
+      log.level === 'warn' ? "text-amber font-black" :
+      log.level === 'error' ? "text-red font-black" :
+      "text-text/90 font-medium"
     )}>
       {log.msg}
     </span>

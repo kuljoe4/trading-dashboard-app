@@ -300,49 +300,53 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
 
   return (
     <div className={cn(
-      "z-40 transition-all duration-300 mb-8 lg:mb-10",
-      sticky && "sticky top-0 bg-background/80 backdrop-blur-md pt-4 pb-4 -mx-4 px-4 md:-mx-10 md:px-10 border-b border-border/40"
+      "z-40 transition-all duration-300 mb-4 lg:mb-6",
+      sticky && "sticky top-0 bg-background/90 backdrop-blur-md py-1.5 -mx-4 px-4 md:-mx-10 md:px-10 border-b border-border/10 shadow-sm"
     )}>
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-row items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
           {backAction && (
             <button
               onClick={backAction}
               aria-label="Go back"
-              className="p-2.5 hover:bg-surface border border-border rounded-xl transition-all active:scale-90 group shrink-0"
+              className="p-1 hover:bg-surface border border-border rounded-lg transition-all active:scale-90 group shrink-0"
             >
-              <ChevronLeft size={20} className="text-dim group-hover:text-text" />
+              <ChevronLeft size={14} className="text-dim group-hover:text-text" />
             </button>
           )}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2.5 min-w-0">
             {Icon && (
-              <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
-                <Icon size={24} className="text-accent" />
+              <div className="w-7 h-7 rounded-lg bg-accent/5 border border-accent/10 flex items-center justify-center shrink-0">
+                <Icon size={14} className="text-accent" />
               </div>
             )}
-            <div>
-              <div className="flex items-center gap-3 mb-1">
-                <h1 className="text-xl md:text-2xl font-bold tracking-tight">{title}</h1>
-                {tradingMode === 'paper' && <PaperBadge />}
-                {tradingMode === 'testnet' && <DemoBadge />}
-                {tradingMode === 'live' && <LiveBadge />}
-                {(isThrottled || isEcoMode) && <EcoBadge />}
-              </div>
-              <div className="flex items-center gap-3 lg:hidden mb-1">
-                <span className={cn("text-[10px] font-bold font-mono tracking-widest uppercase", wsStatus === 'live' ? "text-green" : "text-amber")}>
-                  {wsStatus === 'live' ? 'Connected' : 'Reconnecting'}
-                </span>
-                <PulseDot color={wsStatus === 'live' ? "bg-green" : "bg-amber"} />
+            <div className="flex flex-col min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <h1 className="text-xs md:text-sm font-black tracking-tight truncate uppercase">{title}</h1>
+                <div className="hidden sm:flex items-center gap-1.5 shrink-0 scale-[0.8] origin-left">
+                  {tradingMode === 'paper' && <PaperBadge />}
+                  {tradingMode === 'testnet' && <DemoBadge />}
+                  {tradingMode === 'live' && <LiveBadge />}
+                  {(isThrottled || isEcoMode) && <EcoBadge />}
+                </div>
               </div>
               {subTitle && (
-                <p className="text-[11px] text-dim font-bold uppercase tracking-widest">
-                  {subTitle}
-                </p>
+                <div className="flex items-center gap-2 min-w-0">
+                  <p className="text-[9px] text-dim font-bold uppercase tracking-widest truncate opacity-80">
+                    {subTitle}
+                  </p>
+                  <div className="hidden lg:flex items-center gap-1.5 shrink-0 opacity-40 scale-[0.8] origin-left">
+                    <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", wsStatus === 'live' ? "text-green" : "text-amber")}>
+                      {wsStatus === 'live' ? 'Connected' : 'Reconnecting'}
+                    </span>
+                    <PulseDot color={wsStatus === 'live' ? "bg-green" : "bg-amber"} />
+                  </div>
+                </div>
               )}
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 shrink-0 scale-90 origin-right">
           {children}
         </div>
       </div>

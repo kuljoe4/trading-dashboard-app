@@ -109,12 +109,14 @@ const ExitMonitor = ({ status, logic }) => {
           const value = Number.isFinite(Number(s.value)) ? Number(s.value) : 0
           const threshold = Math.max(Math.abs(Number(s.threshold) || 1), 0.0001)
           const isFired = s.fired && s.active
-          const progress = s.active ? (s.insufficientData ? 0 : Math.min((Math.abs(value) / threshold) * 100, 100)) : 0
+          const isDelayed = s.remaining_delay > 0
+          const progress = s.insufficientData ? 0 : Math.min((Math.abs(value) / threshold) * 100, 100)
 
           return (
             <div key={key} className={cn(
-              "group relative overflow-hidden p-4 rounded-xl border transition-all duration-300",
-              isFired ? "bg-red/5 border-red/30 shadow-[0_0_15px_rgba(255,68,102,0.05)]" : "bg-background/20 border-border hover:border-accent/30"
+              "group relative overflow-hidden p-3 md:p-4 rounded-xl border transition-all duration-300",
+              isFired ? "bg-red/5 border-red/30 shadow-[0_0_15px_rgba(255,68,102,0.05)]" : "bg-background/20 border-border hover:border-accent/30",
+              isDelayed && !isFired && "opacity-70 grayscale-[0.5]"
             )}>
               {isFired && (
                 <div className="absolute top-0 right-0 p-1">
@@ -122,37 +124,47 @@ const ExitMonitor = ({ status, logic }) => {
                 </div>
               )}
 
-              <div className="flex justify-between items-center mb-3">
-                <div className="flex items-center gap-3">
+              {isDelayed && !isFired && (
+                <div className="absolute top-0 right-0 p-2">
+                   <Tooltip content={`Warm-up period: ${s.remaining_delay}s remaining`}>
+                     <div className="flex items-center gap-1 bg-amber/10 text-amber px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter border border-amber/20">
+                        <Clock size={8} /> {s.remaining_delay}s
+                     </div>
+                   </Tooltip>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center mb-3 gap-2">
+                <div className="flex items-center gap-2 md:gap-3 min-w-0">
                    <div className={cn(
-                     "w-9 h-9 rounded-xl flex items-center justify-center border transition-colors",
+                     "w-8 h-8 md:w-9 md:h-9 rounded-xl flex items-center justify-center border transition-colors shrink-0",
                      isFired ? "bg-red text-white border-red/20 shadow-lg shadow-red/20" : "bg-surface border-border text-dim group-hover:text-accent group-hover:border-accent/20"
                    )}>
-                     {isFired ? <Zap size={18} fill="currentColor" /> : <Activity size={18} />}
+                     {isFired ? <Zap size={16} className="md:size-[18px]" fill="currentColor" /> : <Activity size={16} className="md:size-[18px]" />}
                    </div>
-                   <div className="flex flex-col">
-                     <span className="text-xs font-black uppercase tracking-tight">{s.label || key}</span>
-                     <span className="text-[9px] text-dim font-bold truncate max-w-[120px] uppercase opacity-60 tracking-tighter">
-                       {s.description || 'Monitoring'}
+                   <div className="flex flex-col min-w-0">
+                     <span className="text-[10px] md:text-xs font-black uppercase tracking-tight truncate">{s.label || key}</span>
+                     <span className="text-[8px] md:text-[9px] text-dim font-bold truncate uppercase opacity-60 tracking-tighter">
+                       {isDelayed ? `Warm-up: ${s.remaining_delay}s` : (s.description || 'Monitoring')}
                      </span>
                    </div>
                 </div>
 
-                <div className="flex flex-col items-end">
-                   <div className={cn("text-sm font-mono font-black tracking-tighter", isFired ? "text-red" : "text-text")}>
-                     {s.insufficientData ? 'N/A' : Number(value).toFixed(4)}
-                     <span className="text-[10px] ml-0.5 opacity-40 font-bold">{s.unit}</span>
+                <div className="flex flex-col items-end shrink-0">
+                   <div className={cn("text-xs md:text-sm font-mono font-black tracking-tighter", isFired ? "text-red" : "text-text")}>
+                     {s.insufficientData ? 'N/A' : Number(value).toFixed(value >= 100 ? 2 : 4)}
+                     <span className="text-[9px] md:text-[10px] ml-0.5 opacity-40 font-bold">{s.unit}</span>
                    </div>
-                   <div className="text-[8px] text-dim font-black uppercase tracking-widest opacity-40">
+                   <div className="text-[7px] md:text-[8px] text-dim font-black uppercase tracking-widest opacity-40">
                      Target: {s.threshold}
                    </div>
                 </div>
               </div>
 
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 <div className="flex justify-between items-center px-0.5">
                   <span className="text-[7px] font-black text-dim uppercase tracking-widest">Strength</span>
-                  <span className={cn("text-[9px] font-black font-mono", isFired ? "text-red" : "text-accent")}>
+                  <span className={cn("text-[8px] md:text-[9px] font-black font-mono", isFired ? "text-red" : "text-accent")}>
                     {s.distPct ? Math.min(100, s.distPct).toFixed(1) : '0.0'}%
                   </span>
                 </div>
@@ -165,7 +177,9 @@ const ExitMonitor = ({ status, logic }) => {
                       "absolute top-0 left-0 h-full rounded-full",
                       isFired
                         ? "bg-gradient-to-r from-red to-orange shadow-[0_0_12px_rgba(255,68,102,0.4)]"
-                        : "bg-gradient-to-r from-accent to-purple shadow-[0_0_12px_rgba(91,111,255,0.4)]"
+                        : isDelayed
+                          ? "bg-amber/40"
+                          : "bg-gradient-to-r from-accent to-purple shadow-[0_0_12px_rgba(91,111,255,0.4)]"
                     )}
                   />
                 </div>

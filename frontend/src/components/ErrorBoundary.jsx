@@ -16,6 +16,9 @@ class ErrorBoundary extends React.Component {
 
   render() {
     if (this.state.hasError) {
+      const isChunkError = this.state.error?.name === 'ChunkLoadError' ||
+                          this.state.error?.message?.includes('Failed to fetch dynamically imported module');
+
       return (
         <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 text-center">
           <div className="max-w-md w-full bg-slate-800 border border-red-500/30 rounded-xl p-8 shadow-2xl">
@@ -24,9 +27,13 @@ class ErrorBoundary extends React.Component {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
             </div>
-            <h1 className="text-2xl font-bold text-white mb-2">Something went wrong</h1>
+            <h1 className="text-2xl font-bold text-white mb-2">
+              {isChunkError ? 'Update Available' : 'Something went wrong'}
+            </h1>
             <p className="text-slate-400 mb-8">
-              The dashboard encountered an unexpected error. Your active trades are still being managed by the backend engine.
+              {isChunkError
+                ? 'A new version of the dashboard has been deployed. Please reload to sync with the latest updates.'
+                : 'The dashboard encountered an unexpected error. Your active trades are still being managed by the backend engine.'}
             </p>
             <div className="space-y-3">
               <button

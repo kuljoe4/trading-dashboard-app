@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { fmtUSD, pnlColor, safeNum } from '../lib/theme'
+import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton } from '../components/ui/primitives'
@@ -66,7 +66,7 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
         <div className="flex flex-col items-end min-w-[80px]">
           <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Net P&L</span>
           <div className="flex flex-col items-end">
-            <span className={cn("text-xs font-bold font-mono", isWin ? "text-green" : "text-red")}>
+            <span className={cn("text-xs font-bold font-mono", pnlClass(pnl))}>
               {fmtUSD(pnl)}
             </span>
             {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
@@ -199,7 +199,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
             </div>
             <div className="flex flex-col items-end">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Net P&L</span>
-              <span className={cn("text-lg font-bold font-mono tracking-tighter leading-none", pnl >= 0 ? "text-green" : "text-red")}>
+              <span className={cn("text-lg font-bold font-mono tracking-tighter leading-none", pnlClass(pnl))}>
                 {fmtUSD(pnl)}
               </span>
             </div>
@@ -375,7 +375,7 @@ export const HistoryView = () => {
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8 lg:mb-12">
-          <StatCard label="Total Performance" value={fmtUSD(totalPnl)} color={totalPnl >= 0 ? "text-green" : "text-red"} />
+          <StatCard label="Total Performance" value={fmtUSD(totalPnl)} color={pnlClass(totalPnl)} />
           <StatCard label="Win Rate" value={`${winRate}%`} color="text-accent" subValue={`${wins} Wins / ${totalTrades - wins} Losses`} />
           <StatCard
             label="Max Drawdown"
@@ -414,7 +414,7 @@ export const HistoryView = () => {
             <div>
               <div className="text-[11px] text-accent font-bold uppercase tracking-widest mb-0.5">Session Summary</div>
               <div className="text-sm font-medium">
-                Last session ended with <span className={cn("font-bold", sessionSummary.totalPnl >= 0 ? "text-green" : "text-red")}>{fmtUSD(sessionSummary.totalPnl)}</span> across <span className="font-bold text-text">{sessionSummary.tradeCount}</span> positions.
+                Last session ended with <span className={cn("font-bold", pnlClass(sessionSummary.totalPnl))}>{fmtUSD(sessionSummary.totalPnl)}</span> across <span className="font-bold text-text">{sessionSummary.tradeCount}</span> positions.
               </div>
             </div>
           </motion.div>

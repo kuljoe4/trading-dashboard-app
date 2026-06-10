@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, lazy, Suspense } from 'react'
 import { shallow } from 'zustand/shallow'
-import { pnlColor, fmtUSD, C, safeNum } from '../lib/theme'
+import { pnlColor, pnlClass, fmtUSD, C, safeNum } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
 import { sessionAPI } from '../api/client'
 import { 
@@ -36,13 +36,23 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick();
+    }
+  }
+
   return (
     <motion.div
       layout
       whileHover={{ scale: 1.01 }}
       onClick={onClick}
+      onKeyDown={handleKeyDown}
+      role="button"
+      tabIndex={0}
       className={cn(
-        "bg-surface border border-border rounded-2xl p-6 cursor-pointer transition-all relative group shadow-sm h-full",
+        "bg-surface border border-border rounded-2xl p-6 cursor-pointer transition-all relative group shadow-sm h-full focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
         tradingMode === 'paper' ? "hover:border-amber/40 hover:shadow-amber/5" :
         tradingMode === 'testnet' ? "hover:border-purple/40 hover:shadow-purple/5" :
         "hover:border-green/40 hover:shadow-green/5"
@@ -642,7 +652,7 @@ export function DashboardView({ initialStrategy }) {
           <StatCard
             label="Active P&L"
             value={fmtUSD(totalActivePnl)}
-            color={totalActivePnl >= 0 ? "text-green" : "text-red"}
+            color={pnlClass(totalActivePnl)}
             subValue={`Total Session: ${fmtUSD(totalPnl)}`}
             syncing={wsStatus !== 'live'}
           />

@@ -20,7 +20,17 @@ export const C = {
   accentDim: "#5b6fff20",
 };
 
-export const pnlColor = (pnl) => (pnl >= 0 ? C.green : C.red);
+export const pnlColor = (pnl) => {
+  const n = Number(pnl);
+  if (n === 0) return C.dim;
+  return n > 0 ? C.green : C.red;
+};
+
+export const pnlClass = (pnl) => {
+  const n = Number(pnl);
+  if (n === 0) return "text-dim";
+  return n > 0 ? "text-green" : "text-red";
+};
 
 export const safeNum = (v) => {
   const n = Number(v);
@@ -46,9 +56,11 @@ export const fmtUSD = (val) => {
   const formatter = (absN < 1 && absN > 0) ? usdFormatter4 : usdFormatter2;
   const formatted = formatter.format(absN);
 
+  if (n === 0) return `$${formatted}`;
+
   // BOLT: Clean up visuals - use either arrow OR sign, not both (Double Negative issue)
   // We'll keep the arrow as it's more distinct in the financial context.
-  const prefix = n >= 0 ? '▲ $' : '▼ $';
+  const prefix = n > 0 ? '▲ $' : '▼ $';
   return `${prefix}${formatted}`;
 };
 export const fmt = (n, d = 2) => {

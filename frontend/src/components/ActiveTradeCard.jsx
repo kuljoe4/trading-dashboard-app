@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { cn, Tooltip } from './ui/primitives'
-import { fmtUSD, pnlColor, safeNum } from '../lib/theme'
+import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { sessionAPI } from '../api/client'
 import { ShieldCheck } from 'lucide-react'
 import { motion } from 'framer-motion'
@@ -66,7 +66,7 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
         <div className="flex flex-row md:flex-col items-center md:items-end gap-2 md:gap-0.5">
           <div className={cn(
             "text-xs md:text-lg font-bold font-mono",
-            trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlColor(trade.pnl) : 'text-dim'
+            trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlClass(trade.pnl) : 'text-dim'
           )}>
             {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
           </div>

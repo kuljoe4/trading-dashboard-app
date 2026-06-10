@@ -94,68 +94,108 @@ const ExitMonitor = ({ status, logic }) => {
   const entries = Object.entries(status)
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm h-full">
-      <SectionLabel className="mb-6">
-        <ShieldCheck size={14} className="text-red" /> Technical Exit Signals
-      </SectionLabel>
+    <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm h-full flex flex-col">
+      <div className="flex items-center justify-between mb-6">
+        <SectionLabel className="mb-0">
+          <ShieldCheck size={14} className="text-red" /> Technical Exit Signals
+        </SectionLabel>
+        <div className="px-2 py-0.5 rounded bg-background/50 border border-border/50 text-[8px] font-black text-dim uppercase tracking-widest">
+          {logic === 'all' ? 'Consensus' : 'Any'}
+        </div>
+      </div>
 
-      <div className="space-y-4">
+      <div className="space-y-3 flex-1">
         {entries.map(([key, s]) => {
           const value = Number.isFinite(Number(s.value)) ? Number(s.value) : 0
           const threshold = Math.max(Math.abs(Number(s.threshold) || 1), 0.0001)
-          const progress = s.active ? (s.insufficientData ? 0 : Math.min((Math.abs(value) / threshold) * 100, 100)) : 0
+          const isFired = s.fired && s.active
+          const isDelayed = s.remaining_delay > 0
+          const progress = s.insufficientData ? 0 : Math.min((Math.abs(value) / threshold) * 100, 100)
 
           return (
             <div key={key} className={cn(
-              "p-3 md:p-4 rounded-xl border transition-all",
-              s.fired && s.active ? "bg-red/5 border-red/30" : "bg-background/20 border-border"
+              "group relative overflow-hidden p-3 md:p-4 rounded-xl border transition-all duration-300",
+              isFired ? "bg-red/5 border-red/30 shadow-[0_0_15px_rgba(255,68,102,0.05)]" : "bg-background/20 border-border hover:border-accent/30",
+              isDelayed && !isFired && "opacity-70 grayscale-[0.5]"
             )}>
-              <div className="flex justify-between items-start mb-3">
-                <div className="flex items-center gap-3">
+              {isFired && (
+                <div className="absolute top-0 right-0 p-1">
+                   <PulseDot color="bg-red" />
+                </div>
+              )}
+
+              {isDelayed && !isFired && (
+                <div className="absolute top-0 right-0 p-2">
+                   <Tooltip content={`Warm-up period: ${s.remaining_delay}s remaining`}>
+                     <div className="flex items-center gap-1 bg-amber/10 text-amber px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter border border-amber/20">
+                        <Clock size={8} /> {s.remaining_delay}s
+                     </div>
+                   </Tooltip>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center mb-3 gap-2">
+                <div className="flex items-center gap-2 md:gap-3 min-w-0">
                    <div className={cn(
-                     "w-8 h-8 rounded-lg flex items-center justify-center border",
-                     s.fired && s.active ? "bg-red/10 border-red/20 text-red" : "bg-surface border-border text-dim"
+                     "w-8 h-8 md:w-9 md:h-9 rounded-xl flex items-center justify-center border transition-colors shrink-0",
+                     isFired ? "bg-red text-white border-red/20 shadow-lg shadow-red/20" : "bg-surface border-border text-dim group-hover:text-accent group-hover:border-accent/20"
                    )}>
-                     {s.fired && s.active ? <CheckCircle2 size={16} /> : <Activity size={16} />}
+                     {isFired ? <Zap size={16} className="md:size-[18px]" fill="currentColor" /> : <Activity size={16} className="md:size-[18px]" />}
                    </div>
-                   <div>
-                     <div className="text-xs md:text-sm font-bold">{s.label || key}</div>
-                     <div className="text-[8px] md:text-[9px] text-dim font-bold uppercase tracking-tight">{s.description || 'Condition monitoring'}</div>
+                   <div className="flex flex-col min-w-0">
+                     <span className="text-[10px] md:text-xs font-black uppercase tracking-tight truncate">{s.label || key}</span>
+                     <span className="text-[8px] md:text-[9px] text-dim font-bold truncate uppercase opacity-60 tracking-tighter">
+                       {isDelayed ? `Warm-up: ${s.remaining_delay}s` : (s.description || 'Monitoring')}
+                     </span>
                    </div>
                 </div>
-                <div className="text-right">
-                   <div className={cn("text-[10px] md:text-sm font-mono font-bold", s.fired && s.active ? "text-red" : "text-text")}>
-                     {s.insufficientData ? 'n/a' : Number(value).toFixed(4)}{s.unit || ''}
+
+                <div className="flex flex-col items-end shrink-0">
+                   <div className={cn("text-xs md:text-sm font-mono font-black tracking-tighter", isFired ? "text-red" : "text-text")}>
+                     {s.insufficientData ? 'N/A' : Number(value).toFixed(value >= 100 ? 2 : 4)}
+                     <span className="text-[9px] md:text-[10px] ml-0.5 opacity-40 font-bold">{s.unit}</span>
                    </div>
-                   <div className="text-[8px] md:text-[9px] text-dim font-bold uppercase tracking-[0.15em]">{s.threshold}</div>
+                   <div className="text-[7px] md:text-[8px] text-dim font-black uppercase tracking-widest opacity-40">
+                     Target: {s.threshold}
+                   </div>
                 </div>
               </div>
-              <div className="flex justify-between items-center mb-1">
-                <div className="text-[7px] md:text-[8px] font-black text-dim uppercase tracking-tighter">Proximity</div>
-                <motion.div
-                  initial={{ opacity: 0, x: 5 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  key={s.distPct}
-                  className="text-[8px] md:text-[9px] font-bold text-accent font-mono"
-                >
-                  {s.distPct ? s.distPct.toFixed(1) : '0.0'}%
-                </motion.div>
-              </div>
-              <div className="h-1 bg-background rounded-full overflow-hidden relative">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${progress}%` }}
-                  transition={{ type: "spring", stiffness: 50, damping: 20 }}
-                  className={cn("absolute top-0 left-0 h-full", s.fired && s.active ? "bg-red shadow-[0_0_8px_rgba(255,68,102,0.4)]" : "bg-accent shadow-[0_0_8px_rgba(91,111,255,0.4)]")}
-                />
+
+              <div className="space-y-1">
+                <div className="flex justify-between items-center px-0.5">
+                  <span className="text-[7px] font-black text-dim uppercase tracking-widest">Strength</span>
+                  <span className={cn("text-[8px] md:text-[9px] font-black font-mono", isFired ? "text-red" : "text-accent")}>
+                    {s.distPct ? Math.min(100, s.distPct).toFixed(1) : '0.0'}%
+                  </span>
+                </div>
+                <div className="h-1.5 bg-background/50 rounded-full overflow-hidden relative">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${progress}%` }}
+                    transition={{ type: "spring", stiffness: 60, damping: 25 }}
+                    className={cn(
+                      "absolute top-0 left-0 h-full rounded-full",
+                      isFired
+                        ? "bg-gradient-to-r from-red to-orange shadow-[0_0_12px_rgba(255,68,102,0.4)]"
+                        : isDelayed
+                          ? "bg-amber/40"
+                          : "bg-gradient-to-r from-accent to-purple shadow-[0_0_12px_rgba(91,111,255,0.4)]"
+                    )}
+                  />
+                </div>
               </div>
             </div>
           )
         })}
       </div>
 
-      <div className="mt-6 p-4 bg-accent/5 border border-accent/10 rounded-xl text-[10px] text-dim font-bold uppercase tracking-widest text-center">
-        Logic: {logic === 'all' ? 'All must fire' : 'Any signal triggers exit'}
+      <div className="mt-4 flex items-center gap-2 p-3 bg-white/[0.02] border border-white/[0.05] rounded-xl">
+        <Info size={12} className="text-dim" />
+        <p className="text-[8px] text-dim font-bold uppercase tracking-widest leading-relaxed">
+          {logic === 'all'
+            ? 'All technical conditions must be satisfied simultaneously to trigger an automated exit.'
+            : 'Any single technical signal reaching its threshold will trigger an immediate trade liquidation.'}
+        </p>
       </div>
     </div>
   )
@@ -202,9 +242,19 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
     const enhancedExitSignals = Object.entries(exitSignals).reduce((acc, [key, s]) => {
       const value = Number(s.value) || 0
       const threshold = Number(s.threshold) || 1
-      const dist = Math.abs(threshold - value)
-      const distPct = threshold !== 0 ? (dist / Math.abs(threshold)) * 100 : 0
-      acc[key] = { ...s, distPct, label: (s.label || key).replace(/price/gi, '').trim() }
+
+      // Proximity should represent how "filled" the condition is.
+      // If value is 0 and threshold is 10, distPct should be 0.
+      // If value is 10 and threshold is 10, distPct should be 100.
+      const rawDistPct = threshold !== 0 ? (Math.abs(value) / Math.abs(threshold)) * 100 : 0
+      const distPct = Math.min(100, Math.max(0, rawDistPct))
+
+      acc[key] = {
+        ...s,
+        distPct,
+        label: (s.label || key).replace(/price/gi, '').trim(),
+        unit: (s.unit || '').replace(/price/gi, '').trim()
+      }
       return acc
     }, {})
 

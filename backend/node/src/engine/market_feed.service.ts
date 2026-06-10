@@ -6,6 +6,7 @@ import { ENGINE_CONSTANTS } from '../models/constants';
 import { TickerCacheService } from './ticker_cache.service';
 import { KlineStoreService } from './kline_store.service';
 import { SessionStateService } from './session_state.service';
+import { SignalEngineService } from './signalEngine';
 import { MonitoringService } from './monitoring.service';
 import { ENGINE_EVENTS } from './events';
 
@@ -40,6 +41,7 @@ export class MarketFeedService {
     private tickerCache: TickerCacheService,
     private klineStore: KlineStoreService,
     private sessionState: SessionStateService,
+    private signalEngine: SignalEngineService,
     private monitoringService: MonitoringService,
   ) {}
 
@@ -71,7 +73,7 @@ export class MarketFeedService {
     this.startWatchlistManager(config);
   }
 
-  private updateWeight(headers: Headers) {
+  public updateWeight(headers: Headers) {
     const weight = headers.get('X-MBX-USED-WEIGHT-1M');
     if (weight) this.sessionState.updateRateLimit(parseInt(weight, 10));
   }
@@ -319,14 +321,19 @@ export class MarketFeedService {
   private async processBackfillQueue() {
     if (this.backfillProcessing || this.backfillQueue.length === 0) return;
     this.backfillProcessing = true;
+    this.logger.log(`Starting kline backfill queue. Depth: ${this.backfillQueue.length}`);
 
     while (this.backfillQueue.length > 0) {
       if (!this.running) break;
 
-      // Stricter rate limit for background tasks (1200 weight threshold)
-      const usedWeight = this.sessionState.getBinanceRateLimit().used_weight_1m;
-      if (usedWeight > 1200) {
-        this.logger.debug(`Pausing kline backfill queue (Weight: ${usedWeight})...`);
+      // Stricter rate limit for background tasks (80% of limit threshold)
+      const rateLimit = this.sessionState.getBinanceRateLimit();
+      const usedWeight = rateLimit.used_weight_1m;
+      const limit = rateLimit.limit || ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT;
+      const pauseThreshold = Math.floor(limit * 0.8);
+
+      if (usedWeight > pauseThreshold) {
+        this.logger.debug(`Pausing kline backfill queue (Weight: ${usedWeight}/${limit})...`);
         await new Promise(resolve => setTimeout(resolve, 5000));
         continue;
       }
@@ -343,13 +350,21 @@ export class MarketFeedService {
   }
 
   private async backfillKlines(symbol: string, interval: string) {
+    const requiredWarmup = this.sessionState.config ? this.signalEngine.getRequiredWarmup(this.sessionState.config) : 100;
+    const existingCandles = await this.klineStore.getRecentCandles(symbol, interval, requiredWarmup);
 
-    const existingCandles = await this.klineStore.getRecentCandles(symbol, interval, 1);
-    if (existingCandles.length > 0) {
+    if (existingCandles.length >= requiredWarmup) {
       const lastCandle = existingCandles[0];
       const intervalMs = this.parseIntervalToMs(interval);
-      if (!(lastCandle.time + intervalMs < Date.now() - intervalMs)) return;
+      // If the most recent candle is still fresh enough, skip backfill
+      if (lastCandle.time + intervalMs >= Date.now() - (intervalMs * 2)) {
+        this.logger.debug(`Skipping kline backfill for ${symbol} ${interval}: Already have ${existingCandles.length}/${requiredWarmup} candles and data is fresh.`);
+        return;
+      }
+    } else {
+      this.logger.log(`Backfilling klines for ${symbol} ${interval}: Have ${existingCandles.length}, need ${requiredWarmup} for warmup.`);
     }
+
     await new Promise(resolve => setTimeout(resolve, Math.random() * ENGINE_CONSTANTS.BACKFILL_MAX_JITTER_MS));
     try {
       const url = `${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${this.klineStore.getMaxCandles()}`;

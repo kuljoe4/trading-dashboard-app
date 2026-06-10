@@ -72,6 +72,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   activeTrades: [], logs: [], logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
   gateState: null, gateReason: null, hibernating: false, scannerPaused: false, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
   isSyncing: false,
+  debugToolsEnabled: localStorage.getItem('debug_tools_enabled') === 'true',
   rateLimit: { used_weight_1m: 0, limit: ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT, used_pct: 0 }, config: defaultConfig,
   sidebarCollapsed: localStorage.getItem('sidebar_collapsed') === 'true', 
   healthEnabled: localStorage.getItem('health_enabled') !== 'false',
@@ -234,6 +235,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
         const t = d.trade ? normalizeTrade(d.trade) : null;
         set(st => ({ activeTrades: d.event === 'closed' ? st.activeTrades.filter(x => x.symbol !== d.symbol) : (t ? [...st.activeTrades, t] : st.activeTrades), tradeHistory: d.event === 'closed' && t ? [t, ...st.tradeHistory].slice(0, 50) : st.tradeHistory, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount }));
       } else if (d.type === 'gate') set(st => ({ gateState: d.gateState, gateReason: d.reason, hibernating: d.hibernating ?? st.hibernating, scannerPaused: d.scannerPaused }));
+      else if (d.type === 'session_terminated') get().setSessionActive(false, null);
     };
     ws.onclose = () => { set({ ws: null, wsStatus: 'offline' }); if (get().sessionActive) { const att = get().reconnectAttempts; const del = Math.min(1000 * Math.pow(2, att), 30000); set({ reconnectAttempts: att + 1 }); setTimeout(() => get().connectWS(), del); } };
     set({ ws });

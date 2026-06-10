@@ -57,9 +57,9 @@ export class OrderManagerService {
       const trade = activeTrades.find(t => t.symbol === symbol);
 
       if (trade) {
-        const tradeIdShort = trade.id.replace(/-/g, '').substring(0, 16);
+        const tradeIdShort8 = trade.id.substring(0, 8);
         // Check if this was our SL order
-        if (trade.binance_stop_order_id === orderId || (clientOrderId && clientOrderId.startsWith('sl-') && clientOrderId.includes(tradeIdShort))) {
+        if (trade.binance_stop_order_id === orderId || (clientOrderId && clientOrderId === `sl-${tradeIdShort8}`)) {
           this.logger.log(`Binance SL HIT for ${symbol}. Closing trade locally.`);
           const exitPrice = parseFloat(order.ap || order.p || '0');
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
@@ -130,7 +130,11 @@ export class OrderManagerService {
 
   private updateWeight(headers: any) {
     if (headers) {
-      const weight = headers['x-mbx-used-weight-1m'] || headers['X-MBX-USED-WEIGHT-1M'];
+      // Handle both native Headers and plain objects
+      const weight = typeof headers.get === 'function'
+        ? headers.get('X-MBX-USED-WEIGHT-1M')
+        : (headers['x-mbx-used-weight-1m'] || headers['X-MBX-USED-WEIGHT-1M']);
+
       if (weight) {
         const currentWeight = parseInt(weight, 10);
         this.sessionState.updateRateLimit(currentWeight);
@@ -178,6 +182,22 @@ export class OrderManagerService {
     }
 
     return { price: finalPrice, qty: finalQty };
+  }
+
+  /**
+   * Set leverage for a symbol on Binance
+   */
+  async setLeverage(symbol: string, leverage: number): Promise<boolean> {
+    if (this.paperMode || !this.binanceClient) return true;
+    try {
+      this.logger.debug(`Setting leverage for ${symbol} to ${leverage}x`);
+      const response = await (this.binanceClient as any).restAPI.tradeApi.changeInitialLeverage({ symbol, leverage });
+      this.updateWeight(response.headers);
+      return true;
+    } catch (err) {
+      this.logger.warn(`Failed to set leverage for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
   }
 
   async enter(
@@ -257,6 +277,10 @@ export class OrderManagerService {
       // In live mode, attempt to place actual order using batchOrders for zero-cost network optimization
       if (!this.paperMode && this.binanceClient) {
         try {
+          // Set leverage before entry
+          const targetLeverage = metadata.strategy_config?.leverage || 1;
+          await this.setLeverage(symbol, targetLeverage);
+
           const binanceDirection = direction === 'LONG' ? 'BUY' : 'SELL';
           const closeDirection = direction === 'LONG' ? 'SELL' : 'BUY';
           const filters = this.marketFeed.getSymbolFilters(symbol);
@@ -304,8 +328,20 @@ export class OrderManagerService {
 
           const executedQty = parseFloat(entryReceipt.executedQty || '0');
 
-          if (absoluteEntryPrice > 0) trade.entry_price = roundEight(absoluteEntryPrice);
+          if (absoluteEntryPrice > 0) {
+            const slippage = Math.abs(absoluteEntryPrice - entryPrice) / entryPrice;
+            const threshold = metadata.strategy_config?.slippage_warning_threshold ?? 0.001;
+            if (slippage > threshold) {
+              this.logger.warn(`Slippage warning for ${symbol}: Estimated ${entryPrice}, Actual ${absoluteEntryPrice} (Delta: ${(slippage * 100).toFixed(2)}%)`);
+            }
+            trade.entry_price = roundEight(absoluteEntryPrice);
+          }
           if (executedQty > 0) trade.qty = executedQty;
+
+          // Recalculate SL after actual fill to maintain intended risk distance
+          const originalDistance = Math.abs(entryPrice - slPrice);
+          slPrice = direction === 'LONG' ? trade.entry_price - originalDistance : trade.entry_price + originalDistance;
+          trade.current_sl = trade.initial_sl = slPrice;
 
           // Zero-Cost Math Estimation for fees
           const notionalValue = trade.qty * trade.entry_price;
@@ -418,24 +454,24 @@ export class OrderManagerService {
       const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
 
       const slOrderParams = {
-        algoType: 'CONDITIONAL',
         symbol: trade.symbol,
         side: closeDirection as any,
         type: 'STOP_MARKET',
-        triggerPrice: slPrice.toFixed(pricePrecision),
-        quantity: (trade.qty || 0).toFixed(qtyPrecision),
+        stopPrice: slPrice.toFixed(pricePrecision), // Standard STOP_MARKET uses stopPrice
+        closePosition: true, // Guarantees full close
         reduceOnly: true,
         workingType: 'MARK_PRICE' as any,
-        clientAlgoId: `sl-${trade.id.replace(/-/g, '').substring(0, 16)}-${Date.now()}`,
+        newClientOrderId: `sl-${trade.id.substring(0, 8)}`,
       };
 
       this.logger.log(`Placing Binance SL order: ${JSON.stringify(slOrderParams)}`);
-      const response = await (this.binanceClient as any).restAPI.tradeApi.newAlgoOrder(slOrderParams);
+      // Switch from newAlgoOrder to standard newOrder for STOP_MARKET
+      const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder(slOrderParams);
 
       this.updateWeight(response.headers);
       const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
       this.logger.log(`Manual SL placement response for ${trade.symbol}: ${JSON.stringify(orderData)}`);
-      const stopLossId = orderData.algoId || orderData.orderId;
+      const stopLossId = orderData.orderId; // Standard order only has orderId
 
       if (!orderData || !stopLossId) {
         throw new Error(`Invalid response from Binance SL order: ${JSON.stringify(orderData)}`);
@@ -478,7 +514,7 @@ export class OrderManagerService {
 
     // Cancel existing SL order if it exists
     if (trade.binance_stop_order_id) {
-      await this.cancelBinanceAlgoOrder(trade.symbol, trade.binance_stop_order_id);
+      await this.cancelBinanceOrder(trade.symbol, trade.binance_stop_order_id);
     }
 
     // Place new SL order
@@ -647,6 +683,11 @@ export class OrderManagerService {
     }
 
     if (!this.binanceClient) return null;
+    // BOLT: Proactive Rate Limit - Skip position fetching if near limits
+    if (this.sessionState.isRateLimited(0.9)) {
+       this.logger.debug(`Skipping fetchPosition for ${symbol} due to high rate limit usage`);
+       return null;
+    }
     try {
       // BOLT: Verify symbol exists in exchange info before calling API to prevent "Invalid symbol"
       if (!this.marketFeed.getSymbolFilters(symbol)) {
@@ -691,8 +732,7 @@ export class OrderManagerService {
         try {
           // If there is an exchange stop loss, cancel it to prevent orphans
           if (trade.binance_stop_order_id) {
-            // SL is now an Algo order
-            await this.cancelBinanceAlgoOrder(symbol, trade.binance_stop_order_id);
+            await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id);
           }
 
           const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';

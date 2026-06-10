@@ -46,6 +46,7 @@ export class TradingSessionService {
   private hotLoopInterval: NodeJS.Timeout | null = null;
   private fundingCheckInterval: NodeJS.Timeout | null = null;
   private balancePollInterval: NodeJS.Timeout | null = null;
+  private balanceFetchTimeout: NodeJS.Timeout | null = null;
   private appliedPnL: Map<string, number> = new Map(); // trade.id -> total cumulative pnl applied to balance
   private lastScannerFullBroadcast = 0;
   private lastScannerResultsJson = '';
@@ -387,23 +388,26 @@ export class TradingSessionService {
       if (pnlDelta !== 0) {
         this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + pnlDelta);
         this.appliedPnL.set(t.id, totalPnl);
-
-        if (t.status !== 'OPEN') {
-           // Terminal trades can be cleared from map after one final update if needed,
-           // but keeping it until session stop is safer for multiple updates (e.g. from history reconciliation).
-        }
       }
     } else if (this.binanceClient) {
-      // Small delay to allow Binance to process the trade and update account balance
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      const b = await this.fetchBinanceBalance();
-      if (b > 0) {
-        this.sessionState.balanceLive = b;
-        this.sessionState.balancePaper = b;
-      } else {
-        this.sessionState.balanceLive = roundEight(this.sessionState.balanceLive + (t.pnl || 0));
-        this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + (t.pnl || 0));
-      }
+      // BOLT: Coalesce balance fetches to avoid weight spikes when multiple trades close at once.
+      if (this.balanceFetchTimeout) return;
+
+      this.balanceFetchTimeout = setTimeout(async () => {
+        const b = await this.fetchBinanceBalance();
+        this.balanceFetchTimeout = null;
+
+        if (b > 0) {
+          this.sessionState.balanceLive = b;
+          this.sessionState.balancePaper = b;
+        } else {
+          // Fallback if fetch fails
+          this.sessionState.balanceLive = roundEight(this.sessionState.balanceLive + (t.pnl || 0));
+          this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + (t.pnl || 0));
+        }
+        if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), t.pnl || 0);
+      }, 1500); // 1.5s debounce covers most batch closures
+      return; // Skip immediate callback as it will fire after debounce
     }
     if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), t.pnl || 0);
   }

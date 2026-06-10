@@ -23,7 +23,6 @@ export class OrderManagerService {
   private binanceClient: DerivativesTradingUsdsFutures | null = null;
   private paperMode = true;
   private takerFeeRate = 0.0004; // Default taker fee (0.04%)
-  private currentWeight1m = 0;
 
   private consecutiveFailures = 0;
   private readonly MAX_CONSECUTIVE_FAILURES = 3;
@@ -129,11 +128,11 @@ export class OrderManagerService {
     if (headers) {
       const weight = headers['x-mbx-used-weight-1m'] || headers['X-MBX-USED-WEIGHT-1M'];
       if (weight) {
-        this.currentWeight1m = parseInt(weight, 10);
-        this.sessionState.updateRateLimit(this.currentWeight1m);
+        const currentWeight = parseInt(weight, 10);
+        this.sessionState.updateRateLimit(currentWeight);
 
-        if (this.currentWeight1m > 2000) {
-           this.logger.warn(`Binance Rate Limit Warning: ${this.currentWeight1m}/2400`);
+        if (this.sessionState.isRateLimited(0.85)) {
+           this.logger.warn(`Binance Rate Limit Warning: ${currentWeight}/${this.sessionState.binanceRateLimit.limit}`);
         }
       }
     }
@@ -192,8 +191,9 @@ export class OrderManagerService {
     }
 
     // Zero-CPU Rate Limiter Guard
-    if (!this.paperMode && this.currentWeight1m > 2200) {
-      this.logger.warn(`Approaching Binance rate limit (${this.currentWeight1m}). Blocking entry for ${symbol}.`);
+    if (!this.paperMode && this.sessionState.isRateLimited(0.92)) {
+      const currentWeight = this.sessionState.binanceRateLimit.used_1m;
+      this.logger.warn(`Approaching Binance rate limit (${currentWeight}). Blocking entry for ${symbol}.`);
       return { status: ExecutionStatus.CIRCUIT_OPEN, error: 'Rate limit protection active' };
     }
     
@@ -630,6 +630,18 @@ export class OrderManagerService {
   }
 
   public async fetchPosition(symbol: string): Promise<any | null> {
+    // Zero-Weight Path: Prefer local real-time cache from User Data Stream
+    const cached = this.sessionState.realTimePositions.get(symbol);
+    if (cached) {
+       return {
+          symbol,
+          positionAmt: String(cached.amount),
+          entryPrice: String(cached.entryPrice),
+          unRealizedProfit: '0', // Not critical for closure checks
+          positionSide: 'BOTH'
+       };
+    }
+
     if (!this.binanceClient) return null;
     try {
       // BOLT: Verify symbol exists in exchange info before calling API to prevent "Invalid symbol"
@@ -644,6 +656,13 @@ export class OrderManagerService {
       if (Array.isArray(data)) {
         // Find position with non-zero amount (Hedge Mode support)
         const activePosition = data.find(p => parseFloat(p.positionAmt) !== 0);
+        // Update local cache for future zero-weight calls
+        if (activePosition) {
+           this.sessionState.realTimePositions.set(symbol, {
+              amount: parseFloat(activePosition.positionAmt),
+              entryPrice: parseFloat(activePosition.entryPrice)
+           });
+        }
         // If no active position, return the 'BOTH' side if available, or just the first one
         return activePosition || data.find(p => p.positionSide === 'BOTH') || data[0];
       }
@@ -691,6 +710,14 @@ export class OrderManagerService {
 
             this.updateWeight(response.headers);
             const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
+
+            // BOLT: Proactively update zero-weight position cache on success
+            const executedExitQty = parseFloat(orderData.executedQty || '0');
+            const currentCached = this.sessionState.realTimePositions.get(symbol);
+            if (currentCached) {
+               const newAmount = Math.max(0, Math.abs(currentCached.amount) - executedExitQty);
+               this.sessionState.realTimePositions.set(symbol, { ...currentCached, amount: newAmount });
+            }
             this.logger.log(`Close order response for ${symbol}: ${JSON.stringify(orderData)}`);
             trade.binance_close_order_id = orderData.orderId;
 
@@ -703,12 +730,12 @@ export class OrderManagerService {
                if (totalQty > 0) absoluteExitPrice = weightedSum / totalQty;
             }
 
-            const executedExitQty = parseFloat(orderData.executedQty || '0');
+            const executedExitQtyFinal = parseFloat(orderData.executedQty || '0');
 
             if (absoluteExitPrice > 0) exitPrice = roundEight(absoluteExitPrice);
 
             // Zero-Cost Math Estimation for exit fees
-            const exitNotional = (executedExitQty > 0 ? executedExitQty : trade.qty) * exitPrice;
+            const exitNotional = (executedExitQtyFinal > 0 ? executedExitQtyFinal : trade.qty) * exitPrice;
             const exitFee = roundEight(exitNotional * this.takerFeeRate);
             trade.realized_fee = roundEight((trade.realized_fee || 0) + exitFee);
 

@@ -85,6 +85,16 @@ export class MarketFeedService {
       this.updateWeight(response.headers);
       if (response.ok) {
         const data: any = await response.json();
+
+        // Dynamic Rate Limit Detection
+        if (data && Array.isArray(data.rateLimits)) {
+           const requestWeightLimit = data.rateLimits.find((l: any) => l.rateLimitType === 'REQUEST_WEIGHT' && l.interval === 'MINUTE');
+           if (requestWeightLimit) {
+              this.sessionState.updateRateLimit(this.sessionState.binanceRateLimit.used_1m, parseInt(requestWeightLimit.limit, 10));
+              this.logger.log(`Dynamic Binance Rate Limit detected: ${requestWeightLimit.limit}/min`);
+           }
+        }
+
         if (data && Array.isArray(data.symbols)) {
           this.exchangeInfo.clear();
           for (const s of data.symbols) {

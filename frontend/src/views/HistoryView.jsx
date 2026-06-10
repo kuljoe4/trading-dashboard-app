@@ -211,11 +211,6 @@ const SessionGroup = React.memo(({ session, trades }) => {
             className="overflow-hidden border-t border-border/40"
           >
             <div className="p-4 space-y-2 bg-background/30">
-              {curve.length >= 2 && (
-                <div className="bg-surface border border-border/60 rounded-xl p-6 mb-6 shadow-inner">
-                  <EquityCurve data={curve} height={200} />
-                </div>
-              )}
               {trades.length === 0 ? (
                 <div className="py-8 text-center text-[11px] text-dim font-bold uppercase tracking-widest">No trades recorded for this session</div>
               ) : (

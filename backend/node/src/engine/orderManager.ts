@@ -431,7 +431,7 @@ export class OrderManagerService {
       this.updateWeight(response.headers);
       const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
       this.logger.log(`Manual SL placement response for ${trade.symbol}: ${JSON.stringify(orderData)}`);
-      const stopLossId = orderData.orderId;
+      const stopLossId = orderData.algoId || orderData.orderId;
 
       if (!orderData || !stopLossId) {
         throw new Error(`Invalid response from Binance SL order: ${JSON.stringify(orderData)}`);

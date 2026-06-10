@@ -176,11 +176,6 @@ const SessionGroup = React.memo(({ session, trades }) => {
 
         {/* Center/Right: Metrics Grid */}
         <div className="flex flex-col md:flex-row items-start md:items-center gap-6 xl:gap-12 xl:ml-auto">
-          {/* Equity Preview */}
-          <div className="hidden lg:block w-32 xl:w-40 h-10">
-            <EquityCurve data={curve} height={40} />
-          </div>
-
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-8 xl:gap-12">
             <div className="flex flex-col">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Interval</span>

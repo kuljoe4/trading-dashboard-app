@@ -62,7 +62,16 @@ describe('MomentumScannerService Environment Filtering', () => {
         { emit: jest.fn() } as any,
     );
     (orderManager as any).marketFeed = marketFeed;
-    orderManager.setBinanceClient({} as any, false); // Live mode
+    const mockRest = {
+      tradeApi: {
+        newOrder: jest.fn().mockResolvedValue({ data: { orderId: 'mock' }, headers: {} }),
+        newAlgoOrder: jest.fn().mockResolvedValue({ data: { orderId: 'mock' }, headers: {} })
+      },
+      accountApi: {
+        userCommissionRate: jest.fn().mockResolvedValue({ data: { takerCommissionRate: '0.0004' } })
+      }
+    };
+    orderManager.setBinanceClient({ restAPI: mockRest } as any, false); // Live mode
 
     const result = await orderManager.enter('sess', 'BTCUSDT', 'LONG', 50000, 1, 49000, 55000);
     expect(result.status).toBe('ORDER_REJECTED');

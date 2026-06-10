@@ -46,6 +46,7 @@ export class TradingSessionService {
   private hotLoopInterval: NodeJS.Timeout | null = null;
   private fundingCheckInterval: NodeJS.Timeout | null = null;
   private balancePollInterval: NodeJS.Timeout | null = null;
+  private appliedPnL: Map<string, number> = new Map(); // trade.id -> total cumulative pnl applied to balance
   private lastScannerFullBroadcast = 0;
   private lastScannerResultsJson = '';
   private lastScannerResults: any[] = [];
@@ -132,6 +133,7 @@ export class TradingSessionService {
     this.running = true;
     this.sessionId = sid || null;
     this.config = config;
+    this.appliedPnL.clear();
     this.cachedStrategyConfigs = null;
     this.cachedScanSignatures.clear();
     this.binanceClient = bc;
@@ -377,9 +379,20 @@ export class TradingSessionService {
   private async updateBalance(t: Trade, isEntry = false, isFunding = false) {
     const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
     if (mode === 'paper') {
-      // Simplified balance update: apply pnl delta directly.
-      // The calling code ensures t.pnl is the incremental change since last update.
-      this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + (t.pnl || 0));
+      // DATA-05: Delta-based balance updates to prevent double-counting of fees/PnL
+      const totalPnl = t.pnl || 0;
+      const previouslyApplied = this.appliedPnL.get(t.id) || 0;
+      const pnlDelta = roundEight(totalPnl - previouslyApplied);
+
+      if (pnlDelta !== 0) {
+        this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + pnlDelta);
+        this.appliedPnL.set(t.id, totalPnl);
+
+        if (t.status !== 'OPEN') {
+           // Terminal trades can be cleared from map after one final update if needed,
+           // but keeping it until session stop is safer for multiple updates (e.g. from history reconciliation).
+        }
+      }
     } else if (this.binanceClient) {
       // Small delay to allow Binance to process the trade and update account balance
       await new Promise(resolve => setTimeout(resolve, 1000));

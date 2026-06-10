@@ -113,3 +113,6 @@
 1. **Abstract Exchange Layer:** Create an `IExchange` interface to decouple the engine from the Binance SDK.
 2. **Result Pattern:** Replace core logic exceptions with `Result<T, E>` types for explicit error handling.
 3. **Event-Driven Decoupling:** Fully migrate gating and monitoring to an `EventEmitter2` model to remove remaining orchestrator coupling.
+## 2026-06-10 - [Optimization] Loop Fusion in broadcastTick
+**Learning:** Consolidating global risk accumulation into an existing O(N) pass over active trades in the engine's broadcast loop eliminates a redundant 'reduce()' call. While N is small, this reduces JS execution time and function call overhead in a high-frequency (5s) hot path.
+**Action:** Always look for opportunities to fuse multiple O(N) operations into a single-pass loop when processing collections in real-time broadcast services.

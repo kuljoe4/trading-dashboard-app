@@ -196,6 +196,7 @@ export class EngineBroadcasterService {
     const len = activeTrades.length;
     let anyPriceChangedSignificant = false;
     let activePnl = 0;
+    let totalRiskUsdt = 0;
     const hasVariants = !!(config?.strategy_variants?.length);
     const variantGroups: Record<string, { pnl: number, risk: number, count: number, hits: number }> = {};
 
@@ -220,6 +221,7 @@ export class EngineBroadcasterService {
       const pnlValue = roundEight(grossPnl);
       (trade as any).pnl = pnlValue;
       activePnl += pnlValue;
+      totalRiskUsdt += (trade.risk_usdt || 0);
 
       if (hasVariants) {
         const label = trade.strategy_label || 'Momentum Strategy';
@@ -274,7 +276,6 @@ export class EngineBroadcasterService {
     const startingBalance = (mode === 'paper') ? config?.paper_starting_balance : config?.live_starting_balance;
     const realizedPnl = roundEight(balance - (startingBalance ?? balance));
     const totalPnl = roundEight(realizedPnl + activePnl);
-    const totalRiskUsdt = activeTrades.reduce((sum, t) => sum + (t.risk_usdt || 0), 0);
 
     if (!this.lastAnalyticsResult || this.sessionState.closedTrades.length !== this.lastAnalyticsTradeCount || startingBalance !== this.lastAnalyticsStartingBalance) {
       this.lastAnalyticsResult = this.analyticsService.calculateAnalytics(this.sessionState.closedTrades as any, startingBalance);

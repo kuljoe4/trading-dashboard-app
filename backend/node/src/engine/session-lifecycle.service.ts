@@ -17,6 +17,7 @@ import { ENGINE_CONSTANTS } from '../models/constants';
 export class SessionLifecycleService {
   private readonly logger = new Logger(SessionLifecycleService.name);
   private balancePollInterval: NodeJS.Timeout | null = null;
+  public isUdsConnected = false;
   private userDataWs: any = null;
   private listenKey: string | null = null;
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
@@ -195,6 +196,11 @@ export class SessionLifecycleService {
       const initialListenKey = typeof res.data === 'function' ? (await res.data()).listenKey : res.data.listenKey;
       this.listenKey = initialListenKey;
       this.userDataWs = await bc.websocketStreams.connect({ stream: this.listenKey });
+      this.isUdsConnected = true;
+
+      this.userDataWs.on('error', () => { this.isUdsConnected = false; });
+      this.userDataWs.on('close', () => { this.isUdsConnected = false; });
+
       this.userDataWs.on('message', async (msg: any) => {
         try {
           const data = typeof msg === 'string' ? JSON.parse(msg) : msg;

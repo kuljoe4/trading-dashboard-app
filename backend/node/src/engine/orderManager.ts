@@ -107,10 +107,14 @@ export class OrderManagerService {
   }
 
   async setBinanceClient(client: DerivativesTradingUsdsFutures | null, paperMode = true) {
+    const isNewClient = this.binanceClient !== client;
+    const isModeChange = this.paperMode !== paperMode;
+
     this.binanceClient = client;
     this.paperMode = paperMode;
 
-    if (this.binanceClient && !this.paperMode) {
+    // Idempotency check: Only fetch commission rate if client or mode has changed
+    if (this.binanceClient && !this.paperMode && (isNewClient || isModeChange)) {
       try {
         const response = await (this.binanceClient as any).restAPI.accountApi.userCommissionRate({ symbol: 'BTCUSDT' });
         const data = typeof response.data === 'function' ? await response.data() : (response.data || response);

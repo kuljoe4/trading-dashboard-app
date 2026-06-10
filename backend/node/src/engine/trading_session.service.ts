@@ -158,6 +158,11 @@ export class TradingSessionService {
     if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
     if (this.fundingCheckInterval) clearInterval(this.fundingCheckInterval);
 
+    if (this.balanceFetchTimeout) {
+      clearTimeout(this.balanceFetchTimeout);
+      this.balanceFetchTimeout = null;
+    }
+
     const active = this.positionTracker.activeList();
     for (const t of active) {
       const cp = await this.tickerCache.getPrice(t.symbol); const ep = cp ?? t.last_price ?? t.entry_price;
@@ -390,6 +395,13 @@ export class TradingSessionService {
         this.appliedPnL.set(t.id, totalPnl);
       }
     } else if (this.binanceClient) {
+      // BOLT: Prioritize User Data Stream. If UDS is connected, it will push balance updates,
+      // so we can skip the manual REST poll entirely.
+      if (this.sessionLifecycle.isUdsConnected) {
+         if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), t.pnl || 0);
+         return;
+      }
+
       // BOLT: Coalesce balance fetches to avoid weight spikes when multiple trades close at once.
       if (this.balanceFetchTimeout) return;
 

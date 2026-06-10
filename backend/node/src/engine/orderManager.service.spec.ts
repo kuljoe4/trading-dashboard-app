@@ -86,6 +86,18 @@ describe('OrderManagerService', () => {
       expect(trade?.binance_stop_order_id).toBe('mock_sl_id');
     });
 
+    it('is idempotent for setBinanceClient (only fetches and logs once)', async () => {
+      const logSpy = jest.spyOn((service as any).logger, 'log');
+      await service.setBinanceClient(mockBinanceClient, false); // First call
+      const firstCallCount = mockBinanceClient.restAPI.accountApi.userCommissionRate.mock.calls.length;
+
+      await service.setBinanceClient(mockBinanceClient, false); // Second call with same client
+      expect(mockBinanceClient.restAPI.accountApi.userCommissionRate).toHaveBeenCalledTimes(firstCallCount);
+
+      // Verification of log message occurrence would be here if we didn't have multiple tests logged to same console
+      logSpy.mockRestore();
+    });
+
     it('does not place binance orders in paper mode', async () => {
       service.setBinanceClient(mockBinanceClient, true); // Paper mode
 

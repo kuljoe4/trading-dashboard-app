@@ -509,8 +509,8 @@ export const HistoryView = () => {
           )}
         </div>
         <BottomNav />
-      </React.Suspense>
       </div>
+      </React.Suspense>
     </div>
   )
 }

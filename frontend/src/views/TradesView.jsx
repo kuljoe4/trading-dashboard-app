@@ -1,7 +1,6 @@
-import React, { useState } from 'react'
+import React, { useState, lazy, Suspense } from 'react'
 import { useTradingStore } from '../store/trading'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
-import { TradeDetailModal } from '../components/TradeDetailModal'
 import { SectionLabel, StatCard, cn, ViewHeader } from '../components/ui/primitives'
 import { fmtUSD, pnlClass, safeNum } from '../lib/theme'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -10,9 +9,13 @@ import { useResourceFocus } from '../hooks/useResourceFocus'
 import { sessionAPI } from '../api/client'
 import { Sidebar, BottomNav } from '../components/Navigation'
 
+const TradeDetailModal = lazy(() => import('../components/TradeDetailModal').then(m => ({ default: m.TradeDetailModal })))
+
 const TradesView = () => {
   const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled } = useTradingStore()
-  const [selectedTrade, setSelectedTrade] = useState(null)
+  const [selectedTradeId, setSelectedTradeId] = useState(null)
+
+  const selectedTrade = activeTrades.find(t => t.id === selectedTradeId || t.symbol === selectedTradeId)
 
   // Lifecycle-scoped subscription contract
   useResourceFocus('global_trades');
@@ -82,21 +85,23 @@ const TradesView = () => {
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ delay: idx * 0.05 }}
               >
-                <ActiveTradeCard trade={trade} config={config} onClick={() => setSelectedTrade(trade)} />
+                <ActiveTradeCard trade={trade} config={config} onClick={() => setSelectedTradeId(trade.id || trade.symbol)} />
               </motion.div>
             ))}
           </AnimatePresence>
         )}
       </div>
 
-      {selectedTrade && (
-        <TradeDetailModal
-          isOpen={!!selectedTrade}
-          onClose={() => setSelectedTrade(null)}
-          trade={selectedTrade}
-          onTradeClose={handleCloseTrade}
-        />
-      )}
+      <Suspense fallback={null}>
+        {selectedTrade && (
+          <TradeDetailModal
+            isOpen={!!selectedTrade}
+            onClose={() => setSelectedTradeId(null)}
+            trade={selectedTrade}
+            onTradeClose={handleCloseTrade}
+          />
+        )}
+      </Suspense>
       </div>
       <BottomNav />
     </div>

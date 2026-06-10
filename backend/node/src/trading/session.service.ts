@@ -30,6 +30,9 @@ export class SessionService implements OnModuleInit {
 
   private analyticsCache: { data: any; ts: number } | null = null;
   private readonly CACHE_TTL_MS = 60000; // 1 minute
+  // SENTINEL: In-memory tracking to prevent database-heavy count() and log spamming
+  private logRateLimits = new Map<string, { count: number; resetAt: number }>();
+  private sessionLogCounts = new Map<string, number>();
 
   constructor(
     @InjectRepository(SessionEntity)
@@ -893,19 +896,48 @@ export class SessionService implements OnModuleInit {
   // Add log line
   async logMessage(msg: string, level: 'info' | 'warn' | 'error' = 'info') {
     if (!this.currentSessionId) return;
-    
-    // SEC-02: Cap per-session log inserts to prevent unbounded growth
-    const logCount = await this.logRepository.count({ where: { sessionId: this.currentSessionId } });
+
+    const sid = this.currentSessionId;
+    const now = Date.now();
+
+    // SENTINEL: Per-session log rate limiting (max 60 logs per minute) to prevent resource exhaustion
+    const rateLimit = this.logRateLimits.get(sid) || { count: 0, resetAt: now + 60000 };
+    if (now > rateLimit.resetAt) {
+      rateLimit.count = 0;
+      rateLimit.resetAt = now + 60000;
+    }
+    rateLimit.count++;
+    this.logRateLimits.set(sid, rateLimit);
+
+    if (rateLimit.count > 60) {
+      if (rateLimit.count === 61) {
+        this.logger.warn(`Log rate limit (60/min) exceeded for session ${sid}. Further logs suppressed.`);
+      }
+      return;
+    }
+
+    // SENTINEL: Use in-memory counter to enforce cap (2000 logs) and avoid DB overhead
+    let logCount = this.sessionLogCounts.get(sid);
+    if (logCount === undefined) {
+      logCount = await this.logRepository.count({ where: { sessionId: sid } });
+      this.sessionLogCounts.set(sid, logCount);
+    }
+
     if (logCount >= 2000) {
       // If we already have many logs for this session, we only keep errors
       if (level !== 'error') return;
       // For errors, we delete the oldest log before inserting a new one
       const oldest = await this.logRepository.findOne({
-        where: { sessionId: this.currentSessionId },
-        order: { ts: 'ASC' }
+        where: { sessionId: sid },
+        order: { ts: 'ASC' },
       });
-      if (oldest) await this.logRepository.delete(oldest.id);
+      if (oldest) {
+        await this.logRepository.delete(oldest.id);
+        logCount--;
+      }
     }
+
+    this.sessionLogCounts.set(sid, logCount + 1);
 
     await this.logRepository.insert({
       sessionId: this.currentSessionId,

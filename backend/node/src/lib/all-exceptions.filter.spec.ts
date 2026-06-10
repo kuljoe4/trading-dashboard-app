@@ -69,6 +69,22 @@ describe('AllExceptionsFilter', () => {
     expect(loggerSpy).toHaveBeenCalled();
   });
 
+  it('should mask detailed messages for 500 HttpException', () => {
+    const exception = new HttpException('Sensitive DB error details', HttpStatus.INTERNAL_SERVER_ERROR);
+    jest.spyOn((filter as any).logger, 'error').mockImplementation(() => {});
+
+    filter.catch(exception, mockArgumentsHost);
+
+    expect(mockHttpAdapter.reply).toHaveBeenCalledWith(
+      mockResponse,
+      expect.objectContaining({
+        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
+        message: 'Internal server error',
+      }),
+      HttpStatus.INTERNAL_SERVER_ERROR
+    );
+  });
+
   it('should handle validation errors correctly', () => {
     const validationMessage = ['email must be an email'];
     const exception = new HttpException(

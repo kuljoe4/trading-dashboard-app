@@ -362,4 +362,48 @@ describe('SessionService Validation', () => {
       }));
     });
   });
+
+  describe('logMessage rate limiting', () => {
+    it('should rate limit logs per minute', async () => {
+      (service as any).currentSessionId = 'session-123';
+      const insertSpy = mockLogRepository.insert;
+
+      // Send 60 logs
+      for (let i = 0; i < 60; i++) {
+        await service.logMessage(`log ${i}`);
+      }
+      expect(insertSpy).toHaveBeenCalledTimes(60);
+
+      // Send 61st log - should be rate limited
+      await service.logMessage('log 61');
+      expect(insertSpy).toHaveBeenCalledTimes(60);
+    });
+
+    it('should use in-memory counter for 2000 log cap', async () => {
+      (service as any).currentSessionId = 'session-cap';
+
+      // Mock initial count
+      mockLogRepository.count.mockResolvedValue(1999);
+
+      // 1st log - should pass and increment to 2000
+      await service.logMessage('log 1');
+      expect(mockLogRepository.insert).toHaveBeenCalled();
+      expect(mockLogRepository.count).toHaveBeenCalledTimes(1);
+
+      // 2nd log (info) - should be blocked by cap
+      jest.clearAllMocks();
+      await service.logMessage('log 2', 'info');
+      expect(mockLogRepository.insert).not.toHaveBeenCalled();
+      // Should NOT call count() again
+      expect(mockLogRepository.count).not.toHaveBeenCalled();
+
+      // 3rd log (error) - should trigger deletion and insertion
+      jest.clearAllMocks();
+      mockLogRepository.findOne.mockResolvedValue({ id: 'old-log' });
+      await service.logMessage('log 3', 'error');
+      expect(mockLogRepository.delete).toHaveBeenCalledWith('old-log');
+      expect(mockLogRepository.insert).toHaveBeenCalled();
+      expect(mockLogRepository.count).not.toHaveBeenCalled();
+    });
+  });
 });

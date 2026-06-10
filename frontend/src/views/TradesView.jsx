@@ -23,7 +23,7 @@ const TradesView = () => {
   const handleCloseTrade = async (symbol) => {
     try {
       await sessionAPI.closeTrade(symbol)
-      setSelectedTrade(null)
+      setSelectedTradeId(null)
     } catch (e) {
       alert('Failed to close trade: ' + (e?.response?.data?.message || e.message))
     }

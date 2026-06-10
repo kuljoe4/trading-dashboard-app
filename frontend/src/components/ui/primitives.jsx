@@ -5,6 +5,7 @@ import * as ProgressPrimitive from "@radix-ui/react-progress"
 import * as TooltipPrimitive from "@radix-ui/react-tooltip"
 import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft } from 'lucide-react'
 import { Sparkline as SparklineChart } from '../DataCharts'
+import { useTradingStore } from '../../store/trading'
 
 export function cn(...inputs) {
   return twMerge(clsx(inputs))

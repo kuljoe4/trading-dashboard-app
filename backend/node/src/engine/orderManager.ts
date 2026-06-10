@@ -317,6 +317,12 @@ export class OrderManagerService {
           this.logger.log(msg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
 
+          // Issue #3: Check for agreement requirement in responses (though usually it comes as an error)
+          if (entryReceipt.msg && entryReceipt.msg.includes('agreement')) {
+             const agreementMsg = `CRITICAL: ${entryReceipt.msg}. Please go to Binance and sign the required agreement to enable live trading.`;
+             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: agreementMsg, level: 'error' });
+          }
+
           await this.auditLog.log({
             action: 'LIVE_ORDER_ENTRY',
             resourceId: trade.id,
@@ -349,7 +355,13 @@ export class OrderManagerService {
             throw new ExchangeExecutionException(`Unexpected error after market entry for ${symbol}: ${errMsg}`);
           }
 
-          this.logger.warn(`Binance batch entry failed (continuing in paper mode): ${errMsg}`);
+          const agreementMsg = errMsg.includes('agreement')
+            ? `CRITICAL: ${errMsg}. Please go to Binance website and sign the required agreement.`
+            : `Binance entry failed (continuing in paper mode): ${errMsg}`;
+
+          this.logger.warn(agreementMsg);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: agreementMsg, level: agreementMsg.includes('CRITICAL') ? 'error' : 'warn' });
+
           this.recordFailure();
           trade.realized_fee = roundEight(entryPrice * qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
         }
@@ -402,18 +414,19 @@ export class OrderManagerService {
       const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
 
       const slOrderParams = {
+        algoType: 'CONDITIONAL',
         symbol: trade.symbol,
         side: closeDirection as any,
         type: 'STOP_MARKET',
-        stopPrice: slPrice.toFixed(pricePrecision),
+        triggerPrice: slPrice.toFixed(pricePrecision),
         quantity: (trade.qty || 0).toFixed(qtyPrecision),
         reduceOnly: true,
         workingType: 'MARK_PRICE' as any,
-        newClientOrderId: `sl-${trade.id.replace(/-/g, '').substring(0, 16)}-${Date.now()}`,
+        clientAlgoId: `sl-${trade.id.replace(/-/g, '').substring(0, 16)}-${Date.now()}`,
       };
 
       this.logger.log(`Placing Binance SL order: ${JSON.stringify(slOrderParams)}`);
-      const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder(slOrderParams);
+      const response = await (this.binanceClient as any).restAPI.tradeApi.newAlgoOrder(slOrderParams);
 
       this.updateWeight(response.headers);
       const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
@@ -461,7 +474,7 @@ export class OrderManagerService {
 
     // Cancel existing SL order if it exists
     if (trade.binance_stop_order_id) {
-      await this.cancelBinanceOrder(trade.symbol, trade.binance_stop_order_id);
+      await this.cancelBinanceAlgoOrder(trade.symbol, trade.binance_stop_order_id);
     }
 
     // Place new SL order
@@ -502,7 +515,7 @@ export class OrderManagerService {
       // Large IDs must be handled as BigInt to prevent precision loss,
       // but we handle non-numeric strings for testing/robustness.
       const numericAlgoId = /^\d+$/.test(algoId) ? BigInt(algoId) : algoId;
-      const response = await (this.binanceClient as any).restAPI.tradeApi.cancelAlgoOrder({ symbol, algoId: numericAlgoId });
+      const response = await (this.binanceClient as any).restAPI.tradeApi.cancelAlgoOrder({ algoId: numericAlgoId });
       this.updateWeight(response.headers);
       this.logger.log(`Binance algo order canceled: ${symbol} algo_id=${algoId}`);
       return true;
@@ -655,8 +668,8 @@ export class OrderManagerService {
         try {
           // If there is an exchange stop loss, cancel it to prevent orphans
           if (trade.binance_stop_order_id) {
-            // Standard order cancel if we switched away from algoId
-            await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id);
+            // SL is now an Algo order
+            await this.cancelBinanceAlgoOrder(symbol, trade.binance_stop_order_id);
           }
 
           const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';

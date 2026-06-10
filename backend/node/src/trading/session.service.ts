@@ -50,10 +50,12 @@ export class SessionService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
+    this.logger.log('SessionService initializing...');
     // SEC-02: Cleanup old data on startup and periodically
     await this.cleanupOldData();
     setInterval(() => this.cleanupOldData().catch(e => this.logger.error(`Periodic cleanup failed: ${e.message}`)), 12 * 60 * 60 * 1000);
 
+    this.logger.log('Checking security configurations...');
     // DEPLOY-02: Check ENCRYPTION_KEY and ADMIN_API_KEY in production
     // Note: We only log errors here to avoid boot loops. Enforcement happens at the operation level.
     if (process.env.NODE_ENV === "production") {
@@ -70,6 +72,7 @@ export class SessionService implements OnModuleInit {
     }
 
     // Ensure default settings exist
+    this.logger.log('Ensuring default settings exist...');
     const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
     if (!settings) {
       this.logger.log('Initializing default settings...');
@@ -83,12 +86,14 @@ export class SessionService implements OnModuleInit {
 
     // Cleanup any sessions marked as running in the database on startup
     // BOLT: Optimize startup cleanup with a single bulk update instead of a loop
+    this.logger.log('Cleaning up stale running sessions...');
     const updateResult = await this.sessionRepository.update({ running: true }, { running: false });
     if (updateResult.affected && updateResult.affected > 0) {
       this.logger.verbose(`Cleaned up ${updateResult.affected} stale running sessions`);
     }
 
     // DATA-03: One-time population of strategy_label for legacy trades to fix 'Uncategorized' issue
+    this.logger.log('Populating strategy_label for legacy trades...');
     try {
       const tradeUpdateResult = await this.tradeRepository.createQueryBuilder()
         .update(TradeEntity)
@@ -102,6 +107,7 @@ export class SessionService implements OnModuleInit {
       this.logger.error(`Failed to initialize legacy trade labels: ${e.message}`);
     }
 
+    this.logger.log('Wiring balance and trade updates...');
     // Wire balance updates to persistence (legacy/standalone updates)
     this.tradingSessionService.setBalanceUpdateCallback(async (balance, pnl) => {
       const sessionId = this.currentSessionId;
@@ -148,6 +154,8 @@ export class SessionService implements OnModuleInit {
     this.tradingSessionService.setTradeUpdateCallback(async (trade, balance) => {
       await this.saveTradeAtomic(trade, balance);
     });
+
+    this.logger.log('SessionService initialization complete.');
   }
 
   @OnEvent(ENGINE_EVENTS.LOG_MESSAGE)

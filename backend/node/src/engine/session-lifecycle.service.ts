@@ -42,6 +42,17 @@ export class SessionLifecycleService {
 
   async start(config: SessionConfig, bc?: any, sid?: string, hist: Trade[] = [], curBal?: number, open: Trade[] = []) {
     await this.progress('Starting session initialization...');
+
+    // Seed rate limit from exchangeInfo response headers at startup
+    if (bc && config.trading_mode !== 'paper') {
+        try {
+            const restBase = config.trading_mode === 'testnet' ? 'https://testnet.binancefuture.com' : ENGINE_CONSTANTS.BINANCE_REST_BASE;
+            const res = await fetch(`${restBase}/fapi/v1/exchangeInfo`);
+            const weight = res.headers.get('X-MBX-USED-WEIGHT-1M');
+            if (weight) this.sessionState.updateRateLimit(parseInt(weight, 10));
+        } catch (e) {}
+    }
+
     this.sessionState.reset(config, hist, curBal);
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
     await this.orderManager.setBinanceClient(bc, mode === 'paper');
@@ -232,6 +243,9 @@ export class SessionLifecycleService {
             const order = data.o;
             this.logger.log(`[Lifecycle] Order Update: ${order.s} ${order.S} ${order.X} (id=${order.i}, client_id=${order.c})`);
             this.eventEmitter.emit('binance.order_update', data);
+          } else if (data.e === 'listenKeyExpired') {
+            this.logger.warn('[Lifecycle] ListenKey expired, restarting user data stream...');
+            this.startUserDataStream(bc).catch(() => {});
           }
         } catch (err) {
             this.logger.debug(`Error processing user data WS message: ${err instanceof Error ? err.message : String(err)}`);

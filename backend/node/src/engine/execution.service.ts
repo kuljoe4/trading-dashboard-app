@@ -102,8 +102,13 @@ export class ExecutionService {
       const sc = symbolConfigMap?.get(opp.symbol);
       const symbolConfig = (sc?.use_custom_config && sc.custom_config) ? { ...config, ...sc.custom_config } as SessionConfig : config;
 
-      const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry', true);
-      if (!signalResult.allFired) continue;
+      const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry', false);
+      if (!signalResult.allFired) {
+        if (signalResult.reason.includes('warm-up')) {
+          this.logger.debug(`${opp.symbol}: Entry blocked - ${signalResult.reason}`);
+        }
+        continue;
+      }
 
       const activeTrades = this.positionTracker.activeList();
       const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk());

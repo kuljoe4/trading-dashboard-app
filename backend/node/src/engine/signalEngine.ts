@@ -17,7 +17,6 @@ interface SignalDetail {
 export class SignalEngineService {
   private readonly logger = new Logger(SignalEngineService.name);
   private readonly warningCache: Set<string> = new Set();
-  private readonly MIN_WARMUP_PERIOD = 100;
 
   private readonly signalHandlers: Record<
     string,
@@ -36,6 +35,49 @@ export class SignalEngineService {
   };
 
   constructor(private readonly klineStore: KlineStoreService) {}
+
+  getRequiredWarmup(config: SessionConfig): number {
+    if (!config.enabled_signals || config.enabled_signals.length === 0) return 0;
+
+    const requirements: number[] = [0];
+    const params: any = config.signal_params || {};
+
+    for (const signalType of config.enabled_signals) {
+      if (signalType === 'momentum_pct') {
+        requirements.push((config.scan_lookback || 3) + 1);
+      } else if (signalType === 'breakout_hl') {
+        requirements.push((config.scan_lookback || 3) + 1);
+      } else if (signalType === 'ma') {
+        const period = parseInt(params.ma_period || '20', 10);
+        requirements.push(period + 1);
+      } else if (signalType === 'ema' || signalType === 'ema_cross' || signalType === 'ema_price_cross' || signalType === 'ema_close') {
+        const period = parseInt(params.entry_ema_period || params.ema_period || '12', 10);
+        requirements.push(period * 2);
+      } else if (signalType === 'ema_dual_cross') {
+        const fast = parseInt(params.entry_ema_fast || '9', 10);
+        const slow = parseInt(params.entry_ema_slow || '21', 10);
+        requirements.push(Math.max(fast, slow) * 2);
+      } else if (signalType === 'engulfing') {
+        requirements.push(2);
+      }
+    }
+
+    // Also consider exit signals if applicable, but usually warmup is for entry scanning
+    if (config.exit_signals) {
+      for (const signalType of config.exit_signals) {
+        if (signalType === 'ema_close') {
+          const period = parseInt(params.exit_ema_period || params.ema_period || '12', 10);
+          requirements.push(period * 2);
+        } else if (signalType === 'ema_dual_cross') {
+          const fast = parseInt(params.exit_ema_fast || '9', 10);
+          const slow = parseInt(params.exit_ema_slow || '21', 10);
+          requirements.push(Math.max(fast, slow) * 2);
+        }
+      }
+    }
+
+    return Math.max(...requirements);
+  }
 
   checkEntry(
     symbol: string,
@@ -60,17 +102,18 @@ export class SignalEngineService {
 
     // Warm-up check for technical indicators
     if (purpose === 'entry') {
+      const requiredWarmup = this.getRequiredWarmup(config);
       const candles = this.klineStore.getRawCandles(symbol, interval);
-      if (candles.length < this.MIN_WARMUP_PERIOD) {
+      if (candles.length < requiredWarmup) {
         return {
           allFired: false,
           firedSignals: [],
-          reason: `Indicator warm-up in progress (${candles.length}/${this.MIN_WARMUP_PERIOD} candles)`,
+          reason: `Indicator warm-up in progress (${candles.length}/${requiredWarmup} candles)`,
           details: {
             warmup: {
               fired: false,
               value: candles.length,
-              threshold: this.MIN_WARMUP_PERIOD,
+              threshold: requiredWarmup,
               unit: 'candles',
               metric: 'Warmup',
               description: 'Waiting for mathematical convergence',

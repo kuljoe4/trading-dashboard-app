@@ -287,6 +287,17 @@ export class SessionConfig {
   @Min(CONFIG_LIMITS.MAIN_LOOP_MIN)
   main_loop_interval_ms?: number = CONFIG_LIMITS.MAIN_LOOP_DEFAULT;
 
+  @IsNumber()
+  @IsOptional()
+  @Min(CONFIG_LIMITS.LEVERAGE_MIN)
+  @Max(CONFIG_LIMITS.LEVERAGE_MAX)
+  leverage: number = CONFIG_LIMITS.LEVERAGE_DEFAULT;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  slippage_warning_threshold: number = CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT;
+
   @IsBoolean()
   @IsOptional()
   debug_mode?: boolean = false;

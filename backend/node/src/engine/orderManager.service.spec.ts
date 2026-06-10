@@ -33,6 +33,7 @@ describe('OrderManagerService', () => {
           placeMultipleOrders: jest.fn().mockResolvedValue({ data: () => Promise.resolve([{ orderId: 'mock_order_id' }, { orderId: 'mock_sl_id' }]), headers: {} }),
           cancelOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
           cancelAlgoOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
+          changeInitialLeverage: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
         },
         accountApi: {
           userCommissionRate: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ takerCommissionRate: '0.0004' }) }),
@@ -58,8 +59,8 @@ describe('OrderManagerService', () => {
       expect(result.status).toBe('SUCCESS');
       const trade = result.data;
       expect(trade).toBeDefined();
-      expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledTimes(1);
-      expect(mockBinanceClient.restAPI.tradeApi.newAlgoOrder).toHaveBeenCalledTimes(1);
+      // 1 for entry, 1 for SL
+      expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledTimes(2);
       
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenNthCalledWith(1,
         expect.objectContaining({
@@ -70,20 +71,19 @@ describe('OrderManagerService', () => {
         })
       );
 
-      expect(mockBinanceClient.restAPI.tradeApi.newAlgoOrder).toHaveBeenNthCalledWith(1,
+      expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenNthCalledWith(2,
         expect.objectContaining({
-          algoType: 'CONDITIONAL',
           symbol: 'BTCUSDT',
           side: 'SELL',
           type: 'STOP_MARKET',
-          triggerPrice: '49500.00000000',
+          stopPrice: '49500.00000000',
           workingType: 'MARK_PRICE',
-          quantity: '0.10000000',
+          closePosition: true,
           reduceOnly: true
         })
       );
 
-      expect(trade?.binance_stop_order_id).toBe('mock_sl_id');
+      expect(trade?.binance_stop_order_id).toBe('mock_order_id');
     });
 
     it('is idempotent for setBinanceClient (only fetches and logs once)', async () => {
@@ -131,20 +131,20 @@ describe('OrderManagerService', () => {
         binance_stop_order_id: 'old_sl_id',
       } as Trade;
 
-      mockBinanceClient.restAPI.tradeApi.newAlgoOrder.mockResolvedValueOnce({ data: () => Promise.resolve({ orderId: 'new_sl_id' }), headers: {} });
+      mockBinanceClient.restAPI.tradeApi.newOrder.mockResolvedValueOnce({ data: () => Promise.resolve({ orderId: 'new_sl_id' }), headers: {} });
 
       await service.updateStopLoss(trade, 50500);
 
-      expect(mockBinanceClient.restAPI.tradeApi.cancelAlgoOrder).toHaveBeenCalledWith(
+      expect(mockBinanceClient.restAPI.tradeApi.cancelOrder).toHaveBeenCalledWith(
         expect.objectContaining({
           symbol: 'BTCUSDT',
-          algoId: 'old_sl_id'
+          orderId: 'old_sl_id'
         })
       );
-      expect(mockBinanceClient.restAPI.tradeApi.newAlgoOrder).toHaveBeenCalledWith(
+      expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'STOP_MARKET',
-          triggerPrice: '50500.00000000',
+          stopPrice: '50500.00000000',
           workingType: 'MARK_PRICE'
         })
       );
@@ -167,10 +167,10 @@ describe('OrderManagerService', () => {
 
       await service.closeTrade('BTCUSDT', trade, 51000, 'TP_HIT');
 
-      expect(mockBinanceClient.restAPI.tradeApi.cancelAlgoOrder).toHaveBeenCalledWith(
+      expect(mockBinanceClient.restAPI.tradeApi.cancelOrder).toHaveBeenCalledWith(
         expect.objectContaining({
           symbol: 'BTCUSDT',
-          algoId: 'active_sl_id'
+          orderId: 'active_sl_id'
         })
       );
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledWith(

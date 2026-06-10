@@ -53,4 +53,4 @@ EOF_NGINX
 
 EXPOSE 80
 
-CMD ["/bin/sh", "-c", ": ${PORT:=80}; envsubst '${PORT}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'worker_processes 1; daemon off;'"]
+CMD ["/bin/sh", "-c", ": ${PORT:=80}; envsubst '${PORT}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf && sed -i 's/^worker_processes.*/worker_processes 1;/' /etc/nginx/nginx.conf && nginx -g 'daemon off;'"]

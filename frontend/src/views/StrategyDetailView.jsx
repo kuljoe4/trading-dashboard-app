@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react'
-import { pnlColor, fmtUSD } from '../lib/theme'
+import { pnlColor, pnlClass, fmtUSD } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
 import { DecisionLog } from '../components/DecisionLog'
 import { 
@@ -52,7 +52,7 @@ const StrategyDetailView = ({ s, onBack }) => {
         <StatCard
           label="Active P&L"
           value={fmtUSD(s.activePnl)}
-          color={s.activePnl >= 0 ? "text-green" : "text-red"}
+          color={pnlClass(s.activePnl)}
           subValue={analytics === null ? "Synchronizing..." : `Total Session: ${fmtUSD(s.totalPnl)}`}
           syncing={isSyncing || (analytics === null && s.activePnl === 0)}
         />

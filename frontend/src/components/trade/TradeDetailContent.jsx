@@ -3,7 +3,7 @@ import {
   ShieldCheck, Clock, ArrowUpRight, ArrowDownRight, Activity, Zap, 
   Info, ShieldAlert, CheckCircle2, BarChart3, TrendingUp, XCircle, Loader2
 } from 'lucide-react'
-import { fmtUSD, pnlColor, fmt } from '../../lib/theme'
+import { fmtUSD, pnlColor, pnlClass, fmt } from '../../lib/theme'
 import { price, formatDuration } from '../../lib/formatters'
 import { StatCard, SectionLabel, cn, CopyButton, Tooltip, PulseDot } from '../ui/primitives'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -225,7 +225,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
             </div>
             <div className="flex items-center gap-2 mb-1 md:mb-2">
               <span className="text-[7px] md:text-[10px] font-black text-dim uppercase tracking-[0.2em]">Performance</span>
-              <div className={cn("text-lg md:text-4xl font-black font-mono tracking-tighter", pnlColor(trade.pnl))}>
+              <div className={cn("text-lg md:text-4xl font-black font-mono tracking-tighter", pnlClass(trade.pnl))}>
                 {fmtUSD(trade.pnl)}
               </div>
             </div>
@@ -303,7 +303,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
 
       {/* Primary Metrics Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
-         <StatCard label="Mark" value={price(mark)} color={trade.pnl >= 0 ? "text-green" : "text-red"} syncing={isSyncing} />
+         <StatCard label="Mark" value={price(mark)} color={pnlClass(trade.pnl)} syncing={isSyncing} />
          <StatCard label="Size" value={`${qtyFormatted} ${trade.symbol.replace('USDT', '')}`} color="text-text" />
          <StatCard label="Risk" value={riskFormatted} color="text-red" />
          <StatCard label="Entry" value={price(entry)} color="text-dim" />

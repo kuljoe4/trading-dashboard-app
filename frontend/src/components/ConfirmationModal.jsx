@@ -28,7 +28,11 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
           )}>
             <AlertTriangle size={20} />
           </div>
-          <button onClick={onClose} className="text-dim hover:text-text p-1 transition-colors">
+          <button
+            onClick={onClose}
+            className="text-dim hover:text-text p-1 transition-colors"
+            aria-label="Close"
+          >
             <X size={20} />
           </button>
         </div>

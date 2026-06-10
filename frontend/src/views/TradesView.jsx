@@ -2,21 +2,13 @@ import React, { useState } from 'react'
 import { useTradingStore } from '../store/trading'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
 import { TradeDetailModal } from '../components/TradeDetailModal'
-import { SectionLabel, StatCard, cn } from '../components/ui/primitives'
+import { SectionLabel, StatCard, cn, ViewHeader } from '../components/ui/primitives'
 import { fmtUSD, pnlClass, safeNum } from '../lib/theme'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Briefcase, Zap } from 'lucide-react'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { sessionAPI } from '../api/client'
 import { Sidebar, BottomNav } from '../components/Navigation'
-
-const Breadcrumbs = () => (
-  <nav className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-dim mb-6">
-    <button onClick={() => window.location.hash = '#/'} className="hover:text-text transition-colors">Cockpit</button>
-    <span>/</span>
-    <span className="text-text">All Active Trades</span>
-  </nav>
-)
 
 const TradesView = () => {
   const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled } = useTradingStore()
@@ -44,16 +36,12 @@ const TradesView = () => {
         "max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:pb-8 transition-all",
         healthEnabled ? "pb-48" : "pb-32"
       )}>
-        <Breadcrumbs />
-      <div className="flex items-center gap-4 mb-10">
-        <div className="w-12 h-12 rounded-2xl bg-accent/10 flex items-center justify-center text-accent shadow-sm border border-accent/20">
-          <Briefcase size={24} />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold">Active Positions</h1>
-          <p className="text-dim text-xs font-bold uppercase tracking-widest mt-1">Live monitoring across all strategies</p>
-        </div>
-      </div>
+        <ViewHeader
+          icon={Briefcase}
+          title="Active Positions"
+          subTitle="Live monitoring across all strategies"
+          backAction={() => window.location.hash = '#/'}
+        />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 lg:mb-12">
         {(() => {

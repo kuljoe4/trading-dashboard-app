@@ -4,7 +4,7 @@ import { useTradingStore } from '../store/trading'
 import { DecisionLog } from '../components/DecisionLog'
 import { 
   StatCard, SectionLabel, StatusBadge, PaperBadge, DemoBadge, LiveBadge,
-  ConditionWidget, PnLBars, CopyButton, cn
+  ConditionWidget, PnLBars, CopyButton, cn, ViewHeader
 } from '../components/ui/primitives'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -12,14 +12,6 @@ import {
 } from 'lucide-react'
 import { EquityCurve } from '../components/Analytics'
 import { useResourceFocus } from '../hooks/useResourceFocus'
-
-const Breadcrumbs = ({ strategyLabel }) => (
-  <nav className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-dim mb-6">
-    <button onClick={() => window.location.hash = '#/'} className="hover:text-accent transition-colors">Cockpit</button>
-    <span>/</span>
-    <span className="text-text">{strategyLabel}</span>
-  </nav>
-)
 
 const StrategyDetailView = ({ s, onBack }) => {
   const { config, scannerResults, analytics, wsStatus, isSyncing } = useTradingStore()
@@ -40,13 +32,17 @@ const StrategyDetailView = ({ s, onBack }) => {
       layout
       className="max-w-[1200px] mx-auto p-3 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32 lg:pb-10"
     >
-      <div className="flex items-center gap-4 mb-6 md:mb-10">
-        <button onClick={onBack} aria-label="Go back" className="p-2.5 hover:bg-surface border border-border rounded-xl transition-all active:scale-90 group"><ChevronLeft size={20} className="text-dim group-hover:text-text" /></button>
-        <div className="flex-1">
-          <div className="flex items-center gap-3"><span className="text-2xl font-bold">Strategy Console</span><StatusBadge status={s.sessionActive} />{config.trading_mode === 'paper' && <PaperBadge />}{config.trading_mode === 'testnet' && <DemoBadge />}{config.trading_mode === 'live' && <LiveBadge />}</div>
-          <div className="text-[11px] text-dim mt-1.5 font-bold uppercase tracking-widest flex items-center gap-2"><Activity size={12} /> Loop Monitoring · {s.strategyId?.substring(0, 8)}<CopyButton value={s.strategyId} className="p-1" /></div>
-        </div>
-      </div>
+      <ViewHeader
+        icon={Activity}
+        title={s.strategy_label}
+        subTitle={`Loop Monitoring · ${s.strategyId?.substring(0, 8)}`}
+        backAction={onBack}
+      >
+         <div className="flex items-center gap-2">
+           <CopyButton value={s.strategyId} className="p-1" />
+           <StatusBadge status={s.sessionActive} />
+         </div>
+      </ViewHeader>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-10">
         <StatCard

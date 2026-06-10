@@ -1,23 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useTradingStore } from '../store/trading'
 import {
-  StatusBadge, PaperBadge, cn, CopyButton
+  StatusBadge, PaperBadge, cn, CopyButton, ViewHeader
 } from '../components/ui/primitives'
 import { ChevronLeft, ArrowLeft, Activity, Clock } from 'lucide-react'
 import { sessionAPI } from '../api/client'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { TradeDetailContent } from '../components/trade/TradeDetailContent'
 import { formatDuration } from '../lib/formatters'
-
-const Breadcrumbs = ({ strategyLabel, symbol }) => (
-  <nav className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-dim mb-6">
-    <button onClick={() => window.location.hash = '#/'} className="hover:text-text transition-colors">Cockpit</button>
-    <span>/</span>
-    <button onClick={() => window.location.hash = `#/strategy/${encodeURIComponent(strategyLabel)}`} className="hover:text-text transition-colors">{strategyLabel}</button>
-    <span>/</span>
-    <span className="text-text">{symbol}</span>
-  </nav>
-)
 
 const TradeDetailView = ({ tradeId }) => {
   const { activeTrades, wsStatus, updateStats } = useTradingStore()
@@ -95,41 +85,21 @@ const TradeDetailView = ({ tradeId }) => {
 
   return (
     <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <Breadcrumbs strategyLabel={trade.strategy_label} symbol={trade.symbol} />
-
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-10">
-        <div className="flex items-center gap-5">
-           <button
-             onClick={() => window.history.back()}
-             aria-label="Go back"
-             className="p-3 bg-surface border border-border rounded-2xl hover:border-accent/40 text-dim hover:text-text transition-all active:scale-90"
-           >
-             <ChevronLeft size={20} />
-           </button>
-           <div>
-             <div className="flex items-center gap-3 mb-1">
-               <h1 className="text-3xl font-black tracking-tight">{trade.symbol}</h1>
-               <span className={cn("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider", trade.direction === 'LONG' ? 'bg-green/10 text-green border border-green/20' : 'bg-red/10 text-red border border-red/20')}>
-                 {trade.direction}
-               </span>
-               <StatusBadge status="live" />
-               <PaperBadge />
-             </div>
-             <div className="flex items-center gap-3 text-[11px] text-dim font-bold uppercase tracking-widest">
-                <span>{trade.strategy_label}</span>
-                <span className="text-dim/30">•</span>
-                <span className="flex items-center gap-1.5">
-                  <Clock size={12} className="text-accent" /> {duration}
-                </span>
-                <span className="text-dim/30">•</span>
-                <span className="flex items-center gap-1.5">
-                  ID: {trade.id?.substring(0, 8)}
-                  <CopyButton value={trade.id} className="p-1" />
-                </span>
-             </div>
-           </div>
+      <ViewHeader
+        title={trade.symbol}
+        subTitle={`${trade.strategy_label} · ${duration}`}
+        backAction={() => window.history.back()}
+      >
+        <div className="flex items-center gap-3">
+          <span className={cn("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider", trade.direction === 'LONG' ? 'bg-green/10 text-green border border-green/20' : 'bg-red/10 text-red border border-red/20')}>
+            {trade.direction}
+          </span>
+          <div className="hidden sm:flex items-center gap-1.5 text-[10px] text-dim font-bold font-mono">
+            ID: {trade.id?.substring(0, 8)}
+            <CopyButton value={trade.id} className="p-1" />
+          </div>
         </div>
-      </div>
+      </ViewHeader>
 
       <TradeDetailContent 
         trade={trade}

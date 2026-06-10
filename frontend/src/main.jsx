@@ -25,7 +25,7 @@ const LoadingView = () => (
 
 const App = () => {
   const { 
-    setSessionActive, updateStats, setThrottled, debugToolsEnabled
+    setSessionActive, updateStats, setThrottled, sync, debugToolsEnabled
   } = useTradingStore();
 
   const isHidden = useVisibility();
@@ -51,7 +51,10 @@ const App = () => {
 
   useEffect(() => {
     setThrottled(isHidden);
-  }, [isHidden, setThrottled]);
+    if (!isHidden) {
+      sync();
+    }
+  }, [isHidden, setThrottled, sync]);
 
   useEffect(() => {
     let script = null;

@@ -56,6 +56,11 @@ describe('OrderManagerService Resilience', () => {
       const result = await service.cancelBinanceAlgoOrder('ETHUSDT', '1000000098924300');
 
       expect(result).toBe(true);
+      expect(mockBinanceClient.restAPI.tradeApi.cancelAlgoOrder).toHaveBeenCalledWith(
+        expect.objectContaining({
+          symbol: 'ETHUSDT'
+        })
+      );
     });
   });
 

@@ -357,13 +357,13 @@ export class OrderManagerService {
 
           const agreementMsg = errMsg.includes('agreement')
             ? `CRITICAL: ${errMsg}. Please go to Binance website and sign the required agreement.`
-            : `Binance entry failed (continuing in paper mode): ${errMsg}`;
+            : `Binance entry failed: ${errMsg}`;
 
-          this.logger.warn(agreementMsg);
-          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: agreementMsg, level: agreementMsg.includes('CRITICAL') ? 'error' : 'warn' });
+          this.logger.error(agreementMsg);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: agreementMsg, level: 'error' });
 
           this.recordFailure();
-          trade.realized_fee = roundEight(entryPrice * qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
+          return { status: ExecutionStatus.ORDER_REJECTED, error: agreementMsg };
         }
       } else if (this.paperMode) {
         // Simulate paper entry fee (taker rate)
@@ -515,7 +515,7 @@ export class OrderManagerService {
       // Large IDs must be handled as BigInt to prevent precision loss,
       // but we handle non-numeric strings for testing/robustness.
       const numericAlgoId = /^\d+$/.test(algoId) ? BigInt(algoId) : algoId;
-      const response = await (this.binanceClient as any).restAPI.tradeApi.cancelAlgoOrder({ algoId: numericAlgoId });
+      const response = await (this.binanceClient as any).restAPI.tradeApi.cancelAlgoOrder({ symbol, algoId: numericAlgoId });
       this.updateWeight(response.headers);
       this.logger.log(`Binance algo order canceled: ${symbol} algo_id=${algoId}`);
       return true;

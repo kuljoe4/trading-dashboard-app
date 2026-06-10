@@ -120,6 +120,7 @@ describe('OrderManagerService', () => {
 
       expect(mockBinanceClient.restAPI.tradeApi.cancelAlgoOrder).toHaveBeenCalledWith(
         expect.objectContaining({
+          symbol: 'BTCUSDT',
           algoId: 'old_sl_id'
         })
       );
@@ -151,6 +152,7 @@ describe('OrderManagerService', () => {
 
       expect(mockBinanceClient.restAPI.tradeApi.cancelAlgoOrder).toHaveBeenCalledWith(
         expect.objectContaining({
+          symbol: 'BTCUSDT',
           algoId: 'active_sl_id'
         })
       );

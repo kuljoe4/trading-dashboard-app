@@ -17,6 +17,7 @@ import { ENGINE_CONSTANTS } from '../models/constants';
 export class SessionLifecycleService {
   private readonly logger = new Logger(SessionLifecycleService.name);
   private balancePollInterval: NodeJS.Timeout | null = null;
+  public isUdsConnected = false;
   private userDataWs: any = null;
   private listenKey: string | null = null;
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
@@ -34,12 +35,19 @@ export class SessionLifecycleService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
+  private async progress(msg: string, level: 'info' | 'warn' = 'info') {
+    this.logger.log(`[Lifecycle] ${msg}`);
+    this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Lifecycle] ${msg}`, level });
+  }
+
   async start(config: SessionConfig, bc?: any, sid?: string, hist: Trade[] = [], curBal?: number, open: Trade[] = []) {
+    await this.progress('Starting session initialization...');
     this.sessionState.reset(config, hist, curBal);
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
     await this.orderManager.setBinanceClient(bc, mode === 'paper');
 
     if (mode !== 'paper' && bc) {
+      await this.progress(`Configuring Binance ${mode.toUpperCase()} account...`);
       try {
         // Enforce One-Way Mode (Disable Hedge Mode)
         this.monitoringService.incrementApiRequests();
@@ -58,30 +66,26 @@ export class SessionLifecycleService {
           }
         }
 
+        await this.progress('Fetching account balance...');
         const b = await this.fetchBinanceBalance(bc);
-        const balMsg = `[Lifecycle] Initial Binance ${mode} balance fetch: ${b} USDT`;
-        this.logger.log(balMsg);
-        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: balMsg, level: 'info' });
 
         if (b === 0 && (curBal || 0) > 0) {
-          const fallbackMsg = `[Lifecycle] Binance ${mode} returned 0 balance. Falling back to local configuration: ${curBal} USDT. Please check if your Testnet account needs funds from the faucet.`;
-          this.logger.warn(fallbackMsg);
-          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: fallbackMsg, level: 'warn' });
+          const fallbackMsg = `Binance ${mode} returned 0 balance. Falling back to local: ${curBal} USDT.`;
+          await this.progress(fallbackMsg, 'warn');
           this.sessionState.balanceLive = curBal!;
           this.sessionState.balancePaper = curBal!;
         } else {
           this.sessionState.balanceLive = b;
           this.sessionState.balancePaper = b;
           if (b === 0) {
-            const zeroBalMsg = `[Lifecycle] Binance ${mode} balance is actually 0. Engine will be gated until funds are available.`;
-            this.logger.warn(zeroBalMsg);
-            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: zeroBalMsg, level: 'warn' });
+            await this.progress(`Binance ${mode} balance is 0. Gating until funds are available.`, 'warn');
           }
         }
       } catch (e) {
         this.logger.debug(`Initial balance fetch failed: ${e instanceof Error ? e.message : String(e)}`);
       }
 
+      await this.progress('Establishing real-time account stream...');
       this.startUserDataStream(bc).catch((err) => {
         this.logger.error(`Failed to start user data stream: ${err instanceof Error ? err.message : String(err)}. Falling back to polling.`);
         this.balancePollInterval = setInterval(async () => {
@@ -94,16 +98,22 @@ export class SessionLifecycleService {
       });
     }
 
+    await this.progress('Initializing market feed and ticker cache...');
     await this.marketFeed.start(config);
+
+    await this.progress('Warming up momentum scanner...');
     await this.momentumScanner.start(config);
 
     if (open.length > 0) {
+      await this.progress(`Resuming ${open.length} active trades...`);
       for (const t of open) {
         this.positionTracker.addTrade(t);
         this.sessionState.updateStatsOnEntry();
       }
     }
     this.sessionState.setActiveTrades(this.positionTracker.activeList());
+
+    await this.progress('Session ready. Trading logic engaged.');
 
     await this.auditLog.log({
       action: 'SESSION_START',
@@ -115,9 +125,11 @@ export class SessionLifecycleService {
   }
 
   async stop(bc?: any, sid?: string, config?: SessionConfig) {
+    await this.progress('Initiating session shutdown...');
     if (this.balancePollInterval) clearInterval(this.balancePollInterval);
     if (this.listenKeyKeepAlive) clearInterval(this.listenKeyKeepAlive);
     if (this.userDataWs) {
+        await this.progress('Closing real-time account stream...');
         try { this.userDataWs.disconnect(); } catch (e) {
             this.logger.debug(`Error disconnecting user data WS: ${e instanceof Error ? e.message : String(e)}`);
         }
@@ -130,8 +142,10 @@ export class SessionLifecycleService {
         this.listenKey = null;
     }
 
+    await this.progress('Cleaning up market feeds...');
     await this.marketFeed.stop();
     await this.momentumScanner.stop();
+    await this.progress('Shutdown complete.');
 
     await this.auditLog.log({
       action: 'SESSION_STOP',
@@ -182,19 +196,37 @@ export class SessionLifecycleService {
       const initialListenKey = typeof res.data === 'function' ? (await res.data()).listenKey : res.data.listenKey;
       this.listenKey = initialListenKey;
       this.userDataWs = await bc.websocketStreams.connect({ stream: this.listenKey });
+      this.isUdsConnected = true;
+
+      this.userDataWs.on('error', () => { this.isUdsConnected = false; });
+      this.userDataWs.on('close', () => { this.isUdsConnected = false; });
+
       this.userDataWs.on('message', async (msg: any) => {
         try {
           const data = typeof msg === 'string' ? JSON.parse(msg) : msg;
 
-          if (data.e === 'ACCOUNT_UPDATE' && data.a && data.a.B) {
-            const usdt = data.a.B.find((b: any) => b.a === 'USDT');
-            if (usdt) {
-              const nb = parseFloat(usdt.wb);
-              const liveBalMsg = `[Lifecycle] Received real-time balance update: ${nb} USDT`;
-              this.logger.log(liveBalMsg);
-              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: liveBalMsg, level: 'info' });
-              this.sessionState.balanceLive = nb;
-              this.sessionState.balancePaper = nb;
+          if (data.e === 'ACCOUNT_UPDATE' && data.a) {
+            // Real-time Balance Tracking (Zero Weight)
+            if (data.a.B) {
+              const usdt = data.a.B.find((b: any) => b.a === 'USDT');
+              if (usdt) {
+                const nb = parseFloat(usdt.wb);
+                const liveBalMsg = `[Lifecycle] Received real-time balance update: ${nb} USDT`;
+                this.logger.log(liveBalMsg);
+                this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: liveBalMsg, level: 'info' });
+                this.sessionState.balanceLive = nb;
+                this.sessionState.balancePaper = nb;
+              }
+            }
+            // Real-time Position Tracking (Zero Weight)
+            if (data.a.P) {
+              for (const pos of data.a.P) {
+                const symbol = pos.s;
+                const amount = parseFloat(pos.pa);
+                const entryPrice = parseFloat(pos.ep);
+                this.sessionState.realTimePositions.set(symbol, { amount, entryPrice });
+                this.logger.debug(`[Lifecycle] Real-time position update for ${symbol}: ${amount} @ ${entryPrice}`);
+              }
             }
           } else if (data.e === 'ORDER_TRADE_UPDATE') {
             const order = data.o;

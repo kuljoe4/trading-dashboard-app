@@ -11,7 +11,7 @@ export class SessionStateService {
   public balancePaper = 0;
   public balanceLive = 0;
   public paused = false;
-  public binanceRateLimit: { used_1m?: number } = {};
+  public binanceRateLimit: { used_1m: number; limit: number } = { used_1m: 0, limit: 2400 };
   public stats = {
     entryCount: 0,
     hitCount: 0,
@@ -19,6 +19,7 @@ export class SessionStateService {
   public statsVersion = 0;
   public gateState: string | null = null;
   public hibernating = false;
+  public realTimePositions: Map<string, { amount: number; entryPrice: number }> = new Map();
   public config: SessionConfig | null = null;
   public closedTrades: Trade[] = [];
   public activeTrades: Trade[] = []; // BOLT: Track active trades here for circular dependency removal
@@ -39,8 +40,9 @@ export class SessionStateService {
     this.gateState = null;
     this.hibernating = false;
     this.paused = false;
-    this.binanceRateLimit = {};
+    this.binanceRateLimit = { used_1m: 0, limit: 2400 };
     this.cachedClosedTradesStats = {};
+    this.realTimePositions.clear();
 
     for (const trade of initialHistory) {
       const label = trade.strategy_label || config.strategy_label || 'Momentum Strategy';
@@ -85,20 +87,23 @@ export class SessionStateService {
       ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(this.gateState || '');
   }
 
-  updateRateLimit(used1m: number) {
+  updateRateLimit(used1m: number, limit?: number) {
     this.binanceRateLimit.used_1m = used1m;
+    if (limit) {
+      this.binanceRateLimit.limit = limit;
+    }
   }
 
   isRateLimited(threshold = 0.8): boolean {
-    const used = this.binanceRateLimit.used_1m || 0;
-    const limit = ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT;
+    const used = this.binanceRateLimit.used_1m;
+    const limit = this.binanceRateLimit.limit;
     return (used / limit) > threshold;
   }
 
   getBinanceRateLimit() {
     return {
-      used_weight_1m: this.binanceRateLimit.used_1m || 0,
-      limit: ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT,
+      used_weight_1m: this.binanceRateLimit.used_1m,
+      limit: this.binanceRateLimit.limit,
       last_update: new Date().toISOString(),
     };
   }
@@ -158,7 +163,8 @@ export class SessionStateService {
     this.closedTrades = [];
     this.activeTrades = [];
     this.cachedClosedTradesStats = {};
-    this.binanceRateLimit = {};
+    this.binanceRateLimit = { used_1m: 0, limit: 2400 };
+    this.realTimePositions.clear();
     this.stats = { entryCount: 0, hitCount: 0 };
     this.statsVersion++;
 

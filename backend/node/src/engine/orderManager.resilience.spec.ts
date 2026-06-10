@@ -20,7 +20,10 @@ describe('OrderManagerService Resilience', () => {
       })
     };
     mockSessionState = {
-      isRateLimited: jest.fn().mockReturnValue(false)
+      isRateLimited: jest.fn().mockReturnValue(false),
+      binanceRateLimit: { used_1m: 0, limit: 2400 },
+      updateRateLimit: jest.fn(),
+      realTimePositions: new Map()
     };
     mockAuditLog = {
       log: jest.fn()

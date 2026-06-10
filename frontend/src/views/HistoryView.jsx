@@ -6,7 +6,9 @@ import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader
 import { motion, AnimatePresence } from 'framer-motion'
 import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap, BarChart3, LineChart, Target, Trash2 } from 'lucide-react'
 import { Sidebar, BottomNav } from '../components/Navigation'
-import { EquityCurve, TODPerformance } from '../components/Analytics'
+// Lazy load heavy analytics components
+const EquityCurve = React.lazy(() => import('../components/Analytics').then(m => ({ default: m.EquityCurve })))
+const TODPerformance = React.lazy(() => import('../components/Analytics').then(m => ({ default: m.TODPerformance })))
 
 const price = (value) => {
   if (value == null) return 'None'
@@ -26,89 +28,83 @@ const buildCurve = (trades = []) => {
 
 const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
   const pnl = safeNum(trade.pnl)
-  const isWin = pnl >= 0
   const durationMs = trade.exit_ts && trade.entry_ts ? new Date(trade.exit_ts).getTime() - new Date(trade.entry_ts).getTime() : 0
   const durationStr = durationMs ? (durationMs / 60000).toFixed(1) + 'm' : 'N/A'
+  const isLong = trade.direction?.toLowerCase() === 'long'
 
   return (
-    <div className="flex flex-col gap-3 p-4 bg-surface border border-border/60 rounded-xl hover:border-border-hover transition-colors group/trade shadow-sm">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2 mb-0.5">
-              <span className="text-xs font-bold font-mono">{trade.symbol}</span>
-              <CopyButton value={trade.symbol} className="opacity-0 group-hover/trade:opacity-100 focus-visible:opacity-100 -ml-1" />
-              {showStrategy && (
-                <a href={`#/history?session=${trade.sessionId || session?.id}`} className="text-[8px] font-bold px-1.5 py-0.5 rounded border border-accent/20 bg-accent/10 text-accent uppercase">
-                  {strategyLabel(trade)}
-                </a>
-              )}
-              <span className={cn("text-[8px] font-bold px-1 py-0 rounded border uppercase", trade.direction?.toLowerCase() === 'long' ? "text-green border-green/20" : "text-red border-red/20")}>
-                {trade.direction}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] text-dim font-mono">{new Date(trade.entry_ts || trade.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-              <span className="text-[9px] text-dim/40 font-mono">·</span>
-              <Tooltip content={
-                <div className="flex flex-col gap-1">
-                  <div>Entry: {new Date(trade.entry_ts || trade.createdAt).toLocaleString()}</div>
-                  <div>Exit: {trade.exit_ts ? new Date(trade.exit_ts).toLocaleString() : 'Open'}</div>
-                </div>
-              }>
-                <span className="text-[9px] text-dim font-mono flex items-center gap-1 cursor-help">
-                  <Clock size={8} /> {durationStr}
-                </span>
-              </Tooltip>
-            </div>
-          </div>
-        </div>
-        <div className="flex flex-col items-end min-w-[80px]">
-          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Net P&L</span>
-          <div className="flex flex-col items-end">
-            <span className={cn("text-xs font-bold font-mono", pnlClass(pnl))}>
-              {fmtUSD(pnl)}
+    <div className="flex flex-col gap-3 p-4 bg-surface border border-border/40 rounded-xl hover:border-accent/10 transition-all group/trade shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-1 min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-black font-mono tracking-tight shrink-0">{trade.symbol}</span>
+            <CopyButton value={trade.symbol} className="opacity-0 group-hover/trade:opacity-100 focus-visible:opacity-100 -ml-1 scale-75" />
+            <span className={cn("text-[8px] font-black px-1.5 py-0.5 rounded border uppercase shrink-0 opacity-60", isLong ? "border-green/20" : "border-red/20")}>
+              {trade.direction}
             </span>
-            {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
-              <Tooltip content={
-                <div className="flex flex-col gap-1">
-                   <div className="flex justify-between gap-4"><span>Commission:</span> <span>-{fmtUSD(trade.realized_fee || 0)}</span></div>
-                   <div className="flex justify-between gap-4"><span>Funding:</span> <span>{trade.funding_fee > 0 ? '-' : '+'}{fmtUSD(Math.abs(trade.funding_fee || 0))}</span></div>
-                </div>
-              }>
-                <span className="text-[9px] text-dim/60 font-mono italic cursor-help border-b border-dotted border-dim/30">
-                  -{fmtUSD(safeNum(trade.realized_fee) + safeNum(trade.funding_fee))} fees
-                </span>
-              </Tooltip>
+            {showStrategy && (
+              <a href={`#/history?session=${trade.sessionId || session?.id}`} className="text-[8px] font-black px-1.5 py-0.5 rounded border border-accent/20 bg-accent/5 text-accent uppercase truncate max-w-[100px]">
+                {strategyLabel(trade)}
+              </a>
             )}
           </div>
+          <div className="flex items-center gap-2 text-dim">
+            <span className="text-[9px] font-bold font-mono tracking-tighter">{new Date(trade.entry_ts || trade.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            <span className="text-[9px] opacity-20">|</span>
+            <Tooltip content={
+              <div className="flex flex-col gap-1 text-[10px]">
+                <div>Entry: {new Date(trade.entry_ts || trade.createdAt).toLocaleString()}</div>
+                <div>Exit: {trade.exit_ts ? new Date(trade.exit_ts).toLocaleString() : 'Open'}</div>
+              </div>
+            }>
+              <span className="text-[9px] font-bold font-mono flex items-center gap-1 cursor-help">
+                <Clock size={10} /> {durationStr}
+              </span>
+            </Tooltip>
+          </div>
+        </div>
+
+        <div className="flex flex-col items-end shrink-0">
+          <div className="flex items-center gap-1.5 whitespace-nowrap">
+            <span className={cn("text-xs font-black", pnlClass(pnl))}>
+              {pnl > 0 ? '▲' : pnl < 0 ? '▼' : ''}
+            </span>
+            <span className={cn("text-base font-black font-mono tracking-tighter", pnlClass(pnl))}>
+              {fmtUSD(pnl)}
+            </span>
+          </div>
+          {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
+            <Tooltip content={
+              <div className="flex flex-col gap-1 text-[10px]">
+                 <div className="flex justify-between gap-4"><span>Commission:</span> <span>-{fmtUSD(trade.realized_fee || 0)}</span></div>
+                 <div className="flex justify-between gap-4"><span>Funding:</span> <span>{trade.funding_fee > 0 ? '-' : '+'}{fmtUSD(Math.abs(trade.funding_fee || 0))}</span></div>
+              </div>
+            }>
+              <span className="text-[8px] text-dim/40 font-bold font-mono cursor-help border-b border-dotted border-dim/10 mt-0.5">
+                -{fmtUSD(safeNum(trade.realized_fee) + safeNum(trade.funding_fee))}
+              </span>
+            </Tooltip>
+          )}
         </div>
       </div>
 
-      <div className="flex items-center justify-between pt-3 border-t border-border/20">
-        <div className="flex flex-col">
-          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-0.5">Entry/Exit</span>
-          <span className="text-[11px] font-bold text-text/90 font-mono">{price(trade.entry_price)} → {price(trade.exit_price)}</span>
+      <div className="flex flex-wrap gap-x-6 gap-y-2 pt-3 border-t border-border/5 justify-start">
+        <div className="flex flex-col items-start min-w-[120px] max-w-[160px]">
+          <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Execution</span>
+          <span className="text-[9px] font-black text-text/70 font-mono truncate w-full">{price(trade.entry_price)} → {price(trade.exit_price)}</span>
         </div>
-        <div className="flex flex-col items-center">
-          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-0.5">Size</span>
-          <span className="text-[11px] font-bold text-text/90 font-mono">{Number(trade.qty || 0).toFixed(2)}</span>
+        <div className="flex flex-col items-start min-w-[60px]">
+          <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Quantity</span>
+          <span className="text-[9px] font-black text-text/70 font-mono">{Number(trade.qty || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
         </div>
-        <div className="flex flex-col items-center">
-          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-0.5">Max RR</span>
-          <span className="text-[11px] font-bold text-accent font-mono">{Number(trade.max_rr_achieved || 0).toFixed(2)}R</span>
+        <div className="flex flex-col items-start min-w-[70px]">
+          <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Peak</span>
+          <span className="text-[9px] font-black text-accent font-mono">+{Number(trade.max_rr_achieved || 0).toFixed(2)}R</span>
         </div>
-        <div className="flex flex-col items-end max-w-[120px]">
-          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mb-0.5">Trigger</span>
-          <span className="text-[10px] font-bold text-text/80 uppercase text-right leading-tight">
-            {trade.exit_signal_type ? (
-              <span className="flex flex-col items-end">
-                <span className="text-accent leading-tight">{trade.exit_signal_type.replace(/_/g, ' ')}</span>
-                <span className="text-[8px] text-dim/60 normal-case font-medium truncate w-full">{trade.exit_reason || trade.exit_signal_reason}</span>
-              </span>
-            ) : (
-              trade.exit_reason || 'Manual'
-            )}
+        <div className="flex flex-col items-start min-w-[80px] max-w-[120px]">
+          <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Exit</span>
+          <span className="text-[8px] font-black text-text/60 uppercase truncate w-full leading-tight">
+            {trade.exit_signal_type ? trade.exit_signal_type.replace(/_/g, ' ') : (trade.exit_reason || 'Manual')}
           </span>
         </div>
       </div>
@@ -208,16 +204,23 @@ const SessionGroup = React.memo(({ session, trades }) => {
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden border-t border-border/40"
+            className="overflow-hidden border-t border-border/10"
           >
-            <div className="p-4 space-y-2 bg-background/30">
-              {trades.length === 0 ? (
-                <div className="py-8 text-center text-[11px] text-dim font-bold uppercase tracking-widest">No trades recorded for this session</div>
-              ) : (
-                trades.map((trade) => (
-                  <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} session={session} showStrategy={false} />
-                ))
+            <div className="p-4 space-y-3 bg-background/20">
+              {curve.length >= 2 && (
+                <div className="bg-surface/40 border border-border/10 rounded-xl p-6 mb-6 shadow-inner overflow-hidden">
+                  <EquityCurve data={curve} height={200} />
+                </div>
               )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {trades.length === 0 ? (
+                  <div className="col-span-full py-12 text-center text-[11px] text-dim font-black uppercase tracking-[0.2em] opacity-40">No trades recorded for this session</div>
+                ) : (
+                  trades.map((trade) => (
+                    <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} session={session} showStrategy={false} />
+                  ))
+                )}
+              </div>
             </div>
           </motion.div>
         )}
@@ -227,7 +230,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
 }
 )
 
-const PAGE_SIZE = 5
+const PAGE_SIZE = 10
 
 export const HistoryView = () => {
   const { tradeHistory, updateStats, sessionSummary, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory } = useTradingStore()
@@ -322,6 +325,7 @@ export const HistoryView = () => {
       "min-h-screen transition-all duration-300 no-scrollbar",
       sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
     )}>
+      <React.Suspense fallback={null}>
       <Sidebar />
       <div className={cn(
         "max-w-[1200px] mx-auto p-4 md:p-10 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:pb-10 transition-all",
@@ -360,14 +364,14 @@ export const HistoryView = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8 lg:mb-12">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 md:gap-4 mb-8 lg:mb-12">
           <StatCard label="Total Performance" value={fmtUSD(totalPnl)} color={pnlClass(totalPnl)} />
-          <StatCard label="Win Rate" value={`${winRate}%`} color="text-accent" subValue={`${wins} Wins / ${totalTrades - wins} Losses`} />
+          <StatCard label="Win Rate" value={`${winRate}%`} color="text-accent" subValue={`${wins}W / ${totalTrades - wins}L`} />
           <StatCard
             label="Max Drawdown"
             value={currentAnalytics ? fmtUSD(-currentAnalytics.maxDrawdown) : '$0.00'}
             color="text-red"
-            subValue={currentAnalytics ? `${Number(currentAnalytics.maxDrawdownPct || 0).toFixed(1)}% Peak-to-Valley` : '0%'}
+            subValue={currentAnalytics ? `${Number(currentAnalytics.maxDrawdownPct || 0).toFixed(1)}% Peak` : '0%'}
           />
           <StatCard label="Avg Win" value={fmtUSD(currentAnalytics?.avgWin || 0)} color="text-green" />
           <StatCard label="Avg Loss" value={fmtUSD(-(currentAnalytics?.avgLoss || 0))} color="text-red" />
@@ -505,6 +509,7 @@ export const HistoryView = () => {
           )}
         </div>
         <BottomNav />
+      </React.Suspense>
       </div>
     </div>
   )

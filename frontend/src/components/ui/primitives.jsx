@@ -39,28 +39,28 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
 
   return (
     <div
-      className="bg-surface border border-border p-3 md:p-6 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.02] transition-all group relative overflow-hidden flex flex-col justify-center min-h-[60px] md:min-h-[110px]"
+      className="bg-surface border border-border/60 p-3 md:p-5 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col justify-center min-h-[64px] md:min-h-[100px] min-w-0"
       role="region"
       aria-label={`${label}: ${value}`}
     >
       {syncing && (
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />
       )}
-      <div className="flex flex-row md:flex-col items-center md:items-start justify-between md:justify-start gap-2">
-        <div className="text-[7px] md:text-[11px] text-dim tracking-[0.15em] md:mb-3 uppercase font-bold group-hover:text-dim/80 transition-colors shrink-0" aria-hidden="true">{label}</div>
+      <div className="flex flex-row md:flex-col items-center md:items-start justify-between md:justify-start gap-1.5 min-w-0">
+        <div className="text-[8px] md:text-[10px] text-dim tracking-[0.15em] md:mb-2 uppercase font-black group-hover:text-dim/80 transition-colors shrink-0 truncate max-w-[40%]" aria-hidden="true">{label}</div>
         <div className={cn(
-          "text-sm md:text-2xl font-bold font-mono tracking-tight transition-all duration-500",
+          "text-sm md:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate flex-1 md:w-full text-right md:text-left",
           color,
           syncing && "opacity-40 blur-[1px]"
         )}>{sanitizedValue}</div>
       </div>
       {subValue && (
         <div className={cn(
-          "text-[8px] md:text-[11px] text-dim mt-1 md:mt-2.5 font-mono font-bold uppercase flex items-center gap-1.5",
+          "text-[8px] md:text-[9px] text-dim mt-1 md:mt-1.5 font-mono font-black uppercase flex items-center gap-1.5 truncate",
           syncing && "text-accent/60 animate-pulse"
         )}>
           {syncing && <Loader2 size={8} className="animate-spin" aria-hidden="true" />}
-          {subValue}
+          <span className="truncate">{subValue}</span>
         </div>
       )}
     </div>

@@ -52,10 +52,10 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
       role="button"
       tabIndex={0}
       className={cn(
-        "bg-surface border border-border rounded-2xl p-6 cursor-pointer transition-all relative group shadow-sm h-full focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-        tradingMode === 'paper' ? "hover:border-amber/40 hover:shadow-amber/5" :
-        tradingMode === 'testnet' ? "hover:border-purple/40 hover:shadow-purple/5" :
-        "hover:border-green/40 hover:shadow-green/5"
+        "bg-surface border border-border/40 rounded-2xl p-5 md:p-6 cursor-pointer transition-all relative group shadow-sm h-full focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none min-w-0",
+        tradingMode === 'paper' ? "hover:border-amber/30 hover:shadow-amber/5" :
+        tradingMode === 'testnet' ? "hover:border-purple/30 hover:shadow-purple/5" :
+        "hover:border-green/30 hover:shadow-green/5"
       )}
     >
       {paused && (
@@ -65,20 +65,22 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
           </div>
         </div>
       )}
-        <div className="flex justify-between items-start mb-6" aria-live="polite">
-        <div>
-          <div className="flex items-center gap-2 mb-3">
+        <div className="flex justify-between items-start mb-5 md:mb-6 min-w-0 gap-3" aria-live="polite">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 mb-2.5 md:mb-3 flex-wrap">
             <StatusBadge status={s.sessionActive} />
-            {tradingMode === 'paper' && <PaperBadge />}
-            {tradingMode === 'testnet' && <DemoBadge />}
-            {tradingMode === 'live' && <LiveBadge />}
+            <div className="flex items-center gap-1.5 scale-90 origin-left">
+              {tradingMode === 'paper' && <PaperBadge />}
+              {tradingMode === 'testnet' && <DemoBadge />}
+              {tradingMode === 'live' && <LiveBadge />}
+            </div>
           </div>
-          <div className="text-base md:text-[17px] font-bold">{s.strategy_label}</div>
-          <div className="text-[10px] md:text-[11px] text-dim mt-1.5 font-bold uppercase tracking-wider flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <Zap size={12} className={cn("text-accent", config.global_scanner_enabled === false && "text-dim")} />
-              <span className={cn(config.global_scanner_enabled === false && "line-through decoration-red/40 decoration-2")}>
-                {config.scan_interval} · {config.scan_pct_threshold}% threshold
+          <div className="text-sm md:text-lg font-black tracking-tight truncate uppercase">{s.strategy_label}</div>
+          <div className="text-[9px] md:text-[10px] text-dim mt-1.5 font-black uppercase tracking-widest flex flex-col gap-1">
+            <div className="flex items-center gap-2 min-w-0">
+              <Zap size={10} className={cn("text-accent shrink-0", config.global_scanner_enabled === false && "text-dim")} />
+              <span className={cn("truncate", config.global_scanner_enabled === false && "line-through decoration-red/40 decoration-2")}>
+                {config.scan_interval} · {config.scan_pct_threshold}%
               </span>
             </div>
             {(config.single_symbol_configs || []).filter(sc => sc.enabled).length > 0 && (
@@ -126,15 +128,15 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
               </button>
             </Tooltip>
           </div>
-          <div className="text-xl md:text-2xl font-bold font-mono" style={{ color: pnlColor(s.activePnl) }}>
+          <div className="text-lg md:text-2xl font-black font-mono tracking-tighter" style={{ color: pnlColor(s.activePnl) }}>
             {fmtUSD(s.activePnl)}
           </div>
-          <div className="text-[10px] text-dim font-bold uppercase tracking-widest mt-1 flex flex-col items-end">
-            <div className="flex items-center gap-1.5">
-              <span className="opacity-60">Total:</span>
+          <div className="text-[9px] md:text-[10px] text-dim font-black uppercase tracking-widest mt-1.5 flex flex-col items-end gap-0.5">
+            <div className="flex items-center gap-1.5 whitespace-nowrap">
+              <span className="opacity-40">Session:</span>
               <span style={{ color: pnlColor(s.totalPnl) }}>{fmtUSD(s.totalPnl)}</span>
             </div>
-            <div className="mt-0.5">{s.entryCount} ENTRIES · {s.hitCount} HITS</div>
+            <div className="opacity-60">{s.entryCount} ENT · {s.hitCount} HIT</div>
           </div>
         </div>
       </div>
@@ -625,14 +627,14 @@ export function DashboardView({ initialStrategy }) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.2 }}
-            className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8 lg:mb-10"
+            className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-8 lg:mb-10"
         >
           <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} />
           <StatCard
             label="Active P&L"
             value={fmtUSD(totalActivePnl)}
             color={pnlClass(totalActivePnl)}
-            subValue={`Total Session: ${fmtUSD(totalPnl)}`}
+            subValue={`Total: ${fmtUSD(totalPnl)}`}
             syncing={wsStatus !== 'live'}
           />
           <StatCard label="Live Risk" value={`${Number(totalRiskPct || 0).toFixed(1)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />

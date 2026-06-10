@@ -302,9 +302,9 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       </div>
 
       {/* Primary Metrics Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4">
+       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
          <StatCard label="Mark" value={price(mark)} color={pnlClass(trade.pnl)} syncing={isSyncing} />
-         <StatCard label="Size" value={`${qtyFormatted} ${trade.symbol.replace('USDT', '')}`} color="text-text" />
+         <StatCard label="Size" value={qtyFormatted} subValue={trade.symbol.replace('USDT', '')} color="text-text" />
          <StatCard label="Risk" value={riskFormatted} color="text-red" />
          <StatCard label="Entry" value={price(entry)} color="text-dim" />
       </div>

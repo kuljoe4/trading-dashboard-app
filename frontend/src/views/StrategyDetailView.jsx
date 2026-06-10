@@ -49,11 +49,11 @@ const StrategyDetailView = ({ s, onBack }) => {
           label="Active P&L"
           value={fmtUSD(s.activePnl)}
           color={pnlClass(s.activePnl)}
-          subValue={analytics === null ? "Synchronizing..." : `Total Session: ${fmtUSD(s.totalPnl)}`}
+          subValue={analytics === null ? "Syncing..." : `Total: ${fmtUSD(s.totalPnl)}`}
           syncing={isSyncing || (analytics === null && s.activePnl === 0)}
         />
         <StatCard label="Hit Count" value={(s.entryCount ?? 0).toString()} color="text-accent" />
-        <StatCard label="SL Budget" value={`$${Number(s.totalSlUsed || 0).toFixed(0)} / $${config.total_sl_guard_usdt}`} color={s.totalSlUsed > config.total_sl_guard_usdt * 0.7 ? "text-amber" : "text-text"} />
+        <StatCard label="SL Budget" value={`$${Number(s.totalSlUsed || 0).toFixed(0)}`} subValue={`Limit $${config.total_sl_guard_usdt}`} color={s.totalSlUsed > config.total_sl_guard_usdt * 0.7 ? "text-amber" : "text-text"} />
         <StatCard label="Active Risk" value={`${Number(s.totalRiskPct || 0).toFixed(1)}%`} color={s.totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
       </div>
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { settingsAPI, setAdminApiKey } from '../api/client'
-import { SectionLabel, Btn, StatCard, cn } from '../components/ui/primitives'
+import { SectionLabel, Btn, StatCard, cn, ViewHeader } from '../components/ui/primitives'
 import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap, Eye, EyeOff, RotateCcw, Bug, X } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
@@ -142,15 +142,12 @@ export function SettingsView() {
         "max-w-[800px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:pb-8 transition-all",
         healthEnabled ? "pb-48" : "pb-32"
       )}>
-        <div className="flex items-center gap-4 mb-10 bg-surface border border-border rounded-2xl p-6 shadow-sm">
-          <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center">
-            <SettingsIcon size={24} className="text-accent" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold">System Settings</h1>
-            <p className="text-[11px] text-dim font-bold uppercase tracking-widest mt-1">Manage API credentials and engine parameters</p>
-          </div>
-        </div>
+        <ViewHeader
+          icon={SettingsIcon}
+          title="System Settings"
+          subTitle="Manage API credentials and engine parameters"
+          backAction={() => window.location.hash = '#/'}
+        />
 
         <div className="space-y-6 lg:space-y-8">
           <section>

@@ -5,7 +5,7 @@ import { useTradingStore } from '../store/trading'
 import { sessionAPI } from '../api/client'
 import { 
   StatCard, SectionLabel, Btn, StatusBadge, PaperBadge, EcoBadge, DemoBadge, LiveBadge,
-    ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn, Tooltip, VisuallyHidden
+    ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn, Tooltip, VisuallyHidden, ViewHeader
   } from '../components/ui/primitives'
 import {
   ChevronLeft, Plus, Trash2, LayoutDashboard, History,
@@ -573,32 +573,11 @@ export function DashboardView({ initialStrategy }) {
         />
 
         {/* Header Bar */}
-        <motion.div
-          initial={{ y: -20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          className="flex flex-col sm:flex-row sm:items-center justify-between gap-5 mb-10 bg-surface border border-border rounded-2xl p-6 shadow-sm"
+        <ViewHeader
+          title="Operator Cockpit"
+          subTitle="Real-time strategy management & market oversight"
+          sticky={true}
         >
-          <div className="flex items-center gap-4">
-            <div className="flex flex-col">
-              <div className="flex items-center gap-3 mb-1">
-                <span className="text-xl font-bold tracking-tight">Operator Cockpit</span>
-                {tradingMode === 'paper' && <PaperBadge />}
-                {tradingMode === 'testnet' && <DemoBadge />}
-                {tradingMode === 'live' && <LiveBadge />}
-                {(isThrottled || isEcoMode) && <EcoBadge />}
-              </div>
-              <div className="flex items-center gap-3 lg:hidden">
-                <span className={cn("text-[10px] font-bold font-mono tracking-widest uppercase", wsStatus === 'live' ? "text-green" : "text-amber")}>
-                  {wsStatus === 'live' ? 'Connected' : 'Reconnecting'}
-                </span>
-                <PulseDot color={wsStatus === 'live' ? "bg-green" : "bg-amber"} />
-              </div>
-              <div className="hidden lg:block text-[11px] text-dim font-bold uppercase tracking-widest">
-                Real-time strategy management & market oversight
-              </div>
-            </div>
-          </div>
-
           <div className="flex gap-3">
             <Tooltip content={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}>
               <button
@@ -629,7 +608,7 @@ export function DashboardView({ initialStrategy }) {
               </Btn>
             )}
           </div>
-        </motion.div>
+        </ViewHeader>
 
         <div aria-live="polite">
           <GateBanner

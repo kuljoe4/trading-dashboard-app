@@ -3,7 +3,7 @@ import { clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 import * as ProgressPrimitive from "@radix-ui/react-progress"
 import * as TooltipPrimitive from "@radix-ui/react-tooltip"
-import { CheckCircle2, AlertCircle, Loader2, Zap, Copy } from 'lucide-react'
+import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft } from 'lucide-react'
 import { Sparkline as SparklineChart } from '../DataCharts'
 
 export function cn(...inputs) {
@@ -292,6 +292,62 @@ export const VisuallyHidden = ({ children }) => (
     {children}
   </span>
 )
+
+export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = true, backAction }) => {
+  const { config, wsStatus, isThrottled, isEcoMode } = useTradingStore()
+  const tradingMode = config.trading_mode || 'paper'
+
+  return (
+    <div className={cn(
+      "z-40 transition-all duration-300 mb-8 lg:mb-10",
+      sticky && "sticky top-0 bg-background/80 backdrop-blur-md pt-4 pb-4 -mx-4 px-4 md:-mx-10 md:px-10 border-b border-border/40"
+    )}>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5">
+        <div className="flex items-center gap-4">
+          {backAction && (
+            <button
+              onClick={backAction}
+              aria-label="Go back"
+              className="p-2.5 hover:bg-surface border border-border rounded-xl transition-all active:scale-90 group shrink-0"
+            >
+              <ChevronLeft size={20} className="text-dim group-hover:text-text" />
+            </button>
+          )}
+          <div className="flex items-center gap-4">
+            {Icon && (
+              <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
+                <Icon size={24} className="text-accent" />
+              </div>
+            )}
+            <div>
+              <div className="flex items-center gap-3 mb-1">
+                <h1 className="text-xl md:text-2xl font-bold tracking-tight">{title}</h1>
+                {tradingMode === 'paper' && <PaperBadge />}
+                {tradingMode === 'testnet' && <DemoBadge />}
+                {tradingMode === 'live' && <LiveBadge />}
+                {(isThrottled || isEcoMode) && <EcoBadge />}
+              </div>
+              <div className="flex items-center gap-3 lg:hidden mb-1">
+                <span className={cn("text-[10px] font-bold font-mono tracking-widest uppercase", wsStatus === 'live' ? "text-green" : "text-amber")}>
+                  {wsStatus === 'live' ? 'Connected' : 'Reconnecting'}
+                </span>
+                <PulseDot color={wsStatus === 'live' ? "bg-green" : "bg-amber"} />
+              </div>
+              {subTitle && (
+                <p className="text-[11px] text-dim font-bold uppercase tracking-widest">
+                  {subTitle}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {children}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // --- Copy Button ---
 export const CopyButton = ({ value, className }) => {

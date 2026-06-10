@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
-import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton } from '../components/ui/primitives'
+import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader } from '../components/ui/primitives'
 import { motion, AnimatePresence } from 'framer-motion'
 import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap, BarChart3, LineChart, Target, Trash2 } from 'lucide-react'
 import { Sidebar, BottomNav } from '../components/Navigation'
@@ -337,22 +337,18 @@ export const HistoryView = () => {
         "max-w-[1200px] mx-auto p-4 md:p-10 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:pb-10 transition-all",
         healthEnabled ? "pb-48" : "pb-32"
       )}>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5 mb-8 lg:mb-10 bg-surface border border-border rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
-              <HistoryIcon size={24} className="text-accent" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold">Trade History</h1>
-              <p className="text-[11px] text-dim font-bold uppercase tracking-widest mt-1">Verified records of all closed positions</p>
-            </div>
-          </div>
+        <ViewHeader
+          icon={HistoryIcon}
+          title="Trade History"
+          subTitle="Verified records of all closed positions"
+          backAction={() => window.location.hash = '#/'}
+        >
           <div className="flex items-center gap-3 self-end sm:self-auto">
              <span className="text-[9px] text-dim font-bold uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50 whitespace-nowrap">
                Latest 200 Trades
              </span>
           </div>
-        </div>
+        </ViewHeader>
 
         <div className="flex flex-col md:flex-row md:items-center gap-4 mb-8">
           <div className="flex items-center gap-2 p-1 bg-surface border border-border rounded-xl w-fit">

@@ -116,9 +116,68 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   setStreamingEnabled: (e) => { localStorage.setItem('streaming_enabled', e); set({ streamingEnabled: e }); },
   toggleLogFilter: (level) => set((st) => ({ logFilters: { ...st.logFilters, [level]: !st.logFilters[level] } })),
   setSyncing: (s) => set({ isSyncing: s }),
-  setThrottled: (t) => { set({ isThrottled: t }); const ws = get().ws; if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_active', active: !t })); },
+  sync: async () => {
+    try {
+      const res = await sessionAPI.status();
+      const st = get();
+      if (res.data.running) {
+        st.setSessionActive(true, res.data.strategyId || res.data.strategy_id);
+      }
+      set({
+        balance: res.data.balance ?? st.balance,
+        totalPnl: res.data.totalPnl ?? st.totalPnl,
+        totalRiskPct: res.data.totalRiskPct ?? st.totalRiskPct,
+        totalSlUsed: res.data.totalSlUsed ?? 0,
+        activeTrades: res.data.activeTrades || [],
+        variantStats: res.data.variant_stats || {},
+        scannerResults: res.data.scannerResults || [],
+        activeWindows: res.data.activeWindows || [],
+        tradeHistory: res.data.history || [],
+        config: res.data.config ? { ...st.config, ...res.data.config } : st.config,
+      });
+    } catch (e) {
+      console.error("Manual sync failed", e);
+    }
+  },
+  setThrottled: (t) => {
+    set({ isThrottled: t });
+    const ws = get().ws;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'set_active', active: !t }));
+    } else if (!t && get().sessionActive) {
+      // If we are unthrottling (coming back) and WS is dead, reconnect immediately
+      get().connectWS();
+    }
+  },
   setFocusMode: (f, tid = null, s = null) => { const ws = get().ws; if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: f, tradeId: tid, strategyLabel: s })); },
-  setSessionActive: (a, id) => { set({ sessionActive: a, strategyId: id }); if (a) get().connectWS(); else get().disconnectWS(); },
+  setSessionActive: (a, id) => {
+    const wasActive = get().sessionActive;
+    set({ sessionActive: a, strategyId: id });
+
+    if (a) {
+      get().connectWS();
+    } else {
+      get().disconnectWS();
+      // Proactively clear ephemeral state on termination
+      set({
+        activeTrades: [],
+        scannerResults: [],
+        variantScannerResults: {},
+        variantStats: {},
+        gateState: null,
+        gateReason: null,
+        hibernating: false,
+        totalRiskPct: 0,
+        totalSlUsed: 0
+      });
+      // Fetch fresh history and analytics after termination
+      if (wasActive) {
+        get().sync();
+        get().fetchTradeHistory();
+        get().fetchSessions();
+      }
+    }
+  },
   fetchSessions: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.list(); set({ sessionList: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchLifetimeAnalytics: async (m = 'paper') => { set({ isSyncing: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchTradeHistory: async (sid = 'all') => { set({ isSyncing: true }); try { const r = await sessionAPI.history(sid); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },

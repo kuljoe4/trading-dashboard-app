@@ -521,6 +521,7 @@ export class OrderManagerService {
       this.logger.log(`Placing Binance SL order: ${JSON.stringify(slOrderParams)}`);
 
       let stopLossId: string | null = null;
+      let orderType: 'standard' | 'algo' = 'standard';
       const pref = this.slApiPreference.get(symbol) || 'standard';
       this.logger.debug(`[SL] Placement for ${symbol}: Using ${pref.toUpperCase()} API preference`);
 
@@ -534,6 +535,7 @@ export class OrderManagerService {
              const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
              this.logger.log(`Standard SL placement response for ${symbol}: ${JSON.stringify(orderData)}`);
              stopLossId = String(orderData.orderId);
+             orderType = 'standard';
            } catch (standardErr: any) {
              const standardMsg = standardErr.message || String(standardErr);
              if (standardMsg.includes('not supported for this endpoint') || standardMsg.includes('Algo Order API')) {
@@ -564,6 +566,7 @@ export class OrderManagerService {
            const algoData = typeof algoRes.data === 'function' ? await algoRes.data() : (algoRes.data || algoRes);
            this.logger.log(`Algo SL placement response for ${symbol}: ${JSON.stringify(algoData)}`);
            stopLossId = String(algoData.algoId || algoData.orderId);
+           orderType = 'algo';
         }
       } catch (err) {
         throw err;
@@ -573,6 +576,7 @@ export class OrderManagerService {
         throw new Error(`Invalid response from Binance SL order placement`);
       }
       trade.binance_stop_order_id = stopLossId;
+      trade.binance_stop_order_type = orderType;
       const msgSl = `Binance SL order placed: ${trade.symbol} at ${slPrice} order_id=${stopLossId}`;
       this.logger.log(msgSl);
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgSl, level: 'info' });
@@ -622,7 +626,7 @@ export class OrderManagerService {
 
     // Cancel existing SL order if it exists
     if (trade.binance_stop_order_id) {
-      await this.cancelAnyStopOrder(trade.symbol, trade.binance_stop_order_id);
+      await this.cancelAnyStopOrder(trade.symbol, trade.binance_stop_order_id, trade);
     }
 
     // Place new SL order
@@ -632,10 +636,10 @@ export class OrderManagerService {
   /**
    * Unified cancel for either standard or algo stop orders
    */
-  async cancelAnyStopOrder(symbol: string, orderId: string): Promise<boolean> {
+  async cancelAnyStopOrder(symbol: string, orderId: string, trade?: Trade): Promise<boolean> {
     if (this.paperMode || !this.binanceClient) return true;
 
-    const pref = this.slApiPreference.get(symbol) || 'standard';
+    const pref = trade?.binance_stop_order_type || this.slApiPreference.get(symbol) || 'standard';
     this.logger.debug(`Canceling SL for ${symbol} using ${pref} API (ID: ${orderId})`);
 
     if (pref === 'algo') {
@@ -856,7 +860,7 @@ export class OrderManagerService {
         try {
           // If there is an exchange stop loss, cancel it to prevent orphans
           if (trade.binance_stop_order_id) {
-            await this.cancelAnyStopOrder(symbol, trade.binance_stop_order_id);
+            await this.cancelAnyStopOrder(symbol, trade.binance_stop_order_id, trade);
           }
 
           const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';

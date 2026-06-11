@@ -95,7 +95,7 @@ export const DecisionLog = React.memo(() => {
             }}
             className="sticky top-2 left-1/2 -translate-x-1/2 z-10 bg-accent text-white px-3 py-1 rounded-full text-[10px] font-bold shadow-lg animate-in fade-in zoom-in duration-200"
           >
-            New logs below ↓
+            New logs above ↑
           </button>
         )}
         <AnimatePresence mode="popLayout">

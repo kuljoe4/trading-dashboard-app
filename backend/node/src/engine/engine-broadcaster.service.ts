@@ -89,6 +89,7 @@ export class EngineBroadcasterService {
         exit_signals_status: trade.exit_signals_status || {},
         sl_adjustments: trade.sl_adjustments || [],
         entry_daily_change_pct: trade.entry_daily_change_pct,
+        initial_risk_usdt: trade.initial_risk_usdt,
         _delta: true,
       };
     }
@@ -97,6 +98,7 @@ export class EngineBroadcasterService {
       ...trade,
       direction,
       entry_daily_change_pct: trade.entry_daily_change_pct,
+      initial_risk_usdt: trade.initial_risk_usdt,
       current_price: roundTo(current ?? entry, 8),
       sl_price: roundTo(trade.current_sl, 8),
       tp_price: roundTo(trade.tp, 8),

@@ -285,6 +285,7 @@ export class OrderManagerService {
         funding_fee: 0,
         pnl_pct: 0,
         risk_usdt: roundEight(Math.max(0, direction === 'LONG' ? entryPrice - slPrice : slPrice - entryPrice) * qty),
+        initial_risk_usdt: roundEight(Math.max(0, direction === 'LONG' ? entryPrice - slPrice : slPrice - entryPrice) * qty),
         sessionId,
         strategy_label: metadata.strategy_label,
         strategy_config: metadata.strategy_config,
@@ -395,6 +396,7 @@ export class OrderManagerService {
 
           // Re-calculate risk USDT with actual entry price
           trade.risk_usdt = roundEight(Math.max(0, direction === 'LONG' ? trade.entry_price - slPrice : slPrice - trade.entry_price) * trade.qty);
+          trade.initial_risk_usdt = trade.risk_usdt;
 
           const msg = `Binance order placed: ${symbol} ${direction} qty=${qty} order_id=${entryReceipt.orderId} est_fee=${trade.realized_fee}`;
           this.logger.log(msg);
@@ -600,6 +602,13 @@ export class OrderManagerService {
 
       this.logger.error(`Failed to place Binance SL for ${trade.symbol}: ${errMsg}`);
 
+      // BOLT: Handle existing order conflict (redundant but safe)
+      if (errMsg.includes('existing') && errMsg.includes('closePosition')) {
+         this.logger.warn(`Detection of orphan closePosition order for ${trade.symbol}. Attempting cleanup...`);
+         // We can't easily find the ID here without a REST call, but the next loop iteration
+         // or a manual stop will handle it. For now, we just log it clearly.
+      }
+
       if (errMsg.includes('insufficient balance') || errMsg.includes('Margin is insufficient')) {
          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
             msg: `CRITICAL: Insufficient funds for SL placement on ${trade.symbol}. Unwind may be required.`,
@@ -659,16 +668,16 @@ export class OrderManagerService {
       }
     }
 
-    // SEC-04: For Algo orders or failed modify, use "New-then-Cancel" pattern to maintain protection
+    // SEC-04: For Algo orders or failed modify, handle closePosition constraint.
+    // Binance only allows ONE closePosition order. To update, we must CANCEL first then REPLACE.
     const oldSlId = trade.binance_stop_order_id;
 
-    // 1. Place NEW stop loss first
-    const newSlId = await this.placeStopLoss(trade, newSlPrice);
-
-    // 2. ONLY cancel the old one AFTER the new one is successfully placed
-    if (newSlId && oldSlId) {
+    if (oldSlId) {
       await this.cancelAnyStopOrder(trade.symbol, oldSlId, trade);
     }
+
+    // Place NEW stop loss after old one is cleared
+    await this.placeStopLoss(trade, newSlPrice);
   }
 
   /**

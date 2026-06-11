@@ -74,3 +74,8 @@ To avoid regressions and ensure compliance with exchange (Binance) behavior and 
 - **Standard Orders**: Use `modifyOrder` to update the stop price of an existing `STOP_MARKET` order. This avoids the protection gap inherent in cancel-then-replace.
 - **Algo/Fallback**: When `modifyOrder` is unavailable (Algo API) or fails, use the **New-then-Cancel** pattern. Place the new Stop-Loss order FIRST, and only cancel the old one after the new one is confirmed.
 - **Audit**: Verified in `OrderManagerService.updateStopLoss`.
+
+### 7. Stop-Loss Substitution Pattern (Binance)
+- **Constraint**: Binance Futures only permits one `closePosition: true` order per symbol/side.
+- **Pattern**: To update an existing Stop-Loss, you MUST use `modifyOrder` for an atomic update. If `modifyOrder` fails or is unsupported (Algo API), you MUST **Cancel-then-Replace**. Attempting to place a second `closePosition` order will be rejected with an "existing order" conflict.
+- **Audit**: Verified in `OrderManagerService.updateStopLoss`.

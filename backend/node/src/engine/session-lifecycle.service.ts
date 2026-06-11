@@ -17,6 +17,7 @@ import { ENGINE_CONSTANTS } from '../models/constants';
 export class SessionLifecycleService {
   private readonly logger = new Logger(SessionLifecycleService.name);
   private balancePollInterval: NodeJS.Timeout | null = null;
+  private running = false;
   public isUdsConnected = false;
   private userDataWs: any = null;
   private listenKey: string | null = null;
@@ -41,6 +42,7 @@ export class SessionLifecycleService {
   }
 
   async start(config: SessionConfig, bc?: any, sid?: string, hist: Trade[] = [], curBal?: number, open: Trade[] = []) {
+    this.running = true;
     await this.progress('Starting session initialization...');
 
     // Seed rate limit from exchangeInfo response headers at startup
@@ -147,6 +149,7 @@ export class SessionLifecycleService {
   }
 
   async stop(bc?: any, sid?: string, config?: SessionConfig) {
+    this.running = false;
     await this.progress('Initiating session shutdown...');
     if (this.balancePollInterval) clearInterval(this.balancePollInterval);
     if (this.listenKeyKeepAlive) clearInterval(this.listenKeyKeepAlive);
@@ -220,8 +223,17 @@ export class SessionLifecycleService {
       this.userDataWs = await bc.websocketStreams.connect({ stream: this.listenKey });
       this.isUdsConnected = true;
 
-      this.userDataWs.on('error', () => { this.isUdsConnected = false; });
-      this.userDataWs.on('close', () => { this.isUdsConnected = false; });
+      this.userDataWs.on('error', (err: any) => {
+        this.isUdsConnected = false;
+        this.logger.error(`User Data Stream error: ${err.message || String(err)}`);
+      });
+      this.userDataWs.on('close', () => {
+        this.isUdsConnected = false;
+        if (this.running) {
+          this.logger.warn('User Data Stream closed unexpectedly. Reconnecting...');
+          setTimeout(() => this.startUserDataStream(bc).catch(() => {}), 5000);
+        }
+      });
 
       this.userDataWs.on('message', async (msg: any) => {
         try {

@@ -193,15 +193,20 @@ const ExitMonitor = ({ status, logic, trade }) => {
 
                 <div className="space-y-1">
                   <div className="flex justify-between items-center px-0.5">
-                    <span className="text-[7px] font-black text-dim uppercase tracking-widest text-right w-full">Price Prox.</span>
+                    <div className="flex items-center gap-1 w-full justify-end">
+                      <Tooltip content="Price Proximity: Visual indicator of how close the price is to the target RR (Take Profit).">
+                        <Info size={8} className="text-dim/40 cursor-help" />
+                      </Tooltip>
+                      <span className="text-[7px] font-black text-dim uppercase tracking-widest text-right">Price Prox.</span>
+                    </div>
                   </div>
                   <div className="h-1 bg-background/50 rounded-full overflow-hidden relative flex justify-end">
                     <motion.div
                       initial={{ width: 0 }}
                       animate={{ width: `${Math.min(100, Math.max(0, trade.rr * 20))}%` }}
                       className={cn(
-                        "h-full rounded-full",
-                        trade.rr > 0 ? "bg-green/40" : "bg-red/40"
+                        "h-full rounded-full transition-colors duration-500",
+                        trade.rr > 0 ? "bg-green shadow-[0_0_8px_rgba(0,229,160,0.3)]" : "bg-red/40"
                       )}
                     />
                   </div>
@@ -403,7 +408,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                    { label: 'ROI from Entry', value: `${pnlPct.toFixed(2)}%`, color: pnlPct >= 0 ? 'text-green' : 'text-red', tooltip: 'Current price percentage change relative to entry' },
                    { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%`, tooltip: 'Current percentage distance from market price to stop loss' },
                    { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%`, tooltip: 'Percentage distance from entry price to initial stop loss' },
-                   { label: 'Max Entry Risk', value: riskFormatted, tooltip: 'Fixed initial dollar risk calculated at time of entry' },
+                   { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0), tooltip: 'Fixed initial dollar risk calculated at time of entry' },
                    { label: 'Daily Δ at Entry', value: `${(trade.entry_daily_change_pct || 0).toFixed(2)}%`, tooltip: '24h price change percentage at the exact moment of entry' },
                  ].map(item => (
                    <div key={item.label} className="flex justify-between items-center py-3 border-b border-border/40 last:border-0">

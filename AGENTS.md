@@ -47,3 +47,25 @@ Rules:
 - Do not recommend changes that are not justified by the codebase.
 - Optimize for maintainability, safety, and long-term team velocity.
 - Be strict about quality, but separate issues that are cosmetic from those that affect delivery or reliability.
+## 2026-06-11 - Critical Trading Engine Compliance & Best Practices
+
+To avoid regressions and ensure compliance with exchange (Binance) behavior and internal standards, all agents must adhere to the following:
+
+### 1. Binance Stop-Loss Order Mandatory Fallback
+- **Pattern**: When placing `STOP_MARKET` orders, always include an explicit `quantity` parameter (formatted to the correct `LOT_SIZE` precision) even if `closePosition: true` is used.
+- **Reason**: Certain symbols and API endpoints on Binance Futures reject orders missing the quantity, causing critical protection failures.
+- **Compliance**: Verified in `OrderManagerService.placeStopLoss`.
+
+### 2. Leverage Feature intentional Disablement
+- **Pattern**: Do not attempt to re-enable or use automated leverage setting via `changeInitialLeverage`.
+- **Reason**: This feature was intentionally disabled in June 2026 to prevent account/exchange synchronization issues that led to inconsistent trade states.
+- **Audit**: `OrderManagerService.setLeverage` is a no-op; UI fields have been removed.
+
+### 3. Robust Database Migration Discovery
+- **Pattern**: Use the non-recursive glob `*.{ts,js}` for migrations in `AppModule.ts`.
+- **Reason**: Complex nested globs (`**/*`) can fail in specific Node.js or Docker environments, leading to missing database columns and startup crashes.
+
+### 4. UI/UX & A11Y Standards for Financial Data
+- **Clarity**: Use explicit labels for risk (`Stop Distance (Live)` vs `Max Entry Risk`).
+- **Responsive Flow**: Avoid absolute positioning for dynamic text (like timers) in compact layouts to prevent mobile overlaps.
+- **Discoverability**: All critical metrics must have helper tooltips (`<Tooltip content="..." />`) to align with the user's mental model.

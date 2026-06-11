@@ -156,33 +156,35 @@ export const DecisionLog = React.memo(() => {
           className="flex flex-wrap gap-2 items-center"
         >
           <div className="flex-1 flex gap-2 overflow-x-auto no-scrollbar">
-          <CopyButton
-            value={visibleLogs.map(l => `[${l.ts}] ${l.msg}`).join('\n')}
-            className="bg-surface border border-border"
-          />
-          {filterButtons.map((filter) => {
-            const active = (logFilters || DEFAULT_LOG_FILTERS)[filter.level]
-            return (
-              <button
-                key={filter.level}
-                type="button"
-                aria-pressed={active}
-                onClick={() => toggleLogFilter(filter.level)}
-                className={cn(
-                  "px-3 py-1 rounded-full border text-[11px] font-bold transition-all whitespace-nowrap",
-                  active ? "bg-surface border-border opacity-100" : "bg-transparent border-border/50 opacity-55 hover:opacity-80",
-                  filter.level === 'warn' ? "text-amber" :
-                  filter.level === 'error' ? "text-red" :
-                  "text-text"
-                )}
-              >
-                {filter.label}
-              </button>
-            )
-          })}
+            <CopyButton
+              value={visibleLogs.map(l => `[${l.ts}] ${l.msg}`).join('\n')}
+              className="bg-surface border border-border"
+            />
+            {filterButtons.map((filter) => {
+              const active = (logFilters || DEFAULT_LOG_FILTERS)[filter.level]
+              return (
+                <button
+                  key={filter.level}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => toggleLogFilter(filter.level)}
+                  className={cn(
+                    "px-3 py-1 rounded-full border text-[11px] font-bold transition-all whitespace-nowrap",
+                    active ? "bg-surface border-border opacity-100" : "bg-transparent border-border/50 opacity-55 hover:opacity-80",
+                    filter.level === 'warn' ? "text-amber" :
+                    filter.level === 'error' ? "text-red" :
+                    "text-text"
+                  )}
+                >
+                  {filter.label}
+                </button>
+              )
+            })}
+          </div>
+          <span className="text-[9px] text-dim font-bold uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50 shrink-0">Latest 500</span>
         </div>
-        <span className="text-[9px] text-dim font-bold uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50 shrink-0">Latest 500</span>
       </div>
+
       <div
         ref={scrollRef}
         onScroll={handleScroll}
@@ -205,6 +207,7 @@ export const DecisionLog = React.memo(() => {
         <AnimatePresence mode="popLayout">
           {visibleLogs.length === 0 ? (
             <motion.div
+              key="empty"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95 }}
@@ -239,3 +242,4 @@ export const DecisionLog = React.memo(() => {
     </div>
   )
 })
+DecisionLog.displayName = 'DecisionLog'

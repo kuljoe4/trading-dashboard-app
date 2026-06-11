@@ -59,8 +59,13 @@ export class OrderManagerService {
 
       if (trade) {
         const tradeIdShort8 = trade.id.substring(0, 8);
-        // Check if this was our SL order
-        const isSlOrder = trade.binance_stop_order_id === orderId || (clientOrderId && clientOrderId.startsWith(`sl-${tradeIdShort8}`));
+
+        // BOLT: Handle both REST order IDs and Algo API IDs/Client IDs for SL matching
+        const clientAlgoId = payload.o.n; // Algo client ID often appears here in some payloads or custom fields
+        const isSlOrder =
+          trade.binance_stop_order_id === orderId ||
+          (clientOrderId && clientOrderId.startsWith(`sl-${tradeIdShort8}`)) ||
+          (clientAlgoId && String(clientAlgoId).startsWith(`sl-${tradeIdShort8}`));
 
         if (isSlOrder) {
           this.logger.log(`Binance SL HIT for ${symbol}. Closing trade locally.`);
@@ -500,18 +505,13 @@ export class OrderManagerService {
       const tickSize = parseFloat(priceFilter?.tickSize || '0');
       const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
 
-      // Switch to standard STOP_MARKET for consistency and simpler batch support
-      const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
-      const stepSize = parseFloat(lotSize?.stepSize || '0');
-      const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
-
+      // INDUSTRY-BEST-PRACTICE: For Stop Loss, use closePosition: true and omit quantity to avoid calculation mismatches
       const slOrderParams = {
         symbol: trade.symbol,
         side: closeDirection as any,
         type: 'STOP_MARKET',
-        stopPrice: slPrice.toFixed(pricePrecision), // Standard STOP_MARKET uses stopPrice
-        quantity: trade.qty.toFixed(qtyPrecision),
-        reduceOnly: true,
+        stopPrice: slPrice.toFixed(pricePrecision),
+        closePosition: true,
         workingType: 'MARK_PRICE' as any,
         newClientOrderId: `sl-${trade.id.substring(0, 8)}`,
       };
@@ -550,8 +550,7 @@ export class OrderManagerService {
               side: closeDirection as any,
               type: 'STOP_MARKET',
               triggerPrice: slPrice.toFixed(pricePrecision),
-              quantity: trade.qty.toFixed(qtyPrecision),
-              reduceOnly: true,
+              closePosition: true,
               workingType: 'MARK_PRICE' as any,
               clientAlgoId: `sl-${trade.id.substring(0, 8)}-${Date.now()}`
            };
@@ -619,11 +618,27 @@ export class OrderManagerService {
 
     // Cancel existing SL order if it exists
     if (trade.binance_stop_order_id) {
-      await this.cancelBinanceOrder(trade.symbol, trade.binance_stop_order_id);
+      await this.cancelAnyStopOrder(trade.symbol, trade.binance_stop_order_id);
     }
 
     // Place new SL order
     await this.placeStopLoss(trade, newSlPrice);
+  }
+
+  /**
+   * Unified cancel for either standard or algo stop orders
+   */
+  async cancelAnyStopOrder(symbol: string, orderId: string): Promise<boolean> {
+    if (this.paperMode || !this.binanceClient) return true;
+
+    const pref = this.slApiPreference.get(symbol) || 'standard';
+    this.logger.debug(`Canceling SL for ${symbol} using ${pref} API (ID: ${orderId})`);
+
+    if (pref === 'algo') {
+      return this.cancelBinanceAlgoOrder(symbol, orderId);
+    } else {
+      return this.cancelBinanceOrder(symbol, orderId);
+    }
   }
 
   /**
@@ -837,7 +852,7 @@ export class OrderManagerService {
         try {
           // If there is an exchange stop loss, cancel it to prevent orphans
           if (trade.binance_stop_order_id) {
-            await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id);
+            await this.cancelAnyStopOrder(symbol, trade.binance_stop_order_id);
           }
 
           const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';

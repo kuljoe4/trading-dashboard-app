@@ -78,8 +78,7 @@ describe('OrderManagerService', () => {
           type: 'STOP_MARKET',
           stopPrice: '49500.00000000',
           workingType: 'MARK_PRICE',
-          quantity: '0.10000000',
-          reduceOnly: true
+          closePosition: true
         })
       );
 
@@ -147,7 +146,7 @@ describe('OrderManagerService', () => {
           type: 'STOP_MARKET',
           stopPrice: '50500.00000000',
           workingType: 'MARK_PRICE',
-          quantity: '0.10000000'
+          closePosition: true
         })
       );
       expect(trade.binance_stop_order_id).toBe('new_sl_id');

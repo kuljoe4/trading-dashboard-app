@@ -91,7 +91,7 @@ describe('OrderManagerService Atomicity', () => {
       );
       // 2. SL via tradeApi.newOrder
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenNthCalledWith(
-        2, expect.objectContaining({ symbol: 'BTCUSDT', type: 'STOP_MARKET', quantity: '0.100', reduceOnly: true })
+        2, expect.objectContaining({ symbol: 'BTCUSDT', type: 'STOP_MARKET', closePosition: true })
       );
       // 3. Unwind via tradeApi.newOrder
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenNthCalledWith(

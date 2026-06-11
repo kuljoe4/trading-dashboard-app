@@ -96,12 +96,12 @@ const RRLadder = ({ trade }) => {
   )
 }
 
-const ExitMonitor = ({ status, logic }) => {
+const ExitMonitor = ({ status, logic, trade }) => {
   if (!status || Object.keys(status).length === 0) return null;
   const entries = Object.entries(status)
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm h-full flex flex-col">
+    <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm flex flex-col">
       <div className="flex items-center justify-between mb-6">
         <SectionLabel className="mb-0">
           <ShieldCheck size={14} className="text-red" /> Technical Exit Signals
@@ -165,32 +165,46 @@ const ExitMonitor = ({ status, logic }) => {
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <div className="flex justify-between items-center px-0.5">
-                  <div className="flex items-center gap-1">
-                    <span className="text-[7px] font-black text-dim uppercase tracking-widest">Signal Activation</span>
-                    <Tooltip content="Proximity to technical trigger threshold. 100% means the signal is fully active.">
-                      <Info size={8} className="text-dim/40 cursor-help" />
-                    </Tooltip>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center px-0.5">
+                    <div className="flex items-center gap-1">
+                      <span className="text-[7px] font-black text-dim uppercase tracking-widest">Activation</span>
+                      <Tooltip content="Proximity to technical trigger threshold. 100% means the signal is fully active.">
+                        <Info size={8} className="text-dim/40 cursor-help" />
+                      </Tooltip>
+                    </div>
+                    <span className={cn("text-[8px] font-black font-mono", isFired ? "text-red" : "text-accent")}>
+                      {s.distPct ? Math.min(100, s.distPct).toFixed(1) : '0.0'}%
+                    </span>
                   </div>
-                  <span className={cn("text-[8px] md:text-[9px] font-black font-mono", isFired ? "text-red" : "text-accent")}>
-                    {s.distPct ? Math.min(100, s.distPct).toFixed(1) : '0.0'}%
-                  </span>
+                  <div className="h-1 bg-background/50 rounded-full overflow-hidden relative">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${progress}%` }}
+                      transition={{ type: "spring", stiffness: 60, damping: 25 }}
+                      className={cn(
+                        "absolute top-0 left-0 h-full rounded-full",
+                        isFired ? "bg-red" : isDelayed ? "bg-amber/40" : "bg-accent"
+                      )}
+                    />
+                  </div>
                 </div>
-                <div className="h-1.5 bg-background/50 rounded-full overflow-hidden relative">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${progress}%` }}
-                    transition={{ type: "spring", stiffness: 60, damping: 25 }}
-                    className={cn(
-                      "absolute top-0 left-0 h-full rounded-full",
-                      isFired
-                        ? "bg-gradient-to-r from-red to-orange shadow-[0_0_12px_rgba(255,68,102,0.4)]"
-                        : isDelayed
-                          ? "bg-amber/40"
-                          : "bg-gradient-to-r from-accent to-purple shadow-[0_0_12px_rgba(91,111,255,0.4)]"
-                    )}
-                  />
+
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center px-0.5">
+                    <span className="text-[7px] font-black text-dim uppercase tracking-widest text-right w-full">Price Prox.</span>
+                  </div>
+                  <div className="h-1 bg-background/50 rounded-full overflow-hidden relative flex justify-end">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.min(100, Math.max(0, trade.rr * 20))}%` }}
+                      className={cn(
+                        "h-full rounded-full",
+                        trade.rr > 0 ? "bg-green/40" : "bg-red/40"
+                      )}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -211,12 +225,13 @@ const ExitMonitor = ({ status, logic }) => {
 }
 
 export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClosing, confirmClose, setConfirmClose, layout = "grid" }) => {
-  const { isLong, pnlPct, progress, entry, mark, sl, tp, qtyFormatted, riskFormatted, slDistPct = 0, slFromEntry = 0, enhancedExitSignals } = useMemo(() => {
+  const { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qtyFormatted, riskFormatted, slDistPct = 0, slInitialDistPct = 0, enhancedExitSignals } = useMemo(() => {
     if (!trade) return {}
     const isLong = trade.direction === 'LONG'
     const entry = Number(trade.entry_price || 0)
     const mark = Number(trade.current_price || trade.mark_price || 0)
     const sl = Number(trade.sl_price || 0)
+    const initialSl = Number(trade.initial_sl || trade.sl_price || 0)
     const tp = Number(trade.tp_price || trade.tp || 0)
 
     const pnlPct = trade.pnl_pct ?? (entry ? ((mark - entry) / entry) * 100 * (isLong ? 1 : -1) : 0)
@@ -243,8 +258,8 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
     const qtyFormatted = Number.isFinite(qtyVal) ? qtyVal.toFixed(4) : '0.0000'
     const riskFormatted = fmtUSD(trade.risk_usdt || 0)
 
-    const slDistPct = entry ? (Math.abs(mark - sl) / entry) * 100 : 0
-    const slFromEntry = entry ? (Math.abs(entry - sl) / entry) * 100 : 0
+    const slDistPct = mark ? (Math.abs(mark - sl) / mark) * 100 : 0
+    const slInitialDistPct = entry ? (Math.abs(entry - initialSl) / entry) * 100 : 0
 
     // Enhanced Exit Signals with proximity
     const exitSignals = trade.exit_signals_status || {}
@@ -283,13 +298,13 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               <Activity size={32} className="md:w-20 md:h-20" />
             </div>
             <div className="flex items-center gap-2 mb-1 md:mb-2">
-              <span className="text-[7px] md:text-[10px] font-black text-dim uppercase tracking-[0.2em]">Performance</span>
+              <span className="text-[7px] md:text-[10px] font-black text-dim uppercase tracking-[0.2em]">Live Return</span>
               <div className={cn("text-lg md:text-4xl font-black font-mono tracking-tighter", pnlClass(trade.pnl))}>
                 {fmtUSD(trade.pnl)}
               </div>
             </div>
             <div className={cn("px-2 py-0.5 md:px-4 md:py-1.5 rounded-full text-[8px] md:text-xs font-black font-mono shadow-sm", trade.pnl >= 0 ? "bg-green/10 text-green" : "bg-red/10 text-red")}>
-              {pnlPct >= 0 ? '▲' : '▼'} {Math.abs(pnlPct).toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
+              ROI: {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
             </div>
           </div>
         </div>
@@ -374,7 +389,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
          </div>
 
          <div className="space-y-4 md:space-y-8">
-            <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} />
+            <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} trade={trade} />
 
             <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
               <SectionLabel className="mb-6">
@@ -385,8 +400,11 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                    { label: 'TP Mode', value: trade.tp_mode === 'exp_rr_seq' ? 'Expansion RR' : 'Fixed Ratio' },
                     { label: 'Commission', value: fmtUSD(-(trade.realized_fee || 0)), color: 'text-red/70' },
                     { label: 'Funding Fee', value: fmtUSD(-(trade.funding_fee || 0)), color: trade.funding_fee > 0 ? 'text-red/70' : 'text-green/70' },
+                   { label: 'ROI from Entry', value: `${pnlPct.toFixed(2)}%`, color: pnlPct >= 0 ? 'text-green' : 'text-red', tooltip: 'Current price percentage change relative to entry' },
                    { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%`, tooltip: 'Current percentage distance from market price to stop loss' },
-                   { label: 'Max Entry Risk', value: `${slFromEntry.toFixed(2)}%`, tooltip: 'Initial percentage risk calculated at time of entry' },
+                   { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%`, tooltip: 'Percentage distance from entry price to initial stop loss' },
+                   { label: 'Max Entry Risk', value: riskFormatted, tooltip: 'Fixed initial dollar risk calculated at time of entry' },
+                   { label: 'Daily Δ at Entry', value: `${(trade.entry_daily_change_pct || 0).toFixed(2)}%`, tooltip: '24h price change percentage at the exact moment of entry' },
                  ].map(item => (
                    <div key={item.label} className="flex justify-between items-center py-3 border-b border-border/40 last:border-0">
                       <div className="flex items-center gap-1.5">

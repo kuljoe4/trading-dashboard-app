@@ -72,6 +72,8 @@ export class Trade {
 
   pnl_pct?: number;
 
+  entry_daily_change_pct?: number;
+
   quantity?: number;
 
   binance_order_id?: string;

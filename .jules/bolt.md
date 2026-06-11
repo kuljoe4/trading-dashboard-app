@@ -120,3 +120,7 @@
 ## 2026-06-11 - [Reliability] Binance Stop-Loss Quantity Requirement
 **Learning:** Binance Stop-Loss orders (`STOP_MARKET`) can fail with "Mandatory parameter 'quantity' was not sent" even when `closePosition: true` is used. This behavior varies between the Standard and Algo APIs and across different symbols.
 **Action:** Always include the `quantity` parameter in Stop-Loss orders as a fallback, even when `closePosition: true` is provided, to ensure broad compatibility and prevent order rejection.
+
+## 2026-06-11 - [Security/Reliability] Elimination of SL Protection Gaps
+**Learning:** The "Cancel-then-Replace" pattern for Stop-Loss updates creates a window of time where a trade is unprotected. In volatile markets, a price spike during this gap can lead to catastrophic losses.
+**Action:** Transition to `modifyOrder` for atomic updates or the "New-then-Cancel" pattern to ensure a trade always has an active Stop-Loss on the exchange.

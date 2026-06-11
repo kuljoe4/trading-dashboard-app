@@ -224,7 +224,7 @@ export class OrderManagerService {
     qty: number,
     slPrice: number,
     tpPrice: number | null,
-    metadata: Pick<Trade, 'strategy_label' | 'strategy_config'> = {},
+    metadata: Pick<Trade, 'strategy_label' | 'strategy_config' | 'entry_daily_change_pct'> = {},
   ): Promise<ExecutionResult<Trade>> {
     if (this.checkCircuitBreaker()) {
       return { status: ExecutionStatus.CIRCUIT_OPEN, error: 'Circuit breaker is open' };
@@ -288,6 +288,7 @@ export class OrderManagerService {
         sessionId,
         strategy_label: metadata.strategy_label,
         strategy_config: metadata.strategy_config,
+        entry_daily_change_pct: metadata.entry_daily_change_pct,
       } as Trade;
 
       // In live mode, attempt to place actual order using batchOrders for zero-cost network optimization
@@ -618,13 +619,12 @@ export class OrderManagerService {
   }
 
   /**
-   * Update an existing stop loss by canceling and replacing it
+   * Update an existing stop loss without protection gaps (Ratcheting)
    */
   async updateStopLoss(trade: Trade, newSlPrice: number): Promise<void> {
     if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return;
 
     // BOLT: Proactive Rate Limit - Skip non-critical SL updates if near limits
-    // We only skip if the gap is small, otherwise it's critical protection
     if (this.sessionState.isRateLimited(0.7)) {
        const risk = Math.abs(trade.entry_price - trade.initial_sl);
        const move = Math.abs(newSlPrice - trade.current_sl);
@@ -634,13 +634,41 @@ export class OrderManagerService {
        }
     }
 
-    // Cancel existing SL order if it exists
-    if (trade.binance_stop_order_id) {
-      await this.cancelAnyStopOrder(trade.symbol, trade.binance_stop_order_id, trade);
+    const filters = this.marketFeed.getSymbolFilters(trade.symbol);
+    const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
+    const tickSize = parseFloat(priceFilter?.tickSize || '0');
+    const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
+    const formattedPrice = newSlPrice.toFixed(pricePrecision);
+
+    // PERFORMANCE: Use modifyOrder for Standard API to avoid protection gaps
+    if (trade.binance_stop_order_id && trade.binance_stop_order_type === 'standard') {
+      try {
+        this.logger.log(`Ratcheting SL for ${trade.symbol} via modifyOrder: ${trade.current_sl} -> ${formattedPrice}`);
+        const res = await (this.binanceClient as any).restAPI.tradeApi.modifyOrder({
+          symbol: trade.symbol,
+          orderId: trade.binance_stop_order_id,
+          stopPrice: formattedPrice,
+          price: formattedPrice // Required for some modify versions but usually same as stopPrice for STOP_MARKET
+        });
+        this.updateWeight(res.headers);
+        return;
+      } catch (err: any) {
+        const msg = err.message || String(err);
+        this.logger.warn(`Failed to modify SL for ${trade.symbol}: ${msg}. Falling back to replace.`);
+        // If modify fails (e.g. order filled), we fall through to the replace logic
+      }
     }
 
-    // Place new SL order
-    await this.placeStopLoss(trade, newSlPrice);
+    // SEC-04: For Algo orders or failed modify, use "New-then-Cancel" pattern to maintain protection
+    const oldSlId = trade.binance_stop_order_id;
+
+    // 1. Place NEW stop loss first
+    const newSlId = await this.placeStopLoss(trade, newSlPrice);
+
+    // 2. ONLY cancel the old one AFTER the new one is successfully placed
+    if (newSlId && oldSlId) {
+      await this.cancelAnyStopOrder(trade.symbol, oldSlId, trade);
+    }
   }
 
   /**

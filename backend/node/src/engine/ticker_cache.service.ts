@@ -4,6 +4,7 @@ export interface Ticker {
   symbol: string;
   price: number;
   volume_24h: number;
+  open_24h?: number;
 }
 
 @Injectable()
@@ -38,23 +39,26 @@ export class TickerCacheService {
    * BOLT OPTIMIZATION: Zero-allocation update for a single ticker.
    * Directly updates the Map to avoid temporary object/array allocations.
    */
-  updateTicker(symbol: string, price?: string | number, volume?: string | number) {
+  updateTicker(symbol: string, price?: string | number, volume?: string | number, open?: string | number) {
     if (!symbol) return;
     const existing = this.tickers.get(symbol);
 
     const p = typeof price === 'string' ? parseFloat(price) : price;
     const v = typeof volume === 'string' ? parseFloat(volume) : volume;
+    const o = typeof open === 'string' ? parseFloat(open) : open;
 
     if (existing) {
       // Mutate existing object to avoid new allocations
       // DATA-CONSISTENCY: Ignore 0 prices as they indicate data gaps/errors
       if (p !== undefined && !Number.isNaN(p) && p > 0) existing.price = p;
       if (v !== undefined && !Number.isNaN(v)) existing.volume_24h = v;
+      if (o !== undefined && !Number.isNaN(o) && o > 0) existing.open_24h = o;
     } else {
       this.tickers.set(symbol, {
         symbol,
         price: (p !== undefined && !Number.isNaN(p) && p > 0) ? p : 0,
         volume_24h: (v !== undefined && !Number.isNaN(v)) ? v : 0,
+        open_24h: (o !== undefined && !Number.isNaN(o) && o > 0) ? o : undefined,
       });
     }
   }

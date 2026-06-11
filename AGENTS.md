@@ -69,3 +69,8 @@ To avoid regressions and ensure compliance with exchange (Binance) behavior and 
 - **Clarity**: Use explicit labels for risk (`Stop Distance (Live)` vs `Max Entry Risk`).
 - **Responsive Flow**: Avoid absolute positioning for dynamic text (like timers) in compact layouts to prevent mobile overlaps.
 - **Discoverability**: All critical metrics must have helper tooltips (`<Tooltip content="..." />`) to align with the user's mental model.
+
+### 5. Gapless Stop-Loss Updates (Ratcheting)
+- **Standard Orders**: Use `modifyOrder` to update the stop price of an existing `STOP_MARKET` order. This avoids the protection gap inherent in cancel-then-replace.
+- **Algo/Fallback**: When `modifyOrder` is unavailable (Algo API) or fails, use the **New-then-Cancel** pattern. Place the new Stop-Loss order FIRST, and only cancel the old one after the new one is confirmed.
+- **Audit**: Verified in `OrderManagerService.updateStopLoss`.

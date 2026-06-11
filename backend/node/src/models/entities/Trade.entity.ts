@@ -88,6 +88,9 @@ export class TradeEntity {
   @Column({ nullable: true })
   binance_stop_order_type: 'standard' | 'algo';
 
+  @Column('decimal', { precision: 10, scale: 4, nullable: true })
+  entry_daily_change_pct: number;
+
   @Index()
   @Column({ nullable: true })
   sessionId: string;

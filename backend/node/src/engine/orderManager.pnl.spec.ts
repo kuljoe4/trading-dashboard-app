@@ -23,7 +23,10 @@ describe('OrderManagerService - PnL Consistency', () => {
       })
     };
     mockTradingSession = {
-      isRateLimited: jest.fn().mockReturnValue(false)
+      isRateLimited: jest.fn().mockReturnValue(false),
+      binanceRateLimit: { used_1m: 0, limit: 2400 },
+      updateRateLimit: jest.fn(),
+      realTimePositions: new Map()
     };
     service = new OrderManagerService(
       mockSignalEngine,
@@ -70,8 +73,14 @@ describe('OrderManagerService - PnL Consistency', () => {
 
     // Simulate Binance rejecting the close order because position is already closed
     mockBinanceClient.restAPI.tradeApi.newOrder.mockRejectedValue(new Error('Position side does not match'));
-    mockBinanceClient.restAPI.tradeApi.positionInformationV2.mockResolvedValue({ data: [{ positionAmt: '0' }] });
-    mockBinanceClient.restAPI.tradeApi.cancelAlgoOrder.mockResolvedValue({ data: {} });
+    mockBinanceClient.restAPI.tradeApi.positionInformationV2.mockResolvedValue({
+      data: () => Promise.resolve([{ positionAmt: '0', positionSide: 'BOTH' }]),
+      headers: { get: (k: string) => (k === 'X-MBX-USED-WEIGHT-1M' ? '10' : null) }
+    });
+    mockBinanceClient.restAPI.tradeApi.cancelOrder.mockResolvedValue({
+      data: () => Promise.resolve({}),
+      headers: { get: (k: string) => (k === 'X-MBX-USED-WEIGHT-1M' ? '10' : null) }
+    });
 
     const result = await service.closeTrade('BTCUSDT', trade, exitPrice, 'SL_HIT', false);
 

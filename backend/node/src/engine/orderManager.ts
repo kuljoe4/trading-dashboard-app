@@ -326,6 +326,12 @@ export class OrderManagerService {
              if (totalQty > 0) absoluteEntryPrice = weightedSum / totalQty;
           }
 
+          // DATA-CONSISTENCY: Fallback for 0 price responses to prevent PnL corruption
+          if (absoluteEntryPrice === 0) {
+             this.logger.warn(`Binance returned 0 price for ${symbol} entry. Using estimated price ${entryPrice}.`);
+             absoluteEntryPrice = entryPrice;
+          }
+
           const executedQty = parseFloat(entryReceipt.executedQty || '0');
 
           if (absoluteEntryPrice > 0) {
@@ -395,9 +401,12 @@ export class OrderManagerService {
             throw new ExchangeExecutionException(`Unexpected error after market entry for ${symbol}: ${errMsg}`);
           }
 
-          const agreementMsg = errMsg.includes('agreement')
-            ? `CRITICAL: ${errMsg}. Please go to Binance website and sign the required agreement.`
-            : `Binance entry failed: ${errMsg}`;
+          let agreementMsg = `Binance entry failed: ${errMsg}`;
+          if (errMsg.includes('agreement')) {
+            agreementMsg = `CRITICAL: ${errMsg}. Please go to Binance website and sign the required agreement.`;
+          } else if (errMsg.includes('insufficient balance') || errMsg.includes('Margin is insufficient')) {
+            agreementMsg = `CRITICAL: Insufficient funds on Binance USDS-M account to open ${symbol}.`;
+          }
 
           this.logger.error(agreementMsg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: agreementMsg, level: 'error' });
@@ -488,9 +497,16 @@ export class OrderManagerService {
       });
       return String(stopLossId);
     } catch (err) {
-      this.logger.error(
-        `Failed to place Binance SL for ${trade.symbol}: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Failed to place Binance SL for ${trade.symbol}: ${errMsg}`);
+
+      if (errMsg.includes('insufficient balance') || errMsg.includes('Margin is insufficient')) {
+         this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+            msg: `CRITICAL: Insufficient funds for SL placement on ${trade.symbol}. Unwind may be required.`,
+            level: 'error'
+         });
+      }
+
       return null;
     }
   }
@@ -772,6 +788,12 @@ export class OrderManagerService {
                const totalQty = orderData.fills.reduce((sum: number, fill: any) => sum + parseFloat(fill.qty), 0);
                const weightedSum = orderData.fills.reduce((sum: number, fill: any) => sum + parseFloat(fill.qty) * parseFloat(fill.price), 0);
                if (totalQty > 0) absoluteExitPrice = weightedSum / totalQty;
+            }
+
+            // DATA-CONSISTENCY: Fallback for 0 price responses to prevent PnL corruption
+            if (absoluteExitPrice === 0) {
+               this.logger.warn(`Binance returned 0 price for ${symbol} exit. Using estimated price ${exitPrice}.`);
+               absoluteExitPrice = exitPrice;
             }
 
             const executedExitQtyFinal = parseFloat(orderData.executedQty || '0');

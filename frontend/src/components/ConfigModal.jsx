@@ -61,7 +61,6 @@ const flattenConfig = (config) => {
       live_rr_sequence: Array.isArray(config.live_rr_sequence) ? config.live_rr_sequence : [1.0, 2.0, 4.0],
       exit_rr_sequence: Array.isArray(config.exit_rr_sequence) ? config.exit_rr_sequence : [0.0, 1.0, 2.0],
       // UI Conversion: backend decimal to UI percentage
-      leverage: config.leverage || CONFIG_LIMITS.LEVERAGE_DEFAULT || 1,
       slippage_warning_threshold: config.slippage_warning_threshold !== undefined ? config.slippage_warning_threshold * 100 : (CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT * 100 || 0.1),
     };
   } catch (e) { return { ...config }; }
@@ -416,7 +415,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                 {field('Max Total Risk %', 'max_total_risk_pct', 'number', null, { min: CONFIG_LIMITS.MAX_TOTAL_RISK_MIN, max: CONFIG_LIMITS.MAX_TOTAL_RISK_MAX })}
                 {field('Max Open Trades', 'max_open_trades', 'number', null, { min: CONFIG_LIMITS.MAX_OPEN_TRADES_MIN })}
                 {field('SL Guard (USDT)', 'total_sl_guard_usdt', 'number', null, { min: 0 })}
-                {field('Leverage (x)', 'leverage', 'number', null, { min: CONFIG_LIMITS.LEVERAGE_MIN, max: CONFIG_LIMITS.LEVERAGE_MAX })}
               </div>
               <div className="mt-4 p-4 bg-accent/5 border border-accent/20 rounded-2xl flex justify-between items-center">
                 <div className="flex flex-col"><span className="text-[9px] text-dim uppercase font-bold tracking-widest mb-1">Theoretical Sizing</span><span className="text-sm font-bold font-mono text-amber">{fmtUSD(riskAmount)} <span className="text-[10px] opacity-60 font-medium">AT RISK</span></span></div>

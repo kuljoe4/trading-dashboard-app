@@ -40,10 +40,17 @@ const RRLadder = ({ trade }) => {
   return (
     <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
       <div className="flex justify-between items-center mb-6">
-        <SectionLabel className="mb-0">
-           <Zap size={14} className="text-accent" fill="currentColor" /> Guard Ladder
-        </SectionLabel>
-        <div className="text-[10px] text-accent font-mono bg-accent/10 px-2 py-0.5 rounded border border-accent/20">Live Ratchet</div>
+        <div className="flex items-center gap-2">
+          <SectionLabel className="mb-0">
+             <Zap size={14} className="text-accent" fill="currentColor" /> Guard Ladder
+          </SectionLabel>
+          <Tooltip content="Incremental profit milestones that automatically adjust your stop loss to lock in gains.">
+            <Info size={12} className="text-dim/40 cursor-help" />
+          </Tooltip>
+        </div>
+        <Tooltip content="Live Ratchet: The engine proactively trails your stop loss as these milestones are hit.">
+          <div className="text-[10px] text-accent font-mono bg-accent/10 px-2 py-0.5 rounded border border-accent/20 cursor-help">Live Ratchet</div>
+        </Tooltip>
       </div>
 
       <div className="flex gap-4 overflow-x-auto no-scrollbar mb-8 pb-2">
@@ -116,21 +123,11 @@ const ExitMonitor = ({ status, logic }) => {
             <div key={key} className={cn(
               "group relative overflow-hidden p-3 md:p-4 rounded-xl border transition-all duration-300",
               isFired ? "bg-red/5 border-red/30 shadow-[0_0_15px_rgba(255,68,102,0.05)]" : "bg-background/20 border-border hover:border-accent/30",
-              isDelayed && !isFired && "opacity-70 grayscale-[0.5]"
+              isDelayed && !isFired && "opacity-80"
             )}>
               {isFired && (
                 <div className="absolute top-0 right-0 p-1">
                    <PulseDot color="bg-red" />
-                </div>
-              )}
-
-              {isDelayed && !isFired && (
-                <div className="absolute top-0 right-0 p-2">
-                   <Tooltip content={`Warm-up period: ${s.remaining_delay}s remaining`}>
-                     <div className="flex items-center gap-1 bg-amber/10 text-amber px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter border border-amber/20">
-                        <Clock size={8} /> {s.remaining_delay}s
-                     </div>
-                   </Tooltip>
                 </div>
               )}
 
@@ -143,9 +140,16 @@ const ExitMonitor = ({ status, logic }) => {
                      {isFired ? <Zap size={16} className="md:size-[18px]" fill="currentColor" /> : <Activity size={16} className="md:size-[18px]" />}
                    </div>
                    <div className="flex flex-col min-w-0">
-                     <span className="text-[10px] md:text-xs font-black uppercase tracking-tight truncate">{s.label || key}</span>
+                     <div className="flex items-center gap-1.5">
+                       <span className="text-[10px] md:text-xs font-black uppercase tracking-tight truncate">{s.label || key}</span>
+                       {isDelayed && !isFired && (
+                         <div className="flex items-center gap-1 text-amber text-[7px] font-black uppercase tracking-tighter">
+                            <Clock size={8} /> {s.remaining_delay}s
+                         </div>
+                       )}
+                     </div>
                      <span className="text-[8px] md:text-[9px] text-dim font-bold truncate uppercase opacity-60 tracking-tighter">
-                       {isDelayed ? `Warm-up: ${s.remaining_delay}s` : (s.description || 'Monitoring')}
+                       {isDelayed && !isFired ? 'Waiting for warm-up...' : (s.description || 'Monitoring')}
                      </span>
                    </div>
                 </div>
@@ -163,7 +167,12 @@ const ExitMonitor = ({ status, logic }) => {
 
               <div className="space-y-1">
                 <div className="flex justify-between items-center px-0.5">
-                  <span className="text-[7px] font-black text-dim uppercase tracking-widest">Strength</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[7px] font-black text-dim uppercase tracking-widest">Signal Activation</span>
+                    <Tooltip content="Proximity to technical trigger threshold. 100% means the signal is fully active.">
+                      <Info size={8} className="text-dim/40 cursor-help" />
+                    </Tooltip>
+                  </div>
                   <span className={cn("text-[8px] md:text-[9px] font-black font-mono", isFired ? "text-red" : "text-accent")}>
                     {s.distPct ? Math.min(100, s.distPct).toFixed(1) : '0.0'}%
                   </span>
@@ -376,11 +385,18 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                    { label: 'TP Mode', value: trade.tp_mode === 'exp_rr_seq' ? 'Expansion RR' : 'Fixed Ratio' },
                     { label: 'Commission', value: fmtUSD(-(trade.realized_fee || 0)), color: 'text-red/70' },
                     { label: 'Funding Fee', value: fmtUSD(-(trade.funding_fee || 0)), color: trade.funding_fee > 0 ? 'text-red/70' : 'text-green/70' },
-                   { label: 'SL Distance', value: `${slDistPct.toFixed(2)}%` },
-                   { label: 'Initial Risk', value: `${slFromEntry.toFixed(2)}%` },
+                   { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%`, tooltip: 'Current percentage distance from market price to stop loss' },
+                   { label: 'Max Entry Risk', value: `${slFromEntry.toFixed(2)}%`, tooltip: 'Initial percentage risk calculated at time of entry' },
                  ].map(item => (
                    <div key={item.label} className="flex justify-between items-center py-3 border-b border-border/40 last:border-0">
-                      <span className="text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
+                        {item.tooltip && (
+                          <Tooltip content={item.tooltip}>
+                            <Info size={10} className="text-dim/40 cursor-help" />
+                          </Tooltip>
+                        )}
+                      </div>
                       <span className={cn("text-xs font-bold font-mono", item.color)}>{item.value}</span>
                    </div>
                  ))}

@@ -64,7 +64,6 @@ const defaultConfig = {
   live_starting_balance: CONFIG_LIMITS.LIVE_STARTING_BALANCE_DEFAULT,
   hot_loop_interval_ms: CONFIG_LIMITS.HOT_LOOP_DEFAULT,
   main_loop_interval_ms: CONFIG_LIMITS.MAIN_LOOP_DEFAULT,
-  leverage: CONFIG_LIMITS.LEVERAGE_DEFAULT || 1,
   slippage_warning_threshold: CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT || 0.001,
   debug_mode: false,
 };

@@ -209,19 +209,11 @@ export class OrderManagerService {
   }
 
   /**
-   * Set leverage for a symbol on Binance
+   * Set leverage for a symbol on Binance (Feature Disabled)
    */
   async setLeverage(symbol: string, leverage: number): Promise<boolean> {
-    if (this.paperMode || !this.binanceClient) return true;
-    try {
-      this.logger.debug(`Setting leverage for ${symbol} to ${leverage}x`);
-      const response = await (this.binanceClient as any).restAPI.tradeApi.changeInitialLeverage({ symbol, leverage });
-      this.updateWeight(response.headers);
-      return true;
-    } catch (err) {
-      this.logger.warn(`Failed to set leverage for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
-      return false;
-    }
+    // Feature disabled as per user request to avoid exchange sync issues
+    return true;
   }
 
   async enter(
@@ -301,11 +293,6 @@ export class OrderManagerService {
       // In live mode, attempt to place actual order using batchOrders for zero-cost network optimization
       if (!this.paperMode && this.binanceClient) {
         try {
-          // Set leverage before entry
-          const targetLeverage = metadata.strategy_config?.leverage || 1;
-          this.logger.debug(`[Entry] Applying leverage for ${symbol}: ${targetLeverage}x (Source: ${metadata.strategy_config ? 'symbolConfig' : 'default'})`);
-          await this.setLeverage(symbol, targetLeverage);
-
           const binanceDirection = direction === 'LONG' ? 'BUY' : 'SELL';
           const closeDirection = direction === 'LONG' ? 'SELL' : 'BUY';
           const filters = this.marketFeed.getSymbolFilters(symbol);
@@ -511,7 +498,8 @@ export class OrderManagerService {
       const stepSize = parseFloat(lotSize?.stepSize || '0');
       const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
 
-      // INDUSTRY-BEST-PRACTICE: For Stop Loss, use closePosition: true and omit quantity to avoid calculation mismatches
+      // INDUSTRY-BEST-PRACTICE: For Stop Loss, use closePosition: true.
+      // BOLT: Also provide explicit quantity as a fallback to ensure compatibility with all symbols/endpoints.
       const slOrderParams = {
         symbol: trade.symbol,
         side: closeDirection as any,

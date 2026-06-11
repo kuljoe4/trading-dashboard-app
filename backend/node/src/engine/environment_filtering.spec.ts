@@ -57,18 +57,23 @@ describe('MomentumScannerService Environment Filtering', () => {
         mockSignalEngine as any,
         marketFeed as any,
         null as any, // tickerCache
-        null as any, // sessionState
+        {
+          isRateLimited: () => false,
+          binanceRateLimit: { used_1m: 0, limit: 2400 },
+          updateRateLimit: jest.fn(),
+          realTimePositions: new Map()
+        } as any, // sessionState
         mockAuditLog as any,
         { emit: jest.fn() } as any,
     );
     (orderManager as any).marketFeed = marketFeed;
     const mockRest = {
       tradeApi: {
-        newOrder: jest.fn().mockResolvedValue({ data: { orderId: 'mock' }, headers: {} }),
-        newAlgoOrder: jest.fn().mockResolvedValue({ data: { orderId: 'mock' }, headers: {} })
+        newOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ orderId: 'mock', avgPrice: '50000', executedQty: '1' }), headers: {} }),
+        changeInitialLeverage: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
       },
       accountApi: {
-        userCommissionRate: jest.fn().mockResolvedValue({ data: { takerCommissionRate: '0.0004' } })
+        userCommissionRate: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ takerCommissionRate: '0.0004' }) })
       }
     };
     orderManager.setBinanceClient({ restAPI: mockRest } as any, false); // Live mode
@@ -78,9 +83,7 @@ describe('MomentumScannerService Environment Filtering', () => {
     expect(result.error).toContain('not tradable');
 
     const resultSuccess = await orderManager.enter('sess', 'TRADABLE', 'LONG', 1, 100, 0.5, 2);
-    // Should NOT be ORDER_REJECTED for the filter reason (might fail for other reasons like missing client setup, but we check status)
-    // In this specific mock setup, it hits a catch block that returns ORDER_REJECTED because of the missing tradeApi.
-    expect(resultSuccess.status).toBe('ORDER_REJECTED');
-    expect(resultSuccess.error).toContain('Binance entry failed');
+    // Should be SUCCESS now that we mocked changeInitialLeverage and newOrder correctly
+    expect(resultSuccess.status).toBe('SUCCESS');
   })
 })

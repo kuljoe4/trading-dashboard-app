@@ -69,11 +69,22 @@ export class SessionLifecycleService {
           this.logger.log(modeMsg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: modeMsg, level: 'info' });
         } catch (modeErr: any) {
+          const errMsg = modeErr.message || '';
+          const errCode = modeErr.data?.code || modeErr.code;
+
           // Error -4059 means it's already in that mode
-          if (modeErr.message?.includes('-4059') || modeErr.data?.code === -4059) {
+          if (errMsg.includes('-4059') || errCode === -4059) {
             this.logger.debug('Binance position mode is already One-Way.');
+          } else if (errMsg.includes('-4068') || errCode === -4068 || errMsg.includes('open orders')) {
+            const criticalMsg = `CRITICAL: Cannot set One-Way Mode because there are OPEN ORDERS on your Binance account. Please close all manual orders on Binance to ensure engine consistency.`;
+            this.logger.error(criticalMsg);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: criticalMsg, level: 'error' });
+          } else if (errMsg.includes('-4069') || errCode === -4069 || errMsg.includes('exists position')) {
+            const criticalMsg = `CRITICAL: Cannot set One-Way Mode because there are OPEN POSITIONS on your Binance account. Please close all manual positions on Binance to ensure engine consistency.`;
+            this.logger.error(criticalMsg);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: criticalMsg, level: 'error' });
           } else {
-            this.logger.warn(`Failed to set Binance position mode to One-Way: ${modeErr.message}`);
+            this.logger.warn(`Failed to set Binance position mode to One-Way: ${errMsg}`);
           }
         }
 

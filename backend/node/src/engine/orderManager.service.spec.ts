@@ -78,7 +78,7 @@ describe('OrderManagerService', () => {
           type: 'STOP_MARKET',
           stopPrice: '49500.00000000',
           workingType: 'MARK_PRICE',
-          closePosition: true,
+          quantity: '0.10000000',
           reduceOnly: true
         })
       );
@@ -127,6 +127,7 @@ describe('OrderManagerService', () => {
         id: 'test-id-12345678',
         symbol: 'BTCUSDT',
         direction: 'LONG',
+        qty: 0.1,
         binance_order_id: 'mock_order_id',
         binance_stop_order_id: 'old_sl_id',
       } as Trade;
@@ -145,7 +146,8 @@ describe('OrderManagerService', () => {
         expect.objectContaining({
           type: 'STOP_MARKET',
           stopPrice: '50500.00000000',
-          workingType: 'MARK_PRICE'
+          workingType: 'MARK_PRICE',
+          quantity: '0.10000000'
         })
       );
       expect(trade.binance_stop_order_id).toBe('new_sl_id');

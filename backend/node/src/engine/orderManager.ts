@@ -59,9 +59,19 @@ export class OrderManagerService {
       if (trade) {
         const tradeIdShort8 = trade.id.substring(0, 8);
         // Check if this was our SL order
-        if (trade.binance_stop_order_id === orderId || (clientOrderId && clientOrderId === `sl-${tradeIdShort8}`)) {
+        const isSlOrder = trade.binance_stop_order_id === orderId || (clientOrderId && clientOrderId.startsWith(`sl-${tradeIdShort8}`));
+
+        if (isSlOrder) {
           this.logger.log(`Binance SL HIT for ${symbol}. Closing trade locally.`);
-          const exitPrice = parseFloat(order.ap || order.p || '0');
+          let exitPrice = parseFloat(order.ap || order.p || '0');
+
+          // DATA-CONSISTENCY: Fallback for 0 price in WS updates
+          if (exitPrice === 0) {
+             const tickerPrice = this.tickerCache.getPrice(symbol);
+             this.logger.warn(`Binance WS returned 0 price for ${symbol} SL. Using ticker fallback: ${tickerPrice}`);
+             exitPrice = tickerPrice || trade.current_sl;
+          }
+
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
             msg: `Exchange SL hit for ${symbol} at ${exitPrice}`,
             level: 'info'
@@ -77,7 +87,15 @@ export class OrderManagerService {
         // Check if this was our TP or some other closing order
         else if (side !== (trade.direction === 'LONG' ? 'BUY' : 'SELL')) {
            this.logger.log(`Non-entry order FILLED for ${symbol} (${side}). Closing trade locally.`);
-           const exitPrice = parseFloat(order.ap || order.p || '0');
+           let exitPrice = parseFloat(order.ap || order.p || '0');
+
+           // DATA-CONSISTENCY: Fallback for 0 price in WS updates
+           if (exitPrice === 0) {
+              const tickerPrice = this.tickerCache.getPrice(symbol);
+              this.logger.warn(`Binance WS returned 0 price for ${symbol} fill. Using ticker fallback: ${tickerPrice}`);
+              exitPrice = tickerPrice || trade.entry_price;
+           }
+
            this.eventEmitter.emit('trade.exchange_close', {
              symbol,
              exitPrice,
@@ -326,6 +344,16 @@ export class OrderManagerService {
              if (totalQty > 0) absoluteEntryPrice = weightedSum / totalQty;
           }
 
+          // DATA-CONSISTENCY: Derive avg price from cumulative quote if available
+          if (absoluteEntryPrice === 0 && entryReceipt.cumQuote && entryReceipt.executedQty) {
+             const cumQuote = parseFloat(entryReceipt.cumQuote);
+             const executedQty = parseFloat(entryReceipt.executedQty);
+             if (executedQty > 0) {
+                absoluteEntryPrice = cumQuote / executedQty;
+                this.logger.log(`Derived ${symbol} entry price from cumQuote: ${absoluteEntryPrice}`);
+             }
+          }
+
           // DATA-CONSISTENCY: Fallback for 0 price responses to prevent PnL corruption
           if (absoluteEntryPrice === 0) {
              this.logger.warn(`Binance returned 0 price for ${symbol} entry. Using estimated price ${entryPrice}.`);
@@ -467,7 +495,7 @@ export class OrderManagerService {
         side: closeDirection as any,
         type: 'STOP_MARKET',
         stopPrice: slPrice.toFixed(pricePrecision), // Standard STOP_MARKET uses stopPrice
-        closePosition: true, // Guarantees full close
+        quantity: trade.qty.toFixed(qtyPrecision),
         reduceOnly: true,
         workingType: 'MARK_PRICE' as any,
         newClientOrderId: `sl-${trade.id.substring(0, 8)}`,
@@ -503,6 +531,11 @@ export class OrderManagerService {
       if (errMsg.includes('insufficient balance') || errMsg.includes('Margin is insufficient')) {
          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
             msg: `CRITICAL: Insufficient funds for SL placement on ${trade.symbol}. Unwind may be required.`,
+            level: 'error'
+         });
+      } else if (errMsg.includes('agreement')) {
+         this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+            msg: `CRITICAL: Agreement required for ${trade.symbol} SL placement. Please sign the TradFi-Perps agreement on Binance.`,
             level: 'error'
          });
       }
@@ -788,6 +821,16 @@ export class OrderManagerService {
                const totalQty = orderData.fills.reduce((sum: number, fill: any) => sum + parseFloat(fill.qty), 0);
                const weightedSum = orderData.fills.reduce((sum: number, fill: any) => sum + parseFloat(fill.qty) * parseFloat(fill.price), 0);
                if (totalQty > 0) absoluteExitPrice = weightedSum / totalQty;
+            }
+
+            // DATA-CONSISTENCY: Derive avg price from cumulative quote if available
+            if (absoluteExitPrice === 0 && orderData.cumQuote && orderData.executedQty) {
+               const cumQuote = parseFloat(orderData.cumQuote);
+               const executedQty = parseFloat(orderData.executedQty);
+               if (executedQty > 0) {
+                  absoluteExitPrice = cumQuote / executedQty;
+                  this.logger.log(`Derived ${symbol} exit price from cumQuote: ${absoluteExitPrice}`);
+               }
             }
 
             // DATA-CONSISTENCY: Fallback for 0 price responses to prevent PnL corruption

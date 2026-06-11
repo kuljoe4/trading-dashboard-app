@@ -507,11 +507,16 @@ export class OrderManagerService {
       const tickSize = parseFloat(priceFilter?.tickSize || '0');
       const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
 
+      const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
+      const stepSize = parseFloat(lotSize?.stepSize || '0');
+      const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
+
       // INDUSTRY-BEST-PRACTICE: For Stop Loss, use closePosition: true and omit quantity to avoid calculation mismatches
       const slOrderParams = {
         symbol: trade.symbol,
         side: closeDirection as any,
         type: 'STOP_MARKET',
+        quantity: (trade.qty || 0).toFixed(qtyPrecision),
         stopPrice: slPrice.toFixed(pricePrecision),
         closePosition: true,
         workingType: 'MARK_PRICE' as any,
@@ -555,6 +560,7 @@ export class OrderManagerService {
               symbol: symbol,
               side: closeDirection as any,
               type: 'STOP_MARKET',
+              quantity: (trade.qty || 0).toFixed(qtyPrecision),
               triggerPrice: slPrice.toFixed(pricePrecision),
               closePosition: true,
               workingType: 'MARK_PRICE' as any,

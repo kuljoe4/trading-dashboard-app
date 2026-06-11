@@ -416,6 +416,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                 {field('Max Total Risk %', 'max_total_risk_pct', 'number', null, { min: CONFIG_LIMITS.MAX_TOTAL_RISK_MIN, max: CONFIG_LIMITS.MAX_TOTAL_RISK_MAX })}
                 {field('Max Open Trades', 'max_open_trades', 'number', null, { min: CONFIG_LIMITS.MAX_OPEN_TRADES_MIN })}
                 {field('SL Guard (USDT)', 'total_sl_guard_usdt', 'number', null, { min: 0 })}
+                {field('Leverage (x)', 'leverage', 'number', null, { min: CONFIG_LIMITS.LEVERAGE_MIN, max: CONFIG_LIMITS.LEVERAGE_MAX })}
               </div>
               <div className="mt-4 p-4 bg-accent/5 border border-accent/20 rounded-2xl flex justify-between items-center">
                 <div className="flex flex-col"><span className="text-[9px] text-dim uppercase font-bold tracking-widest mb-1">Theoretical Sizing</span><span className="text-sm font-bold font-mono text-amber">{fmtUSD(riskAmount)} <span className="text-[10px] opacity-60 font-medium">AT RISK</span></span></div>
@@ -575,6 +576,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
               <div className="grid grid-cols-2 gap-6 mb-6">
                 {field('Hot Loop (ms)', 'hot_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.HOT_LOOP_MIN })}
                 {field('Main Loop (ms)', 'main_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.MAIN_LOOP_MIN })}
+                {field('Slippage Limit (%)', 'slippage_warning_threshold', 'number', null, { min: 0, step: 0.1 })}
               </div>
 
               <div className="space-y-3">

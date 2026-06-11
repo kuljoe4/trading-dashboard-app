@@ -485,7 +485,13 @@ export class OrderManagerService {
       return null;
     }
 
+    // PERFORMANCE: Implement retry for network errors
+    let attempts = 0;
+    const MAX_ATTEMPTS = 2;
+
+    while (attempts < MAX_ATTEMPTS) {
     try {
+      attempts++;
       const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
       const filters = this.marketFeed.getSymbolFilters(trade.symbol);
       const symbol = trade.symbol;
@@ -583,6 +589,14 @@ export class OrderManagerService {
       return String(stopLossId);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
+      const isNetworkError = errMsg.includes('Network error') || errMsg.includes('timeout') || errMsg.includes('ECONNRESET');
+
+      if (isNetworkError && attempts < MAX_ATTEMPTS) {
+        this.logger.warn(`Network error placing SL for ${trade.symbol}. Retrying (Attempt ${attempts + 1}/${MAX_ATTEMPTS})...`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        continue;
+      }
+
       this.logger.error(`Failed to place Binance SL for ${trade.symbol}: ${errMsg}`);
 
       if (errMsg.includes('insufficient balance') || errMsg.includes('Margin is insufficient')) {
@@ -599,6 +613,8 @@ export class OrderManagerService {
 
       return null;
     }
+    }
+    return null;
   }
 
   /**

@@ -898,6 +898,10 @@ export class SessionService implements OnModuleInit {
     if (!this.currentSessionId) return;
 
     const sid = this.currentSessionId;
+
+    // Broadcast to UI immediately for real-time visibility
+    this.broadcastEvent('log', { msg, level, ts: new Date().toISOString() });
+
     const now = Date.now();
 
     // SENTINEL: Per-session log rate limiting (max 60 logs per minute) to prevent resource exhaustion

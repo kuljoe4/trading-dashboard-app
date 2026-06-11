@@ -171,7 +171,7 @@ export class PositionTrackerService {
     }
     trade.sl_adjustments.push(adjustment);
 
-    this.logger.verbose(
+    this.logger.debug(
       `SL Adjusted for ${trade.symbol}: ${prevSl} → ${newSl} (Milestone ${milestoneIndex})`,
     );
   }

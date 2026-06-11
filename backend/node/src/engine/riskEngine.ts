@@ -139,19 +139,23 @@ export class RiskEngineService {
     direction: 'LONG' | 'SHORT',
     config: SessionConfig,
     minLow?: number,
-    maxHigh?: number
+    maxHigh?: number,
+    symbol?: string
   ): number {
     if (config.sl_type === 'pct') {
       // Simple percentage-based SL
       const distance = entryPrice * ((config.sl_distance_pct ?? 0.8) / 100);
-      return direction === 'LONG' ? entryPrice - distance : entryPrice + distance;
+      const sl = direction === 'LONG' ? entryPrice - distance : entryPrice + distance;
+      this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Pct SL: ${sl.toFixed(5)} (dist: ${config.sl_distance_pct}%)`);
+      return sl;
     }
 
     // SL based on lookback period extremes
     if (config.sl_type === 'lookback_low/high') {
       if (minLow === undefined || maxHigh === undefined || minLow === 0 || maxHigh === 0 || minLow === Infinity || maxHigh === -Infinity) {
         // Fallback to percentage if lookback data not available
-        return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' });
+        this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} Lookback extremes unavailable (minLow: ${minLow}, maxHigh: ${maxHigh}). Falling back to Pct SL.`);
+        return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' }, undefined, undefined, symbol);
       }
 
       const minPct = config.sl_min_pct ?? 0.3;
@@ -159,17 +163,28 @@ export class RiskEngineService {
       const minDistance = entryPrice * (minPct / 100);
       const maxDistance = entryPrice * (maxPct / 100);
 
+      let structuralSl: number;
+      let rawDistance: number;
+
       if (direction === 'LONG') {
-        const structuralSl = minLow;
-        const rawDistance = Math.abs(entryPrice - structuralSl);
-        const clampedDistance = Math.min(Math.max(rawDistance, minDistance), maxDistance);
-        return entryPrice - clampedDistance;
+        structuralSl = minLow;
+        rawDistance = Math.abs(entryPrice - structuralSl);
+      } else {
+        structuralSl = maxHigh;
+        rawDistance = Math.abs(structuralSl - entryPrice);
       }
 
-      const structuralSl = maxHigh;
-      const rawDistance = Math.abs(structuralSl - entryPrice);
       const clampedDistance = Math.min(Math.max(rawDistance, minDistance), maxDistance);
-      return entryPrice + clampedDistance;
+      const finalSl = direction === 'LONG' ? entryPrice - clampedDistance : entryPrice + clampedDistance;
+
+      this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Lookback SL Journey:
+        Entry: ${entryPrice}
+        Extreme (${direction === 'LONG' ? 'Low' : 'High'}): ${structuralSl}
+        Raw Dist: ${rawDistance.toFixed(5)} (${((rawDistance / entryPrice) * 100).toFixed(2)}%)
+        Clamped Dist: ${clampedDistance.toFixed(5)} (${((clampedDistance / entryPrice) * 100).toFixed(2)}%) [Min: ${minPct}%, Max: ${maxPct}%]
+        Final SL: ${finalSl.toFixed(5)}`);
+
+      return finalSl;
     }
 
     throw new ConfigValidationException(`Unknown sl_type: ${config.sl_type}`);

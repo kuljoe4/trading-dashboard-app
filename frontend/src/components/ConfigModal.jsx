@@ -60,6 +60,8 @@ const flattenConfig = (config) => {
       signal_params_exit_ema_slow: params.exit_ema_slow,
       live_rr_sequence: Array.isArray(config.live_rr_sequence) ? config.live_rr_sequence : [1.0, 2.0, 4.0],
       exit_rr_sequence: Array.isArray(config.exit_rr_sequence) ? config.exit_rr_sequence : [0.0, 1.0, 2.0],
+      // UI Conversion: backend decimal to UI percentage
+      slippage_warning_threshold: config.slippage_warning_threshold ? config.slippage_warning_threshold * 100 : 0.1,
     };
   } catch (e) { return { ...config }; }
 };
@@ -183,6 +185,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     const sp = { ...(typeof cfg.signal_params === 'string' ? JSON.parse(cfg.signal_params || '{}') : cfg.signal_params || {}) };
     ['ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period', 'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow'].forEach(k => { if (cfg[`signal_params_${k}`]) sp[k] = cfg[`signal_params_${k}`]; });
     c.signal_params = JSON.stringify(sp);
+    // UI Conversion: UI percentage back to backend decimal
+    if (c.slippage_warning_threshold !== undefined) {
+      c.slippage_warning_threshold = c.slippage_warning_threshold / 100;
+    }
     c.strategy_variants = (cfg.strategy_variants || []).map((v) => ({ ...v, strategy_label: v.strategy_label || 'Variant', strategy_variants: [] }));
     return c;
   }

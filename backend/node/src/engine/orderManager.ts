@@ -545,7 +545,7 @@ export class OrderManagerService {
         // Algo fallback or preference
         if (!stopLossId) {
            const algoParams = {
-              algoType: 'STOP_LOSS' as any,
+              algoType: 'CONDITIONAL' as any, // Authoritative type for USDS-M Algo API
               symbol: symbol,
               side: closeDirection as any,
               type: 'STOP_MARKET',

@@ -49,14 +49,14 @@ export class TickerCacheService {
 
     if (existing) {
       // Mutate existing object to avoid new allocations
-      if (p !== undefined && !Number.isNaN(p)) existing.price = p;
+      // DATA-CONSISTENCY: Ignore 0 prices as they indicate data gaps/errors
+      if (p !== undefined && !Number.isNaN(p) && p > 0) existing.price = p;
       if (v !== undefined && !Number.isNaN(v)) existing.volume_24h = v;
       if (mp !== undefined && !Number.isNaN(mp)) existing.markPrice = mp;
     } else {
       this.tickers.set(symbol, {
         symbol,
-        price: (p !== undefined && !Number.isNaN(p)) ? p : 0,
-        markPrice: (mp !== undefined && !Number.isNaN(mp)) ? mp : undefined,
+        price: (p !== undefined && !Number.isNaN(p) && p > 0) ? p : 0,
         volume_24h: (v !== undefined && !Number.isNaN(v)) ? v : 0,
       });
     }

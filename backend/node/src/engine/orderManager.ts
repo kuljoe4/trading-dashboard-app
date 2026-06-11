@@ -522,6 +522,7 @@ export class OrderManagerService {
       const pref = this.slApiPreference.get(symbol) || 'standard';
 
       try {
+        // PERFORMANCE: Check preference first to avoid redundant API attempts and reduce latency
         if (pref === 'standard') {
            try {
              // Try standard newOrder first (cheaper, more reliable WS tracking)
@@ -542,7 +543,7 @@ export class OrderManagerService {
            }
         }
 
-        // Algo fallback or preference
+        // Algo fallback or symbol-specific preference (reduces one full RTT for known symbols)
         if (!stopLossId) {
            const algoParams = {
               algoType: 'CONDITIONAL' as any, // Authoritative type for USDS-M Algo API

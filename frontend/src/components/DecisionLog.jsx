@@ -192,15 +192,15 @@ export const DecisionLog = React.memo(() => {
         className="flex flex-col gap-1.5 max-h-[340px] overflow-y-auto no-scrollbar relative"
       >
         {!isAtTop && (
-          <div className="sticky top-2 left-0 right-0 z-10 flex justify-center pointer-events-none">
+          <div className="sticky top-2 inset-x-0 z-10 flex justify-center pointer-events-none">
             <button
               onClick={() => {
                 if (scrollRef.current) scrollRef.current.scrollTop = 0
                 setIsAtTop(true)
               }}
-              className="pointer-events-auto bg-accent text-white px-3 py-1 rounded-full text-[10px] font-bold shadow-lg animate-in fade-in zoom-in duration-200"
+              className="pointer-events-auto bg-accent text-white px-4 py-1.5 rounded-full text-[10px] font-bold shadow-xl border border-white/10 animate-in fade-in zoom-in slide-in-from-top-2 duration-300"
             >
-              New logs below ↓
+              New logs above ↑
             </button>
           </div>
         )}

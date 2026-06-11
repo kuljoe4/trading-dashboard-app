@@ -50,6 +50,9 @@ export class TradeEntity {
   @Column('decimal', { precision: 20, scale: 8, default: 0 })
   risk_usdt: number;
 
+  @Column('decimal', { precision: 20, scale: 8, nullable: true })
+  initial_risk_usdt: number;
+
   @Index()
   @Column()
   status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL' | 'CLOSED_ORPHANED';

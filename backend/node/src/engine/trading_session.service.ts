@@ -399,6 +399,24 @@ export class TradingSessionService {
       // so we can skip the manual REST poll entirely.
       if (this.sessionLifecycle.isUdsConnected) {
          if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), t.pnl || 0);
+
+         // DATA-CONSISTENCY: Safety sync. If UDS doesn't update within 10s after closure, force REST refresh.
+         if (!isEntry && !this.balanceFetchTimeout) {
+           const initialBal = this.sessionState.balanceLive;
+           this.balanceFetchTimeout = setTimeout(async () => {
+              this.balanceFetchTimeout = null;
+              // Only fetch if balance hasn't changed (UDS hasn't fired)
+              if (this.sessionState.balanceLive === initialBal) {
+                this.logger.log(`UDS balance update delayed for 10s after closure. Triggering manual safety refresh.`);
+                const b = await this.fetchBinanceBalance();
+                if (b > 0) {
+                   this.sessionState.balanceLive = b;
+                   this.sessionState.balancePaper = b;
+                   if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), 0);
+                }
+              }
+           }, 10000);
+         }
          return;
       }
 

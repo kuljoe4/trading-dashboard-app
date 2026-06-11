@@ -224,7 +224,7 @@ export class OrderManagerService {
     qty: number,
     slPrice: number,
     tpPrice: number | null,
-    metadata: Pick<Trade, 'strategy_label' | 'strategy_config'> = {},
+    metadata: Pick<Trade, 'strategy_label' | 'strategy_config' | 'entry_daily_change_pct'> = {},
   ): Promise<ExecutionResult<Trade>> {
     if (this.checkCircuitBreaker()) {
       return { status: ExecutionStatus.CIRCUIT_OPEN, error: 'Circuit breaker is open' };
@@ -288,6 +288,7 @@ export class OrderManagerService {
         sessionId,
         strategy_label: metadata.strategy_label,
         strategy_config: metadata.strategy_config,
+        entry_daily_change_pct: metadata.entry_daily_change_pct,
       } as Trade;
 
       // In live mode, attempt to place actual order using batchOrders for zero-cost network optimization

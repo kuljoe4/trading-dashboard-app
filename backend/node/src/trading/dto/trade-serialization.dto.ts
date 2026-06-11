@@ -25,6 +25,7 @@ export interface TradeSerializationDto {
   tp_ratio?: number;
   exit_signal_logic?: 'any' | 'all';
   strategy_config?: Partial<SessionConfig>;
+  entry_daily_change_pct?: number;
   _delta?: boolean;
   _thin?: boolean;
   _sl_len?: number;
@@ -46,6 +47,7 @@ export interface TickTradeDto {
   direction: 'LONG' | 'SHORT';
   entry_price: number;
   qty: number;
+  entry_daily_change_pct?: number;
   _thin: boolean;
   _sl_len: number;
   _sig_json: string;

@@ -148,6 +148,10 @@ export class ExecutionService {
       }
       const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
 
+      const ticker = this.tickerCache.getTicker(opp.symbol);
+      const openPrice = ticker?.open_24h || price;
+      const dailyChangeAtEntry = ((price - openPrice) / openPrice) * 100;
+
       const result = await this.orderManager.enter(
         (this.sessionState.config as any)?.sessionId || uuid().substring(0, 8),
         opp.symbol,
@@ -156,7 +160,11 @@ export class ExecutionService {
         qty,
         slPrice,
         tpPrice,
-        { strategy_label: strategyLabel, strategy_config: symbolConfig }
+        {
+          strategy_label: strategyLabel,
+          strategy_config: symbolConfig,
+          entry_daily_change_pct: dailyChangeAtEntry
+        }
       );
 
       if (result.status === ExecutionStatus.SUCCESS && result.data) {

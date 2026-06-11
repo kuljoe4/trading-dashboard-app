@@ -293,6 +293,7 @@ export class MarketFeedService {
             const kline = msg.data?.k;
             if (kline) {
               this.klineStore.upsertCandle(kline.s, kline.i, kline);
+              // BOLT: We update price from klines, but open_24h is strictly sourced from 24h miniTickers
               this.tickerCache.updateTicker(kline.s, kline.c);
               if (kline.x && this.onCandleClose) this.onCandleClose(kline.s).catch(() => {});
             }

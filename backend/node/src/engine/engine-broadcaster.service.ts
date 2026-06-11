@@ -88,6 +88,7 @@ export class EngineBroadcasterService {
         qty: roundTo(trade.qty ?? 0, 8),
         exit_signals_status: trade.exit_signals_status || {},
         sl_adjustments: trade.sl_adjustments || [],
+        entry_daily_change_pct: trade.entry_daily_change_pct,
         _delta: true,
       };
     }
@@ -95,6 +96,7 @@ export class EngineBroadcasterService {
     return {
       ...trade,
       direction,
+      entry_daily_change_pct: trade.entry_daily_change_pct,
       current_price: roundTo(current ?? entry, 8),
       sl_price: roundTo(trade.current_sl, 8),
       tp_price: roundTo(trade.tp, 8),

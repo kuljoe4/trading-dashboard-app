@@ -26,7 +26,8 @@ export function updateLogLevels(debugMode: boolean) {
   let levels: LogLevel[];
   // If either the environment variable or the session config enables debug
   if (forceDebug || debugMode) {
-    levels = ['log', 'error', 'warn', 'debug', 'verbose'];
+    // Note: 'verbose' is excluded here to reduce noise unless explicitly requested via separate logic
+    levels = ['log', 'error', 'warn', 'debug'];
   } else {
     // Default levels: hide debug and verbose to keep logs clean
     levels = ['log', 'warn', 'error'];

@@ -303,6 +303,7 @@ export class OrderManagerService {
         try {
           // Set leverage before entry
           const targetLeverage = metadata.strategy_config?.leverage || 1;
+          this.logger.debug(`[Entry] Applying leverage for ${symbol}: ${targetLeverage}x (Source: ${metadata.strategy_config ? 'symbolConfig' : 'default'})`);
           await this.setLeverage(symbol, targetLeverage);
 
           const binanceDirection = direction === 'LONG' ? 'BUY' : 'SELL';
@@ -384,6 +385,7 @@ export class OrderManagerService {
           if (absoluteEntryPrice > 0) {
             const slippage = Math.abs(absoluteEntryPrice - entryPrice) / entryPrice;
             const threshold = metadata.strategy_config?.slippage_warning_threshold ?? 0.001;
+            this.logger.debug(`[Entry] Slippage for ${symbol}: ${(slippage * 100).toFixed(4)}% (Threshold: ${(threshold * 100).toFixed(2)}%)`);
             if (slippage > threshold) {
               this.logger.warn(`Slippage warning for ${symbol}: Estimated ${entryPrice}, Actual ${absoluteEntryPrice} (Delta: ${(slippage * 100).toFixed(2)}%)`);
             }
@@ -520,6 +522,7 @@ export class OrderManagerService {
 
       let stopLossId: string | null = null;
       const pref = this.slApiPreference.get(symbol) || 'standard';
+      this.logger.debug(`[SL] Placement for ${symbol}: Using ${pref.toUpperCase()} API preference`);
 
       try {
         // PERFORMANCE: Check preference first to avoid redundant API attempts and reduce latency

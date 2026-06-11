@@ -33,7 +33,7 @@ const LogEntry = React.memo(({ log }) => {
         tabIndex={0}
         onClick={() => setIsOpen(true)}
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setIsOpen(true)}
-        className="flex gap-2.5 text-[11px] font-mono border-b border-border/40 pb-1.5 min-w-0 overflow-x-auto no-scrollbar touch-pan-x cursor-pointer hover:bg-white/[0.02] transition-colors group/entry"
+        className="flex gap-2.5 text-[11px] font-mono border-b border-border/40 pb-1.5 min-w-0 overflow-x-auto touch-pan-x cursor-pointer hover:bg-white/[0.02] transition-colors group/entry"
       >
         <span className="text-dim/60 whitespace-nowrap shrink-0">[{log.ts}]</span>
         <span className={cn(
@@ -75,7 +75,7 @@ const LogEntry = React.memo(({ log }) => {
               </div>
             </div>
 
-            <div className="bg-background/40 border border-border/50 rounded-2xl p-4 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap max-h-[40vh] overflow-y-auto no-scrollbar">
+            <div className="bg-background/40 border border-border/50 rounded-2xl p-4 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap max-h-[40vh] overflow-y-auto">
               {log.msg}
             </div>
 
@@ -155,7 +155,7 @@ export const DecisionLog = React.memo(() => {
           aria-label="Filter logs by level"
           className="flex flex-wrap gap-2 items-center"
         >
-          <div className="flex-1 flex gap-2 overflow-x-auto no-scrollbar">
+          <div className="flex-1 flex gap-2 overflow-x-auto">
             <CopyButton
               value={visibleLogs.map(l => `[${l.ts}] ${l.msg}`).join('\n')}
               className="bg-surface border border-border"
@@ -189,7 +189,7 @@ export const DecisionLog = React.memo(() => {
         ref={scrollRef}
         onScroll={handleScroll}
         aria-live="polite"
-        className="flex flex-col gap-1.5 max-h-[340px] overflow-y-auto no-scrollbar relative"
+        className="flex flex-col gap-1.5 max-h-[340px] overflow-y-auto relative"
       >
         {!isAtTop && (
           <div className="sticky top-2 inset-x-0 z-10 flex justify-center pointer-events-none">

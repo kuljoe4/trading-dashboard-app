@@ -23,6 +23,7 @@ export class OrderManagerService {
   private binanceClient: DerivativesTradingUsdsFutures | null = null;
   private paperMode = true;
   private takerFeeRate = 0.0004; // Default taker fee (0.04%)
+  private slApiPreference: Map<string, 'standard' | 'algo'> = new Map();
 
   private consecutiveFailures = 0;
   private readonly MAX_CONSECUTIVE_FAILURES = 3;
@@ -354,9 +355,22 @@ export class OrderManagerService {
              }
           }
 
-          // DATA-CONSISTENCY: Fallback for 0 price responses to prevent PnL corruption
+          // DATA-CONSISTENCY: Fallback for 0 price responses - Query exchange for authoritative fill price
+          if (absoluteEntryPrice === 0 && trade.binance_order_id) {
+             try {
+                this.logger.log(`Binance returned 0 price for ${symbol} entry. Fetching authoritative price via queryOrder...`);
+                const queryRes = await (this.binanceClient as any).restAPI.tradeApi.queryOrder({ symbol, orderId: trade.binance_order_id });
+                const queryData = typeof queryRes.data === 'function' ? await queryRes.data() : (queryRes.data || queryRes);
+                absoluteEntryPrice = parseFloat(queryData.avgPrice || queryData.price || '0');
+                if (absoluteEntryPrice > 0) this.logger.log(`Successfully fetched authoritative entry price: ${absoluteEntryPrice}`);
+             } catch (queryErr) {
+                this.logger.warn(`Failed to fetch authoritative price for ${symbol}: ${queryErr instanceof Error ? queryErr.message : String(queryErr)}`);
+             }
+          }
+
+          // FINAL FALLBACK: If still 0, use estimated price
           if (absoluteEntryPrice === 0) {
-             this.logger.warn(`Binance returned 0 price for ${symbol} entry. Using estimated price ${entryPrice}.`);
+             this.logger.warn(`Authoritative price query failed for ${symbol} entry. Using estimated price ${entryPrice}.`);
              absoluteEntryPrice = entryPrice;
           }
 
@@ -482,6 +496,7 @@ export class OrderManagerService {
     try {
       const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
       const filters = this.marketFeed.getSymbolFilters(trade.symbol);
+      const symbol = trade.symbol;
 
       const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
       const tickSize = parseFloat(priceFilter?.tickSize || '0');
@@ -504,18 +519,59 @@ export class OrderManagerService {
       };
 
       this.logger.log(`Placing Binance SL order: ${JSON.stringify(slOrderParams)}`);
-      // Switch from newAlgoOrder to standard newOrder for STOP_MARKET
-      const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder(slOrderParams);
 
-      this.updateWeight(response.headers);
-      const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
-      this.logger.log(`Manual SL placement response for ${trade.symbol}: ${JSON.stringify(orderData)}`);
-      const stopLossId = orderData.orderId; // Standard order only has orderId
+      let stopLossId: string | null = null;
+      const pref = this.slApiPreference.get(symbol) || 'standard';
 
-      if (!orderData || !stopLossId) {
-        throw new Error(`Invalid response from Binance SL order: ${JSON.stringify(orderData)}`);
+      try {
+        if (pref === 'standard') {
+           try {
+             // Try standard newOrder first (cheaper, more reliable WS tracking)
+             const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder(slOrderParams);
+             this.updateWeight(response.headers);
+             const orderData = typeof response.data === 'function' ? await response.data() : (response.data || response);
+             this.logger.log(`Standard SL placement response for ${symbol}: ${JSON.stringify(orderData)}`);
+             stopLossId = String(orderData.orderId);
+           } catch (standardErr: any) {
+             const standardMsg = standardErr.message || String(standardErr);
+             if (standardMsg.includes('not supported for this endpoint') || standardMsg.includes('Algo Order API')) {
+                this.logger.log(`Standard SL rejected for ${symbol}. Switching preference to Algo API.`);
+                this.slApiPreference.set(symbol, 'algo');
+                // Fall through to algo attempt
+             } else {
+                throw standardErr;
+             }
+           }
+        }
+
+        // Algo fallback or preference
+        if (!stopLossId) {
+           const algoParams = {
+              algoType: 'STOP_LOSS' as any,
+              symbol: symbol,
+              side: closeDirection as any,
+              type: 'STOP_MARKET',
+              triggerPrice: slPrice.toFixed(pricePrecision),
+              quantity: trade.qty.toFixed(qtyPrecision),
+              reduceOnly: true,
+              workingType: 'MARK_PRICE' as any,
+              clientAlgoId: `sl-${trade.id.substring(0, 8)}-${Date.now()}`
+           };
+
+           const algoRes = await (this.binanceClient as any).restAPI.tradeApi.newAlgoOrder(algoParams);
+           this.updateWeight(algoRes.headers);
+           const algoData = typeof algoRes.data === 'function' ? await algoRes.data() : (algoRes.data || algoRes);
+           this.logger.log(`Algo SL placement response for ${symbol}: ${JSON.stringify(algoData)}`);
+           stopLossId = String(algoData.algoId || algoData.orderId);
+        }
+      } catch (err) {
+        throw err;
       }
-      trade.binance_stop_order_id = String(stopLossId);
+
+      if (!stopLossId || stopLossId === 'undefined') {
+        throw new Error(`Invalid response from Binance SL order placement`);
+      }
+      trade.binance_stop_order_id = stopLossId;
       const msgSl = `Binance SL order placed: ${trade.symbol} at ${slPrice} order_id=${stopLossId}`;
       this.logger.log(msgSl);
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgSl, level: 'info' });
@@ -835,9 +891,22 @@ export class OrderManagerService {
                }
             }
 
-            // DATA-CONSISTENCY: Fallback for 0 price responses to prevent PnL corruption
+            // DATA-CONSISTENCY: Fallback for 0 price responses - Query exchange for authoritative fill price
+            if (absoluteExitPrice === 0 && trade.binance_close_order_id) {
+               try {
+                  this.logger.log(`Binance returned 0 price for ${symbol} exit. Fetching authoritative price via queryOrder...`);
+                  const queryRes = await (this.binanceClient as any).restAPI.tradeApi.queryOrder({ symbol, orderId: trade.binance_close_order_id });
+                  const queryData = typeof queryRes.data === 'function' ? await queryRes.data() : (queryRes.data || queryRes);
+                  absoluteExitPrice = parseFloat(queryData.avgPrice || queryData.price || '0');
+                  if (absoluteExitPrice > 0) this.logger.log(`Successfully fetched authoritative exit price: ${absoluteExitPrice}`);
+               } catch (queryErr) {
+                  this.logger.warn(`Failed to fetch authoritative price for ${symbol}: ${queryErr instanceof Error ? queryErr.message : String(queryErr)}`);
+               }
+            }
+
+            // FINAL FALLBACK: If still 0, use estimated price
             if (absoluteExitPrice === 0) {
-               this.logger.warn(`Binance returned 0 price for ${symbol} exit. Using estimated price ${exitPrice}.`);
+               this.logger.warn(`Authoritative price query failed for ${symbol} exit. Using estimated price ${exitPrice}.`);
                absoluteExitPrice = exitPrice;
             }
 

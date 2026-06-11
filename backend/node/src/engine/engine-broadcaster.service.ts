@@ -203,13 +203,14 @@ export class EngineBroadcasterService {
     for (let i = 0; i < len; i++) {
       const trade = activeTrades[i];
       const prevTrade = prevTickMap.get(trade.id);
-      let currentPrice = this.tickerCache.getPrice(trade.symbol);
+      // UI PnL and RR calculation uses Mark Price for accuracy against Exchange SL
+      let currentPrice = this.tickerCache.getMarkPrice(trade.symbol);
       if (currentPrice === null && prevTrade) currentPrice = prevTrade.current_price;
 
       const current = currentPrice ?? (trade as any).exit_price ?? (trade as any).last_price ?? trade.entry_price;
       if (currentPrice !== null) {
-        (trade as any).last_price = currentPrice;
         trade.mark_price = currentPrice;
+        (trade as any).last_price = this.tickerCache.getPrice(trade.symbol) || currentPrice;
       }
 
       const direction = trade.direction || 'LONG';

@@ -60,6 +60,7 @@ export class MarketFeedService {
 
     await this.fetchExchangeInfo(restBase);
     this.startMiniTickerStream();
+    this.startMarkPriceStream();
 
     const waitForWs = new Promise<void>((resolve) => {
       const check = setInterval(() => {
@@ -176,6 +177,29 @@ export class MarketFeedService {
       });
       ws.on('close', () => { if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS)); });
       this.miniTickerWs = ws;
+    };
+    connect();
+  }
+
+  private startMarkPriceStream() {
+    const connect = () => {
+      if (!this.running) return;
+      const ws = new WebSocket(`${ENGINE_CONSTANTS.BINANCE_WS_BASE}/ws/!markPrice@arr`, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+      ws.on('message', (data: Buffer) => {
+        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) return;
+        try {
+          const msg = JSON.parse(data as any);
+          let marks: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
+          for (let i = 0; i < marks.length; i++) {
+            const m = marks[i];
+            if (m.s) this.tickerCache.updateTicker(m.s, undefined, undefined, m.p);
+          }
+        } catch (err) {
+          this.logger.error(`Error processing mark-price stream: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      });
+      ws.on('close', () => { if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS)); });
+      this.combinedKlineWsList.push(ws); // Reuse cleanup logic
     };
     connect();
   }

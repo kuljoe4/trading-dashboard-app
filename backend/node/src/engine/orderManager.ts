@@ -338,7 +338,9 @@ export class OrderManagerService {
           }
           if (executedQty > 0) trade.qty = executedQty;
 
-          // Recalculate SL after actual fill to maintain intended risk distance
+          // Recalculate SL after actual fill.
+          // Since entryPrice and initial slPrice were Mark-based,
+          // we maintain that exact distance relative to the Actual Fill Price (Last Price).
           const originalDistance = Math.abs(entryPrice - slPrice);
           slPrice = direction === 'LONG' ? trade.entry_price - originalDistance : trade.entry_price + originalDistance;
           trade.current_sl = trade.initial_sl = slPrice;

@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 export interface Ticker {
   symbol: string;
   price: number;
+  markPrice?: number;
   volume_24h: number;
 }
 
@@ -38,21 +39,24 @@ export class TickerCacheService {
    * BOLT OPTIMIZATION: Zero-allocation update for a single ticker.
    * Directly updates the Map to avoid temporary object/array allocations.
    */
-  updateTicker(symbol: string, price?: string | number, volume?: string | number) {
+  updateTicker(symbol: string, price?: string | number, volume?: string | number, markPrice?: string | number) {
     if (!symbol) return;
     const existing = this.tickers.get(symbol);
 
     const p = typeof price === 'string' ? parseFloat(price) : price;
     const v = typeof volume === 'string' ? parseFloat(volume) : volume;
+    const mp = typeof markPrice === 'string' ? parseFloat(markPrice) : markPrice;
 
     if (existing) {
       // Mutate existing object to avoid new allocations
       if (p !== undefined && !Number.isNaN(p)) existing.price = p;
       if (v !== undefined && !Number.isNaN(v)) existing.volume_24h = v;
+      if (mp !== undefined && !Number.isNaN(mp)) existing.markPrice = mp;
     } else {
       this.tickers.set(symbol, {
         symbol,
         price: (p !== undefined && !Number.isNaN(p)) ? p : 0,
+        markPrice: (mp !== undefined && !Number.isNaN(mp)) ? mp : undefined,
         volume_24h: (v !== undefined && !Number.isNaN(v)) ? v : 0,
       });
     }
@@ -61,6 +65,11 @@ export class TickerCacheService {
   getPrice(symbol: string): number | null {
     const ticker = this.tickers.get(symbol);
     return ticker ? ticker.price : null;
+  }
+
+  getMarkPrice(symbol: string): number | null {
+    const ticker = this.tickers.get(symbol);
+    return ticker?.markPrice || ticker?.price || null;
   }
 
   /**

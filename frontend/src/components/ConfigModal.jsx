@@ -61,7 +61,8 @@ const flattenConfig = (config) => {
       live_rr_sequence: Array.isArray(config.live_rr_sequence) ? config.live_rr_sequence : [1.0, 2.0, 4.0],
       exit_rr_sequence: Array.isArray(config.exit_rr_sequence) ? config.exit_rr_sequence : [0.0, 1.0, 2.0],
       // UI Conversion: backend decimal to UI percentage
-      slippage_warning_threshold: config.slippage_warning_threshold ? config.slippage_warning_threshold * 100 : 0.1,
+      leverage: config.leverage || CONFIG_LIMITS.LEVERAGE_DEFAULT || 1,
+      slippage_warning_threshold: config.slippage_warning_threshold !== undefined ? config.slippage_warning_threshold * 100 : (CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT * 100 || 0.1),
     };
   } catch (e) { return { ...config }; }
 };

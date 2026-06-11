@@ -45,18 +45,17 @@ export class ExecutionService {
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);
 
     for (const trade of activeTrades) {
-      // Risk monitoring uses Mark Price to align with Exchange SL behavior
-      const markPrice = this.tickerCache.getMarkPrice(trade.symbol);
-      if (!markPrice) continue;
+      const currentPrice = this.tickerCache.getPrice(trade.symbol);
+      if (!currentPrice) continue;
 
       const tradeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
-      await this.positionTracker.checkRrSequenceAdjustments(trade.symbol, markPrice, tradeConfig);
+      await this.positionTracker.checkRrSequenceAdjustments(trade.symbol, currentPrice, tradeConfig);
 
       const exitInterval = tradeConfig.scan_interval || '1m';
-      const exitCondition = this.positionTracker.checkExitConditions(trade.symbol, markPrice, tradeConfig, exitInterval);
+      const exitCondition = this.positionTracker.checkExitConditions(trade.symbol, currentPrice, tradeConfig, exitInterval);
 
       if (exitCondition?.exitOccurred) {
-        const result = await this.positionTracker.closeTrade(trade.symbol, markPrice, exitCondition.exitReason, tradeConfig);
+        const result = await this.positionTracker.closeTrade(trade.symbol, currentPrice, exitCondition.exitReason, tradeConfig);
         if (result.exitOccurred && result.trade) {
           const closedTrade = result.trade;
           this.sessionState.updateStatsOnClose((closedTrade.pnl || 0) > 0);
@@ -75,7 +74,7 @@ export class ExecutionService {
             event: 'closed',
             symbol: closedTrade.symbol,
             reason: exitCondition.exitReason,
-            trade: this.engineBroadcaster.serializeTrade(closedTrade, config, markPrice),
+            trade: this.engineBroadcaster.serializeTrade(closedTrade, config, currentPrice),
             pnl: closedTrade.pnl,
             stats: this.sessionState.stats,
             analytics: {
@@ -126,9 +125,7 @@ export class ExecutionService {
         continue;
       }
 
-      // Entry estimation and position sizing are anchored to Mark Price
-      // to align with the exchange's SL trigger behavior.
-      const price = this.tickerCache.getMarkPrice(opp.symbol);
+      const price = this.tickerCache.getPrice(opp.symbol);
       if (!price) continue;
 
       const lookback = this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
@@ -176,11 +173,10 @@ export class ExecutionService {
         this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, config);
 
         this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
-        const lastPrice = this.tickerCache.getPrice(opp.symbol) || price;
         this.broadcastService.broadcast('trade_event', {
           event: 'opened',
           symbol: opp.symbol,
-          trade: this.engineBroadcaster.serializeTrade(trade, config, lastPrice),
+          trade: this.engineBroadcaster.serializeTrade(trade, config, price),
           stats: this.sessionState.stats
         });
       }

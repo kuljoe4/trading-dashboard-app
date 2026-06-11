@@ -652,12 +652,6 @@ export class SessionService implements OnModuleInit {
 
     // Manually delete session, ensuring no cascade to trades (as there is no FK link in the current entity model)
     await this.sessionRepository.delete(id);
-
-    // SENTINEL: Clear in-memory log tracking and analytics cache when session is deleted
-    this.logRateLimits.delete(id);
-    this.sessionLogCounts.delete(id);
-    this.analyticsCache = null;
-
     return { status: 'deleted' };
   }
 
@@ -705,12 +699,6 @@ export class SessionService implements OnModuleInit {
     updateLogLevels(false);
 
     this.logger.log(`Stopping trading session.`);
-
-    // SENTINEL: Clear in-memory log tracking and analytics cache to prevent memory leaks and ensure data integrity
-    this.logRateLimits.delete(this.currentSessionId);
-    this.sessionLogCounts.delete(this.currentSessionId);
-    this.analyticsCache = null;
-
     this.sessionRunning = false;
     this.currentSessionId = null;
     

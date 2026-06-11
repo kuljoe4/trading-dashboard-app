@@ -24,10 +24,6 @@ export const DecisionLog = React.memo(() => {
   const logs = useTradingStore(state => state.logs)
   const logFilters = useTradingStore(state => state.logFilters)
   const toggleLogFilter = useTradingStore(state => state.toggleLogFilter)
-  const { sessionActive, wsStatus } = useTradingStore(state => ({
-    sessionActive: state.sessionActive,
-    wsStatus: state.wsStatus
-  }))
   const scrollRef = React.useRef(null)
   const [isAtTop, setIsAtTop] = React.useState(true)
 
@@ -99,7 +95,7 @@ export const DecisionLog = React.memo(() => {
             }}
             className="sticky top-2 left-1/2 -translate-x-1/2 z-10 bg-accent text-white px-3 py-1 rounded-full text-[10px] font-bold shadow-lg animate-in fade-in zoom-in duration-200"
           >
-            New logs above ↑
+            New logs below ↓
           </button>
         )}
         <AnimatePresence mode="popLayout">
@@ -114,17 +110,11 @@ export const DecisionLog = React.memo(() => {
                 {logs.length === 0 ? <Activity size={24} /> : <XCircle size={24} />}
               </div>
               <div className="text-[13px] text-dim font-bold uppercase tracking-widest">
-                {logs.length === 0
-                  ? (wsStatus !== 'live' ? 'Dashboard Offline' : !sessionActive ? 'Engine Stopped' : 'No logs yet...')
-                  : 'No matching results'}
+                {logs.length === 0 ? 'No logs yet...' : 'No matching results'}
               </div>
               <p className="text-[11px] text-dim/60 mt-1 max-w-[200px]">
                 {logs.length === 0
-                  ? (wsStatus !== 'live'
-                      ? 'Waiting for WebSocket connection to receive live updates.'
-                      : !sessionActive
-                        ? 'System activity will appear here once a strategy is started.'
-                        : 'Connected and ready. Waiting for system events...')
+                  ? 'System activity will appear here once the engine starts.'
                   : 'Try adjusting your filters to see more activity.'}
               </p>
             </motion.div>

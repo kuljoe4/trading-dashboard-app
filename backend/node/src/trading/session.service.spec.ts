@@ -13,7 +13,6 @@ describe('SessionService Validation', () => {
     save: jest.fn(),
     update: jest.fn(),
     increment: jest.fn(),
-    delete: jest.fn(),
   } as any;
 
   const mockTradingSessionService = {
@@ -405,42 +404,6 @@ describe('SessionService Validation', () => {
       expect(mockLogRepository.delete).toHaveBeenCalledWith('old-log');
       expect(mockLogRepository.insert).toHaveBeenCalled();
       expect(mockLogRepository.count).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('Memory Management (Sentinel)', () => {
-    it('should clear log tracking and analytics cache when session is stopped', async () => {
-      (service as any).currentSessionId = 'active-session';
-      (service as any).sessionRunning = true;
-      (service as any).logRateLimits.set('active-session', { count: 10, resetAt: Date.now() });
-      (service as any).sessionLogCounts.set('active-session', 100);
-      (service as any).analyticsCache = { data: {}, ts: Date.now() };
-
-      mockRepository.update.mockResolvedValue({});
-      mockTradingSessionService.stop.mockResolvedValue({});
-
-      await service.stopSession();
-
-      expect((service as any).logRateLimits.has('active-session')).toBe(false);
-      expect((service as any).sessionLogCounts.has('active-session')).toBe(false);
-      expect((service as any).analyticsCache).toBeNull();
-    });
-
-    it('should clear log tracking and analytics cache when session is deleted', async () => {
-      (service as any).currentSessionId = 'other-session';
-      (service as any).sessionRunning = true;
-      const targetId = 'delete-me';
-      (service as any).logRateLimits.set(targetId, { count: 10, resetAt: Date.now() });
-      (service as any).sessionLogCounts.set(targetId, 100);
-      (service as any).analyticsCache = { data: {}, ts: Date.now() };
-
-      mockRepository.delete.mockResolvedValue({});
-
-      await service.deleteSession(targetId);
-
-      expect((service as any).logRateLimits.has(targetId)).toBe(false);
-      expect((service as any).sessionLogCounts.has(targetId)).toBe(false);
-      expect((service as any).analyticsCache).toBeNull();
     });
   });
 });

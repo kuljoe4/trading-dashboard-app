@@ -102,7 +102,9 @@ export class ExecutionService {
       const sc = symbolConfigMap?.get(opp.symbol);
       const symbolConfig = (sc?.use_custom_config && sc.custom_config) ? { ...config, ...sc.custom_config } as SessionConfig : config;
 
-      const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry', false);
+      // BOLT OPTIMIZATION: Use minimal=true for hot scanner path to enable short-circuiting signal evaluation.
+      // This skips expensive technical indicators as soon as the signal logic is satisfied (or fails).
+      const signalResult = this.signalEngine.checkEntry(opp.symbol, symbolConfig, symbolConfig.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry', true);
       if (!signalResult.allFired) {
         if (signalResult.reason.includes('warm-up')) {
           this.logger.debug(`${opp.symbol}: Entry blocked - ${signalResult.reason}`);
@@ -150,7 +152,7 @@ export class ExecutionService {
 
       const ticker = this.tickerCache.getTicker(opp.symbol);
       const openPrice = ticker?.open_24h || price;
-      const dailyChangeAtEntry = ((price - openPrice) / openPrice) * 100 * (opp.direction.toUpperCase() === 'LONG' ? 1 : -1);
+      const dailyChangeAtEntry = ((price - openPrice) / openPrice) * 100;
 
       const result = await this.orderManager.enter(
         (this.sessionState.config as any)?.sessionId || uuid().substring(0, 8),

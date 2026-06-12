@@ -66,9 +66,6 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
 
         <div className="flex flex-col items-end shrink-0">
           <div className="flex items-center gap-1.5 whitespace-nowrap">
-            <span className={cn("text-xs font-black", pnlClass(pnl))}>
-              {pnl > 0 ? '▲' : pnl < 0 ? '▼' : ''}
-            </span>
             <span className={cn("text-base font-black font-mono tracking-tighter", pnlClass(pnl))}>
               {fmtUSD(pnl)}
             </span>

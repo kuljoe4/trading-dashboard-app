@@ -287,7 +287,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       return acc
     }, {})
 
-    return { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qtyFormatted, riskFormatted, slDistPct, slInitialDistPct, enhancedExitSignals }
+    return { isLong, pnlPct, progress, entry, mark, sl, tp, qtyFormatted, riskFormatted, slDistPct, slFromEntry, enhancedExitSignals }
   }, [trade])
 
   if (!trade) return null

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
+import { getExpectancyStatus } from '../lib/analytics'
 import { sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader } from '../components/ui/primitives'
@@ -39,7 +40,7 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-black font-mono tracking-tight shrink-0">{trade.symbol}</span>
             <CopyButton value={trade.symbol} className="opacity-0 group-hover/trade:opacity-100 focus-visible:opacity-100 -ml-1 scale-75" />
-            <span className={cn("text-[8px] font-black px-1.5 py-0.5 rounded border uppercase shrink-0 opacity-60", isLong ? "border-green/20" : "border-red/20")}>
+            <span className={cn("text-[8px] font-black px-1.5 py-0.5 rounded border uppercase shrink-0", isLong ? "text-green border-green/20 bg-green/5" : "text-red border-red/20 bg-red/5")}>
               {trade.direction}
             </span>
             {showStrategy && (
@@ -134,7 +135,14 @@ const SessionGroup = React.memo(({ session, trades }) => {
   const avgWin = useMemo(() => wins > 0 ? trades.filter(t => safeNum(t.pnl) > 0).reduce((sum, t) => sum + safeNum(t.pnl), 0) / wins : 0, [trades, wins])
   const losses = trades.length - wins
   const avgLoss = useMemo(() => losses > 0 ? Math.abs(trades.filter(t => safeNum(t.pnl) < 0).reduce((sum, t) => sum + safeNum(t.pnl), 0)) / losses : 0, [trades, losses])
-  const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) : '∞'
+  const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss) : 0
+  const winLossRatioStr = avgLoss > 0 ? winLossRatio.toFixed(2) : '∞'
+
+  const expectancyStatus = useMemo(() => {
+    const wr = (winRate / 100);
+    const wl = winLossRatio;
+    return getExpectancyStatus(wr, wl);
+  }, [winRate, winLossRatio]);
 
   return (
     <div id={`session-${session.id}`} className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 lg:mb-12 shadow-sm transition-all hover:border-border-hover scroll-mt-8">
@@ -189,7 +197,16 @@ const SessionGroup = React.memo(({ session, trades }) => {
             </div>
             <div className="flex flex-col">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Ratio</span>
-              <span className="text-xs font-bold font-mono text-accent">{winLossRatio}</span>
+              <span className="text-xs font-bold font-mono text-accent">{winLossRatioStr}</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Expectancy</span>
+              <Tooltip content="Expected value per trade based on historical performance">
+                <span className={cn("text-xs font-bold flex items-center gap-1.5", expectancyStatus.color)}>
+                  <expectancyStatus.icon size={12} aria-hidden="true" />
+                  {Number(expectancyStatus.expectancy).toFixed(2)}
+                </span>
+              </Tooltip>
             </div>
             <div className="flex flex-col items-end">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Net P&L</span>
@@ -258,8 +275,14 @@ export const HistoryView = () => {
   }, [sessionList, tradeHistory])
 
   const sessionsToRender = useMemo(() => {
-    return allSessionsWithTrades.slice(0, visibleSessions)
-  }, [allSessionsWithTrades, visibleSessions])
+    return allSessionsWithTrades
+      .filter(s => {
+        // Assume session object has paperMode or testnetMode field, or config object has trading_mode
+        const sessionMode = s.paperMode ? 'paper' : (s.config?.trading_mode || 'live');
+        return sessionMode === lifetimeMode;
+      })
+      .slice(0, visibleSessions);
+  }, [allSessionsWithTrades, visibleSessions, lifetimeMode]);
 
   const orphans = useMemo(() => {
     const sessionIds = new Set(sessionList.map(s => s.id))
@@ -378,7 +401,24 @@ export const HistoryView = () => {
           />
           <StatCard label="Avg Win" value={fmtUSD(currentAnalytics?.avgWin || 0)} color="text-green" />
           <StatCard label="Avg Loss" value={fmtUSD(-(currentAnalytics?.avgLoss || 0))} color="text-red" />
-          <StatCard label="W/L Ratio" value={Number(currentAnalytics?.avgWinLossRatio || 0).toFixed(2)} color="text-accent" />
+          <StatCard 
+            label="W/L Ratio" 
+            value={Number(currentAnalytics?.avgWinLossRatio || 0).toFixed(2)} 
+            color="text-accent" 
+            subValue={
+              <span className={cn("flex items-center gap-1", getExpectancyStatus(winRate / 100, currentAnalytics?.avgWinLossRatio || 0).color)}>
+                {(() => {
+                  const status = getExpectancyStatus(winRate / 100, currentAnalytics?.avgWinLossRatio || 0);
+                  return (
+                    <>
+                      <status.icon size={10} />
+                      {Number(status.expectancy).toFixed(2)} Expectancy
+                    </>
+                  );
+                })()}
+              </span>
+            }
+          />
         </div>
 
         <motion.div

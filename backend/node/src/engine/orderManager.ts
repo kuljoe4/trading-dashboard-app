@@ -161,6 +161,7 @@ export class OrderManagerService {
 
       if (weight) {
         const currentWeight = parseInt(weight, 10);
+        this.logger.debug(`Binance Weight Update: ${currentWeight}`);
         this.sessionState.updateRateLimit(currentWeight);
 
         if (this.sessionState.isRateLimited(0.85)) {

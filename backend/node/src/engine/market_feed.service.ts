@@ -75,7 +75,11 @@ export class MarketFeedService {
 
   public updateWeight(headers: Headers) {
     const weight = headers.get('X-MBX-USED-WEIGHT-1M');
-    if (weight) this.sessionState.updateRateLimit(parseInt(weight, 10));
+    if (weight) {
+      const currentWeight = parseInt(weight, 10);
+      this.logger.debug(`Binance Weight Update: ${currentWeight}`);
+      this.sessionState.updateRateLimit(currentWeight);
+    }
   }
 
   private async fetchExchangeInfo(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {

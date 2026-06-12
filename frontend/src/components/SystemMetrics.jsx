@@ -45,7 +45,7 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
     </div>
     
     <Tooltip
-      side={compact ? "right" : "top"}
+      side={compact ? "bottom" : "top"}
       content={
         <div className="flex flex-col gap-1 p-0.5">
           <div className="font-bold border-b border-border/50 pb-1 mb-1 uppercase tracking-widest text-[9px]">Binance API Weight</div>

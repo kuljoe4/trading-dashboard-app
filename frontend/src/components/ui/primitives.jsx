@@ -290,16 +290,11 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
       <TooltipPrimitive.Trigger
         asChild
         onClick={(e) => {
-          // On mobile, toggle on click
+          // BOLT: On mobile, ensure single-tap opens the tooltip without requiring hold
           if (window.matchMedia('(max-width: 768px)').matches) {
             e.preventDefault();
-            setOpen(!open);
-          }
-        }}
-        onPointerDown={(e) => {
-          // Improve touch responsiveness
-          if (e.pointerType === 'touch') {
-            setOpen(true);
+            e.stopPropagation();
+            setOpen((prev) => !prev);
           }
         }}
       >

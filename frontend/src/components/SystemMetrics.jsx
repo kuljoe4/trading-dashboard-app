@@ -1,7 +1,6 @@
 import React from 'react';
 import { Activity, Zap, Leaf } from 'lucide-react';
-import { cn, PulseDot } from './ui/primitives';
-import { Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip';
+import { cn, PulseDot, Tooltip } from './ui/primitives';
 
 export const SystemMetric = ({ icon: Icon, label, value, colorClass, compact = false }) => (
   <div className={cn("flex items-center gap-2", compact ? "px-2" : "gap-3")}>
@@ -24,16 +23,14 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
               {wsStatus === 'live' ? 'Live' : 'Offline'}
             </span>
             {(gateState === 'sleeping' || gateState === 'max_trades' || gateState === 'max_trades_period') && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="text-[8px] text-accent font-bold uppercase tracking-tight animate-pulse cursor-help">Efficiency Active</span>
-                </TooltipTrigger>
-                <TooltipContent side="right" className="max-w-[200px] text-[10px]">
-                  {gateState === 'sleeping'
-                    ? "Sleep Mode: WebSockets closed. CPU usage reduced by >95%."
-                    : "Gating Active: Momentum scanning paused. Main loop CPU reduced by ~90%."
-                  }
-                </TooltipContent>
+              <Tooltip
+                side="right"
+                content={gateState === 'sleeping'
+                  ? "Sleep Mode: WebSockets closed. CPU usage reduced by >95%."
+                  : "Gating Active: Momentum scanning paused. Main loop CPU reduced by ~90%."
+                }
+              >
+                <span className="text-[8px] text-accent font-bold uppercase tracking-tight animate-pulse cursor-help">Efficiency Active</span>
               </Tooltip>
             )}
           </div>
@@ -47,37 +44,37 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
       )}
     </div>
     
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <div className="w-full cursor-help">
-          <SystemMetric
-            icon={Activity}
-            label="Rate"
-            value={rateLimit ? `${rateLimit.used_weight_1m}/${rateLimit.limit}` : '---/---'}
-            colorClass={rateLimit ? (rateLimit.used_weight_1m > rateLimit.limit * 0.8 ? "text-red" : rateLimit.used_weight_1m > rateLimit.limit * 0.5 ? "text-amber" : "text-green") : "text-dim"}
-            compact={compact}
-          />
-        </div>
-      </TooltipTrigger>
-      <TooltipContent side={compact ? "right" : "top"} className="text-[10px] font-mono">
-        <div className="flex flex-col gap-1">
+    <Tooltip
+      side={compact ? "right" : "top"}
+      content={
+        <div className="flex flex-col gap-1 p-0.5">
           <div className="font-bold border-b border-border/50 pb-1 mb-1 uppercase tracking-widest text-[9px]">Binance API Weight</div>
-          <div className="flex justify-between gap-4">
+          <div className="flex justify-between gap-6">
             <span className="text-dim">Used (1m):</span>
             <span>{rateLimit?.used_weight_1m ?? 0}</span>
           </div>
-          <div className="flex justify-between gap-4">
+          <div className="flex justify-between gap-6">
             <span className="text-dim">Limit:</span>
             <span>{rateLimit?.limit ?? 1200}</span>
           </div>
           {rateLimitLastSync && (
-            <div className="flex justify-between gap-4 mt-1 pt-1 border-t border-border/30">
+            <div className="flex justify-between gap-6 mt-1 pt-1 border-t border-border/30">
               <span className="text-dim">Last Sync:</span>
               <span className="text-accent">{new Date(rateLimitLastSync).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
             </div>
           )}
         </div>
-      </TooltipContent>
+      }
+    >
+      <div className="w-full cursor-help">
+        <SystemMetric
+          icon={Activity}
+          label="Rate"
+          value={rateLimit ? `${rateLimit.used_weight_1m}/${rateLimit.limit}` : '---/---'}
+          colorClass={rateLimit ? (rateLimit.used_weight_1m > rateLimit.limit * 0.8 ? "text-red" : rateLimit.used_weight_1m > rateLimit.limit * 0.5 ? "text-amber" : "text-green") : "text-dim"}
+          compact={compact}
+        />
+      </div>
     </Tooltip>
 
     <>

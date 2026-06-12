@@ -10,6 +10,7 @@ import { MonitoringService } from './monitoring.service';
 import { ENGINE_EVENTS } from './events';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditLogService } from '../trading/audit-log.service';
+import { ConfigValidationException } from '../lib/exceptions';
 import { roundEight } from '../lib/math';
 import { ENGINE_CONSTANTS } from '../models/constants';
 
@@ -89,10 +90,12 @@ export class SessionLifecycleService {
             const criticalMsg = `CRITICAL: Cannot set One-Way Mode because there are OPEN ORDERS on your Binance account. Please close all manual orders on Binance to ensure engine consistency.`;
             this.logger.error(criticalMsg);
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: criticalMsg, level: 'error' });
+            throw new ConfigValidationException(criticalMsg);
           } else if (errMsg.includes('-4069') || errCode === -4069 || errMsg.includes('exists position')) {
             const criticalMsg = `CRITICAL: Cannot set One-Way Mode because there are OPEN POSITIONS on your Binance account. Please close all manual positions on Binance to ensure engine consistency.`;
             this.logger.error(criticalMsg);
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: criticalMsg, level: 'error' });
+            throw new ConfigValidationException(criticalMsg);
           } else {
             this.logger.warn(`Failed to set Binance position mode to One-Way: ${errMsg}`);
           }
@@ -114,7 +117,8 @@ export class SessionLifecycleService {
           }
         }
       } catch (e) {
-        this.logger.debug(`Initial balance fetch failed: ${e instanceof Error ? e.message : String(e)}`);
+        if (e instanceof ConfigValidationException) throw e;
+        this.logger.debug(`Initial account configuration failed: ${e instanceof Error ? e.message : String(e)}`);
       }
 
       await this.progress('Establishing real-time account stream...');

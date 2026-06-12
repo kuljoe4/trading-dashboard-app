@@ -202,10 +202,15 @@ const SessionGroup = React.memo(({ session, trades }) => {
             <div className="flex flex-col">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Expectancy</span>
               <Tooltip content="Expected value per trade based on historical performance">
-                <span className={cn("text-xs font-bold flex items-center gap-1.5", expectancyStatus.color)}>
-                  <expectancyStatus.icon size={12} aria-hidden="true" />
-                  {Number(expectancyStatus.expectancy).toFixed(2)}
-                </span>
+                <div className="flex flex-col">
+                  <span className={cn("text-xs font-bold flex items-center gap-1.5", expectancyStatus.color)}>
+                    <expectancyStatus.icon size={12} aria-hidden="true" />
+                    {Number(expectancyStatus.expectancy).toFixed(2)}
+                  </span>
+                  <span className={cn("text-[9px] font-black uppercase tracking-wider mt-0.5 opacity-80", expectancyStatus.color)}>
+                    {expectancyStatus.label}
+                  </span>
+                </div>
               </Tooltip>
             </div>
             <div className="flex flex-col items-end">
@@ -323,6 +328,10 @@ export const HistoryView = () => {
   const winRate = currentAnalytics ? Math.round(currentAnalytics.overallWinRate) : 0
   const avgPnl = totalTrades ? totalPnl / totalTrades : 0
 
+  const lifetimeExpectancyStatus = useMemo(() => {
+    return getExpectancyStatus(winRate / 100, currentAnalytics?.avgWinLossRatio || 0);
+  }, [winRate, currentAnalytics?.avgWinLossRatio]);
+
   useEffect(() => {
     setLoading(true)
     Promise.all([
@@ -406,17 +415,15 @@ export const HistoryView = () => {
             value={Number(currentAnalytics?.avgWinLossRatio || 0).toFixed(2)} 
             color="text-accent" 
             subValue={
-              <span className={cn("flex items-center gap-1", getExpectancyStatus(winRate / 100, currentAnalytics?.avgWinLossRatio || 0).color)}>
-                {(() => {
-                  const status = getExpectancyStatus(winRate / 100, currentAnalytics?.avgWinLossRatio || 0);
-                  return (
-                    <>
-                      <status.icon size={10} />
-                      {Number(status.expectancy).toFixed(2)} Expectancy
-                    </>
-                  );
-                })()}
-              </span>
+              <div className="flex flex-col gap-0.5">
+                <span className={cn("flex items-center gap-1", lifetimeExpectancyStatus.color)}>
+                  <lifetimeExpectancyStatus.icon size={10} />
+                  {Number(lifetimeExpectancyStatus.expectancy).toFixed(2)} Expectancy
+                </span>
+                <span className={cn("text-[8px] font-black uppercase tracking-tight", lifetimeExpectancyStatus.color)}>
+                  {lifetimeExpectancyStatus.label} Status
+                </span>
+              </div>
             }
           />
         </div>

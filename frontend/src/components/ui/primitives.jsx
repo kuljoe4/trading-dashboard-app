@@ -296,6 +296,7 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
           sideOffset={8}
           className={cn(
             "z-[100] overflow-hidden rounded-lg bg-surface border border-border px-3 py-1.5 text-[10px] font-bold font-mono text-text shadow-xl animate-in fade-in zoom-in-95 duration-200",
+            "max-w-[calc(100vw-32px)] whitespace-normal break-words",
             className
           )}
         >

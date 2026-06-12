@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
-import { getExpectancyStatus, getSharpeStatus, getSortinoStatus, calculateSharpe, calculateSortino } from '../lib/analytics'
+import { getExpectancyStatus, getSharpeStatus, getSortinoStatus, calculatePerformanceMetrics } from '../lib/analytics'
 import { sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader } from '../components/ui/primitives'
@@ -127,17 +127,26 @@ const SessionGroup = React.memo(({ session, trades }) => {
     }
   }
 
-  const pnl = useMemo(() => trades.reduce((sum, t) => sum + safeNum(t.pnl), 0), [trades])
-  const wins = useMemo(() => trades.filter(t => safeNum(t.pnl) > 0).length, [trades])
-  const winRate = trades.length ? Math.round((wins / trades.length) * 100) : 0
-  const curve = useMemo(() => buildCurve(trades), [trades])
-  const label = strategyLabel(session)
+  const metrics = useMemo(() => {
+    const m = calculatePerformanceMetrics(trades);
+    const losses = trades.length - m.wins;
+    const avgWin = m.wins > 0 ? m.grossProfit / m.wins : 0;
+    const avgLoss = losses > 0 ? m.grossLoss / losses : 0;
+    const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss) : 0;
+    const winLossRatioStr = avgLoss > 0 ? winLossRatio.toFixed(2) : '∞';
 
-  const avgWin = useMemo(() => wins > 0 ? trades.filter(t => safeNum(t.pnl) > 0).reduce((sum, t) => sum + safeNum(t.pnl), 0) / wins : 0, [trades, wins])
-  const losses = trades.length - wins
-  const avgLoss = useMemo(() => losses > 0 ? Math.abs(trades.filter(t => safeNum(t.pnl) < 0).reduce((sum, t) => sum + safeNum(t.pnl), 0)) / losses : 0, [trades, losses])
-  const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss) : 0
-  const winLossRatioStr = avgLoss > 0 ? winLossRatio.toFixed(2) : '∞'
+    return {
+      ...m,
+      winLossRatio,
+      winLossRatioStr,
+      expectancyStatus: getExpectancyStatus(m.winRate / 100, winLossRatio),
+      sharpeStatus: getSharpeStatus(m.sharpe),
+      sortinoStatus: getSortinoStatus(m.sortino),
+      curve: buildCurve(trades)
+    };
+  }, [trades]);
+
+  const label = strategyLabel(session);
 
   const durationStr = useMemo(() => {
     const start = new Date(session.startTime).getTime();
@@ -149,17 +158,6 @@ const SessionGroup = React.memo(({ session, trades }) => {
     if (hours > 0) return `${hours}h ${mins}m`;
     return `${mins}m`;
   }, [session.startTime, session.endTime]);
-
-  const expectancyStatus = useMemo(() => {
-    const wr = (winRate / 100);
-    const wl = winLossRatio;
-    return getExpectancyStatus(wr, wl);
-  }, [winRate, winLossRatio]);
-
-  const sharpe = useMemo(() => calculateSharpe(trades), [trades]);
-  const sortino = useMemo(() => calculateSortino(trades), [trades]);
-  const sStatus = useMemo(() => getSharpeStatus(sharpe), [sharpe]);
-  const stStatus = useMemo(() => getSortinoStatus(sortino), [sortino]);
 
   return (
     <div id={`session-${session.id}`} className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 lg:mb-12 shadow-sm transition-all hover:border-border-hover scroll-mt-8">
@@ -212,38 +210,38 @@ const SessionGroup = React.memo(({ session, trades }) => {
             </div>
             <div className="flex flex-col">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Win Rate</span>
-              <span className="text-xs font-bold font-mono text-text">{winRate}% <span className="text-[10px] opacity-40 font-bold ml-1">({wins}/{trades.length})</span></span>
+              <span className="text-xs font-bold font-mono text-text">{metrics.winRate}% <span className="text-[10px] opacity-40 font-bold ml-1">({metrics.wins}/{trades.length})</span></span>
             </div>
             <div className="flex flex-col">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Ratio</span>
-              <span className="text-xs font-bold font-mono text-accent">{winLossRatioStr}</span>
+              <span className="text-xs font-bold font-mono text-accent">{metrics.winLossRatioStr}</span>
             </div>
             <div className="flex flex-col">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Sharpe</span>
-              <span className={cn("text-xs font-bold font-mono", sStatus.color)}>{sharpe.toFixed(2)}</span>
+              <span className={cn("text-xs font-bold font-mono", metrics.sharpeStatus.color)}>{metrics.sharpe.toFixed(2)}</span>
             </div>
             <div className="flex flex-col">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Sortino</span>
-              <span className={cn("text-xs font-bold font-mono", stStatus.color)}>{sortino.toFixed(2)}</span>
+              <span className={cn("text-xs font-bold font-mono", metrics.sortinoStatus.color)}>{metrics.sortino.toFixed(2)}</span>
             </div>
             <div className="flex flex-col">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Expectancy</span>
               <Tooltip content="Expected value per trade based on historical performance">
                 <div className="flex flex-col">
-                  <span className={cn("text-xs font-bold flex items-center gap-1.5", expectancyStatus.color)}>
-                    <expectancyStatus.icon size={12} aria-hidden="true" />
-                    {Number(expectancyStatus.expectancy).toFixed(2)}
+                  <span className={cn("text-xs font-bold flex items-center gap-1.5", metrics.expectancyStatus.color)}>
+                    <metrics.expectancyStatus.icon size={12} aria-hidden="true" />
+                    {Number(metrics.expectancyStatus.expectancy).toFixed(2)}
                   </span>
-                  <span className={cn("text-[9px] font-black uppercase tracking-wider mt-0.5 opacity-80", expectancyStatus.color)}>
-                    {expectancyStatus.label}
+                  <span className={cn("text-[9px] font-black uppercase tracking-wider mt-0.5 opacity-80", metrics.expectancyStatus.color)}>
+                    {metrics.expectancyStatus.label}
                   </span>
                 </div>
               </Tooltip>
             </div>
             <div className="flex flex-col items-end">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Net P&L</span>
-              <span className={cn("text-lg font-bold font-mono tracking-tighter leading-none", pnlClass(pnl))}>
-                {fmtUSD(pnl)}
+              <span className={cn("text-lg font-bold font-mono tracking-tighter leading-none", pnlClass(metrics.totalPnl))}>
+                {fmtUSD(metrics.totalPnl)}
               </span>
             </div>
           </div>
@@ -259,9 +257,9 @@ const SessionGroup = React.memo(({ session, trades }) => {
             className="overflow-hidden border-t border-border/10"
           >
             <div className="p-4 space-y-3 bg-background/20">
-              {curve.length >= 2 && (
+              {metrics.curve.length >= 2 && (
                 <div className="bg-surface/40 border border-border/10 rounded-xl p-6 mb-6 shadow-inner overflow-hidden">
-                  <EquityCurve data={curve} height={200} />
+                  <EquityCurve data={metrics.curve} height={200} />
                 </div>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

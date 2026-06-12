@@ -48,11 +48,16 @@ export class AnalyticsService {
     let grossProfit = 0;
     let grossLoss = 0;
 
+    // Sharpe/Sortino pre-calc
+    let sumPnL = 0;
+    let sumSquaredPnL = 0;
+    let downsideSumSquaredPnL = 0;
+
     const cumulativePnL: { ts: string; pnl: number }[] = new Array(totalTrades);
     // Time of day analysis (0-23 hours) - Fixed size array for better performance
     const todStats = Array.from({ length: 24 }, () => ({ pnl: 0, wins: 0, total: 0 }));
 
-    // BOLT OPTIMIZATION: Single-pass calculation for all metrics to avoid multiple array iterations
+    // BOLT OPTIMIZATION: Single-pass calculation for ALL metrics to avoid multiple array iterations
     for (let i = 0; i < totalTrades; i++) {
       const t = sortedTrades[i];
       const pnl = Number(t.pnl || 0);
@@ -80,7 +85,10 @@ export class AnalyticsService {
       stats.pnl += pnl;
       stats.total += 1;
 
-      // Wins
+      // Wins & PnL Sums
+      sumPnL += pnl;
+      sumSquaredPnL += pnl * pnl;
+
       if (pnl > 0) {
         stats.wins += 1;
         totalWins += 1;
@@ -88,6 +96,7 @@ export class AnalyticsService {
       } else if (pnl < 0) {
         totalLosses += 1;
         grossLoss += Math.abs(pnl);
+        downsideSumSquaredPnL += pnl * pnl;
       }
     }
 
@@ -103,28 +112,19 @@ export class AnalyticsService {
     const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 100 : 0);
 
     // Sharpe and Sortino Ratios (Trade-based)
+    // BOLT: Using Welford-inspired Sum of Squares for single-pass variance
     let sharpeRatio = 0;
     let sortinoRatio = 0;
 
     if (totalTrades > 1) {
-      const pnls = sortedTrades.map(t => Number(t.pnl || 0));
-      const mean = pnls.reduce((a, b) => a + b, 0) / totalTrades;
+      const mean = sumPnL / totalTrades;
+      // Variance = E[X^2] - (E[X])^2
+      const variance = Math.max(0, (sumSquaredPnL / totalTrades) - (mean * mean));
+      const stdDev = Math.sqrt(variance);
 
-      // Variance and Downside Variance
-      // Sharpe uses returns relative to mean.
-      // Sortino uses returns relative to target (0) and only downside.
-      let varianceSum = 0;
-      let downsideVarianceSum = 0;
-
-      for (const p of pnls) {
-        varianceSum += Math.pow(p - mean, 2);
-        if (p < 0) {
-          downsideVarianceSum += Math.pow(p, 2); // target = 0
-        }
-      }
-
-      const stdDev = Math.sqrt(varianceSum / totalTrades);
-      const downsideStdDev = Math.sqrt(downsideVarianceSum / totalTrades);
+      // Sortino: uses target return of 0
+      const downsideVariance = downsideSumSquaredPnL / totalTrades;
+      const downsideStdDev = Math.sqrt(downsideVariance);
 
       if (stdDev > 0) sharpeRatio = mean / stdDev;
       if (downsideStdDev > 0) sortinoRatio = mean / downsideStdDev;

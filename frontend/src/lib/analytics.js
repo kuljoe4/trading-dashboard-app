@@ -53,23 +53,65 @@ export const getSharpeStatus = (sharpe) => {
   return { label: 'Poor', color: 'text-red', icon: TrendingDown };
 };
 
-export const calculateSharpe = (trades = []) => {
-  if (trades.length <= 1) return 0;
-  const pnls = trades.map(t => Number(t.pnl || 0));
-  const mean = pnls.reduce((a, b) => a + b, 0) / trades.length;
-  const varianceSum = pnls.reduce((acc, p) => acc + Math.pow(p - mean, 2), 0);
-  const stdDev = Math.sqrt(varianceSum / trades.length);
-  return stdDev > 0 ? mean / stdDev : 0;
+/**
+ * BOLT OPTIMIZATION: Single-pass calculation of all performance metrics.
+ * Eliminates redundant iterations and temporary array allocations.
+ */
+export const calculatePerformanceMetrics = (trades = []) => {
+  const count = trades.length;
+  if (count === 0) return { sharpe: 0, sortino: 0, profitFactor: 0, winRate: 0, wins: 0, totalPnl: 0, grossProfit: 0, grossLoss: 0 };
+
+  let sumPnL = 0;
+  let sumSquaredPnL = 0;
+  let downsideSumSquaredPnL = 0;
+  let wins = 0;
+  let grossProfit = 0;
+  let grossLoss = 0;
+
+  for (let i = 0; i < count; i++) {
+    const pnl = Number(trades[i].pnl || 0);
+    sumPnL += pnl;
+    sumSquaredPnL += pnl * pnl;
+
+    if (pnl > 0) {
+      wins++;
+      grossProfit += pnl;
+    } else if (pnl < 0) {
+      grossLoss += Math.abs(pnl);
+      downsideSumSquaredPnL += pnl * pnl;
+    }
+  }
+
+  const mean = sumPnL / count;
+  const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 100 : 0);
+
+  let sharpe = 0;
+  let sortino = 0;
+
+  if (count > 1) {
+    const variance = Math.max(0, (sumSquaredPnL / count) - (mean * mean));
+    const stdDev = Math.sqrt(variance);
+    const downsideStdDev = Math.sqrt(downsideSumSquaredPnL / count);
+
+    if (stdDev > 0) sharpe = mean / stdDev;
+    if (downsideStdDev > 0) sortino = mean / downsideStdDev;
+  }
+
+  return {
+    sharpe,
+    sortino,
+    profitFactor,
+    winRate: Math.round((wins / count) * 100),
+    wins,
+    totalPnl: sumPnL,
+    grossProfit,
+    grossLoss
+  };
 };
 
-export const calculateSortino = (trades = []) => {
-  if (trades.length <= 1) return 0;
-  const pnls = trades.map(t => Number(t.pnl || 0));
-  const mean = pnls.reduce((a, b) => a + b, 0) / trades.length;
-  const downsideVarianceSum = pnls.reduce((acc, p) => p < 0 ? acc + Math.pow(p, 2) : acc, 0);
-  const downsideStdDev = Math.sqrt(downsideVarianceSum / trades.length);
-  return downsideStdDev > 0 ? mean / downsideStdDev : 0;
-};
+// Deprecated in favor of calculatePerformanceMetrics, kept for legacy if needed
+export const calculateSharpe = (trades = []) => calculatePerformanceMetrics(trades).sharpe;
+export const calculateSortino = (trades = []) => calculatePerformanceMetrics(trades).sortino;
 
 export const getSortinoStatus = (sortino) => {
   const val = Number(sortino || 0);

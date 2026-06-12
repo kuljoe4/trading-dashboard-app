@@ -1,7 +1,7 @@
 import React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
-import { fmtUSD, pnlColor, C, safeNum } from '../lib/theme'
+import { fmtUSD, pnlColor, pnlClass, C, safeNum } from '../lib/theme'
 import { ArrowLeftRight, ChevronRight, XCircle } from 'lucide-react'
 import { cn, Btn } from './ui/primitives'
 import { sessionAPI } from '../api/client'

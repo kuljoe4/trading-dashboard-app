@@ -440,7 +440,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                    { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0), tooltip: 'Fixed initial dollar risk calculated at time of entry' },
                    {
                      label: 'Daily Δ at Entry',
-                     value: `${(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} ${Math.abs(trade.entry_daily_change_pct || 0).toFixed(2)}%`,
+                     value: `${(trade.entry_daily_change_pct || 0) > 0 ? '▴' : (trade.entry_daily_change_pct || 0) < 0 ? '▾' : ''} ${Math.abs(trade.entry_daily_change_pct || 0).toFixed(2)}%`,
                      color: pnlClass(trade.entry_daily_change_pct),
                      tooltip: '24h price change percentage at the exact moment of entry'
                    },

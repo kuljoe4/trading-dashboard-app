@@ -54,7 +54,7 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm md:text-base font-black font-mono tracking-tight shrink-0">{trade.symbol || '---'}</span>
             <span className={cn("text-[9px] md:text-xs font-black px-1.5 py-0.5 rounded border uppercase shrink-0", isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5')}>
-              {isLong ? '▲' : '▼'} {trade.direction || '---'}
+              {isLong ? '▴' : '▾'} {trade.direction || '---'}
             </span>
           </div>
           {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (

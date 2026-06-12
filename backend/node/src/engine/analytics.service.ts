@@ -18,6 +18,8 @@ export interface AnalyticsResult {
   avgWin: number;
   avgLoss: number;
   avgWinLossRatio: number;
+  sharpeRatio: number;
+  sortinoRatio: number;
 }
 
 @Injectable()
@@ -98,6 +100,34 @@ export class AnalyticsService {
     const avgLoss = totalLosses > 0 ? grossLoss / totalLosses : 0;
     const avgWinLossRatio = avgLoss > 0 ? avgWin / avgLoss : 0;
 
+    // Sharpe and Sortino Ratios (Trade-based)
+    let sharpeRatio = 0;
+    let sortinoRatio = 0;
+
+    if (totalTrades > 1) {
+      const pnls = sortedTrades.map(t => Number(t.pnl || 0));
+      const mean = pnls.reduce((a, b) => a + b, 0) / totalTrades;
+
+      // Variance and Downside Variance
+      let varianceSum = 0;
+      let downsideVarianceSum = 0;
+      let downsideCount = 0;
+
+      for (const p of pnls) {
+        varianceSum += Math.pow(p - mean, 2);
+        if (p < 0) {
+          downsideVarianceSum += Math.pow(p, 2); // Using 0 as target for Sortino
+          downsideCount++;
+        }
+      }
+
+      const stdDev = Math.sqrt(varianceSum / totalTrades);
+      const downsideStdDev = Math.sqrt(downsideVarianceSum / totalTrades);
+
+      if (stdDev > 0) sharpeRatio = mean / stdDev;
+      if (downsideStdDev > 0) sortinoRatio = mean / downsideStdDev;
+    }
+
     return {
       cumulativePnL,
       maxDrawdown: roundTo(maxDD, 2),
@@ -108,6 +138,8 @@ export class AnalyticsService {
       avgWin: roundTo(avgWin, 2),
       avgLoss: roundTo(avgLoss, 2),
       avgWinLossRatio: roundTo(avgWinLossRatio, 2),
+      sharpeRatio: roundTo(sharpeRatio, 2),
+      sortinoRatio: roundTo(sortinoRatio, 2),
     };
   }
 }

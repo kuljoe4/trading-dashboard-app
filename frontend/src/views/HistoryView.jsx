@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
-import { getExpectancyStatus } from '../lib/analytics'
+import { getExpectancyStatus, getSharpeStatus, getSortinoStatus } from '../lib/analytics'
 import { sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader } from '../components/ui/primitives'
@@ -102,7 +102,7 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
         <div className="flex flex-col items-start min-w-[80px]">
           <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Market Context</span>
           <span className={cn("text-[9px] font-black font-mono", pnlClass(trade.entry_daily_change_pct))}>
-            {(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} {Math.abs(trade.entry_daily_change_pct || 0).toFixed(2)}%
+            {(trade.entry_daily_change_pct || 0) > 0 ? '▴' : (trade.entry_daily_change_pct || 0) < 0 ? '▾' : ''} {Math.abs(trade.entry_daily_change_pct || 0).toFixed(2)}%
           </span>
         </div>
         <div className="flex flex-col items-start min-w-[80px] max-w-[120px]">
@@ -332,6 +332,9 @@ export const HistoryView = () => {
     return getExpectancyStatus(winRate / 100, currentAnalytics?.avgWinLossRatio || 0);
   }, [winRate, currentAnalytics?.avgWinLossRatio]);
 
+  const sharpeStatus = useMemo(() => getSharpeStatus(currentAnalytics?.sharpeRatio), [currentAnalytics?.sharpeRatio]);
+  const sortinoStatus = useMemo(() => getSortinoStatus(currentAnalytics?.sortinoRatio), [currentAnalytics?.sortinoRatio]);
+
   useEffect(() => {
     setLoading(true)
     Promise.all([
@@ -426,6 +429,37 @@ export const HistoryView = () => {
               </div>
             }
           />
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-8 lg:mb-12">
+           <StatCard
+            label="Sharpe Ratio"
+            value={Number(currentAnalytics?.sharpeRatio || 0).toFixed(2)}
+            color="text-accent"
+            subValue={
+              <div className="flex flex-col gap-0.5">
+                <span className={cn("flex items-center gap-1", sharpeStatus.color)}>
+                  <sharpeStatus.icon size={10} />
+                  {sharpeStatus.label}
+                </span>
+              </div>
+            }
+          />
+          <StatCard
+            label="Sortino Ratio"
+            value={Number(currentAnalytics?.sortinoRatio || 0).toFixed(2)}
+            color="text-accent"
+            subValue={
+              <div className="flex flex-col gap-0.5">
+                <span className={cn("flex items-center gap-1", sortinoStatus.color)}>
+                  <sortinoStatus.icon size={10} />
+                  {sortinoStatus.label}
+                </span>
+              </div>
+            }
+          />
+          <StatCard label="Profit Factor" value={Number(currentAnalytics?.avgWinLossRatio || 0).toFixed(2)} color="text-accent" />
+          <StatCard label="Expectancy" value={Number(lifetimeExpectancyStatus.expectancy).toFixed(2)} color={lifetimeExpectancyStatus.color} subValue={lifetimeExpectancyStatus.label} />
         </div>
 
         <motion.div

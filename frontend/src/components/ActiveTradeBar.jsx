@@ -15,6 +15,14 @@ export const ActiveTradeBar = () => {
 
   const totalPnl = activeTrades.reduce((sum, t) => sum + safeNum(t.pnl), 0)
 
+  const getEstSlPnl = (t) => {
+    const sl = Number(t.sl_price || 0)
+    const entry = Number(t.entry_price || 0)
+    const qty = Number(t.qty || 0)
+    if (!sl || !entry || !qty) return 0
+    return (sl - entry) * qty * (t.direction === 'LONG' ? 1 : -1)
+  }
+
   const handleClose = async (symbol) => {
     if (closing === symbol) {
       try {
@@ -56,25 +64,34 @@ export const ActiveTradeBar = () => {
         </div>
 
         <div className="flex-1 overflow-x-auto no-scrollbar flex gap-2" role="list">
-          {activeTrades.map(t => (
-            <button
-              key={t.symbol}
-              onClick={() => handleClose(t.symbol)}
-              role="listitem"
-              aria-label={closing === t.symbol ? `Confirm closing ${t.symbol} position` : `Close ${t.symbol} position`}
-              className={cn(
-                "px-3 py-2 rounded-xl border text-[10px] font-bold font-mono transition-all flex items-center gap-2 shrink-0 focus-visible:ring-2 focus-visible:ring-red outline-none",
-                closing === t.symbol ? "bg-red border-red text-white scale-95" :
-                closing === 'CANCELLED' ? "bg-amber/20 border-amber/40 text-amber" :
-                "bg-white/5 border-white/10 hover:bg-white/10 hover:border-red/40"
-              )}
-            >
-              {t.symbol.replace('USDT', '')}
-              <span style={{ color: closing === t.symbol ? 'white' : pnlColor(t.pnl) }}>
-                {closing === t.symbol ? 'CONFIRM' : closing === 'CANCELLED' ? 'CANCELLED' : fmtUSD(t.pnl)}
-              </span>
-            </button>
-          ))}
+          {activeTrades.map(t => {
+            const slPnl = getEstSlPnl(t)
+            return (
+              <div key={t.symbol} className="flex flex-col gap-1">
+                <button
+                  onClick={() => handleClose(t.symbol)}
+                  role="listitem"
+                  aria-label={closing === t.symbol ? `Confirm closing ${t.symbol} position` : `Close ${t.symbol} position`}
+                  className={cn(
+                    "px-3 py-2 rounded-xl border text-[10px] font-bold font-mono transition-all flex items-center gap-2 shrink-0 focus-visible:ring-2 focus-visible:ring-red outline-none",
+                    closing === t.symbol ? "bg-red border-red text-white scale-95" :
+                    closing === 'CANCELLED' ? "bg-amber/20 border-amber/40 text-amber" :
+                    "bg-white/5 border-white/10 hover:bg-white/10 hover:border-red/40"
+                  )}
+                >
+                  {t.symbol.replace('USDT', '')}
+                  <span style={{ color: closing === t.symbol ? 'white' : pnlColor(t.pnl) }}>
+                    {closing === t.symbol ? 'CONFIRM' : closing === 'CANCELLED' ? 'CANCELLED' : fmtUSD(t.pnl)}
+                  </span>
+                </button>
+                <div className="flex items-center justify-center px-1">
+                   <span className={cn("text-[8px] font-mono font-bold uppercase tracking-tighter opacity-60", pnlClass(slPnl))}>
+                     SL: {fmtUSD(slPnl)}
+                   </span>
+                </div>
+              </div>
+            )
+          })}
         </div>
       </div>
     </motion.div>

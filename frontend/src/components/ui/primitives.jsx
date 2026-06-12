@@ -26,7 +26,7 @@ export const PulseDot = React.memo(({ color = "bg-green" }) => (
 ))
 
 // --- Stat Card ---
-export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing, icon: Icon }) => {
+export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing }) => {
   // BOLT: Clean up double-negative visuals: if value starts with '-', don't show negative arrow in label/icon.
   // This component currently doesn't show an icon, but if the value passed from parent has both '-' and an arrow,
   // it might look redundant. The user pointed out: "Total Performance" displays ▼ - $9,920.52.
@@ -47,10 +47,7 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />
       )}
       <div className="flex flex-row md:flex-col items-center md:items-start justify-between md:justify-start gap-1.5 min-w-0">
-        <div className="flex items-center gap-1.5 md:mb-2 min-w-0">
-          {Icon && <Icon size={12} className={cn("shrink-0", color)} aria-hidden="true" />}
-          <div className="text-[8px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black group-hover:text-dim/80 transition-colors truncate" aria-hidden="true">{label}</div>
-        </div>
+        <div className="text-[8px] md:text-[10px] text-dim tracking-[0.15em] md:mb-2 uppercase font-black group-hover:text-dim/80 transition-colors shrink-0 truncate max-w-[40%]" aria-hidden="true">{label}</div>
         <div className={cn(
           "text-sm md:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate flex-1 md:w-full text-right md:text-left",
           color,
@@ -267,10 +264,29 @@ export const PnLBars = React.memo(({ trades }) => {
 // --- Tooltip ---
 export const Tooltip = ({ children, content, side = "top", align = "center", className }) => {
   if (!content) return children;
+  const [open, setOpen] = React.useState(false);
 
   return (
-    <TooltipPrimitive.Root>
-      <TooltipPrimitive.Trigger asChild>
+    <TooltipPrimitive.Root
+      open={open}
+      onOpenChange={setOpen}
+    >
+      <TooltipPrimitive.Trigger
+        asChild
+        onClick={(e) => {
+          // On mobile, toggle on click
+          if (window.matchMedia('(max-width: 768px)').matches) {
+            e.preventDefault();
+            setOpen(!open);
+          }
+        }}
+        onPointerDown={(e) => {
+          // Improve touch responsiveness
+          if (e.pointerType === 'touch') {
+            setOpen(true);
+          }
+        }}
+      >
         {children}
       </TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>

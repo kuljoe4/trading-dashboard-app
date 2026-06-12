@@ -8,6 +8,7 @@ export interface TradeSerializationDto {
   sl_price: number;
   tp_price: number | null;
   pnl: number;
+  pnl_pct: number;
   realized_fee: number;
   funding_fee?: number;
   rr: number;
@@ -41,6 +42,7 @@ export interface TickTradeDto {
   sl_price: number;
   tp_price: number | null;
   pnl: number;
+  pnl_pct?: number;
   realized_fee: number;
   funding_fee?: number;
   rr: number;

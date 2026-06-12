@@ -47,6 +47,7 @@ export class TradingSessionService {
   private fundingCheckInterval: NodeJS.Timeout | null = null;
   private balancePollInterval: NodeJS.Timeout | null = null;
   private balanceFetchTimeout: NodeJS.Timeout | null = null;
+  private safetySyncTimeout: NodeJS.Timeout | null = null;
   private appliedPnL: Map<string, number> = new Map(); // trade.id -> total cumulative pnl applied to balance
   private lastScannerFullBroadcast = 0;
   private lastScannerResultsJson = '';
@@ -161,6 +162,10 @@ export class TradingSessionService {
     if (this.balanceFetchTimeout) {
       clearTimeout(this.balanceFetchTimeout);
       this.balanceFetchTimeout = null;
+    }
+    if (this.safetySyncTimeout) {
+      clearTimeout(this.safetySyncTimeout);
+      this.safetySyncTimeout = null;
     }
 
     const active = this.positionTracker.activeList();
@@ -405,22 +410,20 @@ export class TradingSessionService {
          if (pnlDelta !== 0) this.appliedPnL.set(t.id, totalPnl);
          if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), t.pnl || 0);
 
-         // DATA-CONSISTENCY: Safety sync. If UDS doesn't update within 10s after closure, force REST refresh.
-         if (!isEntry && !this.balanceFetchTimeout) {
-           const initialBal = this.sessionState.balanceLive;
-           this.balanceFetchTimeout = setTimeout(async () => {
-              this.balanceFetchTimeout = null;
-              // Only fetch if balance hasn't changed (UDS hasn't fired)
-              if (this.sessionState.balanceLive === initialBal) {
-                this.logger.log(`UDS balance update delayed for 10s after closure. Triggering manual safety refresh.`);
-                const b = await this.fetchBinanceBalance();
-                if (b > 0) {
-                   this.sessionState.balanceLive = b;
-                   this.sessionState.balancePaper = b;
-                   if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), 0);
-                }
+         // DATA-CONSISTENCY: Safety sync. If UDS doesn't update after closure, force REST refresh.
+         // BOLT: Use debounced safety sync to handle batch closures effectively.
+         if (!isEntry) {
+           if (this.safetySyncTimeout) clearTimeout(this.safetySyncTimeout);
+           this.safetySyncTimeout = setTimeout(async () => {
+              this.safetySyncTimeout = null;
+              this.logger.log(`Performing scheduled safety balance sync after trade closures.`);
+              const b = await this.fetchBinanceBalance();
+              if (b > 0) {
+                 this.sessionState.balanceLive = b;
+                 this.sessionState.balancePaper = b;
+                 if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), 0);
               }
-           }, 10000);
+           }, 15000); // 15s after LAST closure in a burst
          }
          return;
       }

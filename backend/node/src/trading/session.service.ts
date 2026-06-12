@@ -363,6 +363,7 @@ export class SessionService implements OnModuleInit {
   }
 
   async startSession(config: SessionConfig, paperMode: boolean, sessionId?: string) {
+    this.analyticsCache = null;
     const mode = config.trading_mode || (paperMode ? 'paper' : 'live');
     if (mode !== 'paper' && !process.env.ENCRYPTION_KEY) {
       throw new ConfigValidationException(
@@ -650,6 +651,11 @@ export class SessionService implements OnModuleInit {
       actor,
     });
 
+    // SENTINEL: Clear in-memory tracking and cache for this session to prevent memory exhaustion
+    this.logRateLimits.delete(id);
+    this.sessionLogCounts.delete(id);
+    this.analyticsCache = null;
+
     // Manually delete session, ensuring no cascade to trades (as there is no FK link in the current entity model)
     await this.sessionRepository.delete(id);
     return { status: 'deleted' };
@@ -690,13 +696,20 @@ export class SessionService implements OnModuleInit {
       throw new ConflictException('No session running');
     }
 
-    await this.sessionRepository.update(this.currentSessionId, { running: false });
+    const sid = this.currentSessionId;
+
+    await this.sessionRepository.update(sid, { running: false });
 
     // Stop the actual trading engine
     await this.tradingSessionService.stop();
 
     // Reset log levels to default when session stops
     updateLogLevels(false);
+
+    // SENTINEL: Clear in-memory tracking and cache for this session to prevent memory exhaustion
+    this.logRateLimits.delete(sid);
+    this.sessionLogCounts.delete(sid);
+    this.analyticsCache = null;
 
     this.logger.log(`Stopping trading session.`);
     this.sessionRunning = false;

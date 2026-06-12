@@ -274,16 +274,11 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
       <TooltipPrimitive.Trigger
         asChild
         onClick={(e) => {
-          // On mobile, toggle on click
+          // On mobile, toggle on tap. Stop propagation to prevent triggering
+          // parent clicks (like Trade cards) when just checking a tooltip.
           if (window.matchMedia('(max-width: 768px)').matches) {
-            e.preventDefault();
+            e.stopPropagation();
             setOpen(!open);
-          }
-        }}
-        onPointerDown={(e) => {
-          // Improve touch responsiveness
-          if (e.pointerType === 'touch') {
-            setOpen(true);
           }
         }}
       >

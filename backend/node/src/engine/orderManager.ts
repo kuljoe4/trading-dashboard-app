@@ -494,11 +494,12 @@ export class OrderManagerService {
     const MAX_ATTEMPTS = 2;
 
     while (attempts < MAX_ATTEMPTS) {
+    const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
+    const filters = this.marketFeed.getSymbolFilters(trade.symbol);
+    const symbol = trade.symbol;
+
     try {
       attempts++;
-      const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
-      const filters = this.marketFeed.getSymbolFilters(trade.symbol);
-      const symbol = trade.symbol;
 
       const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
       const tickSize = parseFloat(priceFilter?.tickSize || '0');
@@ -601,32 +602,56 @@ export class OrderManagerService {
         continue;
       }
 
-      this.logger.error(`Failed to place Binance SL for ${trade.symbol}: ${errMsg}`);
-
       // BOLT: Handle existing order conflict. If a closePosition order already exists, clear it and retry.
-      if (errMsg.includes('existing') && errMsg.includes('closePosition')) {
-         this.logger.warn(`Detection of orphan closePosition order for ${trade.symbol}. Attempting proactive cleanup...`);
+      if (errMsg.includes('existing') && (errMsg.includes('closePosition') || errMsg.includes('GTE'))) {
+         this.logger.warn(`Detection of potential orphan closePosition order for ${trade.symbol}. Attempting proactive cleanup...`);
          try {
-            const res = await (this.binanceClient.restAPI as any).tradeApi.currentAllOpenOrders({ symbol: trade.symbol });
+            // Check standard open orders
+            const res = await (this.binanceClient as any).restAPI.tradeApi.currentAllOpenOrders({ symbol: trade.symbol });
             const orders = typeof res.data === 'function' ? await res.data() : (res.data || res);
+            let cleanedCount = 0;
+
             if (Array.isArray(orders)) {
-              // Find and cancel any STOP_MARKET orders with closePosition=true
               for (const o of orders) {
-                if ((o.type === 'STOP_MARKET' || o.type === 'STOP') && o.closePosition === true) {
-                  this.logger.log(`Found orphan SL order ${o.orderId} for ${trade.symbol}. Canceling...`);
-                  await this.cancelAnyStopOrder(trade.symbol, String(o.orderId));
+                // Binance error implies a closePosition order exists. We look for STOP types with closePosition in the SAME direction.
+                if ((o.type === 'STOP_MARKET' || o.type === 'STOP' || o.type === 'TAKE_PROFIT_MARKET') &&
+                    (o.closePosition === true || o.closePosition === 'true') &&
+                    o.side === closeDirection) {
+                  this.logger.log(`Found conflicting orphan SL/TP order ${o.orderId} for ${trade.symbol} (${o.side}). Canceling...`);
+                  await this.cancelBinanceOrder(trade.symbol, String(o.orderId));
+                  cleanedCount++;
                 }
               }
-              // If we cleaned up and haven't exhausted retries, go again
-              if (attempts < MAX_ATTEMPTS) {
-                this.logger.log(`Retrying SL placement for ${trade.symbol} after orphan cleanup...`);
-                continue;
+            }
+
+            // Also check Algo orders if available (USDS-M Algo API)
+            try {
+              const algoRes = await (this.binanceClient as any).restAPI.tradeApi.currentOpenAlgoOrders({ symbol: trade.symbol });
+              const algoOrders = typeof algoRes.data === 'function' ? await algoRes.data() : (algoRes.data || algoRes);
+              const algoList = algoOrders.orders || algoOrders;
+              if (Array.isArray(algoList)) {
+                for (const ao of algoList) {
+                  if ((ao.closePosition === true || ao.closePosition === 'true') && ao.side === closeDirection) {
+                    this.logger.log(`Found conflicting orphan Algo SL order ${ao.algoId} for ${trade.symbol} (${ao.side}). Canceling...`);
+                    await this.cancelBinanceAlgoOrder(trade.symbol, String(ao.algoId));
+                    cleanedCount++;
+                  }
+                }
               }
+            } catch (algoErr) {
+               this.logger.debug(`Could not fetch/clean algo orders for ${trade.symbol}: ${algoErr instanceof Error ? algoErr.message : String(algoErr)}`);
+            }
+
+            if (cleanedCount > 0 && attempts < MAX_ATTEMPTS) {
+              this.logger.log(`Cleaned ${cleanedCount} orphan orders for ${trade.symbol}. Retrying SL placement...`);
+              continue;
             }
          } catch (cleanupErr) {
             this.logger.error(`Failed to cleanup orphan SL for ${trade.symbol}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
          }
       }
+
+      this.logger.error(`Failed to place Binance SL for ${trade.symbol}: ${errMsg}`);
 
       if (errMsg.includes('insufficient balance') || errMsg.includes('Margin is insufficient')) {
          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {

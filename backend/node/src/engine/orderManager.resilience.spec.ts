@@ -45,7 +45,9 @@ describe('OrderManagerService Resilience', () => {
           newAlgoOrder: jest.fn(),
           cancelOrder: jest.fn(),
           cancelAlgoOrder: jest.fn(),
-          positionInformationV2: jest.fn()
+          positionInformationV2: jest.fn(),
+          currentAllOpenOrders: jest.fn(),
+          currentOpenAlgoOrders: jest.fn()
         }
       }
     };
@@ -94,6 +96,46 @@ describe('OrderManagerService Resilience', () => {
       expect(result.exitOccurred).toBe(true);
       expect(trade.status).toBe('CLOSED_SIGNAL');
       expect(trade.exit_reason).toBe('EXCHANGE_SL_OR_MANUAL');
+    });
+  });
+
+  describe('placeStopLoss resilience', () => {
+    it('should cleanup conflicting orphan orders and retry SL placement', async () => {
+      service.setBinanceClient(mockBinanceClient, false);
+      const trade = {
+        id: 'trade-12345678',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 0.1,
+        binance_order_id: 'entry-id'
+      } as Trade;
+
+      // 1. First attempt fails with existing order error
+      mockBinanceClient.restAPI.tradeApi.newOrder.mockRejectedValueOnce(new Error('An open stop or take profit order with GTE and closePosition in the direction is existing.'));
+
+      // 2. Cleanup fetch returns one conflicting order
+      mockBinanceClient.restAPI.tradeApi.currentAllOpenOrders.mockResolvedValueOnce({
+        data: [{
+          orderId: 'orphan-1',
+          type: 'STOP_MARKET',
+          closePosition: true,
+          side: 'SELL'
+        }]
+      });
+
+      // 3. Cancel of orphan succeeds
+      mockBinanceClient.restAPI.tradeApi.cancelOrder.mockResolvedValueOnce({ data: {} });
+
+      // 4. Second attempt (retry) succeeds
+      mockBinanceClient.restAPI.tradeApi.newOrder.mockResolvedValueOnce({
+        data: () => Promise.resolve({ orderId: 'sl-new-id' }),
+        headers: { get: () => '100' }
+      });
+
+      const result = await service.placeStopLoss(trade, 50000);
+
+      expect(result).toBe('sl-new-id');
+      expect(mockBinanceClient.restAPI.tradeApi.cancelOrder).toHaveBeenCalledWith(expect.objectContaining({ orderId: 'orphan-1' }));
     });
   });
 });

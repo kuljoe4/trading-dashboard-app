@@ -152,41 +152,46 @@ export class ExecutionService {
       const openPrice = ticker?.open_24h || price;
       const dailyChangeAtEntry = ((price - openPrice) / openPrice) * 100 * (opp.direction.toUpperCase() === 'LONG' ? 1 : -1);
 
-      const result = await this.orderManager.enter(
-        (this.sessionState.config as any)?.sessionId || uuid().substring(0, 8),
-        opp.symbol,
-        opp.direction.toUpperCase() as any,
-        price,
-        qty,
-        slPrice,
-        tpPrice,
-        {
-          strategy_label: strategyLabel,
-          strategy_config: symbolConfig,
-          entry_daily_change_pct: dailyChangeAtEntry
+      try {
+        const result = await this.orderManager.enter(
+          (this.sessionState.config as any)?.sessionId || uuid().substring(0, 8),
+          opp.symbol,
+          opp.direction.toUpperCase() as any,
+          price,
+          qty,
+          slPrice,
+          tpPrice,
+          {
+            strategy_label: strategyLabel,
+            strategy_config: symbolConfig,
+            entry_daily_change_pct: dailyChangeAtEntry
+          }
+        );
+
+        if (result.status === ExecutionStatus.SUCCESS && result.data) {
+          const trade = result.data;
+          this.positionTracker.addTrade(trade);
+          this.sessionState.updateStatsOnEntry();
+
+          // Immediately apply entry fee to balance
+          if (onTradeUpdate) {
+              await onTradeUpdate(trade, balance);
+          }
+
+          this.sessionState.setActiveTrades(this.positionTracker.activeList());
+          this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, config);
+
+          this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
+          this.broadcastService.broadcast('trade_event', {
+            event: 'opened',
+            symbol: opp.symbol,
+            trade: this.engineBroadcaster.serializeTrade(trade, config, price),
+            stats: this.sessionState.stats
+          });
         }
-      );
-
-      if (result.status === ExecutionStatus.SUCCESS && result.data) {
-        const trade = result.data;
-        this.positionTracker.addTrade(trade);
-        this.sessionState.updateStatsOnEntry();
-
-        // Immediately apply entry fee to balance
-        if (onTradeUpdate) {
-            await onTradeUpdate(trade, balance);
-        }
-
-        this.sessionState.setActiveTrades(this.positionTracker.activeList());
-        this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, config);
-
-        this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
-        this.broadcastService.broadcast('trade_event', {
-          event: 'opened',
-          symbol: opp.symbol,
-          trade: this.engineBroadcaster.serializeTrade(trade, config, price),
-          stats: this.sessionState.stats
-        });
+      } catch (err) {
+        this.logger.error(`Failed to process entry for ${opp.symbol}: ${err instanceof Error ? err.message : String(err)}`);
+        // Continue to next opportunity
       }
     }
   }

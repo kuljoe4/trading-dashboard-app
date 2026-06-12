@@ -33,11 +33,11 @@ const LogEntry = React.memo(({ log }) => {
         tabIndex={0}
         onClick={() => setIsOpen(true)}
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setIsOpen(true)}
-        className="flex gap-2.5 text-[11px] font-mono border-b border-border/40 pb-1.5 min-w-0 overflow-x-auto touch-pan-x cursor-pointer hover:bg-white/[0.02] transition-colors group/entry"
+        className="flex gap-2.5 text-[11px] font-mono border-b border-border/40 pb-1.5 min-w-0 cursor-pointer hover:bg-white/[0.02] transition-colors group/entry"
       >
         <span className="text-dim/60 whitespace-nowrap shrink-0">[{log.ts}]</span>
         <span className={cn(
-          "transition-colors whitespace-nowrap",
+          "transition-colors break-all",
           log.level === 'warn' ? "text-amber font-black" :
           log.level === 'error' ? "text-red font-black" :
           "text-text/90 font-medium"

@@ -14,6 +14,7 @@ export const C = {
   redBorder: "#ff446630",
   amber: "#f5a623",
   amberDim: "#f5a62315",
+  orange: "#ff9533",
   blue: "#4a9eff",
   blueDim: "#4a9eff15",
   accent: "#5b6fff",
@@ -61,6 +62,7 @@ export const fmtUSD = (val) => {
   // BOLT: Clean up visuals - use either arrow OR sign, not both (Double Negative issue)
   // We'll keep the arrow as it's more distinct in the financial context.
   // BOLT: Use smaller direction markers for a more elegant UI.
+  // BOLT: Reduced the marker visual weight further by using smaller variants
   const prefix = n > 0 ? '▴ $' : '▾ $';
   return `${prefix}${formatted}`;
 };

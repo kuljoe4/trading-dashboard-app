@@ -37,6 +37,22 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
     ? value.replace('-', '') // Remove the minus if an arrow is already present
     : value;
 
+  const renderValue = () => {
+    if (typeof sanitizedValue !== 'string') return sanitizedValue;
+    const markers = ['▴', '▾', '▲', '▼'];
+    const marker = markers.find(m => sanitizedValue.includes(m));
+    if (marker) {
+      const parts = sanitizedValue.split(marker);
+      return (
+        <span className="flex items-center justify-end md:justify-start gap-1">
+          <span className="text-[0.7em] opacity-70 translate-y-[-0.05em]">{marker}</span>
+          <span>{parts.join('').trim()}</span>
+        </span>
+      );
+    }
+    return sanitizedValue;
+  }
+
   return (
     <div
       className="bg-surface border border-border/60 p-3 md:p-5 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col justify-center min-h-[64px] md:min-h-[100px] min-w-0"
@@ -52,7 +68,7 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
           "text-sm md:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate flex-1 md:w-full text-right md:text-left",
           color,
           syncing && "opacity-40 blur-[1px]"
-        )}>{sanitizedValue}</div>
+        )}>{renderValue()}</div>
       </div>
       {subValue && (
         <div className={cn(

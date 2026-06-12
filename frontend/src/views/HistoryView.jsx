@@ -101,8 +101,9 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
         </div>
         <div className="flex flex-col items-start min-w-[80px]">
           <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Market Context</span>
-          <span className={cn("text-[9px] font-black font-mono", pnlClass(trade.entry_daily_change_pct))}>
-            {(trade.entry_daily_change_pct || 0) > 0 ? '▴' : (trade.entry_daily_change_pct || 0) < 0 ? '▾' : ''} {Math.abs(trade.entry_daily_change_pct || 0).toFixed(2)}%
+          <span className={cn("text-[9px] font-black font-mono flex items-center gap-1", pnlClass(trade.entry_daily_change_pct))}>
+            <span className="text-[0.75em] opacity-80">{(trade.entry_daily_change_pct || 0) > 0 ? '▴' : (trade.entry_daily_change_pct || 0) < 0 ? '▾' : ''}</span>
+            {Math.abs(trade.entry_daily_change_pct || 0).toFixed(2)}%
           </span>
         </div>
         <div className="flex flex-col items-start min-w-[80px] max-w-[120px]">

@@ -63,13 +63,21 @@ export class SessionLifecycleService {
       await this.progress(`Configuring Binance ${mode.toUpperCase()} account...`);
       try {
         // Enforce One-Way Mode (Disable Hedge Mode)
-        this.monitoringService.incrementApiRequests();
         try {
-          const modeRes = await bc.restAPI.tradeApi.changePositionMode({ dualSidePosition: 'false' });
-          const modeData = typeof modeRes.data === 'function' ? await modeRes.data() : (modeRes.data || modeRes);
-          const modeMsg = `Binance position mode set to One-Way: ${JSON.stringify(modeData)}`;
-          this.logger.log(modeMsg);
-          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: modeMsg, level: 'info' });
+          this.monitoringService.incrementApiRequests();
+          const currentModeRes = await bc.restAPI.accountApi.getCurrentPositionMode();
+          const currentModeData = typeof currentModeRes.data === 'function' ? await currentModeRes.data() : (currentModeRes.data || currentModeRes);
+
+          if (currentModeData && currentModeData.dualSidePosition === false) {
+            this.logger.debug('Binance position mode is already One-Way.');
+          } else {
+            this.monitoringService.incrementApiRequests();
+            const modeRes = await bc.restAPI.tradeApi.changePositionMode({ dualSidePosition: 'false' });
+            const modeData = typeof modeRes.data === 'function' ? await modeRes.data() : (modeRes.data || modeRes);
+            const modeMsg = `Binance position mode set to One-Way: ${JSON.stringify(modeData)}`;
+            this.logger.log(modeMsg);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: modeMsg, level: 'info' });
+          }
         } catch (modeErr: any) {
           const errMsg = modeErr.message || '';
           const errCode = modeErr.data?.code || modeErr.code;

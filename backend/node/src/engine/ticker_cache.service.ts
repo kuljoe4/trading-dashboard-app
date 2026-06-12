@@ -30,7 +30,8 @@ export class TickerCacheService {
         // Handle both WS (!miniTicker) and REST (ticker/24hr) field names
         const price = t.c || t.lastPrice || t.price;
         const volume = t.q || t.quoteVolume || t.v || t.volume_24h;
-        this.updateTicker(symbol, price, volume);
+        const open = t.o || t.openPrice;
+        this.updateTicker(symbol, price, volume, open);
       }
     }
   }

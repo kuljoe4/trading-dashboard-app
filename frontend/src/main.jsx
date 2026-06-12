@@ -174,7 +174,7 @@ const App = () => {
   };
 
   return (
-    <TooltipProvider delayDuration={400}>
+    <TooltipProvider delayDuration={200} skipDelayDuration={0}>
       <AuthOverlay />
       <div className="min-h-screen bg-background text-text font-sans selection:bg-accent selection:text-white">
         <Suspense fallback={<LoadingView />}>

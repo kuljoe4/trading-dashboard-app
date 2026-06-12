@@ -150,7 +150,7 @@ export class ExecutionService {
 
       const ticker = this.tickerCache.getTicker(opp.symbol);
       const openPrice = ticker?.open_24h || price;
-      const dailyChangeAtEntry = ((price - openPrice) / openPrice) * 100;
+      const dailyChangeAtEntry = ((price - openPrice) / openPrice) * 100 * (opp.direction.toUpperCase() === 'LONG' ? 1 : -1);
 
       const result = await this.orderManager.enter(
         (this.sessionState.config as any)?.sessionId || uuid().substring(0, 8),

@@ -14,7 +14,9 @@ const Metric = memo(({ label, value, tooltip }) => (
       <span className="text-[9px] font-black text-dim uppercase tracking-[0.2em]">{label}</span>
       {tooltip && (
         <Tooltip content={tooltip}>
-          <Info size={10} className="text-dim/40 cursor-help" />
+          <div className="p-1 -m-1 cursor-help">
+            <Info size={12} className="text-dim/40 md:size-[10px]" />
+          </div>
         </Tooltip>
       )}
     </div>
@@ -144,7 +146,7 @@ const ExitMonitor = ({ status, logic, trade }) => {
                        <span className="text-[10px] md:text-xs font-black uppercase tracking-tight truncate">{s.label || key}</span>
                        {isDelayed && !isFired && (
                          <div className="flex items-center gap-1 text-amber text-[7px] font-black uppercase tracking-tighter">
-                            <Clock size={8} /> {s.remaining_delay}s
+                            <Clock size={8} /> {Math.ceil(s.remaining_delay)}s
                          </div>
                        )}
                      </div>
@@ -171,7 +173,9 @@ const ExitMonitor = ({ status, logic, trade }) => {
                     <div className="flex items-center gap-1">
                       <span className="text-[7px] font-black text-dim uppercase tracking-widest">Activation</span>
                       <Tooltip content="Proximity to technical trigger threshold. 100% means the signal is fully active.">
-                        <Info size={8} className="text-dim/40 cursor-help" />
+                        <div className="p-1 -m-1 cursor-help">
+                          <Info size={10} className="text-dim/40 md:size-[8px]" />
+                        </div>
                       </Tooltip>
                     </div>
                     <span className={cn("text-[8px] font-black font-mono", isFired ? "text-red" : "text-accent")}>
@@ -195,7 +199,9 @@ const ExitMonitor = ({ status, logic, trade }) => {
                   <div className="flex justify-between items-center px-0.5">
                     <div className="flex items-center gap-1 w-full justify-end">
                       <Tooltip content="Price Proximity: Visual indicator of how close the price is to the target RR (Take Profit).">
-                        <Info size={8} className="text-dim/40 cursor-help" />
+                        <div className="p-1 -m-1 cursor-help">
+                          <Info size={10} className="text-dim/40 md:size-[8px]" />
+                        </div>
                       </Tooltip>
                       <span className="text-[7px] font-black text-dim uppercase tracking-widest text-right">Price Prox.</span>
                     </div>
@@ -276,7 +282,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       // If value is 0 and threshold is 10, distPct should be 0.
       // If value is 10 and threshold is 10, distPct should be 100.
       const rawDistPct = threshold !== 0 ? (Math.abs(value) / Math.abs(threshold)) * 100 : 0
-      const distPct = Math.min(100, Math.max(0, rawDistPct))
+      const distPct = s.insufficientData ? 0 : Math.min(100, Math.max(0, rawDistPct))
 
       acc[key] = {
         ...s,
@@ -287,7 +293,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       return acc
     }, {})
 
-    return { isLong, pnlPct, progress, entry, mark, sl, tp, qtyFormatted, riskFormatted, slDistPct, slFromEntry, enhancedExitSignals }
+    return { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qtyFormatted, riskFormatted, slDistPct, slInitialDistPct, enhancedExitSignals }
   }, [trade])
 
   if (!trade) return null
@@ -408,15 +414,17 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                    { label: 'ROI from Entry', value: `${pnlPct.toFixed(2)}%`, color: pnlPct >= 0 ? 'text-green' : 'text-red', tooltip: 'Current price percentage change relative to entry' },
                    { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%`, tooltip: 'Current percentage distance from market price to stop loss' },
                    { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%`, tooltip: 'Percentage distance from entry price to initial stop loss' },
-                   { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0), tooltip: 'Fixed initial dollar risk calculated at time of entry' },
-                   { label: 'Daily Δ at Entry', value: `${(trade.entry_daily_change_pct || 0).toFixed(2)}%`, tooltip: '24h price change percentage at the exact moment of entry' },
+                   { label: 'Max Entry Risk', value: `${(trade.strategy_config?.risk_pct_per_trade || 0).toFixed(2)}%`, tooltip: `Initial dollar risk at entry: ${fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0)}` },
+                   { label: 'Daily Δ at Entry', value: `${(trade.entry_daily_change_pct || 0).toFixed(2)}%`, tooltip: 'Momentum percentage relative to 24h open, adjusted for trade direction, at the exact moment of entry' },
                  ].map(item => (
                    <div key={item.label} className="flex justify-between items-center py-3 border-b border-border/40 last:border-0">
                       <div className="flex items-center gap-1.5">
                         <span className="text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
                         {item.tooltip && (
                           <Tooltip content={item.tooltip}>
-                            <Info size={10} className="text-dim/40 cursor-help" />
+                            <div className="p-1 -m-1 cursor-help">
+                              <Info size={12} className="text-dim/40 md:size-[10px]" />
+                            </div>
                           </Tooltip>
                         )}
                       </div>

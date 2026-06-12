@@ -220,6 +220,9 @@ export class TradingSessionService {
          // Live balance is updated via polling/websocket, but we can apply delta as fallback
          this.sessionState.balanceLive = roundEight(this.sessionState.balanceLive + pnlDelta);
        }
+       // DATA-05: Update appliedPnL to reflect the change received via event
+       const prev = this.appliedPnL.get(trade.id) || 0;
+       this.appliedPnL.set(trade.id, roundEight(prev + pnlDelta));
     }
 
     if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
@@ -384,12 +387,13 @@ export class TradingSessionService {
   }
   private async updateBalance(t: Trade, isEntry = false, isFunding = false) {
     const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
-    if (mode === 'paper') {
-      // DATA-05: Delta-based balance updates to prevent double-counting of fees/PnL
-      const totalPnl = t.pnl || 0;
-      const previouslyApplied = this.appliedPnL.get(t.id) || 0;
-      const pnlDelta = roundEight(totalPnl - previouslyApplied);
 
+    // DATA-05: Delta-based balance updates to prevent double-counting of fees/PnL
+    const totalPnl = t.pnl || 0;
+    const previouslyApplied = this.appliedPnL.get(t.id) || 0;
+    const pnlDelta = roundEight(totalPnl - previouslyApplied);
+
+    if (mode === 'paper') {
       if (pnlDelta !== 0) {
         this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + pnlDelta);
         this.appliedPnL.set(t.id, totalPnl);
@@ -398,6 +402,7 @@ export class TradingSessionService {
       // BOLT: Prioritize User Data Stream. If UDS is connected, it will push balance updates,
       // so we can skip the manual REST poll entirely.
       if (this.sessionLifecycle.isUdsConnected) {
+         if (pnlDelta !== 0) this.appliedPnL.set(t.id, totalPnl);
          if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), t.pnl || 0);
 
          // DATA-CONSISTENCY: Safety sync. If UDS doesn't update within 10s after closure, force REST refresh.
@@ -430,10 +435,14 @@ export class TradingSessionService {
         if (b > 0) {
           this.sessionState.balanceLive = b;
           this.sessionState.balancePaper = b;
+          this.appliedPnL.set(t.id, totalPnl);
         } else {
-          // Fallback if fetch fails
-          this.sessionState.balanceLive = roundEight(this.sessionState.balanceLive + (t.pnl || 0));
-          this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + (t.pnl || 0));
+          // Fallback if fetch fails: apply only the delta to avoid double-counting
+          if (pnlDelta !== 0) {
+            this.sessionState.balanceLive = roundEight(this.sessionState.balanceLive + pnlDelta);
+            this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + pnlDelta);
+            this.appliedPnL.set(t.id, totalPnl);
+          }
         }
         if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), t.pnl || 0);
       }, 1500); // 1.5s debounce covers most batch closures
@@ -442,7 +451,16 @@ export class TradingSessionService {
     if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), t.pnl || 0);
   }
   private getBalance(): number { return this.sessionState.getBalance(this.config?.paper_mode ?? true); }
-  private async rollbackTradeClosure(t: Trade, pp: number, pl: number) { this.logger.warn(`Rolling back trade closure for ${t.symbol}.`); this.sessionState.balancePaper = pp; this.sessionState.balanceLive = pl; this.sessionState.rollbackClosedTrade(t); t.status = 'OPEN'; this.positionTracker.addTrade(t); if (this.onBalanceUpdate) await this.onBalanceUpdate(this.getBalance(), 0); }
+  private async rollbackTradeClosure(t: Trade, pp: number, pl: number, pa: number) {
+    this.logger.warn(`Rolling back trade closure for ${t.symbol}.`);
+    this.sessionState.balancePaper = pp;
+    this.sessionState.balanceLive = pl;
+    this.appliedPnL.set(t.id, pa);
+    this.sessionState.rollbackClosedTrade(t);
+    t.status = 'OPEN';
+    this.positionTracker.addTrade(t);
+    if (this.onBalanceUpdate) await this.onBalanceUpdate(this.getBalance(), 0);
+  }
 
 
   getActiveTradeCount(): number { return this.positionTracker.activeCount(); }
@@ -455,6 +473,7 @@ export class TradingSessionService {
    */
   minimizeMemoryUsage() {
     this.activeWindows.clear();
+    this.appliedPnL.clear();
     this.lastScannerResults = [];
     this.lastVariantScannerResults = [];
     this.lastScannerResultsJson = '';
@@ -550,6 +569,7 @@ export class TradingSessionService {
     const res = await this.positionTracker.closeTrade(symbol, cp, 'MANUAL_CLOSE', this.config!, this.config?.paper_mode ?? true);
     if (res.exitOccurred && res.trade) {
       const pp = this.sessionState.balancePaper; const pl = this.sessionState.balanceLive;
+      const pa = this.appliedPnL.get(res.trade.id) || 0;
       try {
         await this.finalizeTradeClosure(res.trade, cp, 'MANUAL_CLOSE');
         await this.auditLog.log({
@@ -558,7 +578,7 @@ export class TradingSessionService {
           details: { symbol, pnl: res.trade.pnl }
         });
         return { success: true, trade: res.trade };
-      } catch (err: any) { await this.rollbackTradeClosure(res.trade, pp, pl); return { success: false, error: err.message }; }
+      } catch (err: any) { await this.rollbackTradeClosure(res.trade, pp, pl, pa); return { success: false, error: err.message }; }
     }
     return { success: false, error: 'Failed to close trade' };
   }

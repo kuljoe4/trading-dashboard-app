@@ -264,10 +264,29 @@ export const PnLBars = React.memo(({ trades }) => {
 // --- Tooltip ---
 export const Tooltip = ({ children, content, side = "top", align = "center", className }) => {
   if (!content) return children;
+  const [open, setOpen] = React.useState(false);
 
   return (
-    <TooltipPrimitive.Root>
-      <TooltipPrimitive.Trigger asChild>
+    <TooltipPrimitive.Root
+      open={open}
+      onOpenChange={setOpen}
+    >
+      <TooltipPrimitive.Trigger
+        asChild
+        onClick={(e) => {
+          // On mobile, toggle on click
+          if (window.matchMedia('(max-width: 768px)').matches) {
+            e.preventDefault();
+            setOpen(!open);
+          }
+        }}
+        onPointerDown={(e) => {
+          // Improve touch responsiveness
+          if (e.pointerType === 'touch') {
+            setOpen(true);
+          }
+        }}
+      >
         {children}
       </TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>

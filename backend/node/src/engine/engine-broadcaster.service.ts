@@ -58,6 +58,7 @@ export class EngineBroadcasterService {
 
     let pnl = 0;
     let rrValue = 0;
+    let pnlPct = 0;
     if (current !== undefined && Number.isFinite(current) && Number.isFinite(entry)) {
       const grossPnl = direction === 'LONG' ? (current - entry) * (trade.qty ?? 0) : (entry - current) * (trade.qty ?? 0);
 
@@ -68,6 +69,7 @@ export class EngineBroadcasterService {
       (trade as any).pnl = pnl;
       const risk = Math.abs(entry - (trade.initial_sl ?? trade.current_sl ?? entry)) || 1;
       rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / risk;
+      pnlPct = entry ? ((current - entry) / entry) * 100 * (direction === 'LONG' ? 1 : -1) : 0;
     }
 
     if (minimal) {
@@ -79,6 +81,7 @@ export class EngineBroadcasterService {
         sl_price: roundTo(trade.current_sl, 8),
         tp_price: roundTo(trade.tp, 8),
         pnl: roundTo(pnl, 2),
+        pnl_pct: roundTo(pnlPct, 4),
         realized_fee: roundTo(trade.realized_fee, 2),
         funding_fee: roundTo(trade.funding_fee || 0, 2),
         rr: roundTo(rrValue, 4),
@@ -103,6 +106,7 @@ export class EngineBroadcasterService {
       sl_price: roundTo(trade.current_sl, 8),
       tp_price: roundTo(trade.tp, 8),
       pnl: roundTo(pnl, 2),
+      pnl_pct: roundTo(pnlPct, 4),
       realized_fee: roundTo(trade.realized_fee, 2),
       funding_fee: roundTo(trade.funding_fee || 0, 2),
       rr: roundTo(rrValue, 4),

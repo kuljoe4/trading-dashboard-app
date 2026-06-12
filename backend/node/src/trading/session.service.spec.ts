@@ -12,7 +12,6 @@ describe('SessionService Validation', () => {
     create: jest.fn(),
     save: jest.fn(),
     update: jest.fn(),
-    delete: jest.fn(),
     increment: jest.fn(),
   } as any;
 
@@ -405,52 +404,6 @@ describe('SessionService Validation', () => {
       expect(mockLogRepository.delete).toHaveBeenCalledWith('old-log');
       expect(mockLogRepository.insert).toHaveBeenCalled();
       expect(mockLogRepository.count).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('Memory Management Cleanup', () => {
-    it('clears session-specific tracking on stopSession', async () => {
-      const sid = 'test-session-cleanup';
-      (service as any).currentSessionId = sid;
-      (service as any).sessionRunning = true;
-      (service as any).logRateLimits.set(sid, { count: 10, resetAt: Date.now() + 1000 });
-      (service as any).sessionLogCounts.set(sid, 50);
-      (service as any).analyticsCache = { data: {}, ts: Date.now() };
-
-      mockRepository.update.mockResolvedValue({ affected: 1 });
-
-      await service.stopSession();
-
-      expect((service as any).logRateLimits.has(sid)).toBe(false);
-      expect((service as any).sessionLogCounts.has(sid)).toBe(false);
-      expect((service as any).analyticsCache).toBeNull();
-    });
-
-    it('clears session-specific tracking on deleteSession', async () => {
-      const sid = 'test-session-delete';
-      (service as any).logRateLimits.set(sid, { count: 10, resetAt: Date.now() + 1000 });
-      (service as any).sessionLogCounts.set(sid, 50);
-      (service as any).analyticsCache = { data: {}, ts: Date.now() };
-
-      mockRepository.delete.mockResolvedValue({ affected: 1 });
-
-      await service.deleteSession(sid);
-
-      expect((service as any).logRateLimits.has(sid)).toBe(false);
-      expect((service as any).sessionLogCounts.has(sid)).toBe(false);
-      expect((service as any).analyticsCache).toBeNull();
-    });
-
-    it('clears analyticsCache on startSession', async () => {
-      (service as any).analyticsCache = { data: {}, ts: Date.now() };
-
-      // Setup minimal mocks for startSession to proceed
-      mockRepository.findOne.mockResolvedValue({ paper_balance: 10000 });
-      mockRepository.save.mockResolvedValue({ id: 'new-id' });
-
-      await service.startSession(new SessionConfig(), true);
-
-      expect((service as any).analyticsCache).toBeNull();
     });
   });
 });

@@ -1,9 +1,0 @@
-
-> momentum-engine-frontend@0.0.0 dev /app/frontend
-> vite
-
-
-  VITE v4.5.14  ready in 298 ms
-
-  ➜  Local:   http://localhost:5173/
-  ➜  Network: use --host to expose

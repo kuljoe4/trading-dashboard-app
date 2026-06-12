@@ -15,6 +15,7 @@ export interface AnalyticsResult {
   }[];
   totalTrades: number;
   overallWinRate: number;
+  overallPnlPct: number;
   avgWin: number;
   avgLoss: number;
   avgWinLossRatio: number;
@@ -110,6 +111,7 @@ export class AnalyticsService {
     const avgLoss = totalLosses > 0 ? grossLoss / totalLosses : 0;
     const avgWinLossRatio = avgLoss > 0 ? avgWin / avgLoss : 0;
     const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 100 : 0);
+    const overallPnlPct = startingBalance > 0 ? (sumPnL / startingBalance) * 100 : 0;
 
     // Sharpe and Sortino Ratios (Trade-based)
     // BOLT: Using Welford-inspired Sum of Squares for single-pass variance
@@ -137,6 +139,7 @@ export class AnalyticsService {
       timeOfDay,
       totalTrades,
       overallWinRate: totalTrades > 0 ? (totalWins / totalTrades) * 100 : 0,
+      overallPnlPct: roundTo(overallPnlPct, 2),
       avgWin: roundTo(avgWin, 2),
       avgLoss: roundTo(avgLoss, 2),
       avgWinLossRatio: roundTo(avgWinLossRatio, 2),

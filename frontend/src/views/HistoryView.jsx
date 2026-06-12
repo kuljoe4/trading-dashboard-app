@@ -134,11 +134,14 @@ const SessionGroup = React.memo(({ session, trades }) => {
     const avgLoss = losses > 0 ? m.grossLoss / losses : 0;
     const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss) : 0;
     const winLossRatioStr = avgLoss > 0 ? winLossRatio.toFixed(2) : '∞';
+    const startingBalance = Number(session.balance) - Number(session.totalPnl);
+    const pnlPct = startingBalance > 0 ? (m.totalPnl / startingBalance) * 100 : 0;
 
     return {
       ...m,
       winLossRatio,
       winLossRatioStr,
+      pnlPct,
       expectancyStatus: getExpectancyStatus(m.winRate / 100, winLossRatio),
       sharpeStatus: getSharpeStatus(m.sharpe),
       sortinoStatus: getSortinoStatus(m.sortino),
@@ -240,9 +243,15 @@ const SessionGroup = React.memo(({ session, trades }) => {
             </div>
             <div className="flex flex-col items-end">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Net P&L</span>
-              <span className={cn("text-lg font-bold font-mono tracking-tighter leading-none", pnlClass(metrics.totalPnl))}>
-                {fmtUSD(metrics.totalPnl)}
-              </span>
+              <div className="flex flex-col items-end">
+                <span className={cn("text-lg font-bold font-mono tracking-tighter leading-none", pnlClass(metrics.totalPnl))}>
+                  {fmtUSD(metrics.totalPnl)}
+                </span>
+                <span className={cn("text-[9px] font-black font-mono flex items-center gap-1", pnlClass(metrics.pnlPct))}>
+                  <span className="text-[0.8em] opacity-80">{metrics.pnlPct > 0 ? '▴' : metrics.pnlPct < 0 ? '▾' : ''}</span>
+                  {Math.abs(metrics.pnlPct).toFixed(2)}%
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -428,7 +437,17 @@ export const HistoryView = () => {
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 md:gap-4 mb-8 lg:mb-12">
-          <StatCard label="Total Performance" value={fmtUSD(totalPnl)} color={pnlClass(totalPnl)} />
+          <StatCard
+            label="Total Performance"
+            value={fmtUSD(totalPnl)}
+            color={pnlClass(totalPnl)}
+            subValue={
+              <span className={cn("flex items-center gap-1", pnlClass(currentAnalytics?.overallPnlPct))}>
+                <span className="text-[0.8em] opacity-80">{(currentAnalytics?.overallPnlPct || 0) > 0 ? '▴' : (currentAnalytics?.overallPnlPct || 0) < 0 ? '▾' : ''}</span>
+                {Math.abs(currentAnalytics?.overallPnlPct || 0).toFixed(2)}% Performance
+              </span>
+            }
+          />
           <StatCard label="Win Rate" value={`${winRate}%`} color="text-accent" subValue={`${wins}W / ${totalTrades - wins}L`} />
           <StatCard
             label="Max Drawdown"

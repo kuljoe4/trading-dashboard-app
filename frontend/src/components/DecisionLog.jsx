@@ -37,7 +37,7 @@ const LogEntry = React.memo(({ log }) => {
       >
         <span className="text-dim/60 whitespace-nowrap shrink-0">[{log.ts}]</span>
         <span className={cn(
-          "transition-colors truncate",
+          "transition-colors whitespace-nowrap",
           log.level === 'warn' ? "text-amber font-black" :
           log.level === 'error' ? "text-red font-black" :
           "text-text/90 font-medium"
@@ -189,7 +189,7 @@ export const DecisionLog = React.memo(() => {
         ref={scrollRef}
         onScroll={handleScroll}
         aria-live="polite"
-        className="flex flex-col gap-1.5 max-h-[340px] overflow-y-auto relative"
+        className="flex flex-col gap-1.5 max-h-[340px] overflow-auto relative"
       >
         {!isAtTop && (
           <div className="sticky top-2 inset-x-0 z-10 flex justify-center pointer-events-none">

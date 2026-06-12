@@ -414,8 +414,13 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                    { label: 'ROI from Entry', value: `${pnlPct.toFixed(2)}%`, color: pnlPct >= 0 ? 'text-green' : 'text-red', tooltip: 'Current price percentage change relative to entry' },
                    { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%`, tooltip: 'Current percentage distance from market price to stop loss' },
                    { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%`, tooltip: 'Percentage distance from entry price to initial stop loss' },
-                   { label: 'Max Entry Risk', value: `${(trade.strategy_config?.risk_pct_per_trade || 0).toFixed(2)}%`, tooltip: `Initial dollar risk at entry: ${fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0)}` },
-                   { label: 'Daily Δ at Entry', value: `${(trade.entry_daily_change_pct || 0).toFixed(2)}%`, tooltip: 'Momentum percentage relative to 24h open, adjusted for trade direction, at the exact moment of entry' },
+                   { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0), tooltip: 'Fixed initial dollar risk calculated at time of entry' },
+                   {
+                     label: 'Daily Δ at Entry',
+                     value: `${(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} ${Math.abs(trade.entry_daily_change_pct || 0).toFixed(2)}%`,
+                     color: pnlClass(trade.entry_daily_change_pct),
+                     tooltip: '24h price change percentage at the exact moment of entry'
+                   },
                  ].map(item => (
                    <div key={item.label} className="flex justify-between items-center py-3 border-b border-border/40 last:border-0">
                       <div className="flex items-center gap-1.5">

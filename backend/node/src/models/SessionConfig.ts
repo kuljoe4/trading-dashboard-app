@@ -90,6 +90,12 @@ export class SessionConfig {
   @IsOptional()
   watchlist_size: number = CONFIG_LIMITS.WATCHLIST_DEFAULT;
 
+  @IsNumber()
+  @Min(CONFIG_LIMITS.WATCHLIST_OFFSET_MIN)
+  @Max(CONFIG_LIMITS.WATCHLIST_OFFSET_MAX)
+  @IsOptional()
+  watchlist_offset: number = CONFIG_LIMITS.WATCHLIST_OFFSET_DEFAULT;
+
   @IsEnum(['both', 'long', 'short'])
   @IsOptional()
   entry_side?: 'both' | 'long' | 'short' = 'both';

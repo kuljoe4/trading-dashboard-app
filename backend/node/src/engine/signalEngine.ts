@@ -17,6 +17,7 @@ interface SignalDetail {
 export class SignalEngineService {
   private readonly logger = new Logger(SignalEngineService.name);
   private readonly warningCache: Set<string> = new Set();
+  private readonly warmupCache: WeakMap<SessionConfig, number> = new WeakMap();
 
   private readonly signalHandlers: Record<
     string,
@@ -36,8 +37,18 @@ export class SignalEngineService {
 
   constructor(private readonly klineStore: KlineStoreService) {}
 
+  /**
+   * BOLT OPTIMIZATION: Cache warmup requirements to avoid redundant parsing in the hot scanner path.
+   * Uses WeakMap to prevent memory leaks as configurations are updated.
+   */
   getRequiredWarmup(config: SessionConfig): number {
-    if (!config.enabled_signals || config.enabled_signals.length === 0) return 0;
+    const cached = this.warmupCache.get(config);
+    if (cached !== undefined) return cached;
+
+    if (!config.enabled_signals || config.enabled_signals.length === 0) {
+      this.warmupCache.set(config, 0);
+      return 0;
+    }
 
     const requirements: number[] = [0];
     const params: any = config.signal_params || {};
@@ -76,7 +87,9 @@ export class SignalEngineService {
       }
     }
 
-    return Math.max(...requirements);
+    const max = Math.max(...requirements);
+    this.warmupCache.set(config, max);
+    return max;
   }
 
   checkEntry(

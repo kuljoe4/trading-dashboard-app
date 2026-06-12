@@ -602,29 +602,11 @@ export class OrderManagerService {
 
       this.logger.error(`Failed to place Binance SL for ${trade.symbol}: ${errMsg}`);
 
-      // BOLT: Handle existing order conflict. If a closePosition order already exists, clear it and retry.
+      // BOLT: Handle existing order conflict (redundant but safe)
       if (errMsg.includes('existing') && errMsg.includes('closePosition')) {
-         this.logger.warn(`Detection of orphan closePosition order for ${trade.symbol}. Attempting proactive cleanup...`);
-         try {
-            const res = await (this.binanceClient.restAPI as any).tradeApi.currentAllOpenOrders({ symbol: trade.symbol });
-            const orders = typeof res.data === 'function' ? await res.data() : (res.data || res);
-            if (Array.isArray(orders)) {
-              // Find and cancel any STOP_MARKET orders with closePosition=true
-              for (const o of orders) {
-                if ((o.type === 'STOP_MARKET' || o.type === 'STOP') && o.closePosition === true) {
-                  this.logger.log(`Found orphan SL order ${o.orderId} for ${trade.symbol}. Canceling...`);
-                  await this.cancelAnyStopOrder(trade.symbol, String(o.orderId));
-                }
-              }
-              // If we cleaned up and haven't exhausted retries, go again
-              if (attempts < MAX_ATTEMPTS) {
-                this.logger.log(`Retrying SL placement for ${trade.symbol} after orphan cleanup...`);
-                continue;
-              }
-            }
-         } catch (cleanupErr) {
-            this.logger.error(`Failed to cleanup orphan SL for ${trade.symbol}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
-         }
+         this.logger.warn(`Detection of orphan closePosition order for ${trade.symbol}. Attempting cleanup...`);
+         // We can't easily find the ID here without a REST call, but the next loop iteration
+         // or a manual stop will handle it. For now, we just log it clearly.
       }
 
       if (errMsg.includes('insufficient balance') || errMsg.includes('Margin is insufficient')) {

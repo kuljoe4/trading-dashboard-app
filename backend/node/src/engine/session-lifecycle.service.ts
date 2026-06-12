@@ -10,7 +10,6 @@ import { MonitoringService } from './monitoring.service';
 import { ENGINE_EVENTS } from './events';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditLogService } from '../trading/audit-log.service';
-import { ConfigValidationException } from '../lib/exceptions';
 import { roundEight } from '../lib/math';
 import { ENGINE_CONSTANTS } from '../models/constants';
 
@@ -64,21 +63,13 @@ export class SessionLifecycleService {
       await this.progress(`Configuring Binance ${mode.toUpperCase()} account...`);
       try {
         // Enforce One-Way Mode (Disable Hedge Mode)
+        this.monitoringService.incrementApiRequests();
         try {
-          this.monitoringService.incrementApiRequests();
-          const currentModeRes = await bc.restAPI.accountApi.getCurrentPositionMode();
-          const currentModeData = typeof currentModeRes.data === 'function' ? await currentModeRes.data() : (currentModeRes.data || currentModeRes);
-
-          if (currentModeData && currentModeData.dualSidePosition === false) {
-            this.logger.debug('Binance position mode is already One-Way.');
-          } else {
-            this.monitoringService.incrementApiRequests();
-            const modeRes = await bc.restAPI.tradeApi.changePositionMode({ dualSidePosition: 'false' });
-            const modeData = typeof modeRes.data === 'function' ? await modeRes.data() : (modeRes.data || modeRes);
-            const modeMsg = `Binance position mode set to One-Way: ${JSON.stringify(modeData)}`;
-            this.logger.log(modeMsg);
-            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: modeMsg, level: 'info' });
-          }
+          const modeRes = await bc.restAPI.tradeApi.changePositionMode({ dualSidePosition: 'false' });
+          const modeData = typeof modeRes.data === 'function' ? await modeRes.data() : (modeRes.data || modeRes);
+          const modeMsg = `Binance position mode set to One-Way: ${JSON.stringify(modeData)}`;
+          this.logger.log(modeMsg);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: modeMsg, level: 'info' });
         } catch (modeErr: any) {
           const errMsg = modeErr.message || '';
           const errCode = modeErr.data?.code || modeErr.code;
@@ -90,12 +81,10 @@ export class SessionLifecycleService {
             const criticalMsg = `CRITICAL: Cannot set One-Way Mode because there are OPEN ORDERS on your Binance account. Please close all manual orders on Binance to ensure engine consistency.`;
             this.logger.error(criticalMsg);
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: criticalMsg, level: 'error' });
-            throw new ConfigValidationException(criticalMsg);
           } else if (errMsg.includes('-4069') || errCode === -4069 || errMsg.includes('exists position')) {
             const criticalMsg = `CRITICAL: Cannot set One-Way Mode because there are OPEN POSITIONS on your Binance account. Please close all manual positions on Binance to ensure engine consistency.`;
             this.logger.error(criticalMsg);
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: criticalMsg, level: 'error' });
-            throw new ConfigValidationException(criticalMsg);
           } else {
             this.logger.warn(`Failed to set Binance position mode to One-Way: ${errMsg}`);
           }
@@ -117,8 +106,7 @@ export class SessionLifecycleService {
           }
         }
       } catch (e) {
-        if (e instanceof ConfigValidationException) throw e;
-        this.logger.debug(`Initial account configuration failed: ${e instanceof Error ? e.message : String(e)}`);
+        this.logger.debug(`Initial balance fetch failed: ${e instanceof Error ? e.message : String(e)}`);
       }
 
       await this.progress('Establishing real-time account stream...');

@@ -104,7 +104,7 @@ export const Sidebar = ({ selected }) => {
 }
 
 export const MobileHealthBar = () => {
-  const { healthEnabled, monitoring, rateLimit, wsStatus, gateState, isEcoMode } = useTradingStore()
+  const { healthEnabled, monitoring, rateLimit, rateLimitLastSync, wsStatus, gateState, isEcoMode } = useTradingStore()
   if (!healthEnabled) return null
 
   return (

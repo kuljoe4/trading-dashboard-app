@@ -33,11 +33,11 @@ const LogEntry = React.memo(({ log }) => {
         tabIndex={0}
         onClick={() => setIsOpen(true)}
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setIsOpen(true)}
-        className="flex gap-2.5 text-[11px] font-mono border-b border-border/40 pb-1.5 min-w-0 overflow-hidden cursor-pointer hover:bg-white/[0.02] transition-colors group/entry"
+        className="flex gap-2.5 text-[11px] font-mono border-b border-border/40 pb-1.5 min-w-fit cursor-pointer hover:bg-white/[0.02] transition-colors group/entry pr-4"
       >
         <span className="text-dim/60 whitespace-nowrap shrink-0">[{log.ts}]</span>
         <span className={cn(
-          "transition-colors whitespace-nowrap",
+          "transition-colors whitespace-nowrap min-w-fit",
           log.level === 'warn' ? "text-amber font-black" :
           log.level === 'error' ? "text-red font-black" :
           "text-text/90 font-medium"
@@ -189,7 +189,7 @@ export const DecisionLog = React.memo(() => {
         ref={scrollRef}
         onScroll={handleScroll}
         aria-live="polite"
-        className="flex flex-col gap-1.5 max-h-[340px] overflow-auto relative"
+        className="flex-1 flex flex-col gap-1.5 max-h-[340px] overflow-auto relative scrollbar-thin scrollbar-thumb-border hover:scrollbar-thumb-accent/50"
       >
         {!isAtTop && (
           <div className="sticky top-2 inset-x-0 z-10 flex justify-center pointer-events-none">
@@ -232,6 +232,7 @@ export const DecisionLog = React.memo(() => {
                 layout
                 initial={{ opacity: 0, x: -5 }}
                 animate={{ opacity: 1, x: 0 }}
+                className="min-w-fit"
               >
                 <LogEntry log={log} />
               </motion.div>

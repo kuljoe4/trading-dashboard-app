@@ -14,7 +14,9 @@ const Metric = memo(({ label, value, tooltip }) => (
       <span className="text-[9px] font-black text-dim uppercase tracking-[0.2em]">{label}</span>
       {tooltip && (
         <Tooltip content={tooltip}>
-          <Info size={10} className="text-dim/40 cursor-help" />
+          <div className="p-1 -m-1 cursor-help">
+            <Info size={12} className="text-dim/40 md:size-[10px]" />
+          </div>
         </Tooltip>
       )}
     </div>
@@ -36,7 +38,12 @@ const RRLadder = ({ trade }) => {
     : trade.direction === 'LONG'
       ? trade.entry_price + risk * currentExitRR
       : trade.entry_price - risk * currentExitRR
-  
+
+  const getEstPnl = (price) => {
+    if (!price || !trade.entry_price || !trade.qty) return 0
+    return (price - trade.entry_price) * trade.qty * (trade.direction === 'LONG' ? 1 : -1)
+  }
+
   return (
     <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
       <div className="flex justify-between items-center mb-6">
@@ -68,10 +75,13 @@ const RRLadder = ({ trade }) => {
                 done ? (current ? "bg-accent shadow-[0_0_10px_rgba(91,111,255,0.4)]" : "bg-green") : "bg-border"
               )} />
               <div className={cn(
-                "text-[10px] font-bold mt-3 uppercase tracking-widest text-center",
+                "text-[10px] font-bold mt-3 uppercase tracking-widest text-center flex flex-col",
                 done ? "text-text" : "text-dim"
               )}>
-                SL {exits[i] === 0 ? 'BE' : `${exits[i]}R`}
+                <span>SL {exits[i] === 0 ? 'BE' : `${exits[i]}R`}</span>
+                <span className={cn("text-[8px] font-mono", done ? pnlClass(getEstPnl(trade.direction === 'LONG' ? trade.entry_price + risk * exits[i] : trade.entry_price - risk * exits[i])) : "opacity-40")}>
+                  {fmtUSD(getEstPnl(trade.direction === 'LONG' ? trade.entry_price + risk * exits[i] : trade.entry_price - risk * exits[i]))}
+                </span>
               </div>
             </div>
           )
@@ -89,7 +99,12 @@ const RRLadder = ({ trade }) => {
         </div>
         <div className="p-4 bg-background/40 rounded-xl border border-border">
           <div className="text-[10px] text-dim font-bold uppercase tracking-widest mb-1">Secured SL</div>
-          <div className="text-xl font-mono font-bold text-text">{price(currentSl)}</div>
+          <div className="text-xl font-mono font-bold text-text flex flex-col">
+            <span>{price(currentSl)}</span>
+            <span className={cn("text-[10px]", pnlClass(getEstPnl(currentSl)))}>
+              Est. {fmtUSD(getEstPnl(currentSl))}
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -119,6 +134,11 @@ const ExitMonitor = ({ status, logic, trade }) => {
           const isDelayed = s.remaining_delay > 0
           const progress = s.insufficientData ? 0 : Math.min((Math.abs(value) / threshold) * 100, 100)
 
+          const estExitPrice = s.threshold_is_price ? threshold : null
+          const estPnl = (estExitPrice && trade.entry_price && trade.qty)
+            ? (estExitPrice - trade.entry_price) * trade.qty * (trade.direction === 'LONG' ? 1 : -1)
+            : null
+
           return (
             <div key={key} className={cn(
               "group relative overflow-hidden p-3 md:p-4 rounded-xl border transition-all duration-300",
@@ -144,7 +164,7 @@ const ExitMonitor = ({ status, logic, trade }) => {
                        <span className="text-[10px] md:text-xs font-black uppercase tracking-tight truncate">{s.label || key}</span>
                        {isDelayed && !isFired && (
                          <div className="flex items-center gap-1 text-amber text-[7px] font-black uppercase tracking-tighter">
-                            <Clock size={8} /> {s.remaining_delay}s
+                            <Clock size={8} /> {Math.ceil(s.remaining_delay)}s
                          </div>
                        )}
                      </div>
@@ -159,8 +179,13 @@ const ExitMonitor = ({ status, logic, trade }) => {
                      {s.insufficientData ? 'N/A' : Number(value).toFixed(value >= 100 ? 2 : 4)}
                      <span className="text-[9px] md:text-[10px] ml-0.5 opacity-40 font-bold">{s.unit}</span>
                    </div>
-                   <div className="text-[7px] md:text-[8px] text-dim font-black uppercase tracking-widest opacity-40">
-                     Target: {s.threshold}
+                   <div className="text-[7px] md:text-[8px] text-dim font-black uppercase tracking-widest opacity-40 flex flex-col items-end">
+                     <span>Target: {s.threshold}</span>
+                     {estPnl !== null && (
+                       <span className={cn("mt-0.5", pnlClass(estPnl))}>
+                         Est. {fmtUSD(estPnl)}
+                       </span>
+                     )}
                    </div>
                 </div>
               </div>
@@ -171,7 +196,9 @@ const ExitMonitor = ({ status, logic, trade }) => {
                     <div className="flex items-center gap-1">
                       <span className="text-[7px] font-black text-dim uppercase tracking-widest">Activation</span>
                       <Tooltip content="Proximity to technical trigger threshold. 100% means the signal is fully active.">
-                        <Info size={8} className="text-dim/40 cursor-help" />
+                        <div className="p-1 -m-1 cursor-help">
+                          <Info size={10} className="text-dim/40 md:size-[8px]" />
+                        </div>
                       </Tooltip>
                     </div>
                     <span className={cn("text-[8px] font-black font-mono", isFired ? "text-red" : "text-accent")}>
@@ -195,7 +222,9 @@ const ExitMonitor = ({ status, logic, trade }) => {
                   <div className="flex justify-between items-center px-0.5">
                     <div className="flex items-center gap-1 w-full justify-end">
                       <Tooltip content="Price Proximity: Visual indicator of how close the price is to the target RR (Take Profit).">
-                        <Info size={8} className="text-dim/40 cursor-help" />
+                        <div className="p-1 -m-1 cursor-help">
+                          <Info size={10} className="text-dim/40 md:size-[8px]" />
+                        </div>
                       </Tooltip>
                       <span className="text-[7px] font-black text-dim uppercase tracking-widest text-right">Price Prox.</span>
                     </div>
@@ -276,7 +305,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       // If value is 0 and threshold is 10, distPct should be 0.
       // If value is 10 and threshold is 10, distPct should be 100.
       const rawDistPct = threshold !== 0 ? (Math.abs(value) / Math.abs(threshold)) * 100 : 0
-      const distPct = Math.min(100, Math.max(0, rawDistPct))
+      const distPct = s.insufficientData ? 0 : Math.min(100, Math.max(0, rawDistPct))
 
       acc[key] = {
         ...s,
@@ -421,7 +450,9 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                         <span className="text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
                         {item.tooltip && (
                           <Tooltip content={item.tooltip}>
-                            <Info size={10} className="text-dim/40 cursor-help" />
+                            <div className="p-1 -m-1 cursor-help">
+                              <Info size={12} className="text-dim/40 md:size-[10px]" />
+                            </div>
                           </Tooltip>
                         )}
                       </div>

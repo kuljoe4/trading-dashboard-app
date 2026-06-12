@@ -13,7 +13,7 @@ export const SystemMetric = ({ icon: Icon, label, value, colorClass, compact = f
   </div>
 );
 
-export const SystemMetrics = ({ monitoring, rateLimit, wsStatus, gateState, isEcoMode, compact = false }) => (
+export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStatus, gateState, isEcoMode, compact = false }) => (
   <div className={cn("flex items-center gap-4 overflow-hidden", compact ? "justify-center" : "flex-col")}>
     <div className="flex items-center gap-2">
       <div className={cn("flex items-center gap-2 overflow-hidden", compact ? "" : "p-3 bg-background/40 rounded-xl border border-border/50")}>
@@ -47,13 +47,38 @@ export const SystemMetrics = ({ monitoring, rateLimit, wsStatus, gateState, isEc
       )}
     </div>
     
-    <SystemMetric
-      icon={Activity}
-      label="Rate"
-      value={rateLimit ? `${rateLimit.used_weight_1m}/${rateLimit.limit}` : '---/---'}
-      colorClass={rateLimit ? (rateLimit.used_weight_1m > rateLimit.limit * 0.8 ? "text-red" : rateLimit.used_weight_1m > rateLimit.limit * 0.5 ? "text-amber" : "text-green") : "text-dim"}
-      compact={compact}
-    />
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="w-full cursor-help">
+          <SystemMetric
+            icon={Activity}
+            label="Rate"
+            value={rateLimit ? `${rateLimit.used_weight_1m}/${rateLimit.limit}` : '---/---'}
+            colorClass={rateLimit ? (rateLimit.used_weight_1m > rateLimit.limit * 0.8 ? "text-red" : rateLimit.used_weight_1m > rateLimit.limit * 0.5 ? "text-amber" : "text-green") : "text-dim"}
+            compact={compact}
+          />
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side={compact ? "right" : "top"} className="text-[10px] font-mono">
+        <div className="flex flex-col gap-1">
+          <div className="font-bold border-b border-border/50 pb-1 mb-1 uppercase tracking-widest text-[9px]">Binance API Weight</div>
+          <div className="flex justify-between gap-4">
+            <span className="text-dim">Used (1m):</span>
+            <span>{rateLimit?.used_weight_1m ?? 0}</span>
+          </div>
+          <div className="flex justify-between gap-4">
+            <span className="text-dim">Limit:</span>
+            <span>{rateLimit?.limit ?? 1200}</span>
+          </div>
+          {rateLimitLastSync && (
+            <div className="flex justify-between gap-4 mt-1 pt-1 border-t border-border/30">
+              <span className="text-dim">Last Sync:</span>
+              <span className="text-accent">{new Date(rateLimitLastSync).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+            </div>
+          )}
+        </div>
+      </TooltipContent>
+    </Tooltip>
 
     <>
       <SystemMetric

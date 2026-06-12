@@ -18,6 +18,15 @@ const price = (value) => {
 
 const strategyLabel = (item = {}) => item.strategy_label || item.strategyLabel || item.config?.strategy_label || item.strategy_config?.strategy_label || 'Momentum Strategy'
 
+const getExpectancyStatus = (wr, wl) => {
+  const expectancy = (wr * wl) - (1 - wr);
+  if (expectancy > 0.50) return { label: 'Excellent', color: 'text-green', icon: Zap };
+  if (expectancy >= 0.25) return { label: 'Good', color: 'text-green', icon: TrendingUp };
+  if (expectancy >= 0.05) return { label: 'Acceptable', color: 'text-accent', icon: BarChart3 };
+  if (expectancy >= 0) return { label: 'Weak', color: 'text-amber', icon: TrendingDown };
+  return { label: 'Poor', color: 'text-red', icon: ShieldCheck };
+};
+
 const buildCurve = (trades = []) => {
   let pnl = 0
   return [...trades].reverse().map((trade) => {
@@ -66,6 +75,9 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
 
         <div className="flex flex-col items-end shrink-0">
           <div className="flex items-center gap-1.5 whitespace-nowrap">
+            <span className={cn("text-xs font-black", pnlClass(pnl))}>
+              {pnl > 0 ? '▲' : pnl < 0 ? '▼' : ''}
+            </span>
             <span className={cn("text-base font-black font-mono tracking-tighter", pnlClass(pnl))}>
               {fmtUSD(pnl)}
             </span>
@@ -134,7 +146,14 @@ const SessionGroup = React.memo(({ session, trades }) => {
   const avgWin = useMemo(() => wins > 0 ? trades.filter(t => safeNum(t.pnl) > 0).reduce((sum, t) => sum + safeNum(t.pnl), 0) / wins : 0, [trades, wins])
   const losses = trades.length - wins
   const avgLoss = useMemo(() => losses > 0 ? Math.abs(trades.filter(t => safeNum(t.pnl) < 0).reduce((sum, t) => sum + safeNum(t.pnl), 0)) / losses : 0, [trades, losses])
-  const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) : '∞'
+  const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss) : 0
+  const winLossRatioStr = avgLoss > 0 ? winLossRatio.toFixed(2) : '∞'
+
+  const expectancyStatus = useMemo(() => {
+    const wr = (winRate / 100);
+    const wl = winLossRatio;
+    return getExpectancyStatus(wr, wl);
+  }, [winRate, winLossRatio]);
 
   return (
     <div id={`session-${session.id}`} className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 lg:mb-12 shadow-sm transition-all hover:border-border-hover scroll-mt-8">
@@ -189,7 +208,16 @@ const SessionGroup = React.memo(({ session, trades }) => {
             </div>
             <div className="flex flex-col">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Ratio</span>
-              <span className="text-xs font-bold font-mono text-accent">{winLossRatio}</span>
+              <span className="text-xs font-bold font-mono text-accent">{winLossRatioStr}</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Expectancy</span>
+              <Tooltip content="Expected value per trade based on historical performance">
+                <span className={cn("text-xs font-bold flex items-center gap-1.5", expectancyStatus.color)}>
+                  <expectancyStatus.icon size={10} aria-hidden="true" />
+                  {expectancyStatus.label}
+                </span>
+              </Tooltip>
             </div>
             <div className="flex flex-col items-end">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Net P&L</span>
@@ -251,11 +279,16 @@ export const HistoryView = () => {
       return acc;
     }, {});
 
-    return sessionList.map(session => ({
-      ...session,
-      trades: tradesBySession[session.id] || []
-    })).sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
-  }, [sessionList, tradeHistory])
+    return sessionList
+      .filter(session => {
+        const mode = session.config?.trading_mode || (session.paperMode ? 'paper' : 'live');
+        return mode === lifetimeMode;
+      })
+      .map(session => ({
+        ...session,
+        trades: tradesBySession[session.id] || []
+      })).sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
+  }, [sessionList, tradeHistory, lifetimeMode])
 
   const sessionsToRender = useMemo(() => {
     return allSessionsWithTrades.slice(0, visibleSessions)
@@ -299,6 +332,12 @@ export const HistoryView = () => {
   const wins = currentAnalytics ? Math.round((safeNum(currentAnalytics.overallWinRate) / 100) * totalTrades) : 0
   const winRate = currentAnalytics ? Math.round(currentAnalytics.overallWinRate) : 0
   const avgPnl = totalTrades ? totalPnl / totalTrades : 0
+
+  const globalExpectancyStatus = useMemo(() => {
+    const wr = (winRate / 100);
+    const wl = currentAnalytics?.avgWinLossRatio || 0;
+    return getExpectancyStatus(wr, wl);
+  }, [winRate, currentAnalytics?.avgWinLossRatio]);
 
   useEffect(() => {
     setLoading(true)
@@ -367,7 +406,7 @@ export const HistoryView = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 md:gap-4 mb-8 lg:mb-12">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-7 gap-3 md:gap-4 mb-8 lg:mb-12">
           <StatCard label="Total Performance" value={fmtUSD(totalPnl)} color={pnlClass(totalPnl)} />
           <StatCard label="Win Rate" value={`${winRate}%`} color="text-accent" subValue={`${wins}W / ${totalTrades - wins}L`} />
           <StatCard
@@ -379,6 +418,16 @@ export const HistoryView = () => {
           <StatCard label="Avg Win" value={fmtUSD(currentAnalytics?.avgWin || 0)} color="text-green" />
           <StatCard label="Avg Loss" value={fmtUSD(-(currentAnalytics?.avgLoss || 0))} color="text-red" />
           <StatCard label="W/L Ratio" value={Number(currentAnalytics?.avgWinLossRatio || 0).toFixed(2)} color="text-accent" />
+          <Tooltip content="Average expected value per trade outcome">
+            <div>
+              <StatCard
+                label="Expectancy"
+                value={globalExpectancyStatus.label}
+                color={globalExpectancyStatus.color}
+                icon={globalExpectancyStatus.icon}
+              />
+            </div>
+          </Tooltip>
         </div>
 
         <motion.div

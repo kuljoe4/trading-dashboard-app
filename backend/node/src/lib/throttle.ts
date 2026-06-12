@@ -53,7 +53,8 @@ export function extractIp(headers: any, defaultIp: string): string {
     // The leftmost IP can be spoofed by the client.
     const rawForwarded = Array.isArray(forwarded) ? forwarded.join(',') : forwarded;
     const ips = rawForwarded.split(',');
-    return ips[ips.length - 1].trim();
+    const extracted = ips[ips.length - 1].trim();
+    return extracted || defaultIp;
   }
   return defaultIp;
 }

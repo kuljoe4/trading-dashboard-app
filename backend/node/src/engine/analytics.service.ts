@@ -18,6 +18,7 @@ export interface AnalyticsResult {
   avgWin: number;
   avgLoss: number;
   avgWinLossRatio: number;
+  profitFactor: number;
   sharpeRatio: number;
   sortinoRatio: number;
 }
@@ -99,6 +100,7 @@ export class AnalyticsService {
     const avgWin = totalWins > 0 ? grossProfit / totalWins : 0;
     const avgLoss = totalLosses > 0 ? grossLoss / totalLosses : 0;
     const avgWinLossRatio = avgLoss > 0 ? avgWin / avgLoss : 0;
+    const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 100 : 0);
 
     // Sharpe and Sortino Ratios (Trade-based)
     let sharpeRatio = 0;
@@ -138,6 +140,7 @@ export class AnalyticsService {
       avgWin: roundTo(avgWin, 2),
       avgLoss: roundTo(avgLoss, 2),
       avgWinLossRatio: roundTo(avgWinLossRatio, 2),
+      profitFactor: roundTo(profitFactor, 2),
       sharpeRatio: roundTo(sharpeRatio, 2),
       sortinoRatio: roundTo(sortinoRatio, 2),
     };

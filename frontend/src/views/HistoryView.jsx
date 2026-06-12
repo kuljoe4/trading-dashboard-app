@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
-import { getExpectancyStatus, getSharpeStatus, getSortinoStatus } from '../lib/analytics'
+import { getExpectancyStatus, getSharpeStatus, getSortinoStatus, calculateSharpe, calculateSortino } from '../lib/analytics'
 import { sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader } from '../components/ui/primitives'
@@ -145,6 +145,11 @@ const SessionGroup = React.memo(({ session, trades }) => {
     return getExpectancyStatus(wr, wl);
   }, [winRate, winLossRatio]);
 
+  const sharpe = useMemo(() => calculateSharpe(trades), [trades]);
+  const sortino = useMemo(() => calculateSortino(trades), [trades]);
+  const sStatus = useMemo(() => getSharpeStatus(sharpe), [sharpe]);
+  const stStatus = useMemo(() => getSortinoStatus(sortino), [sortino]);
+
   return (
     <div id={`session-${session.id}`} className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 lg:mb-12 shadow-sm transition-all hover:border-border-hover scroll-mt-8">
       <div
@@ -199,6 +204,14 @@ const SessionGroup = React.memo(({ session, trades }) => {
             <div className="flex flex-col">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Ratio</span>
               <span className="text-xs font-bold font-mono text-accent">{winLossRatioStr}</span>
+            </div>
+            <div className="hidden 2xl:flex flex-col">
+              <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Sharpe</span>
+              <span className={cn("text-xs font-bold font-mono", sStatus.color)}>{sharpe.toFixed(2)}</span>
+            </div>
+            <div className="hidden 2xl:flex flex-col">
+              <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Sortino</span>
+              <span className={cn("text-xs font-bold font-mono", stStatus.color)}>{sortino.toFixed(2)}</span>
             </div>
             <div className="flex flex-col">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Expectancy</span>
@@ -459,7 +472,7 @@ export const HistoryView = () => {
               </div>
             }
           />
-          <StatCard label="Profit Factor" value={Number(currentAnalytics?.avgWinLossRatio || 0).toFixed(2)} color="text-accent" />
+          <StatCard label="Profit Factor" value={Number(currentAnalytics?.profitFactor || 0).toFixed(2)} color="text-accent" />
           <StatCard label="Expectancy" value={Number(lifetimeExpectancyStatus.expectancy).toFixed(2)} color={lifetimeExpectancyStatus.color} subValue={lifetimeExpectancyStatus.label} />
         </div>
 

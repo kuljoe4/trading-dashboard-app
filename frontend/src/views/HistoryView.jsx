@@ -139,6 +139,17 @@ const SessionGroup = React.memo(({ session, trades }) => {
   const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss) : 0
   const winLossRatioStr = avgLoss > 0 ? winLossRatio.toFixed(2) : '∞'
 
+  const durationStr = useMemo(() => {
+    const start = new Date(session.startTime).getTime();
+    const end = session.endTime ? new Date(session.endTime).getTime() : Date.now();
+    const diff = end - start;
+    if (diff <= 0) return '0m';
+    const hours = Math.floor(diff / 3600000);
+    const mins = Math.floor((diff % 3600000) / 60000);
+    if (hours > 0) return `${hours}h ${mins}m`;
+    return `${mins}m`;
+  }, [session.startTime, session.endTime]);
+
   const expectancyStatus = useMemo(() => {
     const wr = (winRate / 100);
     const wl = winLossRatio;
@@ -183,13 +194,15 @@ const SessionGroup = React.memo(({ session, trades }) => {
               <span className="flex items-center gap-1.5"><Clock size={12} className="text-accent" /> {new Date(session.startTime).toLocaleDateString()}</span>
               <span className="w-1 h-1 rounded-full bg-dim/30" />
               <span>{new Date(session.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              <span className="w-1 h-1 rounded-full bg-dim/30" />
+              <span className="text-accent/80 font-black">{durationStr}</span>
             </div>
           </div>
         </div>
 
         {/* Center/Right: Metrics Grid */}
-        <div className="flex flex-col md:flex-row items-start md:items-center gap-6 xl:gap-12 xl:ml-auto">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-8 xl:gap-12">
+        <div className="flex flex-col md:flex-row items-start md:items-center gap-6 xl:gap-10 xl:ml-auto">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-8 gap-y-4 xl:gap-x-10">
             <div className="flex flex-col">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Interval</span>
               <span className="text-xs font-bold text-text flex items-center gap-1.5">
@@ -205,11 +218,11 @@ const SessionGroup = React.memo(({ session, trades }) => {
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Ratio</span>
               <span className="text-xs font-bold font-mono text-accent">{winLossRatioStr}</span>
             </div>
-            <div className="hidden 2xl:flex flex-col">
+            <div className="flex flex-col">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Sharpe</span>
               <span className={cn("text-xs font-bold font-mono", sStatus.color)}>{sharpe.toFixed(2)}</span>
             </div>
-            <div className="hidden 2xl:flex flex-col">
+            <div className="flex flex-col">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Sortino</span>
               <span className={cn("text-xs font-bold font-mono", stStatus.color)}>{sortino.toFixed(2)}</span>
             </div>

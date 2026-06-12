@@ -111,15 +111,15 @@ export class AnalyticsService {
       const mean = pnls.reduce((a, b) => a + b, 0) / totalTrades;
 
       // Variance and Downside Variance
+      // Sharpe uses returns relative to mean.
+      // Sortino uses returns relative to target (0) and only downside.
       let varianceSum = 0;
       let downsideVarianceSum = 0;
-      let downsideCount = 0;
 
       for (const p of pnls) {
         varianceSum += Math.pow(p - mean, 2);
         if (p < 0) {
-          downsideVarianceSum += Math.pow(p, 2); // Using 0 as target for Sortino
-          downsideCount++;
+          downsideVarianceSum += Math.pow(p, 2); // target = 0
         }
       }
 

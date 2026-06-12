@@ -19,14 +19,17 @@ describe('Throttle Library', () => {
     it('should handle multiple x-forwarded-for headers (array case)', () => {
       // In Node.js, multiple headers with the same name are often represented as an array
       const headers = { 'x-forwarded-for': ['spoofed.ip.1', 'reliable.ip.2'] };
-      // CURRENT BUG: It likely only takes headers['x-forwarded-for'][0], which is the spoofed one.
-      // After fix, it should join them and take the last one.
       expect(extractIp(headers, '1.2.3.4')).toBe('reliable.ip.2');
     });
 
     it('should handle multiple x-forwarded-for headers where each is comma-separated', () => {
       const headers = { 'x-forwarded-for': ['ip1, ip2', 'ip3, ip4'] };
       expect(extractIp(headers, '1.2.3.4')).toBe('ip4');
+    });
+
+    it('should fallback to defaultIp if x-forwarded-for is empty after trimming', () => {
+      const headers = { 'x-forwarded-for': ' , ' };
+      expect(extractIp(headers, '1.2.3.4')).toBe('1.2.3.4');
     });
   });
 });

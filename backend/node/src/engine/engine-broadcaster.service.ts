@@ -66,7 +66,6 @@ export class EngineBroadcasterService {
       // Total wallet balance already accounts for entry fees, so we only subtract realized_fee
       // during the final trade closure recording in the database.
       pnl = roundEight(grossPnl);
-      (trade as any).pnl = pnl;
       const risk = Math.abs(entry - (trade.initial_sl ?? trade.current_sl ?? entry)) || 1;
       rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / risk;
       pnlPct = entry ? ((current - entry) / entry) * 100 * (direction === 'LONG' ? 1 : -1) : 0;
@@ -227,7 +226,6 @@ export class EngineBroadcasterService {
 
       // BOLT: Match exchange Unrealized PnL (Gross)
       const pnlValue = roundEight(grossPnl);
-      (trade as any).pnl = pnlValue;
       activePnl += pnlValue;
       totalRiskUsdt += (trade.risk_usdt || 0);
 

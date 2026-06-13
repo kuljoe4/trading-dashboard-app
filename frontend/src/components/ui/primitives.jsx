@@ -33,7 +33,7 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
   // We should ensure the parent (HistoryView or Dashboard) doesn't pass both.
   // However, we can also sanitize it here.
 
-  const sanitizedValue = typeof value === 'string' && (value.includes('▾') || value.includes('▴') || value.includes('▼') || value.includes('▲')) && value.includes('-')
+  const sanitizedValue = typeof value === 'string' && (value.includes('▼') || value.includes('▲') || value.includes('▾') || value.includes('▴')) && value.includes('-')
     ? value.replace('-', '') // Remove the minus if an arrow is already present
     : value;
 

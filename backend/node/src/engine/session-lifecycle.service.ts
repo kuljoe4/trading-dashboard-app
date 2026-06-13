@@ -109,9 +109,11 @@ export class SessionLifecycleService {
           await this.progress(fallbackMsg, 'warn');
           this.sessionState.balanceLive = curBal!;
           this.sessionState.balancePaper = curBal!;
+          this.sessionState.lastExchangeBalance = curBal!;
         } else {
           this.sessionState.balanceLive = b;
           this.sessionState.balancePaper = b;
+          this.sessionState.lastExchangeBalance = b;
           if (b === 0) {
             await this.progress(`Binance ${mode} balance is 0. Gating until funds are available.`, 'warn');
           }
@@ -129,6 +131,7 @@ export class SessionLifecycleService {
           if (b > 0) {
             this.sessionState.balanceLive = b;
             this.sessionState.balancePaper = b;
+            this.sessionState.lastExchangeBalance = b;
           }
         }, ENGINE_CONSTANTS.USER_DATA_POLL_INTERVAL_MS);
       });
@@ -262,6 +265,7 @@ export class SessionLifecycleService {
                 this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: liveBalMsg, level: 'info' });
                 this.sessionState.balanceLive = nb;
                 this.sessionState.balancePaper = nb;
+                this.sessionState.lastExchangeBalance = nb;
               }
             }
             // Real-time Position Tracking (Zero Weight)
@@ -270,14 +274,36 @@ export class SessionLifecycleService {
                 const symbol = pos.s;
                 const amount = parseFloat(pos.pa);
                 const entryPrice = parseFloat(pos.ep);
+
+                const prevPos = this.sessionState.realTimePositions.get(symbol);
                 this.sessionState.realTimePositions.set(symbol, { amount, entryPrice });
+
                 this.logger.debug(`[Lifecycle] Real-time position update for ${symbol}: ${amount} @ ${entryPrice}`);
+
+                // ZERO-WEIGHT RECONCILIATION: If position reaches 0 and we have an active trade,
+                // it means it was closed on exchange (SL, TP, or manual).
+                if (amount === 0 && (!prevPos || prevPos.amount !== 0)) {
+                  const trade = this.sessionState.activeTrades.find(t => t.symbol === symbol);
+                  if (trade) {
+                    const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
+                    this.logger.log(`[${tradeIdShort8}] [Lifecycle] Zero-weight reconciliation: Position for ${symbol} reached zero on exchange. Triggering local closure.`);
+                    this.eventEmitter.emit('trade.exchange_close', {
+                      symbol,
+                      exitPrice: 0, // Will use ticker fallback
+                      reason: 'EXCHANGE_SYNC'
+                    });
+                  }
+                }
               }
             }
           } else if (data.e === 'ORDER_TRADE_UPDATE') {
             const order = data.o;
             this.logger.log(`[Lifecycle] Order Update: ${order.s} ${order.S} ${order.X} (id=${order.i}, client_id=${order.c})`);
             this.eventEmitter.emit('binance.order_update', data);
+          } else if (data.e === 'ALGO_ORDER_UPDATE') {
+            const algo = data.o;
+            this.logger.log(`[Lifecycle] Algo Order Update: ${algo.s} ${algo.X} (algoId=${algo.ap})`);
+            this.eventEmitter.emit('binance.algo_order_update', data);
           } else if (data.e === 'listenKeyExpired') {
             this.logger.warn('[Lifecycle] ListenKey expired, restarting user data stream...');
             this.startUserDataStream(bc).catch(() => {});

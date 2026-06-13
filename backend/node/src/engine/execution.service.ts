@@ -45,48 +45,52 @@ export class ExecutionService {
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);
 
     for (const trade of activeTrades) {
-      const currentPrice = this.tickerCache.getPrice(trade.symbol);
-      if (!currentPrice) continue;
+      try {
+        const currentPrice = this.tickerCache.getPrice(trade.symbol);
+        if (!currentPrice) continue;
 
-      const tradeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
-      await this.positionTracker.checkRrSequenceAdjustments(trade.symbol, currentPrice, tradeConfig);
+        const tradeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
+        await this.positionTracker.checkRrSequenceAdjustments(trade.symbol, currentPrice, tradeConfig);
 
-      const exitInterval = tradeConfig.scan_interval || '1m';
-      const exitCondition = this.positionTracker.checkExitConditions(trade.symbol, currentPrice, tradeConfig, exitInterval);
+        const exitInterval = tradeConfig.scan_interval || '1m';
+        const exitCondition = this.positionTracker.checkExitConditions(trade.symbol, currentPrice, tradeConfig, exitInterval);
 
-      if (exitCondition?.exitOccurred) {
-        const result = await this.positionTracker.closeTrade(trade.symbol, currentPrice, exitCondition.exitReason, tradeConfig);
-        if (result.exitOccurred && result.trade) {
-          const closedTrade = result.trade;
-          this.sessionState.updateStatsOnClose((closedTrade.pnl || 0) > 0);
+        if (exitCondition?.exitOccurred) {
+          const result = await this.positionTracker.closeTrade(trade.symbol, currentPrice, exitCondition.exitReason, tradeConfig);
+          if (result.exitOccurred && result.trade) {
+            const closedTrade = result.trade;
+            this.sessionState.updateStatsOnClose((closedTrade.pnl || 0) > 0, closedTrade.pnl || 0);
 
-          this.sessionState.addClosedTrade(closedTrade);
-          this.sessionState.setActiveTrades(this.positionTracker.activeList());
-          this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, tradeConfig);
+            this.sessionState.addClosedTrade(closedTrade);
+            this.sessionState.setActiveTrades(this.positionTracker.activeList());
+            this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, tradeConfig);
 
-          const analytics = this.analyticsService.calculateAnalytics(
-            this.sessionState.closedTrades as any,
-            config.paper_mode ? config.paper_starting_balance : config.live_starting_balance
-          );
+            const analytics = this.analyticsService.calculateAnalytics(
+              this.sessionState.closedTrades as any,
+              config.paper_mode ? config.paper_starting_balance : config.live_starting_balance
+            );
 
-          this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
-          this.broadcastService.broadcast('trade_event', {
-            event: 'closed',
-            symbol: closedTrade.symbol,
-            reason: exitCondition.exitReason,
-            trade: this.engineBroadcaster.serializeTrade(closedTrade, config, currentPrice),
-            pnl: closedTrade.pnl,
-            stats: this.sessionState.stats,
-            analytics: {
-              maxDrawdown: roundTo(analytics.maxDrawdown, 2),
-              maxDrawdownPct: roundTo(analytics.maxDrawdownPct, 2),
-              overallWinRate: roundTo(analytics.overallWinRate, 2),
-              cumulativePnL: analytics.cumulativePnL.slice(-20).map((p: any) => ({ ...p, pnl: roundTo(p.pnl, 2) })),
-            }
-          });
+            this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
+            this.broadcastService.broadcast('trade_event', {
+              event: 'closed',
+              symbol: closedTrade.symbol,
+              reason: exitCondition.exitReason,
+              trade: this.engineBroadcaster.serializeTrade(closedTrade, config, currentPrice),
+              pnl: closedTrade.pnl,
+              stats: this.sessionState.stats,
+              analytics: {
+                maxDrawdown: roundTo(analytics.maxDrawdown, 2),
+                maxDrawdownPct: roundTo(analytics.maxDrawdownPct, 2),
+                overallWinRate: roundTo(analytics.overallWinRate, 2),
+                cumulativePnL: analytics.cumulativePnL.slice(-20).map((p: any) => ({ ...p, pnl: roundTo(p.pnl, 2) })),
+              }
+            });
 
-          if (onTradeUpdate) await onTradeUpdate(closedTrade, balance);
+            if (onTradeUpdate) await onTradeUpdate(closedTrade, balance);
+          }
         }
+      } catch (err) {
+        this.logger.error(`[${(trade.id || 'N/A').substring(0, 8)}] Critical Error in checkExits for ${trade.symbol}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
@@ -97,113 +101,110 @@ export class ExecutionService {
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);
 
     for (const opp of opportunities) {
-      if (this.positionTracker.hasSymbol(opp.symbol)) {
-        this.logger.debug(`${opp.symbol}: Entry skipped - already in position or entering.`);
-        continue;
-      }
-
-      const sc = symbolConfigMap?.get(opp.symbol);
-      const symbolConfig = (sc?.use_custom_config && sc.custom_config) ? { ...config, ...sc.custom_config } as SessionConfig : config;
-
-      const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry', false);
-      if (!signalResult.allFired) {
-        if (signalResult.reason.includes('warm-up')) {
-          this.logger.debug(`${opp.symbol}: Entry blocked - ${signalResult.reason}`);
-        }
-        continue;
-      }
-
-      const activeTrades = this.positionTracker.activeList();
-      const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk());
-
-      if (!riskResult.canEnter) {
-        if (!riskResult.reason.includes('Max open trades for')) {
-          this.sessionState.gateState = this.gatingService.mapGateState(riskResult.reason);
-          this.broadcastService.broadcast('gate', {
-            gateState: this.sessionState.gateState,
-            reason: riskResult.reason,
-            scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused
-          });
-        }
-        continue;
-      }
-
-      const price = this.tickerCache.getPrice(opp.symbol);
-      if (!price) continue;
-
-      const lookback = this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
-      let slPrice = this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.minLow, lookback.maxHigh, opp.symbol);
-
-      // BOLT: Apply exchange filters to SL price BEFORE position sizing.
-      // We use risk-averse rounding: floor for LONG SL (farther), ceil for SHORT SL (farther)
-      // to ensure we don't underestimate the risk distance.
-      const slFiltered = this.orderManager.applyFilters(opp.symbol, slPrice, 1, {
-         priceRounding: opp.direction.toUpperCase() === 'LONG' ? 'floor' : 'ceil',
-         skipNotionalCheck: true
-      });
-      slPrice = slFiltered.price;
-
-      const qty = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
-
-      if (qty <= 0) {
-        this.logger.debug(`${opp.symbol}: Position size is 0 after SL filtering. SL: ${slPrice}, Entry: ${price}`);
-        continue;
-      }
-      const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
-
-      // BOLT: Calculate risk for reservation BEFORE actual entry attempt
-      const reservedRisk = roundEight(Math.abs(price - slPrice) * qty);
-
-      const ticker = this.tickerCache.getTicker(opp.symbol);
-      const openPrice = ticker?.open_24h || price;
-      const dailyChangeAtEntry = ((price - openPrice) / openPrice) * 100 * (opp.direction.toUpperCase() === 'LONG' ? 1 : -1);
-
-      // SEC: Atomic lock and Risk Reservation to prevent concurrent entry attempts and over-leveraging
-      this.logger.log(`[Risk Integrity] Reserving ${reservedRisk.toFixed(2)} USDT risk for ${opp.symbol} entry attempt.`);
-      this.positionTracker.setEntering(opp.symbol, true, reservedRisk);
-
       try {
-        const result = await this.orderManager.enter(
-          (this.sessionState.config as any)?.sessionId || uuid().substring(0, 8),
-          opp.symbol,
-          opp.direction.toUpperCase() as any,
-          price,
-          qty,
-          slPrice,
-          tpPrice,
-          {
-            strategy_label: strategyLabel,
-            strategy_config: symbolConfig,
-            entry_daily_change_pct: dailyChangeAtEntry
-          }
-        );
-
-        if (result.status === ExecutionStatus.SUCCESS && result.data) {
-          const trade = result.data;
-          this.positionTracker.addTrade(trade);
-          this.sessionState.updateStatsOnEntry();
-
-          // Immediately apply entry fee to balance
-          if (onTradeUpdate) {
-              await onTradeUpdate(trade, balance);
-          }
-
-          this.sessionState.setActiveTrades(this.positionTracker.activeList());
-          this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, config);
-
-          this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
-          this.broadcastService.broadcast('trade_event', {
-            event: 'opened',
-            symbol: opp.symbol,
-            trade: this.engineBroadcaster.serializeTrade(trade, config, price),
-            stats: this.sessionState.stats
-          });
+        if (this.positionTracker.hasSymbol(opp.symbol)) {
+          this.logger.debug(`${opp.symbol}: Entry skipped - already in position or entering.`);
+          continue;
         }
-      } catch (err) {
-        this.logger.error(`Failed to process entry for ${opp.symbol}: ${err instanceof Error ? err.message : String(err)}`);
-        // Continue to next opportunity
-      } finally {
-        this.positionTracker.setEntering(opp.symbol, false);
+
+        const sc = symbolConfigMap?.get(opp.symbol);
+        const symbolConfig = (sc?.use_custom_config && sc.custom_config) ? { ...config, ...sc.custom_config } as SessionConfig : config;
+
+        const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry', false);
+        if (!signalResult.allFired) {
+          if (signalResult.reason.includes('warm-up')) {
+            this.logger.debug(`${opp.symbol}: Entry blocked - ${signalResult.reason}`);
+          }
+          continue;
+        }
+
+        const activeTrades = this.positionTracker.activeList();
+        const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk());
+
+        if (!riskResult.canEnter) {
+          if (!riskResult.reason.includes('Max open trades for')) {
+            this.sessionState.gateState = this.gatingService.mapGateState(riskResult.reason);
+            this.broadcastService.broadcast('gate', {
+              gateState: this.sessionState.gateState,
+              reason: riskResult.reason,
+              scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused
+            });
+          }
+          continue;
+        }
+
+        const price = this.tickerCache.getPrice(opp.symbol);
+        if (!price) continue;
+
+        const lookback = this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
+        let slPrice = this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.minLow, lookback.maxHigh, opp.symbol);
+
+        const slFiltered = this.orderManager.applyFilters(opp.symbol, slPrice, 1, {
+           priceRounding: opp.direction.toUpperCase() === 'LONG' ? 'floor' : 'ceil',
+           skipNotionalCheck: true
+        });
+        slPrice = slFiltered.price;
+
+        const qty = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
+
+        if (qty <= 0) {
+          this.logger.debug(`${opp.symbol}: Position size is 0 after SL filtering. SL: ${slPrice}, Entry: ${price}`);
+          continue;
+        }
+        const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
+
+        const reservedRisk = roundEight(Math.abs(price - slPrice) * qty);
+
+        const ticker = this.tickerCache.getTicker(opp.symbol);
+        const openPrice = ticker?.open_24h || price;
+        const dailyChangeAtEntry = ((price - openPrice) / openPrice) * 100 * (opp.direction.toUpperCase() === 'LONG' ? 1 : -1);
+
+        this.logger.log(`[Risk Integrity] Reserving ${reservedRisk.toFixed(2)} USDT risk for ${opp.symbol} entry attempt.`);
+        this.positionTracker.setEntering(opp.symbol, true, reservedRisk);
+
+        try {
+          const result = await this.orderManager.enter(
+            (this.sessionState.config as any)?.sessionId || uuid().substring(0, 8),
+            opp.symbol,
+            opp.direction.toUpperCase() as any,
+            price,
+            qty,
+            slPrice,
+            tpPrice,
+            {
+              strategy_label: strategyLabel,
+              strategy_config: symbolConfig,
+              entry_daily_change_pct: dailyChangeAtEntry
+            }
+          );
+
+          if (result.status === ExecutionStatus.SUCCESS && result.data) {
+            const trade = result.data;
+            this.positionTracker.addTrade(trade);
+            this.sessionState.updateStatsOnEntry();
+
+            if (onTradeUpdate) {
+                await onTradeUpdate(trade, balance);
+            }
+
+            this.sessionState.setActiveTrades(this.positionTracker.activeList());
+            this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, config);
+
+            this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
+            this.broadcastService.broadcast('trade_event', {
+              event: 'opened',
+              symbol: opp.symbol,
+              trade: this.engineBroadcaster.serializeTrade(trade, config, price),
+              stats: this.sessionState.stats
+            });
+          }
+        } catch (err) {
+          this.logger.error(`Failed to process entry for ${opp.symbol}: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          this.positionTracker.setEntering(opp.symbol, false);
+        }
+      } catch (oppErr) {
+        this.logger.error(`Critical Error processing opportunity for ${opp.symbol}: ${oppErr instanceof Error ? oppErr.message : String(oppErr)}`);
       }
     }
   }

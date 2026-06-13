@@ -10,11 +10,13 @@ export class SessionStateService {
 
   public balancePaper = 0;
   public balanceLive = 0;
+  public lastExchangeBalance = 0;
   public paused = false;
   public binanceRateLimit: { used_1m: number; limit: number } = { used_1m: 0, limit: 2400 };
   public stats = {
     entryCount: 0,
     hitCount: 0,
+    totalPnl: 0,
   };
   public statsVersion = 0;
   public gateState: string | null = null;
@@ -36,6 +38,7 @@ export class SessionStateService {
     this.stats = {
       entryCount: sessionHistory.length,
       hitCount: sessionHistory.filter(t => (t.pnl || 0) > 0).length,
+      totalPnl: sessionHistory.reduce((acc, t) => acc + (t.pnl || 0), 0),
     };
     this.statsVersion = 0;
     this.closedTrades = initialHistory;
@@ -116,8 +119,9 @@ export class SessionStateService {
     this.statsVersion++;
   }
 
-  updateStatsOnClose(isWin: boolean) {
+  updateStatsOnClose(isWin: boolean, pnl: number = 0) {
     if (isWin) this.stats.hitCount++;
+    this.stats.totalPnl = roundEight(this.stats.totalPnl + pnl);
     this.statsVersion++;
   }
 

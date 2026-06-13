@@ -202,7 +202,7 @@ export class TradingSessionService {
       const cp = await this.tickerCache.getPrice(t.symbol); const ep = cp ?? t.last_price ?? t.entry_price;
       const res = await this.positionTracker.closeTrade(t.symbol, ep, 'SESSION_TERMINATED', this.config!, this.config?.paper_mode ?? true);
       if (res.exitOccurred && res.trade) {
-        this.sessionState.updateStatsOnClose((res.trade.pnl || 0) > 0); this.sessionState.addClosedTrade(res.trade);
+        this.sessionState.updateStatsOnClose((res.trade.pnl || 0) > 0, res.trade.pnl || 0); this.sessionState.addClosedTrade(res.trade);
         await this.updateBalance(res.trade); if (this.onTradeUpdate) await this.onTradeUpdate(res.trade, this.getBalance());
       } else {
         t.status = 'CLOSED'; t.exit_ts = new Date(); t.exit_reason = 'SESSION_TERMINATED'; t.exit_price = ep;
@@ -211,7 +211,7 @@ export class TradingSessionService {
         const exitFee = roundEight(ep * t.qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
         t.realized_fee = roundEight((t.realized_fee || 0) + exitFee);
         t.pnl = roundEight((pnlp * t.qty) - t.realized_fee);
-        this.sessionState.addClosedTrade(t); this.sessionState.updateStatsOnClose((t.pnl || 0) > 0);
+        this.sessionState.addClosedTrade(t); this.sessionState.updateStatsOnClose((t.pnl || 0) > 0, t.pnl || 0);
         await this.updateBalance(t); if (this.onTradeUpdate) await this.onTradeUpdate(t, this.getBalance());
         this.positionTracker.removeTrade(t.symbol);
       }
@@ -486,6 +486,7 @@ export class TradingSessionService {
               if (b > 0) {
                  this.sessionState.balanceLive = b;
                  this.sessionState.balancePaper = b;
+                 this.sessionState.lastExchangeBalance = b;
                  if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), 0);
               }
            }, 15000); // 15s after LAST closure in a burst
@@ -508,6 +509,7 @@ export class TradingSessionService {
           // REST is authoritative; it already includes all deltas.
           this.sessionState.balanceLive = b;
           this.sessionState.balancePaper = b;
+          this.sessionState.lastExchangeBalance = b;
         } else {
           // Fallback: apply all accumulated deltas from the window.
           this.sessionState.balanceLive = roundEight(this.sessionState.balanceLive + capturedDeltas);
@@ -559,7 +561,12 @@ export class TradingSessionService {
       ? (this.config?.paper_starting_balance || 10000)
       : (this.config?.live_starting_balance || 0);
     const currentBalance = this.getBalance();
-    const totalPnl = roundEight(currentBalance - startingBalance);
+
+    // DATA-CONSISTENCY: Use mode-specific profit calculation.
+    // Live mode uses internal PnL tracking to ignore deposits.
+    const totalPnl = mode === 'paper'
+      ? roundEight(currentBalance - startingBalance)
+      : roundEight(this.sessionState.stats.totalPnl || 0);
 
     return {
       running: this.running,
@@ -635,7 +642,7 @@ export class TradingSessionService {
   }
 
   private async finalizeTradeClosure(trade: Trade, exitPrice: number, reason: string) {
-      this.sessionState.updateStatsOnClose((trade.pnl || 0) > 0);
+      this.sessionState.updateStatsOnClose((trade.pnl || 0) > 0, trade.pnl || 0);
       await this.updateBalance(trade);
       this.sessionState.addClosedTrade(trade);
       if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());

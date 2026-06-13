@@ -37,6 +37,55 @@ export class OrderManagerService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
+  @OnEvent('binance.algo_order_update')
+  async handleBinanceAlgoOrderUpdate(payload: any) {
+    const algo = payload.o;
+    const symbol = algo.s;
+    const status = algo.X; // Order Status
+    const algoId = String(algo.ap);
+    const side = algo.S;
+
+    if (status === 'FILLED' || status === 'EXECUTED') {
+      const activeTrades = this.sessionState.activeTrades;
+      const trade = activeTrades.find(t => t.symbol === symbol);
+
+      if (trade) {
+        const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
+        const isSlOrder = trade.binance_stop_order_id === algoId;
+        const isClosingSide = side !== (trade.direction === 'LONG' ? 'BUY' : 'SELL');
+
+        if (isSlOrder || isClosingSide) {
+          const reason = isSlOrder ? 'SL_HIT' : 'EXCHANGE_FILL';
+          this.logger.log(`[${tradeIdShort8}] Binance Algo ${reason} detected for ${symbol} (algoId=${algoId}). Closing trade locally.`);
+
+          const tickerPrice = this.tickerCache.getPrice(symbol);
+          const exitPrice = tickerPrice || trade.current_sl;
+
+          if (isSlOrder) {
+            const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
+            trade.exit_signal_reason = `EXCHANGE_ALGO_${slType}: Hit at ${exitPrice}`;
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+              msg: `[${tradeIdShort8}] Exchange Algo SL hit for ${symbol} at ${exitPrice} (${slType})`,
+              level: 'info'
+            });
+          } else {
+            trade.exit_signal_reason = `EXCHANGE_ALGO_FILL: ${side} at ${exitPrice}`;
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+              msg: `[${tradeIdShort8}] Exchange Algo Fill (${side}) for ${symbol} at ${exitPrice}`,
+              level: 'info'
+            });
+          }
+
+          this.eventEmitter.emit('trade.exchange_close', {
+            symbol,
+            exitPrice,
+            reason
+          });
+        }
+      }
+    }
+  }
+
   @OnEvent('binance.order_update')
   async handleBinanceOrderUpdate(payload: any) {
     const order = payload.o;
@@ -47,60 +96,57 @@ export class OrderManagerService {
     const side = order.S;
     const type = order.ot;
 
-    this.logger.debug(`Processing Binance order update: ${symbol} ${side} ${status} (${orderId}, clientOrderId=${clientOrderId})`);
-
-    // Proactively update weight from WS message if available (not standard but some messages might have it in other formats, usually it's headers only though)
-    // For now we rely on the REST updates.
-
-    // We only care about FILLED status for SL/TP or potential external closes
+    // Proactively update weight from WS message if available
     if (status === 'FILLED') {
       const activeTrades = this.sessionState.activeTrades;
       const trade = activeTrades.find(t => t.symbol === symbol);
 
       if (trade) {
-        const tradeIdShort8 = trade.id.substring(0, 8);
+        const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
+        this.logger.debug(`[${tradeIdShort8}] Processing Binance order FILLED: ${symbol} ${side} (${orderId}, clientOrderId=${clientOrderId})`);
 
         // BOLT: Handle both REST order IDs and Algo API IDs/Client IDs for SL matching
-        const clientAlgoId = payload.o.n; // Algo client ID often appears here in some payloads or custom fields
+        const clientAlgoId = payload.o.n;
         const isSlOrder =
           trade.binance_stop_order_id === orderId ||
           (clientOrderId && clientOrderId.startsWith(`sl-${tradeIdShort8}`)) ||
           (clientAlgoId && String(clientAlgoId).startsWith(`sl-${tradeIdShort8}`));
 
         if (isSlOrder) {
-          this.logger.log(`Binance SL HIT for ${symbol}. Closing trade locally.`);
+          this.logger.log(`[${tradeIdShort8}] Binance SL HIT for ${symbol}. Closing trade locally.`);
           let exitPrice = parseFloat(order.ap || order.p || '0');
 
-          // DATA-CONSISTENCY: Fallback for 0 price in WS updates
           if (exitPrice === 0) {
              const tickerPrice = this.tickerCache.getPrice(symbol);
-             this.logger.warn(`Binance WS returned 0 price for ${symbol} SL. Using ticker fallback: ${tickerPrice}`);
+             this.logger.warn(`[${tradeIdShort8}] Binance WS returned 0 price for ${symbol} SL. Using ticker fallback: ${tickerPrice}`);
              exitPrice = tickerPrice || trade.current_sl;
           }
 
+          const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
+          trade.exit_signal_reason = `EXCHANGE_${slType}: Hit at ${exitPrice}`;
+
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
-            msg: `Exchange SL hit for ${symbol} at ${exitPrice}`,
+            msg: `[${tradeIdShort8}] Exchange SL hit for ${symbol} at ${exitPrice} (${slType})`,
             level: 'info'
           });
 
-          // Trigger local closure
           this.eventEmitter.emit('trade.exchange_close', {
             symbol,
             exitPrice,
             reason: 'SL_HIT'
           });
         }
-        // Check if this was our TP or some other closing order
         else if (side !== (trade.direction === 'LONG' ? 'BUY' : 'SELL')) {
-           this.logger.log(`Non-entry order FILLED for ${symbol} (${side}). Closing trade locally.`);
+           this.logger.log(`[${tradeIdShort8}] Non-entry order FILLED for ${symbol} (${side}). Closing trade locally.`);
            let exitPrice = parseFloat(order.ap || order.p || '0');
 
-           // DATA-CONSISTENCY: Fallback for 0 price in WS updates
            if (exitPrice === 0) {
               const tickerPrice = this.tickerCache.getPrice(symbol);
-              this.logger.warn(`Binance WS returned 0 price for ${symbol} fill. Using ticker fallback: ${tickerPrice}`);
+              this.logger.warn(`[${tradeIdShort8}] Binance WS returned 0 price for ${symbol} fill. Using ticker fallback: ${tickerPrice}`);
               exitPrice = tickerPrice || trade.entry_price;
            }
+
+           trade.exit_signal_reason = `EXCHANGE_FILL: ${side} at ${exitPrice}`;
 
            this.eventEmitter.emit('trade.exchange_close', {
              symbol,
@@ -967,6 +1013,29 @@ export class OrderManagerService {
     }
   }
 
+  private async recoverLastExecutionPrice(symbol: string, trade: Trade, estimate: number): Promise<number> {
+    if (!this.binanceClient || this.paperMode) return estimate;
+    try {
+      const tradesRes = await (this.binanceClient as any).restAPI.tradeApi.accountTradeList({ symbol, limit: 5 });
+      const trades = typeof tradesRes.data === 'function' ? await tradesRes.data() : (tradesRes.data || tradesRes);
+      if (Array.isArray(trades) && trades.length > 0) {
+        const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
+        const closingTrades = trades.filter(t => t.side === closeDirection);
+        if (closingTrades.length > 0) {
+          const lastFill = closingTrades.sort((a, b) => b.time - a.time)[0];
+          const fillPrice = parseFloat(lastFill.price);
+          if (fillPrice > 0) {
+            this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] Sync Recovery: Found fill price ${fillPrice} (Estimate: ${estimate})`);
+            return fillPrice;
+          }
+        }
+      }
+    } catch (e: any) {
+      this.logger.debug(`[${(trade.id || 'N/A').substring(0, 8)}] Execution price recovery failed: ${e.message}`);
+    }
+    return estimate;
+  }
+
   async closeTrade(
     symbol: string,
     trade: Trade,
@@ -976,6 +1045,13 @@ export class OrderManagerService {
     localOnly = false,
   ): Promise<{ trade: Trade; exitOccurred: boolean }> {
     try {
+      if (!paperMode && this.binanceClient && (exitPrice === 0 || (localOnly && exitReason === 'EXCHANGE_SYNC'))) {
+        const tickerPrice = this.tickerCache.getPrice(symbol);
+        const estimate = exitPrice || tickerPrice || trade.current_sl;
+        exitPrice = await this.recoverLastExecutionPrice(symbol, trade, estimate);
+        if (exitReason === 'EXCHANGE_SYNC') exitReason = 'EXCHANGE_SYNC_RECOVERY';
+      }
+
       // In live mode, place close order with reduce-only for safety
       if (!paperMode && !localOnly && this.binanceClient && trade.binance_order_id) {
         try {
@@ -1079,9 +1155,10 @@ export class OrderManagerService {
                this.logger.log(`Binance close order for ${symbol} rejected (possibly already closed by exchange SL). Verifying...`);
                const position = await this.fetchPosition(symbol);
                if (position && parseFloat(position.positionAmt) === 0) {
-                  this.logger.log(`Confirmed: ${symbol} position is already zero. Treating as successfully closed.`);
-                  trade.exit_reason = 'EXCHANGE_SL_OR_MANUAL';
-                  // Simulate exit fee since we can't easily fetch it from the exchange SL fill here
+                  this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] Confirmed: ${symbol} position is already zero. Triggering Sync Recovery.`);
+                  exitPrice = await this.recoverLastExecutionPrice(symbol, trade, exitPrice);
+                  trade.exit_reason = trade.exit_reason === 'EXCHANGE_SYNC' ? 'EXCHANGE_SYNC_RECOVERY' : 'EXCHANGE_SL_OR_MANUAL';
+                  // Simulate exit fee
                   const exitFee = roundEight(exitPrice * trade.qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
                   trade.realized_fee = roundEight((trade.realized_fee || 0) + exitFee);
                } else {

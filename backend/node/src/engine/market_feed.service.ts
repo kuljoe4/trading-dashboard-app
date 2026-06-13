@@ -24,8 +24,9 @@ export class MarketFeedService {
   private readonly logger = new Logger(MarketFeedService.name);
   private running = false;
   private miniTickerWs: WebSocket | null = null;
+  private miniTickerReconnecting = false;
   private markTickerWs: WebSocket | null = null;
-  private combinedKlineWsList: WebSocket[] = [];
+  private combinedKlineWsList: Set<WebSocket> = new Set();
   private exchangeInfo: Map<string, any> = new Map();
   private lastExchangeInfoFetch = 0;
   private lastExchangeInfoBase = '';
@@ -156,10 +157,23 @@ export class MarketFeedService {
     this.running = false;
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
     if (this.watchlistUpdateTimeout) clearTimeout(this.watchlistUpdateTimeout);
-    if (this.miniTickerWs) { this.safeClose(this.miniTickerWs); this.miniTickerWs = null; }
-    if (this.markTickerWs) { this.safeClose(this.markTickerWs); this.markTickerWs = null; }
-    for (const ws of this.combinedKlineWsList) this.safeClose(ws);
-    this.combinedKlineWsList = [];
+
+    this.miniTickerReconnecting = true; // Block reconnection during stop
+    if (this.miniTickerWs) {
+      this.safeClose(this.miniTickerWs);
+      this.miniTickerWs = null;
+    }
+    if (this.markTickerWs) {
+      this.safeClose(this.markTickerWs);
+      this.markTickerWs = null;
+    }
+
+    for (const ws of this.combinedKlineWsList) {
+      (ws as any)._isExplicitClose = true;
+      this.safeClose(ws);
+    }
+    this.combinedKlineWsList.clear();
+
     for (const task of this.subscriptionTasks) clearTimeout(task);
     this.subscriptionTasks = [];
     this.exchangeInfo.clear();
@@ -181,9 +195,16 @@ export class MarketFeedService {
           this.logger.error(`Error processing mini-ticker stream: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
-      ws.on('close', (code, reason) => {
+      ws.on('close', () => {
         this.miniTickerWs = null;
-        if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS));
+        if (this.running && !this.miniTickerReconnecting) {
+          this.logger.debug('Mini-ticker stream closed. Reconnecting...');
+          const timeout = setTimeout(() => {
+            this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== timeout);
+            connect();
+          }, ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS);
+          this.subscriptionTasks.push(timeout);
+        }
       });
       this.miniTickerWs = ws;
     };
@@ -308,8 +329,11 @@ export class MarketFeedService {
   }
 
   private async rebuildCombinedKlineStream() {
-    for (const ws of this.combinedKlineWsList) this.safeClose(ws);
-    this.combinedKlineWsList = [];
+    for (const ws of this.combinedKlineWsList) {
+      (ws as any)._isExplicitClose = true;
+      this.safeClose(ws);
+    }
+    this.combinedKlineWsList.clear();
     if (this.activeWatchlist.size === 0) return;
     const allStreams: string[] = [];
     for (const [symbol, intervals] of this.activeWatchlist) {
@@ -330,7 +354,6 @@ export class MarketFeedService {
             const kline = msg.data?.k;
             if (kline) {
               this.klineStore.upsertCandle(kline.s, kline.i, kline);
-              // BOLT: We update price from klines, but open_24h is strictly sourced from 24h miniTickers
               this.tickerCache.updateTicker(kline.s, kline.c);
               if (kline.x && this.onCandleClose) this.onCandleClose(kline.s).catch(() => {});
             }
@@ -338,8 +361,17 @@ export class MarketFeedService {
             this.logger.error(`Error processing combined kline stream: ${err instanceof Error ? err.message : String(err)}`);
           }
         });
-        ws.on('close', () => { if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS)); });
-        this.combinedKlineWsList.push(ws);
+        ws.on('close', () => {
+          if (this.running && !(ws as any)._isExplicitClose) {
+            this.logger.debug('Combined kline stream closed. Reconnecting...');
+            const timeout = setTimeout(() => {
+              this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== timeout);
+              connect();
+            }, ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS);
+            this.subscriptionTasks.push(timeout);
+          }
+        });
+        this.combinedKlineWsList.add(ws);
       };
       connect();
     }

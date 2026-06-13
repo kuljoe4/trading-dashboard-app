@@ -116,6 +116,32 @@ export class TickerCacheService {
   }
 
   /**
+   * Prune tickers that are not part of the active symbols or have low volume
+   */
+  prune(activeSymbols: Set<string>) {
+    const initialSize = this.tickers.size;
+    // We keep active symbols and top 500 by volume to avoid constant re-fetching
+    const topByVolume = Array.from(this.tickers.values())
+      .sort((a, b) => b.volume_24h - a.volume_24h)
+      .slice(0, 500)
+      .map(t => t.symbol);
+
+    const keepSet = new Set([...activeSymbols, ...topByVolume]);
+
+    for (const symbol of this.tickers.keys()) {
+      if (!keepSet.has(symbol)) {
+        this.tickers.delete(symbol);
+      }
+    }
+
+    const finalSize = this.tickers.size;
+    if (initialSize !== finalSize) {
+      this.logger.verbose(`Pruned TickerCache: ${initialSize} -> ${finalSize} symbols`);
+      this._topByVolumeCache = {};
+    }
+  }
+
+  /**
    * Clear all ticker data to free up memory (Deep Sleep)
    */
   clear() {

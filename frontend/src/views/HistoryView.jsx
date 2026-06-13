@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
-import { getExpectancyStatus } from '../lib/analytics'
+import { getExpectancyStatus, getSharpeStatus, getSortinoStatus, calculatePerformanceMetrics } from '../lib/analytics'
 import { sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader } from '../components/ui/primitives'
@@ -142,23 +142,30 @@ const SessionGroup = React.memo(({ session, trades }) => {
     return formatDuration(end - start)
   }, [session.startTime, session.endTime])
 
-  const pnl = useMemo(() => trades.reduce((sum, t) => sum + safeNum(t.pnl), 0), [trades])
-  const wins = useMemo(() => trades.filter(t => safeNum(t.pnl) > 0).length, [trades])
-  const winRate = trades.length ? Math.round((wins / trades.length) * 100) : 0
-  const curve = useMemo(() => buildCurve(trades), [trades])
-  const label = strategyLabel(session)
+  const metrics = useMemo(() => {
+    const m = calculatePerformanceMetrics(trades);
+    const losses = trades.length - m.wins;
+    const avgWin = m.wins > 0 ? m.grossProfit / m.wins : 0;
+    const avgLoss = losses > 0 ? m.grossLoss / losses : 0;
+    const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss) : 0;
+    const winLossRatioStr = avgLoss > 0 ? winLossRatio.toFixed(2) : '∞';
+    const startingBalance = Number(session.balance) - Number(session.totalPnl);
+    const pnlPct = startingBalance > 0 ? (m.totalPnl / startingBalance) * 100 : 0;
 
-  const avgWin = useMemo(() => wins > 0 ? trades.filter(t => safeNum(t.pnl) > 0).reduce((sum, t) => sum + safeNum(t.pnl), 0) / wins : 0, [trades, wins])
-  const losses = trades.length - wins
-  const avgLoss = useMemo(() => losses > 0 ? Math.abs(trades.filter(t => safeNum(t.pnl) < 0).reduce((sum, t) => sum + safeNum(t.pnl), 0)) / losses : 0, [trades, losses])
-  const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss) : 0
-  const winLossRatioStr = avgLoss > 0 ? winLossRatio.toFixed(2) : '∞'
+    return {
+      ...m,
+      winLossRatio,
+      winLossRatioStr,
+      pnlPct,
+      expectancyStatus: getExpectancyStatus(m.winRate / 100, winLossRatio),
+      sharpeStatus: getSharpeStatus(m.sharpe),
+      sortinoStatus: getSortinoStatus(m.sortino),
+      curve: buildCurve(trades)
+    };
+  }, [trades, session.balance, session.totalPnl]);
 
-  const expectancyStatus = useMemo(() => {
-    const wr = (winRate / 100);
-    const wl = winLossRatio;
-    return getExpectancyStatus(wr, wl);
-  }, [winRate, winLossRatio]);
+  const { wins, winRate, winLossRatioStr, expectancyStatus, totalPnl: pnl, curve } = metrics;
+  const label = strategyLabel(session);
 
   return (
     <div id={`session-${session.id}`} className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 lg:mb-12 shadow-sm transition-all hover:border-border-hover scroll-mt-8">
@@ -352,6 +359,13 @@ export const HistoryView = () => {
   const winRate = currentAnalytics ? Math.round(currentAnalytics.overallWinRate) : 0
   const avgPnl = totalTrades ? totalPnl / totalTrades : 0
 
+  const lifetimeExpectancyStatus = useMemo(() => {
+    return getExpectancyStatus(winRate / 100, currentAnalytics?.avgWinLossRatio || 0);
+  }, [winRate, currentAnalytics?.avgWinLossRatio]);
+
+  const sharpeStatus = useMemo(() => getSharpeStatus(currentAnalytics?.sharpeRatio), [currentAnalytics?.sharpeRatio]);
+  const sortinoStatus = useMemo(() => getSortinoStatus(currentAnalytics?.sortinoRatio), [currentAnalytics?.sortinoRatio]);
+
   useEffect(() => {
     setLoading(true)
     Promise.all([
@@ -452,7 +466,17 @@ export const HistoryView = () => {
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 md:gap-4 mb-8 lg:mb-12">
-          <StatCard label="Total Performance" value={fmtUSD(totalPnl)} color={pnlClass(totalPnl)} />
+          <StatCard
+            label="Total Performance"
+            value={fmtUSD(totalPnl)}
+            color={pnlClass(totalPnl)}
+            subValue={
+              <span className={cn("flex items-center gap-1", pnlClass(currentAnalytics?.overallPnlPct))}>
+                <span className="text-[0.8em] opacity-80">{(currentAnalytics?.overallPnlPct || 0) > 0 ? '▴' : (currentAnalytics?.overallPnlPct || 0) < 0 ? '▾' : ''}</span>
+                {Math.abs(currentAnalytics?.overallPnlPct || 0).toFixed(2)}% Performance
+              </span>
+            }
+          />
           <StatCard label="Win Rate" value={`${winRate}%`} color="text-accent" subValue={`${wins}W / ${totalTrades - wins}L`} />
           <StatCard
             label="Max Drawdown"
@@ -462,23 +486,57 @@ export const HistoryView = () => {
           />
           <StatCard label="Avg Win" value={fmtUSD(currentAnalytics?.avgWin || 0)} color="text-green" />
           <StatCard label="Avg Loss" value={fmtUSD(-(currentAnalytics?.avgLoss || 0))} color="text-red" />
-          <StatCard 
-            label="W/L Ratio" 
-            value={Number(currentAnalytics?.avgWinLossRatio || 0).toFixed(2)} 
-            color="text-accent" 
+          <StatCard
+            label="W/L Ratio"
+            value={Number(currentAnalytics?.avgWinLossRatio || 0).toFixed(2)}
+            color="text-accent"
             subValue={
-              <span className={cn("flex items-center gap-1", getExpectancyStatus(winRate / 100, currentAnalytics?.avgWinLossRatio || 0).color)}>
-                {(() => {
-                  const status = getExpectancyStatus(winRate / 100, currentAnalytics?.avgWinLossRatio || 0);
-                  return (
-                    <>
-                      <status.icon size={10} />
-                      {Number(status.expectancy).toFixed(2)} Expectancy
-                    </>
-                  );
-                })()}
-              </span>
+              <div className="flex flex-col gap-0.5">
+                <span className={cn("flex items-center gap-1", lifetimeExpectancyStatus.color)}>
+                  <lifetimeExpectancyStatus.icon size={10} />
+                  {Number(lifetimeExpectancyStatus.expectancy).toFixed(2)} Expectancy
+                </span>
+                <span className={cn("text-[8px] font-black uppercase tracking-tight", lifetimeExpectancyStatus.color)}>
+                  {lifetimeExpectancyStatus.label} Status
+                </span>
+              </div>
             }
+          />
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-8 lg:mb-12">
+           <StatCard
+            label="Sharpe Ratio"
+            value={Number(currentAnalytics?.sharpeRatio || 0).toFixed(2)}
+            color="text-accent"
+            subValue={
+              <div className="flex flex-col gap-0.5">
+                <span className={cn("flex items-center gap-1", sharpeStatus.color)}>
+                  <sharpeStatus.icon size={10} />
+                  {sharpeStatus.label}
+                </span>
+              </div>
+            }
+          />
+          <StatCard
+            label="Sortino Ratio"
+            value={Number(currentAnalytics?.sortinoRatio || 0).toFixed(2)}
+            color="text-accent"
+            subValue={
+              <div className="flex flex-col gap-0.5">
+                <span className={cn("flex items-center gap-1", sortinoStatus.color)}>
+                  <sortinoStatus.icon size={10} />
+                  {sortinoStatus.label}
+                </span>
+              </div>
+            }
+          />
+          <StatCard label="Profit Factor" value={Number(currentAnalytics?.profitFactor || 0).toFixed(2)} color="text-accent" />
+          <StatCard
+            label="Expectancy"
+            value={Number(lifetimeExpectancyStatus.expectancy).toFixed(2)}
+            color={lifetimeExpectancyStatus.color}
+            subValue={lifetimeExpectancyStatus.label}
           />
         </div>
 

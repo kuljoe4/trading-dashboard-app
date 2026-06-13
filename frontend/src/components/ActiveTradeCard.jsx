@@ -19,22 +19,26 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
   const tp = Number(trade.tp_price || 0)
   const isLong = trade.direction === 'LONG'
 
-  // Calculate progress relative to SL and TP
+  // BOLT: Direction-aware Price Runway.
+  // We orient the runway so SL is always 0% and TP (or 3R) is 100%.
+  // Entry point is dynamically calculated.
   let progress = 50
+  let entryMarkPos = 50
+
   if (entry && mark && sl) {
     if (tp) {
-      const totalRange = isLong ? (tp - sl) : (sl - tp)
-      const currentFromSl = isLong ? (mark - sl) : (sl - mark)
-      progress = Math.max(0, Math.min(100, (currentFromSl / totalRange) * 100))
+      const totalRange = Math.abs(tp - sl)
+      const distFromSl = Math.abs(mark - sl)
+      progress = Math.max(0, Math.min(100, (distFromSl / totalRange) * 100))
+      entryMarkPos = Math.max(0, Math.min(100, (Math.abs(entry - sl) / totalRange) * 100))
     } else {
-      const currentRR = Number(trade.rr || 0)
-      if (currentRR < 0) {
-         const distToSl = Math.abs(entry - sl)
-         const distToMark = Math.abs(entry - mark)
-         progress = Math.max(0, 50 - (distToMark / distToSl) * 50)
-      } else {
-         progress = Math.min(100, 50 + (currentRR / 3) * 50)
-      }
+      // Without TP, we use a reference of 3R profit for the 100% mark
+      const distToSl = Math.abs(entry - sl)
+      const targetProfitPrice = isLong ? (entry + distToSl * 3) : (entry - distToSl * 3)
+      const totalRange = Math.abs(targetProfitPrice - sl)
+
+      progress = Math.max(0, Math.min(100, (Math.abs(mark - sl) / totalRange) * 100))
+      entryMarkPos = (Math.abs(entry - sl) / totalRange) * 100
     }
   }
 
@@ -90,7 +94,7 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
       {/* Mini Price Runway */}
       <div className="space-y-2">
         <div
-          className="h-1.5 w-full bg-border rounded-full overflow-hidden relative"
+          className="h-1.5 w-full bg-border/40 rounded-full overflow-hidden relative"
           role="progressbar"
           aria-valuenow={Math.round(progress)}
           aria-valuemin="0"
@@ -99,26 +103,29 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
         >
           {/* Entry Point Marker */}
           <div
-            className="absolute top-0 bottom-0 w-0.5 bg-text/30 z-10"
-            style={{ left: '50%' }}
+            className="absolute top-0 bottom-0 w-px bg-white/40 z-20"
+            style={{ left: `${entryMarkPos}%` }}
             aria-hidden="true"
           />
           {/* Progress Bar */}
           <div
             className={cn(
-              "h-full transition-all duration-500",
+              "h-full transition-all duration-500 shadow-[0_0_10px_rgba(0,0,0,0.2)]",
               trade.pnl >= 0 ? "bg-green" : "bg-red"
             )}
             style={{ width: `${progress}%` }}
           />
         </div>
         <div className="flex justify-between text-[9px] font-bold text-dim uppercase tracking-widest font-mono">
-          <div className="flex flex-col">
-            <span>{isLong ? 'SL' : 'TP'}</span>
-            <span className="text-[8px] opacity-60">{entry ? ((Math.abs(mark - sl) / entry) * 100).toFixed(1) : 0}%</span>
+          <div className="flex flex-col items-start">
+            <span className="text-red/60">SL</span>
+            <span className="text-[8px] opacity-40">{entry ? ((Math.abs(entry - sl) / entry) * 100).toFixed(1) : 0}%</span>
           </div>
-          <span className="text-text/40">Entry</span>
-          <span>{isLong ? 'TP' : 'SL'}</span>
+          <span className="text-text/20">Entry</span>
+          <div className="flex flex-col items-end">
+            <span className="text-green/60">{tp ? 'TP' : '3R'}</span>
+            <span className="text-[8px] opacity-40">{tp && entry ? ((Math.abs(tp - entry) / entry) * 100).toFixed(1) : '---'}</span>
+          </div>
         </div>
       </div>
     </motion.div>

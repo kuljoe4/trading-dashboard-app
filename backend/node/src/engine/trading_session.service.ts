@@ -53,6 +53,8 @@ export class TradingSessionService {
   private lastScannerResultsJson = '';
   private lastScannerResults: any[] = [];
   private lastVariantScannerResults: any[] = [];
+  private hotLoopProcessing = false;
+  private mainLoopProcessing = false;
   private activeWindows: Map<string, any> = new Map();
   private userDataWs: any = null;
   private listenKey: string | null = null;
@@ -77,7 +79,7 @@ export class TradingSessionService {
 
   private scanSignature(config: SessionConfig): string {
     let s = this.cachedScanSignatures.get(config); if (s) return s;
-    s = JSON.stringify({ ge: config.global_scanner_enabled, si: config.scan_interval, sl: config.scan_lookback, st: config.scan_pct_threshold, mv: config.scan_min_volume_usdt, sm: config.scan_mode, ws: config.watchlist_size, wo: config.watchlist_offset, es: config.entry_side, ex: config.excluded_symbols, sym: config.symbols, ssc: config.single_symbol_configs });
+    s = JSON.stringify({ ge: config.global_scanner_enabled, si: config.scan_interval, sl: config.scan_lookback, st: config.scan_pct_threshold, mv: config.scan_min_volume_usdt, sm: config.scan_mode, ws: config.watchlist_size, es: config.entry_side, ex: config.excluded_symbols, sym: config.symbols, ssc: config.single_symbol_configs });
     this.cachedScanSignatures.set(config, s); return s;
   }
 
@@ -200,8 +202,10 @@ export class TradingSessionService {
   }
 
   private async hotLoop() {
-    if (!this.running || !this.config) return;
+    if (!this.running || !this.config || this.hotLoopProcessing) return;
     if (this.sessionState.listenerCount === 0 && this.positionTracker.activeCount() === 0) { this.monitoringService.recordHotLoop(0); return; }
+
+    this.hotLoopProcessing = true;
     const start = performance.now();
     try {
       await this.checkExits();
@@ -209,6 +213,8 @@ export class TradingSessionService {
       this.monitoringService.recordHotLoop(performance.now() - start);
     } catch (error) {
       this.logger.error(`Error in hot loop: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      this.hotLoopProcessing = false;
     }
   }
 
@@ -263,7 +269,9 @@ export class TradingSessionService {
   }
 
   private async mainLoop() {
-    if (!this.running || !this.config) return;
+    if (!this.running || !this.config || this.mainLoopProcessing) return;
+    this.mainLoopProcessing = true;
+
     const activeTrades = this.positionTracker.activeList();
     const riskResult = await this.refreshRiskGating();
 
@@ -316,6 +324,8 @@ export class TradingSessionService {
       this.monitoringService.recordMainLoop(performance.now() - start);
     } catch (error) {
       this.logger.error(`Error in main loop: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      this.mainLoopProcessing = false;
     }
   }
 
@@ -357,7 +367,7 @@ export class TradingSessionService {
   }
 
   private updateScannerResults(opportunities: any[]) {
-    this.lastScannerResults = opportunities.map((o) => ({ symbol: o.symbol, price: o.price, pct: roundTo(o.momentum, 2), momentum: roundTo(o.momentum, 2), direction: o.direction.toLowerCase(), dir: o.direction.toLowerCase(), vol: o.volume_24h, volume_usdt: o.volume_24h, volume_rank: o.volume_rank, score: roundTo(o.score / 10, 1), history: o.history, signalResult: o.signalResult, }));
+    this.lastScannerResults = opportunities.map((o) => ({ symbol: o.symbol, price: o.price, pct: roundTo(o.momentum, 2), momentum: roundTo(o.momentum, 2), direction: o.direction.toLowerCase(), dir: o.direction.toLowerCase(), vol: o.volume_24h, volume_usdt: o.volume_24h, score: roundTo(o.score / 10, 1), history: o.history, signalResult: o.signalResult, }));
     this.refreshActiveWindows(this.lastScannerResults);
   }
 

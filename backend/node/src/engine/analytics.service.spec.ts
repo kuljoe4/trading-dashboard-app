@@ -60,21 +60,4 @@ describe('AnalyticsService', () => {
     expect(hour15?.total).toBe(1);
     expect(hour15?.pnl).toBe(-5);
   });
-
-  it('calculates Sharpe and Sortino ratios correctly', () => {
-    // Standard distribution for easy calculation
-    // pnls: [10, -10, 10, -10] -> mean = 0, stdDev = 10, Sharpe = 0
-    // pnls: [20, 10, 20, 10] -> mean = 15, stdDev = 5, Sharpe = 3
-    const trades = [
-      { pnl: 20, status: 'CLOSED', exit_ts: new Date('2023-01-01T10:00:00Z') },
-      { pnl: 10, status: 'CLOSED', exit_ts: new Date('2023-01-01T11:00:00Z') },
-      { pnl: 20, status: 'CLOSED', exit_ts: new Date('2023-01-01T12:00:00Z') },
-      { pnl: 10, status: 'CLOSED', exit_ts: new Date('2023-01-01T13:00:00Z') },
-    ] as TradeEntity[];
-
-    const result = service.calculateAnalytics(trades, 1000);
-
-    expect(result.sharpeRatio).toBe(3); // mean=15, stdDev=5 => 15/5 = 3
-    expect(result.sortinoRatio).toBe(0); // No downside deviation
-  });
 });

@@ -27,9 +27,6 @@ export class Session {
   @CreateDateColumn()
   startTime: Date;
 
-  @Column({ nullable: true })
-  endTime: Date;
-
   @Column('jsonb', { nullable: true })
   config: any;
 

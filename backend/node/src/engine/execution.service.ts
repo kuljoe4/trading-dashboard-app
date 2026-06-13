@@ -97,7 +97,10 @@ export class ExecutionService {
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);
 
     for (const opp of opportunities) {
-      if (this.positionTracker.hasSymbol(opp.symbol)) continue;
+      if (this.positionTracker.hasSymbol(opp.symbol)) {
+        this.logger.debug(`${opp.symbol}: Entry skipped - already in position or entering.`);
+        continue;
+      }
 
       const sc = symbolConfigMap?.get(opp.symbol);
       const symbolConfig = (sc?.use_custom_config && sc.custom_config) ? { ...config, ...sc.custom_config } as SessionConfig : config;
@@ -152,6 +155,9 @@ export class ExecutionService {
       const openPrice = ticker?.open_24h || price;
       const dailyChangeAtEntry = ((price - openPrice) / openPrice) * 100 * (opp.direction.toUpperCase() === 'LONG' ? 1 : -1);
 
+      // SEC: Atomic lock to prevent concurrent entry attempts for the same symbol
+      this.positionTracker.setEntering(opp.symbol, true);
+
       try {
         const result = await this.orderManager.enter(
           (this.sessionState.config as any)?.sessionId || uuid().substring(0, 8),
@@ -192,6 +198,8 @@ export class ExecutionService {
       } catch (err) {
         this.logger.error(`Failed to process entry for ${opp.symbol}: ${err instanceof Error ? err.message : String(err)}`);
         // Continue to next opportunity
+      } finally {
+        this.positionTracker.setEntering(opp.symbol, false);
       }
     }
   }

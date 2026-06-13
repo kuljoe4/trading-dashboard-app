@@ -16,6 +16,7 @@ export class PositionTrackerService {
   private readonly logger = new Logger(PositionTrackerService.name);
 
   private trades: Map<string, Trade> = new Map(); // symbol -> Trade
+  private enteringSymbols: Set<string> = new Set(); // symbols currently in the process of entering
   private closingSymbols: Set<string> = new Set(); // symbols currently in the process of closing
   private rrSequenceIndex: Map<string, number> = new Map(); // symbol -> current milestone index
   private _totalRisk = 0;
@@ -32,7 +33,19 @@ export class PositionTrackerService {
   ) {}
 
   hasSymbol(symbol: string): boolean {
-    return this.trades.has(symbol);
+    return this.trades.has(symbol) || this.enteringSymbols.has(symbol);
+  }
+
+  isEntering(symbol: string): boolean {
+    return this.enteringSymbols.has(symbol);
+  }
+
+  setEntering(symbol: string, entering: boolean): void {
+    if (entering) {
+      this.enteringSymbols.add(symbol);
+    } else {
+      this.enteringSymbols.delete(symbol);
+    }
   }
 
   activeList(): Trade[] {

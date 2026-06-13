@@ -14,7 +14,6 @@ export const C = {
   redBorder: "#ff446630",
   amber: "#f5a623",
   amberDim: "#f5a62315",
-  orange: "#ff9533",
   blue: "#4a9eff",
   blueDim: "#4a9eff15",
   accent: "#5b6fff",

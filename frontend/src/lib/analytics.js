@@ -3,54 +3,44 @@ import { TrendingUp, TrendingDown, Target, AlertTriangle, ShieldCheck, Zap } fro
 export const getExpectancyStatus = (wr, wl) => {
   const expectancy = (wr * wl) - (1 - wr);
 
+  const tiers = [
+    { label: 'Excellent', range: '> 0.50' },
+    { label: 'Good', range: '0.25 - 0.50' },
+    { label: 'Acceptable', range: '0.05 - 0.25' },
+    { label: 'Weak', range: '0.00 - 0.05' },
+    { label: 'Poor', range: '< 0.00' }
+  ];
+
   if (expectancy > 0.50) {
-    return {
-      expectancy,
-      label: 'Excellent',
-      color: 'text-green',
-      icon: ShieldCheck
-    };
+    return { expectancy, label: 'Excellent', color: 'text-green', icon: ShieldCheck, description: 'Highly profitable.', tiers };
   }
   if (expectancy >= 0.25) {
-    return {
-      expectancy,
-      label: 'Good',
-      color: 'text-blue',
-      icon: Zap
-    };
+    return { expectancy, label: 'Good', color: 'text-blue', icon: Zap, description: 'Healthy returns.', tiers };
   }
   if (expectancy >= 0.05) {
-    return {
-      expectancy,
-      label: 'Acceptable',
-      color: 'text-amber',
-      icon: Target
-    };
+    return { expectancy, label: 'Acceptable', color: 'text-amber', icon: Target, description: 'Within expectations.', tiers };
   }
   if (expectancy >= 0) {
-    return {
-      expectancy,
-      label: 'Weak',
-      color: 'text-orange',
-      icon: AlertTriangle
-    };
+    return { expectancy, label: 'Weak', color: 'text-orange', icon: AlertTriangle, description: 'Expectancy is low.', tiers };
   }
 
-  return {
-    expectancy,
-    label: 'Poor',
-    color: 'text-red',
-    icon: TrendingDown
-  };
+  return { expectancy, label: 'Poor', color: 'text-red', icon: TrendingDown, description: 'Losing money.', tiers };
 };
 
 export const getSharpeStatus = (sharpe) => {
   const val = Number(sharpe || 0);
-  if (val >= 2.0) return { label: 'Excellent', color: 'text-green', icon: ShieldCheck };
-  if (val >= 1.5) return { label: 'Good', color: 'text-blue', icon: Zap };
-  if (val >= 1.0) return { label: 'Acceptable', color: 'text-amber', icon: Target };
-  if (val >= 0.5) return { label: 'Weak', color: 'text-orange', icon: AlertTriangle };
-  return { label: 'Poor', color: 'text-red', icon: TrendingDown };
+  const tiers = [
+    { label: 'Excellent', range: '≥ 2.0' },
+    { label: 'Good', range: '1.5 - 2.0' },
+    { label: 'Acceptable', range: '1.0 - 1.5' },
+    { label: 'Weak', range: '0.5 - 1.0' },
+    { label: 'Poor', range: '< 0.5' }
+  ];
+  if (val >= 2.0) return { label: 'Excellent', color: 'text-green', icon: ShieldCheck, description: 'Outstanding returns.', tiers };
+  if (val >= 1.5) return { label: 'Good', color: 'text-blue', icon: Zap, description: 'Strong performance.', tiers };
+  if (val >= 1.0) return { label: 'Acceptable', color: 'text-amber', icon: Target, description: 'Satisfactory return.', tiers };
+  if (val >= 0.5) return { label: 'Weak', color: 'text-orange', icon: AlertTriangle, description: 'Low return.', tiers };
+  return { label: 'Poor', color: 'text-red', icon: TrendingDown, description: 'Negative returns.', tiers };
 };
 
 /**
@@ -115,9 +105,16 @@ export const calculateSortino = (trades = []) => calculatePerformanceMetrics(tra
 
 export const getSortinoStatus = (sortino) => {
   const val = Number(sortino || 0);
-  if (val >= 3.0) return { label: 'Excellent', color: 'text-green', icon: ShieldCheck };
-  if (val >= 2.0) return { label: 'Good', color: 'text-blue', icon: Zap };
-  if (val >= 1.0) return { label: 'Acceptable', color: 'text-amber', icon: Target };
-  if (val >= 0.5) return { label: 'Weak', color: 'text-orange', icon: AlertTriangle };
-  return { label: 'Poor', color: 'text-red', icon: TrendingDown };
+  const tiers = [
+    { label: 'Excellent', range: '≥ 3.0' },
+    { label: 'Good', range: '2.0 - 3.0' },
+    { label: 'Acceptable', range: '1.0 - 2.0' },
+    { label: 'Weak', range: '0.5 - 1.0' },
+    { label: 'Poor', range: '< 0.5' }
+  ];
+  if (val >= 3.0) return { label: 'Excellent', color: 'text-green', icon: ShieldCheck, description: 'Superior protection.', tiers };
+  if (val >= 2.0) return { label: 'Good', color: 'text-blue', icon: Zap, description: 'Strong protection.', tiers };
+  if (val >= 1.0) return { label: 'Acceptable', color: 'text-amber', icon: Target, description: 'Adequate protection.', tiers };
+  if (val >= 0.5) return { label: 'Weak', color: 'text-orange', icon: AlertTriangle, description: 'Insufficient protection.', tiers };
+  return { label: 'Poor', color: 'text-red', icon: TrendingDown, description: 'High downside risk.', tiers };
 };

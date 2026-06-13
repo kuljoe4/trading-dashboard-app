@@ -32,6 +32,10 @@
 **Learning:** Numeric shortcuts are efficient but can be harder to remember than mnemonics (C for Cockpit, H for History). Providing both improves recall for different user types.
 **Action:** Expanded global keyboard listeners to include 'C' and 'H' mnemonics and updated sidebar tooltips to communicate these alternative shortcuts, enhancing overall dashboard accessibility.
 
+## 2026-06-13 - Standardized StatCard and Responsive Tooltip Hierarchy
+**Learning:** Consistent data hierarchy (Title -> Value -> Sub-Value) and explicit top-alignment are critical for professional, readable dashboards. Tooltips should act as reference tables for tiers to improve utility.
+**Action:** Established project-wide standards for `StatCard` layout (avoiding truncation for titles, explicit top-alignment, consistent gap) and Tooltip structure (adding 'Info' triggers, comprehensive tier reference tables).
+
 ## 2026-05-31 - Motion-Driven Confirmation Feedback
 **Learning:** Static state changes in confirmation buttons can be missed if the user is focused on the data. Subtle motion (like sliding icons) combined with pulsing color cues provides a stronger affordance that the button is "armed" for a destructive action.
 **Action:** Implemented a Framer Motion transition on the "Terminate Session" button icon to slide out of view during the confirmation phase, heightening the visual impact and reducing accidental double-taps.

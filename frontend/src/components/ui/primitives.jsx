@@ -39,30 +39,30 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
 
   return (
     <div
-      className="bg-surface border border-border/60 p-3 md:p-5 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col justify-center min-h-[64px] md:min-h-[100px] min-w-0"
+      className="bg-surface border border-border/60 p-3 md:p-5 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[100px] min-w-0"
       role="region"
       aria-label={`${label}: ${value}`}
     >
       {syncing && (
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />
       )}
-      <div className="flex flex-row md:flex-col items-center md:items-start justify-between md:justify-start gap-1.5 min-w-0">
-        <div className="text-[8px] md:text-[10px] text-dim tracking-[0.15em] md:mb-2 uppercase font-black group-hover:text-dim/80 transition-colors shrink-0 truncate max-w-[40%]" aria-hidden="true">{label}</div>
+      <div className="flex flex-col gap-1 w-full self-start">
+        <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-tight" aria-hidden="true">{label}</div>
         <div className={cn(
-          "text-sm md:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate flex-1 md:w-full text-right md:text-left",
+          "text-sm md:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate",
           color,
           syncing && "opacity-40 blur-[1px]"
         )}>{sanitizedValue}</div>
+        {subValue && (
+          <div className={cn(
+            "text-[8px] md:text-[9px] text-dim font-mono font-black uppercase flex items-center gap-1.5",
+            syncing && "text-accent/60 animate-pulse"
+          )}>
+            {syncing && <Loader2 size={8} className="animate-spin" aria-hidden="true" />}
+            <span>{subValue}</span>
+          </div>
+        )}
       </div>
-      {subValue && (
-        <div className={cn(
-          "text-[8px] md:text-[9px] text-dim mt-1 md:mt-1.5 font-mono font-black uppercase flex items-center gap-1.5 truncate",
-          syncing && "text-accent/60 animate-pulse"
-        )}>
-          {syncing && <Loader2 size={8} className="animate-spin" aria-hidden="true" />}
-          <span className="truncate">{subValue}</span>
-        </div>
-      )}
     </div>
   );
 })
@@ -295,7 +295,7 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
           align={align}
           sideOffset={8}
           className={cn(
-            "z-[100] max-w-[calc(100vw-32px)] md:max-w-xs overflow-hidden rounded-lg bg-surface border border-border px-3 py-1.5 text-[10px] font-bold font-mono text-text shadow-xl animate-in fade-in zoom-in-95 duration-200 whitespace-normal break-words",
+            "z-[100] w-[90vw] md:w-auto md:max-w-md overflow-hidden rounded-xl bg-surface border border-border/80 p-5 text-[12px] font-medium text-text shadow-2xl animate-in fade-in zoom-in-95 duration-200 whitespace-normal break-words",
             className
           )}
         >

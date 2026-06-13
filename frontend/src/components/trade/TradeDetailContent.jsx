@@ -172,20 +172,38 @@ const ExitMonitor = ({ status, logic, trade }) => {
                        {isDelayed && !isFired ? 'Waiting for warm-up...' : (s.description || 'Monitoring')}
                      </span>
                    </div>
-                </div>
-
-                <div className="flex flex-col items-end shrink-0">
+                <div className="flex flex-col items-end shrink-0 gap-1">
                    <div className={cn("text-xs md:text-sm font-mono font-black tracking-tighter", isFired ? "text-red" : "text-text")}>
                      {s.insufficientData ? 'N/A' : Number(value).toFixed(value >= 100 ? 2 : 4)}
                      <span className="text-[9px] md:text-[10px] ml-0.5 opacity-40 font-bold">{s.unit}</span>
                    </div>
-                   <div className="text-[7px] md:text-[8px] text-dim font-black uppercase tracking-widest opacity-40 flex flex-col items-end">
-                     <span>Target: {s.threshold}</span>
-                     {estPnl !== null && (
-                       <span className={cn("mt-0.5", pnlClass(estPnl))}>
-                         Est. {fmtUSD(estPnl)}
-                       </span>
-                     )}
+                   <div className="text-[7px] md:text-[8px] font-black uppercase text-accent tracking-tight">
+                     {s.insufficientData ? 'Collecting...' : `${progress.toFixed(0)}% Triggered`}
+                   </div>
+                </div>
+                </div>
+
+                {!s.insufficientData && (
+                <div className="h-1 bg-background/50 rounded-full overflow-hidden mb-3">
+                  <div 
+                    className={cn("h-full transition-all duration-300", isFired ? "bg-red" : "bg-accent")} 
+                    style={{ width: `${progress}%` }} 
+                  />
+                </div>
+                )}
+
+                <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-dim/60 border-t border-border/40 pt-2 mt-auto">
+                 <span>Target: {s.threshold}</span>
+                 <div className="flex items-center gap-3">
+                    {estPnl !== null && (
+                       <span className={pnlClass(estPnl)}>PnL: {fmtUSD(estPnl)}</span>
+                    )}
+                    {/* RR calculation: PnL / Absolute Risk */}
+                    {estPnl !== null && trade.risk_usdt && (
+                       <span>RR: {(Math.abs(estPnl) / Number(trade.risk_usdt)).toFixed(1)}</span>
+                    )}
+                 </div>
+                </div>
                    </div>
                 </div>
               </div>

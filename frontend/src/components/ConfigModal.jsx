@@ -65,14 +65,17 @@ const flattenConfig = (config) => {
     };
   } catch (e) { return { ...config }; }
 };
-
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) => {
-  console.log('[ConfigModal] Mount - initialConfig:', initialConfig)
   const [cfg, setCfg] = useState(() => {
-    const flattened = flattenConfig(initialConfig)
-    console.log('[ConfigModal] Flattened initial config:', flattened)
-    return flattened
-  })
+    const savedDraft = sessionStorage.getItem('config_draft');
+    if (savedDraft) return JSON.parse(savedDraft);
+    return flattenConfig(initialConfig);
+  });
+  const [isDirty, setIsDirty] = useState(() => {
+    const savedDraft = sessionStorage.getItem('config_draft');
+    return !!savedDraft;
+  });
+
   const [section, setSection] = useState('scan')
   const [presets, setPresets] = useState([])
   const [presetName, setPresetName] = useState('')
@@ -82,8 +85,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
   const [testnetConfigured, setTestnetConfigured] = useState(false)
   const [liveConfigured, setLiveConfigured] = useState(false)
   const [modeWarning, setModeWarning] = useState(null)
+  const [loadedPresetName, setLoadedPresetName] = useState(() => sessionStorage.getItem('loaded_preset_name'));
+
+  useEffect(() => {
+    sessionStorage.setItem('config_draft', JSON.stringify(cfg));
+    if (loadedPresetName) sessionStorage.setItem('loaded_preset_name', loadedPresetName);
+    else sessionStorage.removeItem('loaded_preset_name');
+  }, [cfg, loadedPresetName]);
 
   const validate = (c) => {
+    // ... (rest of the component logic)
+
     const errs = {}; if (!c.scan_interval) errs.scan_interval = 'Required'; if (c.scan_lookback < 1) errs.scan_lookback = 'Min 1';
     if (c.scan_mode === 'active_window' && (!c.scan_window_duration_sec || !c.scan_check_interval_sec)) errs.scan_mode = 'Params missing';
     
@@ -133,6 +145,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
 
   const setField = (key, value) => { 
     console.log('[ConfigModal] setField called:', key, '=', value)
+    setIsDirty(true); // Mark as dirty on any change
     setCfg(prev => {
       const next = { ...prev, [key]: value };
       console.log('[ConfigModal] New config state:', next)
@@ -140,6 +153,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
       return next;
     });
   }
+  
+  const resetToLastSaved = () => {
+    sessionStorage.removeItem('config_draft');
+    setCfg(flattenConfig(initialConfig));
+    setIsDirty(false);
+    setErrors({});
+  };
   
   const handleModeSelect = (mode) => {
     console.log('[ConfigModal] Mode selected:', mode, 'testnetConfigured:', testnetConfigured, 'liveConfigured:', liveConfigured)
@@ -163,7 +183,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
   }
 
   const savePreset = () => { if (!validate(cfg)) return; const name = (presetName || generatedPresetName).trim(); if (!name) return; const { strategy_variants, ...pc } = cfg; const next = [...presets.filter(p => p.name !== name), { name, config: { ...pc, strategy_label: name } }]; setPresets(next); localStorage.setItem('strategy_presets', JSON.stringify(next)); setPresetName(''); setSaveSuccess(true); setTimeout(() => setSaveSuccess(false), 2000); }
-  const loadPreset = (p) => { setCfg({ ...p.config }); setSection('scan'); setErrors({}); }
+  const loadPreset = (p) => { 
+    setCfg({ ...p.config }); 
+    setLoadedPresetName(p.name);
+    setSection('scan'); 
+    setErrors({}); 
+    setIsDirty(false);
+  }
   const deletePreset = (e, name) => { e.stopPropagation(); const next = presets.filter(p => p.name !== name); setPresets(next); localStorage.setItem('strategy_presets', JSON.stringify(next)); }
   const toggleVariant = (e, p) => {
     e.stopPropagation()
@@ -623,14 +649,20 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                   return (
                     <div key={p.name} className="flex items-center justify-between p-4 bg-background border border-border rounded-2xl transition-all group/preset">
                       <button type="button" onClick={() => loadPreset(p)} className="flex-1 flex items-center gap-4 text-left">
-                        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center border transition-colors", isVariant ? "bg-accent border-accent text-white" : "bg-surface border-border text-dim group-hover/preset:border-accent/20")}>
-                          {isVariant ? <ShieldCheck size={20} /> : <Zap size={20} />}
+                      <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center border transition-colors", isVariant ? "bg-accent border-accent text-white" : "bg-surface border-border text-dim group-hover/preset:border-accent/20")}>
+                        {isVariant ? <ShieldCheck size={20} /> : <Zap size={20} />}
+                      </div>
+                      <div>
+                        <div className="text-sm font-bold group-hover/preset:text-accent transition-colors flex items-center gap-2">
+                           {p.name}
+                           {loadedPresetName === p.name && isDirty && (
+                             <span className="text-[9px] bg-amber/10 text-amber px-1.5 py-0.5 rounded">Modified</span>
+                           )}
                         </div>
-                        <div>
-                          <div className="text-sm font-bold group-hover/preset:text-accent transition-colors">{p.name}</div>
-                          <div className="text-[10px] text-dim font-bold uppercase tracking-tight">{p.config.scan_interval} · {p.config.scan_pct_threshold}% · {p.config.risk_pct_per_trade}% Risk</div>
-                        </div>
+                        <div className="text-[10px] text-dim font-bold uppercase tracking-tight">{p.config.scan_interval} · {p.config.scan_pct_threshold}% · {p.config.risk_pct_per_trade}% Risk</div>
+                      </div>
                       </button>
+
                       <div className="flex items-center gap-2">
                         <Tooltip content={isVariant ? "Remove from variants" : "Add as strategy variant"}>
                           <button
@@ -661,8 +693,20 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
       </div>
 
       <div className="p-5 border-t border-border bg-surface flex gap-3 sticky bottom-0">
-        <Btn variant="ghost" onClick={onClose} className="flex-1">Cancel</Btn>
-        <Btn variant="primary" onClick={() => { if (validate(cfg)) onSave(buildConfigToSave()); }} className="flex-[2]">{isEdit ? 'Apply Changes' : 'Start Session'}</Btn>
+        <div className="flex-1 flex gap-2">
+           <Btn variant="ghost" onClick={onClose} className="flex-1">Cancel</Btn>
+           {isDirty && <Btn variant="ghost" onClick={resetToLastSaved} className="text-red hover:bg-red/5">Reset</Btn>}
+        </div>
+        <Btn variant="primary" onClick={() => { 
+          if (validate(cfg)) {
+             onSave(buildConfigToSave());
+             sessionStorage.removeItem('config_draft');
+             setIsDirty(false);
+          }
+        }} className="flex-[2] flex items-center justify-center gap-2">
+          {isEdit ? 'Apply Changes' : 'Start Session'}
+          {isDirty && <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />}
+        </Btn>
       </div>
     </div>
   )

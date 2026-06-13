@@ -7,7 +7,7 @@ import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { formatDuration } from '../lib/formatters'
 import { motion, AnimatePresence } from 'framer-motion'
-import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap, BarChart3, LineChart, Target, Trash2, Search, XCircle } from 'lucide-react'
+import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap, BarChart3, LineChart, Target, Trash2, Search, XCircle, Info } from 'lucide-react'
 
 import { Sidebar, BottomNav } from '../components/Navigation'
 // Lazy load heavy analytics components
@@ -505,18 +505,26 @@ export const HistoryView = () => {
           />
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-8 lg:mb-12">
-           <StatCard
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 gap-y-4 mb-8 lg:mb-12">
+          <StatCard
             label="Sharpe Ratio"
             value={Number(currentAnalytics?.sharpeRatio || 0).toFixed(2)}
             color="text-accent"
             subValue={
-              <div className="flex flex-col gap-0.5">
-                <span className={cn("flex items-center gap-1", sharpeStatus.color)}>
+              <Tooltip content={
+                <div className="flex flex-col gap-2">
+                  <span className="font-bold">{sharpeStatus.description}</span>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[9px]">
+                    {sharpeStatus.tiers.map(t => <span key={t.label}>{t.label}: {t.range}</span>)}
+                  </div>
+                </div>
+              }>
+                <span className={cn("flex items-center gap-1 cursor-pointer", sharpeStatus.color)}>
                   <sharpeStatus.icon size={10} />
                   {sharpeStatus.label}
+                  <Info size={10} className="opacity-50" />
                 </span>
-              </div>
+              </Tooltip>
             }
           />
           <StatCard
@@ -524,12 +532,20 @@ export const HistoryView = () => {
             value={Number(currentAnalytics?.sortinoRatio || 0).toFixed(2)}
             color="text-accent"
             subValue={
-              <div className="flex flex-col gap-0.5">
-                <span className={cn("flex items-center gap-1", sortinoStatus.color)}>
+              <Tooltip content={
+                <div className="flex flex-col gap-2">
+                  <span className="font-bold">{sortinoStatus.description}</span>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[9px]">
+                    {sortinoStatus.tiers.map(t => <span key={t.label}>{t.label}: {t.range}</span>)}
+                  </div>
+                </div>
+              }>
+                <span className={cn("flex items-center gap-1 cursor-pointer", sortinoStatus.color)}>
                   <sortinoStatus.icon size={10} />
                   {sortinoStatus.label}
+                  <Info size={10} className="opacity-50" />
                 </span>
-              </div>
+              </Tooltip>
             }
           />
           <StatCard label="Profit Factor" value={Number(currentAnalytics?.profitFactor || 0).toFixed(2)} color="text-accent" />
@@ -537,7 +553,21 @@ export const HistoryView = () => {
             label="Expectancy"
             value={Number(lifetimeExpectancyStatus.expectancy).toFixed(2)}
             color={lifetimeExpectancyStatus.color}
-            subValue={lifetimeExpectancyStatus.label}
+            subValue={
+              <Tooltip content={
+                <div className="flex flex-col gap-2">
+                  <span className="font-bold">{lifetimeExpectancyStatus.description}</span>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[9px]">
+                    {lifetimeExpectancyStatus.tiers.map(t => <span key={t.label}>{t.label}: {t.range}</span>)}
+                  </div>
+                </div>
+              }>
+                <span className="flex items-center gap-1 cursor-pointer">
+                  {lifetimeExpectancyStatus.label}
+                  <Info size={10} className="opacity-50" />
+                </span>
+              </Tooltip>
+            }
           />
         </div>
 

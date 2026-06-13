@@ -134,14 +134,14 @@ export const DecisionLog = React.memo(() => {
   return (
     <div className="flex flex-col gap-3 max-h-[500px] overflow-hidden">
       <div className="space-y-3">
-        <div className="relative group">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
+        <div className="relative group p-1.5">
+          <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
           <input
             type="text"
             placeholder="Search activity logs..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-surface border border-border rounded-xl pl-9 pr-4 py-2 text-[11px] font-bold focus:border-accent outline-none transition-all"
+            className="w-full bg-surface border border-border rounded-xl pl-10 pr-4 py-2 text-[11px] font-bold focus:border-accent focus:outline-accent outline-offset-1 transition-all"
           />
           {search && (
             <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors">
@@ -155,7 +155,7 @@ export const DecisionLog = React.memo(() => {
           aria-label="Filter logs by level"
           className="flex flex-wrap gap-2 items-center"
         >
-          <div className="flex-1 flex gap-2 overflow-x-auto">
+          <div className="flex-1 flex gap-2 overflow-x-auto min-w-0">
             <CopyButton
               value={visibleLogs.map(l => `[${l.ts}] ${l.msg}`).join('\n')}
               className="bg-surface border border-border"
@@ -181,7 +181,7 @@ export const DecisionLog = React.memo(() => {
               )
             })}
           </div>
-          <span className="text-[9px] text-dim font-bold uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50 shrink-0">Latest 500</span>
+          <span className="text-[9px] text-dim font-bold uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50 shrink-0 mt-1 md:mt-0 w-full md:w-auto text-center md:text-left">Latest 500</span>
         </div>
       </div>
 

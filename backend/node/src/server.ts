@@ -183,6 +183,7 @@ async function bootstrap() {
         serverLogger.warn(
           `Blocked WebSocket connection from unauthorized origin: ${info.origin} (IP: ${clientIp})`,
         );
+        recordFailure(clientIp);
         return done(false);
       } else if (isDevFallback) {
         serverLogger.warn(
@@ -219,6 +220,7 @@ async function bootstrap() {
           clearFailures(clientIp);
         } catch (err) {
           serverLogger.error(`WebSocket handshake URL parsing failed for ${info.origin} (IP: ${clientIp})`);
+          recordFailure(clientIp);
           return done(false);
         }
       } else if (nodeEnv === "production") {

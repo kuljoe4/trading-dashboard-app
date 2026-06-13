@@ -280,12 +280,6 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
             setOpen(!open);
           }
         }}
-        onPointerDown={(e) => {
-          // Improve touch responsiveness
-          if (e.pointerType === 'touch') {
-            setOpen(true);
-          }
-        }}
       >
         {children}
       </TooltipPrimitive.Trigger>

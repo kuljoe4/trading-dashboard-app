@@ -338,4 +338,15 @@ export class PositionTrackerService {
     this.rrSequenceIndex.delete(symbol);
     this._activeListCache = null;
   }
+
+  /**
+   * DATA-07: Manual recalculation of total risk to ensure state consistency
+   */
+  recalculateTotalRisk(): void {
+    let risk = 0;
+    for (const t of this.trades.values()) {
+      risk += (t.risk_usdt || 0);
+    }
+    this._totalRisk = roundEight(risk);
+  }
 }

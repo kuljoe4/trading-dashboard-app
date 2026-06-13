@@ -434,12 +434,19 @@ export class SessionService implements OnModuleInit {
     this.currentSessionId = session.id;
     this.sessionRunning = true;
 
-    // Load initial history for TOD risk context
-    const initialHistory = await this.tradeRepository.find({
-      where: { status: In(TERMINAL_STATUSES as any), sessionId: this.currentSessionId },
+    // Load initial history for TOD and period-based risk context
+    // DATA-07: Load history for the current mode across all sessions to ensure risk limits are enforced after restart
+    const rawHistory = await this.tradeRepository.find({
+      where: { status: In(TERMINAL_STATUSES as any) },
       order: { exit_ts: 'DESC' },
-      take: 200,
+      take: 500,
     });
+
+    const initialHistory = rawHistory.filter(t => {
+      const tConfig = t.strategy_config || {};
+      const tMode = tConfig.trading_mode || (tConfig.paper_mode === false ? 'live' : 'paper');
+      return tMode === mode;
+    }).slice(0, 200);
 
     // Load potentially orphaned open trades for reconciliation
     // For the active session, we'll resume these trades in the engine

@@ -28,11 +28,14 @@ export class SessionStateService {
   public listenerCount = 0;
   public dashboardCount = 0;
 
-  reset(config: SessionConfig, initialHistory: Trade[] = [], currentBalance?: number) {
+  reset(config: SessionConfig, initialHistory: Trade[] = [], currentBalance?: number, sessionId?: string) {
     this.config = config;
+
+    // DATA-07: Stats should be session-specific even if we load mode-wide history for risk gating
+    const sessionHistory = sessionId ? initialHistory.filter(t => t.sessionId === sessionId) : [];
     this.stats = {
-      entryCount: initialHistory.length,
-      hitCount: initialHistory.filter(t => (t.pnl || 0) > 0).length,
+      entryCount: sessionHistory.length,
+      hitCount: sessionHistory.filter(t => (t.pnl || 0) > 0).length,
     };
     this.statsVersion = 0;
     this.closedTrades = initialHistory;
@@ -157,15 +160,13 @@ export class SessionStateService {
 
   /**
    * BOLT OPTIMIZATION: Clears non-essential state when session stops.
-   * Keeps starting balances but clears transient history and stats caches.
+   * Keeps starting balances and history (required for risk gating) but clears transient caches.
    */
   minimize() {
-    this.closedTrades = [];
     this.activeTrades = [];
-    this.cachedClosedTradesStats = {};
     this.binanceRateLimit = { used_1m: 0, limit: 2400 };
     this.realTimePositions.clear();
-    this.stats = { entryCount: 0, hitCount: 0 };
+    // DATA-07: Preserve stats during hibernation so dashboard remains accurate
     this.statsVersion++;
 
     // Suggest explicit GC if --expose-gc is enabled

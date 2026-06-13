@@ -158,14 +158,32 @@ export class TradingSessionService {
     this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: startMsg, level: 'info' });
     await this.sessionLifecycle.start(config, bc, sid, hist, curBal, open);
 
+    // DATA-07: Recalculate total risk on start to ensure O(1) tracker is in sync with loaded state
+    this.positionTracker.recalculateTotalRisk();
+
+    // DATA-07: Immediate risk evaluation on start to detect gating/hibernation state
+    // BOLT: Await this before starting loops so we don't start market feed only to stop it immediately
+    try {
+      await this.refreshRiskGating();
+    } catch (e: any) {
+      this.logger.error(`Initial risk gating check failed: ${e.message}`);
+    }
+
     const hot = config.hot_loop_interval_ms || 5000; this.hotLoopInterval = setInterval(() => this.hotLoop(), hot);
     const main = config.main_loop_interval_ms || 15000; this.mainLoopInterval = setInterval(() => this.mainLoop(), main);
     this.fundingCheckInterval = setInterval(() => this.checkFundingFees(), 60000); // Check every minute
+
     this.broadcastSnapshot('started'); return { status: 'started' };
   }
 
   async stop() {
-    this.running = false; this.sessionState.paused = false;
+    this.running = false;
+    this.sessionState.paused = false;
+    this.sessionState.gateState = null;
+    this.sessionState.hibernating = false;
+    this.mainLoopProcessing = false;
+    this.hotLoopProcessing = false;
+
     if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
     if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
     if (this.fundingCheckInterval) clearInterval(this.fundingCheckInterval);
@@ -259,19 +277,36 @@ export class TradingSessionService {
     const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, this.getBalance(), 'DUMMY', this.config!, this.positionTracker.totalRisk());
     const hasUnscheduledMonitors = this.config.single_symbol_configs?.some(sc => sc.enabled && sc.follow_schedule === false);
 
-    if (!isInsideWindow && !hasUnscheduledMonitors) this.sessionState.gateState = 'sleeping';
-    else if (!riskResult.canEnter) { if (!riskResult.reason.includes('Max open trades for')) this.sessionState.gateState = this.gatingService.mapGateState(riskResult.reason); }
-    else this.sessionState.gateState = null;
+    if (!isInsideWindow && !hasUnscheduledMonitors) {
+      this.sessionState.gateState = 'sleeping';
+    } else if (!riskResult.canEnter) {
+      // If gating is due to risk (not just symbol max trades), update gateState
+      if (!riskResult.reason.includes('Max open trades for')) {
+        this.sessionState.gateState = this.gatingService.mapGateState(riskResult.reason);
+      }
+    } else {
+      this.sessionState.gateState = null;
+    }
 
     const shouldHibernate = this.isGated() && activeTrades.length === 0;
+
+    // Transition to Hibernation
     if (shouldHibernate && !this.sessionState.hibernating) {
+      this.logger.log(`[Gating] Transitioning to Deep Sleep. Reason: ${riskResult.reason || 'Session gated and idle'}`);
       await this.gatingService.enterHibernation(riskResult.reason || 'Session gated and idle', this.config!, activeTrades);
       this.minimizeMemoryUsage();
-    } else if (!shouldHibernate && this.sessionState.hibernating) {
+    }
+    // Transition out of Hibernation
+    else if (!shouldHibernate && this.sessionState.hibernating) {
+      this.logger.log(`[Gating] Exiting Deep Sleep. Reason: Gating conditions cleared.`);
       await this.gatingService.exitHibernation(this.config!);
     }
 
     if (this.sessionState.gateState !== prevGateState) {
+      const msg = `[Gating] State changed: ${prevGateState || 'ACTIVE'} -> ${this.sessionState.gateState || 'ACTIVE'}. Reason: ${riskResult.reason}`;
+      this.logger.log(msg);
+      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
+
       this.broadcast('gate', { gateState: this.sessionState.gateState, reason: riskResult.reason, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused });
       if (!this.sessionState.hibernating) this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, this.config);
     }
@@ -282,19 +317,21 @@ export class TradingSessionService {
     if (!this.running || !this.config || this.mainLoopProcessing) return;
     this.mainLoopProcessing = true;
 
-    const activeTrades = this.positionTracker.activeList();
-    const riskResult = await this.refreshRiskGating();
-
-    if (this.isGated() || this.sessionState.hibernating) {
-      if (this.sessionState.listenerCount > 0) {
-        const now = Date.now(); const isFull = now - this.lastScannerFullBroadcast > 30000; if (isFull) this.lastScannerFullBroadcast = now;
-        this.broadcast('scanner', { count: this.lastScannerResults.length, hibernating: this.sessionState.hibernating, opportunities: this.lastScannerResults.slice(0, 5).map(o => { if (isFull) return o; const { history, ...rest } = o; return rest; }), variant_opportunities: this.lastVariantScannerResults.map(v => ({ ...v, opportunities: v.opportunities.slice(0, 5).map((o: any) => { if (isFull) return o; const { history, ...rest } = o; return rest; }) })), activeWindows: this.getActiveWindows() });
-      }
-      return;
-    }
-
-    const start = performance.now();
     try {
+      const activeTrades = this.positionTracker.activeList();
+      await this.refreshRiskGating();
+
+      if (this.isGated() || this.sessionState.hibernating) {
+        if (this.sessionState.listenerCount > 0) {
+          const now = Date.now(); const isFull = now - this.lastScannerFullBroadcast > 30000; if (isFull) this.lastScannerFullBroadcast = now;
+          this.broadcast('scanner', { count: this.lastScannerResults.length, hibernating: this.sessionState.hibernating, opportunities: this.lastScannerResults.slice(0, 5).map(o => { if (isFull) return o; const { history, ...rest } = o; return rest; }), variant_opportunities: this.lastVariantScannerResults.map(v => ({ ...v, opportunities: v.opportunities.slice(0, 5).map((o: any) => { if (isFull) return o; const { history, ...rest } = o; return rest; }) })), activeWindows: this.getActiveWindows() });
+        }
+        // DATA-07: Ensure processing flag is reset even on early return during gating
+        this.mainLoopProcessing = false;
+        return;
+      }
+
+      const start = performance.now();
       const strategyConfigs = this.getStrategyConfigs(); const opportunitiesBySignature = new Map<string, any[]>(); let primaryOpportunities: any[] = [];
       for (const sc of strategyConfigs) { const sig = this.scanSignature(sc); if (!opportunitiesBySignature.has(sig)) opportunitiesBySignature.set(sig, this.momentumScanner.scan(sc)); if (primaryOpportunities.length === 0) primaryOpportunities = opportunitiesBySignature.get(sig) || []; }
       const scannerData = strategyConfigs.map(c => ({ strategy_label: c.strategy_label, opportunities: opportunitiesBySignature.get(this.scanSignature(c)) || [] }));
@@ -517,13 +554,43 @@ export class TradingSessionService {
   }
 
   getStatus() {
-    return { running: this.running, paused: this.sessionState.paused, mode: this.config?.paper_mode ? 'PAPER' : 'LIVE', tradingMode: this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live'), balance_paper: this.sessionState.balancePaper, balance_live: this.sessionState.balanceLive, stats: this.sessionState.stats, activeTrades: this.positionTracker.activeList().map((t) => this.engineBroadcaster.serializeTrade(t, this.config!)), total_risk: this.positionTracker.totalRisk(), variant_stats: this.variantAnalytics.calculateVariantStats(this.positionTracker.activeList(), this.getBalance(), this.sessionState.cachedClosedTradesStats, this.getStrategyConfigs()), scannerResults: this.lastScannerResults, activeWindows: this.getActiveWindows(), gateState: this.sessionState.gateState, hibernating: this.sessionState.hibernating, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused, history: this.sessionState.closedTrades.slice(0, 50).map((t) => this.engineBroadcaster.serializeTrade(t, this.config!, t.exit_price)), };
+    const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
+    const startingBalance = mode === 'paper'
+      ? (this.config?.paper_starting_balance || 10000)
+      : (this.config?.live_starting_balance || 0);
+    const currentBalance = this.getBalance();
+    const totalPnl = roundEight(currentBalance - startingBalance);
+
+    return {
+      running: this.running,
+      paused: this.sessionState.paused,
+      mode: this.config?.paper_mode ? 'PAPER' : 'LIVE',
+      tradingMode: mode,
+      balance_paper: this.sessionState.balancePaper,
+      balance_live: this.sessionState.balanceLive,
+      total_pnl: totalPnl,
+      stats: this.sessionState.stats,
+      activeTrades: this.positionTracker.activeList().map((t) => this.engineBroadcaster.serializeTrade(t, this.config!)),
+      total_risk: this.positionTracker.totalRisk(),
+      variant_stats: this.variantAnalytics.calculateVariantStats(this.positionTracker.activeList(), currentBalance, this.sessionState.cachedClosedTradesStats, this.getStrategyConfigs()),
+      scannerResults: this.lastScannerResults,
+      activeWindows: this.getActiveWindows(),
+      gateState: this.sessionState.gateState,
+      hibernating: this.sessionState.hibernating,
+      scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused,
+      history: this.sessionState.closedTrades.slice(0, 50).map((t) => this.engineBroadcaster.serializeTrade(t, this.config!, t.exit_price)),
+    };
   }
 
   setPaused(paused: boolean) { this.sessionState.paused = paused; this.broadcast('tick', { paused }); }
   updateConfig(config: SessionConfig) {
     const prev = this.config; this.config = config; this.cachedStrategyConfigs = null; this.cachedScanSignatures.clear();
     if (prev && (prev.hot_loop_interval_ms !== config.hot_loop_interval_ms || prev.main_loop_interval_ms !== config.main_loop_interval_ms)) { const isEco = this.sessionState.listenerCount === 0; const mainMs = isEco ? Math.max(15000, config.main_loop_interval_ms || 15000) : (config.main_loop_interval_ms || 15000); const hotMs = isEco ? Math.max(5000, config.hot_loop_interval_ms || 5000) : (config.hot_loop_interval_ms || 5000); this.restartLoops(hotMs, mainMs); }
+
+    // DATA-07: Trigger immediate risk re-evaluation when config is updated (e.g., risk_pct_per_trade changed from 2% during gating)
+    if (this.running) {
+      this.refreshRiskGating().catch(e => this.logger.error(`Failed to refresh gating after config update: ${e.message}`));
+    }
 
     this.auditLog.log({
       action: 'UPDATE_CONFIG',

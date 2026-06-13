@@ -3,7 +3,7 @@ import { clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 import * as ProgressPrimitive from "@radix-ui/react-progress"
 import * as TooltipPrimitive from "@radix-ui/react-tooltip"
-import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft } from 'lucide-react'
+import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus } from 'lucide-react'
 import { Sparkline as SparklineChart } from '../DataCharts'
 import { useTradingStore } from '../../store/trading'
 
@@ -24,6 +24,60 @@ export const PulseDot = React.memo(({ color = "bg-green" }) => (
     )} />
   </span>
 ))
+
+// --- Interactive Limit Card ---
+export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onIncrement, onDecrement, min = 0, max = 1000, step = 1, syncing }) => {
+  const handleKeyDown = (e) => {
+    if (e.key === 'ArrowUp') { e.preventDefault(); onIncrement(); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); onDecrement(); }
+  };
+
+  return (
+    <div
+      className="bg-surface border border-border/60 p-3 md:p-5 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[100px] min-w-0"
+      onKeyDown={handleKeyDown}
+      tabIndex={0}
+      role="spinbutton"
+      aria-label={label}
+      aria-valuenow={value}
+      aria-valuemin={min}
+      aria-valuemax={max}
+    >
+      {syncing && (
+        <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" />
+      )}
+      <div className="flex flex-col gap-1 w-full self-start relative z-10">
+        <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-tight">{label}</div>
+        <div className="flex items-center justify-between w-full gap-2">
+          <div className={cn(
+            "text-sm md:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate text-text",
+            syncing && "opacity-40 blur-[1px]"
+          )}>
+            {value}{unit}
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={(e) => { e.stopPropagation(); onDecrement(); }}
+              disabled={value <= min}
+              className="w-6 h-6 md:w-8 md:h-8 rounded-lg bg-background border border-border flex items-center justify-center text-dim hover:text-text hover:border-accent/40 active:scale-90 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              aria-label={`Decrease ${label}`}
+            >
+              <Minus size={14} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onIncrement(); }}
+              disabled={value >= max}
+              className="w-6 h-6 md:w-8 md:h-8 rounded-lg bg-background border border-border flex items-center justify-center text-dim hover:text-text hover:border-accent/40 active:scale-90 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              aria-label={`Increase ${label}`}
+            >
+              <Plus size={14} />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+})
 
 // --- Stat Card ---
 export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing }) => {

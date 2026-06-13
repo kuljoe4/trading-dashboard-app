@@ -157,12 +157,10 @@ export class SessionStateService {
 
   /**
    * BOLT OPTIMIZATION: Clears non-essential state when session stops.
-   * Keeps starting balances but clears transient history and stats caches.
+   * Keeps starting balances and history (required for risk gating) but clears transient caches.
    */
   minimize() {
-    this.closedTrades = [];
     this.activeTrades = [];
-    this.cachedClosedTradesStats = {};
     this.binanceRateLimit = { used_1m: 0, limit: 2400 };
     this.realTimePositions.clear();
     this.stats = { entryCount: 0, hitCount: 0 };

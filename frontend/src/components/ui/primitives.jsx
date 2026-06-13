@@ -274,10 +274,10 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
       <TooltipPrimitive.Trigger
         asChild
         onClick={(e) => {
-          // On mobile, toggle on click
-          if (window.matchMedia('(max-width: 768px)').matches) {
+          // On mobile/touch devices, toggle on click/tap
+          if (window.matchMedia('(pointer: coarse)').matches || window.matchMedia('(max-width: 768px)').matches) {
             e.stopPropagation();
-            setOpen(!open);
+            setOpen(prev => !prev);
           }
         }}
       >
@@ -289,7 +289,7 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
           align={align}
           sideOffset={8}
           className={cn(
-            "z-[100] w-[90vw] md:w-auto md:max-w-md overflow-hidden rounded-xl bg-surface border border-border/80 p-5 text-[12px] font-medium text-text shadow-2xl animate-in fade-in zoom-in-95 duration-200 whitespace-normal break-words",
+            "z-[100] max-w-[calc(100vw-32px)] md:max-w-md overflow-hidden rounded-xl bg-surface border border-border/80 p-5 text-[12px] font-medium text-text shadow-2xl animate-in fade-in zoom-in-95 duration-200 whitespace-normal break-words",
             className
           )}
         >

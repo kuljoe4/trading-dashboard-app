@@ -17,6 +17,9 @@ interface SignalDetail {
 export class SignalEngineService {
   private readonly logger = new Logger(SignalEngineService.name);
   private readonly warningCache: Set<string> = new Set();
+  private readonly warmupCache = new WeakMap<SessionConfig, number>();
+  private readonly emaCache = new Map<string, { value: number; insufficientData: boolean }>();
+  private readonly emaDualCache = new Map<string, { values: [number, number]; insufficientData: boolean }>();
 
   private readonly signalHandlers: Record<
     string,
@@ -39,26 +42,29 @@ export class SignalEngineService {
   getRequiredWarmup(config: SessionConfig): number {
     if (!config.enabled_signals || config.enabled_signals.length === 0) return 0;
 
-    const requirements: number[] = [0];
+    const cached = this.warmupCache.get(config);
+    if (cached !== undefined) return cached;
+
+    let maxReq = 0;
     const params: any = config.signal_params || {};
 
     for (const signalType of config.enabled_signals) {
       if (signalType === 'momentum_pct') {
-        requirements.push((config.scan_lookback || 3) + 1);
+        maxReq = Math.max(maxReq, (config.scan_lookback || 3) + 1);
       } else if (signalType === 'breakout_hl') {
-        requirements.push((config.scan_lookback || 3) + 1);
+        maxReq = Math.max(maxReq, (config.scan_lookback || 3) + 1);
       } else if (signalType === 'ma') {
         const period = parseInt(params.ma_period || '20', 10);
-        requirements.push(period + 1);
+        maxReq = Math.max(maxReq, period + 1);
       } else if (signalType === 'ema' || signalType === 'ema_cross' || signalType === 'ema_price_cross' || signalType === 'ema_close') {
         const period = parseInt(params.entry_ema_period || params.ema_period || '12', 10);
-        requirements.push(period * 2);
+        maxReq = Math.max(maxReq, period * 2);
       } else if (signalType === 'ema_dual_cross') {
         const fast = parseInt(params.entry_ema_fast || '9', 10);
         const slow = parseInt(params.entry_ema_slow || '21', 10);
-        requirements.push(Math.max(fast, slow) * 2);
+        maxReq = Math.max(maxReq, Math.max(fast, slow) * 2);
       } else if (signalType === 'engulfing') {
-        requirements.push(2);
+        maxReq = Math.max(maxReq, 2);
       }
     }
 
@@ -67,16 +73,17 @@ export class SignalEngineService {
       for (const signalType of config.exit_signals) {
         if (signalType === 'ema_close') {
           const period = parseInt(params.exit_ema_period || params.ema_period || '12', 10);
-          requirements.push(period * 2);
+          maxReq = Math.max(maxReq, period * 2);
         } else if (signalType === 'ema_dual_cross') {
           const fast = parseInt(params.exit_ema_fast || '9', 10);
           const slow = parseInt(params.exit_ema_slow || '21', 10);
-          requirements.push(Math.max(fast, slow) * 2);
+          maxReq = Math.max(maxReq, Math.max(fast, slow) * 2);
         }
       }
     }
 
-    return Math.max(...requirements);
+    this.warmupCache.set(config, maxReq);
+    return maxReq;
   }
 
   checkEntry(
@@ -329,7 +336,7 @@ export class SignalEngineService {
         return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Cross', description: 'Insufficient data', insufficientData: true };
       }
 
-      const emaRes = this.calculateEMA(candles, period, symbol, `EMA(${period})`);
+      const emaRes = this.calculateEMA(candles, period, interval, symbol, `EMA(${period})`);
       const ema = emaRes.value;
       const prevClose = candles[candles.length - 2].close;
       const currClose = candles[candles.length - 1].close;
@@ -382,8 +389,8 @@ export class SignalEngineService {
         return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Dual', description: 'Insufficient data', insufficientData: true };
       }
 
-      const fastRes = this.calculateEMALastTwo(candles, fastPeriod, symbol);
-      const slowRes = this.calculateEMALastTwo(candles, slowPeriod, symbol);
+      const fastRes = this.calculateEMALastTwo(candles, fastPeriod, interval, symbol);
+      const slowRes = this.calculateEMALastTwo(candles, slowPeriod, interval, symbol);
 
       if (!fastRes || !slowRes) {
         return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Dual', description: 'Insufficient EMA data', insufficientData: true };
@@ -444,7 +451,7 @@ export class SignalEngineService {
         };
       }
 
-      const emaRes = this.calculateEMA(candles, period, symbol, `EMA Close(${period})`);
+      const emaRes = this.calculateEMA(candles, period, interval, symbol, `EMA Close(${period})`);
       const ema = emaRes.value;
       const currClose = candles[candles.length - 1].close;
 
@@ -486,9 +493,16 @@ export class SignalEngineService {
    * to avoid large array allocations in the hot scanner path.
    * Uses the full available candle history for maximum convergence.
    */
-  private calculateEMALastTwo(candles: any[], period: number, symbol?: string): { values: [number, number]; insufficientData: boolean } | null {
+  private calculateEMALastTwo(candles: any[], period: number, interval: string, symbol?: string): { values: [number, number]; insufficientData: boolean } | null {
     const minNeeded = period + 1;
     if (candles.length < minNeeded) return null;
+
+    const lastCandle = candles[candles.length - 1];
+    const cacheKey = symbol ? `${symbol}:${interval}:${period}:${lastCandle.time}:${lastCandle.close}:${candles.length}` : null;
+    if (cacheKey) {
+      const cached = this.emaDualCache.get(cacheKey);
+      if (cached) return cached;
+    }
 
     // Convergence check: EMA needs time to stabilize.
     // We flag insufficient if < period * 2, but we only block if < period + 1.
@@ -513,7 +527,15 @@ export class SignalEngineService {
     }
 
     if (Number.isNaN(prevEma)) return null;
-    return { values: [prevEma, ema], insufficientData };
+    const result: { values: [number, number]; insufficientData: boolean } = { values: [prevEma, ema], insufficientData };
+    if (cacheKey) {
+      this.emaDualCache.set(cacheKey, result);
+      if (this.emaDualCache.size > 500) {
+        const firstKey = this.emaDualCache.keys().next().value;
+        if (firstKey) this.emaDualCache.delete(firstKey);
+      }
+    }
+    return result;
   }
 
   private calculateSMA(candles: any[], start: number, end: number): number {
@@ -530,10 +552,18 @@ export class SignalEngineService {
   /**
    * Calculates EMA using the full available candle history for maximum convergence.
    */
-  private calculateEMA(candles: any[], period: number, symbol?: string, metric?: string): { value: number; insufficientData: boolean } {
+  private calculateEMA(candles: any[], period: number, interval: string, symbol?: string, metric?: string): { value: number; insufficientData: boolean } {
     if (candles.length === 0) return { value: 0, insufficientData: true };
 
     const minNeeded = period + 1;
+
+    const lastCandle = candles[candles.length - 1];
+    const cacheKey = symbol ? `${symbol}:${interval}:${period}:${lastCandle.time}:${lastCandle.close}:${candles.length}` : null;
+    if (cacheKey) {
+      const cached = this.emaCache.get(cacheKey);
+      if (cached) return cached;
+    }
+
     const insufficientData = candles.length < period * 2;
 
     if (insufficientData && symbol) {
@@ -558,6 +588,14 @@ export class SignalEngineService {
       ema += multiplier * (candles[i].close - ema);
     }
 
-    return { value: ema, insufficientData };
+    const result = { value: ema, insufficientData };
+    if (cacheKey) {
+      this.emaCache.set(cacheKey, result);
+      if (this.emaCache.size > 500) {
+        const firstKey = this.emaCache.keys().next().value;
+        if (firstKey) this.emaCache.delete(firstKey);
+      }
+    }
+    return result;
   }
 }

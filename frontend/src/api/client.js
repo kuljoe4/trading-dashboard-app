@@ -114,7 +114,25 @@ const sanitizeSessionConfig = (config) => {
   const sanitized = {}
   sessionConfigAllowedKeys.forEach((key) => {
     if (config[key] !== undefined) {
-      sanitized[key] = config[key]
+      // Recursively sanitize strategy_variants and single_symbol_configs
+      if (key === 'strategy_variants' && Array.isArray(config[key])) {
+        sanitized[key] = config[key].map(v => sanitizeSessionConfig(v))
+      } else if (key === 'single_symbol_configs' && Array.isArray(config[key])) {
+        sanitized[key] = config[key].map(sc => {
+          const ssc = {
+            symbol: sc.symbol,
+            enabled: sc.enabled,
+            follow_schedule: sc.follow_schedule,
+            use_custom_config: sc.use_custom_config
+          }
+          if (sc.custom_config) {
+            ssc.custom_config = sanitizeSessionConfig(sc.custom_config)
+          }
+          return ssc
+        })
+      } else {
+        sanitized[key] = config[key]
+      }
     }
   })
 
@@ -124,9 +142,6 @@ const sanitizeSessionConfig = (config) => {
     } catch (error) {
       /* keep original if serialization fails */
     }
-  } else if (typeof sanitized.signal_params === 'string') {
-    // If it's already a string, ensure it's not double-stringified elsewhere
-    // ConfigModal.jsx might stringify it before passing to sanitizeSessionConfig
   }
 
   return sanitized

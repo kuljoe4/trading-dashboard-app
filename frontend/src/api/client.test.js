@@ -141,4 +141,40 @@ describe('sanitizeSessionConfig', () => {
     })
     assert.equal(result.data.strategyId, 'browser-style')
   })
+
+  it('recursively sanitizes strategy_variants and single_symbol_configs', () => {
+    const config = {
+      strategy_label: 'Main',
+      strategy_variants: [
+        {
+          strategy_label: 'Variant 1',
+          unknown_variant_prop: 'oops',
+          signal_params: { ma_period: 20 }
+        }
+      ],
+      single_symbol_configs: [
+        {
+          symbol: 'BTCUSDT',
+          enabled: true,
+          unknown_symbol_prop: 'oops',
+          custom_config: {
+            strategy_label: 'Custom BTC',
+            unknown_custom_prop: 'oops'
+          }
+        }
+      ]
+    }
+    const sanitized = sanitizeSessionConfig(config)
+
+    assert.equal(sanitized.strategy_variants.length, 1)
+    assert.equal(sanitized.strategy_variants[0].strategy_label, 'Variant 1')
+    assert.strictEqual(sanitized.strategy_variants[0].unknown_variant_prop, undefined)
+    assert.equal(sanitized.strategy_variants[0].signal_params, JSON.stringify({ ma_period: 20 }))
+
+    assert.equal(sanitized.single_symbol_configs.length, 1)
+    assert.equal(sanitized.single_symbol_configs[0].symbol, 'BTCUSDT')
+    assert.strictEqual(sanitized.single_symbol_configs[0].unknown_symbol_prop, undefined)
+    assert.equal(sanitized.single_symbol_configs[0].custom_config.strategy_label, 'Custom BTC')
+    assert.strictEqual(sanitized.single_symbol_configs[0].custom_config.unknown_custom_prop, undefined)
+  })
 })

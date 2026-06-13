@@ -3,7 +3,7 @@ import { clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 import * as ProgressPrimitive from "@radix-ui/react-progress"
 import * as TooltipPrimitive from "@radix-ui/react-tooltip"
-import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus } from 'lucide-react'
+import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock } from 'lucide-react'
 import { Sparkline as SparklineChart } from '../DataCharts'
 import { useTradingStore } from '../../store/trading'
 
@@ -27,18 +27,44 @@ export const PulseDot = React.memo(({ color = "bg-green" }) => (
 
 // --- Interactive Limit Card ---
 export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onIncrement, onDecrement, min = 0, max = 1000, step = 1, syncing }) => {
+  const [isLocked, setIsLocked] = React.useState(true);
+  const timerRef = React.useRef(null);
+
+  const handleAction = (action) => {
+    if (isLocked) {
+      setIsLocked(false);
+    } else {
+      action();
+    }
+
+    // Reset auto-lock timer
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setIsLocked(true), 5000);
+  };
+
   const handleKeyDown = (e) => {
-    if (e.key === 'ArrowUp') { e.preventDefault(); onIncrement(); }
-    if (e.key === 'ArrowDown') { e.preventDefault(); onDecrement(); }
+    if (isLocked) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        setIsLocked(false);
+      }
+      return;
+    }
+    if (e.key === 'ArrowUp') { e.preventDefault(); handleAction(onIncrement); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); handleAction(onDecrement); }
+    if (e.key === 'Escape') { e.preventDefault(); setIsLocked(true); }
   };
 
   return (
     <div
-      className="bg-surface border border-border/60 p-3 md:p-5 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[100px] min-w-0"
+      className={cn(
+        "bg-surface border p-3 md:p-5 rounded-2xl shadow-sm transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[100px] min-w-0",
+        isLocked ? "border-border/60" : "border-accent/40 bg-accent/[0.02] shadow-[0_0_20px_rgba(91,111,255,0.05)]"
+      )}
       onKeyDown={handleKeyDown}
       tabIndex={0}
       role="spinbutton"
-      aria-label={label}
+      aria-label={`${label} (${isLocked ? 'Locked' : 'Unlocked'})`}
       aria-valuenow={value}
       aria-valuemin={min}
       aria-valuemax={max}
@@ -47,28 +73,48 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" />
       )}
       <div className="flex flex-col gap-1 w-full self-start relative z-10">
-        <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-tight">{label}</div>
+        <div className="flex items-center justify-between w-full">
+          <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-tight">{label}</div>
+          <button
+            onClick={(e) => { e.stopPropagation(); setIsLocked(!isLocked); }}
+            className={cn("p-1 rounded-md transition-colors", isLocked ? "text-dim/40 hover:text-dim" : "text-accent")}
+            aria-label={isLocked ? "Unlock controls" : "Lock controls"}
+          >
+            {isLocked ? <Lock size={10} /> : <Unlock size={10} />}
+          </button>
+        </div>
         <div className="flex items-center justify-between w-full gap-2">
           <div className={cn(
-            "text-sm md:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate text-text",
+            "text-sm md:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate",
+            isLocked ? "text-dim/60" : "text-text",
             syncing && "opacity-40 blur-[1px]"
           )}>
             {value}{unit}
           </div>
           <div className="flex items-center gap-1">
             <button
-              onClick={(e) => { e.stopPropagation(); onDecrement(); }}
-              disabled={value <= min}
-              className="w-6 h-6 md:w-8 md:h-8 rounded-lg bg-background border border-border flex items-center justify-center text-dim hover:text-text hover:border-accent/40 active:scale-90 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-              aria-label={`Decrease ${label}`}
+              onClick={(e) => { e.stopPropagation(); handleAction(onDecrement); }}
+              disabled={!isLocked && value <= min}
+              className={cn(
+                "w-6 h-6 md:w-8 md:h-8 rounded-lg border flex items-center justify-center transition-all active:scale-90",
+                isLocked
+                  ? "bg-transparent border-transparent text-dim/20"
+                  : "bg-background border-border text-dim hover:text-text hover:border-accent/40 shadow-sm"
+              )}
+              aria-label={isLocked ? "Tap to unlock" : `Decrease ${label}`}
             >
               <Minus size={14} />
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); onIncrement(); }}
-              disabled={value >= max}
-              className="w-6 h-6 md:w-8 md:h-8 rounded-lg bg-background border border-border flex items-center justify-center text-dim hover:text-text hover:border-accent/40 active:scale-90 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-              aria-label={`Increase ${label}`}
+              onClick={(e) => { e.stopPropagation(); handleAction(onIncrement); }}
+              disabled={!isLocked && value >= max}
+              className={cn(
+                "w-6 h-6 md:w-8 md:h-8 rounded-lg border flex items-center justify-center transition-all active:scale-90",
+                isLocked
+                  ? "bg-transparent border-transparent text-dim/20"
+                  : "bg-background border-border text-dim hover:text-text hover:border-accent/40 shadow-sm"
+              )}
+              aria-label={isLocked ? "Tap to unlock" : `Increase ${label}`}
             >
               <Plus size={14} />
             </button>

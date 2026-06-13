@@ -276,7 +276,7 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
         onClick={(e) => {
           // On mobile, toggle on click
           if (window.matchMedia('(max-width: 768px)').matches) {
-            e.preventDefault();
+            e.stopPropagation();
             setOpen(!open);
           }
         }}

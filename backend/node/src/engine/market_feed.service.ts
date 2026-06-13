@@ -24,6 +24,7 @@ export class MarketFeedService {
   private readonly logger = new Logger(MarketFeedService.name);
   private running = false;
   private miniTickerWs: WebSocket | null = null;
+  private markTickerWs: WebSocket | null = null;
   private combinedKlineWsList: WebSocket[] = [];
   private exchangeInfo: Map<string, any> = new Map();
   private lastExchangeInfoFetch = 0;
@@ -60,6 +61,7 @@ export class MarketFeedService {
 
     await this.fetchExchangeInfo(restBase);
     this.startMiniTickerStream();
+    this.startMarkTickerStream();
 
     const waitForWs = new Promise<void>((resolve) => {
       const check = setInterval(() => {
@@ -155,6 +157,7 @@ export class MarketFeedService {
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
     if (this.watchlistUpdateTimeout) clearTimeout(this.watchlistUpdateTimeout);
     if (this.miniTickerWs) { this.safeClose(this.miniTickerWs); this.miniTickerWs = null; }
+    if (this.markTickerWs) { this.safeClose(this.markTickerWs); this.markTickerWs = null; }
     for (const ws of this.combinedKlineWsList) this.safeClose(ws);
     this.combinedKlineWsList = [];
     for (const task of this.subscriptionTasks) clearTimeout(task);
@@ -178,8 +181,37 @@ export class MarketFeedService {
           this.logger.error(`Error processing mini-ticker stream: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
-      ws.on('close', () => { if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS)); });
+      ws.on('close', (code, reason) => {
+        this.miniTickerWs = null;
+        if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS));
+      });
       this.miniTickerWs = ws;
+    };
+    connect();
+  }
+
+  private startMarkTickerStream() {
+    const connect = () => {
+      if (!this.running) return;
+      const ws = new WebSocket(`${ENGINE_CONSTANTS.BINANCE_WS_BASE}/ws/!markTicker@arr@1s`, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+      ws.on('message', (data: Buffer) => {
+        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) return;
+        try {
+          const msg = JSON.parse(data as any);
+          const updates = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
+          for (const u of updates) {
+            // Field 'p' is Mark Price in !markTicker@arr
+            this.tickerCache.updateTicker(u.s, undefined, undefined, undefined, u.p);
+          }
+        } catch (err) {
+          this.logger.error(`Error processing mark-ticker stream: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      });
+      ws.on('close', () => {
+        this.markTickerWs = null;
+        if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS));
+      });
+      this.markTickerWs = ws;
     };
     connect();
   }

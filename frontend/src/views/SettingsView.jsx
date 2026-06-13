@@ -149,7 +149,7 @@ export function SettingsView() {
           backAction={() => window.location.hash = '#/'}
         />
 
-        <div className="space-y-6 lg:space-y-8">
+        <div className="flex flex-col gap-6 lg:gap-8">
           <section>
             <SectionLabel className="mb-4">Dashboard Security</SectionLabel>
             <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm">

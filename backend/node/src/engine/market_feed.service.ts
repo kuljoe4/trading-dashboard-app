@@ -24,8 +24,8 @@ export class MarketFeedService {
   private readonly logger = new Logger(MarketFeedService.name);
   private running = false;
   private miniTickerWs: WebSocket | null = null;
-  private miniTickerReconnecting = false;
-  private combinedKlineWsList: Set<WebSocket> = new Set();
+  private markTickerWs: WebSocket | null = null;
+  private combinedKlineWsList: WebSocket[] = [];
   private exchangeInfo: Map<string, any> = new Map();
   private lastExchangeInfoFetch = 0;
   private lastExchangeInfoBase = '';
@@ -61,6 +61,7 @@ export class MarketFeedService {
 
     await this.fetchExchangeInfo(restBase);
     this.startMiniTickerStream();
+    this.startMarkTickerStream();
 
     const waitForWs = new Promise<void>((resolve) => {
       const check = setInterval(() => {
@@ -155,19 +156,10 @@ export class MarketFeedService {
     this.running = false;
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
     if (this.watchlistUpdateTimeout) clearTimeout(this.watchlistUpdateTimeout);
-
-    this.miniTickerReconnecting = true; // Block reconnection during stop
-    if (this.miniTickerWs) {
-      this.safeClose(this.miniTickerWs);
-      this.miniTickerWs = null;
-    }
-
-    for (const ws of this.combinedKlineWsList) {
-      (ws as any)._isExplicitClose = true;
-      this.safeClose(ws);
-    }
-    this.combinedKlineWsList.clear();
-
+    if (this.miniTickerWs) { this.safeClose(this.miniTickerWs); this.miniTickerWs = null; }
+    if (this.markTickerWs) { this.safeClose(this.markTickerWs); this.markTickerWs = null; }
+    for (const ws of this.combinedKlineWsList) this.safeClose(ws);
+    this.combinedKlineWsList = [];
     for (const task of this.subscriptionTasks) clearTimeout(task);
     this.subscriptionTasks = [];
     this.exchangeInfo.clear();
@@ -178,11 +170,7 @@ export class MarketFeedService {
   private startMiniTickerStream() {
     const connect = () => {
       if (!this.running) return;
-
-      const ws = new WebSocket(`${ENGINE_CONSTANTS.BINANCE_WS_BASE}/ws/!miniTicker@arr`, {
-        handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS
-      });
-
+      const ws = new WebSocket(`${ENGINE_CONSTANTS.BINANCE_WS_BASE}/ws/!miniTicker@arr`, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
       ws.on('message', (data: Buffer) => {
         if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) return;
         try {
@@ -193,24 +181,37 @@ export class MarketFeedService {
           this.logger.error(`Error processing mini-ticker stream: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
-
-      ws.on('close', () => {
+      ws.on('close', (code, reason) => {
         this.miniTickerWs = null;
-        if (this.running && !this.miniTickerReconnecting) {
-          this.logger.debug('Mini-ticker stream closed. Reconnecting...');
-          const timeout = setTimeout(() => {
-            this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== timeout);
-            connect();
-          }, ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS);
-          this.subscriptionTasks.push(timeout);
+        if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS));
+      });
+      this.miniTickerWs = ws;
+    };
+    connect();
+  }
+
+  private startMarkTickerStream() {
+    const connect = () => {
+      if (!this.running) return;
+      const ws = new WebSocket(`${ENGINE_CONSTANTS.BINANCE_WS_BASE}/ws/!markTicker@arr@1s`, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+      ws.on('message', (data: Buffer) => {
+        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) return;
+        try {
+          const msg = JSON.parse(data as any);
+          const updates = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
+          for (const u of updates) {
+            // Field 'p' is Mark Price in !markTicker@arr
+            this.tickerCache.updateTicker(u.s, undefined, undefined, undefined, u.p);
+          }
+        } catch (err) {
+          this.logger.error(`Error processing mark-ticker stream: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
-
-      ws.on('error', (err) => {
-        this.logger.error(`Mini-ticker stream error: ${err.message}`);
+      ws.on('close', () => {
+        this.markTickerWs = null;
+        if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS));
       });
-
-      this.miniTickerWs = ws;
+      this.markTickerWs = ws;
     };
     connect();
   }
@@ -246,7 +247,7 @@ export class MarketFeedService {
         let symbols: string[];
         if (config.symbols && config.symbols.length > 0) symbols = config.symbols;
         else {
-          const top = await this.tickerCache.topByVolume(config.watchlist_size || 50, config.excluded_symbols || [], config.watchlist_offset || 0);
+          const top = await this.tickerCache.topByVolume(config.watchlist_size || 50, config.excluded_symbols || []);
           symbols = top.map((t: any) => t.symbol);
         }
         const globalInterval = config.scan_interval || '1m';
@@ -292,19 +293,6 @@ export class MarketFeedService {
         const prevWatchlist = this.activeWatchlist;
         this.activeWatchlist = newWatchlist;
         await this.rebuildCombinedKlineStream();
-
-        // Memory Pruning
-        const activeKlineKeys = new Set<string>();
-        const activeSymbols = new Set<string>();
-        for (const [symbol, intervals] of newWatchlist) {
-          activeSymbols.add(symbol);
-          for (const interval of intervals) {
-            activeKlineKeys.add(`${symbol}_${interval}`);
-          }
-        }
-        this.klineStore.prune(activeKlineKeys);
-        this.tickerCache.prune(activeSymbols);
-
         for (const [symbol, intervals] of newWatchlist) {
           for (const interval of intervals) {
             const oldIntervals = prevWatchlist.get(symbol);
@@ -319,66 +307,38 @@ export class MarketFeedService {
   }
 
   private async rebuildCombinedKlineStream() {
-    this.logger.debug(`Rebuilding kline streams for ${this.activeWatchlist.size} symbols.`);
-    for (const ws of this.combinedKlineWsList) {
-      (ws as any)._isExplicitClose = true;
-      this.safeClose(ws);
-    }
-    this.combinedKlineWsList.clear();
-
+    for (const ws of this.combinedKlineWsList) this.safeClose(ws);
+    this.combinedKlineWsList = [];
     if (this.activeWatchlist.size === 0) return;
-
     const allStreams: string[] = [];
     for (const [symbol, intervals] of this.activeWatchlist) {
-      for (const interval of intervals) {
-        allStreams.push(`${symbol.toLowerCase()}@kline_${interval}`);
-      }
+      for (const interval of intervals) allStreams.push(`${symbol.toLowerCase()}@kline_${interval}`);
     }
-
-    const CHUNK_SIZE = ENGINE_CONSTANTS.KLINE_STREAM_CHUNK_SIZE || 20;
-    for (let i = 0; i < allStreams.length; i += CHUNK_SIZE) {
-      const chunk = allStreams.slice(i, i + CHUNK_SIZE);
+    const CHUNK_SIZE = 20;
+    const chunks = [];
+    for (let i = 0; i < allStreams.length; i += CHUNK_SIZE) chunks.push(allStreams.slice(i, i + CHUNK_SIZE));
+    for (const chunk of chunks) {
       const streams = chunk.join('/');
       const url = `${ENGINE_CONSTANTS.BINANCE_WS_BASE}/stream?streams=${streams}`;
-
       const connect = () => {
         if (!this.running) return;
-
-        const ws = new WebSocket(url, {
-          handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS
-        });
-
+        const ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
         ws.on('message', (data: Buffer) => {
           try {
             const msg: BinanceKline = JSON.parse(data as any);
             const kline = msg.data?.k;
             if (kline) {
               this.klineStore.upsertCandle(kline.s, kline.i, kline);
+              // BOLT: We update price from klines, but open_24h is strictly sourced from 24h miniTickers
               this.tickerCache.updateTicker(kline.s, kline.c);
               if (kline.x && this.onCandleClose) this.onCandleClose(kline.s).catch(() => {});
             }
           } catch (err) {
-            this.logger.error(`Error processing kline stream: ${err instanceof Error ? err.message : String(err)}`);
+            this.logger.error(`Error processing combined kline stream: ${err instanceof Error ? err.message : String(err)}`);
           }
         });
-
-        ws.on('close', () => {
-          this.combinedKlineWsList.delete(ws);
-          if (this.running && !(ws as any)._isExplicitClose) {
-            this.logger.debug(`Kline stream closed unexpectedly. Reconnecting...`);
-            const timeout = setTimeout(() => {
-              this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== timeout);
-              connect();
-            }, ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS);
-            this.subscriptionTasks.push(timeout);
-          }
-        });
-
-        ws.on('error', (err) => {
-          this.logger.error(`Kline stream error: ${err.message}`);
-        });
-
-        this.combinedKlineWsList.add(ws);
+        ws.on('close', () => { if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS)); });
+        this.combinedKlineWsList.push(ws);
       };
       connect();
     }
@@ -431,7 +391,7 @@ export class MarketFeedService {
     const existingCandles = await this.klineStore.getRecentCandles(symbol, interval, requiredWarmup);
 
     if (existingCandles.length >= requiredWarmup) {
-      const lastCandle = existingCandles[existingCandles.length - 1];
+      const lastCandle = existingCandles[0];
       const intervalMs = this.parseIntervalToMs(interval);
       // If the most recent candle is still fresh enough, skip backfill
       if (lastCandle.time + intervalMs >= Date.now() - (intervalMs * 2)) {

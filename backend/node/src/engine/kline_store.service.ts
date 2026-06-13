@@ -175,22 +175,6 @@ export class KlineStoreService {
   }
 
   /**
-   * Prune klines for symbols that are no longer in the active watchlist
-   */
-  prune(activeKeys: Set<string>) {
-    const initialSize = this.klines.size;
-    for (const key of this.klines.keys()) {
-      if (!activeKeys.has(key)) {
-        this.klines.delete(key);
-      }
-    }
-    const finalSize = this.klines.size;
-    if (initialSize !== finalSize) {
-      this.logger.verbose(`Pruned KlineStore: ${initialSize} -> ${finalSize} keys`);
-    }
-  }
-
-  /**
    * Clear all stored klines to free up memory (Deep Sleep)
    */
   clear() {

@@ -97,7 +97,10 @@ export class ExecutionService {
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);
 
     for (const opp of opportunities) {
-      if (this.positionTracker.hasSymbol(opp.symbol)) continue;
+      if (this.positionTracker.hasSymbol(opp.symbol)) {
+        this.logger.debug(`${opp.symbol}: Entry skipped - already in position or entering.`);
+        continue;
+      }
 
       const sc = symbolConfigMap?.get(opp.symbol);
       const symbolConfig = (sc?.use_custom_config && sc.custom_config) ? { ...config, ...sc.custom_config } as SessionConfig : config;
@@ -148,9 +151,16 @@ export class ExecutionService {
       }
       const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
 
+      // BOLT: Calculate risk for reservation BEFORE actual entry attempt
+      const reservedRisk = roundEight(Math.abs(price - slPrice) * qty);
+
       const ticker = this.tickerCache.getTicker(opp.symbol);
       const openPrice = ticker?.open_24h || price;
       const dailyChangeAtEntry = ((price - openPrice) / openPrice) * 100 * (opp.direction.toUpperCase() === 'LONG' ? 1 : -1);
+
+      // SEC: Atomic lock and Risk Reservation to prevent concurrent entry attempts and over-leveraging
+      this.logger.log(`[Risk Integrity] Reserving ${reservedRisk.toFixed(2)} USDT risk for ${opp.symbol} entry attempt.`);
+      this.positionTracker.setEntering(opp.symbol, true, reservedRisk);
 
       try {
         const result = await this.orderManager.enter(
@@ -192,6 +202,8 @@ export class ExecutionService {
       } catch (err) {
         this.logger.error(`Failed to process entry for ${opp.symbol}: ${err instanceof Error ? err.message : String(err)}`);
         // Continue to next opportunity
+      } finally {
+        this.positionTracker.setEntering(opp.symbol, false);
       }
     }
   }

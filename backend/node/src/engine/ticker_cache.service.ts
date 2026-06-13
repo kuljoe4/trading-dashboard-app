@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 export interface Ticker {
   symbol: string;
   price: number;
+  mark_price?: number;
   volume_24h: number;
   open_24h?: number;
 }
@@ -40,13 +41,14 @@ export class TickerCacheService {
    * BOLT OPTIMIZATION: Zero-allocation update for a single ticker.
    * Directly updates the Map to avoid temporary object/array allocations.
    */
-  updateTicker(symbol: string, price?: string | number, volume?: string | number, open?: string | number) {
+  updateTicker(symbol: string, price?: string | number, volume?: string | number, open?: string | number, markPrice?: string | number) {
     if (!symbol) return;
     const existing = this.tickers.get(symbol);
 
     const p = typeof price === 'string' ? parseFloat(price) : price;
     const v = typeof volume === 'string' ? parseFloat(volume) : volume;
     const o = typeof open === 'string' ? parseFloat(open) : open;
+    const mp = typeof markPrice === 'string' ? parseFloat(markPrice) : markPrice;
 
     if (existing) {
       // Mutate existing object to avoid new allocations
@@ -54,10 +56,12 @@ export class TickerCacheService {
       if (p !== undefined && !Number.isNaN(p) && p > 0) existing.price = p;
       if (v !== undefined && !Number.isNaN(v)) existing.volume_24h = v;
       if (o !== undefined && !Number.isNaN(o) && o > 0) existing.open_24h = o;
+      if (mp !== undefined && !Number.isNaN(mp) && mp > 0) existing.mark_price = mp;
     } else {
       this.tickers.set(symbol, {
         symbol,
         price: (p !== undefined && !Number.isNaN(p) && p > 0) ? p : 0,
+        mark_price: (mp !== undefined && !Number.isNaN(mp) && mp > 0) ? mp : undefined,
         volume_24h: (v !== undefined && !Number.isNaN(v)) ? v : 0,
         open_24h: (o !== undefined && !Number.isNaN(o) && o > 0) ? o : undefined,
       });
@@ -84,71 +88,35 @@ export class TickerCacheService {
     return this.tickers.size;
   }
 
-  /**
-   * Returns top tickers by volume, supporting offset for pagination/shifting.
-   * Optimized to cache the sorted list for a given exclusion set to minimize O(N log N) sorts.
-   */
-  topByVolume(n: number, excluded: string[] = [], offset: number = 0): (Ticker & { rank: number })[] {
-    const excludedKey = excluded.length > 0 ? [...excluded].sort().join(',') : '__none__';
-    const cached = this._topByVolumeCache[excludedKey];
+  topByVolume(n: number, excluded: string[] = []): Ticker[] {
+    const cacheKey = `${n}_${[...excluded].sort().join(',')}`;
+    const cached = this._topByVolumeCache[cacheKey];
     const now = Date.now();
 
-    let sorted: Ticker[];
     if (cached && (now - cached.timestamp < this.TOP_VOLUME_CACHE_TTL_MS)) {
-      sorted = cached.data;
-    } else {
-      const excludedSet = excluded.length > 0 ? new Set(excluded) : null;
-      const all = Array.from(this.tickers.values());
-      this.logger.verbose(`topByVolume recomputing sorted list for exclusion set. Total tickers: ${all.length}`);
-
-      sorted = all
-        .filter(t => !excludedSet?.has(t.symbol))
-        .sort((a, b) => b.volume_24h - a.volume_24h);
-
-      // Manage cache size
-      const cacheKeys = Object.keys(this._topByVolumeCache);
-      if (cacheKeys.length >= this.TOP_VOLUME_CACHE_MAX_KEYS && !this._topByVolumeCache[excludedKey]) {
-        delete this._topByVolumeCache[cacheKeys[0]];
-      }
-
-      this._topByVolumeCache[excludedKey] = {
-        data: sorted,
-        timestamp: now
-      };
+      return cached.data;
     }
 
-    // Apply offset and limit (O(k) operation)
-    // Map with rank to preserve global positioning even after slicing
-    return sorted.slice(offset, offset + n).map((t, i) => ({
-      ...t,
-      rank: offset + i + 1
-    }));
-  }
+    const excludedSet = excluded.length > 0 ? new Set(excluded) : null;
+    const all = Array.from(this.tickers.values());
+    this.logger.verbose(`topByVolume requested ${n} symbols. Cache size: ${all.length}. Cache miss - recomputing.`);
 
-  /**
-   * Prune tickers that are not part of the active symbols or have low volume
-   */
-  prune(activeSymbols: Set<string>) {
-    const initialSize = this.tickers.size;
-    // We keep active symbols and top 500 by volume to avoid constant re-fetching
-    const topByVolume = Array.from(this.tickers.values())
+    const result = all
+      .filter(t => !excludedSet?.has(t.symbol))
       .sort((a, b) => b.volume_24h - a.volume_24h)
-      .slice(0, 500)
-      .map(t => t.symbol);
+      .slice(0, n);
 
-    const keepSet = new Set([...activeSymbols, ...topByVolume]);
-
-    for (const symbol of this.tickers.keys()) {
-      if (!keepSet.has(symbol)) {
-        this.tickers.delete(symbol);
-      }
+    const cacheKeys = Object.keys(this._topByVolumeCache);
+    if (cacheKeys.length >= this.TOP_VOLUME_CACHE_MAX_KEYS && !this._topByVolumeCache[cacheKey]) {
+      delete this._topByVolumeCache[cacheKeys[0]];
     }
 
-    const finalSize = this.tickers.size;
-    if (initialSize !== finalSize) {
-      this.logger.verbose(`Pruned TickerCache: ${initialSize} -> ${finalSize} symbols`);
-      this._topByVolumeCache = {};
-    }
+    this._topByVolumeCache[cacheKey] = {
+      data: result,
+      timestamp: now
+    };
+
+    return result;
   }
 
   /**

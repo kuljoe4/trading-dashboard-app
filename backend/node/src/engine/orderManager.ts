@@ -178,13 +178,35 @@ export class OrderManagerService {
     let finalPrice = price;
     let finalQty = qty;
 
-    const priceFilter = filters.filters.find((f: { filterType: string; tickSize?: string; stepSize?: string; notional?: string; minNotional?: string }) => f.filterType === 'PRICE_FILTER');
+    const priceFilter = filters.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
     if (priceFilter) {
       const tickSize = parseFloat(priceFilter.tickSize);
       const rounding = options.priceRounding || 'round';
       if (rounding === 'floor') finalPrice = roundEight(Math.floor(price / tickSize) * tickSize);
       else if (rounding === 'ceil') finalPrice = roundEight(Math.ceil(price / tickSize) * tickSize);
       else finalPrice = roundEight(Math.round(price / tickSize) * tickSize);
+    }
+
+    // PERCENT_PRICE Validation
+    const percentPriceFilter = filters.filters.find((f: any) => f.filterType === 'PERCENT_PRICE');
+    if (percentPriceFilter && !this.paperMode) {
+      const ticker = this.tickerCache.getTicker(symbol);
+      const markPrice = ticker?.mark_price || ticker?.price;
+      if (markPrice) {
+        const multiplierUp = parseFloat(percentPriceFilter.multiplierUp || '1.1');
+        const multiplierDown = parseFloat(percentPriceFilter.multiplierDown || '0.9');
+        const maxPrice = markPrice * multiplierUp;
+        const minPrice = markPrice * multiplierDown;
+
+        if (finalPrice > maxPrice || finalPrice < minPrice) {
+          this.logger.warn(`${symbol}: Price ${finalPrice} outside PERCENT_PRICE band [${minPrice.toFixed(5)}, ${maxPrice.toFixed(5)}] (Mark: ${markPrice})`);
+          // We don't block yet, but we might want to return 0 qty if it's too far
+          if (Math.abs(finalPrice - markPrice) / markPrice > 0.05) {
+             this.logger.error(`${symbol}: CRITICAL - Price too far from Mark. Rejecting order.`);
+             return { price: finalPrice, qty: 0 };
+          }
+        }
+      }
     }
 
     const lotSize = filters.filters.find((f: { filterType: string; tickSize?: string; stepSize?: string; notional?: string; minNotional?: string }) => f.filterType === 'LOT_SIZE');
@@ -446,6 +468,8 @@ export class OrderManagerService {
             agreementMsg = `CRITICAL: ${errMsg}. Please go to Binance website and sign the required agreement.`;
           } else if (errMsg.includes('insufficient balance') || errMsg.includes('Margin is insufficient')) {
             agreementMsg = `CRITICAL: Insufficient funds on Binance USDS-M account to open ${symbol}.`;
+          } else if (errMsg.includes('PERCENT_PRICE')) {
+            agreementMsg = `CRITICAL: ${symbol} entry failed. The market is too volatile or liquidity is too low (PERCENT_PRICE filter). Try reducing risk or increasing SL distance.`;
           }
 
           this.logger.error(agreementMsg);
@@ -459,10 +483,10 @@ export class OrderManagerService {
         trade.realized_fee = roundEight(entryPrice * qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
       }
 
-      // Initialize PnL as net of entry fees (immediately realized)
+    // Initialize PnL as net of entry fees (immediately realized)
     trade.pnl = roundEight(-(trade.realized_fee || 0));
 
-      const msgEnter = `Enter: ${symbol} ${direction} @ ${entryPrice} qty=${qty} SL=${slPrice} TP=${tpPrice}`;
+    const msgEnter = `Enter: ${symbol} ${direction} @ ${entryPrice} qty=${qty} SL=${slPrice} TP=${tpPrice}`;
       this.logger.log(msgEnter);
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgEnter, level: 'info' });
       this.recordSuccess();

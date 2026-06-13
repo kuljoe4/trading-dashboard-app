@@ -47,12 +47,15 @@ export class TradingSessionService {
   private fundingCheckInterval: NodeJS.Timeout | null = null;
   private balancePollInterval: NodeJS.Timeout | null = null;
   private balanceFetchTimeout: NodeJS.Timeout | null = null;
+  private pendingDeltasDuringFetch = 0;
   private safetySyncTimeout: NodeJS.Timeout | null = null;
   private appliedPnL: Map<string, number> = new Map(); // trade.id -> total cumulative pnl applied to balance
   private lastScannerFullBroadcast = 0;
   private lastScannerResultsJson = '';
   private lastScannerResults: any[] = [];
   private lastVariantScannerResults: any[] = [];
+  private hotLoopProcessing = false;
+  private mainLoopProcessing = false;
   private activeWindows: Map<string, any> = new Map();
   private userDataWs: any = null;
   private listenKey: string | null = null;
@@ -77,7 +80,7 @@ export class TradingSessionService {
 
   private scanSignature(config: SessionConfig): string {
     let s = this.cachedScanSignatures.get(config); if (s) return s;
-    s = JSON.stringify({ ge: config.global_scanner_enabled, si: config.scan_interval, sl: config.scan_lookback, st: config.scan_pct_threshold, mv: config.scan_min_volume_usdt, sm: config.scan_mode, ws: config.watchlist_size, wo: config.watchlist_offset, es: config.entry_side, ex: config.excluded_symbols, sym: config.symbols, ssc: config.single_symbol_configs });
+    s = JSON.stringify({ ge: config.global_scanner_enabled, si: config.scan_interval, sl: config.scan_lookback, st: config.scan_pct_threshold, mv: config.scan_min_volume_usdt, sm: config.scan_mode, ws: config.watchlist_size, es: config.entry_side, ex: config.excluded_symbols, sym: config.symbols, ssc: config.single_symbol_configs });
     this.cachedScanSignatures.set(config, s); return s;
   }
 
@@ -200,8 +203,10 @@ export class TradingSessionService {
   }
 
   private async hotLoop() {
-    if (!this.running || !this.config) return;
+    if (!this.running || !this.config || this.hotLoopProcessing) return;
     if (this.sessionState.listenerCount === 0 && this.positionTracker.activeCount() === 0) { this.monitoringService.recordHotLoop(0); return; }
+
+    this.hotLoopProcessing = true;
     const start = performance.now();
     try {
       await this.checkExits();
@@ -209,6 +214,8 @@ export class TradingSessionService {
       this.monitoringService.recordHotLoop(performance.now() - start);
     } catch (error) {
       this.logger.error(`Error in hot loop: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      this.hotLoopProcessing = false;
     }
   }
 
@@ -263,7 +270,9 @@ export class TradingSessionService {
   }
 
   private async mainLoop() {
-    if (!this.running || !this.config) return;
+    if (!this.running || !this.config || this.mainLoopProcessing) return;
+    this.mainLoopProcessing = true;
+
     const activeTrades = this.positionTracker.activeList();
     const riskResult = await this.refreshRiskGating();
 
@@ -316,6 +325,8 @@ export class TradingSessionService {
       this.monitoringService.recordMainLoop(performance.now() - start);
     } catch (error) {
       this.logger.error(`Error in main loop: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      this.mainLoopProcessing = false;
     }
   }
 
@@ -357,7 +368,7 @@ export class TradingSessionService {
   }
 
   private updateScannerResults(opportunities: any[]) {
-    this.lastScannerResults = opportunities.map((o) => ({ symbol: o.symbol, price: o.price, pct: roundTo(o.momentum, 2), momentum: roundTo(o.momentum, 2), direction: o.direction.toLowerCase(), dir: o.direction.toLowerCase(), vol: o.volume_24h, volume_usdt: o.volume_24h, volume_rank: o.volume_rank, score: roundTo(o.score / 10, 1), history: o.history, signalResult: o.signalResult, }));
+    this.lastScannerResults = opportunities.map((o) => ({ symbol: o.symbol, price: o.price, pct: roundTo(o.momentum, 2), momentum: roundTo(o.momentum, 2), direction: o.direction.toLowerCase(), dir: o.direction.toLowerCase(), vol: o.volume_24h, volume_usdt: o.volume_24h, score: roundTo(o.score / 10, 1), history: o.history, signalResult: o.signalResult, }));
     this.refreshActiveWindows(this.lastScannerResults);
   }
 
@@ -405,7 +416,13 @@ export class TradingSessionService {
       }
     } else if (this.binanceClient) {
       // DATA-CONSISTENCY: Track deltas even if we are waiting for a sync to avoid missing rapid-fire closures
-      if (pnlDelta !== 0) this.appliedPnL.set(t.id, totalPnl);
+      // and prevent double-counting during REST fallback.
+      if (pnlDelta !== 0) {
+        this.appliedPnL.set(t.id, totalPnl);
+      } else if (previouslyApplied === totalPnl) {
+        // Delta already applied via UDS or previous call, skip redundant updates
+        return;
+      }
 
       // BOLT: Prioritize User Data Stream. If UDS is connected, it will push balance updates,
       // so we can skip the manual REST poll entirely.
@@ -431,24 +448,24 @@ export class TradingSessionService {
       }
 
       // BOLT: Coalesce balance fetches to avoid weight spikes when multiple trades close at once.
+      // We accumulate deltas during the debounce window to ensure fallback math is accurate.
+      this.pendingDeltasDuringFetch = roundEight(this.pendingDeltasDuringFetch + pnlDelta);
       if (this.balanceFetchTimeout) return;
 
       this.balanceFetchTimeout = setTimeout(async () => {
         const b = await this.fetchBinanceBalance();
+        const capturedDeltas = this.pendingDeltasDuringFetch;
         this.balanceFetchTimeout = null;
+        this.pendingDeltasDuringFetch = 0;
 
         if (b > 0) {
+          // REST is authoritative; it already includes all deltas.
           this.sessionState.balanceLive = b;
           this.sessionState.balancePaper = b;
         } else {
-          // Fallback if fetch fails: apply only the delta to avoid double-counting
-          // Note: In this case, we rely on the pnlDelta calculated at the start of updateBalance.
-          // For multiple concurrent calls, only the first one triggers this timeout, but the others
-          // should have updated appliedPnL so we don't apply the same delta twice.
-          // BUT wait, if we only apply the delta of the FIRST trade that triggered the timeout, we miss others.
-          // CORRECT APPROACH: The delta should be applied when the event occurs, and the REST sync is just an override.
-          this.sessionState.balanceLive = roundEight(this.sessionState.balanceLive + pnlDelta);
-          this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + pnlDelta);
+          // Fallback: apply all accumulated deltas from the window.
+          this.sessionState.balanceLive = roundEight(this.sessionState.balanceLive + capturedDeltas);
+          this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + capturedDeltas);
         }
         if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), t.pnl || 0);
       }, 1500); // 1.5s debounce covers most batch closures

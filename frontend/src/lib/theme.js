@@ -60,7 +60,9 @@ export const fmtUSD = (val) => {
 
   // BOLT: Clean up visuals - use either arrow OR sign, not both (Double Negative issue)
   // We'll keep the arrow as it's more distinct in the financial context.
-  const prefix = n > 0 ? '▲ $' : '▼ $';
+  // Use small variants (▴/▾) as per project standard.
+  if (n === 0) return `$${formatted}`;
+  const prefix = n > 0 ? '▴ $' : '▾ $';
   return `${prefix}${formatted}`;
 };
 export const fmt = (n, d = 2) => {

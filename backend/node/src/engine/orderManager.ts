@@ -460,7 +460,7 @@ export class OrderManagerService {
       }
 
       // Initialize PnL as net of entry fees (immediately realized)
-      trade.pnl = roundEight(-trade.realized_fee);
+    trade.pnl = roundEight(-(trade.realized_fee || 0));
 
       const msgEnter = `Enter: ${symbol} ${direction} @ ${entryPrice} qty=${qty} SL=${slPrice} TP=${tpPrice}`;
       this.logger.log(msgEnter);
@@ -1087,7 +1087,11 @@ export class OrderManagerService {
       const finalPnlPct = (trade.qty !== 0) ? (finalPnlPoints / (trade.entry_price || 1)) * 100 : 0;
       trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
 
-      const finalNetPnl = (finalPnlPoints * (trade.qty || 0)) - (trade.realized_fee || 0) - (trade.funding_fee || 0);
+      const finalGrossPnl = finalPnlPoints * (trade.qty || 0);
+      const finalNetPnl = finalGrossPnl - (trade.realized_fee || 0) - (trade.funding_fee || 0);
+
+      this.logger.log(`[PnL Calculation] ${symbol}: ${trade.direction} Exit=${exitPrice}, Entry=${trade.entry_price}, Qty=${trade.qty}, Gross=${finalGrossPnl.toFixed(4)}, Fee=${trade.realized_fee?.toFixed(4)}, Net=${finalNetPnl.toFixed(4)}`);
+
       trade.pnl = roundEight(Number.isFinite(finalNetPnl) ? finalNetPnl : 0);
 
       trade.exit_reason = trade.exit_reason || exitReason;

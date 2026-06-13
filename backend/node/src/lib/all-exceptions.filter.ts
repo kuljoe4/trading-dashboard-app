@@ -49,7 +49,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (httpStatus >= 500) {
       this.logger.error(`Unhandled Exception (${httpAdapter.getRequestUrl(ctx.getRequest())}): ${(exception as any)?.stack || exception}`);
     } else {
-      this.logger.warn(`HTTP Exception (${httpStatus}) [${httpAdapter.getRequestUrl(ctx.getRequest())}]: ${(exception as any)?.message}`);
+      const detailedMessage = typeof message === 'object' ? JSON.stringify(message) : message;
+      this.logger.warn(`HTTP Exception (${httpStatus}) [${httpAdapter.getRequestUrl(ctx.getRequest())}]: ${detailedMessage}`);
     }
 
     httpAdapter.reply(ctx.getResponse(), responseBody, httpStatus);

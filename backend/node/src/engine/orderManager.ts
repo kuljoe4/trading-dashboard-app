@@ -459,10 +459,10 @@ export class OrderManagerService {
         trade.realized_fee = roundEight(entryPrice * qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
       }
 
-      // Initialize PnL as net of entry fees (immediately realized)
+    // Initialize PnL as net of entry fees (immediately realized)
     trade.pnl = roundEight(-(trade.realized_fee || 0));
 
-      const msgEnter = `Enter: ${symbol} ${direction} @ ${entryPrice} qty=${qty} SL=${slPrice} TP=${tpPrice}`;
+    const msgEnter = `Enter: ${symbol} ${direction} @ ${entryPrice} qty=${qty} SL=${slPrice} TP=${tpPrice}`;
       this.logger.log(msgEnter);
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgEnter, level: 'info' });
       this.recordSuccess();

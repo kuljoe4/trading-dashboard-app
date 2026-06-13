@@ -17,6 +17,7 @@ export class PositionTrackerService {
 
   private trades: Map<string, Trade> = new Map(); // symbol -> Trade
   private enteringSymbols: Set<string> = new Set(); // symbols currently in the process of entering
+  private pendingRisk: Map<string, number> = new Map(); // symbol -> reserved risk amount
   private closingSymbols: Set<string> = new Set(); // symbols currently in the process of closing
   private rrSequenceIndex: Map<string, number> = new Map(); // symbol -> current milestone index
   private _totalRisk = 0;
@@ -40,14 +41,6 @@ export class PositionTrackerService {
     return this.enteringSymbols.has(symbol);
   }
 
-  setEntering(symbol: string, entering: boolean): void {
-    if (entering) {
-      this.enteringSymbols.add(symbol);
-    } else {
-      this.enteringSymbols.delete(symbol);
-    }
-  }
-
   activeList(): Trade[] {
     if (this._activeListCache) return this._activeListCache;
     this._activeListCache = Array.from(this.trades.values());
@@ -59,10 +52,26 @@ export class PositionTrackerService {
   }
 
   /**
-   * BOLT OPTIMIZATION: Returns pre-calculated total risk in O(1).
+   * BOLT OPTIMIZATION: Returns pre-calculated total risk in O(1),
+   * including pending risk reserved for trades currently entering.
    */
   totalRisk(): number {
-    return this._totalRisk;
+    let reserved = 0;
+    for (const r of this.pendingRisk.values()) reserved += r;
+    return roundEight(this._totalRisk + reserved);
+  }
+
+  setEntering(symbol: string, entering: boolean, reservedRisk = 0): void {
+    if (entering) {
+      this.enteringSymbols.add(symbol);
+      if (reservedRisk > 0) {
+        this.pendingRisk.set(symbol, reservedRisk);
+        this.logger.debug(`[Risk Integrity] Reserved ${reservedRisk} USDT risk for ${symbol} entry.`);
+      }
+    } else {
+      this.enteringSymbols.delete(symbol);
+      this.pendingRisk.delete(symbol);
+    }
   }
 
   addTrade(trade: Trade): void {

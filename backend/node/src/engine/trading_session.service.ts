@@ -47,6 +47,7 @@ export class TradingSessionService {
   private fundingCheckInterval: NodeJS.Timeout | null = null;
   private balancePollInterval: NodeJS.Timeout | null = null;
   private balanceFetchTimeout: NodeJS.Timeout | null = null;
+  private pendingDeltasDuringFetch = 0;
   private safetySyncTimeout: NodeJS.Timeout | null = null;
   private appliedPnL: Map<string, number> = new Map(); // trade.id -> total cumulative pnl applied to balance
   private lastScannerFullBroadcast = 0;
@@ -415,7 +416,13 @@ export class TradingSessionService {
       }
     } else if (this.binanceClient) {
       // DATA-CONSISTENCY: Track deltas even if we are waiting for a sync to avoid missing rapid-fire closures
-      if (pnlDelta !== 0) this.appliedPnL.set(t.id, totalPnl);
+      // and prevent double-counting during REST fallback.
+      if (pnlDelta !== 0) {
+        this.appliedPnL.set(t.id, totalPnl);
+      } else if (previouslyApplied === totalPnl) {
+        // Delta already applied via UDS or previous call, skip redundant updates
+        return;
+      }
 
       // BOLT: Prioritize User Data Stream. If UDS is connected, it will push balance updates,
       // so we can skip the manual REST poll entirely.
@@ -441,24 +448,24 @@ export class TradingSessionService {
       }
 
       // BOLT: Coalesce balance fetches to avoid weight spikes when multiple trades close at once.
+      // We accumulate deltas during the debounce window to ensure fallback math is accurate.
+      this.pendingDeltasDuringFetch = roundEight(this.pendingDeltasDuringFetch + pnlDelta);
       if (this.balanceFetchTimeout) return;
 
       this.balanceFetchTimeout = setTimeout(async () => {
         const b = await this.fetchBinanceBalance();
+        const capturedDeltas = this.pendingDeltasDuringFetch;
         this.balanceFetchTimeout = null;
+        this.pendingDeltasDuringFetch = 0;
 
         if (b > 0) {
+          // REST is authoritative; it already includes all deltas.
           this.sessionState.balanceLive = b;
           this.sessionState.balancePaper = b;
         } else {
-          // Fallback if fetch fails: apply only the delta to avoid double-counting
-          // Note: In this case, we rely on the pnlDelta calculated at the start of updateBalance.
-          // For multiple concurrent calls, only the first one triggers this timeout, but the others
-          // should have updated appliedPnL so we don't apply the same delta twice.
-          // BUT wait, if we only apply the delta of the FIRST trade that triggered the timeout, we miss others.
-          // CORRECT APPROACH: The delta should be applied when the event occurs, and the REST sync is just an override.
-          this.sessionState.balanceLive = roundEight(this.sessionState.balanceLive + pnlDelta);
-          this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + pnlDelta);
+          // Fallback: apply all accumulated deltas from the window.
+          this.sessionState.balanceLive = roundEight(this.sessionState.balanceLive + capturedDeltas);
+          this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + capturedDeltas);
         }
         if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), t.pnl || 0);
       }, 1500); // 1.5s debounce covers most batch closures

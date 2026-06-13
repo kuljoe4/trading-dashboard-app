@@ -151,12 +151,16 @@ export class ExecutionService {
       }
       const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
 
+      // BOLT: Calculate risk for reservation BEFORE actual entry attempt
+      const reservedRisk = roundEight(Math.abs(price - slPrice) * qty);
+
       const ticker = this.tickerCache.getTicker(opp.symbol);
       const openPrice = ticker?.open_24h || price;
       const dailyChangeAtEntry = ((price - openPrice) / openPrice) * 100 * (opp.direction.toUpperCase() === 'LONG' ? 1 : -1);
 
-      // SEC: Atomic lock to prevent concurrent entry attempts for the same symbol
-      this.positionTracker.setEntering(opp.symbol, true);
+      // SEC: Atomic lock and Risk Reservation to prevent concurrent entry attempts and over-leveraging
+      this.logger.log(`[Risk Integrity] Reserving ${reservedRisk.toFixed(2)} USDT risk for ${opp.symbol} entry attempt.`);
+      this.positionTracker.setEntering(opp.symbol, true, reservedRisk);
 
       try {
         const result = await this.orderManager.enter(

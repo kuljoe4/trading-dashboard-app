@@ -4,7 +4,7 @@ import { pnlColor, pnlClass, fmtUSD, C, safeNum } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
 import { sessionAPI } from '../api/client'
 import { 
-  StatCard, SectionLabel, Btn, StatusBadge, PaperBadge, EcoBadge, DemoBadge, LiveBadge,
+  StatCard, InteractiveLimitCard, SectionLabel, Btn, StatusBadge, PaperBadge, EcoBadge, DemoBadge, LiveBadge,
     ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn, Tooltip, VisuallyHidden, ViewHeader
   } from '../components/ui/primitives'
 import {
@@ -318,10 +318,10 @@ export function DashboardView({ initialStrategy }) {
   const {
     sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
     totalSlUsed, activeTrades, config, setSessionActive,
-    updateConfig, gateState, gateReason, hibernating,
+    updateConfig, patchConfig, gateState, gateReason, hibernating,
     scannerPaused, sessionList, fetchSessions, wsStatus,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
-    healthEnabled, isSyncing, setSyncing
+    healthEnabled, isSyncing, setSyncing, configSyncing
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -334,6 +334,7 @@ export function DashboardView({ initialStrategy }) {
     config: state.config,
     setSessionActive: state.setSessionActive,
     updateConfig: state.updateConfig,
+    patchConfig: state.patchConfig,
     gateState: state.gateState,
     gateReason: state.gateReason,
     hibernating: state.hibernating,
@@ -351,7 +352,8 @@ export function DashboardView({ initialStrategy }) {
     hitCount: state.hitCount,
     healthEnabled: state.healthEnabled,
     isSyncing: state.isSyncing,
-    setSyncing: state.setSyncing
+    setSyncing: state.setSyncing,
+    configSyncing: state.configSyncing
   }), shallow)
 
   useEffect(() => {
@@ -627,7 +629,7 @@ export function DashboardView({ initialStrategy }) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.2 }}
-            className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-8 lg:mb-10"
+            className="grid grid-cols-2 lg:grid-cols-6 gap-3 md:gap-4 mb-8 lg:mb-10"
         >
           <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} />
           <StatCard
@@ -639,6 +641,27 @@ export function DashboardView({ initialStrategy }) {
           />
           <StatCard label="Live Risk" value={`${Number(totalRiskPct || 0).toFixed(1)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
           <StatCard label="Peak RR" value={`+${Number(maxRR || 0).toFixed(2)}`} color="text-accent" />
+
+          <InteractiveLimitCard
+            label="Period Limit"
+            value={config.max_trades_per_period || 0}
+            min={0}
+            max={100}
+            onIncrement={() => patchConfig({ max_trades_per_period: (config.max_trades_per_period || 0) + 1 })}
+            onDecrement={() => patchConfig({ max_trades_per_period: Math.max(0, (config.max_trades_per_period || 0) - 1) })}
+            syncing={configSyncing}
+          />
+
+          <InteractiveLimitCard
+            label="Window"
+            value={config.trades_period_min || 60}
+            unit="m"
+            min={1}
+            max={1440}
+            onIncrement={() => patchConfig({ trades_period_min: (config.trades_period_min || 60) + 5 })}
+            onDecrement={() => patchConfig({ trades_period_min: Math.max(1, (config.trades_period_min || 60) - 5) })}
+            syncing={configSyncing}
+          />
         </motion.div>
 
 

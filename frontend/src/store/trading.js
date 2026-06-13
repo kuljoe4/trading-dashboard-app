@@ -88,7 +88,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   sessionActive: false, sessionPaused: false, strategyId: null, balance: 10000, totalPnl: 0, totalRiskPct: 0, totalSlUsed: 0,
   activeTrades: [], logs: [], logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
   gateState: null, gateReason: null, hibernating: false, scannerPaused: false, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
-  isSyncing: false,
+  isSyncing: false, configSyncing: false,
   debugToolsEnabled: localStorage.getItem('debug_tools_enabled') === 'true',
   rateLimit: { used_weight_1m: 0, limit: ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT, used_pct: 0 },
   rateLimitLastSync: new Date().toISOString(),
@@ -208,6 +208,27 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
       localStorage.setItem('global_trading_mode', c.trading_mode);
     }
     set((st) => ({ config: deepMerge(st.config, c) }));
+  },
+
+  patchConfig: async (patch) => {
+    const st = get();
+    const newConfig = deepMerge(st.config, patch);
+
+    // Update local state immediately for instant feedback
+    set({ config: newConfig, configSyncing: true });
+
+    // Sync to backend if session is active
+    if (st.sessionActive && st.strategyId) {
+      try {
+        await sessionAPI.update(st.strategyId, newConfig);
+      } catch (e) {
+        console.error("Failed to patch config on backend", e);
+      } finally {
+        set({ configSyncing: false });
+      }
+    } else {
+      set({ configSyncing: false });
+    }
   },
   
   ws: null, reconnectAttempts: 0,

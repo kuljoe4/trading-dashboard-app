@@ -38,7 +38,7 @@ export const Sidebar = ({ selected }) => {
         )}
       </div>
 
-      <nav className="flex-1 space-y-2">
+      <nav className="flex-1 flex flex-col gap-2">
         {[
           { path: '/', label: 'Cockpit', icon: LayoutDashboard, shortcut: '1/C' },
           { path: '/trades', label: 'Trades', icon: Briefcase, shortcut: '2/T' },

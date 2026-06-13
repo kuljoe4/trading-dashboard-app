@@ -90,7 +90,7 @@ export class SessionService implements OnModuleInit {
     // Cleanup any sessions marked as running in the database on startup
     // BOLT: Optimize startup cleanup with a single bulk update instead of a loop
     this.logger.log('Cleaning up stale running sessions...');
-    const updateResult = await this.sessionRepository.update({ running: true }, { running: false });
+    const updateResult = await this.sessionRepository.update({ running: true }, { running: false, endTime: new Date() });
     if (updateResult.affected && updateResult.affected > 0) {
       this.logger.verbose(`Cleaned up ${updateResult.affected} stale running sessions`);
     }
@@ -690,7 +690,10 @@ export class SessionService implements OnModuleInit {
       throw new ConflictException('No session running');
     }
 
-    await this.sessionRepository.update(this.currentSessionId, { running: false });
+    await this.sessionRepository.update(this.currentSessionId, {
+      running: false,
+      endTime: new Date()
+    });
 
     // Stop the actual trading engine
     await this.tradingSessionService.stop();

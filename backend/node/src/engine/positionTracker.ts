@@ -16,6 +16,7 @@ export class PositionTrackerService {
   private readonly logger = new Logger(PositionTrackerService.name);
 
   private trades: Map<string, Trade> = new Map(); // symbol -> Trade
+  private closingSymbols: Set<string> = new Set(); // symbols currently in the process of closing
   private rrSequenceIndex: Map<string, number> = new Map(); // symbol -> current milestone index
   private _totalRisk = 0;
   private _activeListCache: Trade[] | null = null;
@@ -263,10 +264,13 @@ export class PositionTrackerService {
     localOnly?: boolean,
   ): Promise<{ trade: Trade | null; exitOccurred: boolean }> {
     const trade = this.trades.get(symbol);
-    if (!trade || trade.status !== 'OPEN') {
+    if (!trade || trade.status !== 'OPEN' || this.closingSymbols.has(symbol)) {
       return { trade: null, exitOccurred: false };
     }
 
+    this.closingSymbols.add(symbol);
+
+    try {
     if (exitReason === 'MANUAL_CLOSE') {
       trade.exit_signal_type = 'MANUAL';
       trade.exit_signal_reason = 'User manually closed position';
@@ -277,6 +281,7 @@ export class PositionTrackerService {
 
     const result = await this.orderManager.closeTrade(symbol, trade, exitPrice, exitReason, paperMode, localOnly);
     if (!result.exitOccurred || !result.trade) {
+      this.closingSymbols.delete(symbol);
       return { trade: null, exitOccurred: false };
     }
 
@@ -286,6 +291,7 @@ export class PositionTrackerService {
       this._totalRisk = roundEight(this._totalRisk - (existing.risk_usdt || 0));
     }
     this.trades.delete(symbol);
+    this.closingSymbols.delete(symbol);
     this.rrSequenceIndex.delete(symbol);
     this._activeListCache = null;
 
@@ -294,6 +300,11 @@ export class PositionTrackerService {
     this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
 
     return { trade: result.trade, exitOccurred: true };
+    } catch (err) {
+      this.logger.error(`Error during closeTrade for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
+      this.closingSymbols.delete(symbol);
+      return { trade: null, exitOccurred: false };
+    }
   }
 
   removeTrade(symbol: string): void {

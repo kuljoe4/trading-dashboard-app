@@ -33,9 +33,25 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
   // We should ensure the parent (HistoryView or Dashboard) doesn't pass both.
   // However, we can also sanitize it here.
 
-  const sanitizedValue = typeof value === 'string' && (value.includes('▼') || value.includes('▲')) && value.includes('-')
+  const sanitizedValue = typeof value === 'string' && (value.includes('▼') || value.includes('▲') || value.includes('▾') || value.includes('▴')) && value.includes('-')
     ? value.replace('-', '') // Remove the minus if an arrow is already present
     : value;
+
+  const renderValue = () => {
+    if (typeof sanitizedValue !== 'string') return sanitizedValue;
+    const markers = ['▴', '▾', '▲', '▼'];
+    const marker = markers.find(m => sanitizedValue.includes(m));
+    if (marker) {
+      const parts = sanitizedValue.split(marker);
+      return (
+        <span className="flex items-center justify-end md:justify-start gap-1">
+          <span className="text-[0.7em] opacity-70 translate-y-[-0.05em]">{marker}</span>
+          <span>{parts.join('').trim()}</span>
+        </span>
+      );
+    }
+    return sanitizedValue;
+  }
 
   return (
     <div
@@ -52,7 +68,7 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
           "text-sm md:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate flex-1 md:w-full text-right md:text-left",
           color,
           syncing && "opacity-40 blur-[1px]"
-        )}>{sanitizedValue}</div>
+        )}>{renderValue()}</div>
       </div>
       {subValue && (
         <div className={cn(
@@ -291,6 +307,7 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
           sideOffset={8}
           className={cn(
             "z-[100] overflow-hidden rounded-lg bg-surface border border-border px-3 py-1.5 text-[10px] font-bold font-mono text-text shadow-xl animate-in fade-in zoom-in-95 duration-200",
+            "max-w-[calc(100vw-32px)] whitespace-normal break-words",
             className
           )}
         >

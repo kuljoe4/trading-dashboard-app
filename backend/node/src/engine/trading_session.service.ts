@@ -77,7 +77,7 @@ export class TradingSessionService {
 
   private scanSignature(config: SessionConfig): string {
     let s = this.cachedScanSignatures.get(config); if (s) return s;
-    s = JSON.stringify({ ge: config.global_scanner_enabled, si: config.scan_interval, sl: config.scan_lookback, st: config.scan_pct_threshold, mv: config.scan_min_volume_usdt, sm: config.scan_mode, ws: config.watchlist_size, es: config.entry_side, ex: config.excluded_symbols, sym: config.symbols, ssc: config.single_symbol_configs });
+    s = JSON.stringify({ ge: config.global_scanner_enabled, si: config.scan_interval, sl: config.scan_lookback, st: config.scan_pct_threshold, mv: config.scan_min_volume_usdt, sm: config.scan_mode, ws: config.watchlist_size, wo: config.watchlist_offset, es: config.entry_side, ex: config.excluded_symbols, sym: config.symbols, ssc: config.single_symbol_configs });
     this.cachedScanSignatures.set(config, s); return s;
   }
 
@@ -357,7 +357,7 @@ export class TradingSessionService {
   }
 
   private updateScannerResults(opportunities: any[]) {
-    this.lastScannerResults = opportunities.map((o) => ({ symbol: o.symbol, price: o.price, pct: roundTo(o.momentum, 2), momentum: roundTo(o.momentum, 2), direction: o.direction.toLowerCase(), dir: o.direction.toLowerCase(), vol: o.volume_24h, volume_usdt: o.volume_24h, score: roundTo(o.score / 10, 1), history: o.history, signalResult: o.signalResult, }));
+    this.lastScannerResults = opportunities.map((o) => ({ symbol: o.symbol, price: o.price, pct: roundTo(o.momentum, 2), momentum: roundTo(o.momentum, 2), direction: o.direction.toLowerCase(), dir: o.direction.toLowerCase(), vol: o.volume_24h, volume_usdt: o.volume_24h, volume_rank: o.volume_rank, score: roundTo(o.score / 10, 1), history: o.history, signalResult: o.signalResult, }));
     this.refreshActiveWindows(this.lastScannerResults);
   }
 
@@ -404,10 +404,12 @@ export class TradingSessionService {
         this.appliedPnL.set(t.id, totalPnl);
       }
     } else if (this.binanceClient) {
+      // DATA-CONSISTENCY: Track deltas even if we are waiting for a sync to avoid missing rapid-fire closures
+      if (pnlDelta !== 0) this.appliedPnL.set(t.id, totalPnl);
+
       // BOLT: Prioritize User Data Stream. If UDS is connected, it will push balance updates,
       // so we can skip the manual REST poll entirely.
       if (this.sessionLifecycle.isUdsConnected) {
-         if (pnlDelta !== 0) this.appliedPnL.set(t.id, totalPnl);
          if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), t.pnl || 0);
 
          // DATA-CONSISTENCY: Safety sync. If UDS doesn't update after closure, force REST refresh.
@@ -438,14 +440,15 @@ export class TradingSessionService {
         if (b > 0) {
           this.sessionState.balanceLive = b;
           this.sessionState.balancePaper = b;
-          this.appliedPnL.set(t.id, totalPnl);
         } else {
           // Fallback if fetch fails: apply only the delta to avoid double-counting
-          if (pnlDelta !== 0) {
-            this.sessionState.balanceLive = roundEight(this.sessionState.balanceLive + pnlDelta);
-            this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + pnlDelta);
-            this.appliedPnL.set(t.id, totalPnl);
-          }
+          // Note: In this case, we rely on the pnlDelta calculated at the start of updateBalance.
+          // For multiple concurrent calls, only the first one triggers this timeout, but the others
+          // should have updated appliedPnL so we don't apply the same delta twice.
+          // BUT wait, if we only apply the delta of the FIRST trade that triggered the timeout, we miss others.
+          // CORRECT APPROACH: The delta should be applied when the event occurs, and the REST sync is just an override.
+          this.sessionState.balanceLive = roundEight(this.sessionState.balanceLive + pnlDelta);
+          this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + pnlDelta);
         }
         if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), t.pnl || 0);
       }, 1500); // 1.5s debounce covers most batch closures

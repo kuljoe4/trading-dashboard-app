@@ -15,9 +15,13 @@ export interface AnalyticsResult {
   }[];
   totalTrades: number;
   overallWinRate: number;
+  overallPnlPct: number;
   avgWin: number;
   avgLoss: number;
   avgWinLossRatio: number;
+  profitFactor: number;
+  sharpeRatio: number;
+  sortinoRatio: number;
 }
 
 @Injectable()
@@ -45,11 +49,16 @@ export class AnalyticsService {
     let grossProfit = 0;
     let grossLoss = 0;
 
+    // Sharpe/Sortino pre-calc
+    let sumPnL = 0;
+    let sumSquaredPnL = 0;
+    let downsideSumSquaredPnL = 0;
+
     const cumulativePnL: { ts: string; pnl: number }[] = new Array(totalTrades);
     // Time of day analysis (0-23 hours) - Fixed size array for better performance
     const todStats = Array.from({ length: 24 }, () => ({ pnl: 0, wins: 0, total: 0 }));
 
-    // BOLT OPTIMIZATION: Single-pass calculation for all metrics to avoid multiple array iterations
+    // BOLT OPTIMIZATION: Single-pass calculation for ALL metrics to avoid multiple array iterations
     for (let i = 0; i < totalTrades; i++) {
       const t = sortedTrades[i];
       const pnl = Number(t.pnl || 0);
@@ -77,7 +86,10 @@ export class AnalyticsService {
       stats.pnl += pnl;
       stats.total += 1;
 
-      // Wins
+      // Wins & PnL Sums
+      sumPnL += pnl;
+      sumSquaredPnL += pnl * pnl;
+
       if (pnl > 0) {
         stats.wins += 1;
         totalWins += 1;
@@ -85,6 +97,7 @@ export class AnalyticsService {
       } else if (pnl < 0) {
         totalLosses += 1;
         grossLoss += Math.abs(pnl);
+        downsideSumSquaredPnL += pnl * pnl;
       }
     }
 
@@ -97,6 +110,27 @@ export class AnalyticsService {
     const avgWin = totalWins > 0 ? grossProfit / totalWins : 0;
     const avgLoss = totalLosses > 0 ? grossLoss / totalLosses : 0;
     const avgWinLossRatio = avgLoss > 0 ? avgWin / avgLoss : 0;
+    const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 100 : 0);
+    const overallPnlPct = startingBalance > 0 ? (sumPnL / startingBalance) * 100 : 0;
+
+    // Sharpe and Sortino Ratios (Trade-based)
+    // BOLT: Using Welford-inspired Sum of Squares for single-pass variance
+    let sharpeRatio = 0;
+    let sortinoRatio = 0;
+
+    if (totalTrades > 1) {
+      const mean = sumPnL / totalTrades;
+      // Variance = E[X^2] - (E[X])^2
+      const variance = Math.max(0, (sumSquaredPnL / totalTrades) - (mean * mean));
+      const stdDev = Math.sqrt(variance);
+
+      // Sortino: uses target return of 0
+      const downsideVariance = downsideSumSquaredPnL / totalTrades;
+      const downsideStdDev = Math.sqrt(downsideVariance);
+
+      if (stdDev > 0) sharpeRatio = mean / stdDev;
+      if (downsideStdDev > 0) sortinoRatio = mean / downsideStdDev;
+    }
 
     return {
       cumulativePnL,
@@ -105,9 +139,13 @@ export class AnalyticsService {
       timeOfDay,
       totalTrades,
       overallWinRate: totalTrades > 0 ? (totalWins / totalTrades) * 100 : 0,
+      overallPnlPct: roundTo(overallPnlPct, 2),
       avgWin: roundTo(avgWin, 2),
       avgLoss: roundTo(avgLoss, 2),
       avgWinLossRatio: roundTo(avgWinLossRatio, 2),
+      profitFactor: roundTo(profitFactor, 2),
+      sharpeRatio: roundTo(sharpeRatio, 2),
+      sortinoRatio: roundTo(sortinoRatio, 2),
     };
   }
 }

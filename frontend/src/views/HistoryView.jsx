@@ -4,8 +4,10 @@ import { getExpectancyStatus } from '../lib/analytics'
 import { sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader } from '../components/ui/primitives'
+import { ConfirmationModal } from '../components/ConfirmationModal'
+import { formatDuration } from '../lib/formatters'
 import { motion, AnimatePresence } from 'framer-motion'
-import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap, BarChart3, LineChart, Target, Trash2 } from 'lucide-react'
+import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap, BarChart3, LineChart, Target, Trash2, Search, XCircle } from 'lucide-react'
 import { Sidebar, BottomNav } from '../components/Navigation'
 // Lazy load heavy analytics components
 const EquityCurve = React.lazy(() => import('../components/Analytics').then(m => ({ default: m.EquityCurve })))
@@ -119,12 +121,26 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
 const SessionGroup = React.memo(({ session, trades }) => {
   const [expanded, setExpanded] = useState(false)
 
+  useEffect(() => {
+    const params = new URLSearchParams((window.location.hash.split('?')[1] || '').split('#')[0])
+    if (params.get('session') === session.id) {
+      setExpanded(true)
+    }
+  }, [session.id])
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       setExpanded(!expanded);
     }
   }
+
+  const duration = useMemo(() => {
+    if (!session.startTime) return '---'
+    const end = session.endTime ? new Date(session.endTime).getTime() : Date.now()
+    const start = new Date(session.startTime).getTime()
+    return formatDuration(end - start)
+  }, [session.startTime, session.endTime])
 
   const pnl = useMemo(() => trades.reduce((sum, t) => sum + safeNum(t.pnl), 0), [trades])
   const wins = useMemo(() => trades.filter(t => safeNum(t.pnl) > 0).length, [trades])
@@ -177,6 +193,8 @@ const SessionGroup = React.memo(({ session, trades }) => {
               <span className="flex items-center gap-1.5"><Clock size={12} className="text-accent" /> {new Date(session.startTime).toLocaleDateString()}</span>
               <span className="w-1 h-1 rounded-full bg-dim/30" />
               <span>{new Date(session.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              <span className="w-1 h-1 rounded-full bg-dim/30" />
+              <span className="text-accent">{duration}</span>
             </div>
           </div>
         </div>
@@ -258,6 +276,8 @@ export const HistoryView = () => {
   const [lifetimeMode, setLifetimeMode] = useState(localStorage.getItem('history_trade_mode') || 'paper')
   const [loading, setLoading] = useState(true)
   const [visibleSessions, setVisibleSessions] = useState(PAGE_SIZE)
+  const [search, setSearch] = useState('')
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   const allSessionsWithTrades = useMemo(() => {
     // BOLT: Optimize O(N*M) join to O(N+M) using a lookup object
@@ -275,14 +295,23 @@ export const HistoryView = () => {
   }, [sessionList, tradeHistory])
 
   const sessionsToRender = useMemo(() => {
+    const term = search.toLowerCase().trim()
     return allSessionsWithTrades
       .filter(s => {
-        // Assume session object has paperMode or testnetMode field, or config object has trading_mode
+        // Mode filter
         const sessionMode = s.paperMode ? 'paper' : (s.config?.trading_mode || 'live');
-        return sessionMode === lifetimeMode;
+        if (sessionMode !== lifetimeMode) return false;
+
+        // Search filter
+        if (!term) return true;
+        const label = strategyLabel(s).toLowerCase();
+        const matchesLabel = label.includes(term);
+        const matchesSymbol = s.trades?.some(t => t.symbol?.toLowerCase().includes(term));
+        const matchesId = s.id.toLowerCase().includes(term);
+        return matchesLabel || matchesSymbol || matchesId;
       })
       .slice(0, visibleSessions);
-  }, [allSessionsWithTrades, visibleSessions, lifetimeMode]);
+  }, [allSessionsWithTrades, visibleSessions, lifetimeMode, search]);
 
   const orphans = useMemo(() => {
     const sessionIds = new Set(sessionList.map(s => s.id))
@@ -296,17 +325,17 @@ export const HistoryView = () => {
   const [orphansExpanded, setOrphansExpanded] = useState(false)
 
   const handleDeleteOrphans = async () => {
-    if (!confirm('Are you sure you want to permanently delete all standalone trade records? This cannot be undone.')) return
     setDeletingOrphans(true)
     try {
       updateStats({ isSyncing: true })
       await sessionAPI.deleteOrphans()
       // Refresh history and analytics
-      const [historyRes, analyticsRes] = await Promise.all([
+      const [historyRes, _] = await Promise.all([
         sessionAPI.history(),
         fetchLifetimeAnalytics(lifetimeMode)
       ])
       updateStats({ tradeHistory: historyRes.data.trades || [] })
+      setShowDeleteConfirm(false)
     } catch (e) {
       alert('Failed to delete standalone records')
     } finally {
@@ -364,11 +393,43 @@ export const HistoryView = () => {
           backAction={() => window.location.hash = '#/'}
         >
           <div className="flex items-center gap-3 self-end sm:self-auto">
+             <div className="relative group hidden sm:block">
+               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
+               <input
+                 type="text"
+                 placeholder="Search history..."
+                 value={search}
+                 onChange={(e) => setSearch(e.target.value)}
+                 className="bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-[11px] font-bold focus:border-accent outline-none transition-all w-[180px] lg:w-[240px]"
+               />
+               {search && (
+                 <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors">
+                   <XCircle size={14} />
+                 </button>
+               )}
+             </div>
              <span className="text-[9px] text-dim font-bold uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50 whitespace-nowrap">
                Latest 200 Trades
              </span>
           </div>
         </ViewHeader>
+
+        {/* Mobile Search */}
+        <div className="sm:hidden relative group mb-6">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
+          <input
+            type="text"
+            placeholder="Search history..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-3 text-xs font-bold focus:border-accent outline-none transition-all"
+          />
+          {search && (
+            <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors">
+              <XCircle size={16} />
+            </button>
+          )}
+        </div>
 
         <div className="flex flex-col md:flex-row md:items-center gap-4 mb-8">
           <div className="flex items-center gap-2 p-1 bg-surface border border-border rounded-xl w-fit">
@@ -516,7 +577,7 @@ export const HistoryView = () => {
                         </div>
                       </div>
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteOrphans(); }}
+                        onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(true); }}
                         disabled={deletingOrphans}
                         className="px-4 py-2 bg-red/10 border border-red/20 text-red rounded-lg text-[10px] font-bold hover:bg-red/20 transition-all uppercase tracking-widest flex items-center gap-2 active:scale-95"
                       >

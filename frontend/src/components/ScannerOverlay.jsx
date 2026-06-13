@@ -83,7 +83,12 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                   isSingleMonitor && "bg-accent/5",
                   passing && "hover:bg-white/5 active:bg-white/10"
                 )}>
-                <span className="text-[11px] text-dim font-mono">#{i + 1}</span>
+                <div className="flex flex-col justify-center">
+                  <span className="text-[11px] text-dim font-mono leading-none">#{i + 1}</span>
+                  {opp.volume_rank && (
+                    <span className="text-[8px] text-dim/60 font-bold uppercase tracking-tighter mt-1 whitespace-nowrap">VOL #{opp.volume_rank}</span>
+                  )}
+                </div>
                 <div className="flex flex-col justify-center overflow-hidden">
                    <div className="flex items-baseline gap-0.5">
                      <span className="text-[14px] font-bold font-mono truncate">{opp.symbol.replace("USDT", "")}</span>

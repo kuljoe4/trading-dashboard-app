@@ -15,7 +15,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ENGINE_EVENTS } from './events';
 import { AnalyticsService } from './analytics.service';
 import { v4 as uuid } from 'uuid';
-import { roundTo } from '../lib/math';
+import { roundTo, roundEight } from '../lib/math';
 import { ExecutionStatus } from '../models/ExecutionResult';
 
 @Injectable()

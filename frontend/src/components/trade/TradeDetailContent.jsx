@@ -203,11 +203,8 @@ const ExitMonitor = ({ status, logic, trade }) => {
                        <span>RR: {(Math.abs(estPnl) / Number(trade.risk_usdt)).toFixed(1)}</span>
                     )}
                  </div>
-                </div>
-                   </div>
-                </div>
-              </div>
-
+                 </div>
+                 </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <div className="flex justify-between items-center px-0.5">

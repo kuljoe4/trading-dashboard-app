@@ -45,6 +45,7 @@ const defaultConfig = {
   scan_check_interval_sec: 5,
   entry_side: 'both',
   watchlist_size: CONFIG_LIMITS.WATCHLIST_DEFAULT,
+  watchlist_offset: 0,
   enabled_signals: ['momentum_pct'],
   signal_logic: 'all',
   tp_mode: 'fixed',

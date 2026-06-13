@@ -66,6 +66,7 @@ const sessionConfigAllowedKeys = [
   'scan_window_duration_sec',
   'scan_check_interval_sec',
   'watchlist_size',
+  'watchlist_offset',
   'entry_side',
   'excluded_symbols',
   'symbols',

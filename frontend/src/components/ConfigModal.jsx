@@ -266,6 +266,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                 {field('Timeframe', 'scan_interval', 'text', ['1m', '5m', '15m', '1h'])}
                 {field('% Threshold', 'scan_pct_threshold', 'number', null, { min: CONFIG_LIMITS.SCAN_PCT_THRESHOLD_MIN, step: 0.1 })}
                 {field('Watchlist size', 'watchlist_size', 'number', null, { min: CONFIG_LIMITS.WATCHLIST_MIN, max: CONFIG_LIMITS.WATCHLIST_MAX })}
+                {field('Watchlist Offset', 'watchlist_offset', 'number', null, { min: 0, max: 100 })}
                 {field('Entry side', 'entry_side', 'text', ['both', 'long', 'short'])}
                 {field('Lookback (Candles)', 'scan_lookback', 'number', null, { min: 1 })}
                 {field('Min Volume (USDT)', 'scan_min_volume_usdt', 'number', null, { min: 0, step: 100000 })}

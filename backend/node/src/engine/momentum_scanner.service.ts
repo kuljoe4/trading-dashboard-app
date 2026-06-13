@@ -10,6 +10,7 @@ export interface Opportunity {
   price: number;
   momentum: number; // Price momentum percentage
   volume_24h: number;
+  volume_rank?: number;
   score: number; // 0-100 opportunity score
   direction: 'LONG' | 'SHORT';
   history?: number[]; // Recent close prices for sparkline
@@ -61,17 +62,23 @@ export class MomentumScannerService {
           symbols = config.symbols;
         } else {
           const topByVolume = this.tickerCache.topByVolume(
-            config.watchlist_size || 10,
+            (config.watchlist_size || 10) + (config.watchlist_offset || 0),
             config.excluded_symbols || [],
           );
-          symbols = topByVolume.map((t: any) => t.symbol);
+          const slicedTop = topByVolume.slice(config.watchlist_offset || 0);
+          symbols = slicedTop.map((t: any) => t.symbol);
         }
 
         const interval = config.scan_interval || '1m';
-        for (const symbol of symbols) {
+        for (let i = 0; i < symbols.length; i++) {
+          const symbol = symbols[i];
           try {
             const res = this.scanSymbol(symbol, interval, config);
-            if (res) results.push(res);
+            if (res) {
+              // Populate volume_rank based on absolute position in the volume-sorted list
+              res.opp.volume_rank = (config.watchlist_offset || 0) + i + 1;
+              results.push(res);
+            }
           } catch (error) {
             this.logger.verbose(`Global scan error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
           }

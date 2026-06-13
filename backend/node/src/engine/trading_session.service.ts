@@ -139,6 +139,14 @@ export class TradingSessionService {
     this.sessionId = sid || null;
     this.config = config;
     this.appliedPnL.clear();
+
+    // DATA-CONSISTENCY: Initialize appliedPnL for resumed trades to prevent double-counting fees
+    if (open && open.length > 0) {
+      for (const t of open) {
+        this.appliedPnL.set(t.id, t.pnl || 0);
+      }
+    }
+
     this.cachedStrategyConfigs = null;
     this.cachedScanSignatures.clear();
     this.binanceClient = bc;
@@ -194,6 +202,7 @@ export class TradingSessionService {
     await this.sessionLifecycle.stop(this.binanceClient, this.sessionId || undefined, this.config || undefined);
 
     this.sessionState.setActiveTrades([]);
+    // BOLT: minimizeMemoryUsage() clears appliedPnL, which is fine after session stop
     this.minimizeMemoryUsage();
     this.sessionState.minimize();
     this.tickerCache.clear();

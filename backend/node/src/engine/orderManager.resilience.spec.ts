@@ -100,6 +100,31 @@ describe('OrderManagerService Resilience', () => {
   });
 
   describe('placeStopLoss resilience', () => {
+    it('should retry SL placement when receiving a transient TIF GTE error', async () => {
+      service.setBinanceClient(mockBinanceClient, false);
+      const trade = {
+        id: 'trade-12345678',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 0.1,
+        binance_order_id: 'entry-id'
+      } as Trade;
+
+      // 1. First attempt fails with TIF GTE error
+      mockBinanceClient.restAPI.tradeApi.newOrder.mockRejectedValueOnce(new Error('Time in Force (TIF) GTE can only be used with open positions'));
+
+      // 2. Second attempt (retry) succeeds
+      mockBinanceClient.restAPI.tradeApi.newOrder.mockResolvedValueOnce({
+        data: () => Promise.resolve({ orderId: 'sl-new-id' }),
+        headers: { get: () => '100' }
+      });
+
+      const result = await service.placeStopLoss(trade, 50000);
+
+      expect(result).toBe('sl-new-id');
+      expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledTimes(2);
+    });
+
     it('should cleanup conflicting orphan orders and retry SL placement', async () => {
       service.setBinanceClient(mockBinanceClient, false);
       const trade = {

@@ -470,6 +470,8 @@ export class OrderManagerService {
             agreementMsg = `CRITICAL: Insufficient funds on Binance USDS-M account to open ${symbol}.`;
           } else if (errMsg.includes('PERCENT_PRICE')) {
             agreementMsg = `CRITICAL: ${symbol} entry failed. The market is too volatile or liquidity is too low (PERCENT_PRICE filter). Try reducing risk or increasing SL distance.`;
+          } else if (errMsg.includes('leverage') || errMsg.includes('allowable position') || errMsg.includes('max allowable position') || errMsg.includes('position at current leverage')) {
+            agreementMsg = `CRITICAL: Position limit exceeded at current leverage for ${symbol}. Please adjust leverage or position size on Binance.`;
           }
 
           this.logger.error(agreementMsg);
@@ -673,6 +675,10 @@ export class OrderManagerService {
          } catch (cleanupErr) {
             this.logger.error(`Failed to cleanup orphan SL for ${trade.symbol}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
          }
+      } else if ((errMsg.includes('Time in Force') || errMsg.includes('GTE')) && attempts < MAX_ATTEMPTS) {
+         this.logger.warn(`Transient SL error for ${trade.symbol}: ${errMsg}. Retrying (Attempt ${attempts + 1}/${MAX_ATTEMPTS})...`);
+         await new Promise(resolve => setTimeout(resolve, 500));
+         continue;
       }
 
       this.logger.error(`Failed to place Binance SL for ${trade.symbol}: ${errMsg}`);

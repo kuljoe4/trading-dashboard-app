@@ -8,6 +8,7 @@ import { ConfirmationModal } from '../components/ConfirmationModal'
 import { formatDuration } from '../lib/formatters'
 import { motion, AnimatePresence } from 'framer-motion'
 import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap, BarChart3, LineChart, Target, Trash2, Search, XCircle } from 'lucide-react'
+
 import { Sidebar, BottomNav } from '../components/Navigation'
 // Lazy load heavy analytics components
 const EquityCurve = React.lazy(() => import('../components/Analytics').then(m => ({ default: m.EquityCurve })))

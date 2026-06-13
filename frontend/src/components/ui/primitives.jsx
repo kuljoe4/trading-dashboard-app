@@ -290,11 +290,11 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
       <TooltipPrimitive.Trigger
         asChild
         onClick={(e) => {
-          // BOLT: On mobile, ensure single-tap opens the tooltip without requiring hold
+          // On mobile, toggle on tap. Stop propagation to prevent triggering
+          // parent clicks (like Trade cards) when just checking a tooltip.
           if (window.matchMedia('(max-width: 768px)').matches) {
-            e.preventDefault();
             e.stopPropagation();
-            setOpen((prev) => !prev);
+            setOpen(!open);
           }
         }}
       >

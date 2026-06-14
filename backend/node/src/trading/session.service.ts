@@ -231,13 +231,25 @@ export class SessionService implements OnModuleInit {
       await queryRunner.manager.save(TradeEntity, tradeEntity);
 
       // 2. Update Session PnL and Balance
-      // BOLT: Use balance-based PnL to account for fees/slippage, ensuring consistency with Engine UI
+      // BOLT: Use trade summation for PnL in Live mode to prevent corruption from external deposits/withdrawals.
+      // For Paper mode, balance-based PnL is safe as the engine controls the balance entirely.
       const mode = session.tradingMode || (session.paperMode ? 'paper' : 'live');
-      const startingBalance = mode === 'paper'
-        ? (session.config?.paper_starting_balance || 10000)
-        : (session.config?.live_starting_balance || 0);
+      let realizedPnl: number;
 
-      const realizedPnl = roundEight(balance - startingBalance);
+      if (mode === 'paper') {
+        const startingBalance = (session.config?.paper_starting_balance || 10000);
+        realizedPnl = roundEight(balance - startingBalance);
+      } else {
+        // Live/Testnet: Sum all terminal trades for this session using optimized DB aggregation
+        const aggregation = await queryRunner.manager
+          .createQueryBuilder(TradeEntity, 'trade')
+          .select('SUM(trade.pnl)', 'sum')
+          .where('trade.sessionId = :sessionId', { sessionId })
+          .andWhere('trade.status IN (:...statuses)', { statuses: TERMINAL_STATUSES })
+          .getRawOne();
+
+        realizedPnl = roundEight(Number(aggregation?.sum || 0));
+      }
 
       await queryRunner.manager.update(SessionEntity, sessionId, {
         balance,

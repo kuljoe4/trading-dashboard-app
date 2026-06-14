@@ -92,11 +92,11 @@ describe('MarketFeedService Leak Fixes', () => {
     const interval = '1m';
     const intervalMs = 60000;
 
-    // Mock existing candles where the LAST one is fresh
+    // Mock existing candles where the MOST RECENT (at index 0) is fresh
     // The check is: lastCandle.time + intervalMs >= Date.now() - (intervalMs * 2)
     (klineStore.getRecentCandles as any).mockReturnValue([
-      { time: now - intervalMs * 100 },
-      { time: now }
+      { time: now },
+      { time: now - intervalMs * 100 }
     ]);
 
     (service as any).running = true;
@@ -116,10 +116,10 @@ describe('MarketFeedService Leak Fixes', () => {
     const interval = '1m';
     const intervalMs = 60000;
 
-    // Mock existing candles where the LAST one is stale
+    // Mock existing candles where the MOST RECENT (at index 0) is stale
     (klineStore.getRecentCandles as any).mockReturnValue([
-      { time: now - intervalMs * 100 },
-      { time: now - intervalMs * 10 } // Stale: (now - 10m) + 1m = now - 9m, which is < now - 2m
+      { time: now - intervalMs * 10 }, // Stale: (now - 10m) + 1m = now - 9m, which is < now - 2m
+      { time: now - intervalMs * 100 }
     ]);
 
     // Mock fetch for backfill

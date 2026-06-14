@@ -251,11 +251,22 @@ export class OrderManagerService {
         const minPrice = markPrice * multiplierDown;
 
         if (finalPrice > maxPrice || finalPrice < minPrice) {
-          this.logger.warn(`${symbol}: Price ${finalPrice} outside PERCENT_PRICE band [${minPrice.toFixed(5)}, ${maxPrice.toFixed(5)}] (Mark: ${markPrice})`);
-          // We don't block yet, but we might want to return 0 qty if it's too far
-          if (Math.abs(finalPrice - markPrice) / markPrice > 0.05) {
-             this.logger.error(`${symbol}: CRITICAL - Price too far from Mark. Rejecting order.`);
-             return { price: finalPrice, qty: 0 };
+          // SL/TP orders are often placed outside standard bands. We only block if it's an ENTRY attempt (qty > 0 and not skipNotionalCheck)
+          const isStopLossOrTp = !!options.skipNotionalCheck;
+
+          if (!isStopLossOrTp) {
+            this.logger.warn(`${symbol}: Price ${finalPrice} outside PERCENT_PRICE band [${minPrice.toFixed(5)}, ${maxPrice.toFixed(5)}] (Mark: ${markPrice})`);
+            // We don't block yet, but we might want to return 0 qty if it's too far
+            if (Math.abs(finalPrice - markPrice) / markPrice > 0.05) {
+               this.logger.error(`${symbol}: CRITICAL - Price too far from Mark. Rejecting order.`);
+               return { price: finalPrice, qty: 0 };
+            }
+          } else {
+            // For SL/TP, we just log a debug message if it's within 10% of mark, or warn if further
+            const deviation = Math.abs(finalPrice - markPrice) / markPrice;
+            if (deviation > 0.1) {
+              this.logger.warn(`${symbol}: SL/TP Price ${finalPrice} significantly far from Mark (${(deviation * 100).toFixed(2)}%). Proceeding with filtered price.`);
+            }
           }
         }
       }
@@ -491,6 +502,10 @@ export class OrderManagerService {
 
           // Place SL separately to avoid Algo Order API issues in batch
           const slOrderId = await this.placeStopLoss(trade, slPrice);
+          if (slOrderId === 'TRIGGERED_LOCALLY') {
+             this.logger.log(`[${trade.id.substring(0, 8)}] SL for ${symbol} was triggered locally during entry. Trade will be closed.`);
+             return { status: ExecutionStatus.SUCCESS, data: trade };
+          }
           if (!slOrderId) {
             this.logger.warn(`SL placement failed for ${symbol}. Performing emergency unwind...`);
             try {
@@ -558,6 +573,22 @@ export class OrderManagerService {
   async placeStopLoss(trade: Trade, slPrice: number): Promise<string | null> {
     const filtered = this.applyFilters(trade.symbol, slPrice, trade.qty, { skipNotionalCheck: true });
     slPrice = filtered.price;
+
+    // IMMEDIATE TRIGGER GUARD: Check if current price already breached SL
+    const ticker = this.tickerCache.getTicker(trade.symbol);
+    const currentPrice = ticker?.mark_price || ticker?.price;
+    if (currentPrice) {
+      const isBreached = trade.direction === 'LONG' ? currentPrice <= slPrice : currentPrice >= slPrice;
+      if (isBreached) {
+        this.logger.warn(`[${trade.id.substring(0, 8)}] ${trade.symbol} SL ${slPrice} already breached by current price ${currentPrice}. Triggering immediate local close.`);
+        this.eventEmitter.emit('trade.exchange_close', {
+          symbol: trade.symbol,
+          exitPrice: currentPrice,
+          reason: 'SL_HIT'
+        });
+        return 'TRIGGERED_LOCALLY';
+      }
+    }
 
     if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return null;
 
@@ -756,8 +787,8 @@ export class OrderManagerService {
   /**
    * Update an existing stop loss without protection gaps (Ratcheting)
    */
-  async updateStopLoss(trade: Trade, newSlPrice: number): Promise<void> {
-    if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return;
+  async updateStopLoss(trade: Trade, newSlPrice: number): Promise<boolean> {
+    if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return true;
 
     // BOLT: Proactive Rate Limit - Skip non-critical SL updates if near limits
     if (this.sessionState.isRateLimited(0.7)) {
@@ -765,7 +796,7 @@ export class OrderManagerService {
        const move = Math.abs(newSlPrice - trade.current_sl);
        if (move < (risk * 0.15)) {
           this.logger.debug(`Skipping SL update for ${trade.symbol} due to rate limits (small move: ${move.toFixed(4)})`);
-          return;
+          return true;
        }
     }
 
@@ -786,7 +817,7 @@ export class OrderManagerService {
           price: formattedPrice // Required for some modify versions but usually same as stopPrice for STOP_MARKET
         });
         this.updateWeight(res.headers);
-        return;
+        return true;
       } catch (err: any) {
         const msg = err.message || String(err);
         this.logger.warn(`Failed to modify SL for ${trade.symbol}: ${msg}. Falling back to replace.`);
@@ -803,7 +834,8 @@ export class OrderManagerService {
     }
 
     // Place NEW stop loss after old one is cleared
-    await this.placeStopLoss(trade, newSlPrice);
+    const result = await this.placeStopLoss(trade, newSlPrice);
+    return !!result;
   }
 
   /**

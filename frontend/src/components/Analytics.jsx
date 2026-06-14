@@ -309,74 +309,81 @@ export const TODPerformance = ({ data = [] }) => {
         onMouseLeave={() => setHoverHour(null)}
         onTouchMove={(e) => e.touches?.[0] && handleInteraction(e.touches[0].clientX)}
         onTouchEnd={() => setHoverHour(null)}
-        className="relative h-[140px] md:h-[120px] flex items-center justify-between gap-0.5 cursor-crosshair select-none touch-none"
+        className="relative h-[140px] md:h-[120px] cursor-crosshair select-none touch-none"
       >
-        {/* Zero baseline */}
-        <div className="absolute left-0 right-0 h-px bg-border/40 z-0 top-1/2" />
+        <div className="absolute inset-x-0 top-0 bottom-6">
+          {/* Zero baseline */}
+          <div className="absolute left-0 right-0 h-px bg-border/40 z-0 top-1/2 -translate-y-1/2" />
 
-        {/* Average Range Shading */}
-        {avgPos > 0 && avgNeg > 0 && (
-          <div
-            className="absolute left-0 right-0 bg-accent/5 z-0 pointer-events-none"
-            style={{
-              top: `calc(50% - ${avgPosHeight}%)`,
-              bottom: `calc(50% - ${avgNegHeight}%)`
-            }}
-          />
-        )}
+          {/* Average Range Shading */}
+          {avgPos > 0 && avgNeg > 0 && (
+            <div
+              className="absolute left-0 right-0 bg-accent/5 z-0 pointer-events-none"
+              style={{
+                top: `calc(50% - ${avgPosHeight}%)`,
+                bottom: `calc(50% - ${avgNegHeight}%)`
+              }}
+            />
+          )}
 
-        {/* Average Lines */}
-        {avgPos > 0 && (
-          <div
-            className="absolute left-0 right-0 border-t border-green/20 z-0 pointer-events-none"
-            style={{ bottom: `calc(50% + ${avgPosHeight}%)` }}
-          >
-            <span className="absolute right-0 -top-3.5 text-[7px] text-green/50 font-black uppercase tracking-tighter">Avg + {fmtUSD(avgPos)}</span>
+          {/* Average Lines */}
+          {avgPos > 0 && (
+            <div
+              className="absolute left-0 right-0 border-t border-green/20 z-0 pointer-events-none"
+              style={{ bottom: `calc(50% + ${avgPosHeight}%)` }}
+            >
+              <span className="absolute right-0 -top-3.5 text-[7px] text-green/50 font-black uppercase tracking-tighter">Avg + {fmtUSD(avgPos)}</span>
+            </div>
+          )}
+          {avgNeg > 0 && (
+            <div
+              className="absolute left-0 right-0 border-b border-red/20 z-0 pointer-events-none"
+              style={{ top: `calc(50% + ${avgNegHeight}%)` }}
+            >
+              <span className="absolute right-0 -bottom-3.5 text-[7px] text-red/50 font-black uppercase tracking-tighter">Avg - {fmtUSD(avgNeg)}</span>
+            </div>
+          )}
+
+          <div className="absolute inset-0 flex items-stretch justify-between gap-0.5">
+            {validData.map((h) => {
+              const isPos = h.pnl >= 0;
+              const absPnl = Math.abs(h.pnl);
+              const scaleFactor = Math.sqrt(absPnl) / Math.sqrt(maxPnl);
+              const heightPct = absPnl === 0 ? 0 : Math.max(6, scaleFactor * 50);
+
+              return (
+                <div key={h.hour} className="flex-1 relative group z-10">
+                  <div
+                    role="img"
+                    aria-label={`${h.hour}:00, ${isPos ? 'positive' : 'negative'} performance, ${fmtUSD(h.pnl)} PnL, ${Number(h.winRate || 0).toFixed(0)}% win rate`}
+                    className={cn(
+                      "absolute left-0 right-0 transition-all duration-300 opacity-60",
+                      isPos
+                        ? "bg-green border-t border-green/40 rounded-t-[2px]"
+                        : "bg-red border-b border-red/40 rounded-b-[2px]",
+                      hoverHour?.hour === h.hour && "opacity-100 ring-1 ring-accent/40"
+                    )}
+                    style={{
+                      height: `${heightPct}%`,
+                      top: '50%',
+                      transform: isPos ? 'translateY(-100%)' : 'translateY(0)'
+                    }}
+                  />
+                </div>
+              );
+            })}
           </div>
-        )}
-        {avgNeg > 0 && (
-          <div
-            className="absolute left-0 right-0 border-b border-red/20 z-0 pointer-events-none"
-            style={{ top: `calc(50% + ${avgNegHeight}%)` }}
-          >
-            <span className="absolute right-0 -bottom-3.5 text-[7px] text-red/50 font-black uppercase tracking-tighter">Avg - {fmtUSD(avgNeg)}</span>
-          </div>
-        )}
-
-        {validData.map((h) => {
-          const isPos = h.pnl >= 0;
-          const absPnl = Math.abs(h.pnl);
-          // Non-linear scaling to ensure small but non-zero values are visible
-          // We use square root scaling for the height calculation
-          const scaleFactor = Math.sqrt(absPnl) / Math.sqrt(maxPnl);
-          const heightPct = absPnl === 0 ? 0 : Math.max(6, scaleFactor * 50);
-
-          return (
-            <div key={h.hour} className="flex-1 h-full flex flex-col group relative z-10">
-              <div className="flex-1 relative">
-                <div
-                  role="img"
-                  aria-label={`${h.hour}:00, ${isPos ? 'positive' : 'negative'} performance, ${fmtUSD(h.pnl)} PnL, ${Number(h.winRate || 0).toFixed(0)}% win rate`}
-                  className={cn(
-                    "absolute left-0 right-0 transition-all duration-300 opacity-60",
-                    isPos
-                      ? "bg-green border-t border-green/40 rounded-t-[2px]"
-                      : "bg-red border-b border-red/40 rounded-b-[2px]",
-                    hoverHour?.hour === h.hour && "opacity-100 ring-1 ring-accent/40"
-                  )}
-                  style={{
-                    height: `${heightPct}%`,
-                    [isPos ? 'bottom' : 'top']: '50%'
-                  }}
-                />
-              </div>
-              <span className="text-[7px] text-dim font-mono font-bold text-center mt-auto py-1 hidden sm:block">{h.hour}</span>
-              <span className="text-[7px] text-dim font-mono font-bold text-center mt-auto py-1 block sm:hidden">
+        </div>
+        <div className="absolute inset-x-0 bottom-0 h-6 flex justify-between gap-0.5 pointer-events-none">
+          {validData.map((h) => (
+            <div key={h.hour} className="flex-1 flex flex-col items-center justify-center">
+              <span className="text-[7px] text-dim font-mono font-bold text-center hidden sm:block">{h.hour}</span>
+              <span className="text-[7px] text-dim font-mono font-bold text-center block sm:hidden">
                 {h.hour % 3 === 0 ? h.hour : ''}
               </span>
             </div>
-          );
-        })}
+          ))}
+        </div>
       </div>
     </div>
   );

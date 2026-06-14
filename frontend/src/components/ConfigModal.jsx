@@ -529,6 +529,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
                 {field('Period Limit', 'max_trades_per_period', 'number', null, { min: 0 })}
                 {field('Period (min)', 'trades_period_min', 'number', null, { min: 1 })}
+                {field('Max 24h', 'max_trades_24h', 'number', null, { min: 0 })}
+                {field('Min Interval (m)', 'min_trade_interval_min', 'number', null, { min: 0 })}
+                {field('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
                 {field('Max Per Sym', 'max_open_trades_per_symbol', 'number', null, { min: 1 })}
               </div>
 

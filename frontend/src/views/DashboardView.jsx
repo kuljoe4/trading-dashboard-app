@@ -583,9 +583,11 @@ export function DashboardView({ initialStrategy }) {
           sticky={true}
         >
           <div className="flex gap-3">
-            <Tooltip content={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}>
+            <Tooltip content={isThrottled ? "Disable Eco Mode (currently active)" : "Enable Eco Mode (Power Saver)"}>
               <button
                 onClick={() => setThrottled(!isThrottled)}
+                aria-pressed={isThrottled}
+                aria-label={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode"}
                 className={cn(
                   "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2",
                   isThrottled

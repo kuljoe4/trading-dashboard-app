@@ -61,19 +61,32 @@ describe('AnalyticsService', () => {
     expect(hour15?.pnl).toBe(-5);
   });
 
-  it('calculates Sharpe and Sortino ratios correctly', () => {
-    // Standard distribution for easy calculation
-    // pnls: [20, 10, 20, 10] -> mean = 15, stdDev = 5, Sharpe = 3
+  it('calculates Sharpe and Sortino ratios correctly using return-based metrics', () => {
+    // Return-based Sharpe: stdDev of percentage returns
+    // trades: [100, 100, 100, 100] on 10000 starting balance
+    // Returns: 1%, 0.99%, 0.98%, 0.97% ... approx 1%
     const trades = [
-      { pnl: 20, status: 'CLOSED', exit_ts: new Date('2023-01-01T10:00:00Z') },
-      { pnl: 10, status: 'CLOSED', exit_ts: new Date('2023-01-01T11:00:00Z') },
-      { pnl: 20, status: 'CLOSED', exit_ts: new Date('2023-01-01T12:00:00Z') },
-      { pnl: 10, status: 'CLOSED', exit_ts: new Date('2023-01-01T13:00:00Z') },
+      { pnl: 100, status: 'CLOSED', exit_ts: new Date('2023-01-01T10:00:00Z') },
+      { pnl: 100, status: 'CLOSED', exit_ts: new Date('2023-01-01T11:00:00Z') },
     ] as TradeEntity[];
 
-    const result = service.calculateAnalytics(trades, 1000);
+    const result = service.calculateAnalytics(trades, 10000);
 
-    expect(result.sharpeRatio).toBe(3); // mean=15, stdDev=5 => 15/5 = 3
-    expect(result.sortinoRatio).toBe(0); // No downside deviation
+    // Mean approx 1%, stdDev approx 0.005% => Sharpe should be high
+    expect(result.sharpeRatio).toBeGreaterThan(10);
+    expect(result.sortinoRatio).toBe(0);
+  });
+
+  it('calculates return-based averages correctly', () => {
+    const trades = [
+      { pnl: 100, status: 'CLOSED', exit_ts: new Date('2023-01-01T10:00:00Z') }, // 1% of 10000
+      { pnl: -50, status: 'CLOSED', exit_ts: new Date('2023-01-01T11:00:00Z') }, // -0.495% of 10100
+    ] as TradeEntity[];
+
+    const result = service.calculateAnalytics(trades, 10000);
+
+    expect(result.avgWinPct).toBe(1.0);
+    expect(result.avgLossPct).toBeCloseTo(0.5, 2);
+    expect(result.expectancyPct).toBeCloseTo(0.25, 2); // (1 - 0.5) / 2
   });
 });

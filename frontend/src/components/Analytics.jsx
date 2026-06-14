@@ -235,8 +235,13 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
 };
 
 export const TODPerformance = ({ data = [] }) => {
+ 
+  
   const validData = data.filter(d => d && typeof d.pnl === 'number');
   const maxPnl = Math.max(1, ...validData.map(d => Math.abs(d.pnl)));
+  const [hoverHour, setHoverHour] = useState(null);
+  const containerRef = useRef(null);
+
 
   const { avgPos, avgNeg } = useMemo(() => {
     const pos = validData.filter(d => d.pnl > 0).map(d => d.pnl);
@@ -250,11 +255,37 @@ export const TODPerformance = ({ data = [] }) => {
   const avgPosHeight = (Math.sqrt(avgPos) / Math.sqrt(maxPnl)) * 50;
   const avgNegHeight = (Math.sqrt(avgNeg) / Math.sqrt(maxPnl)) * 50;
 
+  const handleInteraction = (clientX) => {
+    if (!containerRef.current || !data.length) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const xPct = (clientX - rect.left) / rect.width;
+    const hourIndex = Math.min(Math.floor(xPct * data.length), data.length - 1);
+    setHoverHour(data[hourIndex]);
+  };
+
+  const currentHourStats = hoverHour || data.find(h => h.hour === new Date().getHours()) || data[0];
+
   return (
     <div className="space-y-6" role="region" aria-label="Time of day performance histogram">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <span className="text-[10px] md:text-[9px] text-dim font-bold uppercase tracking-widest">Time-of-Day Performance (Local)</span>
-        <div className="flex gap-4" aria-hidden="true">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 min-h-[80px] sm:min-h-[64px]">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Time-of-Day Performance (Local)</span>
+          <div className="flex items-baseline gap-3">
+             <span className={cn("text-2xl font-bold font-mono tracking-tighter", currentHourStats.pnl >= 0 ? "text-green" : "text-red")}>
+                {fmtUSD(currentHourStats.pnl)}
+             </span>
+             <span className="text-[11px] text-dim font-mono font-bold uppercase">{currentHourStats.hour}:00</span>
+          </div>
+          <div className="h-4">
+             {currentHourStats && (
+               <span className="text-[9px] text-dim font-mono uppercase">
+                  {currentHourStats.winRate.toFixed(0)}% Win Rate · {currentHourStats.wins}/{currentHourStats.total} Trades
+               </span>
+             )}
+          </div>
+        </div>
+
+        <div className="flex flex-row sm:flex-col items-center sm:items-end gap-3 sm:gap-1.5 pt-1">
           <div className="flex items-center gap-1.5">
              <div className="w-1.5 h-1.5 rounded-full bg-green" />
              <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Profit</span>
@@ -266,7 +297,14 @@ export const TODPerformance = ({ data = [] }) => {
         </div>
       </div>
 
-      <div className="relative h-[140px] md:h-[120px] flex items-center justify-between gap-0.5">
+      <div
+        ref={containerRef}
+        onMouseMove={(e) => handleInteraction(e.clientX)}
+        onMouseLeave={() => setHoverHour(null)}
+        onTouchMove={(e) => e.touches?.[0] && handleInteraction(e.touches[0].clientX)}
+        onTouchEnd={() => setHoverHour(null)}
+        className="relative h-[140px] md:h-[120px] flex items-center justify-between gap-0.5 cursor-crosshair select-none touch-none"
+      >
         {/* Zero baseline */}
         <div className="absolute left-0 right-0 h-px bg-border/40 z-0 top-1/2" />
 
@@ -287,7 +325,7 @@ export const TODPerformance = ({ data = [] }) => {
             className="absolute left-0 right-0 border-t border-green/20 z-0 pointer-events-none"
             style={{ bottom: `calc(50% + ${avgPosHeight}%)` }}
           >
-            <span className="absolute right-0 -top-3 text-[6px] text-green/40 font-bold uppercase">Avg +</span>
+            <span className="absolute right-0 -top-3.5 text-[7px] text-green/50 font-black uppercase tracking-tighter">Avg + {fmtUSD(avgPos)}</span>
           </div>
         )}
         {avgNeg > 0 && (
@@ -295,7 +333,7 @@ export const TODPerformance = ({ data = [] }) => {
             className="absolute left-0 right-0 border-b border-red/20 z-0 pointer-events-none"
             style={{ top: `calc(50% + ${avgNegHeight}%)` }}
           >
-            <span className="absolute right-0 -bottom-3 text-[6px] text-red/40 font-bold uppercase">Avg -</span>
+            <span className="absolute right-0 -bottom-3.5 text-[7px] text-red/50 font-black uppercase tracking-tighter">Avg - {fmtUSD(avgNeg)}</span>
           </div>
         )}
 
@@ -310,31 +348,21 @@ export const TODPerformance = ({ data = [] }) => {
           return (
             <div key={h.hour} className="flex-1 h-full flex flex-col group relative z-10">
               <div className="flex-1 relative">
-                <Tooltip
-                  content={
-                    <div className="min-w-[80px]">
-                      <div className="text-[8px] text-dim font-bold uppercase tracking-widest mb-1">{h.hour}:00</div>
-                      <div className={cn("text-[10px] font-mono font-bold", isPos ? "text-green" : "text-red")}>{fmtUSD(h.pnl)}</div>
-                      <div className="text-[9px] text-dim font-mono">{Number(h.winRate || 0).toFixed(0)}% WR ({h.wins}/{h.total})</div>
-                    </div>
-                  }
-                  side={isPos ? "top" : "bottom"}
-                >
-                  <div
-                    role="img"
-                    aria-label={`${h.hour}:00, ${isPos ? 'positive' : 'negative'} performance, ${fmtUSD(h.pnl)} PnL, ${Number(h.winRate || 0).toFixed(0)}% win rate`}
-                    className={cn(
-                      "absolute left-0 right-0 transition-all duration-300 hover:opacity-100 opacity-60 cursor-help",
-                      isPos
-                        ? "bg-green border-t border-green/40 rounded-t-[2px]"
-                        : "bg-red border-b border-red/40 rounded-b-[2px]"
-                    )}
-                    style={{
-                      height: `${heightPct}%`,
-                      [isPos ? 'bottom' : 'top']: '50%'
-                    }}
-                  />
-                </Tooltip>
+                <div
+                  role="img"
+                  aria-label={`${h.hour}:00, ${isPos ? 'positive' : 'negative'} performance, ${fmtUSD(h.pnl)} PnL, ${Number(h.winRate || 0).toFixed(0)}% win rate`}
+                  className={cn(
+                    "absolute left-0 right-0 transition-all duration-300 opacity-60",
+                    isPos
+                      ? "bg-green border-t border-green/40 rounded-t-[2px]"
+                      : "bg-red border-b border-red/40 rounded-b-[2px]",
+                    hoverHour?.hour === h.hour && "opacity-100 ring-1 ring-accent/40"
+                  )}
+                  style={{
+                    height: `${heightPct}%`,
+                    [isPos ? 'bottom' : 'top']: '50%'
+                  }}
+                />
               </div>
               <span className="text-[7px] text-dim font-mono font-bold text-center mt-auto py-1 hidden sm:block">{h.hour}</span>
               <span className="text-[7px] text-dim font-mono font-bold text-center mt-auto py-1 block sm:hidden">

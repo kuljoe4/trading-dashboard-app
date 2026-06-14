@@ -17,6 +17,93 @@ import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sidebar, BottomNav } from '../components/Navigation'
 
+const TemporalRiskGrid = React.memo(() => {
+  const { config, gateState, gateReason, isAdaptiveTightened, configSyncing, patchConfig } = useTradingStore(state => ({
+    config: state.config,
+    gateState: state.gateState,
+    gateReason: state.gateReason,
+    isAdaptiveTightened: state.isAdaptiveTightened,
+    configSyncing: state.configSyncing,
+    patchConfig: state.patchConfig
+  }), shallow);
+
+  const timeMatch = gateReason?.match(/~(\d+)(m|h)/);
+  const waitTime = timeMatch ? `${timeMatch[1]}${timeMatch[2]}` : null;
+
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 md:gap-4 mb-8 lg:mb-10">
+      <div className="contents md:hidden" /> {/* Spacer for mobile layout alignment */}
+
+      <InteractiveLimitCard
+        label="Period Limit"
+        subValue={gateState === 'max_trades_period' ? `Wait ~${waitTime}` : (isAdaptiveTightened ? 'x0.5 Applied' : null)}
+        tooltip="Maximum trades allowed within the sliding period window."
+        value={config.max_trades_per_period || 0}
+        min={0}
+        max={100}
+        onIncrement={() => patchConfig({ max_trades_per_period: (config.max_trades_per_period || 0) + 1 })}
+        onDecrement={() => patchConfig({ max_trades_per_period: Math.max(0, (config.max_trades_per_period || 0) - 1) })}
+        syncing={configSyncing}
+      />
+
+      <InteractiveLimitCard
+        label="Window"
+        subValue="Sliding"
+        tooltip="Duration of the sliding window for frequency limits."
+        value={config.trades_period_min || 60}
+        unit="m"
+        min={1}
+        max={1440}
+        onIncrement={() => patchConfig({ trades_period_min: (config.trades_period_min || 60) + 5 })}
+        onDecrement={() => patchConfig({ trades_period_min: Math.max(1, (config.trades_period_min || 60) - 5) })}
+        syncing={configSyncing}
+      />
+
+      <InteractiveLimitCard
+        label="24h Limit"
+        subValue={gateReason?.includes('24h limit') ? `Wait ~${waitTime}` : (config.frequency_shaping_enabled ? 'Rolling' : 'Inactive')}
+        tooltip="Total trade entry quota for a rolling 24-hour period."
+        value={config.max_trades_24h || 0}
+        min={0}
+        max={500}
+        onIncrement={() => patchConfig({ max_trades_24h: (config.max_trades_24h || 0) + 5 })}
+        onDecrement={() => patchConfig({ max_trades_24h: Math.max(0, (config.max_trades_24h || 0) - 5) })}
+        syncing={configSyncing}
+        disabled={config.frequency_shaping_enabled === false}
+      />
+
+      <InteractiveLimitCard
+        label="Spacing"
+        tooltip="Minimum interval required between any two trade entries. Tightens adaptively when TOD integration is active."
+        value={config.min_trade_interval_min || 0}
+        unit="m"
+        min={0}
+        max={1440}
+        onIncrement={() => patchConfig({ min_trade_interval_min: (config.min_trade_interval_min || 0) + 1 })}
+        onDecrement={() => patchConfig({ min_trade_interval_min: Math.max(0, (config.min_trade_interval_min || 0) - 1) })}
+        syncing={configSyncing}
+        disabled={config.frequency_shaping_enabled === false}
+        indicator={config.frequency_tod_integration && isAdaptiveTightened ? 'amber' : null}
+        subValue={gateReason?.includes('Trade spacing') ? `Wait ~${waitTime}` : (isAdaptiveTightened ? `x2 Applied` : null)}
+      />
+
+      <InteractiveLimitCard
+        label="Jitter"
+        subValue={config.trades_jitter_pct > 0 ? 'Randomized' : 'Fixed'}
+        tooltip="Randomized variation added to the period window to prevent execution stampedes."
+        value={config.trades_jitter_pct || 0}
+        unit="%"
+        min={0}
+        max={100}
+        onIncrement={() => patchConfig({ trades_jitter_pct: (config.trades_jitter_pct || 0) + 5 })}
+        onDecrement={() => patchConfig({ trades_jitter_pct: Math.max(0, (config.trades_jitter_pct || 0) - 5) })}
+        syncing={configSyncing}
+        disabled={config.frequency_shaping_enabled === false}
+      />
+    </div>
+  );
+});
+
 // Lazy Load heavy components
 const DecisionLog = lazy(() => import('../components/DecisionLog').then(module => ({ default: module.DecisionLog })))
 const ConfigModal = lazy(() => import('../components/ConfigModal').then(module => ({ default: module.ConfigModal })))
@@ -372,9 +459,6 @@ export function DashboardView({ initialStrategy }) {
     strategy_label: config.strategy_label || 'Momentum Strategy'
   }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, hitCount, config.strategy_label])
 
-  const timeMatch = gateReason?.match(/~(\d+)(m|h)/);
-  const waitTime = timeMatch ? `${timeMatch[1]}${timeMatch[2]}` : null;
-
   const activePnlMap = useMemo(() => {
     const map = { [currentStrategy.strategy_label]: 0 };
     (config.strategy_variants || []).forEach(v => {
@@ -642,7 +726,7 @@ export function DashboardView({ initialStrategy }) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.2 }}
-            className="grid grid-cols-2 lg:grid-cols-6 gap-3 md:gap-4 mb-8 lg:mb-10"
+            className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-5 lg:mb-6"
         >
           <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} />
           <StatCard
@@ -654,74 +738,9 @@ export function DashboardView({ initialStrategy }) {
           />
           <StatCard label="Live Risk" value={`${Number(totalRiskPct || 0).toFixed(1)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
           <StatCard label="Peak RR" value={`+${Number(maxRR || 0).toFixed(2)}`} color="text-accent" />
-
-          <InteractiveLimitCard
-            label="Period Limit"
-            subValue={gateState === 'max_trades_period' ? `Wait ~${waitTime}` : (isAdaptiveTightened ? 'x0.5 Applied' : null)}
-            tooltip="Maximum trades allowed within the sliding period window."
-            value={config.max_trades_per_period || 0}
-            min={0}
-            max={100}
-            onIncrement={() => patchConfig({ max_trades_per_period: (config.max_trades_per_period || 0) + 1 })}
-            onDecrement={() => patchConfig({ max_trades_per_period: Math.max(0, (config.max_trades_per_period || 0) - 1) })}
-            syncing={configSyncing}
-          />
-
-          <InteractiveLimitCard
-            label="Window"
-            subValue="Sliding"
-            tooltip="Duration of the sliding window for frequency limits."
-            value={config.trades_period_min || 60}
-            unit="m"
-            min={1}
-            max={1440}
-            onIncrement={() => patchConfig({ trades_period_min: (config.trades_period_min || 60) + 5 })}
-            onDecrement={() => patchConfig({ trades_period_min: Math.max(1, (config.trades_period_min || 60) - 5) })}
-            syncing={configSyncing}
-          />
-
-          <InteractiveLimitCard
-            label="24h Limit"
-            subValue={gateReason?.includes('24h limit') ? `Wait ~${waitTime}` : (config.frequency_shaping_enabled ? 'Rolling' : 'Inactive')}
-            tooltip="Total trade entry quota for a rolling 24-hour period."
-            value={config.max_trades_24h || 0}
-            min={0}
-            max={500}
-            onIncrement={() => patchConfig({ max_trades_24h: (config.max_trades_24h || 0) + 5 })}
-            onDecrement={() => patchConfig({ max_trades_24h: Math.max(0, (config.max_trades_24h || 0) - 5) })}
-            syncing={configSyncing}
-            disabled={config.frequency_shaping_enabled === false}
-          />
-
-          <InteractiveLimitCard
-            label="Spacing"
-            tooltip="Minimum interval required between any two trade entries. Tightens adaptively when TOD integration is active."
-            value={config.min_trade_interval_min || 0}
-            unit="m"
-            min={0}
-            max={1440}
-            onIncrement={() => patchConfig({ min_trade_interval_min: (config.min_trade_interval_min || 0) + 1 })}
-            onDecrement={() => patchConfig({ min_trade_interval_min: Math.max(0, (config.min_trade_interval_min || 0) - 1) })}
-            syncing={configSyncing}
-            disabled={config.frequency_shaping_enabled === false}
-            indicator={config.frequency_tod_integration && isAdaptiveTightened ? 'amber' : null}
-            subValue={gateReason?.includes('Trade spacing') ? `Wait ~${waitTime}` : (isAdaptiveTightened ? `x2 Applied` : null)}
-          />
-
-          <InteractiveLimitCard
-            label="Jitter"
-            subValue={config.trades_jitter_pct > 0 ? 'Randomized' : 'Fixed'}
-            tooltip="Randomized variation added to the period window to prevent execution stampedes."
-            value={config.trades_jitter_pct || 0}
-            unit="%"
-            min={0}
-            max={100}
-            onIncrement={() => patchConfig({ trades_jitter_pct: (config.trades_jitter_pct || 0) + 5 })}
-            onDecrement={() => patchConfig({ trades_jitter_pct: Math.max(0, (config.trades_jitter_pct || 0) - 5) })}
-            syncing={configSyncing}
-            disabled={config.frequency_shaping_enabled === false}
-          />
         </motion.div>
+
+        <TemporalRiskGrid />
 
 
         {/* Main Grid */}

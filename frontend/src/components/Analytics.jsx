@@ -269,6 +269,17 @@ export const TODPerformance = ({ data = [] }) => {
         {/* Zero baseline */}
         <div className="absolute left-0 right-0 h-px bg-border/40 z-0 top-1/2" />
 
+        {/* Average Range Shading */}
+        {avgPos > 0 && avgNeg > 0 && (
+          <div
+            className="absolute left-0 right-0 bg-accent/5 z-0 pointer-events-none"
+            style={{
+              top: `calc(50% - ${avgPosHeight}%)`,
+              bottom: `calc(50% - ${avgNegHeight}%)`
+            }}
+          />
+        )}
+
         {/* Average Lines */}
         {avgPos > 0 && (
           <div

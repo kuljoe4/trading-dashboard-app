@@ -616,7 +616,11 @@ export class TradingSessionService {
       activeWindows: this.getActiveWindows(),
       gateState: this.sessionState.gateState,
       hibernating: this.sessionState.hibernating,
-      isAdaptiveTightened: this.riskEngine.canEnter(this.positionTracker.activeList(), this.sessionState.closedTrades, this.getBalance(), 'DUMMY', this.config!, this.positionTracker.totalRisk()).isAdaptiveTightened,
+      isAdaptiveTightened: (this.engineBroadcaster as any)._lastRiskResult?.isAdaptiveTightened ?? false,
+      tradesInPeriod: (this.engineBroadcaster as any)._lastRiskResult?.tradesInPeriod,
+      maxTradesPeriod: (this.engineBroadcaster as any)._lastRiskResult?.maxTradesPeriod,
+      tradesIn24h: (this.engineBroadcaster as any)._lastRiskResult?.tradesIn24h,
+      maxTrades24h: (this.engineBroadcaster as any)._lastRiskResult?.maxTrades24h,
       scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused,
       history: this.sessionState.closedTrades.slice(0, 50).map((t) => this.engineBroadcaster.serializeTrade(t, this.config!, t.exit_price)),
     };

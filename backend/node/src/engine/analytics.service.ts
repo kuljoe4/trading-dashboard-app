@@ -65,7 +65,7 @@ export class AnalyticsService {
     // Performance Engineering: If currentBalance is provided, anchor the entire history
     // to the current account power to ensure scale-invariant drawdown and performance.
     const totalNetPnL = sortedTrades.reduce((sum, t) => sum + Number(t.pnl || 0), 0);
-    const effectiveStartingBalance = currentBalance
+    const effectiveStartingBalance = (currentBalance && currentBalance > 0)
       ? Math.max(1, currentBalance - totalNetPnL)
       : startingBalance;
 

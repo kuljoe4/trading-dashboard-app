@@ -44,3 +44,18 @@ export function floorStep(value: number, step: number): number {
   // Use roundTo to clean up any floating point artifacts from the multiplication
   return roundTo(floored, Math.max(0, Math.floor(precision)));
 }
+
+/**
+ * Standardizes technical SL reason strings into user-friendly labels.
+ * e.g. RR_sequence_milestone_0 -> BREAKEVEN, RR_sequence_milestone_1 -> M1
+ */
+export function formatSlType(slType: string): string {
+  if (!slType) return 'ADJUSTED SL';
+  if (slType.includes('INITIAL_SL')) return 'INITIAL SL';
+  if (slType.includes('RR_sequence_milestone_0')) return 'BREAKEVEN';
+  if (slType.includes('RR_sequence_milestone_')) {
+    const parts = slType.split('_');
+    return `M${parts[parts.length - 1]}`;
+  }
+  return slType.replace(/_/g, ' ').toUpperCase();
+}

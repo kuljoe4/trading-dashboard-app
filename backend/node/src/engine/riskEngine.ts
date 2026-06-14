@@ -60,7 +60,18 @@ export class RiskEngineService {
     closedTrades: Trade[],
     config: SessionConfig,
     now: number
-  ): { canEnter: boolean; reason: string; isAdaptiveTightened?: boolean } {
+  ): {
+    canEnter: boolean;
+    reason: string;
+    isAdaptiveTightened?: boolean;
+    tradesInPeriod?: number;
+    maxTradesPeriod?: number;
+    tradesIn24h?: number;
+    maxTrades24h?: number;
+    mostRecentTradeTs?: number;
+    oldestTradeIn24hTs?: number;
+    oldestTradeInPeriodTs?: number;
+  } {
     const maxTradesPeriod = config.max_trades_per_period ?? 0;
     const periodMinBase = config.trades_period_min ?? 60;
     const maxTrades24h = config.max_trades_24h ?? 50;
@@ -138,27 +149,49 @@ export class RiskEngineService {
           adaptiveMultiplier = 2.0; // Double the interval, half the period limit
           isAdaptiveTightened = true;
         } else {
-          return { canEnter: false, reason: `Historical performance for hour ${currentHour} is low (${winRate.toFixed(1)}% WR)` };
+          return {
+            canEnter: false,
+            reason: `Historical performance for hour ${currentHour} is low (${winRate.toFixed(1)}% WR)`,
+            isAdaptiveTightened,
+            tradesInPeriod,
+            maxTradesPeriod: Math.max(1, Math.floor(maxTradesPeriod * (isAdaptiveTightened ? 0.5 : 1.0))),
+            tradesIn24h,
+            maxTrades24h,
+            mostRecentTradeTs,
+            oldestTradeIn24hTs,
+            oldestTradeInPeriodTs
+          };
         }
       }
     }
 
     // 1. Min Interval Spacing Check
     const effectiveMinIntervalMs = minIntervalMsBase * adaptiveMultiplier;
+    const effectiveMaxTradesPeriod = isAdaptiveTightened
+      ? Math.max(1, Math.floor(maxTradesPeriod * 0.5))
+      : maxTradesPeriod;
+
     if (effectiveMinIntervalMs > 0 && mostRecentTradeTs > 0) {
       const elapsed = now - mostRecentTradeTs;
       if (elapsed < effectiveMinIntervalMs) {
         const waitMin = Math.ceil((effectiveMinIntervalMs - elapsed) / 60000);
         const adaptiveNote = isAdaptiveTightened ? ' (Adaptive TOD Tightening)' : '';
-        return { canEnter: false, reason: `Trade spacing active${adaptiveNote}. Wait ~${waitMin}m before next entry.`, isAdaptiveTightened };
+        return {
+          canEnter: false,
+          reason: `Trade spacing active${adaptiveNote}. Wait ~${waitMin}m before next entry.`,
+          isAdaptiveTightened,
+          tradesInPeriod,
+          maxTradesPeriod: effectiveMaxTradesPeriod,
+          tradesIn24h,
+          maxTrades24h,
+          mostRecentTradeTs,
+          oldestTradeIn24hTs,
+          oldestTradeInPeriodTs
+        };
       }
     }
 
     // 2. Rolling Period Limit (with Jitter and Adaptive Scaling)
-    const effectiveMaxTradesPeriod = isAdaptiveTightened
-      ? Math.max(1, Math.floor(maxTradesPeriod * 0.5))
-      : maxTradesPeriod;
-
     if (effectiveMaxTradesPeriod > 0 && tradesInPeriod >= effectiveMaxTradesPeriod) {
       const nextSlotMs = oldestTradeInPeriodTs + effectivePeriodMs - now;
       const nextSlotMin = Math.ceil(nextSlotMs / 60000);
@@ -166,7 +199,14 @@ export class RiskEngineService {
       return {
         canEnter: false,
         reason: `Max trades per period reached (${maxTradesPeriod}/${Math.round(effectivePeriodMs / 60000)}m)${adaptiveNote}. Next slot in ~${nextSlotMin}m.`,
-        isAdaptiveTightened
+        isAdaptiveTightened,
+        tradesInPeriod,
+        maxTradesPeriod: effectiveMaxTradesPeriod,
+        tradesIn24h,
+        maxTrades24h,
+        mostRecentTradeTs,
+        oldestTradeIn24hTs,
+        oldestTradeInPeriodTs
       };
     }
 
@@ -177,11 +217,29 @@ export class RiskEngineService {
       return {
         canEnter: false,
         reason: `Rolling 24h limit reached (${tradesIn24h}/${maxTrades24h}). Next slot in ~${nextSlotHours}h.`,
-        isAdaptiveTightened
+        isAdaptiveTightened,
+        tradesInPeriod,
+        maxTradesPeriod: effectiveMaxTradesPeriod,
+        tradesIn24h,
+        maxTrades24h,
+        mostRecentTradeTs,
+        oldestTradeIn24hTs,
+        oldestTradeInPeriodTs
       };
     }
 
-    return { canEnter: true, reason: 'OK' };
+    return {
+      canEnter: true,
+      reason: 'OK',
+      isAdaptiveTightened,
+      tradesInPeriod,
+      maxTradesPeriod: effectiveMaxTradesPeriod,
+      tradesIn24h,
+      maxTrades24h,
+      mostRecentTradeTs,
+      oldestTradeIn24hTs,
+      oldestTradeInPeriodTs
+    };
   }
 
   /**

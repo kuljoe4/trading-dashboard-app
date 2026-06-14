@@ -860,7 +860,7 @@ export class SessionService implements OnModuleInit {
     const result = this.analyticsService.calculateAnalytics(
       trades as any,
       startingBalance,
-      currentBalance
+      currentStatus.balance
     );
     this.analyticsCache = { data: result, ts: now };
     return result;

@@ -211,6 +211,9 @@ export class EngineBroadcasterService {
     const hasVariants = !!(config?.strategy_variants?.length);
     const variantGroups: Record<string, { pnl: number, risk: number, count: number, hits: number }> = {};
 
+    const riskResult = this.riskEngine.canEnter(this.positionTracker.activeList(), this.sessionState.closedTrades, this.sessionState.getBalance(config?.paper_mode ?? true), 'DUMMY', config, this.positionTracker.totalRisk());
+    (this as any)._lastRiskResult = riskResult;
+
     for (let i = 0; i < len; i++) {
       const trade = activeTrades[i];
       const prevTrade = prevTickMap.get(trade.id);
@@ -323,7 +326,11 @@ export class EngineBroadcasterService {
       total_sl_used: roundTo(totalRiskUsdt, 2),
       trades,
       gateState: this.sessionState.gateState,
-      gateReason: this.riskEngine.canEnter(this.positionTracker.activeList(), this.sessionState.closedTrades, this.sessionState.getBalance(config?.paper_mode ?? true), 'DUMMY', config, this.positionTracker.totalRisk()).reason,
+      gateReason: (this as any)._lastRiskResult?.reason || 'OK',
+      tradesInPeriod: (this as any)._lastRiskResult?.tradesInPeriod,
+      maxTradesPeriod: (this as any)._lastRiskResult?.maxTradesPeriod,
+      tradesIn24h: (this as any)._lastRiskResult?.tradesIn24h,
+      maxTrades24h: (this as any)._lastRiskResult?.maxTrades24h,
       hibernating: this.sessionState.hibernating,
       isAdaptiveTightened: this.sessionState.isAdaptiveTightened,
       paused: this.sessionState.paused,

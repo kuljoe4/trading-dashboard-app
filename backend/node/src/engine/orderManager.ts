@@ -9,7 +9,7 @@ import { TickerCacheService } from './ticker_cache.service';
 import { SessionStateService } from './session_state.service';
 import { AuditLogService } from '../trading/audit-log.service';
 import { v4 as uuid } from 'uuid';
-import { roundEight, floorStep, roundTo } from '../lib/math';
+import { roundEight, floorStep, roundTo, formatSlType } from '../lib/math';
 import { ENGINE_CONSTANTS } from '../models/constants';
 import { ENGINE_EVENTS } from './events';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -63,9 +63,10 @@ export class OrderManagerService {
 
           if (isSlOrder) {
             const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
+            const slLabel = formatSlType(slType);
             trade.exit_signal_reason = `EXCHANGE_ALGO_${slType}: Hit at ${exitPrice}`;
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
-              msg: `[${tradeIdShort8}] Exchange Algo SL hit for ${symbol} at ${exitPrice} (${slType})`,
+              msg: `[${tradeIdShort8}] Exchange Algo SL hit for ${symbol} at ${exitPrice} (${slLabel})`,
               level: 'info'
             });
           } else {
@@ -123,10 +124,11 @@ export class OrderManagerService {
           }
 
           const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
+          const slLabel = formatSlType(slType);
           trade.exit_signal_reason = `EXCHANGE_${slType}: Hit at ${exitPrice}`;
 
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
-            msg: `[${tradeIdShort8}] Exchange SL hit for ${symbol} at ${exitPrice} (${slType})`,
+            msg: `[${tradeIdShort8}] Exchange SL hit for ${symbol} at ${exitPrice} (${slLabel})`,
             level: 'info'
           });
 

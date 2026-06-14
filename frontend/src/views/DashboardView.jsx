@@ -18,13 +18,17 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Sidebar, BottomNav } from '../components/Navigation'
 
 const TemporalRiskGrid = React.memo(() => {
-  const { config, gateState, gateReason, isAdaptiveTightened, configSyncing, patchConfig } = useTradingStore(state => ({
+  const { config, gateState, gateReason, isAdaptiveTightened, configSyncing, patchConfig, tradesInPeriod, maxTradesPeriod, tradesIn24h, maxTrades24h } = useTradingStore(state => ({
     config: state.config,
     gateState: state.gateState,
     gateReason: state.gateReason,
     isAdaptiveTightened: state.isAdaptiveTightened,
     configSyncing: state.configSyncing,
-    patchConfig: state.patchConfig
+    patchConfig: state.patchConfig,
+    tradesInPeriod: state.tradesInPeriod,
+    maxTradesPeriod: state.maxTradesPeriod,
+    tradesIn24h: state.tradesIn24h,
+    maxTrades24h: state.maxTrades24h
   }), shallow);
 
   const timeMatch = gateReason?.match(/~(\d+)(m|h)/);
@@ -36,7 +40,7 @@ const TemporalRiskGrid = React.memo(() => {
 
       <InteractiveLimitCard
         label="Period Limit"
-        subValue={gateState === 'max_trades_period' ? `Wait ~${waitTime}` : (isAdaptiveTightened ? 'x0.5 Applied' : null)}
+        subValue={gateState === 'max_trades_period' ? `Wait ~${waitTime}` : (isAdaptiveTightened ? 'x0.5 Applied' : (tradesInPeriod !== undefined ? `${Math.max(0, (maxTradesPeriod || config.max_trades_per_period) - tradesInPeriod)} Remaining` : null))}
         tooltip="Maximum trades allowed within the sliding period window."
         value={config.max_trades_per_period || 0}
         min={0}
@@ -44,6 +48,7 @@ const TemporalRiskGrid = React.memo(() => {
         onIncrement={() => patchConfig({ max_trades_per_period: (config.max_trades_per_period || 0) + 1 })}
         onDecrement={() => patchConfig({ max_trades_per_period: Math.max(0, (config.max_trades_per_period || 0) - 1) })}
         syncing={configSyncing}
+        usagePct={tradesInPeriod !== undefined ? (tradesInPeriod / (maxTradesPeriod || config.max_trades_per_period || 1)) * 100 : undefined}
       />
 
       <InteractiveLimitCard
@@ -61,7 +66,7 @@ const TemporalRiskGrid = React.memo(() => {
 
       <InteractiveLimitCard
         label="24h Limit"
-        subValue={gateReason?.includes('24h limit') ? `Wait ~${waitTime}` : (config.frequency_shaping_enabled ? 'Rolling' : 'Inactive')}
+        subValue={gateReason?.includes('24h limit') ? `Wait ~${waitTime}` : (tradesIn24h !== undefined ? `${Math.max(0, (maxTrades24h || config.max_trades_24h) - tradesIn24h)} Remaining` : (config.frequency_shaping_enabled ? 'Rolling' : 'Inactive'))}
         tooltip="Total trade entry quota for a rolling 24-hour period."
         value={config.max_trades_24h || 0}
         min={0}
@@ -70,6 +75,7 @@ const TemporalRiskGrid = React.memo(() => {
         onDecrement={() => patchConfig({ max_trades_24h: Math.max(0, (config.max_trades_24h || 0) - 5) })}
         syncing={configSyncing}
         disabled={config.frequency_shaping_enabled === false}
+        usagePct={tradesIn24h !== undefined ? (tradesIn24h / (maxTrades24h || config.max_trades_24h || 1)) * 100 : undefined}
       />
 
       <InteractiveLimitCard

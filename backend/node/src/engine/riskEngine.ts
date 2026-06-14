@@ -64,8 +64,9 @@ export class RiskEngineService {
     const maxTradesPeriod = config.max_trades_per_period ?? 0;
     const periodMinBase = config.trades_period_min ?? 60;
     const maxTrades24h = config.max_trades_24h ?? 50;
-    const minIntervalMs = (config.min_trade_interval_min ?? 0) * 60 * 1000;
-    const jitterPct = config.trades_jitter_pct ?? 0;
+    const shapingEnabled = config.frequency_shaping_enabled ?? false;
+    const minIntervalMsBase = shapingEnabled ? (config.min_trade_interval_min ?? 0) * 60 * 1000 : 0;
+    const jitterPct = shapingEnabled ? (config.trades_jitter_pct ?? 0) : 0;
     const useTodStats = config.risk_use_tod_stats && closedTrades.length > 5;
     const currentHour = useTodStats ? new Date().getUTCHours() : -1;
 
@@ -126,17 +127,39 @@ export class RiskEngineService {
     for (let i = 0; i < activeTrades.length; i++) processTradeForPeriod(activeTrades[i]);
     for (let i = 0; i < closedTrades.length; i++) processTradeForPeriod(closedTrades[i]);
 
-    // 1. Min Interval Spacing Check
-    if (minIntervalMs > 0 && mostRecentTradeTs > 0) {
-      const elapsed = now - mostRecentTradeTs;
-      if (elapsed < minIntervalMs) {
-        const waitMin = Math.ceil((minIntervalMs - elapsed) / 60000);
-        return { canEnter: false, reason: `Trade spacing active. Wait ~${waitMin}m before next entry.` };
+    // 4. TOD Performance Check (Pre-calculated for Adaptive Spacing)
+    let adaptiveMultiplier = 1.0;
+    let isAdaptiveTightened = false;
+    if (useTodStats && hourTradesCount >= 3) {
+      const winRate = (wins / hourTradesCount) * 100;
+      const minWinRate = config.tod_min_winrate ?? 40.0;
+      if (winRate < minWinRate) {
+        if (config.frequency_tod_integration && shapingEnabled) {
+          adaptiveMultiplier = 2.0; // Double the interval, half the period limit
+          isAdaptiveTightened = true;
+        } else {
+          return { canEnter: false, reason: `Historical performance for hour ${currentHour} is low (${winRate.toFixed(1)}% WR)` };
+        }
       }
     }
 
-    // 2. Rolling Period Limit (with Jitter)
-    if (maxTradesPeriod > 0 && tradesInPeriod >= maxTradesPeriod) {
+    // 1. Min Interval Spacing Check
+    const effectiveMinIntervalMs = minIntervalMsBase * adaptiveMultiplier;
+    if (effectiveMinIntervalMs > 0 && mostRecentTradeTs > 0) {
+      const elapsed = now - mostRecentTradeTs;
+      if (elapsed < effectiveMinIntervalMs) {
+        const waitMin = Math.ceil((effectiveMinIntervalMs - elapsed) / 60000);
+        const adaptiveNote = isAdaptiveTightened ? ' (Adaptive TOD Tightening)' : '';
+        return { canEnter: false, reason: `Trade spacing active${adaptiveNote}. Wait ~${waitMin}m before next entry.` };
+      }
+    }
+
+    // 2. Rolling Period Limit (with Jitter and Adaptive Scaling)
+    const effectiveMaxTradesPeriod = isAdaptiveTightened
+      ? Math.max(1, Math.floor(maxTradesPeriod * 0.5))
+      : maxTradesPeriod;
+
+    if (effectiveMaxTradesPeriod > 0 && tradesInPeriod >= effectiveMaxTradesPeriod) {
       const nextSlotMs = oldestTradeInPeriodTs + effectivePeriodMs - now;
       const nextSlotMin = Math.ceil(nextSlotMs / 60000);
       return {
@@ -153,15 +176,6 @@ export class RiskEngineService {
         canEnter: false,
         reason: `Rolling 24h limit reached (${tradesIn24h}/${maxTrades24h}). Next slot in ~${nextSlotHours}h.`
       };
-    }
-
-    // 4. TOD Performance Check
-    if (useTodStats && hourTradesCount >= 3) {
-      const winRate = (wins / hourTradesCount) * 100;
-      const minWinRate = config.tod_min_winrate ?? 40.0;
-      if (winRate < minWinRate) {
-        return { canEnter: false, reason: `Historical performance for hour ${currentHour} is low (${winRate.toFixed(1)}% WR)` };
-      }
     }
 
     return { canEnter: true, reason: 'OK' };

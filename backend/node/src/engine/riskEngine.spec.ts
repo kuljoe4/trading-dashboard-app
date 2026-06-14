@@ -15,6 +15,7 @@ describe('RiskEngineService - Frequency Limits', () => {
     mockConfig.max_trades_24h = 5;
     mockConfig.min_trade_interval_min = 10;
     mockConfig.trades_jitter_pct = 0;
+    mockConfig.frequency_shaping_enabled = true;
   });
 
   it('should allow entry if within all limits', () => {

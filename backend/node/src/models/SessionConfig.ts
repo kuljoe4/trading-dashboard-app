@@ -243,6 +243,14 @@ export class SessionConfig {
   @IsOptional()
   trades_jitter_pct?: number = 0;
 
+  @IsBoolean()
+  @IsOptional()
+  frequency_shaping_enabled?: boolean = false;
+
+  @IsBoolean()
+  @IsOptional()
+  frequency_tod_integration?: boolean = false;
+
   @IsNumber()
   @Min(CONFIG_LIMITS.MAX_TOTAL_RISK_MIN)
   @Max(CONFIG_LIMITS.MAX_TOTAL_RISK_MAX)

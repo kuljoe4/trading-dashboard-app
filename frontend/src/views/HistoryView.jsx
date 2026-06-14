@@ -104,9 +104,11 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
         </div>
         <div className="flex flex-col items-start min-w-[80px]">
           <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Market Context</span>
-          <span className={cn("text-[9px] font-black font-mono", pnlClass(trade.entry_daily_change_pct))}>
-            {(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} {Math.abs(trade.entry_daily_change_pct || 0).toFixed(2)}%
-          </span>
+          <Tooltip content={`24h change at entry: ${trade.entry_daily_change_pct || 0}%`}>
+            <span className={cn("text-[9px] font-black font-mono cursor-help", pnlClass(trade.entry_daily_change_pct))}>
+              {(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} {Math.abs(trade.entry_daily_change_pct || 0).toFixed(2)}%
+            </span>
+          </Tooltip>
         </div>
         <div className="flex flex-col items-start min-w-[80px] max-w-[120px]">
           <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Exit</span>

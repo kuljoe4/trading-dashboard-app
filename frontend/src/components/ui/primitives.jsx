@@ -58,7 +58,7 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
   return (
     <div
       className={cn(
-        "bg-surface border p-3 md:p-5 rounded-2xl shadow-sm transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[100px] min-w-0",
+        "bg-surface border p-3 md:p-5 rounded-2xl shadow-sm transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[100px] min-w-0 focus-visible:outline-accent",
         isLocked ? "border-border/60" : "border-accent/40 bg-accent/[0.02] shadow-[0_0_20px_rgba(91,111,255,0.05)]"
       )}
       onKeyDown={handleKeyDown}
@@ -75,13 +75,15 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
       <div className="flex flex-col gap-1 w-full self-start relative z-10">
         <div className="flex items-center justify-between w-full">
           <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-tight">{label}</div>
-          <button
-            onClick={(e) => { e.stopPropagation(); setIsLocked(!isLocked); }}
-            className={cn("p-1 rounded-md transition-colors", isLocked ? "text-dim/40 hover:text-dim" : "text-accent")}
-            aria-label={isLocked ? "Unlock controls" : "Lock controls"}
-          >
-            {isLocked ? <Lock size={10} /> : <Unlock size={10} />}
-          </button>
+          <Tooltip content={isLocked ? "Controls Locked: Tap to unlock and adjust limits" : "Controls Unlocked: Tap to lock"}>
+            <button
+              onClick={(e) => { e.stopPropagation(); setIsLocked(!isLocked); }}
+              className={cn("p-1 rounded-md transition-colors", isLocked ? "text-dim/40 hover:text-dim" : "text-accent")}
+              aria-label={isLocked ? "Unlock controls" : "Lock controls"}
+            >
+              {isLocked ? <Lock size={10} /> : <Unlock size={10} />}
+            </button>
+          </Tooltip>
         </div>
         <div className="flex items-center justify-between w-full gap-2">
           <div className={cn(
@@ -468,7 +470,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
 }
 
 // --- Copy Button ---
-export const CopyButton = ({ value, className }) => {
+export const CopyButton = ({ value, className, tooltip = "Copy", successTooltip = "Copied!" }) => {
   const [copied, setCopied] = React.useState(false)
 
   const handleCopy = async (e) => {
@@ -483,7 +485,7 @@ export const CopyButton = ({ value, className }) => {
   }
 
   return (
-    <Tooltip content={copied ? "Copied!" : "Copy"}>
+    <Tooltip content={copied ? successTooltip : tooltip}>
       <button
         onClick={handleCopy}
         className={cn(
@@ -491,7 +493,7 @@ export const CopyButton = ({ value, className }) => {
           copied ? "text-green bg-green/10" : "text-dim hover:text-text hover:bg-white/5",
           className
         )}
-        aria-label={copied ? "Copied to clipboard" : "Copy to clipboard"}
+        aria-label={copied ? successTooltip : tooltip}
       >
         {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
       </button>

@@ -90,4 +90,31 @@ describe('PnL Consistency Logic Audit', () => {
     const value3 = 0.3 + 0.000000006; // 6e-9
     expect(roundEight(value3)).toBe(0.30000001);
   });
+
+  it('should maintain stable risk metrics during account scaling (Performance Engineering)', () => {
+    const { AnalyticsService } = require('../engine/analytics.service');
+    const service = new AnalyticsService();
+
+    // Scenario 1: $1000 account, wins $10 twice (1% returns)
+    const trades1 = [
+        { pnl: 10, status: 'CLOSED', exit_ts: new Date('2023-01-01T10:00:00Z') },
+        { pnl: 10, status: 'CLOSED', exit_ts: new Date('2023-01-01T11:00:00Z') }
+    ];
+    const analytics1 = service.calculateAnalytics(trades1, 1000);
+
+    // Scenario 2: Account scaled to $10,000, wins $100 twice (still 1% returns)
+    const trades2 = [
+        { pnl: 100, status: 'CLOSED', exit_ts: new Date('2023-01-01T10:00:00Z') },
+        { pnl: 100, status: 'CLOSED', exit_ts: new Date('2023-01-01T11:00:00Z') }
+    ];
+    const analytics2 = service.calculateAnalytics(trades2, 10000);
+
+    // Advanced trading ratios should be identical because return percentages are identical
+    expect(analytics1.sharpeRatio).toBe(analytics2.sharpeRatio);
+    expect(analytics1.avgWinPct).toBe(analytics2.avgWinPct);
+    expect(analytics1.overallPnlPct).toBe(analytics2.overallPnlPct);
+
+    // Dollar metrics should differ
+    expect(analytics1.avgWin).not.toBe(analytics2.avgWin);
+  });
 });

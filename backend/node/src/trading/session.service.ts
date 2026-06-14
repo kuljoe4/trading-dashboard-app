@@ -820,20 +820,31 @@ export class SessionService implements OnModuleInit {
       return this.analyticsCache.data;
     }
 
-    // Only fetch minimal columns for analytics to save memory
-    const trades = await this.tradeRepository.find({
-      select: ['pnl', 'exit_ts', 'status'],
-      where: {
-        status: In(TERMINAL_STATUSES as any),
-        ...(this.currentSessionId ? { sessionId: this.currentSessionId } : {})
-      }
-    });
-
-    const startingBalance = this.currentSessionId ? await this.getStartingBalanceForSession(this.currentSessionId) : undefined;
-
-    // Performance Engineering: Pass current real-time balance for accurate % metrics
+    // Performance Engineering: Fetch current session status first (contains both balance and history)
+    // This allows us to reuse memory and avoid separate DB hits for balance vs trades.
     const currentStatus = await this.getStatus();
-    const currentBalance = currentStatus.running ? currentStatus.balance : undefined;
+
+    let trades: any[];
+    let startingBalance: number | undefined;
+    let currentBalance: number | undefined;
+
+    if (this.currentSessionId && currentStatus.running) {
+      // Reuse history already fetched in getStatus() to minimize DB load
+      trades = currentStatus.history || [];
+      startingBalance = currentStatus.config?.paper_mode ? currentStatus.config?.paper_starting_balance : currentStatus.config?.live_starting_balance;
+      currentBalance = currentStatus.balance;
+    } else {
+      // Fallback for global analytics or inactive sessions
+      trades = await this.tradeRepository.find({
+        select: ['pnl', 'exit_ts', 'status'],
+        where: {
+          status: In(TERMINAL_STATUSES as any),
+          ...(this.currentSessionId ? { sessionId: this.currentSessionId } : {})
+        }
+      });
+      startingBalance = this.currentSessionId ? await this.getStartingBalanceForSession(this.currentSessionId) : undefined;
+      currentBalance = currentStatus.balance;
+    }
 
     const result = this.analyticsService.calculateAnalytics(
       trades as any,

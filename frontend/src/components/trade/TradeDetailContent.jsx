@@ -463,7 +463,20 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                    },
                    trade.exit_ts && {
                      label: 'Exit Signal',
-                     value: trade.exit_signal_type ? trade.exit_signal_type.replace(/_/g, ' ') : (trade.exit_reason || 'Manual'),
+                     value: (() => {
+                        const type = trade.exit_signal_type?.replace(/_/g, ' ') || (trade.exit_reason || 'Manual');
+                        const reason = trade.exit_signal_reason || '';
+                        if (type === 'STOP LOSS' || type === 'SL HIT') {
+                          if (reason.includes('INITIAL_SL')) return 'Initial Stop Loss';
+                          if (reason.includes('RR_sequence_milestone_0')) return 'Breakeven SL';
+                          if (reason.includes('RR_sequence_milestone')) {
+                            const match = reason.match(/milestone_(\d+)/);
+                            return match ? `Ratchet SL (M${match[1]})` : 'Ratchet SL';
+                          }
+                          return 'Stop Loss';
+                        }
+                        return type;
+                     })(),
                      tooltip: trade.exit_signal_reason || trade.exit_reason || 'No detailed reason provided',
                      color: 'text-accent'
                    }

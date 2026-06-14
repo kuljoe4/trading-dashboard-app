@@ -209,19 +209,13 @@ export class PositionTrackerService {
     if (!trade || trade.status !== 'OPEN') return null;
 
     // Check SL hit
-    if (trade.direction === 'LONG' && currentPrice <= trade.current_sl) {
-      trade.exit_signal_type = 'STOP_LOSS';
-      trade.exit_signal_reason = `Price ${currentPrice} <= SL ${trade.current_sl}`;
-      return {
-        exitOccurred: true,
-        exitType: 'CLOSED_SL',
-        exitReason: 'SL_HIT',
-      };
-    }
+    if ((trade.direction === 'LONG' && currentPrice <= trade.current_sl) ||
+        (trade.direction === 'SHORT' && currentPrice >= trade.current_sl)) {
 
-    if (trade.direction === 'SHORT' && currentPrice >= trade.current_sl) {
+      const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
       trade.exit_signal_type = 'STOP_LOSS';
-      trade.exit_signal_reason = `Price ${currentPrice} >= SL ${trade.current_sl}`;
+      trade.exit_signal_reason = `${slType}: Price ${currentPrice} reached SL ${trade.current_sl}`;
+
       return {
         exitOccurred: true,
         exitType: 'CLOSED_SL',

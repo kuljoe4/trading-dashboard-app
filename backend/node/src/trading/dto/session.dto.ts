@@ -1,13 +1,12 @@
 
-import { IsOptional, IsBoolean, IsString, ValidateNested, IsUUID, IsNotEmpty } from 'class-validator';
+import { IsOptional, IsBoolean, IsString, ValidateNested, IsUUID, IsNotEmpty, IsObject } from 'class-validator';
 import { Type } from 'class-transformer';
 import { SessionConfig } from '../../models/SessionConfig';
 
 export class StartSessionDto {
   @IsOptional()
-  @ValidateNested()
-  @Type(() => SessionConfig)
-  config?: SessionConfig;
+  @IsObject()
+  config?: any;
 
   @IsOptional()
   @IsBoolean()
@@ -27,7 +26,7 @@ export class PauseSessionDto {
 }
 
 export class UpdateSessionDto {
-  @ValidateNested()
-  @Type(() => SessionConfig)
-  config: SessionConfig;
+  @IsObject()
+  @IsNotEmpty()
+  config: any;
 }

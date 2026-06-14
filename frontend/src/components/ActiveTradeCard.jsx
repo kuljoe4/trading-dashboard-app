@@ -26,19 +26,14 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
   let entryMarkPos = 50
 
   if (entry && mark && sl) {
-    if (tp) {
-      const totalRange = Math.abs(tp - sl)
-      const distFromSl = Math.abs(mark - sl)
-      progress = Math.max(0, Math.min(100, (distFromSl / totalRange) * 100))
-      entryMarkPos = Math.max(0, Math.min(100, (Math.abs(entry - sl) / totalRange) * 100))
-    } else {
-      // Without TP, we use a reference of 3R profit for the 100% mark
-      const distToSl = Math.abs(entry - sl)
-      const targetProfitPrice = isLong ? (entry + distToSl * 3) : (entry - distToSl * 3)
-      const totalRange = Math.abs(targetProfitPrice - sl)
+    const targetPrice = tp || (isLong ? (entry + Math.abs(entry - sl) * 3) : (entry - Math.abs(entry - sl) * 3))
+    const totalRange = isLong ? (targetPrice - sl) : (sl - targetPrice)
+    const currentDist = isLong ? (mark - sl) : (sl - mark)
+    const entryDist = isLong ? (entry - sl) : (sl - entry)
 
-      progress = Math.max(0, Math.min(100, (Math.abs(mark - sl) / totalRange) * 100))
-      entryMarkPos = (Math.abs(entry - sl) / totalRange) * 100
+    if (totalRange !== 0) {
+      progress = Math.max(0, Math.min(100, (currentDist / totalRange) * 100))
+      entryMarkPos = Math.max(0, Math.min(100, (entryDist / totalRange) * 100))
     }
   }
 

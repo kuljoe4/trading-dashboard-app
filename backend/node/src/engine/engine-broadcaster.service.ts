@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
 import { TickerCacheService } from './ticker_cache.service';
@@ -7,6 +7,8 @@ import { MonitoringService } from './monitoring.service';
 import { AnalyticsService } from './analytics.service';
 import { BroadcastService } from './broadcast.service';
 import { VariantAnalyticsService } from './variant-analytics.service';
+import { RiskEngineService } from './riskEngine';
+import { PositionTrackerService } from './positionTracker';
 import { TradeSerializationDto, TickTradeDto } from '../trading/dto/trade-serialization.dto';
 import { roundEight, roundTo } from '../lib/math';
 
@@ -26,6 +28,8 @@ export class EngineBroadcasterService {
     private readonly analyticsService: AnalyticsService,
     private readonly broadcastService: BroadcastService,
     private readonly variantAnalytics: VariantAnalyticsService,
+    private readonly riskEngine: RiskEngineService,
+    @Inject(forwardRef(() => PositionTrackerService)) private readonly positionTracker: PositionTrackerService,
   ) {}
 
   /**

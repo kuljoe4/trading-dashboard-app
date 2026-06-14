@@ -1,6 +1,6 @@
 import React, { useId, useMemo, useState, useRef, useEffect } from 'react';
 import { fmtUSD, solveSmoothing } from '../lib/theme';
-import { cn } from '../components/ui/primitives';
+import { cn, Tooltip } from '../components/ui/primitives';
 
 const downsample = (data, threshold = 100) => {
   if (data.length <= threshold) return data;
@@ -237,10 +237,22 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
 export const TODPerformance = ({ data = [] }) => {
   const maxPnl = Math.max(1, ...data.map(d => Math.abs(d.pnl)));
 
+  const { avgPos, avgNeg } = useMemo(() => {
+    const pos = data.filter(d => d.pnl > 0).map(d => d.pnl);
+    const neg = data.filter(d => d.pnl < 0).map(d => Math.abs(d.pnl));
+    return {
+      avgPos: pos.length ? pos.reduce((a, b) => a + b, 0) / pos.length : 0,
+      avgNeg: neg.length ? neg.reduce((a, b) => a + b, 0) / neg.length : 0
+    };
+  }, [data]);
+
+  const avgPosHeight = (Math.sqrt(avgPos) / Math.sqrt(maxPnl)) * 50;
+  const avgNegHeight = (Math.sqrt(avgNeg) / Math.sqrt(maxPnl)) * 50;
+
   return (
     <div className="space-y-6" role="region" aria-label="Time of day performance histogram">
-      <div className="flex items-center justify-between">
-        <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Time-of-Day Performance (Local)</span>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <span className="text-[10px] md:text-[9px] text-dim font-bold uppercase tracking-widest">Time-of-Day Performance (Local)</span>
         <div className="flex gap-4" aria-hidden="true">
           <div className="flex items-center gap-1.5">
              <div className="w-1.5 h-1.5 rounded-full bg-green" />
@@ -253,9 +265,27 @@ export const TODPerformance = ({ data = [] }) => {
         </div>
       </div>
 
-      <div className="relative h-[120px] flex items-center justify-between gap-0.5">
+      <div className="relative h-[140px] md:h-[120px] flex items-center justify-between gap-0.5">
         {/* Zero baseline */}
         <div className="absolute left-0 right-0 h-px bg-border/40 z-0 top-1/2" />
+
+        {/* Average Lines */}
+        {avgPos > 0 && (
+          <div
+            className="absolute left-0 right-0 border-t border-green/20 z-0 pointer-events-none"
+            style={{ bottom: `calc(50% + ${avgPosHeight}%)` }}
+          >
+            <span className="absolute right-0 -top-3 text-[6px] text-green/40 font-bold uppercase">Avg +</span>
+          </div>
+        )}
+        {avgNeg > 0 && (
+          <div
+            className="absolute left-0 right-0 border-b border-red/20 z-0 pointer-events-none"
+            style={{ top: `calc(50% + ${avgNegHeight}%)` }}
+          >
+            <span className="absolute right-0 -bottom-3 text-[6px] text-red/40 font-bold uppercase">Avg -</span>
+          </div>
+        )}
 
         {data.map((h) => {
           const isPos = h.pnl >= 0;
@@ -268,32 +298,36 @@ export const TODPerformance = ({ data = [] }) => {
           return (
             <div key={h.hour} className="flex-1 h-full flex flex-col group relative z-10">
               <div className="flex-1 relative">
-                <div
-                  role="img"
-                  aria-label={`${h.hour}:00, ${isPos ? 'positive' : 'negative'} performance, ${fmtUSD(h.pnl)} PnL, ${Number(h.winRate || 0).toFixed(0)}% win rate`}
-                  className={cn(
-                    "absolute left-0 right-0 transition-all duration-300 hover:opacity-100 opacity-60",
-                    isPos
-                      ? "bg-green border-t border-green/40 rounded-t-[2px]"
-                      : "bg-red border-b border-red/40 rounded-b-[2px]"
-                  )}
-                  style={{
-                    height: `${heightPct}%`,
-                    [isPos ? 'bottom' : 'top']: '50%'
-                  }}
+                <Tooltip
+                  content={
+                    <div className="min-w-[80px]">
+                      <div className="text-[8px] text-dim font-bold uppercase tracking-widest mb-1">{h.hour}:00</div>
+                      <div className={cn("text-[10px] font-mono font-bold", isPos ? "text-green" : "text-red")}>{fmtUSD(h.pnl)}</div>
+                      <div className="text-[9px] text-dim font-mono">{Number(h.winRate || 0).toFixed(0)}% WR ({h.wins}/{h.total})</div>
+                    </div>
+                  }
+                  side={isPos ? "top" : "bottom"}
                 >
-                  {/* Tooltip */}
-                  <div className={cn(
-                    "absolute left-1/2 -translate-x-1/2 bg-surface border border-border p-2 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none min-w-[80px]",
-                    isPos ? "bottom-full mb-2" : "top-full mt-2"
-                  )} aria-hidden="true">
-                     <div className="text-[8px] text-dim font-bold uppercase tracking-widest mb-1">{h.hour}:00</div>
-                     <div className={cn("text-[10px] font-mono font-bold", isPos ? "text-green" : "text-red")}>{fmtUSD(h.pnl)}</div>
-                     <div className="text-[9px] text-dim font-mono">{Number(h.winRate || 0).toFixed(0)}% WR ({h.wins}/{h.total})</div>
-                  </div>
-                </div>
+                  <div
+                    role="img"
+                    aria-label={`${h.hour}:00, ${isPos ? 'positive' : 'negative'} performance, ${fmtUSD(h.pnl)} PnL, ${Number(h.winRate || 0).toFixed(0)}% win rate`}
+                    className={cn(
+                      "absolute left-0 right-0 transition-all duration-300 hover:opacity-100 opacity-60 cursor-help",
+                      isPos
+                        ? "bg-green border-t border-green/40 rounded-t-[2px]"
+                        : "bg-red border-b border-red/40 rounded-b-[2px]"
+                    )}
+                    style={{
+                      height: `${heightPct}%`,
+                      [isPos ? 'bottom' : 'top']: '50%'
+                    }}
+                  />
+                </Tooltip>
               </div>
-              <span className="text-[7px] text-dim font-mono font-bold text-center mt-auto py-1">{h.hour}</span>
+              <span className="text-[7px] text-dim font-mono font-bold text-center mt-auto py-1 hidden sm:block">{h.hour}</span>
+              <span className="text-[7px] text-dim font-mono font-bold text-center mt-auto py-1 block sm:hidden">
+                {h.hour % 3 === 0 ? h.hour : ''}
+              </span>
             </div>
           );
         })}

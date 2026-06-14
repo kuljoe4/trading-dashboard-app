@@ -279,13 +279,16 @@ export class TradingSessionService {
 
     if (!isInsideWindow && !hasUnscheduledMonitors) {
       this.sessionState.gateState = 'sleeping';
+      this.sessionState.isAdaptiveTightened = riskResult.isAdaptiveTightened || false;
     } else if (!riskResult.canEnter) {
       // If gating is due to risk (not just symbol max trades), update gateState
       if (!riskResult.reason.includes('Max open trades for')) {
         this.sessionState.gateState = this.gatingService.mapGateState(riskResult.reason);
       }
+      this.sessionState.isAdaptiveTightened = riskResult.isAdaptiveTightened || false;
     } else {
       this.sessionState.gateState = null;
+      this.sessionState.isAdaptiveTightened = riskResult.isAdaptiveTightened || false;
     }
 
     const shouldHibernate = this.isGated() && activeTrades.length === 0;
@@ -302,12 +305,22 @@ export class TradingSessionService {
       await this.gatingService.exitHibernation(this.config!);
     }
 
-    if (this.sessionState.gateState !== prevGateState) {
-      const msg = `[Gating] State changed: ${prevGateState || 'ACTIVE'} -> ${this.sessionState.gateState || 'ACTIVE'}. Reason: ${riskResult.reason}`;
-      this.logger.log(msg);
-      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
+    const prevReason = this.sessionState.gateReason;
+    this.sessionState.gateReason = riskResult.reason;
 
-      this.broadcast('gate', { gateState: this.sessionState.gateState, reason: riskResult.reason, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused });
+    if (this.sessionState.gateState !== prevGateState || riskResult.reason !== prevReason) {
+      if (this.sessionState.gateState !== prevGateState) {
+        const msg = `[Gating] State changed: ${prevGateState || 'ACTIVE'} -> ${this.sessionState.gateState || 'ACTIVE'}. Reason: ${riskResult.reason}`;
+        this.logger.log(msg);
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
+      }
+
+      this.broadcast('gate', {
+        gateState: this.sessionState.gateState,
+        reason: riskResult.reason,
+        isAdaptiveTightened: riskResult.isAdaptiveTightened,
+        scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused
+      });
       if (!this.sessionState.hibernating) this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, this.config);
     }
     return riskResult;
@@ -431,7 +444,21 @@ export class TradingSessionService {
   private broadcastSnapshot(status: 'started' | 'stopped') {
     const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
     if (status === 'stopped') { this.broadcast('session_terminated', { reason: 'SESSION_TERMINATED', endedAt: new Date().toISOString() }); return; }
-    this.broadcast('session', { status, running: this.running, paused: this.sessionState.paused, mode: this.config?.paper_mode ? 'PAPER' : 'LIVE', tradingMode: mode, balance: this.getBalance(), config: this.config, gateState: this.sessionState.gateState, scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period', activeTrades: this.positionTracker.activeList().map((t) => this.engineBroadcaster.serializeTrade(t, this.config!)), scannerResults: this.lastScannerResults, activeWindows: this.getActiveWindows(), });
+    this.broadcast('session', {
+      status,
+      running: this.running,
+      paused: this.sessionState.paused,
+      mode: this.config?.paper_mode ? 'PAPER' : 'LIVE',
+      tradingMode: mode,
+      balance: this.getBalance(),
+      config: this.config,
+      gateState: this.sessionState.gateState,
+      isAdaptiveTightened: this.sessionState.isAdaptiveTightened,
+      scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused,
+      activeTrades: this.positionTracker.activeList().map((t) => this.engineBroadcaster.serializeTrade(t, this.config!)),
+      scannerResults: this.lastScannerResults,
+      activeWindows: this.getActiveWindows(),
+    });
   }
 
   async fetchBinanceBalance(): Promise<number> {
@@ -584,6 +611,7 @@ export class TradingSessionService {
       activeWindows: this.getActiveWindows(),
       gateState: this.sessionState.gateState,
       hibernating: this.sessionState.hibernating,
+      isAdaptiveTightened: this.riskEngine.canEnter(this.positionTracker.activeList(), this.sessionState.closedTrades, this.getBalance(), 'DUMMY', this.config!, this.positionTracker.totalRisk()).isAdaptiveTightened,
       scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused,
       history: this.sessionState.closedTrades.slice(0, 50).map((t) => this.engineBroadcaster.serializeTrade(t, this.config!, t.exit_price)),
     };

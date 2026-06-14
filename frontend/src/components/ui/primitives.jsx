@@ -26,7 +26,7 @@ export const PulseDot = React.memo(({ color = "bg-green" }) => (
 ))
 
 // --- Interactive Limit Card ---
-export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onIncrement, onDecrement, min = 0, max = 1000, step = 1, syncing, disabled, indicator, tooltip }) => {
+export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onIncrement, onDecrement, min = 0, max = 1000, step = 1, syncing, disabled, indicator, tooltip, subValue }) => {
   const [isLocked, setIsLocked] = React.useState(true);
   const timerRef = React.useRef(null);
 
@@ -90,12 +90,17 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
           </button>
         </div>
         <div className="flex items-center justify-between w-full gap-2">
-          <div className={cn(
-            "text-sm md:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate",
-            isLocked ? "text-dim/60" : "text-text",
-            syncing && "opacity-40 blur-[1px]"
-          )}>
-            {value}{unit}
+          <div className="flex flex-col">
+            <div className={cn(
+              "text-sm md:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate",
+              isLocked ? "text-dim/60" : "text-text",
+              syncing && "opacity-40 blur-[1px]"
+            )}>
+              {value}{unit}
+            </div>
+            {subValue && (
+              <div className="text-[8px] font-black text-dim uppercase tracking-wider mt-0.5">{subValue}</div>
+            )}
           </div>
           <div className="flex items-center gap-1">
             <button

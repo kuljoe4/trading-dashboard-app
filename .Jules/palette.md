@@ -17,3 +17,7 @@
 ## 2026-06-11 - Decision Log Detail and Global Clipboard Access
 **Learning:** For high-density log feeds, a detail modal provides much-needed focus for inspecting specific events. Pairing individual log inspection with a "Copy All" capability at the header level optimizes for both forensic deep-dives and quick status sharing. Consistent modal design (using Radix Dialog) ensures these micro-interactions feel like a native part of the engine's orchestration layer.
 **Action:** Provide `Dialog`-based detail views for list items. Implement "Copy All" with visual feedback in log headers. Maintain 1:1 design language between trade and log modals.
+
+## 2026-06-14 - Context-Aware Feedback for Shared Utility Primitives
+**Learning:** Generic utility components like `CopyButton` often lack sufficient context when used for bulk actions or specific fields. Extending these primitives to support context-aware tooltips (e.g., "Copy All Visible Logs" vs "Copy") significantly improves user confidence during high-stakes operations. Additionally, safety mechanisms like the lock in `InteractiveLimitCard` require explicit educational tooltips to prevent user frustration when controls appear disabled but are actually just guarded.
+**Action:** Always provide `tooltip` and `successTooltip` props for copy/action primitives. Ensure all "guarded" UI states (locks, throttles) have descriptive tooltips explaining how to transition to an active state.

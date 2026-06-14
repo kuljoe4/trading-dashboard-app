@@ -13,7 +13,7 @@ describe('OrderManagerService', () => {
     };
     service = new OrderManagerService(
       mockSignalEngine,
-      { getSymbolFilters: (symbol: string) => ({ filters: [] }) } as any,
+      { getSymbolFilters: (symbol: string) => ({ _indexed: { tickSize: 0.1, stepSize: 0.01, minNotional: 0, multiplierUp: 1.1, multiplierDown: 0.9, pricePrecision: 1, qtyPrecision: 2 }, filters: [] }) } as any,
       null as any, // tickerCache
         {
           isRateLimited: () => false,
@@ -67,7 +67,7 @@ describe('OrderManagerService', () => {
           symbol: 'BTCUSDT',
           side: 'BUY',
           type: 'MARKET',
-          quantity: '0.10000000'
+          quantity: '0.10'
         })
       );
 
@@ -76,7 +76,7 @@ describe('OrderManagerService', () => {
           symbol: 'BTCUSDT',
           side: 'SELL',
           type: 'STOP_MARKET',
-          stopPrice: '49500.00000000',
+          stopPrice: '49500.0',
           workingType: 'MARK_PRICE',
           closePosition: true
         })
@@ -144,7 +144,7 @@ describe('OrderManagerService', () => {
       expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'STOP_MARKET',
-          stopPrice: '50500.00000000',
+          stopPrice: '50500.0',
           workingType: 'MARK_PRICE',
           closePosition: true
         })
@@ -179,7 +179,7 @@ describe('OrderManagerService', () => {
           symbol: 'BTCUSDT',
           side: 'SELL',
           type: 'MARKET',
-          quantity: '0.10000000',
+          quantity: '0.10',
           reduceOnly: true,
         })
       );

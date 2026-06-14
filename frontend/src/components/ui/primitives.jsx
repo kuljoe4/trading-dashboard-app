@@ -472,7 +472,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
 }
 
 // --- Copy Button ---
-export const CopyButton = ({ value, className }) => {
+export const CopyButton = ({ value, className, tooltip = "Copy", successTooltip = "Copied!" }) => {
   const [copied, setCopied] = React.useState(false)
 
   const handleCopy = async (e) => {
@@ -487,7 +487,7 @@ export const CopyButton = ({ value, className }) => {
   }
 
   return (
-    <Tooltip content={copied ? "Copied!" : "Copy"}>
+    <Tooltip content={copied ? successTooltip : tooltip}>
       <button
         onClick={handleCopy}
         className={cn(
@@ -495,7 +495,7 @@ export const CopyButton = ({ value, className }) => {
           copied ? "text-green bg-green/10" : "text-dim hover:text-text hover:bg-white/5",
           className
         )}
-        aria-label={copied ? "Copied to clipboard" : "Copy to clipboard"}
+        aria-label={copied ? successTooltip : tooltip}
       >
         {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
       </button>

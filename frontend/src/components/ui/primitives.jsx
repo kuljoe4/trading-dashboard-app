@@ -6,6 +6,7 @@ import * as TooltipPrimitive from "@radix-ui/react-tooltip"
 import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock } from 'lucide-react'
 import { Sparkline as SparklineChart } from '../DataCharts'
 import { useTradingStore } from '../../store/trading'
+import { useTooltipContext } from './tooltip'
 
 export function cn(...inputs) {
   return twMerge(clsx(inputs))
@@ -375,7 +376,15 @@ export const PnLBars = React.memo(({ trades }) => {
 // --- Tooltip ---
 export const Tooltip = ({ children, content, side = "top", align = "center", className }) => {
   if (!content) return children;
-  const [open, setOpen] = React.useState(false);
+
+  const id = React.useId();
+  const { activeTooltipId, setActiveTooltipId } = useTooltipContext();
+
+  const open = activeTooltipId === id;
+  const setOpen = (isOpen) => {
+    if (isOpen) setActiveTooltipId(id);
+    else if (open) setActiveTooltipId(null);
+  };
 
   return (
     <TooltipPrimitive.Root
@@ -388,7 +397,7 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
           // On mobile/touch devices, toggle on click/tap
           if (window.matchMedia('(pointer: coarse)').matches || window.matchMedia('(max-width: 768px)').matches) {
             e.stopPropagation();
-            setOpen(prev => !prev);
+            setOpen(!open);
           }
         }}
       >

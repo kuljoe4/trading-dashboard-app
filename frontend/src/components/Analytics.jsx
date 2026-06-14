@@ -235,8 +235,14 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
 };
 
 export const TODPerformance = ({ data = [] }) => {
- 
-  
+  if (!data || data.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[140px] md:h-[120px] bg-surface/20 border border-border/40 rounded-2xl border-dashed">
+        <span className="text-[10px] text-dim font-bold uppercase tracking-widest">No Hourly Data</span>
+      </div>
+    );
+  }
+
   const validData = data.filter(d => d && typeof d.pnl === 'number');
   const maxPnl = Math.max(1, ...validData.map(d => Math.abs(d.pnl)));
   const [hoverHour, setHoverHour] = useState(null);
@@ -263,7 +269,7 @@ export const TODPerformance = ({ data = [] }) => {
     setHoverHour(data[hourIndex]);
   };
 
-  const currentHourStats = hoverHour || data.find(h => h.hour === new Date().getHours()) || data[0];
+  const currentHourStats = hoverHour || data.find(h => h.hour === new Date().getHours()) || data[0] || { pnl: 0, hour: 0, winRate: 0, wins: 0, total: 0 };
 
   return (
     <div className="space-y-6" role="region" aria-label="Time of day performance histogram">
@@ -271,15 +277,15 @@ export const TODPerformance = ({ data = [] }) => {
         <div className="flex flex-col gap-0.5">
           <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Time-of-Day Performance (Local)</span>
           <div className="flex items-baseline gap-3">
-             <span className={cn("text-2xl font-bold font-mono tracking-tighter", currentHourStats.pnl >= 0 ? "text-green" : "text-red")}>
-                {fmtUSD(currentHourStats.pnl)}
+             <span className={cn("text-2xl font-bold font-mono tracking-tighter", (currentHourStats?.pnl || 0) >= 0 ? "text-green" : "text-red")}>
+                {fmtUSD(currentHourStats?.pnl || 0)}
              </span>
-             <span className="text-[11px] text-dim font-mono font-bold uppercase">{currentHourStats.hour}:00</span>
+             <span className="text-[11px] text-dim font-mono font-bold uppercase">{(currentHourStats?.hour || 0)}:00</span>
           </div>
           <div className="h-4">
              {currentHourStats && (
                <span className="text-[9px] text-dim font-mono uppercase">
-                  {currentHourStats.winRate.toFixed(0)}% Win Rate · {currentHourStats.wins}/{currentHourStats.total} Trades
+                  {(currentHourStats.winRate || 0).toFixed(0)}% Win Rate · {currentHourStats.wins || 0}/{currentHourStats.total || 0} Trades
                </span>
              )}
           </div>

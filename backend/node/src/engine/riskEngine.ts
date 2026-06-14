@@ -20,7 +20,7 @@ export class RiskEngineService {
     symbol: string,
     config: SessionConfig,
     totalSlUsed: number
-  ): { canEnter: boolean; reason: string } {
+  ): { canEnter: boolean; reason: string; isAdaptiveTightened?: boolean } {
     const now = Date.now();
 
     // 1. Static Configuration Checks
@@ -60,7 +60,7 @@ export class RiskEngineService {
     closedTrades: Trade[],
     config: SessionConfig,
     now: number
-  ): { canEnter: boolean; reason: string } {
+  ): { canEnter: boolean; reason: string; isAdaptiveTightened?: boolean } {
     const maxTradesPeriod = config.max_trades_per_period ?? 0;
     const periodMinBase = config.trades_period_min ?? 60;
     const maxTrades24h = config.max_trades_24h ?? 50;
@@ -150,7 +150,7 @@ export class RiskEngineService {
       if (elapsed < effectiveMinIntervalMs) {
         const waitMin = Math.ceil((effectiveMinIntervalMs - elapsed) / 60000);
         const adaptiveNote = isAdaptiveTightened ? ' (Adaptive TOD Tightening)' : '';
-        return { canEnter: false, reason: `Trade spacing active${adaptiveNote}. Wait ~${waitMin}m before next entry.` };
+        return { canEnter: false, reason: `Trade spacing active${adaptiveNote}. Wait ~${waitMin}m before next entry.`, isAdaptiveTightened };
       }
     }
 
@@ -162,9 +162,11 @@ export class RiskEngineService {
     if (effectiveMaxTradesPeriod > 0 && tradesInPeriod >= effectiveMaxTradesPeriod) {
       const nextSlotMs = oldestTradeInPeriodTs + effectivePeriodMs - now;
       const nextSlotMin = Math.ceil(nextSlotMs / 60000);
+      const adaptiveNote = isAdaptiveTightened ? ' (Adaptive TOD Tightening)' : '';
       return {
         canEnter: false,
-        reason: `Max trades per period reached (${maxTradesPeriod}/${Math.round(effectivePeriodMs / 60000)}m). Next slot in ~${nextSlotMin}m.`
+        reason: `Max trades per period reached (${maxTradesPeriod}/${Math.round(effectivePeriodMs / 60000)}m)${adaptiveNote}. Next slot in ~${nextSlotMin}m.`,
+        isAdaptiveTightened
       };
     }
 
@@ -174,7 +176,8 @@ export class RiskEngineService {
       const nextSlotHours = (nextSlotMs / (60 * 60 * 1000)).toFixed(1);
       return {
         canEnter: false,
-        reason: `Rolling 24h limit reached (${tradesIn24h}/${maxTrades24h}). Next slot in ~${nextSlotHours}h.`
+        reason: `Rolling 24h limit reached (${tradesIn24h}/${maxTrades24h}). Next slot in ~${nextSlotHours}h.`,
+        isAdaptiveTightened
       };
     }
 

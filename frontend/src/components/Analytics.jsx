@@ -237,10 +237,22 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
 export const TODPerformance = ({ data = [] }) => {
   const maxPnl = Math.max(1, ...data.map(d => Math.abs(d.pnl)));
 
+  const { avgPos, avgNeg } = useMemo(() => {
+    const pos = data.filter(d => d.pnl > 0).map(d => d.pnl);
+    const neg = data.filter(d => d.pnl < 0).map(d => Math.abs(d.pnl));
+    return {
+      avgPos: pos.length ? pos.reduce((a, b) => a + b, 0) / pos.length : 0,
+      avgNeg: neg.length ? neg.reduce((a, b) => a + b, 0) / neg.length : 0
+    };
+  }, [data]);
+
+  const avgPosHeight = (Math.sqrt(avgPos) / Math.sqrt(maxPnl)) * 50;
+  const avgNegHeight = (Math.sqrt(avgNeg) / Math.sqrt(maxPnl)) * 50;
+
   return (
     <div className="space-y-6" role="region" aria-label="Time of day performance histogram">
-      <div className="flex items-center justify-between">
-        <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Time-of-Day Performance (Local)</span>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <span className="text-[10px] md:text-[9px] text-dim font-bold uppercase tracking-widest">Time-of-Day Performance (Local)</span>
         <div className="flex gap-4" aria-hidden="true">
           <div className="flex items-center gap-1.5">
              <div className="w-1.5 h-1.5 rounded-full bg-green" />
@@ -253,9 +265,27 @@ export const TODPerformance = ({ data = [] }) => {
         </div>
       </div>
 
-      <div className="relative h-[120px] flex items-center justify-between gap-0.5">
+      <div className="relative h-[140px] md:h-[120px] flex items-center justify-between gap-0.5">
         {/* Zero baseline */}
         <div className="absolute left-0 right-0 h-px bg-border/40 z-0 top-1/2" />
+
+        {/* Average Lines */}
+        {avgPos > 0 && (
+          <div
+            className="absolute left-0 right-0 border-t border-green/20 z-0 pointer-events-none"
+            style={{ bottom: `calc(50% + ${avgPosHeight}%)` }}
+          >
+            <span className="absolute right-0 -top-3 text-[6px] text-green/40 font-bold uppercase">Avg +</span>
+          </div>
+        )}
+        {avgNeg > 0 && (
+          <div
+            className="absolute left-0 right-0 border-b border-red/20 z-0 pointer-events-none"
+            style={{ top: `calc(50% + ${avgNegHeight}%)` }}
+          >
+            <span className="absolute right-0 -bottom-3 text-[6px] text-red/40 font-bold uppercase">Avg -</span>
+          </div>
+        )}
 
         {data.map((h) => {
           const isPos = h.pnl >= 0;

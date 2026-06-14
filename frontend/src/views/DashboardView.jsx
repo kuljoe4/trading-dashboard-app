@@ -321,7 +321,7 @@ export function DashboardView({ initialStrategy }) {
     updateConfig, patchConfig, gateState, gateReason, hibernating,
     scannerPaused, sessionList, fetchSessions, wsStatus,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
-    healthEnabled, isSyncing, setSyncing, configSyncing
+    healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -353,7 +353,8 @@ export function DashboardView({ initialStrategy }) {
     healthEnabled: state.healthEnabled,
     isSyncing: state.isSyncing,
     setSyncing: state.setSyncing,
-    configSyncing: state.configSyncing
+    configSyncing: state.configSyncing,
+    isAdaptiveTightened: state.isAdaptiveTightened
   }), shallow)
 
   useEffect(() => {
@@ -370,6 +371,9 @@ export function DashboardView({ initialStrategy }) {
     sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, hitCount,
     strategy_label: config.strategy_label || 'Momentum Strategy'
   }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, hitCount, config.strategy_label])
+
+  const timeMatch = gateReason?.match(/~(\d+)(m|h)/);
+  const waitTime = timeMatch ? `${timeMatch[1]}${timeMatch[2]}` : null;
 
   const activePnlMap = useMemo(() => {
     const map = { [currentStrategy.strategy_label]: 0 };
@@ -583,6 +587,15 @@ export function DashboardView({ initialStrategy }) {
           sticky={true}
         >
           <div className="flex gap-3">
+            {config.frequency_shaping_enabled && (
+              <Tooltip content="Adaptive Frequency Shaping is ACTIVE. Limits will automatically tighten if TOD performance drops.">
+                <div className="hidden xl:flex items-center gap-2 px-3 py-1.5 bg-accent/10 border border-accent/20 rounded-xl text-[10px] font-bold text-accent uppercase tracking-widest animate-in fade-in zoom-in duration-500">
+                  <Activity size={12} />
+                  Frequency Guard
+                </div>
+              </Tooltip>
+            )}
+
             <Tooltip content={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}>
               <button
                 onClick={() => setThrottled(!isThrottled)}
@@ -644,6 +657,7 @@ export function DashboardView({ initialStrategy }) {
 
           <InteractiveLimitCard
             label="Period Limit"
+            subValue={gateState === 'max_trades_period' ? `Wait ~${waitTime}` : (isAdaptiveTightened ? 'x0.5 Applied' : null)}
             tooltip="Maximum trades allowed within the sliding period window."
             value={config.max_trades_per_period || 0}
             min={0}
@@ -655,6 +669,7 @@ export function DashboardView({ initialStrategy }) {
 
           <InteractiveLimitCard
             label="Window"
+            subValue="Sliding"
             tooltip="Duration of the sliding window for frequency limits."
             value={config.trades_period_min || 60}
             unit="m"
@@ -667,6 +682,7 @@ export function DashboardView({ initialStrategy }) {
 
           <InteractiveLimitCard
             label="24h Limit"
+            subValue={gateReason?.includes('24h limit') ? `Wait ~${waitTime}` : (config.frequency_shaping_enabled ? 'Rolling' : 'Inactive')}
             tooltip="Total trade entry quota for a rolling 24-hour period."
             value={config.max_trades_24h || 0}
             min={0}
@@ -674,7 +690,7 @@ export function DashboardView({ initialStrategy }) {
             onIncrement={() => patchConfig({ max_trades_24h: (config.max_trades_24h || 0) + 5 })}
             onDecrement={() => patchConfig({ max_trades_24h: Math.max(0, (config.max_trades_24h || 0) - 5) })}
             syncing={configSyncing}
-            disabled={!config.frequency_shaping_enabled}
+            disabled={config.frequency_shaping_enabled === false}
           />
 
           <InteractiveLimitCard
@@ -687,12 +703,14 @@ export function DashboardView({ initialStrategy }) {
             onIncrement={() => patchConfig({ min_trade_interval_min: (config.min_trade_interval_min || 0) + 1 })}
             onDecrement={() => patchConfig({ min_trade_interval_min: Math.max(0, (config.min_trade_interval_min || 0) - 1) })}
             syncing={configSyncing}
-            disabled={!config.frequency_shaping_enabled}
-            indicator={config.frequency_tod_integration && gateReason?.includes('Adaptive') ? 'amber' : null}
+            disabled={config.frequency_shaping_enabled === false}
+            indicator={config.frequency_tod_integration && isAdaptiveTightened ? 'amber' : null}
+            subValue={gateReason?.includes('Trade spacing') ? `Wait ~${waitTime}` : (isAdaptiveTightened ? `x2 Applied` : null)}
           />
 
           <InteractiveLimitCard
             label="Jitter"
+            subValue={config.trades_jitter_pct > 0 ? 'Randomized' : 'Fixed'}
             tooltip="Randomized variation added to the period window to prevent execution stampedes."
             value={config.trades_jitter_pct || 0}
             unit="%"
@@ -701,7 +719,7 @@ export function DashboardView({ initialStrategy }) {
             onIncrement={() => patchConfig({ trades_jitter_pct: (config.trades_jitter_pct || 0) + 5 })}
             onDecrement={() => patchConfig({ trades_jitter_pct: Math.max(0, (config.trades_jitter_pct || 0) - 5) })}
             syncing={configSyncing}
-            disabled={!config.frequency_shaping_enabled}
+            disabled={config.frequency_shaping_enabled === false}
           />
         </motion.div>
 

@@ -21,6 +21,7 @@ export class SessionStateService {
   public statsVersion = 0;
   public gateState: string | null = null;
   public hibernating = false;
+  public isAdaptiveTightened = false;
   public realTimePositions: Map<string, { amount: number; entryPrice: number }> = new Map();
   public config: SessionConfig | null = null;
   public closedTrades: Trade[] = [];
@@ -45,6 +46,7 @@ export class SessionStateService {
     this.activeTrades = [];
     this.gateState = null;
     this.hibernating = false;
+    this.isAdaptiveTightened = false;
     this.paused = false;
     this.binanceRateLimit = { used_1m: 0, limit: 2400 };
     this.cachedClosedTradesStats = {};

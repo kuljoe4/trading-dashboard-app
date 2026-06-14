@@ -76,6 +76,13 @@ const defaultConfig = {
   trading_mode: localStorage.getItem('global_trading_mode') || 'paper',
   risk_pct_per_trade: CONFIG_LIMITS.RISK_PER_TRADE_DEFAULT,
   max_open_trades: CONFIG_LIMITS.MAX_OPEN_TRADES_DEFAULT,
+  max_trades_per_period: 10,
+  trades_period_min: 60,
+  max_trades_24h: CONFIG_LIMITS.MAX_TRADES_24H_DEFAULT,
+  min_trade_interval_min: CONFIG_LIMITS.MIN_TRADE_INTERVAL_DEFAULT,
+  trades_jitter_pct: CONFIG_LIMITS.TRADES_JITTER_DEFAULT,
+  frequency_shaping_enabled: false,
+  frequency_tod_integration: false,
   paper_starting_balance: CONFIG_LIMITS.PAPER_STARTING_BALANCE_DEFAULT,
   live_starting_balance: CONFIG_LIMITS.LIVE_STARTING_BALANCE_DEFAULT,
   hot_loop_interval_ms: CONFIG_LIMITS.HOT_LOOP_DEFAULT,
@@ -87,7 +94,7 @@ const defaultConfig = {
 export const useTradingStore = createWithEqualityFn((set, get) => ({
   sessionActive: false, sessionPaused: false, strategyId: null, balance: 10000, totalPnl: 0, totalRiskPct: 0, totalSlUsed: 0,
   activeTrades: [], logs: [], logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
-  gateState: null, gateReason: null, hibernating: false, scannerPaused: false, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
+  gateState: null, gateReason: null, hibernating: false, isAdaptiveTightened: false, scannerPaused: false, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
   isSyncing: false, configSyncing: false,
   debugToolsEnabled: localStorage.getItem('debug_tools_enabled') === 'true',
   rateLimit: { used_weight_1m: 0, limit: ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT, used_pct: 0 },
@@ -150,6 +157,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
         totalSlUsed: res.data.totalSlUsed ?? 0,
         activeTrades: res.data.activeTrades || [],
         variantStats: res.data.variant_stats || {},
+        isAdaptiveTightened: res.data.isAdaptiveTightened ?? st.isAdaptiveTightened,
         scannerResults: res.data.scannerResults || [],
         activeWindows: res.data.activeWindows || [],
         tradeHistory: res.data.history || [],
@@ -261,12 +269,12 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
             nextHistory = Array.from(m.values()).sort((a, b) => new Date(b.exit_ts || b.createdAt).getTime() - new Date(a.exit_ts || a.createdAt).getTime());
           }
 
-          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, logs: d.logLines?.map(normalizeLog) || st.logs, scannerResults: d.scannerResults?.map(normalizeOpportunity) || st.scannerResults, activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: nextHistory, gateState: d.gateState ?? st.gateState, scannerPaused: d.scannerPaused ?? st.scannerPaused, config: d.config ? deepMerge(st.config, d.config) : st.config };
+          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, logs: d.logLines?.map(normalizeLog) || st.logs, scannerResults: d.scannerResults?.map(normalizeOpportunity) || st.scannerResults, activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: nextHistory, gateState: d.gateState ?? st.gateState, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, scannerPaused: d.scannerPaused ?? st.scannerPaused, config: d.config ? deepMerge(st.config, d.config) : st.config };
         });
       } else if (d.type === 'tick') {
         set((st) => {
           let nt = st.activeTrades; if (d.trades && Array.isArray(d.trades)) { const m = new Map(st.activeTrades.map(t => [t.id, t])); d.trades.forEach(t => { const p = m.get(t.id); const n = normalizeTrade(t, p); if (n) m.set(t.id, n); }); if (d._heartbeat) { const ids = new Set(d.trades.map(t => t.id)); for (const id of m.keys()) if (!ids.has(id)) m.delete(id); } nt = Array.from(m.values()); }
-          return { balance: d.balance ?? st.balance, totalPnl: d.total_pnl ?? st.totalPnl, totalRiskPct: d.total_risk_pct ?? st.totalRiskPct, totalSlUsed: d.total_sl_used ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, variantStats: d.variant_stats || st.variantStats, activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, hibernating: d.hibernating ?? st.hibernating, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, scannerPaused: d.scannerPaused ?? st.scannerPaused, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics };
+          return { balance: d.balance ?? st.balance, totalPnl: d.total_pnl ?? st.totalPnl, totalRiskPct: d.total_risk_pct ?? st.totalRiskPct, totalSlUsed: d.total_sl_used ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, variantStats: d.variant_stats || st.variantStats, activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, hibernating: d.hibernating ?? st.hibernating, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, scannerPaused: d.scannerPaused ?? st.scannerPaused, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics };
         });
       } else if (d.type === 'log') set(st => ({ logs: [normalizeLog(d), ...st.logs].slice(0, MAX_LOG_LINES) }));
       else if (d.type === 'scanner') {
@@ -275,7 +283,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
       } else if (d.type === 'trade_event') {
         const t = d.trade ? normalizeTrade(d.trade) : null;
         set(st => ({ activeTrades: d.event === 'closed' ? st.activeTrades.filter(x => x.symbol !== d.symbol) : (t ? [...st.activeTrades, t] : st.activeTrades), tradeHistory: d.event === 'closed' && t ? [t, ...st.tradeHistory].slice(0, 50) : st.tradeHistory, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount }));
-      } else if (d.type === 'gate') set(st => ({ gateState: d.gateState, gateReason: d.reason, hibernating: d.hibernating ?? st.hibernating, scannerPaused: d.scannerPaused }));
+      } else if (d.type === 'gate') set(st => ({ gateState: d.gateState, gateReason: d.reason, hibernating: d.hibernating ?? st.hibernating, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, scannerPaused: d.scannerPaused }));
       else if (d.type === 'session_terminated') get().setSessionActive(false, null);
     };
     ws.onclose = () => { set({ ws: null, wsStatus: 'offline' }); if (get().sessionActive) { const att = get().reconnectAttempts; const del = Math.min(1000 * Math.pow(2, att), 30000); set({ reconnectAttempts: att + 1 }); setTimeout(() => get().connectWS(), del); } };

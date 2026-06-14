@@ -320,6 +320,7 @@ export class EngineBroadcasterService {
       trades,
       gateState: this.sessionState.gateState,
       hibernating: this.sessionState.hibernating,
+      isAdaptiveTightened: this.sessionState.isAdaptiveTightened,
       paused: this.sessionState.paused,
       scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused,
       activeWindows: getActiveWindows(),

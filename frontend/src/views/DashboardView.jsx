@@ -466,7 +466,7 @@ export function DashboardView({ initialStrategy }) {
       map[label] = 0;
     });
     activeTrades.forEach(t => {
-      if (map[t.strategy_label] !== undefined) {
+      if (t && map[t.strategy_label] !== undefined) {
         map[t.strategy_label] += safeNum(t.pnl);
       }
     });

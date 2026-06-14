@@ -23,7 +23,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
   const [hoverData, setHoverData] = useState(null);
 
   const { points, viewMin, viewMax, viewRange } = useMemo(() => {
-    const downsampled = downsample(data);
+    const downsampled = downsample(data).filter(d => d && typeof d.pnl === 'number');
     if (!downsampled || downsampled.length < 2) return { points: [], viewMin: 0, viewMax: 0.1, viewRange: 0.1 };
 
     const values = downsampled.map(d => d.pnl);
@@ -91,7 +91,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
     );
   }
 
-  const currentPnl = data[data.length - 1].pnl;
+  const currentPnl = data[data.length - 1]?.pnl ?? 0;
 
   return (
     <div
@@ -235,14 +235,17 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
 };
 
 export const TODPerformance = ({ data = [] }) => {
+ 
+  
+  const validData = data.filter(d => d && typeof d.pnl === 'number');
+  const maxPnl = Math.max(1, ...validData.map(d => Math.abs(d.pnl)));
   const [hoverHour, setHoverHour] = useState(null);
   const containerRef = useRef(null);
 
-  const maxPnl = Math.max(1, ...data.map(d => Math.abs(d.pnl)));
 
   const { avgPos, avgNeg } = useMemo(() => {
-    const pos = data.filter(d => d.pnl > 0).map(d => d.pnl);
-    const neg = data.filter(d => d.pnl < 0).map(d => Math.abs(d.pnl));
+    const pos = validData.filter(d => d.pnl > 0).map(d => d.pnl);
+    const neg = validData.filter(d => d.pnl < 0).map(d => Math.abs(d.pnl));
     return {
       avgPos: pos.length ? pos.reduce((a, b) => a + b, 0) / pos.length : 0,
       avgNeg: neg.length ? neg.reduce((a, b) => a + b, 0) / neg.length : 0
@@ -334,7 +337,7 @@ export const TODPerformance = ({ data = [] }) => {
           </div>
         )}
 
-        {data.map((h) => {
+        {validData.map((h) => {
           const isPos = h.pnl >= 0;
           const absPnl = Math.abs(h.pnl);
           // Non-linear scaling to ensure small but non-zero values are visible

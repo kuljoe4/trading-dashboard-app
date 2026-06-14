@@ -27,7 +27,7 @@ export const PulseDot = React.memo(({ color = "bg-green" }) => (
 ))
 
 // --- Interactive Limit Card ---
-export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onIncrement, onDecrement, min = 0, max = 1000, step = 1, syncing, disabled, indicator, tooltip, subValue }) => {
+export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onIncrement, onDecrement, min = 0, max = 1000, step = 1, syncing, disabled, indicator, tooltip, subValue, usagePct }) => {
   const [isLocked, setIsLocked] = React.useState(true);
   const timerRef = React.useRef(null);
 
@@ -61,7 +61,10 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
       className={cn(
         "bg-surface border p-3 md:p-5 rounded-2xl shadow-sm transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[100px] min-w-0",
         isLocked ? "border-border/60" : "border-accent/40 bg-accent/[0.02] shadow-[0_0_20px_rgba(91,111,255,0.05)]",
-        disabled && "opacity-40 grayscale pointer-events-none"
+        disabled && "opacity-40 grayscale pointer-events-none",
+        usagePct >= 90 && "border-red/40 bg-red/[0.02] shadow-[0_0_20px_rgba(255,68,102,0.1)] animate-pulse-slow",
+        usagePct >= 70 && usagePct < 90 && "border-amber/40 bg-amber/[0.02] shadow-[0_0_20px_rgba(245,166,35,0.05)]",
+        subValue?.includes('Wait') && "border-amber/40 bg-amber/[0.01] animate-pulse-slow"
       )}
       onKeyDown={handleKeyDown}
       tabIndex={0}
@@ -133,6 +136,18 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
           </div>
         </div>
       </div>
+      {usagePct !== undefined && (
+        <div className="absolute bottom-0 left-0 right-0 h-1 bg-border/20">
+          <motion.div
+            initial={{ width: 0 }}
+            animate={{ width: `${Math.min(usagePct, 100)}%` }}
+            className={cn(
+              "h-full transition-all duration-1000",
+              usagePct >= 90 ? "bg-red" : usagePct >= 70 ? "bg-amber" : "bg-accent"
+            )}
+          />
+        </div>
+      )}
     </div>
   );
 })

@@ -63,9 +63,10 @@ export class OrderManagerService {
 
           if (isSlOrder) {
             const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
+            const slLabel = slType.includes('RR_sequence_milestone_0') ? 'BREAKEVEN' : (slType.includes('RR_sequence_milestone_') ? `M${slType.split('_').pop()}` : slType.replace(/_/g, ' '));
             trade.exit_signal_reason = `EXCHANGE_ALGO_${slType}: Hit at ${exitPrice}`;
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
-              msg: `[${tradeIdShort8}] Exchange Algo SL hit for ${symbol} at ${exitPrice} (${slType})`,
+              msg: `[${tradeIdShort8}] Exchange Algo SL hit for ${symbol} at ${exitPrice} (${slLabel})`,
               level: 'info'
             });
           } else {
@@ -123,10 +124,11 @@ export class OrderManagerService {
           }
 
           const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
+          const slLabel = slType.includes('RR_sequence_milestone_0') ? 'BREAKEVEN' : (slType.includes('RR_sequence_milestone_') ? `M${slType.split('_').pop()}` : slType.replace(/_/g, ' '));
           trade.exit_signal_reason = `EXCHANGE_${slType}: Hit at ${exitPrice}`;
 
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
-            msg: `[${tradeIdShort8}] Exchange SL hit for ${symbol} at ${exitPrice} (${slType})`,
+            msg: `[${tradeIdShort8}] Exchange SL hit for ${symbol} at ${exitPrice} (${slLabel})`,
             level: 'info'
           });
 

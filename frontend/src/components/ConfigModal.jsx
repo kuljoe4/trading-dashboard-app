@@ -525,26 +525,65 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
             </section>
 
             <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={Clock} title="Frequency & Schedule" subtitle="Execution windows & limits" />
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
-                {field('Period Limit', 'max_trades_per_period', 'number', null, { min: 0 })}
-                {field('Period (min)', 'trades_period_min', 'number', null, { min: 1 })}
-                {field('Max Per Sym', 'max_open_trades_per_symbol', 'number', null, { min: 1 })}
+              <SectionHeader icon={Clock} title="Frequency & Temporal Risk" subtitle="Execution windows & frequency shaping" />
+
+              <div className="space-y-4 mb-8">
+                <div className="p-4 bg-background/50 rounded-2xl border border-border/50 flex items-center justify-between group hover:border-accent/30 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><Activity size={20} /></div>
+                    <div>
+                      <div className="text-sm font-bold">Frequency Shaping</div>
+                      <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Control trade distribution and rolling limits</div>
+                    </div>
+                  </div>
+                  <Toggle value={cfg.frequency_shaping_enabled === true} onChange={(v) => setField('frequency_shaping_enabled', v)} />
+                </div>
+
+                {cfg.frequency_shaping_enabled && (
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 md:grid-cols-4 gap-6 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
+                    {field('Period Limit', 'max_trades_per_period', 'number', null, { min: 0 })}
+                    {field('Period (min)', 'trades_period_min', 'number', null, { min: 1 })}
+                    {field('Max 24h', 'max_trades_24h', 'number', null, { min: 0 })}
+                    {field('Min Interval (m)', 'min_trade_interval_min', 'number', null, { min: 0 })}
+                    <div className="md:col-span-2">
+                      {field('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
+                    </div>
+                  </motion.div>
+                )}
+
+                <div className="p-4 bg-background/50 rounded-2xl border border-border/50 flex items-center justify-between group hover:border-accent/30 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><LayoutGrid size={20} /></div>
+                    <div>
+                      <div className="text-sm font-bold">Time-of-Day Guard</div>
+                      <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Adaptive risk management based on hour stats</div>
+                    </div>
+                  </div>
+                  <Toggle value={cfg.risk_use_tod_stats === true} onChange={(v) => setField('risk_use_tod_stats', v)} />
+                </div>
+
+                {cfg.risk_use_tod_stats && (
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-5 bg-surface/30 rounded-2xl border border-border/40 space-y-4">
+                    {field('Minimum Required TOD Winrate %', 'tod_min_winrate', 'number', null, { min: 0, max: 100 })}
+
+                    {cfg.frequency_shaping_enabled && (
+                      <div className="flex items-center justify-between pt-4 border-t border-border/40">
+                        <div className="flex flex-col">
+                          <span className="text-xs font-bold">Integrated Frequency Guard</span>
+                          <span className="text-[10px] text-dim font-medium uppercase">Adaptive spacing when winrate is low</span>
+                        </div>
+                        <Toggle value={cfg.frequency_tod_integration === true} onChange={(v) => setField('frequency_tod_integration', v)} color="bg-amber" />
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+
+                <div className="grid grid-cols-2 gap-6 pt-4">
+                  {field('Max Per Sym', 'max_open_trades_per_symbol', 'number', null, { min: 1 })}
+                </div>
               </div>
 
-              <div className="p-4 bg-background rounded-2xl border border-border/50 flex items-center justify-between mb-6 group hover:border-accent/30 transition-colors">
-                 <div className="flex items-center gap-3">
-                   <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><LayoutGrid size={20} /></div>
-                   <div>
-                     <div className="text-sm font-bold">Time-of-Day Risk</div>
-                     <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Block entries during low-winrate hours</div>
-                   </div>
-                 </div>
-                 <Toggle value={cfg.risk_use_tod_stats === true} onChange={(v) => setField('risk_use_tod_stats', v)} />
-               </div>
-               {cfg.risk_use_tod_stats && <div className="mb-6 animate-in slide-in-from-top-2 duration-300">{field('Minimum Required TOD Winrate %', 'tod_min_winrate', 'number', null, { min: 0, max: 100 })}</div>}
-
-               <div className="space-y-3">
+              <div className="space-y-3">
                  <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2 px-1"><Clock size={12} /> Daily Execution Windows (UTC)</div>
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                    {(cfg.trading_windows || []).map((w, i) => (

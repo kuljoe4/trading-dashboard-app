@@ -664,6 +664,42 @@ export function DashboardView({ initialStrategy }) {
             onDecrement={() => patchConfig({ trades_period_min: Math.max(1, (config.trades_period_min || 60) - 5) })}
             syncing={configSyncing}
           />
+
+          <InteractiveLimitCard
+            label="24h Limit"
+            value={config.max_trades_24h || 0}
+            min={0}
+            max={500}
+            onIncrement={() => patchConfig({ max_trades_24h: (config.max_trades_24h || 0) + 5 })}
+            onDecrement={() => patchConfig({ max_trades_24h: Math.max(0, (config.max_trades_24h || 0) - 5) })}
+            syncing={configSyncing}
+            disabled={!config.frequency_shaping_enabled}
+          />
+
+          <InteractiveLimitCard
+            label="Spacing"
+            value={config.min_trade_interval_min || 0}
+            unit="m"
+            min={0}
+            max={1440}
+            onIncrement={() => patchConfig({ min_trade_interval_min: (config.min_trade_interval_min || 0) + 1 })}
+            onDecrement={() => patchConfig({ min_trade_interval_min: Math.max(0, (config.min_trade_interval_min || 0) - 1) })}
+            syncing={configSyncing}
+            disabled={!config.frequency_shaping_enabled}
+            indicator={config.frequency_tod_integration && gateReason?.includes('Adaptive') ? 'amber' : null}
+          />
+
+          <InteractiveLimitCard
+            label="Jitter"
+            value={config.trades_jitter_pct || 0}
+            unit="%"
+            min={0}
+            max={100}
+            onIncrement={() => patchConfig({ trades_jitter_pct: (config.trades_jitter_pct || 0) + 5 })}
+            onDecrement={() => patchConfig({ trades_jitter_pct: Math.max(0, (config.trades_jitter_pct || 0) - 5) })}
+            syncing={configSyncing}
+            disabled={!config.frequency_shaping_enabled}
+          />
         </motion.div>
 
 

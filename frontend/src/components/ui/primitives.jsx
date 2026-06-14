@@ -26,7 +26,7 @@ export const PulseDot = React.memo(({ color = "bg-green" }) => (
 ))
 
 // --- Interactive Limit Card ---
-export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onIncrement, onDecrement, min = 0, max = 1000, step = 1, syncing }) => {
+export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onIncrement, onDecrement, min = 0, max = 1000, step = 1, syncing, disabled, indicator }) => {
   const [isLocked, setIsLocked] = React.useState(true);
   const timerRef = React.useRef(null);
 
@@ -58,8 +58,9 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
   return (
     <div
       className={cn(
-        "bg-surface border p-3 md:p-5 rounded-2xl shadow-sm transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[100px] min-w-0 focus-visible:outline-accent",
-        isLocked ? "border-border/60" : "border-accent/40 bg-accent/[0.02] shadow-[0_0_20px_rgba(91,111,255,0.05)]"
+        "bg-surface border p-3 md:p-5 rounded-2xl shadow-sm transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[100px] min-w-0",
+        isLocked ? "border-border/60" : "border-accent/40 bg-accent/[0.02] shadow-[0_0_20px_rgba(91,111,255,0.05)]",
+        disabled && "opacity-40 grayscale pointer-events-none"
       )}
       onKeyDown={handleKeyDown}
       tabIndex={0}
@@ -74,16 +75,17 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
       )}
       <div className="flex flex-col gap-1 w-full self-start relative z-10">
         <div className="flex items-center justify-between w-full">
-          <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-tight">{label}</div>
-          <Tooltip content={isLocked ? "Controls Locked: Tap to unlock and adjust limits" : "Controls Unlocked: Tap to lock"}>
-            <button
-              onClick={(e) => { e.stopPropagation(); setIsLocked(!isLocked); }}
-              className={cn("p-1 rounded-md transition-colors", isLocked ? "text-dim/40 hover:text-dim" : "text-accent")}
-              aria-label={isLocked ? "Unlock controls" : "Lock controls"}
-            >
-              {isLocked ? <Lock size={10} /> : <Unlock size={10} />}
-            </button>
-          </Tooltip>
+          <div className="flex items-center gap-2">
+            <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-tight">{label}</div>
+            {indicator === 'amber' && <div className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse" title="Adaptive tightening active" />}
+          </div>
+          <button
+            onClick={(e) => { e.stopPropagation(); setIsLocked(!isLocked); }}
+            className={cn("p-1 rounded-md transition-colors", isLocked ? "text-dim/40 hover:text-dim" : "text-accent")}
+            aria-label={isLocked ? "Unlock controls" : "Lock controls"}
+          >
+            {isLocked ? <Lock size={10} /> : <Unlock size={10} />}
+          </button>
         </div>
         <div className="flex items-center justify-between w-full gap-2">
           <div className={cn(

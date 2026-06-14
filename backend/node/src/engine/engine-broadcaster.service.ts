@@ -319,6 +319,7 @@ export class EngineBroadcasterService {
       total_sl_used: roundTo(totalRiskUsdt, 2),
       trades,
       gateState: this.sessionState.gateState,
+      gateReason: this.riskEngine.canEnter(this.positionTracker.activeList(), this.sessionState.closedTrades, this.sessionState.getBalance(config?.paper_mode ?? true), 'DUMMY', config, this.positionTracker.totalRisk()).reason,
       hibernating: this.sessionState.hibernating,
       isAdaptiveTightened: this.sessionState.isAdaptiveTightened,
       paused: this.sessionState.paused,

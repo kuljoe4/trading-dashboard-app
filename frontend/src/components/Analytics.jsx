@@ -1,6 +1,6 @@
 import React, { useId, useMemo, useState, useRef, useEffect } from 'react';
 import { fmtUSD, solveSmoothing } from '../lib/theme';
-import { cn } from '../components/ui/primitives';
+import { cn, Tooltip } from '../components/ui/primitives';
 
 const downsample = (data, threshold = 100) => {
   if (data.length <= threshold) return data;
@@ -298,32 +298,36 @@ export const TODPerformance = ({ data = [] }) => {
           return (
             <div key={h.hour} className="flex-1 h-full flex flex-col group relative z-10">
               <div className="flex-1 relative">
-                <div
-                  role="img"
-                  aria-label={`${h.hour}:00, ${isPos ? 'positive' : 'negative'} performance, ${fmtUSD(h.pnl)} PnL, ${Number(h.winRate || 0).toFixed(0)}% win rate`}
-                  className={cn(
-                    "absolute left-0 right-0 transition-all duration-300 hover:opacity-100 opacity-60",
-                    isPos
-                      ? "bg-green border-t border-green/40 rounded-t-[2px]"
-                      : "bg-red border-b border-red/40 rounded-b-[2px]"
-                  )}
-                  style={{
-                    height: `${heightPct}%`,
-                    [isPos ? 'bottom' : 'top']: '50%'
-                  }}
+                <Tooltip
+                  content={
+                    <div className="min-w-[80px]">
+                      <div className="text-[8px] text-dim font-bold uppercase tracking-widest mb-1">{h.hour}:00</div>
+                      <div className={cn("text-[10px] font-mono font-bold", isPos ? "text-green" : "text-red")}>{fmtUSD(h.pnl)}</div>
+                      <div className="text-[9px] text-dim font-mono">{Number(h.winRate || 0).toFixed(0)}% WR ({h.wins}/{h.total})</div>
+                    </div>
+                  }
+                  side={isPos ? "top" : "bottom"}
                 >
-                  {/* Tooltip */}
-                  <div className={cn(
-                    "absolute left-1/2 -translate-x-1/2 bg-surface border border-border p-2 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none min-w-[80px]",
-                    isPos ? "bottom-full mb-2" : "top-full mt-2"
-                  )} aria-hidden="true">
-                     <div className="text-[8px] text-dim font-bold uppercase tracking-widest mb-1">{h.hour}:00</div>
-                     <div className={cn("text-[10px] font-mono font-bold", isPos ? "text-green" : "text-red")}>{fmtUSD(h.pnl)}</div>
-                     <div className="text-[9px] text-dim font-mono">{Number(h.winRate || 0).toFixed(0)}% WR ({h.wins}/{h.total})</div>
-                  </div>
-                </div>
+                  <div
+                    role="img"
+                    aria-label={`${h.hour}:00, ${isPos ? 'positive' : 'negative'} performance, ${fmtUSD(h.pnl)} PnL, ${Number(h.winRate || 0).toFixed(0)}% win rate`}
+                    className={cn(
+                      "absolute left-0 right-0 transition-all duration-300 hover:opacity-100 opacity-60 cursor-help",
+                      isPos
+                        ? "bg-green border-t border-green/40 rounded-t-[2px]"
+                        : "bg-red border-b border-red/40 rounded-b-[2px]"
+                    )}
+                    style={{
+                      height: `${heightPct}%`,
+                      [isPos ? 'bottom' : 'top']: '50%'
+                    }}
+                  />
+                </Tooltip>
               </div>
-              <span className="text-[7px] text-dim font-mono font-bold text-center mt-auto py-1">{h.hour}</span>
+              <span className="text-[7px] text-dim font-mono font-bold text-center mt-auto py-1 hidden sm:block">{h.hour}</span>
+              <span className="text-[7px] text-dim font-mono font-bold text-center mt-auto py-1 block sm:hidden">
+                {h.hour % 3 === 0 ? h.hour : ''}
+              </span>
             </div>
           );
         })}

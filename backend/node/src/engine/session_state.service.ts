@@ -20,6 +20,7 @@ export class SessionStateService {
   };
   public statsVersion = 0;
   public gateState: string | null = null;
+  public gateReason: string | null = null;
   public hibernating = false;
   public isAdaptiveTightened = false;
   public realTimePositions: Map<string, { amount: number; entryPrice: number }> = new Map();
@@ -45,6 +46,7 @@ export class SessionStateService {
     this.closedTrades = initialHistory;
     this.activeTrades = [];
     this.gateState = null;
+    this.gateReason = null;
     this.hibernating = false;
     this.isAdaptiveTightened = false;
     this.paused = false;

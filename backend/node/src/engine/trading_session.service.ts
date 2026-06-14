@@ -305,10 +305,15 @@ export class TradingSessionService {
       await this.gatingService.exitHibernation(this.config!);
     }
 
-    if (this.sessionState.gateState !== prevGateState) {
-      const msg = `[Gating] State changed: ${prevGateState || 'ACTIVE'} -> ${this.sessionState.gateState || 'ACTIVE'}. Reason: ${riskResult.reason}`;
-      this.logger.log(msg);
-      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
+    const prevReason = this.sessionState.gateReason;
+    this.sessionState.gateReason = riskResult.reason;
+
+    if (this.sessionState.gateState !== prevGateState || riskResult.reason !== prevReason) {
+      if (this.sessionState.gateState !== prevGateState) {
+        const msg = `[Gating] State changed: ${prevGateState || 'ACTIVE'} -> ${this.sessionState.gateState || 'ACTIVE'}. Reason: ${riskResult.reason}`;
+        this.logger.log(msg);
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
+      }
 
       this.broadcast('gate', {
         gateState: this.sessionState.gateState,

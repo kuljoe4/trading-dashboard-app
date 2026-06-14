@@ -315,12 +315,17 @@ export class TradingSessionService {
         this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
       }
 
-      this.broadcast('gate', {
-        gateState: this.sessionState.gateState,
-        reason: riskResult.reason,
-        isAdaptiveTightened: riskResult.isAdaptiveTightened,
-        scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused
-      });
+      // BOLT: Throttled broadcast of gating reasons to avoid flooding UI with countdowns
+      const now = Date.now();
+      if (this.sessionState.gateState !== prevGateState || (now - (this as any)._lastGateBroadcastTs || 0) > 1000) {
+        (this as any)._lastGateBroadcastTs = now;
+        this.broadcast('gate', {
+          gateState: this.sessionState.gateState,
+          reason: riskResult.reason,
+          isAdaptiveTightened: riskResult.isAdaptiveTightened,
+          scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused
+        });
+      }
       if (!this.sessionState.hibernating) this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, this.config);
     }
     return riskResult;

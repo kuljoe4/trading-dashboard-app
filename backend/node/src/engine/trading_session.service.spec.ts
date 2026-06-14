@@ -15,7 +15,7 @@ describe('TradingSessionService', () => {
       { setWsBroadcaster: jest.fn(), broadcast: jest.fn() } as any,
       { reset: jest.fn(), getBalance: () => 10000, closedTrades: [] } as any,
       {} as any, // variantAnalytics
-      new EngineBroadcasterService({} as any, {} as any, {} as any, {} as any, {} as any, new VariantAnalyticsService()),
+      new EngineBroadcasterService({} as any, {} as any, {} as any, {} as any, {} as any, new VariantAnalyticsService(), {} as any, {} as any),
       {} as any, // gatingService
       { log: jest.fn() } as any, // auditLog
       { emit: jest.fn() } as any

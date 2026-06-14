@@ -20,6 +20,12 @@ export class AuditLog {
   @Index()
   resourceId: string; // e.g., Trade ID, Session ID
 
+  @Column({ type: 'varchar', length: 45, nullable: true })
+  ip: string;
+
+  @Column({ type: 'text', nullable: true })
+  userAgent: string;
+
   @Column({ type: 'jsonb', nullable: true })
   details: any;
 

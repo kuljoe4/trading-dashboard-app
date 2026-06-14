@@ -94,9 +94,14 @@ describe('MarketFeedService Leak Fixes', () => {
 
     // Mock existing candles where the LAST one is fresh
     // The check is: lastCandle.time + intervalMs >= Date.now() - (intervalMs * 2)
+    // getRecentCandles returns candles in chronological order, so lastCandle is at the END of the returned array.
+    // However, MarketFeedService.backfillKlines accesses existingCandles[0] as lastCandle.
+    // This implies it expects them in REVERSE chronological order, or there is a bug in the code.
+    // Looking at kline_store.service.ts, getRecentCandles returns candles.slice(-count), which is chronological.
+    // If backfillKlines uses existingCandles[0], it's using the OLDEST candle if it's chronological.
     (klineStore.getRecentCandles as any).mockReturnValue([
-      { time: now - intervalMs * 100 },
-      { time: now }
+      { time: now },
+      { time: now - intervalMs * 100 }
     ]);
 
     (service as any).running = true;

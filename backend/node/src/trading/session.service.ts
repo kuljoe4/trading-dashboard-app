@@ -637,18 +637,29 @@ export class SessionService implements OnModuleInit {
     return { strategyId: this.currentSessionId, status: 'started' };
   }
 
-  async updateSession(id: string, config: SessionConfig) {
-    this.validateConfig(config);
-    // Ensure we pass a plain object for the config column to avoid TypeORM issues with class instances
-    await this.sessionRepository.update(id, { config: Object.assign({}, config) as any });
+  async updateSession(id: string, partialConfig: Partial<SessionConfig>) {
+    const session = await this.sessionRepository.findOne({ where: { id } });
+    if (!session) throw new NotFoundException('Session not found');
+
+    const mergedConfig = {
+      ...(session.config || {}),
+      ...partialConfig
+    };
+
+    // Deep validation of full merged config
+    this.validateConfig(mergedConfig as SessionConfig);
+
+    // Ensure we pass a plain object for the config column
+    this.logger.log(`[Config Persistence] Saving updated config for session ${id}: frequency_shaping=${mergedConfig.frequency_shaping_enabled}, max_24h=${mergedConfig.max_trades_24h}, jitter=${mergedConfig.trades_jitter_pct}, spacing=${mergedConfig.min_trade_interval_min}`);
+    await this.sessionRepository.update(id, { config: mergedConfig });
+
     // If this is the active session, hot-reload the config in the engine
     if (this.sessionRunning && this.currentSessionId === id) {
-      // Update global log levels based on session config
-      updateLogLevels(!!config.debug_mode);
-      this.tradingSessionService.updateConfig(config);
+      updateLogLevels(!!mergedConfig.debug_mode);
+      this.tradingSessionService.updateConfig(mergedConfig as SessionConfig);
     }
 
-    return { status: 'updated' };
+    return { status: 'updated', config: mergedConfig };
   }
 
   async pauseSession(paused: boolean) {

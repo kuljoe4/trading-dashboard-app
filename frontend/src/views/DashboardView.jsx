@@ -512,6 +512,7 @@ export function DashboardView({ initialStrategy }) {
   async function handleConfigSave(newConfig) {
     setLoading(true)
     setSyncing(true)
+    useTradingStore.setState({ configSyncing: true }); // Enable global sync protection
     setShowConfig(false)
     try {
       let finalConfig = newConfig;
@@ -539,6 +540,7 @@ export function DashboardView({ initialStrategy }) {
     } finally {
       setLoading(false)
       setSyncing(false)
+      useTradingStore.setState({ configSyncing: false });
       setIsEditMode(false)
       setEditingVariantIndex(null)
     }

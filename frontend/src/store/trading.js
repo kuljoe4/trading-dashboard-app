@@ -212,6 +212,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   fetchTradeHistory: async (sid = 'all') => { set({ isSyncing: true }); try { const r = await sessionAPI.history(sid); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
   updateStats: (s) => set((st) => ({ ...st, ...s })),
   updateConfig: (c) => {
+    console.log('[Config Trace] updateConfig called with:', c);
     if (c.trading_mode) {
       localStorage.setItem('global_trading_mode', c.trading_mode);
     }
@@ -220,6 +221,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
 
   patchConfig: async (patch) => {
     const st = get();
+    console.log('[Config Trace] patchConfig initiating:', patch);
     const newConfig = deepMerge(st.config, patch);
 
     // Update local state immediately for instant feedback
@@ -228,9 +230,11 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
     // Sync to backend if session is active
     if (st.sessionActive && st.strategyId) {
       try {
-        await sessionAPI.update(st.strategyId, newConfig);
+        console.log('[Config Trace] Syncing patch to backend...');
+        const res = await sessionAPI.update(st.strategyId, patch);
+        console.log('[Config Trace] Sync successful:', res.data);
       } catch (e) {
-        console.error("Failed to patch config on backend", e);
+        console.error("[Store] Failed to patch config on backend", e);
       } finally {
         set({ configSyncing: false });
       }
@@ -269,12 +273,30 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
             nextHistory = Array.from(m.values()).sort((a, b) => new Date(b.exit_ts || b.createdAt).getTime() - new Date(a.exit_ts || a.createdAt).getTime());
           }
 
-          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, logs: d.logLines?.map(normalizeLog) || st.logs, scannerResults: d.scannerResults?.map(normalizeOpportunity) || st.scannerResults, activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: nextHistory, gateState: d.gateState ?? st.gateState, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, scannerPaused: d.scannerPaused ?? st.scannerPaused, config: d.config ? deepMerge(st.config, d.config) : st.config };
+          // BOLT: Prevent flickering during config sync
+          const nextConfig = d.config ? (st.configSyncing ? st.config : deepMerge(st.config, d.config)) : st.config;
+
+          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, logs: d.logLines?.map(normalizeLog) || st.logs, scannerResults: d.scannerResults?.map(normalizeOpportunity) || st.scannerResults, activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: nextHistory, gateState: d.gateState ?? st.gateState, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, scannerPaused: d.scannerPaused ?? st.scannerPaused, config: nextConfig };
         });
       } else if (d.type === 'tick') {
         set((st) => {
           let nt = st.activeTrades; if (d.trades && Array.isArray(d.trades)) { const m = new Map(st.activeTrades.map(t => [t.id, t])); d.trades.forEach(t => { const p = m.get(t.id); const n = normalizeTrade(t, p); if (n) m.set(t.id, n); }); if (d._heartbeat) { const ids = new Set(d.trades.map(t => t.id)); for (const id of m.keys()) if (!ids.has(id)) m.delete(id); } nt = Array.from(m.values()); }
-          return { balance: d.balance ?? st.balance, totalPnl: d.total_pnl ?? st.totalPnl, totalRiskPct: d.total_risk_pct ?? st.totalRiskPct, totalSlUsed: d.total_sl_used ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, variantStats: d.variant_stats || st.variantStats, activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, hibernating: d.hibernating ?? st.hibernating, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, scannerPaused: d.scannerPaused ?? st.scannerPaused, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics };
+
+          // BOLT: Prevent flickering during config sync. If local state is in-flight, ignore config updates from ticks.
+          let nextConfig = st.config;
+          if (d.config) {
+            if (st.configSyncing) {
+              console.log('[Config Trace] Ignoring incoming config tick (sync in progress)');
+              nextConfig = st.config;
+            } else {
+              nextConfig = deepMerge(st.config, d.config);
+            }
+          }
+
+          return {
+            balance: d.balance ?? st.balance, totalPnl: d.total_pnl ?? st.totalPnl, totalRiskPct: d.total_risk_pct ?? st.totalRiskPct, totalSlUsed: d.total_sl_used ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, variantStats: d.variant_stats || st.variantStats, activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, hibernating: d.hibernating ?? st.hibernating, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, scannerPaused: d.scannerPaused ?? st.scannerPaused, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics,
+            config: nextConfig
+          };
         });
       } else if (d.type === 'log') set(st => ({ logs: [normalizeLog(d), ...st.logs].slice(0, MAX_LOG_LINES) }));
       else if (d.type === 'scanner') {

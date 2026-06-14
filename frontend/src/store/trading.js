@@ -96,6 +96,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   activeTrades: [], logs: [], logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
   gateState: null, gateReason: null, hibernating: false, isAdaptiveTightened: false, scannerPaused: false, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
   isSyncing: false, configSyncing: false,
+  activeTooltipId: null,
   debugToolsEnabled: localStorage.getItem('debug_tools_enabled') === 'true',
   rateLimit: { used_weight_1m: 0, limit: ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT, used_pct: 0 },
   rateLimitLastSync: new Date().toISOString(),
@@ -211,6 +212,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   fetchLifetimeAnalytics: async (m = 'paper') => { set({ isSyncing: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchTradeHistory: async (sid = 'all') => { set({ isSyncing: true }); try { const r = await sessionAPI.history(sid); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
   updateStats: (s) => set((st) => ({ ...st, ...s })),
+  setActiveTooltipId: (id) => set({ activeTooltipId: id }),
   updateConfig: (c) => {
     if (c.trading_mode) {
       localStorage.setItem('global_trading_mode', c.trading_mode);

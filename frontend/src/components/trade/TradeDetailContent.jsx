@@ -347,7 +347,9 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               <Activity size={32} className="md:w-20 md:h-20" />
             </div>
             <div className="flex items-center gap-2 mb-1 md:mb-2">
-              <span className="text-[7px] md:text-[10px] font-black text-dim uppercase tracking-[0.2em]">Live Return</span>
+              <span className="text-[7px] md:text-[10px] font-black text-dim uppercase tracking-[0.2em]">
+                {trade.exit_ts ? 'Realized P&L' : 'Live Return'}
+              </span>
               <div className={cn("text-lg md:text-4xl font-black font-mono tracking-tighter", pnlClass(trade.pnl))}>
                 {fmtUSD(trade.pnl)}
               </div>
@@ -459,7 +461,13 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                      color: pnlClass(trade.entry_daily_change_pct),
                      tooltip: '24h price change percentage at the exact moment of entry'
                    },
-                 ].map(item => (
+                   trade.exit_ts && {
+                     label: 'Exit Signal',
+                     value: trade.exit_signal_type ? trade.exit_signal_type.replace(/_/g, ' ') : (trade.exit_reason || 'Manual'),
+                     tooltip: trade.exit_signal_reason || trade.exit_reason || 'No detailed reason provided',
+                     color: 'text-accent'
+                   }
+                 ].filter(Boolean).map(item => (
                    <div key={item.label} className="flex justify-between items-center py-3 border-b border-border/40 last:border-0">
                       <div className="flex items-center gap-1.5">
                         <span className="text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>

@@ -26,7 +26,7 @@ describe('Industry Fixes Verification', () => {
       mockSignalEngine = {};
       mockMarketFeed = {
         getSymbolFilters: jest.fn().mockReturnValue({
-          filters: [
+          _indexed: { tickSize: 0.1, stepSize: 0.01, minNotional: 0, multiplierUp: 1.1, multiplierDown: 0.9, pricePrecision: 1, qtyPrecision: 2 }, filters: [
             { filterType: 'PRICE_FILTER', tickSize: '0.1' },
             { filterType: 'LOT_SIZE', stepSize: '0.01' }
           ]

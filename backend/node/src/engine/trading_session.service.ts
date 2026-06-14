@@ -45,6 +45,7 @@ export class TradingSessionService {
   private mainLoopInterval: NodeJS.Timeout | null = null;
   private hotLoopInterval: NodeJS.Timeout | null = null;
   private fundingCheckInterval: NodeJS.Timeout | null = null;
+  private watchdogInterval: NodeJS.Timeout | null = null;
   private balancePollInterval: NodeJS.Timeout | null = null;
   private balanceFetchTimeout: NodeJS.Timeout | null = null;
   private pendingDeltasDuringFetch = 0;
@@ -172,6 +173,7 @@ export class TradingSessionService {
     const hot = config.hot_loop_interval_ms || 5000; this.hotLoopInterval = setInterval(() => this.hotLoop(), hot);
     const main = config.main_loop_interval_ms || 15000; this.mainLoopInterval = setInterval(() => this.mainLoop(), main);
     this.fundingCheckInterval = setInterval(() => this.checkFundingFees(), 60000); // Check every minute
+    this.watchdogInterval = setInterval(() => this.protectionWatchdog(), 300000); // Check protection every 5 minutes
 
     this.broadcastSnapshot('started'); return { status: 'started' };
   }
@@ -187,6 +189,7 @@ export class TradingSessionService {
     if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
     if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
     if (this.fundingCheckInterval) clearInterval(this.fundingCheckInterval);
+    if (this.watchdogInterval) clearInterval(this.watchdogInterval);
 
     if (this.balanceFetchTimeout) {
       clearTimeout(this.balanceFetchTimeout);
@@ -414,6 +417,58 @@ export class TradingSessionService {
   }
 
   private async onCandleClose(symbol: string) { if (!this.running || !this.config) return; if (this.config.debug_mode) this.logger.verbose(`Candle closed for ${symbol}`); }
+
+  /**
+   * PROTECTION WATCHDOG: Periodically verifies that all active Live positions
+   * have a corresponding SL order on Binance. If missing, it re-places it.
+   */
+  private async protectionWatchdog() {
+    if (!this.running || !this.config || this.config.paper_mode) return;
+
+    const activeTrades = this.positionTracker.activeList();
+    if (activeTrades.length === 0) return;
+
+    this.logger.log(`[Watchdog] Running protection audit for ${activeTrades.length} positions...`);
+
+    for (const trade of activeTrades) {
+      try {
+        if (!trade.binance_order_id) continue;
+
+        const pos = await this.orderManager.fetchPosition(trade.symbol);
+        if (!pos || Math.abs(parseFloat(pos.positionAmt)) === 0) continue;
+
+        // Fetch open orders for the symbol
+        const res = await (this.binanceClient as any).restAPI.tradeApi.currentAllOpenOrders({ symbol: trade.symbol });
+        const orders = typeof res.data === 'function' ? await res.data() : (res.data || res);
+
+        const hasSl = Array.isArray(orders) && orders.some(o =>
+          (o.type === 'STOP_MARKET' || o.type === 'STOP') &&
+          (o.closePosition === true || o.closePosition === 'true')
+        );
+
+        if (!hasSl) {
+           // Double check Algo orders
+           let hasAlgoSl = false;
+           try {
+             const algoRes = await (this.binanceClient as any).restAPI.tradeApi.currentOpenAlgoOrders({ symbol: trade.symbol });
+             const algoOrders = typeof algoRes.data === 'function' ? await algoRes.data() : (algoRes.data || algoRes);
+             const algoList = algoOrders.orders || algoOrders;
+             hasAlgoSl = Array.isArray(algoList) && algoList.some(ao =>
+               (ao.type === 'STOP_MARKET' || ao.type === 'STOP') && (ao.closePosition === true || ao.closePosition === 'true')
+             );
+           } catch (e) {}
+
+           if (!hasAlgoSl) {
+              this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} position found without SL order on Binance. Re-placing...`);
+              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Watchdog] Missing SL detected for ${trade.symbol}. Recovering protection...`, level: 'warn' });
+              await this.orderManager.placeStopLoss(trade, trade.current_sl);
+           }
+        }
+      } catch (err) {
+        this.logger.error(`[Watchdog] Error auditing protection for ${trade.symbol}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
 
   private async checkFundingFees() {
     if (!this.running || !this.config) return;

@@ -835,7 +835,28 @@ export class OrderManagerService {
 
     // Place NEW stop loss after old one is cleared
     const result = await this.placeStopLoss(trade, newSlPrice);
-    return !!result;
+
+    if (!result) {
+       this.logger.error(`[CRITICAL] SL Replacement failed for ${trade.symbol}. Trade is now UNPROTECTED on exchange. Attempting emergency unwind...`);
+       try {
+          const unwindRes = await this.closeTrade(trade.symbol, trade, trade.entry_price, 'UNPROTECTED_SL_FAILURE');
+          if (unwindRes.exitOccurred) {
+             this.logger.warn(`[RECOVERY] Successfully closed unprotected ${trade.symbol} position after SL replacement failure.`);
+             // Emit event so TradingSessionService/PositionTracker can remove it from active tracking
+             this.eventEmitter.emit('trade.exchange_close', {
+                symbol: trade.symbol,
+                exitPrice: trade.exit_price || trade.entry_price,
+                reason: 'UNPROTECTED_SL_FAILURE'
+             });
+             return false;
+          }
+       } catch (unwindErr) {
+          this.logger.error(`[FATAL] Emergency unwind FAILED for unprotected ${trade.symbol} position: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);
+       }
+       return false;
+    }
+
+    return true;
   }
 
   /**

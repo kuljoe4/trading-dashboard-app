@@ -1,8 +1,27 @@
-import React from 'react'
+import React, { createContext, useContext, useState, useMemo } from 'react'
 import * as TooltipPrimitive from "@radix-ui/react-tooltip"
 import { cn } from "./primitives"
 
-export const TooltipProvider = TooltipPrimitive.Provider
+const TooltipContext = createContext({
+  activeTooltipId: null,
+  setActiveTooltipId: () => {}
+})
+
+export const useTooltipContext = () => useContext(TooltipContext)
+
+export const TooltipProvider = ({ children, ...props }) => {
+  const [activeTooltipId, setActiveTooltipId] = useState(null)
+  const value = useMemo(() => ({ activeTooltipId, setActiveTooltipId }), [activeTooltipId])
+
+  return (
+    <TooltipContext.Provider value={value}>
+      <TooltipPrimitive.Provider {...props}>
+        {children}
+      </TooltipPrimitive.Provider>
+    </TooltipContext.Provider>
+  )
+}
+
 export const Tooltip = TooltipPrimitive.Root
 export const TooltipTrigger = TooltipPrimitive.Trigger
 

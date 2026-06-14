@@ -6,6 +6,7 @@ import * as TooltipPrimitive from "@radix-ui/react-tooltip"
 import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock } from 'lucide-react'
 import { Sparkline as SparklineChart } from '../DataCharts'
 import { useTradingStore } from '../../store/trading'
+import { useTooltipContext } from './tooltip'
 
 export function cn(...inputs) {
   return twMerge(clsx(inputs))
@@ -377,8 +378,7 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
   if (!content) return children;
 
   const id = React.useId();
-  const activeTooltipId = useTradingStore(state => state.activeTooltipId);
-  const setActiveTooltipId = useTradingStore(state => state.setActiveTooltipId);
+  const { activeTooltipId, setActiveTooltipId } = useTooltipContext();
 
   const open = activeTooltipId === id;
   const setOpen = (isOpen) => {

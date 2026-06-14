@@ -63,16 +63,28 @@ export class EngineBroadcasterService {
     let pnl = 0;
     let rrValue = 0;
     let pnlPct = 0;
-    if (current !== undefined && Number.isFinite(current) && Number.isFinite(entry)) {
+
+    const isTerminal = trade.status !== 'OPEN';
+
+    if (isTerminal) {
+      // DATA-CONSISTENCY: For terminal trades, use stored Net values to ensure fees are reflected in history
+      pnl = trade.pnl ?? 0;
+      pnlPct = trade.pnl_pct ?? 0;
+
+      const exitPrice = trade.exit_price ?? entry;
+      const risk = Math.abs(entry - (trade.initial_sl ?? entry)) || 1;
+      rrValue = (direction === 'LONG' ? (exitPrice - entry) : (entry - exitPrice)) / risk;
+    } else if (current !== undefined && Number.isFinite(current) && Number.isFinite(entry)) {
       const grossPnl = direction === 'LONG' ? (current - entry) * (trade.qty ?? 0) : (entry - current) * (trade.qty ?? 0);
 
       // BOLT: For active trades, we display Unrealized PnL (Gross) to match exchange UI.
       // Total wallet balance already accounts for entry fees, so we only subtract realized_fee
       // during the final trade closure recording in the database.
       pnl = roundEight(grossPnl);
+      pnlPct = entry ? ((current - entry) / entry) * 100 * (direction === 'LONG' ? 1 : -1) : 0;
+
       const risk = Math.abs(entry - (trade.initial_sl ?? trade.current_sl ?? entry)) || 1;
       rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / risk;
-      pnlPct = entry ? ((current - entry) / entry) * 100 * (direction === 'LONG' ? 1 : -1) : 0;
     }
 
     if (minimal) {

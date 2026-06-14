@@ -677,7 +677,11 @@ export class TradingSessionService {
       this.sessionState.setActiveTrades(this.positionTracker.activeList());
       this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, this.config!);
 
-      const analytics = this.analyticsService.calculateAnalytics(this.sessionState.closedTrades as any, this.config?.paper_mode ? this.config?.paper_starting_balance : this.config?.live_starting_balance);
+      const analytics = this.analyticsService.calculateAnalytics(
+        this.sessionState.closedTrades as any,
+        this.config?.paper_mode ? this.config?.paper_starting_balance : this.config?.live_starting_balance,
+        this.getBalance()
+      );
 
       this.broadcast('trade_event', {
         event: 'closed',

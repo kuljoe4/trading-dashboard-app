@@ -26,7 +26,7 @@ export const PulseDot = React.memo(({ color = "bg-green" }) => (
 ))
 
 // --- Interactive Limit Card ---
-export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onIncrement, onDecrement, min = 0, max = 1000, step = 1, syncing, disabled, indicator }) => {
+export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onIncrement, onDecrement, min = 0, max = 1000, step = 1, syncing, disabled, indicator, tooltip }) => {
   const [isLocked, setIsLocked] = React.useState(true);
   const timerRef = React.useRef(null);
 
@@ -76,7 +76,9 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
       <div className="flex flex-col gap-1 w-full self-start relative z-10">
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-2">
-            <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-tight">{label}</div>
+            <Tooltip content={tooltip}>
+              <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-tight cursor-help hover:text-dim/80 transition-colors">{label}</div>
+            </Tooltip>
             {indicator === 'amber' && <div className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse" title="Adaptive tightening active" />}
           </div>
           <button
@@ -472,7 +474,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
 }
 
 // --- Copy Button ---
-export const CopyButton = ({ value, className, tooltip = "Copy", successTooltip = "Copied!" }) => {
+export const CopyButton = ({ value, className }) => {
   const [copied, setCopied] = React.useState(false)
 
   const handleCopy = async (e) => {
@@ -487,7 +489,7 @@ export const CopyButton = ({ value, className, tooltip = "Copy", successTooltip 
   }
 
   return (
-    <Tooltip content={copied ? successTooltip : tooltip}>
+    <Tooltip content={copied ? "Copied!" : "Copy"}>
       <button
         onClick={handleCopy}
         className={cn(
@@ -495,7 +497,7 @@ export const CopyButton = ({ value, className, tooltip = "Copy", successTooltip 
           copied ? "text-green bg-green/10" : "text-dim hover:text-text hover:bg-white/5",
           className
         )}
-        aria-label={copied ? successTooltip : tooltip}
+        aria-label={copied ? "Copied to clipboard" : "Copy to clipboard"}
       >
         {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
       </button>

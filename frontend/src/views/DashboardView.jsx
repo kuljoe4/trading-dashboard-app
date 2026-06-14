@@ -583,11 +583,9 @@ export function DashboardView({ initialStrategy }) {
           sticky={true}
         >
           <div className="flex gap-3">
-            <Tooltip content={isThrottled ? "Disable Eco Mode (currently active)" : "Enable Eco Mode (Power Saver)"}>
+            <Tooltip content={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}>
               <button
                 onClick={() => setThrottled(!isThrottled)}
-                aria-pressed={isThrottled}
-                aria-label={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode"}
                 className={cn(
                   "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2",
                   isThrottled
@@ -646,6 +644,7 @@ export function DashboardView({ initialStrategy }) {
 
           <InteractiveLimitCard
             label="Period Limit"
+            tooltip="Maximum trades allowed within the sliding period window."
             value={config.max_trades_per_period || 0}
             min={0}
             max={100}
@@ -656,6 +655,7 @@ export function DashboardView({ initialStrategy }) {
 
           <InteractiveLimitCard
             label="Window"
+            tooltip="Duration of the sliding window for frequency limits."
             value={config.trades_period_min || 60}
             unit="m"
             min={1}
@@ -667,6 +667,7 @@ export function DashboardView({ initialStrategy }) {
 
           <InteractiveLimitCard
             label="24h Limit"
+            tooltip="Total trade entry quota for a rolling 24-hour period."
             value={config.max_trades_24h || 0}
             min={0}
             max={500}
@@ -678,6 +679,7 @@ export function DashboardView({ initialStrategy }) {
 
           <InteractiveLimitCard
             label="Spacing"
+            tooltip="Minimum interval required between any two trade entries. Tightens adaptively when TOD integration is active."
             value={config.min_trade_interval_min || 0}
             unit="m"
             min={0}
@@ -691,6 +693,7 @@ export function DashboardView({ initialStrategy }) {
 
           <InteractiveLimitCard
             label="Jitter"
+            tooltip="Randomized variation added to the period window to prevent execution stampedes."
             value={config.trades_jitter_pct || 0}
             unit="%"
             min={0}

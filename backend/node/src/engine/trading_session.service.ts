@@ -590,7 +590,7 @@ export class TradingSessionService {
   }
 
   setPaused(paused: boolean) { this.sessionState.paused = paused; this.broadcast('tick', { paused }); }
-  updateConfig(config: SessionConfig, ip?: string, userAgent?: string) {
+  updateConfig(config: SessionConfig) {
     const prev = this.config; this.config = config; this.cachedStrategyConfigs = null; this.cachedScanSignatures.clear();
     if (prev && (prev.hot_loop_interval_ms !== config.hot_loop_interval_ms || prev.main_loop_interval_ms !== config.main_loop_interval_ms)) { const isEco = this.sessionState.listenerCount === 0; const mainMs = isEco ? Math.max(15000, config.main_loop_interval_ms || 15000) : (config.main_loop_interval_ms || 15000); const hotMs = isEco ? Math.max(5000, config.hot_loop_interval_ms || 5000) : (config.hot_loop_interval_ms || 5000); this.restartLoops(hotMs, mainMs); }
 
@@ -602,9 +602,6 @@ export class TradingSessionService {
     this.auditLog.log({
       action: 'UPDATE_CONFIG',
       resourceId: this.sessionId || undefined,
-      actor: ip,
-      ip,
-      userAgent,
       details: { strategy: config.strategy_label }
     });
 
@@ -670,7 +667,7 @@ export class TradingSessionService {
       });
   }
 
-  async closeTradeManually(symbol: string, ip?: string, userAgent?: string): Promise<{ success: boolean; trade?: Trade; error?: string }> {
+  async closeTradeManually(symbol: string): Promise<{ success: boolean; trade?: Trade; error?: string }> {
     if (!this.running) return { success: false, error: 'No session running' };
     const trade = this.positionTracker.activeList().find(t => t.symbol === symbol);
     if (!trade) return { success: false, error: `No open position for ${symbol}` };
@@ -684,9 +681,6 @@ export class TradingSessionService {
         await this.auditLog.log({
           action: 'MANUAL_TRADE_CLOSE',
           resourceId: res.trade.id,
-          actor: ip,
-          ip,
-          userAgent,
           details: { symbol, pnl: res.trade.pnl }
         });
         return { success: true, trade: res.trade };

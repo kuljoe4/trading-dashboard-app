@@ -134,7 +134,10 @@ const ExitMonitor = ({ status, logic, trade }) => {
           const isDelayed = s.remaining_delay > 0
           const progress = s.insufficientData ? 0 : Math.min((Math.abs(value) / threshold) * 100, 100)
 
-          const estPnl = s.estPnl
+          const estExitPrice = s.threshold_is_price ? threshold : null
+          const estPnl = (estExitPrice && trade.entry_price && trade.qty)
+            ? (estExitPrice - trade.entry_price) * trade.qty * (trade.direction === 'LONG' ? 1 : -1)
+            : null
 
           return (
             <div key={key} className={cn(
@@ -233,25 +236,21 @@ const ExitMonitor = ({ status, logic, trade }) => {
                 <div className="space-y-1">
                   <div className="flex justify-between items-center px-0.5">
                     <div className="flex items-center gap-1 w-full justify-end">
-                      <Tooltip content={s.estPnl ? `Price Proximity: How close current price is to this signal's trigger price (${fmtUSD(s.estPnl)} P&L).` : "Price Proximity: Visual indicator of how close the price is to the technical target."} className="z-[102]">
+                      <Tooltip content="Price Proximity: Visual indicator of how close the price is to the target RR (Take Profit)." className="z-[102]">
                         <div className="p-1 -m-1 cursor-help">
                           <Info size={10} className="text-dim/40 md:size-[8px]" />
                         </div>
                       </Tooltip>
                       <span className="text-[7px] font-black text-dim uppercase tracking-widest text-right">Price Prox.</span>
                     </div>
-                    <span className={cn("text-[8px] font-black font-mono ml-2", s.priceProx > 50 ? "text-green" : "text-accent")}>
-                      {s.priceProx.toFixed(1)}%
-                    </span>
                   </div>
                   <div className="h-1 bg-background/50 rounded-full overflow-hidden relative flex justify-end">
                     <motion.div
                       initial={{ width: 0 }}
-                      animate={{ width: `${s.priceProx}%` }}
+                      animate={{ width: `${Math.min(100, Math.max(0, trade.rr * 20))}%` }}
                       className={cn(
                         "h-full rounded-full transition-colors duration-500",
-                        s.priceProx > 80 ? "bg-green shadow-[0_0_8px_rgba(0,229,160,0.3)]" :
-                        s.priceProx > 50 ? "bg-accent" : "bg-dim/20"
+                        trade.rr > 0 ? "bg-green shadow-[0_0_8px_rgba(0,229,160,0.3)]" : "bg-red/40"
                       )}
                     />
                   </div>
@@ -287,16 +286,20 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
     const pnlPct = trade.pnl_pct ?? (entry ? ((mark - entry) / entry) * 100 * (isLong ? 1 : -1) : 0)
 
     let progress = 50
-    let entryMarkPos = 50
     if (entry && mark && sl) {
-      const targetPrice = tp || (isLong ? (entry + Math.abs(entry - sl) * 3) : (entry - Math.abs(entry - sl) * 3))
-      const totalRange = isLong ? (targetPrice - sl) : (sl - targetPrice)
-      const currentDist = isLong ? (mark - sl) : (sl - mark)
-      const entryDist = isLong ? (entry - sl) : (sl - entry)
-
-      if (totalRange !== 0) {
-        progress = Math.max(0, Math.min(100, (currentDist / totalRange) * 100))
-        entryMarkPos = Math.max(0, Math.min(100, (entryDist / totalRange) * 100))
+      if (tp) {
+        const totalRange = isLong ? (tp - sl) : (sl - tp)
+        const currentFromSl = isLong ? (mark - sl) : (sl - mark)
+        progress = Math.max(0, Math.min(100, (currentFromSl / totalRange) * 100))
+      } else {
+        const currentRR = Number(trade.rr || 0)
+        if (currentRR < 0) {
+           const distToSl = Math.abs(entry - sl)
+           const distToMark = Math.abs(entry - mark)
+           progress = Math.max(0, 50 - (distToMark / distToSl) * 50)
+        } else {
+           progress = Math.min(100, 50 + (currentRR / 3) * 50)
+        }
       }
     }
 
@@ -313,32 +316,15 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       const value = Number(s.value) || 0
       const threshold = Number(s.threshold) || 1
 
-      // Activation Proximity (Technical)
+      // Proximity should represent how "filled" the condition is.
+      // If value is 0 and threshold is 10, distPct should be 0.
+      // If value is 10 and threshold is 10, distPct should be 100.
       const rawDistPct = threshold !== 0 ? (Math.abs(value) / Math.abs(threshold)) * 100 : 0
       const distPct = s.insufficientData ? 0 : Math.min(100, Math.max(0, rawDistPct))
-
-      // Price Proximity
-      const estExitPrice = s.threshold_is_price ? threshold : null
-      const estPnl = (estExitPrice && entry && trade.qty)
-        ? (estExitPrice - entry) * trade.qty * (isLong ? 1 : -1)
-        : null
-
-      let priceProx = 0
-      if (estPnl != null && estPnl !== 0) {
-        // Only show proximity if current PnL is moving towards the target PnL
-        if (Math.sign(trade.pnl) === Math.sign(estPnl)) {
-          priceProx = Math.min(100, Math.max(0, (trade.pnl / estPnl) * 100))
-        }
-      } else {
-        // Fallback for technical signals without price threshold
-        priceProx = Math.min(100, Math.max(0, trade.rr * 20))
-      }
 
       acc[key] = {
         ...s,
         distPct,
-        priceProx,
-        estPnl,
         label: (s.label || key).replace(/price/gi, '').trim(),
         unit: (s.unit || '').replace(/price/gi, '').trim()
       }
@@ -418,8 +404,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
 
         <div className="h-4 w-full bg-border/20 rounded-full overflow-hidden relative shadow-[inset_0_2px_4px_rgba(0,0,0,0.3)]">
           <div className="absolute inset-0 bg-gradient-to-r from-red/5 via-transparent to-green/5 opacity-50" />
-          {/* Entry Marker */}
-          <div className="absolute top-0 bottom-0 w-1 bg-white/40 z-10 blur-[1px]" style={{ left: `${entryMarkPos}%` }} />
+          <div className="absolute top-0 bottom-0 w-1 bg-white/20 z-10 blur-[1px]" style={{ left: '50%' }} />
           <div
             className={cn(
               "h-full transition-all duration-1000 ease-out relative",

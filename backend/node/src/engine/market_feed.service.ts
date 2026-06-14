@@ -109,26 +109,6 @@ export class MarketFeedService {
           for (const s of data.symbols) {
             // BOLT: Only include symbols that are actively trading in the target environment
             if (s.status === 'TRADING' || s.status === 'SETTLING') {
-              // BOLT OPTIMIZATION: Pre-index and pre-parse filters to avoid O(N) searches and repeated parsing in hot paths
-              const f = s.filters || [];
-              const priceFilter = f.find((x: any) => x.filterType === 'PRICE_FILTER');
-              const lotSize = f.find((x: any) => x.filterType === 'LOT_SIZE');
-              const minNotional = f.find((x: any) => x.filterType === 'MIN_NOTIONAL') || f.find((x: any) => x.filterType === 'NOTIONAL');
-              const percentPrice = f.find((x: any) => x.filterType === 'PERCENT_PRICE');
-
-              const tickSize = priceFilter ? parseFloat(priceFilter.tickSize) : 0;
-              const stepSize = lotSize ? parseFloat(lotSize.stepSize) : 0;
-
-              s._indexed = {
-                tickSize,
-                stepSize,
-                minNotional: minNotional ? parseFloat(minNotional.notional || minNotional.minNotional || '0') : 0,
-                multiplierUp: percentPrice ? parseFloat(percentPrice.multiplierUp || '1.1') : 1.1,
-                multiplierDown: percentPrice ? parseFloat(percentPrice.multiplierDown || '0.9') : 0.9,
-                pricePrecision: tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8,
-                qtyPrecision: stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8,
-              };
-
               this.exchangeInfo.set(s.symbol, s);
             }
           }
@@ -444,7 +424,7 @@ export class MarketFeedService {
     const existingCandles = await this.klineStore.getRecentCandles(symbol, interval, requiredWarmup);
 
     if (existingCandles.length >= requiredWarmup) {
-      const lastCandle = existingCandles[existingCandles.length - 1];
+      const lastCandle = existingCandles[0];
       const intervalMs = this.parseIntervalToMs(interval);
       // If the most recent candle is still fresh enough, skip backfill
       if (lastCandle.time + intervalMs >= Date.now() - (intervalMs * 2)) {

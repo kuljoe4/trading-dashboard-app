@@ -17,7 +17,7 @@ describe('MomentumScannerService', () => {
     }
 
     const marketFeed = {
-        getSymbolFilters: jest.fn().mockReturnValue({ _indexed: { tickSize: 0.1, stepSize: 0.01, minNotional: 0, multiplierUp: 1.1, multiplierDown: 0.9, pricePrecision: 1, qtyPrecision: 2 }, filters: [] })
+        getSymbolFilters: jest.fn().mockReturnValue({ filters: [] })
     }
 
     service = new MomentumScannerService(klineStore, tickerCache, marketFeed as any)

@@ -8,7 +8,7 @@ describe('TradingSessionService', () => {
   beforeEach(() => {
     service = new TradingSessionService(
       {} as any, {} as any, {} as any, {} as any,
-      { activeList: () => [], activeCount: () => 0, totalRisk: () => 0, recalculateTotalRisk: jest.fn() } as any,
+      { activeList: () => [], activeCount: () => 0, totalRisk: () => 0 } as any,
       {} as any, {} as any, {} as any,
       { recordHotLoop: jest.fn(), recordMainLoop: jest.fn() } as any,
       {} as any, {} as any, {} as any,

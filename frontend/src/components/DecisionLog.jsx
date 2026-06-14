@@ -158,8 +158,6 @@ export const DecisionLog = React.memo(() => {
           <div className="flex-1 flex gap-2 overflow-x-auto min-w-0">
             <CopyButton
               value={visibleLogs.map(l => `[${l.ts}] ${l.msg}`).join('\n')}
-              tooltip="Copy All Visible Logs"
-              successTooltip="All Logs Copied!"
               className="bg-surface border border-border"
             />
             {filterButtons.map((filter) => {

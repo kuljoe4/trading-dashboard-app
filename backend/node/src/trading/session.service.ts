@@ -829,13 +829,26 @@ export class SessionService implements OnModuleInit {
       }
     });
 
-    const result = this.analyticsService.calculateAnalytics(trades as any, this.currentSessionId ? await this.getStartingBalanceForSession(this.currentSessionId) : undefined);
+    const startingBalance = this.currentSessionId ? await this.getStartingBalanceForSession(this.currentSessionId) : undefined;
+
+    // Performance Engineering: Pass current real-time balance for accurate % metrics
+    const currentStatus = await this.getStatus();
+    const currentBalance = currentStatus.running ? currentStatus.balance : undefined;
+
+    const result = this.analyticsService.calculateAnalytics(
+      trades as any,
+      startingBalance,
+      currentBalance
+    );
     this.analyticsCache = { data: result, ts: now };
     return result;
   }
 
   private async getStartingBalanceForSession(sessionId: string): Promise<number | undefined> {
-    const session = await this.sessionRepository.findOne({ where: { id: sessionId } });
+    const session = await this.sessionRepository.findOne({
+      where: { id: sessionId },
+      select: ['config', 'tradingMode', 'paperMode']
+    });
     if (!session || !session.config) return undefined;
     const mode = session.tradingMode || (session.paperMode ? 'paper' : 'live');
     if (mode === 'paper') return session.config.paper_starting_balance;

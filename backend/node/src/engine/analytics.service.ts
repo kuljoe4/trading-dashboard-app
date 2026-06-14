@@ -31,8 +31,11 @@ export class AnalyticsService {
   /**
    * BOLT OPTIMIZATION: Optimized to single-pass processing with minimal allocations.
    * Reduces GC pressure in the engine hot loop.
+   *
+   * @param currentBalance (Optional) The current account balance for high-fidelity percentage basis.
+   * If provided, overallPnlPct is calculated as (netPnL / (currentBalance - netPnL)) * 100.
    */
-  calculateAnalytics(trades: TradeEntity[], startingBalance: number = 10000): AnalyticsResult {
+  calculateAnalytics(trades: TradeEntity[], startingBalance: number = 10000, currentBalance?: number): AnalyticsResult {
     // BOLT OPTIMIZATION: Combine multiple iterations into a single-pass loop
     // 1. Initial filter and sort (necessary for equity curve)
     const sortedTrades = [...trades]
@@ -111,7 +114,13 @@ export class AnalyticsService {
     const avgLoss = totalLosses > 0 ? grossLoss / totalLosses : 0;
     const avgWinLossRatio = avgLoss > 0 ? avgWin / avgLoss : 0;
     const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 100 : 0);
-    const overallPnlPct = startingBalance > 0 ? (sumPnL / startingBalance) * 100 : 0;
+
+    // Performance Engineering: Calculate PnL % using the most accurate basis available
+    // If currentBalance is provided, it's the most accurate reflection of the account's power.
+    const basisBalance = currentBalance
+      ? Math.max(1, currentBalance - sumPnL)
+      : startingBalance;
+    const overallPnlPct = basisBalance > 0 ? (sumPnL / basisBalance) * 100 : 0;
 
     // Sharpe and Sortino Ratios (Trade-based)
     // BOLT: Using Welford-inspired Sum of Squares for single-pass variance

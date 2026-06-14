@@ -178,6 +178,10 @@ export class OrderManagerService {
     this.consecutiveFailures = 0;
   }
 
+  public getTakerFeeRate(): number {
+    return this.takerFeeRate;
+  }
+
   async setBinanceClient(client: DerivativesTradingUsdsFutures | null, paperMode = true) {
     const isNewClient = this.binanceClient !== client;
     const isModeChange = this.paperMode !== paperMode;
@@ -1160,8 +1164,8 @@ export class OrderManagerService {
                   this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] Confirmed: ${symbol} position is already zero. Triggering Sync Recovery.`);
                   exitPrice = await this.recoverLastExecutionPrice(symbol, trade, exitPrice);
                   trade.exit_reason = trade.exit_reason === 'EXCHANGE_SYNC' ? 'EXCHANGE_SYNC_RECOVERY' : 'EXCHANGE_SL_OR_MANUAL';
-                  // Simulate exit fee
-                  const exitFee = roundEight(exitPrice * trade.qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
+                  // Use actual taker fee rate for live mode recovery
+                  const exitFee = roundEight(exitPrice * trade.qty * this.takerFeeRate);
                   trade.realized_fee = roundEight((trade.realized_fee || 0) + exitFee);
                } else {
                   this.logger.warn(`Binance close order failed but position still exists for ${symbol}: ${errMsg}`);
@@ -1193,11 +1197,13 @@ export class OrderManagerService {
         ? exitPrice - trade.entry_price
         : trade.entry_price - exitPrice;
 
-      const finalPnlPct = (trade.qty !== 0) ? (finalPnlPoints / (trade.entry_price || 1)) * 100 : 0;
-      trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
-
       const finalGrossPnl = finalPnlPoints * (trade.qty || 0);
       const finalNetPnl = finalGrossPnl - (trade.realized_fee || 0) - (trade.funding_fee || 0);
+
+      // DATA-CONSISTENCY: pnl_pct now reflects Net PnL relative to notional value
+      const notional = trade.entry_price * (trade.qty || 0);
+      const finalPnlPct = (notional !== 0) ? (finalNetPnl / notional) * 100 : 0;
+      trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
 
       this.logger.log(`[PnL Calculation] ${symbol}: ${trade.direction} Exit=${exitPrice}, Entry=${trade.entry_price}, Qty=${trade.qty}, Gross=${finalGrossPnl.toFixed(4)}, Fee=${trade.realized_fee?.toFixed(4)}, Net=${finalNetPnl.toFixed(4)}`);
 

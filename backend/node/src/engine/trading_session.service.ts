@@ -207,10 +207,22 @@ export class TradingSessionService {
       } else {
         t.status = 'CLOSED'; t.exit_ts = new Date(); t.exit_reason = 'SESSION_TERMINATED'; t.exit_price = ep;
         const pnlp = t.direction === 'LONG' ? ep - t.entry_price : t.entry_price - ep;
+
+        const isPaper = this.config?.paper_mode ?? true;
+        const feeRate = isPaper ? ENGINE_CONSTANTS.SIMULATED_FEE_RATE : this.orderManager.getTakerFeeRate();
+
         // Simulate exit fee (taker rate) for forced closure
-        const exitFee = roundEight(ep * t.qty * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
+        const exitFee = roundEight(ep * t.qty * feeRate);
         t.realized_fee = roundEight((t.realized_fee || 0) + exitFee);
-        t.pnl = roundEight((pnlp * t.qty) - t.realized_fee);
+
+        const finalGrossPnl = pnlp * (t.qty || 0);
+        const finalNetPnl = finalGrossPnl - (t.realized_fee || 0) - (t.funding_fee || 0);
+        t.pnl = roundEight(Number.isFinite(finalNetPnl) ? finalNetPnl : 0);
+
+        // DATA-CONSISTENCY: Update pnl_pct for forced closure
+        const notional = t.entry_price * (t.qty || 0);
+        const finalPnlPct = (notional !== 0) ? (t.pnl / notional) * 100 : 0;
+        t.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
         this.sessionState.addClosedTrade(t); this.sessionState.updateStatsOnClose((t.pnl || 0) > 0, t.pnl || 0);
         await this.updateBalance(t); if (this.onTradeUpdate) await this.onTradeUpdate(t, this.getBalance());
         this.positionTracker.removeTrade(t.symbol);
@@ -411,22 +423,21 @@ export class TradingSessionService {
     if (isFundingTime) {
       const activeTrades = this.positionTracker.activeList();
       for (const trade of activeTrades) {
-        if (this.config.paper_mode) {
-          // Simulate funding fee for paper mode
-          // Positive rate: Longs pay Shorts.
-          const isLong = trade.direction === 'LONG';
-          const notional = (trade.mark_price || trade.last_price || trade.entry_price) * trade.qty;
-          const fundingDelta = roundEight(notional * ENGINE_CONSTANTS.SIMULATED_FUNDING_RATE * (isLong ? 1 : -1));
+        // DATA-CONSISTENCY: Apply estimated funding fee for both Paper AND Live modes.
+        // For Live mode, this prevents balance drift between exchange and local UI between poll cycles.
+        // Positive rate: Longs pay Shorts.
+        const isLong = trade.direction === 'LONG';
+        const notional = (trade.mark_price || trade.last_price || trade.entry_price) * trade.qty;
+        const fundingDelta = roundEight(notional * ENGINE_CONSTANTS.SIMULATED_FUNDING_RATE * (isLong ? 1 : -1));
 
-          trade.funding_fee = roundEight((trade.funding_fee || 0) + fundingDelta);
-          trade.pnl = roundEight(trade.pnl - fundingDelta);
-          (trade as any)._last_funding_delta = fundingDelta;
+        trade.funding_fee = roundEight((trade.funding_fee || 0) + fundingDelta);
+        trade.pnl = roundEight(trade.pnl - fundingDelta);
+        (trade as any)._last_funding_delta = fundingDelta;
 
-          await this.updateBalance(trade, false, true);
-          if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
+        await this.updateBalance(trade, false, true);
+        if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
 
-          this.logger.log(`[Funding] Applied ${fundingDelta} funding fee to ${trade.symbol} (Paper)`);
-        }
+        this.logger.log(`[Funding] Applied ${fundingDelta} estimated funding fee to ${trade.symbol} (${this.config.paper_mode ? 'Paper' : 'Live'})`);
       }
     }
   }

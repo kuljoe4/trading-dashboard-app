@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { motion } from 'framer-motion'
 import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight } from 'lucide-react'
 import { cn, Btn, Tooltip } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'

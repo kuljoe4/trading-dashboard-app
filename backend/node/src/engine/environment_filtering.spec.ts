@@ -19,7 +19,7 @@ describe('MomentumScannerService Environment Filtering', () => {
 
     marketFeed = {
         getSymbolFilters: jest.fn((symbol: string) => {
-            if (symbol === 'TRADABLE') return { _indexed: { tickSize: 0.1, stepSize: 0.01, minNotional: 0, multiplierUp: 1.1, multiplierDown: 0.9, pricePrecision: 1, qtyPrecision: 2 }, filters: [] };
+            if (symbol === 'TRADABLE') return { filters: [] };
             return null;
         })
     }

@@ -219,26 +219,30 @@ export class OrderManagerService {
 
   public applyFilters(symbol: string, price: number, qty: number, options: { priceRounding?: 'round' | 'floor' | 'ceil', skipNotionalCheck?: boolean } = {}) {
     const filters = this.marketFeed.getSymbolFilters(symbol);
-    if (!filters || !filters._indexed) return { price, qty };
+    if (!filters) return { price, qty };
 
-    const idx = filters._indexed;
     let finalPrice = price;
     let finalQty = qty;
 
-    if (idx.tickSize > 0) {
+    const priceFilter = filters.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
+    if (priceFilter) {
+      const tickSize = parseFloat(priceFilter.tickSize);
       const rounding = options.priceRounding || 'round';
-      if (rounding === 'floor') finalPrice = roundEight(Math.floor(price / idx.tickSize) * idx.tickSize);
-      else if (rounding === 'ceil') finalPrice = roundEight(Math.ceil(price / idx.tickSize) * idx.tickSize);
-      else finalPrice = roundEight(Math.round(price / idx.tickSize) * idx.tickSize);
+      if (rounding === 'floor') finalPrice = roundEight(Math.floor(price / tickSize) * tickSize);
+      else if (rounding === 'ceil') finalPrice = roundEight(Math.ceil(price / tickSize) * tickSize);
+      else finalPrice = roundEight(Math.round(price / tickSize) * tickSize);
     }
 
     // PERCENT_PRICE Validation
-    if (!this.paperMode && this.tickerCache) {
+    const percentPriceFilter = filters.filters.find((f: any) => f.filterType === 'PERCENT_PRICE');
+    if (percentPriceFilter && !this.paperMode) {
       const ticker = this.tickerCache.getTicker(symbol);
       const markPrice = ticker?.mark_price || ticker?.price;
       if (markPrice) {
-        const maxPrice = markPrice * idx.multiplierUp;
-        const minPrice = markPrice * idx.multiplierDown;
+        const multiplierUp = parseFloat(percentPriceFilter.multiplierUp || '1.1');
+        const multiplierDown = parseFloat(percentPriceFilter.multiplierDown || '0.9');
+        const maxPrice = markPrice * multiplierUp;
+        const minPrice = markPrice * multiplierDown;
 
         if (finalPrice > maxPrice || finalPrice < minPrice) {
           this.logger.warn(`${symbol}: Price ${finalPrice} outside PERCENT_PRICE band [${minPrice.toFixed(5)}, ${maxPrice.toFixed(5)}] (Mark: ${markPrice})`);
@@ -251,15 +255,20 @@ export class OrderManagerService {
       }
     }
 
-    if (idx.stepSize > 0) {
-      finalQty = floorStep(qty, idx.stepSize);
+    const lotSize = filters.filters.find((f: { filterType: string; tickSize?: string; stepSize?: string; notional?: string; minNotional?: string }) => f.filterType === 'LOT_SIZE');
+    if (lotSize) {
+      const stepSize = parseFloat(lotSize.stepSize);
+      finalQty = floorStep(qty, stepSize);
     }
 
     // MIN_NOTIONAL Check
     if (!options.skipNotionalCheck) {
-      if (idx.minNotional > 0) {
-        if (finalQty * finalPrice < idx.minNotional) {
-          this.logger.warn(`${symbol}: Order notional ${finalQty * finalPrice} is below minimum ${idx.minNotional}`);
+      const minNotionalFilter = filters.filters.find((f: { filterType: string; tickSize?: string; stepSize?: string; notional?: string; minNotional?: string }) => f.filterType === 'MIN_NOTIONAL') ||
+                               filters.filters.find((f: { filterType: string; tickSize?: string; stepSize?: string; notional?: string; minNotional?: string }) => f.filterType === 'NOTIONAL');
+      if (minNotionalFilter) {
+        const minNotional = parseFloat(minNotionalFilter.notional || minNotionalFilter.minNotional || '0');
+        if (finalQty * finalPrice < minNotional) {
+          this.logger.warn(`${symbol}: Order notional ${finalQty * finalPrice} is below minimum ${minNotional}`);
           return { price: finalPrice, qty: 0 }; // Zero qty will block entry
         }
       }
@@ -356,9 +365,16 @@ export class OrderManagerService {
       if (!this.paperMode && this.binanceClient) {
         try {
           const binanceDirection = direction === 'LONG' ? 'BUY' : 'SELL';
+          const closeDirection = direction === 'LONG' ? 'SELL' : 'BUY';
           const filters = this.marketFeed.getSymbolFilters(symbol);
-          const idx = filters?._indexed;
-          const qtyPrecision = idx?.qtyPrecision ?? 8;
+
+          const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
+          const stepSize = parseFloat(lotSize?.stepSize || '0');
+          const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
+
+          const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
+          const tickSize = parseFloat(priceFilter?.tickSize || '0');
+          const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
 
           const entryOrderId = `ent-${trade.id.replace(/-/g, '').substring(0, 20)}`;
           const entryOrder = {
@@ -552,14 +568,18 @@ export class OrderManagerService {
     while (attempts < MAX_ATTEMPTS) {
     const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
     const filters = this.marketFeed.getSymbolFilters(trade.symbol);
-    const idx = filters?._indexed;
     const symbol = trade.symbol;
 
     try {
       attempts++;
 
-      const pricePrecision = idx?.pricePrecision ?? 8;
-      const qtyPrecision = idx?.qtyPrecision ?? 8;
+      const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
+      const tickSize = parseFloat(priceFilter?.tickSize || '0');
+      const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
+
+      const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
+      const stepSize = parseFloat(lotSize?.stepSize || '0');
+      const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
 
       // INDUSTRY-BEST-PRACTICE: For Stop Loss, use closePosition: true.
       // BOLT: Also provide explicit quantity as a fallback to ensure compatibility with all symbols/endpoints.
@@ -744,7 +764,9 @@ export class OrderManagerService {
     }
 
     const filters = this.marketFeed.getSymbolFilters(trade.symbol);
-    const pricePrecision = filters?._indexed?.pricePrecision ?? 8;
+    const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
+    const tickSize = parseFloat(priceFilter?.tickSize || '0');
+    const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
     const formattedPrice = newSlPrice.toFixed(pricePrecision);
 
     // PERFORMANCE: Use modifyOrder for Standard API to avoid protection gaps
@@ -1041,13 +1063,15 @@ export class OrderManagerService {
           const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
           try {
             const filters = this.marketFeed.getSymbolFilters(symbol);
-            const qtyPrecision = filters?._indexed?.qtyPrecision ?? 8;
+            const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
+            const stepSize = parseFloat(lotSize?.stepSize || '0');
+            const precision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
 
             const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder({
               symbol,
               side: closeDirection as any,
               type: 'MARKET',
-              quantity: (trade.qty || 0).toFixed(qtyPrecision),
+              quantity: (trade.qty || 0).toFixed(precision),
               reduceOnly: true,
               newOrderRespType: 'RESULT',
               newClientOrderId: `cls-${trade.id.replace(/-/g, '').substring(0, 20)}`,

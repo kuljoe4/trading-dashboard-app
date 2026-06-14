@@ -13,12 +13,9 @@ export class SessionController {
   constructor(private readonly sessionService: SessionService) {}
 
   @Post('start')
-  async startSession(@Body() body: StartSessionDto, @Req() req: Request) {
-    const ip = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
-    const userAgent = req.headers['user-agent'] as string;
-
+  async startSession(@Body() body: StartSessionDto) {
     if (body.sessionId) {
-      return this.sessionService.startSession(body.config || {} as any, body.paper_mode ?? true, body.sessionId, ip, userAgent);
+      return this.sessionService.startSession(body.config || {} as any, body.paper_mode ?? true, body.sessionId);
     }
     const config = Object.assign(new SessionConfig(), body.config);
     
@@ -31,7 +28,7 @@ export class SessionController {
       }
     }
     
-    return this.sessionService.startSession(config, body.paper_mode ?? true, undefined, ip, userAgent);
+    return this.sessionService.startSession(config, body.paper_mode ?? true);
   }
 
   @Get('list')
@@ -40,16 +37,12 @@ export class SessionController {
   }
 
   @Post('stop')
-  async stopSession(@Req() req: Request) {
-    const ip = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
-    const userAgent = req.headers['user-agent'] as string;
-    return this.sessionService.stopSession(ip, userAgent);
+  async stopSession() {
+    return this.sessionService.stopSession();
   }
 
   @Patch(':id')
-  async updateSession(@Param('id', ParseUUIDPipe) id: string, @Body() body: UpdateSessionDto, @Req() req: Request) {
-    const ip = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
-    const userAgent = req.headers['user-agent'] as string;
+  async updateSession(@Param('id', ParseUUIDPipe) id: string, @Body() body: UpdateSessionDto) {
     const config = Object.assign(new SessionConfig(), body.config);
     
     // Parse signal_params if it's a JSON string
@@ -61,7 +54,7 @@ export class SessionController {
       }
     }
     
-    return this.sessionService.updateSession(id, config, ip, userAgent);
+    return this.sessionService.updateSession(id, config);
   }
 
   @Post('pause')
@@ -71,16 +64,14 @@ export class SessionController {
 
   @Delete('trades/orphans')
   async deleteOrphanedTrades(@Req() req: Request) {
-    const ip = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
-    const userAgent = req.headers['user-agent'] as string;
-    return this.sessionService.deleteOrphanedTrades(ip, userAgent);
+    const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
+    return this.sessionService.deleteOrphanedTrades(clientIp);
   }
 
   @Delete(':id')
   async deleteSession(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
-    const ip = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
-    const userAgent = req.headers['user-agent'] as string;
-    return this.sessionService.deleteSession(id, ip, userAgent);
+    const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
+    return this.sessionService.deleteSession(id, clientIp);
   }
 
   @Get('status')
@@ -104,15 +95,12 @@ export class SessionController {
   }
 
   @Post('trade/:symbol/close')
-  async closeTradeManually(@Param('symbol') symbol: string, @Req() req: Request) {
-    const ip = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
-    const userAgent = req.headers['user-agent'] as string;
-
+  async closeTradeManually(@Param('symbol') symbol: string) {
     // Basic input hardening: ensure symbol matches expected Binance format
     if (!/^[A-Z0-9]{3,20}$/.test(symbol)) {
       throw new BadRequestException('Invalid symbol format');
     }
-    return this.sessionService.closeTradeManually(symbol, ip, userAgent);
+    return this.sessionService.closeTradeManually(symbol);
   }
 
   @Get('analytics')
@@ -127,8 +115,7 @@ export class SessionController {
 
   @Post('reset-paper-balance')
   async resetPaperBalance(@Req() req: Request) {
-    const ip = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
-    const userAgent = req.headers['user-agent'] as string;
-    return this.sessionService.resetPaperBalance(ip, userAgent);
+    const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
+    return this.sessionService.resetPaperBalance(clientIp);
   }
 }

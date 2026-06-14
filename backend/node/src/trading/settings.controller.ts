@@ -140,7 +140,6 @@ export class SettingsController {
 
       const updatedFields: string[] = [];
       const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
-      const userAgent = req.headers['user-agent'] as string;
 
       // Security: Only update if explicitly provided to prevent accidental deletion
       // Also trim whitespace to prevent common copy-paste issues
@@ -180,8 +179,6 @@ export class SettingsController {
         await this.auditLog.log({
           action: 'UPDATE_EXCHANGE_CREDENTIALS',
           actor: clientIp,
-          ip: clientIp,
-          userAgent,
           details: { fields: updatedFields }
         });
       }

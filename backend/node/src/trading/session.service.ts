@@ -374,7 +374,7 @@ export class SessionService implements OnModuleInit {
     }
   }
 
-  async startSession(config: SessionConfig, paperMode: boolean, sessionId?: string, ip?: string, userAgent?: string) {
+  async startSession(config: SessionConfig, paperMode: boolean, sessionId?: string) {
     const mode = config.trading_mode || (paperMode ? 'paper' : 'live');
     if (mode !== 'paper' && !process.env.ENCRYPTION_KEY) {
       throw new ConfigValidationException(
@@ -445,15 +445,6 @@ export class SessionService implements OnModuleInit {
 
     this.currentSessionId = session.id;
     this.sessionRunning = true;
-
-    await this.auditLog.log({
-      action: 'START_SESSION',
-      resourceId: session.id,
-      actor: ip,
-      ip,
-      userAgent,
-      details: { mode, paperMode, strategy: session.strategyLabel }
-    });
 
     // Load initial history for TOD and period-based risk context
     // DATA-07: Load history for the current mode across all sessions to ensure risk limits are enforced after restart
@@ -646,7 +637,7 @@ export class SessionService implements OnModuleInit {
     return { strategyId: this.currentSessionId, status: 'started' };
   }
 
-  async updateSession(id: string, config: SessionConfig, ip?: string, userAgent?: string) {
+  async updateSession(id: string, config: SessionConfig) {
     this.validateConfig(config);
     // Ensure we pass a plain object for the config column to avoid TypeORM issues with class instances
     await this.sessionRepository.update(id, { config: Object.assign({}, config) as any });
@@ -654,7 +645,7 @@ export class SessionService implements OnModuleInit {
     if (this.sessionRunning && this.currentSessionId === id) {
       // Update global log levels based on session config
       updateLogLevels(!!config.debug_mode);
-      this.tradingSessionService.updateConfig(config, ip, userAgent);
+      this.tradingSessionService.updateConfig(config);
     }
 
     return { status: 'updated' };
@@ -666,7 +657,7 @@ export class SessionService implements OnModuleInit {
     return { status: paused ? 'paused' : 'resumed' };
   }
 
-  async deleteSession(id: string, ip?: string, userAgent?: string) {
+  async deleteSession(id: string, actor?: string) {
     // Security: Prevent deleting the active session
     if (this.sessionRunning && this.currentSessionId === id) {
       throw new ConflictException('Cannot delete an active trading session. Stop it first.');
@@ -675,9 +666,7 @@ export class SessionService implements OnModuleInit {
     await this.auditLog.log({
       action: 'DELETE_SESSION',
       resourceId: id,
-      actor: ip,
-      ip,
-      userAgent,
+      actor,
     });
 
     // Manually delete session, ensuring no cascade to trades (as there is no FK link in the current entity model)
@@ -685,7 +674,7 @@ export class SessionService implements OnModuleInit {
     return { status: 'deleted' };
   }
 
-  async deleteOrphanedTrades(ip?: string, userAgent?: string) {
+  async deleteOrphanedTrades(actor?: string) {
     const sessions = await this.sessionRepository.find({ select: ['id'] });
     const sessionIds = sessions.map(s => s.id);
 
@@ -701,9 +690,7 @@ export class SessionService implements OnModuleInit {
 
     await this.auditLog.log({
       action: 'DELETE_ORPHANED_TRADES',
-      actor: ip,
-      ip,
-      userAgent,
+      actor,
       details: { affected: result.affected }
     });
 
@@ -717,27 +704,18 @@ export class SessionService implements OnModuleInit {
     });
   }
 
-  async stopSession(ip?: string, userAgent?: string) {
+  async stopSession() {
     if (!this.sessionRunning || !this.currentSessionId) {
       throw new ConflictException('No session running');
     }
 
-    const sid = this.currentSessionId;
-    await this.sessionRepository.update(sid, { running: false });
+    await this.sessionRepository.update(this.currentSessionId, { running: false });
 
     // Stop the actual trading engine
     await this.tradingSessionService.stop();
 
     // Reset log levels to default when session stops
     updateLogLevels(false);
-
-    await this.auditLog.log({
-      action: 'STOP_SESSION',
-      resourceId: sid,
-      actor: ip,
-      ip,
-      userAgent,
-    });
 
     this.logger.log(`Stopping trading session.`);
     this.sessionRunning = false;
@@ -891,12 +869,12 @@ export class SessionService implements OnModuleInit {
   }
 
   // Manually close a trade
-  async closeTradeManually(symbol: string, ip?: string, userAgent?: string) {
+  async closeTradeManually(symbol: string) {
     if (!this.sessionRunning) {
       throw new ConflictException('No session running');
     }
 
-    const result = await this.tradingSessionService.closeTradeManually(symbol, ip, userAgent);
+    const result = await this.tradingSessionService.closeTradeManually(symbol);
     
     if (result.success && result.trade) {
       this.logger.log(`Manually closed trade ${symbol}`);
@@ -1000,14 +978,12 @@ export class SessionService implements OnModuleInit {
     this.tradingSessionService.setBinanceClient(client, paperMode);
   }
 
-  async resetPaperBalance(ip?: string, userAgent?: string) {
+  async resetPaperBalance(actor?: string) {
     const defaultBalance = 10000.0;
 
     await this.auditLog.log({
       action: 'RESET_PAPER_BALANCE',
-      actor: ip,
-      ip,
-      userAgent,
+      actor,
       details: { balance: defaultBalance }
     });
 

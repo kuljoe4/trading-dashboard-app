@@ -104,28 +104,15 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
         </div>
         <div className="flex flex-col items-start min-w-[80px]">
           <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Market Context</span>
-          <Tooltip content={`24h change at entry: ${trade.entry_daily_change_pct || 0}%`}>
-            <span className={cn("text-[9px] font-black font-mono cursor-help", pnlClass(trade.entry_daily_change_pct))}>
-              {(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} {Math.abs(trade.entry_daily_change_pct || 0).toFixed(2)}%
-            </span>
-          </Tooltip>
+          <span className={cn("text-[9px] font-black font-mono", pnlClass(trade.entry_daily_change_pct))}>
+            {(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} {Math.abs(trade.entry_daily_change_pct || 0).toFixed(2)}%
+          </span>
         </div>
         <div className="flex flex-col items-start min-w-[80px] max-w-[120px]">
           <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Exit</span>
-          <Tooltip content={
-            <div className="flex flex-col gap-1 max-w-[200px]">
-              <span className="font-bold text-[10px] uppercase">{trade.exit_signal_type?.replace(/_/g, ' ') || trade.exit_reason || 'Manual'}</span>
-              {trade.exit_signal_reason && (
-                <span className="text-[9px] opacity-80 leading-relaxed italic border-t border-white/10 pt-1 mt-1">
-                  {trade.exit_signal_reason}
-                </span>
-              )}
-            </div>
-          }>
-            <span className="text-[8px] font-black text-text/60 uppercase truncate w-full leading-tight cursor-help border-b border-dotted border-white/10 pb-0.5">
-              {trade.exit_signal_type ? trade.exit_signal_type.replace(/_/g, ' ') : (trade.exit_reason || 'Manual')}
-            </span>
-          </Tooltip>
+          <span className="text-[8px] font-black text-text/60 uppercase truncate w-full leading-tight">
+            {trade.exit_signal_type ? trade.exit_signal_type.replace(/_/g, ' ') : (trade.exit_reason || 'Manual')}
+          </span>
         </div>
       </div>
     </div>

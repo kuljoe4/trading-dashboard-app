@@ -80,8 +80,8 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" />
       )}
       <div className="flex flex-col gap-1 w-full self-start relative z-10">
-        <div className="flex items-center justify-between w-full">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center w-full">
+          <div className="flex items-center gap-2 flex-grow">
             <Tooltip content={tooltip}>
               <div className={cn(
                 "text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-tight cursor-help hover:text-dim/80 transition-colors",
@@ -102,8 +102,8 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
             {isLocked ? <Lock size={10} /> : <Unlock size={10} />}
           </button>
         </div>
-        <div className="flex items-center justify-between w-full gap-2">
-          <div className="flex flex-col">
+        <div className="flex items-center w-full gap-2">
+          <div className="flex flex-col flex-grow">
             <div className={cn(
               "text-sm md:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate",
               isLocked ? "text-dim/60" : "text-text",

@@ -29,4 +29,6 @@ The application follows an "Operator Cockpit" philosophy, prioritizing real-time
 - **Prefer Flex Gap:** Use `flex flex-col gap-*` instead of `space-y-*` for container spacing, especially when dealing with heterogeneous child elements (e.g., mixing structural elements like `<section>` with conditional `<motion.div>` or other dynamic content). This ensures layout stability across varied deployment environments.
 - **Natural Content Flow:** Avoid fixed container heights (e.g., `h-[450px]`) for scrollable content areas (like logs/feeds). Let the content define the container height dynamically based on available layout space, ensuring vertical consistency and responsive adaptability.
 - **Desktop Strategy Utilization:** Maximize screen real estate by dynamically scaling the grid columns (e.g., expanding strategy card views to 3 columns on desktop), improving visual balance and information density without sacrificing readability.
+- **Avoid Justify-Between:** Never use `justify-between` on components meant to follow a strict top-to-bottom vertical flow (e.g., `InteractiveLimitCard`). Use `flex-grow` on content containers instead to allow elements to fill available space naturally without breaking the hierarchical structure.
+
 

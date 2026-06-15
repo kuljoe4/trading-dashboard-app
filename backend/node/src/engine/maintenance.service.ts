@@ -41,12 +41,8 @@ export class MaintenanceService {
       const activePositionsMap = new Map(allPositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0).map(p => [p.symbol, p]));
 
       let slOrdersSymbols = new Set<string>();
-      let algoSlOrdersSymbols = new Set<string>();
 
       const isSlOrder = (o: any) => (o.type === 'STOP_MARKET' || o.type === 'STOP') && (o.closePosition === true || o.closePosition === 'true' || o.reduceOnly === true || o.reduceOnly === 'true');
-
-      const allAlgoOrders = await this.orderManager.fetchAllOpenAlgoOrders();
-      algoSlOrdersSymbols = new Set(allAlgoOrders.filter(isSlOrder).map(o => o.symbol));
 
       if (uniqueSymbols.length > 40) {
         const allOrders = await this.orderManager.fetchAllOpenOrders();
@@ -63,7 +59,7 @@ export class MaintenanceService {
           if (!trade.binance_order_id) continue;
           const pos = activePositionsMap.get(trade.symbol);
           if (!pos) continue;
-          const hasProtection = slOrdersSymbols.has(trade.symbol) || algoSlOrdersSymbols.has(trade.symbol);
+          const hasProtection = slOrdersSymbols.has(trade.symbol);
 
           if (!hasProtection) {
             this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} position found without SL order on Binance. Re-placing...`);

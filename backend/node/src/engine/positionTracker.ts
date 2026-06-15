@@ -286,7 +286,7 @@ export class PositionTrackerService {
     config?: SessionConfig,
     paperMode?: boolean,
     localOnly?: boolean,
-  ): Promise<{ trade: Trade | null; exitOccurred: boolean }> {
+  ): Promise<{ trade: Trade | null; exitOccurred: boolean; closeBlocked?: boolean }> {
     const trade = this.trades.get(symbol);
     if (!trade || trade.status !== 'OPEN' || this.closingSymbols.has(symbol)) {
       return { trade: null, exitOccurred: false };
@@ -306,7 +306,7 @@ export class PositionTrackerService {
     const result = await this.orderManager.closeTrade(symbol, trade, exitPrice, exitReason, paperMode, localOnly);
     if (!result.exitOccurred || !result.trade) {
       this.closingSymbols.delete(symbol);
-      return { trade: null, exitOccurred: false };
+      return { trade: null, exitOccurred: false, closeBlocked: result.closeBlocked };
     }
 
     // Remove from tracking after exchange close/recording

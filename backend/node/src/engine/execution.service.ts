@@ -57,6 +57,14 @@ export class ExecutionService {
 
         if (exitCondition?.exitOccurred) {
           const result = await this.positionTracker.closeTrade(trade.symbol, currentPrice, exitCondition.exitReason, tradeConfig);
+          if (result.closeBlocked) {
+            this.broadcastService.broadcast('alert', {
+               level: 'error',
+               title: 'Close Blocked',
+               message: `CRITICAL: ${trade.symbol} close attempts exhausted. Automated closes are BLOCKED. Manual intervention required.`,
+               symbol: trade.symbol
+            });
+          }
           if (result.exitOccurred && result.trade) {
             const closedTrade = result.trade;
             this.sessionState.updateStatsOnClose((closedTrade.pnl || 0) > 0, closedTrade.pnl || 0);

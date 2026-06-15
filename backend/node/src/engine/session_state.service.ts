@@ -13,6 +13,17 @@ export class SessionStateService {
   public lastExchangeBalance = 0;
   public paused = false;
   public binanceRateLimit: { used_1m: number; limit: number } = { used_1m: 0, limit: 2400 };
+  public binanceOrderLimit: {
+    used_10s: number;
+    limit_10s: number;
+    used_1m: number;
+    limit_1m: number;
+  } = {
+    used_10s: 0,
+    limit_10s: 300,
+    used_1m: 0,
+    limit_1m: 1200
+  };
   public stats = {
     entryCount: 0,
     hitCount: 0,
@@ -104,16 +115,69 @@ export class SessionStateService {
     }
   }
 
+  updateOrderRateLimits(headers: any) {
+    if (!headers) return;
+
+    const getHeader = (name: string) => {
+      return typeof headers.get === 'function'
+        ? headers.get(name)
+        : (headers[name.toLowerCase()] || headers[name]);
+    };
+
+    const used10s = getHeader('X-MBX-ORDER-COUNT-10S');
+    const used1m = getHeader('X-MBX-ORDER-COUNT-1M');
+
+    if (used10s) {
+      const parts = used10s.split(',');
+      if (parts.length > 0) {
+        this.binanceOrderLimit.used_10s = parseInt(parts[0], 10);
+      }
+    }
+    if (used1m) {
+      const parts = used1m.split(',');
+      if (parts.length > 0) {
+        this.binanceOrderLimit.used_1m = parseInt(parts[0], 10);
+      }
+    }
+  }
+
   isRateLimited(threshold = 0.8): boolean {
     const used = this.binanceRateLimit.used_1m;
     const limit = this.binanceRateLimit.limit;
     return (used / limit) > threshold;
   }
 
+  /**
+   * Check if order rate limits are approaching thresholds based on priority.
+   * Priority:
+   * 0 - Emergency (Closes, first SL) - Never throttles
+   * 1 - Normal (Significant ratchets, entries)
+   * 2 - Low (Small ratchets)
+   */
+  isOrderRateLimited(priority: number): boolean {
+    if (priority <= 0) return false;
+
+    const usage10s = this.binanceOrderLimit.used_10s / this.binanceOrderLimit.limit_10s;
+    const usage1m = this.binanceOrderLimit.used_1m / this.binanceOrderLimit.limit_1m;
+    const maxUsage = Math.max(usage10s, usage1m);
+
+    if (priority === 1) {
+      return maxUsage > 0.9; // Block entries/significant ratchets at 90%
+    }
+    if (priority >= 2) {
+      return maxUsage > 0.8; // Throttle low priority at 80%
+    }
+    return false;
+  }
+
   getBinanceRateLimit() {
     return {
       used_weight_1m: this.binanceRateLimit.used_1m,
-      limit: this.binanceRateLimit.limit,
+      weight_limit: this.binanceRateLimit.limit,
+      used_order_10s: this.binanceOrderLimit.used_10s,
+      order_limit_10s: this.binanceOrderLimit.limit_10s,
+      used_order_1m: this.binanceOrderLimit.used_1m,
+      order_limit_1m: this.binanceOrderLimit.limit_1m,
       last_update: new Date().toISOString(),
     };
   }

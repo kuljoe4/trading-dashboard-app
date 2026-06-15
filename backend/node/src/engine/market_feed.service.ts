@@ -57,7 +57,7 @@ export class MarketFeedService {
 
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
     const restBase = mode === 'testnet'
-        ? 'https://testnet.binancefuture.com'
+        ? 'https://demo-fapi.binance.com'
         : ENGINE_CONSTANTS.BINANCE_REST_BASE;
 
     await this.fetchExchangeInfo(restBase);
@@ -400,7 +400,7 @@ export class MarketFeedService {
       // Stricter rate limit for background tasks (80% of limit threshold)
       const rateLimit = this.sessionState.getBinanceRateLimit();
       const usedWeight = rateLimit.used_weight_1m;
-      const limit = rateLimit.limit || ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT;
+      const limit = rateLimit.weight_limit || ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT;
       const pauseThreshold = Math.floor(limit * 0.8);
 
       if (usedWeight > pauseThreshold) {

@@ -220,15 +220,18 @@ export class SessionLifecycleService {
     }
   }
 
-  private async startUserDataStream(bc: any) {
+  private async startUserDataStream(bc: any, isReconnect = false) {
     if (!bc) return;
     try {
       this.monitoringService.incrementApiRequests();
       const res = await bc.restAPI.userDataStreamsApi.startUserDataStream();
       if (!res || !res.data) throw new Error('Failed to start user data stream: No response from Binance');
 
-      const initialListenKey = typeof res.data === 'function' ? (await res.data()).listenKey : res.data.listenKey;
-      this.listenKey = initialListenKey;
+      const newListenKey = typeof res.data === 'function' ? (await res.data()).listenKey : res.data.listenKey;
+      const oldWs = this.userDataWs;
+      const oldListenKey = this.listenKey;
+
+      this.listenKey = newListenKey;
       this.userDataWs = await bc.websocketStreams.connect({ stream: this.listenKey });
       this.isUdsConnected = true;
 
@@ -236,11 +239,13 @@ export class SessionLifecycleService {
         this.isUdsConnected = false;
         this.logger.error(`User Data Stream error: ${err.message || String(err)}`);
       });
+
       this.userDataWs.on('close', () => {
+        if (this.userDataWs === oldWs) return; // Ignore close from old stream during transition
         this.isUdsConnected = false;
         if (this.running) {
           this.logger.warn('User Data Stream closed unexpectedly. Reconnecting...');
-          setTimeout(() => this.startUserDataStream(bc).catch(() => {}), 5000);
+          setTimeout(() => this.startUserDataStream(bc, true).catch(() => {}), 5000);
         }
       });
 
@@ -294,13 +299,9 @@ export class SessionLifecycleService {
             const order = data.o;
             this.logger.log(`[Lifecycle] Order Update: ${order.s} ${order.S} ${order.X} (id=${order.i}, client_id=${order.c})`);
             this.eventEmitter.emit('binance.order_update', data);
-          } else if (data.e === 'ALGO_ORDER_UPDATE') {
-            const algo = data.o;
-            this.logger.log(`[Lifecycle] Algo Order Update: ${algo.s} ${algo.X} (algoId=${algo.ap})`);
-            this.eventEmitter.emit('binance.algo_order_update', data);
           } else if (data.e === 'listenKeyExpired') {
             this.logger.warn('[Lifecycle] ListenKey expired, restarting user data stream...');
-            this.startUserDataStream(bc).catch(() => {});
+            this.startUserDataStream(bc, true).catch(() => {});
           }
         } catch (err) {
             this.logger.debug(`Error processing user data WS message: ${err instanceof Error ? err.message : String(err)}`);
@@ -310,18 +311,44 @@ export class SessionLifecycleService {
       this.logger.log(subMsg);
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: subMsg, level: 'info' });
       this.userDataWs.userData(this.listenKey);
-      this.listenKeyKeepAlive = setInterval(async () => {
-        if (this.listenKey) {
+
+      // Transition handling for proactive 24h reconnect
+      if (isReconnect && oldWs) {
+        this.logger.log('[Lifecycle] Transitioning to new User Data Stream. Closing old stream in 30s...');
+        setTimeout(() => {
           try {
-            this.monitoringService.incrementApiRequests();
-            await bc.restAPI.userDataStreamsApi.keepaliveUserDataStream(this.listenKey);
-          } catch (err) {
-              this.logger.debug(`Error keeping alive user data stream: ${err instanceof Error ? err.message : String(err)}`);
-          }
+            oldWs.disconnect();
+            if (oldListenKey) bc.restAPI.userDataStreamsApi.closeUserDataStream(oldListenKey).catch(() => {});
+          } catch (e) {}
+        }, 30000);
+      }
+
+      if (this.listenKeyKeepAlive) clearInterval(this.listenKeyKeepAlive);
+
+      const startTime = Date.now();
+      this.listenKeyKeepAlive = setInterval(async () => {
+        if (!this.listenKey || !this.running) return;
+
+        const ageMs = Date.now() - startTime;
+        // Finding 9: Proactive 24h reconnect at 23h 50m
+        if (ageMs > 23 * 60 * 60 * 1000 + 50 * 60 * 1000) {
+           this.logger.log('[Lifecycle] Proactive 24h User Data Stream refresh initiated...');
+           this.startUserDataStream(bc, true).catch(err => {
+              this.logger.error(`Proactive UDS refresh failed: ${err.message}`);
+           });
+           return;
+        }
+
+        try {
+          this.monitoringService.incrementApiRequests();
+          await bc.restAPI.userDataStreamsApi.keepaliveUserDataStream(this.listenKey);
+        } catch (err) {
+            this.logger.debug(`Error keeping alive user data stream: ${err instanceof Error ? err.message : String(err)}`);
         }
       }, ENGINE_CONSTANTS.USER_DATA_KEEPALIVE_MS);
     } catch (e) {
-      throw e;
+      if (!isReconnect) throw e;
+      this.logger.error(`Failed to refresh user data stream: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 }

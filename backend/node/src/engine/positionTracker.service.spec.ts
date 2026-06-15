@@ -58,13 +58,13 @@ describe('PositionTrackerService', () => {
       await service.checkRrSequenceAdjustments('BTCUSDT', 51100, config);
 
       expect(trade.current_sl).toBe(50000); // Entry price (BE)
-      expect(mockOrderManager.updateStopLoss).toHaveBeenCalledWith(trade, 50000);
+      expect(mockOrderManager.updateStopLoss).toHaveBeenCalledWith(trade, 50000, 49000);
 
       // 2. Price hits 2.1R (52100) -> Milestone 1 (1R)
       await service.checkRrSequenceAdjustments('BTCUSDT', 52100, config);
 
       expect(trade.current_sl).toBe(51000); // 1R profit
-      expect(mockOrderManager.updateStopLoss).toHaveBeenCalledWith(trade, 51000);
+      expect(mockOrderManager.updateStopLoss).toHaveBeenCalledWith(trade, 51000, 50000);
     });
 
     it('does not ratchet SL if price moves back', async () => {

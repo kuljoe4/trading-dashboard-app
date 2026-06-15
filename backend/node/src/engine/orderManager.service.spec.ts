@@ -18,8 +18,10 @@ describe('OrderManagerService', () => {
       { incrementApiRequests: jest.fn() } as any, // monitoringService
       {
         isRateLimited: () => false,
+        isOrderRateLimited: () => false,
         binanceRateLimit: { used_1m: 0, limit: 2400 },
         updateRateLimit: jest.fn(),
+        updateOrderRateLimits: jest.fn(),
         realTimePositions: new Map()
       } as any, // sessionState
       { log: jest.fn() } as any, // auditLog

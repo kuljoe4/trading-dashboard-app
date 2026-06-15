@@ -82,9 +82,16 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-2">
             <Tooltip content={tooltip}>
-              <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-tight cursor-help hover:text-dim/80 transition-colors">{label}</div>
+              <div className={cn(
+                "text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-tight cursor-help hover:text-dim/80 transition-colors",
+                tooltip && "border-b border-dotted border-dim/30"
+              )}>{label}</div>
             </Tooltip>
-            {indicator === 'amber' && <div className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse" title="Adaptive tightening active" />}
+            {indicator === 'amber' && (
+              <Tooltip content="Adaptive tightening active">
+                <div className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse cursor-help" />
+              </Tooltip>
+            )}
           </div>
           <button
             onClick={(e) => { e.stopPropagation(); setIsLocked(!isLocked); }}
@@ -504,7 +511,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
 }
 
 // --- Copy Button ---
-export const CopyButton = ({ value, className }) => {
+export const CopyButton = ({ value, className, tooltip = "Copy", successTooltip = "Copied!" }) => {
   const [copied, setCopied] = React.useState(false)
 
   const handleCopy = async (e) => {
@@ -519,7 +526,7 @@ export const CopyButton = ({ value, className }) => {
   }
 
   return (
-    <Tooltip content={copied ? "Copied!" : "Copy"}>
+    <Tooltip content={copied ? successTooltip : tooltip}>
       <button
         onClick={handleCopy}
         className={cn(
@@ -527,7 +534,7 @@ export const CopyButton = ({ value, className }) => {
           copied ? "text-green bg-green/10" : "text-dim hover:text-text hover:bg-white/5",
           className
         )}
-        aria-label={copied ? "Copied to clipboard" : "Copy to clipboard"}
+        aria-label={copied ? successTooltip : tooltip}
       >
         {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
       </button>

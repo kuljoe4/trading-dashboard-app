@@ -364,7 +364,7 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
                   >
                     <span className="text-[10px] text-dim font-mono w-4">#{i + 1}</span>
                     <strong className="text-xs font-mono w-16">{opp.symbol.replace('USDT', '')}</strong>
-                    <CopyButton value={opp.symbol} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 -ml-2" />
+                    <CopyButton value={opp.symbol} tooltip="Copy Symbol" className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 -ml-2" />
                     <div className="flex-1 flex justify-center h-8">
                       <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={48} height={20} />
                     </div>

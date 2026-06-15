@@ -325,7 +325,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                <div className="flex gap-2"><input type="text" placeholder="BTCUSDT" value={symbolSearch} onChange={(e) => setSymbolSearch(e.target.value.toUpperCase())} className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono focus:border-accent outline-none" /><Btn variant="primary" onClick={() => { if (!symbolSearch) return; setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), { symbol: symbolSearch, enabled: true, follow_schedule: true }]); setSymbolSearch(''); }} className="aspect-square p-0 w-12 h-12 flex items-center justify-center"><Plus size={20} /></Btn></div>
                <div className="flex flex-wrap gap-2 mt-4">
                  {(cfg.single_symbol_configs || []).map((sc, i) => (
-                   <Chip key={i} active activeClass="bg-accent/10 border-accent/40 text-accent" onClick={() => setField('single_symbol_configs', cfg.single_symbol_configs.filter((_, idx) => idx !== i))}>{sc.symbol} <X size={10} className="inline ml-1" /></Chip>
+                   <Chip key={i} active activeClass="bg-accent/10 border-accent/40 text-accent" aria-label={`Remove ${sc.symbol}`} onClick={() => setField('single_symbol_configs', cfg.single_symbol_configs.filter((_, idx) => idx !== i))}>{sc.symbol} <X size={10} className="inline ml-1" /></Chip>
                  ))}
                </div>
             </section>

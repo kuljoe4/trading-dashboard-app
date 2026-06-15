@@ -165,6 +165,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
         rateLimitLastSync: res.data.rateLimit ? new Date().toISOString() : st.rateLimitLastSync,
       });
     } catch (e) {
+      if (e.code === 'ERR_CANCELED') return;
       console.error("Manual sync failed", e);
     }
   },

@@ -42,6 +42,7 @@ const App = () => {
           initializeAuth();
         }
       } catch (e) {
+        if (e.code === 'ERR_CANCELED') return;
         console.error("Failed to fetch auth config", e);
         initializeAuth();
       }

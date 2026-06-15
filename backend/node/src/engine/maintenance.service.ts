@@ -12,6 +12,8 @@ import { roundEight } from '../lib/math';
 @Injectable()
 export class MaintenanceService {
   private readonly logger = new Logger(MaintenanceService.name);
+  private isProcessingWatchdog = false;
+  private isProcessingFunding = false;
 
   constructor(
     private readonly positionTracker: PositionTrackerService,
@@ -25,7 +27,8 @@ export class MaintenanceService {
    * have a corresponding SL order on Binance. If missing, it re-places it.
    */
   async protectionWatchdog(running: boolean, config: SessionConfig | null) {
-    if (!running || !config || config.paper_mode) return;
+    if (!running || !config || config.paper_mode || this.isProcessingWatchdog) return;
+    this.isProcessingWatchdog = true;
 
     const activeTrades = this.positionTracker.activeList();
     if (activeTrades.length === 0) return;
@@ -73,15 +76,18 @@ export class MaintenanceService {
       }
     } catch (err) {
       this.logger.error(`[Watchdog] Audit failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      this.isProcessingWatchdog = false;
     }
   }
 
   async checkFundingFees(running: boolean, config: SessionConfig | null) {
-    if (!running || !config) return;
+    if (!running || !config || this.isProcessingFunding) return;
     const now = new Date();
     const isFundingTime = now.getUTCHours() % ENGINE_CONSTANTS.FUNDING_INTERVAL_HOURS === 0 && now.getUTCMinutes() === 0;
 
     if (isFundingTime) {
+      this.isProcessingFunding = true;
       try {
         const activeTrades = this.positionTracker.activeList();
         for (const trade of activeTrades) {
@@ -92,7 +98,7 @@ export class MaintenanceService {
 
             trade.funding_fee = roundEight((trade.funding_fee || 0) + fundingDelta);
             trade.pnl = roundEight(trade.pnl - fundingDelta);
-            (trade as any)._last_funding_delta = fundingDelta;
+            trade._last_funding_delta = fundingDelta;
 
             // Emit event to update balance in TradingSessionService
             this.eventEmitter.emit(ENGINE_EVENTS.FUNDING_APPLIED, { trade, fundingDelta });
@@ -104,6 +110,8 @@ export class MaintenanceService {
         }
       } catch (err) {
         this.logger.error(`[Funding] Batch application failed: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        this.isProcessingFunding = false;
       }
     }
   }

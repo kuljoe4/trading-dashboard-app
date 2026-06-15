@@ -122,7 +122,7 @@ describe('Trade Lifecycle Integration', () => {
         mockKlineStore,
         mockSignalEngine,
         mockRiskEngine,
-        mockPositionTracker,
+        ({ ...mockPositionTracker, recalculateTotalRisk: jest.fn() } as any),
         mockOrderManager,
         { start: jest.fn(), stop: jest.fn(), setCandleCloseCallback: jest.fn() } as any,
         { start: jest.fn(), stop: jest.fn(), scan: jest.fn().mockReturnValue([{ symbol: 'BTCUSDT', direction: 'long', momentum: 5, volume_24h: 1000000, score: 80 }]) } as any,
@@ -133,8 +133,9 @@ describe('Trade Lifecycle Integration', () => {
         { setWsBroadcaster: jest.fn(), broadcast: jest.fn() } as any,
         mockSessionState,
         { calculateVariantStats: jest.fn() } as any,
-        { broadcastTick: jest.fn(), serializeTrade: jest.fn(), minimize: jest.fn() } as any,
+        { broadcastTick: jest.fn(), serializeTrade: jest.fn(), minimize: jest.fn(), getLastTickData: jest.fn(), getLastRiskResult: jest.fn(), getLastAnalyticsResult: jest.fn() } as any,
         { isInsideTradingWindow: jest.fn().mockReturnValue(true), enterHibernation: jest.fn(), exitHibernation: jest.fn() } as any,
+        {} as any, // maintenanceService
         mockAuditLog,
         new EventEmitter2()
     );

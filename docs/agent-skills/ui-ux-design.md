@@ -17,6 +17,9 @@ The application follows an "Operator Cockpit" philosophy, prioritizing real-time
 - **Paper Mode Distinction:** Visual "Sandbox" state (e.g., Amber borders/badges) to prevent confusion with live trading.
 - **Decision Logs:** Transparent logging of "why" the bot didn't take a trade to build user confidence.
 
+## Data Accuracy
+- **Consistency:** Prioritize backend-calculated performance metrics (e.g., PnL%, Drawdown) over local frontend calculations to ensure accuracy across all views, especially regarding account-level scaling (deposits/withdrawals) and balance history. Frontend should leverage backend analytics output directly.
+
 ## Reusable Patterns
 - **Localized Error Feedback:** Auto-clearing inline alerts instead of intrusive modals.
 - **Copy-to-Clipboard:** Quick-access buttons for technical identifiers (Symbols, IDs).

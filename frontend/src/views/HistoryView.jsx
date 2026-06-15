@@ -159,6 +159,18 @@ const SessionGroup = React.memo(({ session, trades }) => {
   }, [session.startTime, session.endTime])
 
   const metrics = useMemo(() => {
+    if (session.analytics) {
+      return {
+        ...session.analytics,
+        winLossRatio: session.analytics.avgWinLossRatio,
+        winLossRatioStr: session.analytics.avgWinLossRatio.toFixed(2),
+        pnlPct: session.analytics.overallPnlPct,
+        expectancyStatus: getExpectancyStatus(session.analytics.overallWinRate / 100, session.analytics.avgWinLossRatio),
+        sharpeStatus: getSharpeStatus(session.analytics.sharpeRatio),
+        sortinoStatus: getSortinoStatus(session.analytics.sortinoRatio),
+        curve: session.analytics.cumulativePnL
+      };
+    }
     const m = calculatePerformanceMetrics(trades);
     const losses = trades.length - m.wins;
     const avgWin = m.wins > 0 ? m.grossProfit / m.wins : 0;
@@ -178,7 +190,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
       sortinoStatus: getSortinoStatus(m.sortino),
       curve: buildCurve(trades)
     };
-  }, [trades, session.balance, session.totalPnl]);
+  }, [trades, session]);
 
   const { wins, winRate, winLossRatioStr, expectancyStatus, totalPnl: pnl, curve } = metrics;
   const label = strategyLabel(session);

@@ -1,9 +1,9 @@
 ux_state:
-  last_review: 2026-05-15
+  last_review: 2026-06-15
 
 findings:
   - id: UX-001
-    status: open
+    status: resolved
     severity: medium
     category: hierarchy
     screens:
@@ -50,23 +50,24 @@ findings:
     recommendation: "Standardize primitives.jsx and use Tailwind utility patterns exclusively."
 
   - id: UX-006
-    status: open
+    status: resolved
     severity: medium
     category: consistency
     screens:
       - scanner
       - history
     notes: "Define consistent data table/list behavior for scanner and logs."
-    recommendation: "Create a shared Table component or row pattern."
+    recommendation: "Standardize row density and padding across ScannerPreview, ScannerOverlay, and DecisionLog."
 
   - id: UX-007
-    status: open
+    status: resolved
     severity: medium
     category: accessibility
     screens:
       - config-modal
+      - primitives
     notes: "Add accessible hover, focus, keyboard, and disabled states for all controls."
-    recommendation: "Ensure Radix primitives are used with full accessibility features enabled."
+    recommendation: "Ensure Radix primitives are used with full accessibility features enabled. Add aria-busy and better focus rings."
 
   - id: UX-008
     status: resolved
@@ -96,13 +97,13 @@ findings:
     recommendation: "Add a persistent 'Risk Summary' sidebar or footer to ConfigModal that updates live as scanner/risk params change."
 
   - id: UX-011
-    status: open
+    status: resolved
     severity: medium
     category: accessibility
     screens:
       - dashboard
     notes: "StrategyCard onClick navigates to detail, but there are nested interactive buttons (Edit, Pause, Expand). This can cause accidental navigation."
-    recommendation: "Use e.stopPropagation() more rigorously or redesign the card so the main body is the navigation target and actions are clearly separated."
+    recommendation: "Use e.stopPropagation() more rigorously on all sub-controls in StrategyCard."
 
   - id: UX-012
     status: resolved
@@ -111,7 +112,7 @@ findings:
     screens:
       - active-trade-card
     notes: "ActiveTradeCard Price Runway lacks semantic descriptions for screen readers. The 'progress' of a trade is only conveyed visually."
-    recommendation: "Add aria-valuenow, aria-valuemin, aria-valuemax to the progress bar and provide a text description of the trade status (e.g. 'BTC Long: 2.1R profit, 45% to Take Profit')."
+    recommendation: "Add aria-valuenow, aria-valuemin, aria-valuemax to the progress bar and provide a text description of the trade status."
 
   - id: UX-013
     status: open
@@ -120,7 +121,7 @@ findings:
     screens:
       - scanner
     notes: "ScannerOverlay uses a dense grid that is truncated on mobile. Volume and Score are hidden, which is good, but the layout shift between mobile/desktop headers is jarring."
-    recommendation: "Standardize the row height and use a more flexible flexbox/grid layout that gracefully degrades without explicit 'md:hidden' blocks where possible."
+    recommendation: "Standardize the row height and use a more flexible flexbox/grid layout."
 
   - id: UX-014
     status: resolved
@@ -137,8 +138,8 @@ findings:
     category: state-integrity
     screens:
       - all
-    notes: "WebSocket delta updates rely on `_delta` and `_thin` flags. If the backend omits a field during a delta that the UI expects (e.g. `tp_mode`), the UI might flicker or revert to defaults if `normalizeTrade` doesn't merge correctly."
-    recommendation: "Strictly enforce field preservation in `normalizeTrade` by checking for `undefined` instead of truthiness, especially for complex objects like `exit_signals_status`."
+    notes: "WebSocket delta updates rely on `_delta` and `_thin` flags. Field omission during delta may cause UI flicker."
+    recommendation: "Strictly enforce field preservation in `normalizeTrade`."
 
   - id: UX-016
     status: open
@@ -147,7 +148,25 @@ findings:
     screens:
       - scanner
     notes: "ScannerOverlay re-renders every 200ms during high volatility. Functional components inside the map might cause GC pressure."
-    recommendation: "Memoize individual scanner row components and use imperative updates for sparklines if possible."
+    recommendation: "Memoize individual scanner row components."
+
+  - id: UX-017
+    status: resolved
+    severity: low
+    category: visual
+    screens:
+      - all
+    notes: "Double negative in fmtUSD: negative performance displays both a down arrow and a minus sign (e.g. ▾ -$10.00)."
+    recommendation: "Refine fmtUSD to only use arrows for direction without preparation of a redundant minus sign."
+
+  - id: UX-018
+    status: open
+    severity: low
+    category: responsive
+    screens:
+      - active-trade-bar
+    notes: "Mobile layout overlap risk for ActiveTradeBar in floating state."
+    recommendation: "Add padding or adjust z-index/bottom offset for small screens."
 
 design_decisions:
   - DD-001: "Operator Cockpit vision - prioritize information density and real-time awareness over marketing aesthetics."

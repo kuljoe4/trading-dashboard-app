@@ -78,7 +78,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
             return (
               <div key={opp.symbol}
                 className={cn(
-                  "grid grid-cols-[30px_1fr_80px_60px] md:grid-cols-[30px_100px_1fr_60px_1fr_1fr_50px] items-center px-4 py-3 border-b border-border/50 transition-all h-[64px] group",
+                  "grid grid-cols-[30px_1fr_80px_60px] md:grid-cols-[30px_100px_1fr_60px_1fr_1fr_50px] items-center px-4 py-3 border-b border-border/50 transition-all h-[56px] group",
                   !passing && "opacity-45 grayscale-[0.5]",
                   isSingleMonitor && "bg-accent/5",
                   passing && "hover:bg-white/5 active:bg-white/10"

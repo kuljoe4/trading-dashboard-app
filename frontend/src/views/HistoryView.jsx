@@ -42,7 +42,7 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
         <div className="flex flex-col gap-1 min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-black font-mono tracking-tight shrink-0">{trade.symbol}</span>
-            <CopyButton value={trade.symbol} className="opacity-0 group-hover/trade:opacity-100 focus-visible:opacity-100 -ml-1 scale-75" />
+            <CopyButton value={trade.symbol} tooltip="Copy Symbol" className="opacity-0 group-hover/trade:opacity-100 focus-visible:opacity-100 -ml-1 scale-75" />
             <span className={cn("text-[8px] font-black px-1.5 py-0.5 rounded border uppercase shrink-0", isLong ? "text-green border-green/20 bg-green/5" : "text-red border-red/20 bg-red/5")}>
               {trade.direction}
             </span>
@@ -208,7 +208,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
               </a>
               <div className="flex items-center gap-1">
                 <span className="text-[10px] text-dim font-mono bg-background/50 px-2 py-0.5 rounded border border-border/50">#{session.id.substring(0, 8)}</span>
-                <CopyButton value={session.id} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100" />
+                <CopyButton value={session.id} tooltip="Copy Session ID" className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100" />
               </div>
               {session.paperMode && <PaperBadge />}
             </div>
@@ -243,7 +243,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
             <div className="flex flex-col">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Expectancy</span>
               <Tooltip content="Expected value per trade based on historical performance">
-                <span className={cn("text-xs font-bold flex items-center gap-1.5", expectancyStatus.color)}>
+                <span className={cn("text-xs font-bold flex items-center gap-1.5 border-b border-dotted border-dim/30", expectancyStatus.color)}>
                   <expectancyStatus.icon size={12} aria-hidden="true" />
                   {Number(expectancyStatus.expectancy).toFixed(2)}
                 </span>
@@ -433,7 +433,7 @@ export const HistoryView = () => {
                  className="bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-[11px] font-bold focus:border-accent outline-none transition-all w-[180px] lg:w-[240px]"
                />
                {search && (
-                 <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors">
+                 <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear search">
                    <XCircle size={14} />
                  </button>
                )}
@@ -455,7 +455,7 @@ export const HistoryView = () => {
             className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-3 text-xs font-bold focus:border-accent outline-none transition-all"
           />
           {search && (
-            <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors">
+            <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear search">
               <XCircle size={16} />
             </button>
           )}
@@ -630,17 +630,39 @@ export const HistoryView = () => {
           ) : (
             <div className="space-y-4">
               <AnimatePresence mode="popLayout">
-                {sessionsToRender.map((s, i) => (
+                {search && sessionsToRender.length === 0 ? (
                   <motion.div
-                    layout
-                    key={s.id}
-                    initial={{ opacity: 0, y: 20 }}
+                    key="history-no-results"
+                    initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: Math.min(i * 0.05, 0.5) }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="flex flex-col items-center justify-center py-20 text-center bg-surface/10 border border-border/40 border-dashed rounded-2xl"
                   >
-                    <SessionGroup session={s} trades={s.trades} />
+                    <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center mb-4 text-dim/20">
+                      <Search size={24} />
+                    </div>
+                    <div className="text-[13px] text-dim font-bold uppercase tracking-widest">No matching sessions found</div>
+                    <p className="text-[11px] text-dim/60 mt-1 mb-6">Try a different search term or clear the filter.</p>
+                    <button
+                      onClick={() => setSearch('')}
+                      className="px-6 py-2 bg-accent/10 border border-accent/20 text-accent rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-all active:scale-95"
+                    >
+                      Clear Search
+                    </button>
                   </motion.div>
-                ))}
+                ) : (
+                  sessionsToRender.map((s, i) => (
+                    <motion.div
+                      layout
+                      key={s.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: Math.min(i * 0.05, 0.5) }}
+                    >
+                      <SessionGroup session={s} trades={s.trades} />
+                    </motion.div>
+                  ))
+                )}
 
                 {visibleSessions < allSessionsWithTrades.length && (
                    <motion.div

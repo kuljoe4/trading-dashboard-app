@@ -144,7 +144,7 @@ export const DecisionLog = React.memo(() => {
             className="w-full bg-surface border border-border rounded-xl pl-10 pr-4 py-2 text-[11px] font-bold focus:border-accent focus:outline-accent outline-offset-1 transition-all"
           />
           {search && (
-            <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors">
+            <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear search">
               <XCircle size={14} />
             </button>
           )}
@@ -159,6 +159,7 @@ export const DecisionLog = React.memo(() => {
             <CopyButton
               value={visibleLogs.map(l => `[${l.ts}] ${l.msg}`).join('\n')}
               className="bg-surface border border-border"
+              tooltip="Copy All Visible Logs"
             />
             {filterButtons.map((filter) => {
               const active = (logFilters || DEFAULT_LOG_FILTERS)[filter.level]

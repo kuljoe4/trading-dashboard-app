@@ -31,7 +31,8 @@ describe('OrderManagerService - PnL Consistency', () => {
     service = new OrderManagerService(
       mockSignalEngine,
       mockMarketFeed,
-      null as any, // tickerCache
+      { getTicker: jest.fn(), getPrice: jest.fn() } as any, // tickerCache
+      { incrementApiRequests: jest.fn() } as any, // monitoringService
       mockTradingSession,
       { log: jest.fn() } as any, // auditLog
       { emit: jest.fn() } as any, // eventEmitter

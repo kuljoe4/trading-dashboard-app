@@ -14,13 +14,14 @@ describe('OrderManagerService', () => {
     service = new OrderManagerService(
       mockSignalEngine,
       { getSymbolFilters: (symbol: string) => ({ filters: [] }) } as any,
-      null as any, // tickerCache
-        {
-          isRateLimited: () => false,
-          binanceRateLimit: { used_1m: 0, limit: 2400 },
-          updateRateLimit: jest.fn(),
-          realTimePositions: new Map()
-        } as any, // sessionState
+      { getTicker: jest.fn(), getPrice: jest.fn() } as any, // tickerCache
+      { incrementApiRequests: jest.fn() } as any, // monitoringService
+      {
+        isRateLimited: () => false,
+        binanceRateLimit: { used_1m: 0, limit: 2400 },
+        updateRateLimit: jest.fn(),
+        realTimePositions: new Map()
+      } as any, // sessionState
       { log: jest.fn() } as any, // auditLog
       { emit: jest.fn() } as any, // eventEmitter
     );

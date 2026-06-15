@@ -214,11 +214,12 @@ export class SessionService implements OnModuleInit {
       }
 
       // 1. Save Trade record
-      // BOLT: Preserve negative PnL (realized fees) for OPEN trades so session totalPnl is accurate
       const persistenceTrade = { ...trade };
       if (trade.status === 'OPEN') {
-        // Only allow negative PnL (fees) for OPEN trades. Positive unrealized PnL is NOT saved.
-        persistenceTrade.pnl = Math.min(0, Number(trade.pnl || 0));
+        // For OPEN trades, we save the current 'realized' portion (fees + funding)
+        // to ensure correct appliedPnL initialization on restart.
+        // Unrealized price PnL is not included in trade.pnl for open trades in the engine.
+        persistenceTrade.pnl = Number(trade.pnl || 0);
         persistenceTrade.pnl_pct = 0;
       }
 
@@ -487,6 +488,7 @@ export class SessionService implements OnModuleInit {
     }
       
     // 1. Reconciliation: Identify trades that should be closed or resumed
+    let recalculationNeeded = false;
     for (const trade of openTrades) {
       let isOrphaned = false;
       if (trade.sessionId) {
@@ -506,6 +508,7 @@ export class SessionService implements OnModuleInit {
         await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date() });
         await this.logMessage(`Trade ${trade.symbol} was orphaned during downtime and marked closed.`, 'warn');
         (trade as any).reconciled_out = true;
+        recalculationNeeded = true;
         continue;
       }
 
@@ -582,47 +585,37 @@ export class SessionService implements OnModuleInit {
 
     // Reconcile open trades with actual exchange positions
     if (mode !== 'paper' && binanceClient) {
-      try {
-        this.logger.log(`[Lifecycle] Performing bulk position reconciliation for ${sessionOpenTrades.length} trades...`);
-        const allPositions = await this.tradingSessionService.fetchAllPositions();
-        const positionsMap = new Map(allPositions.map(p => [p.symbol, p]));
+      for (const trade of sessionOpenTrades) {
+        try {
+          const position = await this.tradingSessionService.fetchPosition(trade.symbol);
+          const posAmt = position ? parseFloat(position.positionAmt) : 0;
+          const hasPosition = Math.abs(posAmt) > 0;
 
-        for (const trade of sessionOpenTrades) {
-          try {
-            const position = positionsMap.get(trade.symbol);
-            const posAmt = position ? parseFloat(position.positionAmt) : 0;
-            const hasPosition = Math.abs(posAmt) > 0;
+          if (!hasPosition) {
+            this.logger.log(`Live position for ${trade.symbol} not found on exchange. Marking as closed (orphaned).`);
+            await this.logMessage(`Live position for ${trade.symbol} was not found on exchange during reconciliation. Marking as orphaned.`, 'warn');
+            await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date() });
+            (trade as any).reconciled_out = true;
+            recalculationNeeded = true;
+          } else {
+            // BOLT: Sync local trade state with actual exchange position to ensure entry price and qty accuracy
+            const exEntryPrice = parseFloat(position.entryPrice);
+            const exUnrealizedPnl = parseFloat(position.unRealizedProfit);
 
-            if (!hasPosition) {
-              this.logger.log(`Live position for ${trade.symbol} not found on exchange. Marking as closed (orphaned).`);
-              await this.logMessage(`Live position for ${trade.symbol} was not found on exchange during reconciliation. Marking as orphaned.`, 'warn');
-              await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date() });
-              (trade as any).reconciled_out = true;
-            } else {
-              // BOLT: Sync local trade state with actual exchange position to ensure entry price and qty accuracy
-              const exEntryPrice = parseFloat(position.entryPrice);
+            if (exEntryPrice > 0 && Math.abs(exEntryPrice - Number(trade.entry_price)) > (exEntryPrice * 0.0001)) {
+               this.logger.log(`Syncing entry price for ${trade.symbol}: ${trade.entry_price} -> ${exEntryPrice}`);
+               trade.entry_price = exEntryPrice;
+            }
 
-              if (exEntryPrice > 0 && Math.abs(exEntryPrice - Number(trade.entry_price)) > (exEntryPrice * 0.0001)) {
-                 this.logger.log(`Syncing entry price for ${trade.symbol}: ${trade.entry_price} -> ${exEntryPrice}`);
-                 trade.entry_price = exEntryPrice;
-              }
-
-              if (Math.abs(posAmt) !== Math.abs(Number(trade.qty))) {
-                 this.logger.log(`Syncing quantity for ${trade.symbol}: ${trade.qty} -> ${Math.abs(posAmt)}`);
-                 trade.qty = Math.abs(posAmt);
-              }
-              // Update direction if mismatch (rare but safe)
-              const exDir = posAmt > 0 ? 'LONG' : 'SHORT';
-              if (trade.direction !== exDir) {
-                 this.logger.warn(`Syncing direction for ${trade.symbol}: ${trade.direction} -> ${exDir}`);
-                 trade.direction = exDir;
-              }
-
-              // Recalculate risk based on synced values
-              const riskPoints = Math.abs(Number(trade.entry_price) - Number(trade.current_sl));
-              trade.risk_usdt = roundEight(riskPoints * Number(trade.qty));
-
-              await this.tradeRepository.save(trade);
+            if (Math.abs(posAmt) !== Math.abs(Number(trade.qty))) {
+               this.logger.log(`Syncing quantity for ${trade.symbol}: ${trade.qty} -> ${Math.abs(posAmt)}`);
+               trade.qty = Math.abs(posAmt);
+            }
+            // Update direction if mismatch (rare but safe)
+            const exDir = posAmt > 0 ? 'LONG' : 'SHORT';
+            if (trade.direction !== exDir) {
+               this.logger.warn(`Syncing direction for ${trade.symbol}: ${trade.direction} -> ${exDir}`);
+               trade.direction = exDir;
             }
           } catch (innerErr) {
             this.logger.error(`Failed to reconcile ${trade.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
@@ -634,6 +627,17 @@ export class SessionService implements OnModuleInit {
     }
 
     const filteredOpenTrades = sessionOpenTrades.filter(t => !(t as any).reconciled_out);
+
+    if (recalculationNeeded) {
+      this.logger.log(`[Lifecycle] Triggering PnL recalculation after reconciliation for session ${this.currentSessionId}`);
+      const aggregation = await this.tradeRepository.createQueryBuilder('trade')
+        .select('SUM(trade.pnl)', 'sum')
+        .where('trade.sessionId = :sessionId', { sessionId: this.currentSessionId })
+        .andWhere('trade.status IN (:...statuses)', { statuses: TERMINAL_STATUSES })
+        .getRawOne();
+      const realizedPnl = roundEight(Number(aggregation?.sum || 0));
+      await this.sessionRepository.update(this.currentSessionId!, { totalPnl: realizedPnl });
+    }
 
     // Start the actual trading engine
     await this.tradingSessionService.start(config, binanceClient, this.currentSessionId, initialHistory as any, currentGlobalBalance, filteredOpenTrades as any);

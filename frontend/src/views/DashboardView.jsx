@@ -735,18 +735,29 @@ export function DashboardView({ initialStrategy }) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.2 }}
-              className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4"
+              className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 gap-y-4"
           >
-            <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} />
+            <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} tooltipText="Total available funds in the trading account." />
             <StatCard
               label="Active P&L"
               value={fmtUSD(totalActivePnl)}
               color={pnlClass(totalActivePnl)}
               subValue={`Total: ${fmtUSD(totalPnl)}`}
               syncing={wsStatus !== 'live'}
+              tooltipText="Current P&L from open trades vs. total session performance."
             />
-            <StatCard label="Live Risk" value={`${Number(totalRiskPct || 0).toFixed(1)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
-            <StatCard label="Peak RR" value={`+${Number(maxRR || 0).toFixed(2)}`} color="text-accent" />
+            <StatCard 
+              label="Live Risk" 
+              value={`${Number(totalRiskPct || 0).toFixed(1)}%`} 
+              color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} 
+              tooltipText="Combined risk percentage across all open positions relative to account equity."
+            />
+            <StatCard 
+              label="Peak RR" 
+              value={`+${Number(maxRR || 0).toFixed(2)}`} 
+              color="text-accent" 
+              tooltipText="Maximum Reward-to-Risk ratio achieved during this trading session."
+            />
           </motion.div>
 
           <TemporalRiskGrid />
@@ -754,7 +765,7 @@ export function DashboardView({ initialStrategy }) {
 
 
         {/* Main Grid */}
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] items-start gap-6 lg:gap-10">
+        <div className="grid grid-cols-1 xl:grid-cols-2 items-start gap-6">
 
           {/* Left Workspace */}
           <div className="flex flex-col gap-6 lg:gap-10 no-scrollbar overflow-hidden">
@@ -764,7 +775,7 @@ export function DashboardView({ initialStrategy }) {
               transition={{ delay: 0.3 }}
             >
               <SectionLabel>Active Strategy</SectionLabel>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                 {sessionActive ? (
                   <>
                     <StrategyCard
@@ -810,12 +821,12 @@ export function DashboardView({ initialStrategy }) {
                     disabled={loading || isSyncing}
                     aria-label="Create new trading session"
                     className={cn(
-                      "bg-background border-2 border-dashed border-border rounded-2xl p-10 flex flex-col items-center justify-center gap-4 text-dim transition-all group h-[256px]",
+                      "bg-background border-2 border-dashed border-border rounded-2xl p-6 flex flex-col items-center justify-center gap-4 text-dim transition-all group min-h-[200px] col-span-1 md:col-span-2 lg:col-span-3 w-full",
                       (loading || isSyncing) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
                     )}
                   >
-                    <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
-                      <Plus size={24} />
+                    <div className="w-10 h-10 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
+                      <Plus size={20} />
                     </div>
                     <span className="text-[11px] font-bold uppercase tracking-widest">Configure Strategy</span>
                   </button>
@@ -832,7 +843,7 @@ export function DashboardView({ initialStrategy }) {
             transition={{ delay: 0.5 }}
             className="flex flex-col gap-6 lg:gap-10"
           >
-            <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col h-[450px] shadow-sm">
+            <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col shadow-sm">
               <SectionLabel className="mb-4">
                 <Activity size={14} className="text-accent" /> Session Logs
               </SectionLabel>

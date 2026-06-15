@@ -4,7 +4,7 @@ import { clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 import * as ProgressPrimitive from "@radix-ui/react-progress"
 import * as TooltipPrimitive from "@radix-ui/react-tooltip"
-import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock } from 'lucide-react'
+import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock, Info } from 'lucide-react'
 import { Sparkline as SparklineChart } from '../DataCharts'
 import { useTradingStore } from '../../store/trading'
 import { useTooltipContext } from './tooltip'
@@ -120,27 +120,27 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
               onClick={(e) => { e.stopPropagation(); handleAction(onDecrement); }}
               disabled={!isLocked && value <= min}
               className={cn(
-                "w-6 h-6 md:w-8 md:h-8 rounded-lg border flex items-center justify-center transition-all active:scale-90",
+                "w-10 h-10 rounded-lg border flex items-center justify-center transition-all active:scale-90",
                 isLocked
                   ? "bg-transparent border-transparent text-dim/20"
                   : "bg-background border-border text-dim hover:text-text hover:border-accent/40 shadow-sm"
               )}
               aria-label={isLocked ? "Tap to unlock" : `Decrease ${label}`}
             >
-              <Minus size={14} />
+              <Minus size={20} />
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); handleAction(onIncrement); }}
               disabled={!isLocked && value >= max}
               className={cn(
-                "w-6 h-6 md:w-8 md:h-8 rounded-lg border flex items-center justify-center transition-all active:scale-90",
+                "w-10 h-10 rounded-lg border flex items-center justify-center transition-all active:scale-90",
                 isLocked
                   ? "bg-transparent border-transparent text-dim/20"
                   : "bg-background border-border text-dim hover:text-text hover:border-accent/40 shadow-sm"
               )}
               aria-label={isLocked ? "Tap to unlock" : `Increase ${label}`}
             >
-              <Plus size={14} />
+              <Plus size={20} />
             </button>
           </div>
         </div>
@@ -162,7 +162,7 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
 })
 
 // --- Stat Card ---
-export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing }) => {
+export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing, tooltipText }) => {
   // BOLT: Clean up double-negative visuals: if value starts with '-', don't show negative arrow in label/icon.
   // This component currently doesn't show an icon, but if the value passed from parent has both '-' and an arrow,
   // it might look redundant. The user pointed out: "Total Performance" displays ▼ - $9,920.52.
@@ -184,7 +184,10 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />
       )}
       <div className="flex flex-col gap-1 w-full self-start">
-        <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-tight" aria-hidden="true">{label}</div>
+        <div className="flex items-center gap-1.5">
+            <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-tight" aria-hidden="true">{label}</div>
+            {tooltipText && <Tooltip content={tooltipText}><Info size={10} className="text-dim hover:text-accent cursor-help" /></Tooltip>}
+        </div>
         <div className={cn(
           "text-sm md:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate",
           color,
@@ -497,8 +500,17 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                     <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", wsStatus === 'live' ? "text-green" : "text-amber")}>
                       {wsStatus === 'live' ? 'Connected' : 'Reconnecting'}
                     </span>
+                    {wsStatus !== 'live' && (
+                      <button
+                        onClick={() => window.location.reload()}
+                        className="text-[9px] font-bold font-mono tracking-widest uppercase text-amber hover:text-white underline transition-colors"
+                        aria-label="Retry connection"
+                      >
+                        Retry
+                      </button>
+                    )}
                     <PulseDot color={wsStatus === 'live' ? "bg-green" : "bg-amber"} />
-                  </div>
+                    </div>
                 </div>
               )}
             </div>

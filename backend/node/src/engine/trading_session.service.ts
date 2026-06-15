@@ -23,6 +23,7 @@ import { ENGINE_CONSTANTS, CONFIG_LIMITS } from '../models/constants';
 import { VariantAnalyticsService } from './variant-analytics.service';
 import { EngineBroadcasterService } from './engine-broadcaster.service';
 import { GatingService } from './gating.service';
+import { MaintenanceService } from './maintenance.service';
 import { AuditLogService } from '../trading/audit-log.service';
 import { TradeSerializationDto } from '../trading/dto/trade-serialization.dto';
 
@@ -61,6 +62,7 @@ export class TradingSessionService {
   private userDataWs: any = null;
   private listenKey: string | null = null;
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
+  private _lastGateBroadcastTs = 0;
 
   private cachedStrategyConfigs: SessionConfig[] | null = null;
   private cachedScanSignatures: Map<SessionConfig, string> = new Map();
@@ -103,6 +105,7 @@ export class TradingSessionService {
     private readonly variantAnalytics: VariantAnalyticsService,
     private readonly engineBroadcaster: EngineBroadcasterService,
     private readonly gatingService: GatingService,
+    private readonly maintenanceService: MaintenanceService,
     private readonly auditLog: AuditLogService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
@@ -172,8 +175,8 @@ export class TradingSessionService {
 
     const hot = config.hot_loop_interval_ms || 5000; this.hotLoopInterval = setInterval(() => this.hotLoop(), hot);
     const main = config.main_loop_interval_ms || 15000; this.mainLoopInterval = setInterval(() => this.mainLoop(), main);
-    this.fundingCheckInterval = setInterval(() => this.checkFundingFees(), 60000); // Check every minute
-    this.watchdogInterval = setInterval(() => this.protectionWatchdog(), 300000); // Check protection every 5 minutes
+    this.fundingCheckInterval = setInterval(() => this.maintenanceService.checkFundingFees(this.running, this.config), 60000); // Check every minute
+    this.watchdogInterval = setInterval(() => this.maintenanceService.protectionWatchdog(this.running, this.config), 300000); // Check protection every 5 minutes
 
     this.broadcastSnapshot('started'); return { status: 'started' };
   }
@@ -332,8 +335,8 @@ export class TradingSessionService {
 
       // BOLT: Throttled broadcast of gating reasons to avoid flooding UI with countdowns
       const now = Date.now();
-      if (this.sessionState.gateState !== prevGateState || (now - (this as any)._lastGateBroadcastTs || 0) > 1000) {
-        (this as any)._lastGateBroadcastTs = now;
+      if (this.sessionState.gateState !== prevGateState || (now - this._lastGateBroadcastTs) > 1000) {
+        this._lastGateBroadcastTs = now;
         this.broadcast('gate', {
           gateState: this.sessionState.gateState,
           reason: riskResult.reason,
@@ -371,15 +374,14 @@ export class TradingSessionService {
 
       if (this.sessionState.dashboardCount > 0) {
         const baseConfig = strategyConfigs[0];
-        const opportunitiesWithSignals = primaryOpportunities.slice(0, 10).map((opp) => { const signalResult = this.signalEngine.checkEntry(opp.symbol, baseConfig, baseConfig.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry'); return { ...opp, signalResult }; });
+        const opportunitiesWithSignals = primaryOpportunities.slice(0, 10).map((opp) => { const signalResult = this.signalEngine.checkEntry(opp.symbol, baseConfig, baseConfig.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry'); return { ...opp, signalResult }; });
         this.updateScannerResults(opportunitiesWithSignals); this.lastVariantScannerResults = scannerData;
         const now = Date.now(); const isFull = now - this.lastScannerFullBroadcast > 30000;
         const nextResultsJson = JSON.stringify(this.lastScannerResults.map(o => o.symbol + o.direction + o.score));
         const resultsChanged = nextResultsJson !== this.lastScannerResultsJson; this.lastScannerResultsJson = nextResultsJson;
 
-        // REFACTOR: Avoid 'as any' casting and property access on non-existent this.lastTickData
         const resultsPriceChanged = () => {
-           const tickData = (this.engineBroadcaster as any).lastTickData;
+           const tickData = this.engineBroadcaster.getLastTickData();
            if (!tickData?.scannerResults) return false;
            return this.lastScannerResults.some((o, i) => {
               const prev = tickData.scannerResults[i];
@@ -418,105 +420,10 @@ export class TradingSessionService {
 
   private async onCandleClose(symbol: string) { if (!this.running || !this.config) return; if (this.config.debug_mode) this.logger.verbose(`Candle closed for ${symbol}`); }
 
-  /**
-   * PROTECTION WATCHDOG: Periodically verifies that all active Live positions
-   * have a corresponding SL order on Binance. If missing, it re-places it.
-   * Optimized with a hybrid strategy to minimize REST weight.
-   */
-  private async protectionWatchdog() {
-    if (!this.running || !this.config || this.config.paper_mode) return;
-
-    const activeTrades = this.positionTracker.activeList();
-    if (activeTrades.length === 0) return;
-
-    const uniqueSymbols = Array.from(new Set(activeTrades.map(t => t.symbol)));
-    this.logger.log(`[Watchdog] Running protection audit for ${uniqueSymbols.length} unique symbols (Hybrid Strategy)...`);
-
-    try {
-      // 1. Always Bulk Fetch Positions (Weight: 5)
-      const allPositions = await this.orderManager.fetchAllPositions();
-      const activePositionsMap = new Map(allPositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0).map(p => [p.symbol, p]));
-
-      // 2. Fetch Orders (Hybrid Strategy)
-      let slOrdersSymbols = new Set<string>();
-      let algoSlOrdersSymbols = new Set<string>();
-
-      const isSlOrder = (o: any) => (o.type === 'STOP_MARKET' || o.type === 'STOP') && (o.closePosition === true || o.closePosition === 'true' || o.reduceOnly === true || o.reduceOnly === 'true');
-
-      // 2a. Always Bulk Fetch Algo Orders (Weight: 1)
-      const allAlgoOrders = await this.orderManager.fetchAllOpenAlgoOrders();
-      algoSlOrdersSymbols = new Set(allAlgoOrders.filter(isSlOrder).map(o => o.symbol));
-
-      // 2b. Standard Orders Hybrid Strategy (Threshold: 40 symbols)
-      // Bulk weight: 40, Per-symbol weight: 1
-      if (uniqueSymbols.length > 40) {
-        const allOrders = await this.orderManager.fetchAllOpenOrders();
-        slOrdersSymbols = new Set(allOrders.filter(isSlOrder).map(o => o.symbol));
-      } else {
-        for (const symbol of uniqueSymbols) {
-           const orders = await this.orderManager.fetchOpenOrders(symbol);
-           if (orders.some(isSlOrder)) slOrdersSymbols.add(symbol);
-        }
-      }
-
-      for (const trade of activeTrades) {
-        try {
-          if (!trade.binance_order_id) continue;
-
-          // Verify position still exists on exchange
-          const pos = activePositionsMap.get(trade.symbol);
-          if (!pos) continue;
-
-          // Check if protection exists in either standard or algo orders
-          const hasProtection = slOrdersSymbols.has(trade.symbol) || algoSlOrdersSymbols.has(trade.symbol);
-
-          if (!hasProtection) {
-            this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} position found without SL order on Binance. Re-placing...`);
-            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Watchdog] Missing SL detected for ${trade.symbol}. Recovering protection...`, level: 'warn' });
-            await this.orderManager.placeStopLoss(trade, trade.current_sl);
-          }
-        } catch (innerErr) {
-          this.logger.error(`[Watchdog] Error auditing ${trade.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
-        }
-      }
-    } catch (err) {
-      this.logger.error(`[Watchdog] Audit failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
-  private async checkFundingFees() {
-    if (!this.running || !this.config) return;
-    const now = new Date();
-    const isFundingTime = now.getUTCHours() % ENGINE_CONSTANTS.FUNDING_INTERVAL_HOURS === 0 && now.getUTCMinutes() === 0;
-
-    if (isFundingTime) {
-      try {
-        const activeTrades = this.positionTracker.activeList();
-        for (const trade of activeTrades) {
-          try {
-            // DATA-CONSISTENCY: Apply estimated funding fee for both Paper AND Live modes.
-            // For Live mode, this prevents balance drift between exchange and local UI between poll cycles.
-            // Positive rate: Longs pay Shorts.
-            const isLong = trade.direction === 'LONG';
-            const notional = (trade.mark_price || trade.last_price || trade.entry_price) * trade.qty;
-            const fundingDelta = roundEight(notional * ENGINE_CONSTANTS.SIMULATED_FUNDING_RATE * (isLong ? 1 : -1));
-
-            trade.funding_fee = roundEight((trade.funding_fee || 0) + fundingDelta);
-            trade.pnl = roundEight(trade.pnl - fundingDelta);
-            (trade as any)._last_funding_delta = fundingDelta;
-
-            await this.updateBalance(trade, false, true);
-            if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
-
-            this.logger.log(`[Funding] Applied ${fundingDelta} estimated funding fee to ${trade.symbol} (${this.config.paper_mode ? 'Paper' : 'Live'})`);
-          } catch (innerErr) {
-            this.logger.error(`[Funding] Failed to apply fee for ${trade.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
-          }
-        }
-      } catch (err) {
-        this.logger.error(`[Funding] Batch application failed: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
+  @OnEvent(ENGINE_EVENTS.FUNDING_APPLIED)
+  async handleFundingApplied(payload: { trade: Trade, fundingDelta: number }) {
+    await this.updateBalance(payload.trade, false, true);
+    if (this.onTradeUpdate) await this.onTradeUpdate(payload.trade, this.getBalance());
   }
 
   private updateScannerResults(opportunities: any[]) {
@@ -711,11 +618,11 @@ export class TradingSessionService {
       activeWindows: this.getActiveWindows(),
       gateState: this.sessionState.gateState,
       hibernating: this.sessionState.hibernating,
-      isAdaptiveTightened: (this.engineBroadcaster as any)._lastRiskResult?.isAdaptiveTightened ?? false,
-      tradesInPeriod: (this.engineBroadcaster as any)._lastRiskResult?.tradesInPeriod,
-      maxTradesPeriod: (this.engineBroadcaster as any)._lastRiskResult?.maxTradesPeriod,
-      tradesIn24h: (this.engineBroadcaster as any)._lastRiskResult?.tradesIn24h,
-      maxTrades24h: (this.engineBroadcaster as any)._lastRiskResult?.maxTrades24h,
+      isAdaptiveTightened: this.engineBroadcaster.getLastRiskResult()?.isAdaptiveTightened ?? false,
+      tradesInPeriod: this.engineBroadcaster.getLastRiskResult()?.tradesInPeriod,
+      maxTradesPeriod: this.engineBroadcaster.getLastRiskResult()?.maxTradesPeriod,
+      tradesIn24h: this.engineBroadcaster.getLastRiskResult()?.tradesIn24h,
+      maxTrades24h: this.engineBroadcaster.getLastRiskResult()?.maxTrades24h,
       scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused,
       history: this.sessionState.closedTrades.slice(0, 50).map((t) => this.engineBroadcaster.serializeTrade(t, this.config!, t.exit_price)),
     };
@@ -782,11 +689,7 @@ export class TradingSessionService {
       this.sessionState.setActiveTrades(this.positionTracker.activeList());
       this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, this.config!);
 
-      const analytics = this.analyticsService.calculateAnalytics(
-        this.sessionState.closedTrades as any,
-        this.config?.paper_mode ? this.config?.paper_starting_balance : this.config?.live_starting_balance,
-        this.getBalance()
-      );
+      const analytics = this.engineBroadcaster.getLastAnalyticsResult();
 
       this.broadcast('trade_event', {
         event: 'closed',
@@ -795,12 +698,12 @@ export class TradingSessionService {
         trade: this.engineBroadcaster.serializeTrade(trade, this.config!, exitPrice),
         pnl: trade.pnl,
         stats: this.sessionState.stats,
-        analytics: {
+        analytics: analytics ? {
           maxDrawdown: roundTo(analytics.maxDrawdown, 2),
           maxDrawdownPct: roundTo(analytics.maxDrawdownPct, 2),
           overallWinRate: roundTo(analytics.overallWinRate, 2),
           cumulativePnL: analytics.cumulativePnL.slice(-20).map((p: any) => ({ ...p, pnl: roundTo(p.pnl, 2) })),
-        }
+        } : undefined
       });
   }
 

@@ -18,6 +18,7 @@ export class EngineBroadcasterService {
   private lastTickData: any = null;
   private lastTickTime = 0;
   private lastAnalyticsResult: any = null;
+  private lastRiskResult: any = null;
   private lastAnalyticsTradeCount = -1;
   private lastAnalyticsStartingBalance = -1;
 
@@ -48,6 +49,10 @@ export class EngineBroadcasterService {
     this.lastAnalyticsTradeCount = -1;
     this.logger.verbose('EngineBroadcasterService: Broadcast caches cleared');
   }
+
+  public getLastTickData(): any { return this.lastTickData; }
+  public getLastRiskResult(): any { return this.lastRiskResult; }
+  public getLastAnalyticsResult(): any { return this.lastAnalyticsResult; }
 
   public serializeTrade(trade: Trade, config: SessionConfig, currentPrice?: number, minimal = false): TradeSerializationDto {
     const direction = (trade.direction || 'LONG').toString().toUpperCase() as 'LONG' | 'SHORT';
@@ -224,7 +229,7 @@ export class EngineBroadcasterService {
     const variantGroups: Record<string, { pnl: number, risk: number, count: number, hits: number }> = {};
 
     const riskResult = this.riskEngine.canEnter(this.positionTracker.activeList(), this.sessionState.closedTrades, this.sessionState.getBalance(config?.paper_mode ?? true), 'DUMMY', config, this.positionTracker.totalRisk());
-    (this as any)._lastRiskResult = riskResult;
+    this.lastRiskResult = riskResult;
 
     for (let i = 0; i < len; i++) {
       const trade = activeTrades[i];
@@ -338,11 +343,11 @@ export class EngineBroadcasterService {
       total_sl_used: roundTo(totalRiskUsdt, 2),
       trades,
       gateState: this.sessionState.gateState,
-      gateReason: (this as any)._lastRiskResult?.reason || 'OK',
-      tradesInPeriod: (this as any)._lastRiskResult?.tradesInPeriod,
-      maxTradesPeriod: (this as any)._lastRiskResult?.maxTradesPeriod,
-      tradesIn24h: (this as any)._lastRiskResult?.tradesIn24h,
-      maxTrades24h: (this as any)._lastRiskResult?.maxTrades24h,
+      gateReason: this.lastRiskResult?.reason || 'OK',
+      tradesInPeriod: this.lastRiskResult?.tradesInPeriod,
+      maxTradesPeriod: this.lastRiskResult?.maxTradesPeriod,
+      tradesIn24h: this.lastRiskResult?.tradesIn24h,
+      maxTrades24h: this.lastRiskResult?.maxTrades24h,
       hibernating: this.sessionState.hibernating,
       isAdaptiveTightened: this.sessionState.isAdaptiveTightened,
       paused: this.sessionState.paused,

@@ -245,6 +245,7 @@ export const TODPerformance = ({ data = [] }) => {
 
   const validData = data.filter(d => d && typeof d.pnl === 'number');
   const maxPnl = Math.max(1, ...validData.map(d => Math.abs(d.pnl)));
+  const [hoverData, setHoverData] = useState(null);
   const [hoverHour, setHoverHour] = useState(null);
   const containerRef = useRef(null);
 
@@ -266,7 +267,17 @@ export const TODPerformance = ({ data = [] }) => {
     const rect = containerRef.current.getBoundingClientRect();
     const xPct = (clientX - rect.left) / rect.width;
     const hourIndex = Math.min(Math.floor(xPct * data.length), data.length - 1);
-    setHoverHour(data[hourIndex]);
+    const item = data[hourIndex];
+    
+    // Calculate y position for pointer (center of the bar)
+    const isPos = item.pnl >= 0;
+    const absPnl = Math.abs(item.pnl);
+    const scaleFactor = Math.sqrt(absPnl) / Math.sqrt(maxPnl);
+    const heightPct = absPnl === 0 ? 0 : Math.max(6, scaleFactor * 50);
+    const yPct = isPos ? (50 - heightPct / 2) : (50 + heightPct / 2);
+
+    setHoverHour(item);
+    setHoverData({ x: (hourIndex + 0.5) * (100 / data.length), y: yPct });
   };
 
   const currentHourStats = hoverHour || data.find(h => h.hour === new Date().getHours()) || data[0] || { pnl: 0, hour: 0, winRate: 0, wins: 0, total: 0 };
@@ -306,11 +317,29 @@ export const TODPerformance = ({ data = [] }) => {
       <div
         ref={containerRef}
         onMouseMove={(e) => handleInteraction(e.clientX)}
-        onMouseLeave={() => setHoverHour(null)}
+        onMouseLeave={() => { setHoverHour(null); setHoverData(null); }}
         onTouchMove={(e) => e.touches?.[0] && handleInteraction(e.touches[0].clientX)}
-        onTouchEnd={() => setHoverHour(null)}
+        onTouchEnd={() => { setHoverHour(null); setHoverData(null); }}
         className="relative h-[140px] md:h-[120px] cursor-crosshair select-none touch-none"
       >
+        <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+          {hoverData && (
+            <g>
+              <line
+                x1={hoverData.x} y1="0" x2={hoverData.x} y2="100"
+                stroke="var(--color-accent)" strokeWidth="0.5" strokeDasharray="1,2" className="opacity-60"
+              />
+              <circle
+                cx={hoverData.x}
+                cy={hoverData.y}
+                r="3"
+                fill="var(--color-accent)"
+                className="animate-pulse"
+              />
+            </g>
+          )}
+        </svg>
+
         <div className="absolute inset-x-0 top-0 bottom-6">
           {/* Zero baseline */}
           <div className="absolute left-0 right-0 h-px bg-border/40 z-0 top-1/2 -translate-y-1/2" />

@@ -214,11 +214,12 @@ export class SessionService implements OnModuleInit {
       }
 
       // 1. Save Trade record
-      // BOLT: Preserve negative PnL (realized fees) for OPEN trades so session totalPnl is accurate
       const persistenceTrade = { ...trade };
       if (trade.status === 'OPEN') {
-        // Only allow negative PnL (fees) for OPEN trades. Positive unrealized PnL is NOT saved.
-        persistenceTrade.pnl = Math.min(0, Number(trade.pnl || 0));
+        // For OPEN trades, we save the current 'realized' portion (fees + funding)
+        // to ensure correct appliedPnL initialization on restart.
+        // Unrealized price PnL is not included in trade.pnl for open trades in the engine.
+        persistenceTrade.pnl = Number(trade.pnl || 0);
         persistenceTrade.pnl_pct = 0;
       }
 
@@ -487,6 +488,7 @@ export class SessionService implements OnModuleInit {
     }
       
     // 1. Reconciliation: Identify trades that should be closed or resumed
+    let recalculationNeeded = false;
     for (const trade of openTrades) {
       let isOrphaned = false;
       if (trade.sessionId) {
@@ -506,6 +508,7 @@ export class SessionService implements OnModuleInit {
         await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date() });
         await this.logMessage(`Trade ${trade.symbol} was orphaned during downtime and marked closed.`, 'warn');
         (trade as any).reconciled_out = true;
+        recalculationNeeded = true;
         continue;
       }
 
@@ -593,6 +596,7 @@ export class SessionService implements OnModuleInit {
             await this.logMessage(`Live position for ${trade.symbol} was not found on exchange during reconciliation. Marking as orphaned.`, 'warn');
             await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date() });
             (trade as any).reconciled_out = true;
+            recalculationNeeded = true;
           } else {
             // BOLT: Sync local trade state with actual exchange position to ensure entry price and qty accuracy
             const exEntryPrice = parseFloat(position.entryPrice);
@@ -627,6 +631,17 @@ export class SessionService implements OnModuleInit {
     }
 
     const filteredOpenTrades = sessionOpenTrades.filter(t => !(t as any).reconciled_out);
+
+    if (recalculationNeeded) {
+      this.logger.log(`[Lifecycle] Triggering PnL recalculation after reconciliation for session ${this.currentSessionId}`);
+      const aggregation = await this.tradeRepository.createQueryBuilder('trade')
+        .select('SUM(trade.pnl)', 'sum')
+        .where('trade.sessionId = :sessionId', { sessionId: this.currentSessionId })
+        .andWhere('trade.status IN (:...statuses)', { statuses: TERMINAL_STATUSES })
+        .getRawOne();
+      const realizedPnl = roundEight(Number(aggregation?.sum || 0));
+      await this.sessionRepository.update(this.currentSessionId!, { totalPnl: realizedPnl });
+    }
 
     // Start the actual trading engine
     await this.tradingSessionService.start(config, binanceClient, this.currentSessionId, initialHistory as any, currentGlobalBalance, filteredOpenTrades as any);

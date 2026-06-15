@@ -86,6 +86,12 @@ export class Trade {
 
   binance_stop_order_type?: 'standard' | 'algo';
 
+  close_attempts?: number;
+
+  last_close_attempt_ts?: number;
+
+  close_blocked?: boolean;
+
   sessionId?: string;
 
   strategy_label?: string;

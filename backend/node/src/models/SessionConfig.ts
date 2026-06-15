@@ -328,6 +328,11 @@ export class SessionConfig {
   @Min(0)
   slippage_warning_threshold: number = CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT;
 
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  slippage_abort_threshold: number = CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT;
+
   @IsBoolean()
   @IsOptional()
   debug_mode?: boolean = false;

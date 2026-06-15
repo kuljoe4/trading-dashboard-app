@@ -15,6 +15,8 @@ export class AuditLogService {
   async log(params: {
     action: string;
     actor?: string;
+    ip?: string;
+    userAgent?: string;
     resourceId?: string;
     details?: any;
     level?: 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';

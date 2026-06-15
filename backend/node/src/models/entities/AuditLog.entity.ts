@@ -16,6 +16,12 @@ export class AuditLog {
   @Column({ type: 'varchar', length: 255, nullable: true })
   actor: string; // e.g., IP address or 'SYSTEM'
 
+  @Column({ type: 'varchar', length: 45, nullable: true })
+  ip: string;
+
+  @Column({ type: 'text', nullable: true })
+  userAgent: string;
+
   @Column({ type: 'varchar', length: 100, nullable: true })
   @Index()
   resourceId: string; // e.g., Trade ID, Session ID

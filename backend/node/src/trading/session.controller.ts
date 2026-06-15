@@ -13,9 +13,12 @@ export class SessionController {
   constructor(private readonly sessionService: SessionService) {}
 
   @Post('start')
-  async startSession(@Body() body: StartSessionDto) {
+  async startSession(@Body() body: StartSessionDto, @Req() req: Request) {
+    const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
+    const userAgent = req.headers['user-agent'];
+
     if (body.sessionId) {
-      return this.sessionService.startSession(body.config || {} as any, body.paper_mode ?? true, body.sessionId);
+      return this.sessionService.startSession(body.config || {} as any, body.paper_mode ?? true, body.sessionId, clientIp, userAgent);
     }
     const config = Object.assign(new SessionConfig(), body.config);
     
@@ -28,7 +31,7 @@ export class SessionController {
       }
     }
     
-    return this.sessionService.startSession(config, body.paper_mode ?? true);
+    return this.sessionService.startSession(config, body.paper_mode ?? true, undefined, clientIp, userAgent);
   }
 
   @Get('list')
@@ -37,12 +40,17 @@ export class SessionController {
   }
 
   @Post('stop')
-  async stopSession() {
-    return this.sessionService.stopSession();
+  async stopSession(@Req() req: Request) {
+    const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
+    const userAgent = req.headers['user-agent'];
+    return this.sessionService.stopSession(clientIp, userAgent);
   }
 
   @Patch(':id')
-  async updateSession(@Param('id', ParseUUIDPipe) id: string, @Body() body: UpdateSessionDto) {
+  async updateSession(@Param('id', ParseUUIDPipe) id: string, @Body() body: UpdateSessionDto, @Req() req: Request) {
+    const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
+    const userAgent = req.headers['user-agent'];
+
     // Body validation allows partial config for PATCH
     const partialConfig = body.config;
     
@@ -52,24 +60,28 @@ export class SessionController {
       } catch (e) {}
     }
     
-    return this.sessionService.updateSession(id, partialConfig);
+    return this.sessionService.updateSession(id, partialConfig, clientIp, userAgent);
   }
 
   @Post('pause')
-  async pauseSession(@Body() body: PauseSessionDto) {
-    return this.sessionService.pauseSession(body.paused);
+  async pauseSession(@Body() body: PauseSessionDto, @Req() req: Request) {
+    const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
+    const userAgent = req.headers['user-agent'];
+    return this.sessionService.pauseSession(body.paused, clientIp, userAgent);
   }
 
   @Delete('trades/orphans')
   async deleteOrphanedTrades(@Req() req: Request) {
     const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
-    return this.sessionService.deleteOrphanedTrades(clientIp);
+    const userAgent = req.headers['user-agent'];
+    return this.sessionService.deleteOrphanedTrades(clientIp, userAgent);
   }
 
   @Delete(':id')
   async deleteSession(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
     const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
-    return this.sessionService.deleteSession(id, clientIp);
+    const userAgent = req.headers['user-agent'];
+    return this.sessionService.deleteSession(id, clientIp, userAgent);
   }
 
   @Get('status')
@@ -114,6 +126,7 @@ export class SessionController {
   @Post('reset-paper-balance')
   async resetPaperBalance(@Req() req: Request) {
     const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
-    return this.sessionService.resetPaperBalance(clientIp);
+    const userAgent = req.headers['user-agent'];
+    return this.sessionService.resetPaperBalance(clientIp, userAgent);
   }
 }

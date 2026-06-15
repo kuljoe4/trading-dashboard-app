@@ -56,7 +56,8 @@ describe('MomentumScannerService Environment Filtering', () => {
     const orderManager = new OrderManagerService(
         mockSignalEngine as any,
         marketFeed as any,
-        null as any, // tickerCache
+        { getTicker: jest.fn(), getPrice: jest.fn() } as any, // tickerCache
+        { incrementApiRequests: jest.fn() } as any, // monitoringService
         {
           isRateLimited: () => false,
           binanceRateLimit: { used_1m: 0, limit: 2400 },

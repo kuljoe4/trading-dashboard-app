@@ -39,7 +39,8 @@ describe('OrderManagerService Atomicity', () => {
     service = new OrderManagerService(
       mockSignalEngine,
       mockMarketFeed,
-      null as any, // tickerCache
+      { getTicker: jest.fn(), getPrice: jest.fn() } as any, // tickerCache
+      { incrementApiRequests: jest.fn() } as any, // monitoringService
       mockSessionState,
       mockAuditLog,
       { emit: jest.fn() } as any,

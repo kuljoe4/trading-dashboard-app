@@ -21,7 +21,8 @@ describe('PnL/Balance Inconsistency Reproduction', () => {
     orderManager = new OrderManagerService(
       {} as any, // signalEngine
       { getSymbolFilters: () => null } as any, // marketFeed
-      {} as any, // tickerCache
+      { getTicker: jest.fn(), getPrice: jest.fn() } as any, // tickerCache
+      { incrementApiRequests: jest.fn() } as any, // monitoringService
       sessionState,
       { log: jest.fn() } as any, // auditLog
       { emit: jest.fn() } as any // eventEmitter

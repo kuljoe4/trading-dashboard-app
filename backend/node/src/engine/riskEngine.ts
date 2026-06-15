@@ -81,62 +81,81 @@ export class RiskEngineService {
     const useTodStats = config.risk_use_tod_stats && closedTrades.length > 5;
     const currentHour = useTodStats ? new Date().getUTCHours() : -1;
 
-    let tradesInPeriod = 0;
-    let tradesIn24h = 0;
-    let hourTradesCount = 0;
-    let wins = 0;
-    let oldestTradeInPeriodTs = now;
-    let oldestTradeIn24hTs = now;
+    // BOLT: Determine mostRecentTradeTs first to calculate jitter and period window upfront.
+    // This is O(1) + O(Active) where Active is typically < 10.
     let mostRecentTradeTs = 0;
-
-    // BOLT: Manual iteration for O(1) memory overhead and no stack risk
-    const processTrade = (t: Trade) => {
-      const entryTs = t.entry_ts ? new Date(t.entry_ts).getTime() : 0;
-      if (entryTs === 0) return;
-
-      if (entryTs > mostRecentTradeTs) mostRecentTradeTs = entryTs;
-
-      // Track rolling 24h limit (evaluated after jitter to keep check sequence logical)
-      if (entryTs >= now - (24 * 60 * 60 * 1000)) {
-        tradesIn24h++;
-        if (entryTs < oldestTradeIn24hTs) oldestTradeIn24hTs = entryTs;
+    for (let i = 0; i < activeTrades.length; i++) {
+      const entryRaw = activeTrades[i].entry_ts;
+      if (entryRaw) {
+        const ts = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
+        if (ts > mostRecentTradeTs) mostRecentTradeTs = ts;
       }
-
-      // Track Time-of-Day stats
-      if (useTodStats && t.exit_ts) {
-        const exitTs = new Date(t.exit_ts);
-        if (exitTs.getUTCHours() === currentHour) {
-          hourTradesCount++;
-          if ((t.pnl || 0) > 0) wins++;
-        }
+    }
+    if (closedTrades.length > 0) {
+      const entryRaw = closedTrades[0].entry_ts;
+      if (entryRaw) {
+        const ts = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
+        if (ts > mostRecentTradeTs) mostRecentTradeTs = ts;
       }
-    };
-
-    for (let i = 0; i < activeTrades.length; i++) processTrade(activeTrades[i]);
-    for (let i = 0; i < closedTrades.length; i++) processTrade(closedTrades[i]);
+    }
 
     // Apply stable jitter to the period window to prevent "stampeding"
-    // Using 0 as fallback ensures predictable behavior when history is empty
     const jitterFactor = jitterPct > 0
       ? 1 + ((Math.abs(Math.sin(mostRecentTradeTs || 0)) * jitterPct) / 100)
       : 1;
 
     const effectivePeriodMs = periodMinBase * 60 * 1000 * jitterFactor;
     const periodStartMs = now - effectivePeriodMs;
+    const dayAgo = now - (24 * 60 * 60 * 1000);
 
-    // Second pass (conceptual, but actually just tracking period count in the first pass would be better)
-    // Refactoring to consolidate counts properly in first pass:
-    tradesInPeriod = 0;
-    const processTradeForPeriod = (t: Trade) => {
-      const entryTs = t.entry_ts ? new Date(t.entry_ts).getTime() : 0;
+    let tradesIn24h = 0;
+    let tradesInPeriod = 0;
+    let hourTradesCount = 0;
+    let wins = 0;
+    let oldestTradeInPeriodTs = now;
+    let oldestTradeIn24hTs = now;
+
+    // BOLT: Manual iteration for O(1) memory overhead.
+    // Assuming closedTrades are sorted descending (most recent first).
+    const processTrade = (t: Trade, isClosed: boolean): boolean => {
+      const entryRaw = t.entry_ts;
+      if (!entryRaw) return true;
+      const entryTs = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
+      if (entryTs === 0) return true;
+
+      // BOLT: Optimization - Early exit if trade is older than 24h and we are in the closedTrades list.
+      if (isClosed && entryTs < dayAgo) return false;
+
+      // Track rolling 24h limit
+      if (entryTs >= dayAgo) {
+        tradesIn24h++;
+        if (entryTs < oldestTradeIn24hTs) oldestTradeIn24hTs = entryTs;
+      }
+
+      // Track rolling period limit
       if (entryTs >= periodStartMs) {
         tradesInPeriod++;
         if (entryTs < oldestTradeInPeriodTs) oldestTradeInPeriodTs = entryTs;
       }
+
+      // Track Time-of-Day stats
+      const exitRaw = t.exit_ts;
+      if (useTodStats && exitRaw) {
+        const exitTs = exitRaw instanceof Date ? exitRaw : new Date(exitRaw);
+        if (exitTs.getUTCHours() === currentHour) {
+          hourTradesCount++;
+          if ((t.pnl || 0) > 0) wins++;
+        }
+      }
+      return true;
     };
 
-    for (let i = 0; i < activeTrades.length; i++) processTradeForPeriod(activeTrades[i]);
-    for (let i = 0; i < closedTrades.length; i++) processTradeForPeriod(closedTrades[i]);
+    for (let i = 0; i < activeTrades.length; i++) {
+      processTrade(activeTrades[i], false);
+    }
+    for (let i = 0; i < closedTrades.length; i++) {
+      if (!processTrade(closedTrades[i], true)) break;
+    }
 
     // 4. TOD Performance Check (Pre-calculated for Adaptive Spacing)
     let adaptiveMultiplier = 1.0;

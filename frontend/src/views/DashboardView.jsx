@@ -730,37 +730,50 @@ export function DashboardView({ initialStrategy }) {
         </div>
 
         {/* Global Metrics & Temporal Risk - Prioritized (UX-001) */}
-        <div className="space-y-5 lg:space-y-6 mb-8 lg:mb-10">
+        <div className="flex flex-col gap-10 lg:gap-14 mb-8 lg:mb-10">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.2 }}
-              className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 gap-y-4"
           >
-            <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} tooltipText="Total available funds in the trading account." />
-            <StatCard
-              label="Active P&L"
-              value={fmtUSD(totalActivePnl)}
-              color={pnlClass(totalActivePnl)}
-              subValue={`Total: ${fmtUSD(totalPnl)}`}
-              syncing={wsStatus !== 'live'}
-              tooltipText="Current P&L from open trades vs. total session performance."
-            />
-            <StatCard 
-              label="Live Risk" 
-              value={`${Number(totalRiskPct || 0).toFixed(1)}%`} 
-              color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} 
-              tooltipText="Combined risk percentage across all open positions relative to account equity."
-            />
-            <StatCard 
-              label="Peak RR" 
-              value={`+${Number(maxRR || 0).toFixed(2)}`} 
-              color="text-accent" 
-              tooltipText="Maximum Reward-to-Risk ratio achieved during this trading session."
-            />
+            <SectionLabel className="mb-4">
+              <Activity size={14} className="text-accent" /> Global Metrics
+            </SectionLabel>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 gap-y-4">
+              <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} tooltipText="Total available funds in the trading account." />
+              <StatCard
+                label="Active P&L"
+                value={fmtUSD(totalActivePnl)}
+                color={pnlClass(totalActivePnl)}
+                subValue={`Total: ${fmtUSD(totalPnl)}`}
+                syncing={wsStatus !== 'live'}
+                tooltipText="Current P&L from open trades vs. total session performance."
+              />
+              <StatCard
+                label="Live Risk"
+                value={`${Number(totalRiskPct || 0).toFixed(1)}%`}
+                color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"}
+                tooltipText="Combined risk percentage across all open positions relative to account equity."
+              />
+              <StatCard
+                label="Peak RR"
+                value={`+${Number(maxRR || 0).toFixed(2)}`}
+                color="text-accent"
+                tooltipText="Maximum Reward-to-Risk ratio achieved during this trading session."
+              />
+            </div>
           </motion.div>
 
-          <TemporalRiskGrid />
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+          >
+            <SectionLabel className="mb-4">
+              <ShieldCheck size={14} className="text-accent" /> Temporal Risk & Limits
+            </SectionLabel>
+            <TemporalRiskGrid />
+          </motion.div>
         </div>
 
 

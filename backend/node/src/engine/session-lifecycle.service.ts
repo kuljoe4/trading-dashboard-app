@@ -46,16 +46,6 @@ export class SessionLifecycleService {
     this.running = true;
     await this.progress('Starting session initialization...');
 
-    // Seed rate limit from exchangeInfo response headers at startup
-    if (bc && config.trading_mode !== 'paper') {
-        try {
-            const restBase = config.trading_mode === 'testnet' ? 'https://testnet.binancefuture.com' : ENGINE_CONSTANTS.BINANCE_REST_BASE;
-            const res = await fetch(`${restBase}/fapi/v1/exchangeInfo`);
-            const weight = res.headers.get('X-MBX-USED-WEIGHT-1M');
-            if (weight) this.sessionState.updateRateLimit(parseInt(weight, 10));
-        } catch (e) {}
-    }
-
     this.sessionState.reset(config, hist, curBal, sid);
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
     await this.orderManager.setBinanceClient(bc, mode === 'paper');
@@ -202,6 +192,8 @@ export class SessionLifecycleService {
       this.monitoringService.incrementApiRequests();
       // Try primary endpoint: futuresAccountBalanceV2
       const res = await bc.restAPI.accountApi.futuresAccountBalanceV2();
+      if (!res) return 0;
+
       const data = typeof res.data === 'function' ? await res.data() : (res.data || res);
       const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
 
@@ -212,7 +204,7 @@ export class SessionLifecycleService {
       // Fallback: try accountInformationV2 (full account details)
       this.logger.debug(`futuresAccountBalanceV2 did not return USDT. Trying accountInformationV2 fallback...`);
       const accRes = await bc.restAPI.accountApi.accountInformationV2();
-      const accData = accRes.data || accRes;
+      const accData = accRes ? (accRes.data || accRes) : null;
       if (accData && Array.isArray(accData.assets)) {
         const accUsdt = accData.assets.find((a: any) => a.asset === 'USDT');
         if (accUsdt) {
@@ -233,6 +225,8 @@ export class SessionLifecycleService {
     try {
       this.monitoringService.incrementApiRequests();
       const res = await bc.restAPI.userDataStreamsApi.startUserDataStream();
+      if (!res || !res.data) throw new Error('Failed to start user data stream: No response from Binance');
+
       const initialListenKey = typeof res.data === 'function' ? (await res.data()).listenKey : res.data.listenKey;
       this.listenKey = initialListenKey;
       this.userDataWs = await bc.websocketStreams.connect({ stream: this.listenKey });

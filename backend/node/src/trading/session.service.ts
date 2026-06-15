@@ -375,7 +375,7 @@ export class SessionService implements OnModuleInit {
     }
   }
 
-  async startSession(config: SessionConfig, paperMode: boolean, sessionId?: string) {
+  async startSession(config: SessionConfig, paperMode: boolean, sessionId?: string, ip?: string, userAgent?: string) {
     const mode = config.trading_mode || (paperMode ? 'paper' : 'live');
     if (mode !== 'paper' && !process.env.ENCRYPTION_KEY) {
       throw new ConfigValidationException(
@@ -617,16 +617,12 @@ export class SessionService implements OnModuleInit {
                this.logger.warn(`Syncing direction for ${trade.symbol}: ${trade.direction} -> ${exDir}`);
                trade.direction = exDir;
             }
-
-            // Recalculate risk based on synced values
-            const riskPoints = Math.abs(Number(trade.entry_price) - Number(trade.current_sl));
-            trade.risk_usdt = roundEight(riskPoints * Number(trade.qty));
-
-            await this.tradeRepository.save(trade);
+          } catch (innerErr) {
+            this.logger.error(`Failed to reconcile ${trade.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
           }
-        } catch (e) {
-          this.logger.warn(`Failed to reconcile live position for ${trade.symbol}: ${e instanceof Error ? e.message : String(e)}`);
         }
+      } catch (e) {
+        this.logger.warn(`Failed to fetch all positions for bulk reconciliation: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
 
@@ -649,10 +645,19 @@ export class SessionService implements OnModuleInit {
     this.logger.log(`Session ${this.currentSessionId} ${sessionId ? 'restarted' : 'started'} in ${mode} mode`);
     await this.logMessage(`Session started in ${mode} mode with ${currentGlobalBalance} starting balance.`, 'info');
 
+    await this.auditLog.log({
+      action: sessionId ? 'RESTART_SESSION' : 'START_SESSION',
+      resourceId: this.currentSessionId || undefined,
+      actor: ip,
+      ip,
+      userAgent,
+      details: { mode, paperMode }
+    });
+
     return { strategyId: this.currentSessionId, status: 'started' };
   }
 
-  async updateSession(id: string, partialConfig: Partial<SessionConfig>) {
+  async updateSession(id: string, partialConfig: Partial<SessionConfig>, ip?: string, userAgent?: string) {
     const session = await this.sessionRepository.findOne({ where: { id } });
     if (!session) throw new NotFoundException('Session not found');
 
@@ -674,16 +679,34 @@ export class SessionService implements OnModuleInit {
       this.tradingSessionService.updateConfig(mergedConfig as SessionConfig);
     }
 
+    await this.auditLog.log({
+      action: 'UPDATE_SESSION_CONFIG',
+      resourceId: id,
+      actor: ip,
+      ip,
+      userAgent,
+      details: { partialConfig }
+    });
+
     return { status: 'updated', config: mergedConfig };
   }
 
-  async pauseSession(paused: boolean) {
+  async pauseSession(paused: boolean, ip?: string, userAgent?: string) {
     if (!this.sessionRunning) throw new ConflictException('No session running');
     this.tradingSessionService.setPaused(paused);
+
+    await this.auditLog.log({
+      action: paused ? 'PAUSE_SESSION' : 'RESUME_SESSION',
+      resourceId: this.currentSessionId || undefined,
+      actor: ip,
+      ip,
+      userAgent
+    });
+
     return { status: paused ? 'paused' : 'resumed' };
   }
 
-  async deleteSession(id: string, actor?: string) {
+  async deleteSession(id: string, actor?: string, userAgent?: string) {
     // Security: Prevent deleting the active session
     if (this.sessionRunning && this.currentSessionId === id) {
       throw new ConflictException('Cannot delete an active trading session. Stop it first.');
@@ -693,6 +716,8 @@ export class SessionService implements OnModuleInit {
       action: 'DELETE_SESSION',
       resourceId: id,
       actor,
+      ip: actor,
+      userAgent
     });
 
     // Manually delete session, ensuring no cascade to trades (as there is no FK link in the current entity model)
@@ -700,7 +725,7 @@ export class SessionService implements OnModuleInit {
     return { status: 'deleted' };
   }
 
-  async deleteOrphanedTrades(actor?: string) {
+  async deleteOrphanedTrades(actor?: string, userAgent?: string) {
     const sessions = await this.sessionRepository.find({ select: ['id'] });
     const sessionIds = sessions.map(s => s.id);
 
@@ -717,6 +742,8 @@ export class SessionService implements OnModuleInit {
     await this.auditLog.log({
       action: 'DELETE_ORPHANED_TRADES',
       actor,
+      ip: actor,
+      userAgent,
       details: { affected: result.affected }
     });
 
@@ -730,12 +757,14 @@ export class SessionService implements OnModuleInit {
     });
   }
 
-  async stopSession() {
+  async stopSession(ip?: string, userAgent?: string) {
     if (!this.sessionRunning || !this.currentSessionId) {
       throw new ConflictException('No session running');
     }
 
-    await this.sessionRepository.update(this.currentSessionId, { running: false });
+    const sessionId = this.currentSessionId;
+
+    await this.sessionRepository.update(sessionId, { running: false });
 
     // Stop the actual trading engine
     await this.tradingSessionService.stop();
@@ -746,6 +775,14 @@ export class SessionService implements OnModuleInit {
     this.logger.log(`Stopping trading session.`);
     this.sessionRunning = false;
     this.currentSessionId = null;
+
+    await this.auditLog.log({
+      action: 'STOP_SESSION',
+      resourceId: sessionId,
+      actor: ip,
+      ip,
+      userAgent
+    });
     
     return { status: 'stopped' };
   }
@@ -1028,12 +1065,14 @@ export class SessionService implements OnModuleInit {
     this.tradingSessionService.setBinanceClient(client, paperMode);
   }
 
-  async resetPaperBalance(actor?: string) {
+  async resetPaperBalance(actor?: string, userAgent?: string) {
     const defaultBalance = 10000.0;
 
     await this.auditLog.log({
       action: 'RESET_PAPER_BALANCE',
       actor,
+      ip: actor,
+      userAgent,
       details: { balance: defaultBalance }
     });
 

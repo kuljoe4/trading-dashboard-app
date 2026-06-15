@@ -20,4 +20,8 @@ The application follows an "Operator Cockpit" philosophy, prioritizing real-time
 ## Reusable Patterns
 - **Localized Error Feedback:** Auto-clearing inline alerts instead of intrusive modals.
 - **Copy-to-Clipboard:** Quick-access buttons for technical identifiers (Symbols, IDs).
-- **Tooltip Technical Context:** Hover states that explain complex technical metrics or strategy signals.
+- Tooltip Technical Context: Hover states that explain complex technical metrics or strategy signals.
+
+### 4. Layout Robustness
+- **Prefer Flex Gap:** Use `flex flex-col gap-*` instead of `space-y-*` for container spacing, especially when dealing with heterogeneous child elements (e.g., mixing structural elements like `<section>` with conditional `<motion.div>` or other dynamic content). This ensures layout stability across varied deployment environments.
+

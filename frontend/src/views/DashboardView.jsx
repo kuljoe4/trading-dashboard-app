@@ -757,7 +757,7 @@ export function DashboardView({ initialStrategy }) {
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] items-start gap-6 lg:gap-10">
 
           {/* Left Workspace */}
-          <div className="space-y-6 lg:space-y-10 no-scrollbar overflow-hidden">
+          <div className="flex flex-col gap-6 lg:gap-10 no-scrollbar overflow-hidden">
             <motion.div
               initial={{ x: -20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
@@ -830,7 +830,7 @@ export function DashboardView({ initialStrategy }) {
             initial={{ x: 20, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             transition={{ delay: 0.5 }}
-            className="space-y-6 lg:space-y-10"
+            className="flex flex-col gap-6 lg:gap-10"
           >
             <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col h-[450px] shadow-sm">
               <SectionLabel className="mb-4">

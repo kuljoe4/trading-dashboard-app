@@ -39,3 +39,8 @@
 ## 2026-05-31 - Motion-Driven Confirmation Feedback
 **Learning:** Static state changes in confirmation buttons can be missed if the user is focused on the data. Subtle motion (like sliding icons) combined with pulsing color cues provides a stronger affordance that the button is "armed" for a destructive action.
 **Action:** Implemented a Framer Motion transition on the "Terminate Session" button icon to slide out of view during the confirmation phase, heightening the visual impact and reducing accidental double-taps.
+
+## 2026-06-15 - Robust Layout via Flex Gap
+**Learning:** The `space-y-*` Tailwind utility can cause inconsistent vertical spacing when used on containers with mixed child types (e.g., mixing `<section>` elements with `<motion.div>` or conditional elements) because it depends on specific DOM structure.
+**Action:** Favor `flex flex-col gap-*` over `space-y-*` for containers with heterogeneous children, as it ensures uniform spacing regardless of the element type or dynamic rendering state, preventing layout regressions in deployed environments.
+

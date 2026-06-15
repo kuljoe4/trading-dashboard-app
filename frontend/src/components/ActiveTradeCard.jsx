@@ -92,7 +92,7 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
       </div>
 
       {/* Mini Price Runway */}
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         <div
           className="h-1.5 w-full bg-border/40 rounded-full overflow-hidden relative"
           role="progressbar"

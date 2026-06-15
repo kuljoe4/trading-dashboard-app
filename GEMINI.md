@@ -14,6 +14,15 @@ To maintain consistency and readability across the dashboard:
 
 ### Tooltip Implementation
 - **Triggers:** Complex metric status labels or data points should use an `Info` icon (from `lucide-react`) as a visual trigger.
-- **Content:**
+- Content:
   - When displaying multiple tiers or reference data, structure them clearly (e.g., using a grid or table format) inside the tooltip.
   - Include both a brief description and a clear mapping of ranges/thresholds.
+
+## Documentation Workflow
+- **Knowledge Sharing:** Whenever you resolve a complex architectural, design, or bug-fix task, you are **mandated** to add a summary of the 'Learning' and 'Action' to the **appropriate** repository documentation file:
+  - **Visual/Component Styling:** `./.jules/palette.md`
+  - **Architectural/Design Philosophy:** `./docs/agent-skills/ui-ux-design.md` (or other relevant `docs/agent-skills/*.md` files)
+  - **Core Agent Behavior:** `./.jules/bolt.md`
+  - **Security & System Integrity:** `./.jules/sentinel.md`
+This ensures design system knowledge remains accurate, persistent, and accessible for all future development and agents.
+

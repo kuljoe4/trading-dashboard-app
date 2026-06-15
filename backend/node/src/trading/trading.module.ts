@@ -32,6 +32,7 @@ import { AnalyticsService } from '../engine/analytics.service';
 import { VariantAnalyticsService } from '../engine/variant-analytics.service';
 import { EngineBroadcasterService } from '../engine/engine-broadcaster.service';
 import { GatingService } from '../engine/gating.service';
+import { MaintenanceService } from '../engine/maintenance.service';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { GatingService } from '../engine/gating.service';
     VariantAnalyticsService,
     EngineBroadcasterService,
     GatingService,
+    MaintenanceService,
     ApiKeyGuard,
     BinanceClientFactory,
   ],
@@ -82,6 +84,7 @@ import { GatingService } from '../engine/gating.service';
     VariantAnalyticsService,
     EngineBroadcasterService,
     GatingService,
+    MaintenanceService,
   ],
 })
 export class TradingModule {}

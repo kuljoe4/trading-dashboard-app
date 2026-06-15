@@ -60,7 +60,7 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
   return (
     <div
       className={cn(
-        "bg-surface border p-3 md:p-5 rounded-2xl shadow-sm transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[100px] min-w-0",
+        "bg-surface border p-3 md:p-5 rounded-2xl shadow-sm transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[100px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
         isLocked ? "border-border/60" : "border-accent/40 bg-accent/[0.02] shadow-[0_0_20px_rgba(91,111,255,0.05)]",
         disabled && "opacity-40 grayscale pointer-events-none",
         usagePct >= 90 && "border-red/40 bg-red/[0.02] shadow-[0_0_20px_rgba(255,68,102,0.1)] animate-pulse-slow",
@@ -74,6 +74,7 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
       aria-valuenow={value}
       aria-valuemin={min}
       aria-valuemax={max}
+      aria-busy={syncing}
     >
       {syncing && (
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" />
@@ -174,9 +175,10 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
 
   return (
     <div
-      className="bg-surface border border-border/60 p-3 md:p-5 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[100px] min-w-0"
+      className="bg-surface border border-border/60 p-3 md:p-5 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[100px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
       role="region"
       aria-label={`${label}: ${value}`}
+      aria-busy={syncing}
     >
       {syncing && (
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />

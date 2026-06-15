@@ -5,18 +5,26 @@ describe('TradingSession Mock', () => {
 
   beforeEach(() => {
     service = new TradingSessionService(
-      {} as any, {} as any, {} as any, {} as any,
-      { activeList: () => [], activeCount: () => 0, totalRisk: () => 0 } as any,
-      {} as any, {} as any, {} as any,
-      { recordHotLoop: jest.fn(), recordMainLoop: jest.fn() } as any,
-      {} as any, {} as any, {} as any,
-      { setWsBroadcaster: jest.fn(), broadcast: jest.fn() } as any,
-      { reset: jest.fn(), getBalance: () => 10000, closedTrades: [] } as any,
+      {} as any, // tickerCache
+      {} as any, // klineStore
+      {} as any, // signalEngine
+      {} as any, // riskEngine
+      { activeList: () => [], activeCount: () => 0, totalRisk: () => 0, recalculateTotalRisk: jest.fn() } as any, // positionTracker
+      {} as any, // orderManager
+      {} as any, // marketFeed
+      {} as any, // momentumScanner
+      { recordHotLoop: jest.fn(), recordMainLoop: jest.fn() } as any, // monitoringService
+      {} as any, // analyticsService
+      {} as any, // executionService
+      {} as any, // sessionLifecycle
+      { setWsBroadcaster: jest.fn(), broadcast: jest.fn() } as any, // broadcastService
+      { reset: jest.fn(), getBalance: () => 10000, closedTrades: [] } as any, // sessionState
       {} as any, // variantAnalytics
-      { broadcastTick: jest.fn(), serializeTrade: (t: any) => t } as any,
-      {} as any, // gatingService
+      { serializeTrade: jest.fn(), minimize: jest.fn(), getLastTickData: jest.fn(), getLastRiskResult: jest.fn(), getLastAnalyticsResult: jest.fn() } as any, // engineBroadcaster
+      { mapGateState: jest.fn(), isInsideTradingWindow: jest.fn().mockReturnValue(true) } as any, // gatingService
+      {} as any, // maintenanceService
       { log: jest.fn() } as any, // auditLog
-      { emit: jest.fn() } as any
+      { emit: jest.fn() } as any // eventEmitter
     );
   });
 

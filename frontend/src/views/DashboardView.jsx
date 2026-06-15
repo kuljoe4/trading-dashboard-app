@@ -192,7 +192,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
                 aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
                 aria-expanded={isExpanded}
                 className={cn(
-                  "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95",
+                  "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
                   isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
                 )}
               >
@@ -202,7 +202,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
             <Tooltip content="Edit Config">
               <button
                 onClick={(e) => { e.stopPropagation(); onEdit(); }}
-                className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95"
+                className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none"
                 aria-label="Edit strategy configuration"
               >
                 <Edit3 size={14} />
@@ -212,7 +212,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
               <button
                 onClick={(e) => { e.stopPropagation(); onPause(); }}
                 className={cn(
-                  "p-2 border rounded-lg transition-all active:scale-95",
+                  "p-2 border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
                   paused ? "bg-green/10 border-green/20 text-green hover:bg-green/20" : "bg-amber/10 border-amber/20 text-amber hover:bg-amber/20"
                 )}
                 aria-label={paused ? "Resume strategy session" : "Pause strategy session"}
@@ -357,7 +357,7 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     className={cn(
-                      "flex items-center gap-4 p-4 transition-colors hover:bg-white/5 h-[64px] group",
+                      "flex items-center gap-4 px-4 py-3 transition-colors hover:bg-white/5 h-[56px] group",
                       !isLast && "border-b border-border/40",
                       !passing && "opacity-60"
                     )}
@@ -380,7 +380,7 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
             </AnimatePresence>
             {placeholders.map((_, i) => (
               <div key={`placeholder-${i}`} className={cn(
-                "h-[64px] flex items-center px-4 opacity-10 grayscale",
+                "h-[56px] flex items-center px-4 opacity-10 grayscale",
                 i !== placeholders.length - 1 && "border-b border-border/40"
               )}>
                 <div className="w-4 h-2 bg-dim rounded-full mr-4" />
@@ -692,7 +692,7 @@ export function DashboardView({ initialStrategy }) {
               <button
                 onClick={() => setThrottled(!isThrottled)}
                 className={cn(
-                  "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2",
+                  "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-accent outline-none",
                   isThrottled
                     ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
                     : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
@@ -729,26 +729,28 @@ export function DashboardView({ initialStrategy }) {
           />
         </div>
 
-        {/* Global Metrics */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.2 }}
-            className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-5 lg:mb-6"
-        >
-          <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} />
-          <StatCard
-            label="Active P&L"
-            value={fmtUSD(totalActivePnl)}
-            color={pnlClass(totalActivePnl)}
-            subValue={`Total: ${fmtUSD(totalPnl)}`}
-            syncing={wsStatus !== 'live'}
-          />
-          <StatCard label="Live Risk" value={`${Number(totalRiskPct || 0).toFixed(1)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
-          <StatCard label="Peak RR" value={`+${Number(maxRR || 0).toFixed(2)}`} color="text-accent" />
-        </motion.div>
+        {/* Global Metrics & Temporal Risk - Prioritized (UX-001) */}
+        <div className="space-y-5 lg:space-y-6 mb-8 lg:mb-10">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.2 }}
+              className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4"
+          >
+            <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} />
+            <StatCard
+              label="Active P&L"
+              value={fmtUSD(totalActivePnl)}
+              color={pnlClass(totalActivePnl)}
+              subValue={`Total: ${fmtUSD(totalPnl)}`}
+              syncing={wsStatus !== 'live'}
+            />
+            <StatCard label="Live Risk" value={`${Number(totalRiskPct || 0).toFixed(1)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
+            <StatCard label="Peak RR" value={`+${Number(maxRR || 0).toFixed(2)}`} color="text-accent" />
+          </motion.div>
 
-        <TemporalRiskGrid />
+          <TemporalRiskGrid />
+        </div>
 
 
         {/* Main Grid */}

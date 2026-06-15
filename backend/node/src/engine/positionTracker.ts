@@ -148,7 +148,11 @@ export class PositionTrackerService {
           this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
           this.logSlAdjustment(trade, prevSl, newSl, currentIndex);
           // Update exchange-side SL in live mode
-          this.orderManager.updateStopLoss(trade, newSl).catch(err => {
+          this.orderManager.updateStopLoss(trade, newSl, prevSl).then(success => {
+            if (!success) {
+               this.logger.error(`[CRITICAL] Exchange SL update FAILED for ${symbol}. Local state is ahead of exchange.`);
+            }
+          }).catch(err => {
             this.logger.error(`Failed to update exchange SL for ${symbol}: ${err.message}`);
           });
           // Notify of trade state change for persistence
@@ -164,7 +168,11 @@ export class PositionTrackerService {
           this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
           this.logSlAdjustment(trade, prevSl, newSl, currentIndex);
           // Update exchange-side SL in live mode
-          this.orderManager.updateStopLoss(trade, newSl).catch(err => {
+          this.orderManager.updateStopLoss(trade, newSl, prevSl).then(success => {
+            if (!success) {
+               this.logger.error(`[CRITICAL] Exchange SL update FAILED for ${symbol}. Local state is ahead of exchange.`);
+            }
+          }).catch(err => {
             this.logger.error(`Failed to update exchange SL for ${symbol}: ${err.message}`);
           });
           // Notify of trade state change for persistence

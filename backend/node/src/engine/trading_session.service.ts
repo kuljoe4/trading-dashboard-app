@@ -45,6 +45,7 @@ export class TradingSessionService {
   private mainLoopInterval: NodeJS.Timeout | null = null;
   private hotLoopInterval: NodeJS.Timeout | null = null;
   private fundingCheckInterval: NodeJS.Timeout | null = null;
+  private watchdogInterval: NodeJS.Timeout | null = null;
   private balancePollInterval: NodeJS.Timeout | null = null;
   private balanceFetchTimeout: NodeJS.Timeout | null = null;
   private pendingDeltasDuringFetch = 0;
@@ -172,6 +173,7 @@ export class TradingSessionService {
     const hot = config.hot_loop_interval_ms || 5000; this.hotLoopInterval = setInterval(() => this.hotLoop(), hot);
     const main = config.main_loop_interval_ms || 15000; this.mainLoopInterval = setInterval(() => this.mainLoop(), main);
     this.fundingCheckInterval = setInterval(() => this.checkFundingFees(), 60000); // Check every minute
+    this.watchdogInterval = setInterval(() => this.protectionWatchdog(), 300000); // Check protection every 5 minutes
 
     this.broadcastSnapshot('started'); return { status: 'started' };
   }
@@ -187,6 +189,7 @@ export class TradingSessionService {
     if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
     if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
     if (this.fundingCheckInterval) clearInterval(this.fundingCheckInterval);
+    if (this.watchdogInterval) clearInterval(this.watchdogInterval);
 
     if (this.balanceFetchTimeout) {
       clearTimeout(this.balanceFetchTimeout);
@@ -415,29 +418,103 @@ export class TradingSessionService {
 
   private async onCandleClose(symbol: string) { if (!this.running || !this.config) return; if (this.config.debug_mode) this.logger.verbose(`Candle closed for ${symbol}`); }
 
+  /**
+   * PROTECTION WATCHDOG: Periodically verifies that all active Live positions
+   * have a corresponding SL order on Binance. If missing, it re-places it.
+   * Optimized with a hybrid strategy to minimize REST weight.
+   */
+  private async protectionWatchdog() {
+    if (!this.running || !this.config || this.config.paper_mode) return;
+
+    const activeTrades = this.positionTracker.activeList();
+    if (activeTrades.length === 0) return;
+
+    const uniqueSymbols = Array.from(new Set(activeTrades.map(t => t.symbol)));
+    this.logger.log(`[Watchdog] Running protection audit for ${uniqueSymbols.length} unique symbols (Hybrid Strategy)...`);
+
+    try {
+      // 1. Always Bulk Fetch Positions (Weight: 5)
+      const allPositions = await this.orderManager.fetchAllPositions();
+      const activePositionsMap = new Map(allPositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0).map(p => [p.symbol, p]));
+
+      // 2. Fetch Orders (Hybrid Strategy)
+      let slOrdersSymbols = new Set<string>();
+      let algoSlOrdersSymbols = new Set<string>();
+
+      const isSlOrder = (o: any) => (o.type === 'STOP_MARKET' || o.type === 'STOP') && (o.closePosition === true || o.closePosition === 'true' || o.reduceOnly === true || o.reduceOnly === 'true');
+
+      // 2a. Always Bulk Fetch Algo Orders (Weight: 1)
+      const allAlgoOrders = await this.orderManager.fetchAllOpenAlgoOrders();
+      algoSlOrdersSymbols = new Set(allAlgoOrders.filter(isSlOrder).map(o => o.symbol));
+
+      // 2b. Standard Orders Hybrid Strategy (Threshold: 40 symbols)
+      // Bulk weight: 40, Per-symbol weight: 1
+      if (uniqueSymbols.length > 40) {
+        const allOrders = await this.orderManager.fetchAllOpenOrders();
+        slOrdersSymbols = new Set(allOrders.filter(isSlOrder).map(o => o.symbol));
+      } else {
+        for (const symbol of uniqueSymbols) {
+           const orders = await this.orderManager.fetchOpenOrders(symbol);
+           if (orders.some(isSlOrder)) slOrdersSymbols.add(symbol);
+        }
+      }
+
+      for (const trade of activeTrades) {
+        try {
+          if (!trade.binance_order_id) continue;
+
+          // Verify position still exists on exchange
+          const pos = activePositionsMap.get(trade.symbol);
+          if (!pos) continue;
+
+          // Check if protection exists in either standard or algo orders
+          const hasProtection = slOrdersSymbols.has(trade.symbol) || algoSlOrdersSymbols.has(trade.symbol);
+
+          if (!hasProtection) {
+            this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} position found without SL order on Binance. Re-placing...`);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Watchdog] Missing SL detected for ${trade.symbol}. Recovering protection...`, level: 'warn' });
+            await this.orderManager.placeStopLoss(trade, trade.current_sl);
+          }
+        } catch (innerErr) {
+          this.logger.error(`[Watchdog] Error auditing ${trade.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
+        }
+      }
+    } catch (err) {
+      this.logger.error(`[Watchdog] Audit failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   private async checkFundingFees() {
     if (!this.running || !this.config) return;
     const now = new Date();
     const isFundingTime = now.getUTCHours() % ENGINE_CONSTANTS.FUNDING_INTERVAL_HOURS === 0 && now.getUTCMinutes() === 0;
 
     if (isFundingTime) {
-      const activeTrades = this.positionTracker.activeList();
-      for (const trade of activeTrades) {
-        // DATA-CONSISTENCY: Apply estimated funding fee for both Paper AND Live modes.
-        // For Live mode, this prevents balance drift between exchange and local UI between poll cycles.
-        // Positive rate: Longs pay Shorts.
-        const isLong = trade.direction === 'LONG';
-        const notional = (trade.mark_price || trade.last_price || trade.entry_price) * trade.qty;
-        const fundingDelta = roundEight(notional * ENGINE_CONSTANTS.SIMULATED_FUNDING_RATE * (isLong ? 1 : -1));
+      try {
+        const activeTrades = this.positionTracker.activeList();
+        for (const trade of activeTrades) {
+          try {
+            // DATA-CONSISTENCY: Apply estimated funding fee for both Paper AND Live modes.
+            // For Live mode, this prevents balance drift between exchange and local UI between poll cycles.
+            // Positive rate: Longs pay Shorts.
+            const isLong = trade.direction === 'LONG';
+            const notional = (trade.mark_price || trade.last_price || trade.entry_price) * trade.qty;
+            const fundingDelta = roundEight(notional * ENGINE_CONSTANTS.SIMULATED_FUNDING_RATE * (isLong ? 1 : -1));
 
-        trade.funding_fee = roundEight((trade.funding_fee || 0) + fundingDelta);
-        trade.pnl = roundEight(trade.pnl - fundingDelta);
-        (trade as any)._last_funding_delta = fundingDelta;
+            trade.funding_fee = roundEight((trade.funding_fee || 0) + fundingDelta);
+            trade.pnl = roundEight(trade.pnl - fundingDelta);
+            (trade as any)._last_funding_delta = fundingDelta;
 
-        await this.updateBalance(trade, false, true);
-        if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
+            await this.updateBalance(trade, false, true);
+            if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
 
-        this.logger.log(`[Funding] Applied ${fundingDelta} estimated funding fee to ${trade.symbol} (${this.config.paper_mode ? 'Paper' : 'Live'})`);
+            this.logger.log(`[Funding] Applied ${fundingDelta} estimated funding fee to ${trade.symbol} (${this.config.paper_mode ? 'Paper' : 'Live'})`);
+          } catch (innerErr) {
+            this.logger.error(`[Funding] Failed to apply fee for ${trade.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
+          }
+        }
+      } catch (err) {
+        this.logger.error(`[Funding] Batch application failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
@@ -482,7 +559,14 @@ export class TradingSessionService {
     try {
       this.monitoringService.incrementApiRequests();
       const res = await this.binanceClient.restAPI.accountApi.futuresAccountBalanceV2();
-      const data = typeof res.data === 'function' ? await res.data() : (res.data || res);
+
+      // Update weight if headers are present
+      const weight = typeof res?.headers?.get === 'function'
+        ? res.headers.get('X-MBX-USED-WEIGHT-1M')
+        : (res?.headers?.['x-mbx-used-weight-1m'] || res?.headers?.['X-MBX-USED-WEIGHT-1M']);
+      if (weight) this.sessionState.updateRateLimit(parseInt(weight, 10));
+
+      const data = typeof res?.data === 'function' ? await res.data() : (res?.data || res);
       const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
       return usdt ? parseFloat(usdt.balance || 0) : 0;
     } catch (e: any) {
@@ -658,6 +742,7 @@ export class TradingSessionService {
 
   async fetchTickerPrice(symbol: string): Promise<number | null> { return this.tickerCache.getPrice(symbol); }
   async fetchPosition(symbol: string): Promise<any | null> { return this.orderManager.fetchPosition(symbol); }
+  async fetchAllPositions(): Promise<any[]> { return this.orderManager.fetchAllPositions(); }
   updateRateLimit(used1m: number) { this.sessionState.updateRateLimit(used1m); }
   isRateLimited(): boolean { return this.sessionState.isRateLimited(); }
   getBinanceRateLimit() { return this.sessionState.getBinanceRateLimit(); }

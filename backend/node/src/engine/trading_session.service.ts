@@ -421,7 +421,7 @@ export class TradingSessionService {
   /**
    * PROTECTION WATCHDOG: Periodically verifies that all active Live positions
    * have a corresponding SL order on Binance. If missing, it re-places it.
-   * Optimized to use account-wide bulk calls.
+   * Optimized with a hybrid strategy to minimize REST weight.
    */
   private async protectionWatchdog() {
     if (!this.running || !this.config || this.config.paper_mode) return;
@@ -429,24 +429,35 @@ export class TradingSessionService {
     const activeTrades = this.positionTracker.activeList();
     if (activeTrades.length === 0) return;
 
-    this.logger.log(`[Watchdog] Running protection audit for ${activeTrades.length} positions (Bulk Optimized)...`);
+    const uniqueSymbols = Array.from(new Set(activeTrades.map(t => t.symbol)));
+    this.logger.log(`[Watchdog] Running protection audit for ${uniqueSymbols.length} unique symbols (Hybrid Strategy)...`);
 
     try {
-      // 1. Bulk Fetch Positions
+      // 1. Always Bulk Fetch Positions (Weight: 5)
       const allPositions = await this.orderManager.fetchAllPositions();
       const activePositionsMap = new Map(allPositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0).map(p => [p.symbol, p]));
 
-      // 2. Bulk Fetch All Open Orders (Standard & Algo)
-      const [allOrders, allAlgoOrders] = await Promise.all([
-        this.orderManager.fetchAllOpenOrders(),
-        this.orderManager.fetchAllOpenAlgoOrders()
-      ]);
+      // 2. Fetch Orders (Hybrid Strategy)
+      let slOrdersSymbols = new Set<string>();
+      let algoSlOrdersSymbols = new Set<string>();
 
-      // Filter for SL orders
       const isSlOrder = (o: any) => (o.type === 'STOP_MARKET' || o.type === 'STOP') && (o.closePosition === true || o.closePosition === 'true' || o.reduceOnly === true || o.reduceOnly === 'true');
 
-      const slOrdersSymbols = new Set(allOrders.filter(isSlOrder).map(o => o.symbol));
-      const algoSlOrdersSymbols = new Set(allAlgoOrders.filter(isSlOrder).map(o => o.symbol));
+      // 2a. Always Bulk Fetch Algo Orders (Weight: 1)
+      const allAlgoOrders = await this.orderManager.fetchAllOpenAlgoOrders();
+      algoSlOrdersSymbols = new Set(allAlgoOrders.filter(isSlOrder).map(o => o.symbol));
+
+      // 2b. Standard Orders Hybrid Strategy (Threshold: 40 symbols)
+      // Bulk weight: 40, Per-symbol weight: 1
+      if (uniqueSymbols.length > 40) {
+        const allOrders = await this.orderManager.fetchAllOpenOrders();
+        slOrdersSymbols = new Set(allOrders.filter(isSlOrder).map(o => o.symbol));
+      } else {
+        for (const symbol of uniqueSymbols) {
+           const orders = await this.orderManager.fetchOpenOrders(symbol);
+           if (orders.some(isSlOrder)) slOrdersSymbols.add(symbol);
+        }
+      }
 
       for (const trade of activeTrades) {
         try {
@@ -469,7 +480,7 @@ export class TradingSessionService {
         }
       }
     } catch (err) {
-      this.logger.error(`[Watchdog] Bulk audit failed: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.error(`[Watchdog] Audit failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -479,23 +490,31 @@ export class TradingSessionService {
     const isFundingTime = now.getUTCHours() % ENGINE_CONSTANTS.FUNDING_INTERVAL_HOURS === 0 && now.getUTCMinutes() === 0;
 
     if (isFundingTime) {
-      const activeTrades = this.positionTracker.activeList();
-      for (const trade of activeTrades) {
-        // DATA-CONSISTENCY: Apply estimated funding fee for both Paper AND Live modes.
-        // For Live mode, this prevents balance drift between exchange and local UI between poll cycles.
-        // Positive rate: Longs pay Shorts.
-        const isLong = trade.direction === 'LONG';
-        const notional = (trade.mark_price || trade.last_price || trade.entry_price) * trade.qty;
-        const fundingDelta = roundEight(notional * ENGINE_CONSTANTS.SIMULATED_FUNDING_RATE * (isLong ? 1 : -1));
+      try {
+        const activeTrades = this.positionTracker.activeList();
+        for (const trade of activeTrades) {
+          try {
+            // DATA-CONSISTENCY: Apply estimated funding fee for both Paper AND Live modes.
+            // For Live mode, this prevents balance drift between exchange and local UI between poll cycles.
+            // Positive rate: Longs pay Shorts.
+            const isLong = trade.direction === 'LONG';
+            const notional = (trade.mark_price || trade.last_price || trade.entry_price) * trade.qty;
+            const fundingDelta = roundEight(notional * ENGINE_CONSTANTS.SIMULATED_FUNDING_RATE * (isLong ? 1 : -1));
 
-        trade.funding_fee = roundEight((trade.funding_fee || 0) + fundingDelta);
-        trade.pnl = roundEight(trade.pnl - fundingDelta);
-        (trade as any)._last_funding_delta = fundingDelta;
+            trade.funding_fee = roundEight((trade.funding_fee || 0) + fundingDelta);
+            trade.pnl = roundEight(trade.pnl - fundingDelta);
+            (trade as any)._last_funding_delta = fundingDelta;
 
-        await this.updateBalance(trade, false, true);
-        if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
+            await this.updateBalance(trade, false, true);
+            if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
 
-        this.logger.log(`[Funding] Applied ${fundingDelta} estimated funding fee to ${trade.symbol} (${this.config.paper_mode ? 'Paper' : 'Live'})`);
+            this.logger.log(`[Funding] Applied ${fundingDelta} estimated funding fee to ${trade.symbol} (${this.config.paper_mode ? 'Paper' : 'Live'})`);
+          } catch (innerErr) {
+            this.logger.error(`[Funding] Failed to apply fee for ${trade.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
+          }
+        }
+      } catch (err) {
+        this.logger.error(`[Funding] Batch application failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
@@ -540,7 +559,14 @@ export class TradingSessionService {
     try {
       this.monitoringService.incrementApiRequests();
       const res = await this.binanceClient.restAPI.accountApi.futuresAccountBalanceV2();
-      const data = typeof res.data === 'function' ? await res.data() : (res.data || res);
+
+      // Update weight if headers are present
+      const weight = typeof res?.headers?.get === 'function'
+        ? res.headers.get('X-MBX-USED-WEIGHT-1M')
+        : (res?.headers?.['x-mbx-used-weight-1m'] || res?.headers?.['X-MBX-USED-WEIGHT-1M']);
+      if (weight) this.sessionState.updateRateLimit(parseInt(weight, 10));
+
+      const data = typeof res?.data === 'function' ? await res.data() : (res?.data || res);
       const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
       return usdt ? parseFloat(usdt.balance || 0) : 0;
     } catch (e: any) {

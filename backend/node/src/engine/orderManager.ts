@@ -6,6 +6,7 @@ import { SessionConfig } from '../models/SessionConfig';
 import { SignalEngineService } from './signalEngine';
 import { MarketFeedService } from './market_feed.service';
 import { TickerCacheService } from './ticker_cache.service';
+import { MonitoringService } from './monitoring.service';
 import { SessionStateService } from './session_state.service';
 import { AuditLogService } from '../trading/audit-log.service';
 import { v4 as uuid } from 'uuid';
@@ -32,6 +33,7 @@ export class OrderManagerService {
     private readonly signalEngine: SignalEngineService,
     private readonly marketFeed: MarketFeedService,
     private readonly tickerCache: TickerCacheService,
+    private readonly monitoringService: MonitoringService,
     private readonly sessionState: SessionStateService,
     private readonly auditLog: AuditLogService,
     private readonly eventEmitter: EventEmitter2,
@@ -787,7 +789,7 @@ export class OrderManagerService {
   /**
    * Update an existing stop loss without protection gaps (Ratcheting)
    */
-  async updateStopLoss(trade: Trade, newSlPrice: number): Promise<boolean> {
+  async updateStopLoss(trade: Trade, newSlPrice: number, prevSlPrice?: number): Promise<boolean> {
     if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return true;
 
     // BOLT: Proactive Rate Limit - Skip non-critical SL updates if near limits
@@ -830,25 +832,37 @@ export class OrderManagerService {
     const oldSlId = trade.binance_stop_order_id;
 
     if (oldSlId) {
-      await this.cancelAnyStopOrder(trade.symbol, oldSlId, trade);
+      this.logger.debug(`[SL] Canceling existing SL ${oldSlId} for ${trade.symbol} before replacement.`);
+      const cancelSuccess = await this.cancelAnyStopOrder(trade.symbol, oldSlId, trade);
+      if (cancelSuccess) {
+         trade.binance_stop_order_id = undefined;
+      }
     }
 
     // Place NEW stop loss after old one is cleared
-    const result = await this.placeStopLoss(trade, newSlPrice);
+    let result = await this.placeStopLoss(trade, newSlPrice);
+
+    // ROLLBACK LOGIC: If new SL placement fails, attempt to re-place the OLD one
+    if (!result && prevSlPrice) {
+       this.logger.warn(`[SL] Replacement failed for ${trade.symbol}. Attempting ROLLBACK to previous SL at ${prevSlPrice}...`);
+       result = await this.placeStopLoss(trade, prevSlPrice);
+       if (result) {
+          this.logger.log(`[SL] Successfully rolled back protection for ${trade.symbol} to ${prevSlPrice}.`);
+          return false; // Still return false because the requested update failed
+       }
+    }
 
     if (!result) {
-       this.logger.error(`[CRITICAL] SL Replacement failed for ${trade.symbol}. Trade is now UNPROTECTED on exchange. Attempting emergency unwind...`);
+       this.logger.error(`[CRITICAL] SL Replacement & Rollback failed for ${trade.symbol}. Position is UNPROTECTED. Attempting emergency unwind...`);
        try {
           const unwindRes = await this.closeTrade(trade.symbol, trade, trade.entry_price, 'UNPROTECTED_SL_FAILURE');
           if (unwindRes.exitOccurred) {
-             this.logger.warn(`[RECOVERY] Successfully closed unprotected ${trade.symbol} position after SL replacement failure.`);
-             // Emit event so TradingSessionService/PositionTracker can remove it from active tracking
+             this.logger.warn(`[RECOVERY] Successfully closed unprotected ${trade.symbol} position.`);
              this.eventEmitter.emit('trade.exchange_close', {
                 symbol: trade.symbol,
                 exitPrice: trade.exit_price || trade.entry_price,
                 reason: 'UNPROTECTED_SL_FAILURE'
              });
-             return false;
           }
        } catch (unwindErr) {
           this.logger.error(`[FATAL] Emergency unwind FAILED for unprotected ${trade.symbol} position: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);
@@ -902,6 +916,35 @@ export class OrderManagerService {
   /**
    * Cancel an algorithmic order on Binance
    */
+  public async fetchAllOpenOrders(): Promise<any[]> {
+    if (!this.binanceClient) return [];
+    try {
+      this.monitoringService.incrementApiRequests();
+      const response = await (this.binanceClient as any).restAPI.tradeApi.currentAllOpenOrders();
+      this.updateWeight(response.headers);
+      const data = typeof response.data === 'function' ? await response.data() : (response.data || response);
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      this.logger.warn(`Failed to fetch all open orders: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
+  }
+
+  public async fetchAllOpenAlgoOrders(): Promise<any[]> {
+    if (!this.binanceClient) return [];
+    try {
+      this.monitoringService.incrementApiRequests();
+      const response = await (this.binanceClient as any).restAPI.tradeApi.currentOpenAlgoOrders();
+      this.updateWeight(response.headers);
+      const data = typeof response.data === 'function' ? await response.data() : (response.data || response);
+      const list = data.orders || data;
+      return Array.isArray(list) ? list : [];
+    } catch (err) {
+      this.logger.debug(`Failed to fetch all open algo orders: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
+  }
+
   async cancelBinanceAlgoOrder(symbol: string, algoId: string): Promise<boolean> {
     if (this.paperMode || !this.binanceClient) return true;
 
@@ -1023,6 +1066,20 @@ export class OrderManagerService {
     return { exitTriggered, exitSignalType };
   }
 
+  public async fetchAllPositions(): Promise<any[]> {
+    if (!this.binanceClient) return [];
+    try {
+      this.monitoringService.incrementApiRequests();
+      const response = await (this.binanceClient as any).restAPI.tradeApi.positionInformationV2();
+      this.updateWeight(response.headers);
+      const data = typeof response.data === 'function' ? await response.data() : (response.data || response);
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      this.logger.warn(`Failed to fetch all positions: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
+  }
+
   public async fetchPosition(symbol: string): Promise<any | null> {
     // Zero-Weight Path: Prefer local real-time cache from User Data Stream
     const cached = this.sessionState.realTimePositions.get(symbol);
@@ -1117,6 +1174,7 @@ export class OrderManagerService {
           // If there is an exchange stop loss, cancel it to prevent orphans
           if (trade.binance_stop_order_id) {
             await this.cancelAnyStopOrder(symbol, trade.binance_stop_order_id, trade);
+            trade.binance_stop_order_id = undefined;
           }
 
           const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
@@ -1220,6 +1278,11 @@ export class OrderManagerService {
                   // Use actual taker fee rate for live mode recovery
                   const exitFee = roundEight(exitPrice * trade.qty * this.takerFeeRate);
                   trade.realized_fee = roundEight((trade.realized_fee || 0) + exitFee);
+            } else if (upperMsg.includes('PERCENT_PRICE')) {
+               const tip = `The price is currently outside Binance's protection bands. This usually happens during extreme volatility. Manual intervention on Binance website may be required if the engine cannot close the trade.`;
+               this.logger.error(`${symbol}: Close failed due to PERCENT_PRICE filter. ${tip}`);
+               this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `CRITICAL: ${symbol} close failed (Price Protection). ${tip}`, level: 'error' });
+               throw err;
                } else {
                   this.logger.warn(`Binance close order failed but position still exists for ${symbol}: ${errMsg}`);
                   throw err;

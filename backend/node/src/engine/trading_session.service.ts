@@ -421,6 +421,7 @@ export class TradingSessionService {
   /**
    * PROTECTION WATCHDOG: Periodically verifies that all active Live positions
    * have a corresponding SL order on Binance. If missing, it re-places it.
+   * Optimized to use account-wide bulk calls.
    */
   private async protectionWatchdog() {
     if (!this.running || !this.config || this.config.paper_mode) return;
@@ -428,45 +429,47 @@ export class TradingSessionService {
     const activeTrades = this.positionTracker.activeList();
     if (activeTrades.length === 0) return;
 
-    this.logger.log(`[Watchdog] Running protection audit for ${activeTrades.length} positions...`);
+    this.logger.log(`[Watchdog] Running protection audit for ${activeTrades.length} positions (Bulk Optimized)...`);
 
-    for (const trade of activeTrades) {
-      try {
-        if (!trade.binance_order_id) continue;
+    try {
+      // 1. Bulk Fetch Positions
+      const allPositions = await this.orderManager.fetchAllPositions();
+      const activePositionsMap = new Map(allPositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0).map(p => [p.symbol, p]));
 
-        const pos = await this.orderManager.fetchPosition(trade.symbol);
-        if (!pos || Math.abs(parseFloat(pos.positionAmt)) === 0) continue;
+      // 2. Bulk Fetch All Open Orders (Standard & Algo)
+      const [allOrders, allAlgoOrders] = await Promise.all([
+        this.orderManager.fetchAllOpenOrders(),
+        this.orderManager.fetchAllOpenAlgoOrders()
+      ]);
 
-        // Fetch open orders for the symbol
-        const res = await (this.binanceClient as any).restAPI.tradeApi.currentAllOpenOrders({ symbol: trade.symbol });
-        const orders = typeof res.data === 'function' ? await res.data() : (res.data || res);
+      // Filter for SL orders
+      const isSlOrder = (o: any) => (o.type === 'STOP_MARKET' || o.type === 'STOP') && (o.closePosition === true || o.closePosition === 'true' || o.reduceOnly === true || o.reduceOnly === 'true');
 
-        const hasSl = Array.isArray(orders) && orders.some(o =>
-          (o.type === 'STOP_MARKET' || o.type === 'STOP') &&
-          (o.closePosition === true || o.closePosition === 'true')
-        );
+      const slOrdersSymbols = new Set(allOrders.filter(isSlOrder).map(o => o.symbol));
+      const algoSlOrdersSymbols = new Set(allAlgoOrders.filter(isSlOrder).map(o => o.symbol));
 
-        if (!hasSl) {
-           // Double check Algo orders
-           let hasAlgoSl = false;
-           try {
-             const algoRes = await (this.binanceClient as any).restAPI.tradeApi.currentOpenAlgoOrders({ symbol: trade.symbol });
-             const algoOrders = typeof algoRes.data === 'function' ? await algoRes.data() : (algoRes.data || algoRes);
-             const algoList = algoOrders.orders || algoOrders;
-             hasAlgoSl = Array.isArray(algoList) && algoList.some(ao =>
-               (ao.type === 'STOP_MARKET' || ao.type === 'STOP') && (ao.closePosition === true || ao.closePosition === 'true')
-             );
-           } catch (e) {}
+      for (const trade of activeTrades) {
+        try {
+          if (!trade.binance_order_id) continue;
 
-           if (!hasAlgoSl) {
-              this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} position found without SL order on Binance. Re-placing...`);
-              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Watchdog] Missing SL detected for ${trade.symbol}. Recovering protection...`, level: 'warn' });
-              await this.orderManager.placeStopLoss(trade, trade.current_sl);
-           }
+          // Verify position still exists on exchange
+          const pos = activePositionsMap.get(trade.symbol);
+          if (!pos) continue;
+
+          // Check if protection exists in either standard or algo orders
+          const hasProtection = slOrdersSymbols.has(trade.symbol) || algoSlOrdersSymbols.has(trade.symbol);
+
+          if (!hasProtection) {
+            this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} position found without SL order on Binance. Re-placing...`);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Watchdog] Missing SL detected for ${trade.symbol}. Recovering protection...`, level: 'warn' });
+            await this.orderManager.placeStopLoss(trade, trade.current_sl);
+          }
+        } catch (innerErr) {
+          this.logger.error(`[Watchdog] Error auditing ${trade.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
         }
-      } catch (err) {
-        this.logger.error(`[Watchdog] Error auditing protection for ${trade.symbol}: ${err instanceof Error ? err.message : String(err)}`);
       }
+    } catch (err) {
+      this.logger.error(`[Watchdog] Bulk audit failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -713,6 +716,7 @@ export class TradingSessionService {
 
   async fetchTickerPrice(symbol: string): Promise<number | null> { return this.tickerCache.getPrice(symbol); }
   async fetchPosition(symbol: string): Promise<any | null> { return this.orderManager.fetchPosition(symbol); }
+  async fetchAllPositions(): Promise<any[]> { return this.orderManager.fetchAllPositions(); }
   updateRateLimit(used1m: number) { this.sessionState.updateRateLimit(used1m); }
   isRateLimited(): boolean { return this.sessionState.isRateLimited(); }
   getBinanceRateLimit() { return this.sessionState.getBinanceRateLimit(); }

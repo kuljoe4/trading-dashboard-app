@@ -71,7 +71,7 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
 
         <div className="flex flex-col items-end shrink-0 min-w-[80px]">
           <div className={cn(
-            "text-base md:text-xl font-black font-mono tracking-tighter leading-none mb-1",
+            "text-base md:text-lg lg:text-xl font-black font-mono tracking-tighter leading-none mb-1",
             trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlClass(trade.pnl) : 'text-dim'
           )}>
             {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}

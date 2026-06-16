@@ -60,7 +60,7 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
   return (
     <div
       className={cn(
-        "bg-surface border p-3 md:p-4 lg:p-5 rounded-2xl shadow-sm transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[80px] lg:min-h-[100px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+        "bg-surface border p-3 md:p-4 lg:p-5 rounded-2xl shadow-sm transition-all group relative overflow-hidden flex flex-col items-start justify-between min-h-[64px] md:min-h-[80px] lg:min-h-[100px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
         isLocked ? "border-border/60" : "border-accent/40 bg-accent/[0.02] shadow-[0_0_20px_rgba(91,111,255,0.05)]",
         disabled && "opacity-40 grayscale pointer-events-none",
         usagePct >= 90 && "border-red/40 bg-red/[0.02] shadow-[0_0_20px_rgba(255,68,102,0.1)] animate-pulse-slow",
@@ -79,7 +79,7 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
       {syncing && (
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" />
       )}
-      <div className="flex flex-col gap-1 w-full self-start relative z-10">
+      <div className="flex flex-col gap-1 w-full h-full justify-between relative z-10">
         <div className="flex items-center w-full">
           <div className="flex items-center gap-2 flex-grow">
             <Tooltip content={tooltip}>
@@ -102,8 +102,8 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
             {isLocked ? <Lock size={10} /> : <Unlock size={10} />}
           </button>
         </div>
-        <div className="flex items-center w-full gap-2">
-          <div className="flex flex-col flex-grow min-w-0 text-right">
+        <div className="flex items-center w-full gap-2 mt-auto">
+          <div className="flex flex-col flex-grow min-w-0">
             <div className={cn(
               "text-sm md:text-sm lg:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate",
               isLocked ? "text-dim/60" : "text-text",
@@ -175,7 +175,7 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
 
   return (
     <div
-      className="bg-surface border border-border/60 p-3 md:p-4 lg:p-5 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[80px] lg:min-h-[100px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+      className="bg-surface border border-border/60 p-3 md:p-4 lg:p-5 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col items-start justify-between min-h-[64px] md:min-h-[80px] lg:min-h-[100px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
       role="region"
       aria-label={`${label}: ${value}`}
       aria-busy={syncing}
@@ -183,19 +183,20 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
       {syncing && (
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />
       )}
-      <div className="flex flex-col gap-1 w-full">
+      <div className="flex flex-col gap-1 w-full h-full justify-between">
         <div className="flex items-center gap-1.5 self-start">
             <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-tight" aria-hidden="true">{label}</div>
             {tooltipText && <Tooltip content={tooltipText}><Info size={10} className="text-dim hover:text-accent cursor-help" /></Tooltip>}
         </div>
-        <div className={cn(
-          "text-sm md:text-sm lg:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate text-right",
-          color,
-          syncing && "opacity-40 blur-[1px]"
-        )}>{sanitizedValue}</div>
-        {subValue && (
+        <div className="flex flex-col items-start mt-auto">
           <div className={cn(
-            "text-[8px] md:text-[8px] lg:text-[9px] text-dim font-mono font-black uppercase flex items-center justify-end gap-1.5",
+            "text-sm md:text-sm lg:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate",
+            color,
+            syncing && "opacity-40 blur-[1px]"
+          )}>{sanitizedValue}</div>
+          {subValue && (
+            <div className={cn(
+              "text-[8px] md:text-[8px] lg:text-[9px] text-dim font-mono font-black uppercase flex items-center gap-1.5",
             syncing && "text-accent/60 animate-pulse"
           )}>
             {syncing && <Loader2 size={8} className="animate-spin" aria-hidden="true" />}
@@ -310,21 +311,22 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
   return (
     <div
       className={cn(
-        "flex-1 bg-surface border rounded-2xl p-5 md:p-6 transition-all duration-500 flex flex-col",
+        "flex-1 bg-surface border rounded-2xl p-5 md:p-6 transition-all duration-500 flex flex-col justify-between min-h-[160px]",
         borderColorClass
       )}
       role="region"
       aria-label={`${label}: ${satisfied ? 'Satisfied' : 'Awaiting'}`}
     >
-      <div className="flex justify-between items-start mb-4 md:mb-6 gap-4">
+      <div className="flex justify-between items-start gap-4">
         <div className="text-[10px] md:text-[11px] text-dim tracking-[0.15em] uppercase font-bold shrink-0">{label}</div>
-        <div className="flex flex-col items-end text-right min-w-0">
-          <div className="text-[10px] text-dim mb-2 font-bold uppercase tracking-[0.15em] whitespace-nowrap">THRESHOLD: {thresholdText}</div>
-          <div className={cn("text-xl md:text-lg lg:text-2xl font-bold font-mono tracking-tight truncate w-full", textColorClass)}>
+        <div className="text-[10px] text-dim font-bold uppercase tracking-[0.15em] whitespace-nowrap">THRESHOLD: {thresholdText}</div>
+      </div>
+
+      <div className="flex flex-col items-start mt-auto mb-4">
+          <div className={cn("text-xl md:text-base lg:text-2xl font-bold font-mono tracking-tight truncate w-full", textColorClass)}>
             {formattedValue}
           </div>
-          {sublabel && <div className="text-[11px] text-dim mt-2 font-bold uppercase tracking-tight truncate w-full">{sublabel}</div>}
-        </div>
+          {sublabel && <div className="text-[11px] text-dim mt-1 font-bold uppercase tracking-tight truncate w-full">{sublabel}</div>}
       </div>
 
       <ProgressPrimitive.Root

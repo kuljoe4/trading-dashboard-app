@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight } from 'lucide-react'
-import { cn, Btn, Tooltip } from './ui/primitives'
+import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 import { CONFIG_LIMITS } from '../constants/configLimits'
 import { settingsAPI } from '../api/client'
@@ -686,17 +686,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                   </div>
                 ) : presets.map(p => {
                   const isVariant = (cfg.strategy_variants || []).some(v => v.strategy_label === p.name);
+                  const pMode = p.config.trading_mode || (p.config.paper_mode ? 'paper' : 'live');
                   return (
                     <div key={p.name} className="flex items-center justify-between p-4 bg-background border border-border rounded-2xl transition-all group/preset">
                       <button type="button" onClick={() => loadPreset(p)} className="flex-1 flex items-center gap-4 text-left">
                       <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center border transition-colors", isVariant ? "bg-accent border-accent text-white" : "bg-surface border-border text-dim group-hover/preset:border-accent/20")}>
                         {isVariant ? <ShieldCheck size={20} /> : <Zap size={20} />}
                       </div>
-                      <div>
-                        <div className="text-sm font-bold group-hover/preset:text-accent transition-colors flex items-center gap-2">
-                           {p.name}
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-bold group-hover/preset:text-accent transition-colors flex items-center gap-2 flex-wrap">
+                           <span className="truncate">{p.name}</span>
+                           <div className="flex items-center gap-1 scale-[0.7] origin-left shrink-0">
+                             {pMode === 'paper' && <PaperBadge />}
+                             {pMode === 'testnet' && <DemoBadge />}
+                             {pMode === 'live' && <LiveBadge />}
+                           </div>
                            {loadedPresetName === p.name && isDirty && (
-                             <span className="text-[9px] bg-amber/10 text-amber px-1.5 py-0.5 rounded">Modified</span>
+                             <span className="text-[9px] bg-amber/10 text-amber px-1.5 py-0.5 rounded shrink-0">Modified</span>
                            )}
                         </div>
                         <div className="text-[10px] text-dim font-bold uppercase tracking-tight">{p.config.scan_interval} · {p.config.scan_pct_threshold}% · {p.config.risk_pct_per_trade}% Risk</div>

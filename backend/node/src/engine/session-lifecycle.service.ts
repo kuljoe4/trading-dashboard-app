@@ -55,7 +55,7 @@ export class SessionLifecycleService {
 
       // Best Practice: Synchronize server time
       try {
-        const timeRes = await bc.restAPI.accountApi.orderRateLimit(); // Using an authenticated endpoint that returns headers, or just serverTime if available
+        const timeRes = await bc.restAPI.queryUserRateLimit(); // Using an authenticated endpoint that returns headers, or just serverTime if available
         // Note: The SDK usually handles time sync internally, but we log it for auditability.
         const serverTimeHeader = timeRes.headers?.get ? timeRes.headers.get('Date') : timeRes.headers?.date;
         if (serverTimeHeader) {
@@ -71,15 +71,15 @@ export class SessionLifecycleService {
         // Enforce One-Way Mode (Disable Hedge Mode)
         try {
           this.monitoringService.incrementApiRequests();
-          const currentModeRes = await bc.restAPI.accountApi.getCurrentPositionMode();
-          const currentModeData = typeof currentModeRes.data === 'function' ? await currentModeRes.data() : (currentModeRes.data || currentModeRes);
+          const currentModeRes = await bc.restAPI.getCurrentPositionMode();
+          const currentModeData = await currentModeRes.data();
 
           if (currentModeData && currentModeData.dualSidePosition === false) {
             this.logger.debug('Binance position mode is already One-Way.');
           } else {
             this.monitoringService.incrementApiRequests();
-            const modeRes = await bc.restAPI.tradeApi.changePositionMode({ dualSidePosition: 'false' });
-            const modeData = typeof modeRes.data === 'function' ? await modeRes.data() : (modeRes.data || modeRes);
+            const modeRes = await bc.restAPI.changePositionMode({ dualSidePosition: 'false' } as any);
+            const modeData = await modeRes.data();
             const modeMsg = `Binance position mode set to One-Way: ${JSON.stringify(modeData)}`;
             this.logger.log(modeMsg);
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: modeMsg, level: 'info' });
@@ -181,7 +181,7 @@ export class SessionLifecycleService {
         this.userDataWs = null;
     }
     if (this.listenKey && bc) {
-        try { await bc.restAPI.userDataStreamsApi.closeUserDataStream(this.listenKey); } catch (e) {
+        try { await bc.restAPI.closeUserDataStream(); } catch (e) {
             this.logger.debug(`Error closing user data stream: ${e instanceof Error ? e.message : String(e)}`);
         }
         this.listenKey = null;
@@ -206,10 +206,10 @@ export class SessionLifecycleService {
     try {
       this.monitoringService.incrementApiRequests();
       // Try primary endpoint: futuresAccountBalanceV2
-      const res = await bc.restAPI.accountApi.futuresAccountBalanceV2();
+      const res = await bc.restAPI.futuresAccountBalanceV2();
       if (!res) return 0;
 
-      const data = typeof res.data === 'function' ? await res.data() : (res.data || res);
+      const data = await res.data() as any;
       const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
 
       if (usdt) {
@@ -218,8 +218,8 @@ export class SessionLifecycleService {
 
       // Fallback: try accountInformationV2 (full account details)
       this.logger.debug(`futuresAccountBalanceV2 did not return USDT. Trying accountInformationV2 fallback...`);
-      const accRes = await bc.restAPI.accountApi.accountInformationV2();
-      const accData = accRes ? (accRes.data || accRes) : null;
+      const accRes = await bc.restAPI.accountInformationV2();
+      const accData = await accRes.data() as any;
       if (accData && Array.isArray(accData.assets)) {
         const accUsdt = accData.assets.find((a: any) => a.asset === 'USDT');
         if (accUsdt) {
@@ -239,10 +239,11 @@ export class SessionLifecycleService {
     if (!bc) return;
     try {
       this.monitoringService.incrementApiRequests();
-      const res = await bc.restAPI.userDataStreamsApi.startUserDataStream();
+      const res = await bc.restAPI.startUserDataStream();
       if (!res || !res.data) throw new Error('Failed to start user data stream: No response from Binance');
 
-      const newListenKey = typeof res.data === 'function' ? (await res.data()).listenKey : res.data.listenKey;
+      const resData = await res.data() as any;
+      const newListenKey = resData.listenKey;
       const oldWs = this.userDataWs;
       const oldListenKey = this.listenKey;
 
@@ -264,9 +265,10 @@ export class SessionLifecycleService {
         }
       });
 
-      this.userDataWs.on('message', async (msg: any) => {
+      this.userDataWs.on('message', async (payload: any) => {
         try {
-          const data = typeof msg === 'string' ? JSON.parse(msg) : msg;
+          // SDK WebsocketStreams.connect returns a connection that emits 'message' with the already parsed object or string
+          const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
 
           if (data.e === 'ACCOUNT_UPDATE' && data.a) {
             // Real-time Balance Tracking (Zero Weight)
@@ -325,7 +327,8 @@ export class SessionLifecycleService {
       const subMsg = `[Lifecycle] Subscribing to User Data Stream with listenKey: ${this.listenKey?.substring(0, 10)}...`;
       this.logger.log(subMsg);
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: subMsg, level: 'info' });
-      this.userDataWs.userData(this.listenKey);
+      // Not needed for new SDK as connect({ stream: listenKey }) already handles the subscription
+      // this.userDataWs.userData(this.listenKey);
 
       // Transition handling for proactive 24h reconnect
       if (isReconnect && oldWs) {
@@ -333,7 +336,7 @@ export class SessionLifecycleService {
         setTimeout(() => {
           try {
             oldWs.disconnect();
-            if (oldListenKey) bc.restAPI.userDataStreamsApi.closeUserDataStream(oldListenKey).catch(() => {});
+            if (oldListenKey) bc.restAPI.closeUserDataStream().catch(() => {});
           } catch (e) {}
         }, 30000);
       }
@@ -356,7 +359,7 @@ export class SessionLifecycleService {
 
         try {
           this.monitoringService.incrementApiRequests();
-          await bc.restAPI.userDataStreamsApi.keepaliveUserDataStream(this.listenKey);
+          await bc.restAPI.keepaliveUserDataStream();
         } catch (err) {
             this.logger.debug(`Error keeping alive user data stream: ${err instanceof Error ? err.message : String(err)}`);
         }

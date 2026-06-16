@@ -76,9 +76,9 @@ export class MarketFeedService {
     this.startWatchlistManager(config);
   }
 
-  public updateWeight(headers: Headers) {
+  public updateWeight(headers: any) {
     if (!headers) return;
-    const weight = typeof headers.get === 'function' ? headers.get('X-MBX-USED-WEIGHT-1M') : (headers as any)['X-MBX-USED-WEIGHT-1M'];
+    const weight = typeof headers.get === 'function' ? headers.get('X-MBX-USED-WEIGHT-1M') : (headers['x-mbx-used-weight-1m'] || headers['X-MBX-USED-WEIGHT-1M']);
     if (weight) {
       const currentWeight = parseInt(weight, 10);
       this.logger.debug(`Binance Weight Update: ${currentWeight}`);

@@ -167,17 +167,17 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
             </div>
           </div>
           <div className="text-sm md:text-lg font-black tracking-tight truncate uppercase">{s.strategy_label}</div>
-          <div className="text-[9px] md:text-[10px] text-dim mt-1.5 font-black uppercase tracking-widest flex flex-col gap-1">
-            <div className="flex items-center gap-2 min-w-0">
+          <div className="text-[9px] md:text-[10px] text-dim mt-1.5 font-black uppercase tracking-widest flex flex-col gap-1 overflow-hidden">
+            <div className="flex items-center gap-2 min-w-0 whitespace-nowrap">
               <Zap size={10} className={cn("text-accent shrink-0", config.global_scanner_enabled === false && "text-dim")} />
               <span className={cn("truncate", config.global_scanner_enabled === false && "line-through decoration-red/40 decoration-2")}>
                 {config.scan_interval} · {config.scan_pct_threshold}%
               </span>
             </div>
             {(config.single_symbol_configs || []).filter(sc => sc.enabled).length > 0 && (
-              <div className="flex items-center gap-2">
-                <ShieldCheck size={12} className="text-accent" />
-                <span>{config.single_symbol_configs.filter(sc => sc.enabled).length} Symbol Monitors Active</span>
+              <div className="flex items-center gap-2 whitespace-nowrap overflow-hidden">
+                <ShieldCheck size={12} className="text-accent shrink-0" />
+                <span className="truncate">{config.single_symbol_configs.filter(sc => sc.enabled).length} Symbol Monitors Active</span>
               </div>
             )}
           </div>

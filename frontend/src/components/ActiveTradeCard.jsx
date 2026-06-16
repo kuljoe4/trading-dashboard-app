@@ -55,16 +55,16 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
     >
       <div className="flex items-center justify-between gap-3 min-w-0">
         <div className="flex flex-col gap-1 min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 whitespace-nowrap overflow-hidden">
             <span className="text-sm md:text-base font-black font-mono tracking-tight shrink-0">{trade.symbol || '---'}</span>
             <span className={cn("text-[9px] md:text-xs font-black px-1.5 py-0.5 rounded border uppercase shrink-0", isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5')}>
               {isLong ? '▲' : '▼'} {trade.direction || '---'}
             </span>
           </div>
           {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
-            <div className="flex items-center gap-1">
-              <ShieldCheck size={10} className="text-accent" />
-              <span className="text-[9px] font-black text-accent uppercase tracking-widest opacity-80">Monitored</span>
+            <div className="flex items-center gap-1 whitespace-nowrap overflow-hidden">
+              <ShieldCheck size={10} className="text-accent shrink-0" />
+              <span className="text-[9px] font-black text-accent uppercase tracking-widest opacity-80 truncate">Monitored</span>
             </div>
           )}
         </div>

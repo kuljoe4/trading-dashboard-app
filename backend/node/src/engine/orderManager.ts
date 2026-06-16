@@ -670,11 +670,45 @@ export class OrderManagerService {
         const response = await (this.binanceClient as any).restAPI.tradeApi.newOrder(slOrderParams);
         this.updateWeight(response?.headers);
         const orderData = typeof response?.data === 'function' ? await response.data() : (response?.data || response);
-        this.logger.log(`Standard SL placement response for ${symbol}: ${JSON.stringify(orderData)}`);
-        stopLossId = String(orderData.orderId || orderData.id);
+
+        if (orderData.code && orderData.code !== 0) {
+          const code = orderData.code;
+          const msg = orderData.msg || '';
+          // Handle Duplicate Order ID specifically to recover state after timeout
+          if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
+            this.logger.log(`[${symbol}] Detected duplicate clientOrderId on SL placement retry. Recovering SL state...`);
+            const queryRes = await (this.binanceClient as any).restAPI.tradeApi.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
+            const queryData = typeof queryRes?.data === 'function' ? await queryRes.data() : (queryRes?.data || queryRes);
+            if (queryData && queryData.orderId) {
+              this.logger.log(`[${symbol}] Successfully recovered existing SL order state: ${queryData.orderId}`);
+              stopLossId = String(queryData.orderId);
+            } else {
+              throw new Error(`SL Order ID duplicate but query failed: ${msg}`);
+            }
+          } else {
+            throw new Error(`SL placement failed: ${msg}`);
+          }
+        } else {
+          this.logger.log(`Standard SL placement response for ${symbol}: ${JSON.stringify(orderData)}`);
+          stopLossId = String(orderData.orderId || orderData.id);
+        }
         orderType = 'standard';
-      } catch (err) {
-        throw err;
+      } catch (err: any) {
+        const msg = err.message || '';
+        if (msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
+          this.logger.log(`[${symbol}] Detected duplicate clientOrderId (via exception) on SL placement retry. Recovering SL state...`);
+          const queryRes = await (this.binanceClient as any).restAPI.tradeApi.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
+          const queryData = typeof queryRes?.data === 'function' ? await queryRes.data() : (queryRes?.data || queryRes);
+          if (queryData && queryData.orderId) {
+            this.logger.log(`[${symbol}] Successfully recovered existing SL order state: ${queryData.orderId}`);
+            stopLossId = String(queryData.orderId);
+            orderType = 'standard';
+          } else {
+            throw err;
+          }
+        } else {
+          throw err;
+        }
       }
 
       if (!stopLossId || stopLossId === 'undefined') {

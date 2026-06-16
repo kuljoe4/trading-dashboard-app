@@ -648,12 +648,14 @@ export class OrderManagerService {
       const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
 
       // INDUSTRY-BEST-PRACTICE: For Stop Loss, use closePosition: true.
-      // Fix: When closePosition is true, quantity must NOT be sent for STOP_MARKET orders on Binance Futures.
-      // This avoids "Order type not supported" errors on certain account configurations.
+      // BOLT: Always include explicit quantity even with closePosition: true.
+      // Some environments (like Testnet or specific account types) reject orders missing quantity
+      // with "Mandatory parameter 'quantity' was not sent".
       const slOrderParams: any = {
         symbol: trade.symbol,
         side: closeDirection as any,
         type: 'STOP_MARKET',
+        quantity: (trade.qty || 0).toFixed(qtyPrecision),
         stopPrice: slPrice.toFixed(pricePrecision),
         closePosition: true,
         workingType: 'MARK_PRICE' as any,
@@ -674,8 +676,35 @@ export class OrderManagerService {
         if (orderData.code && orderData.code !== 0) {
           const code = orderData.code;
           const msg = orderData.msg || '';
+
+          // BOLT: Handle "Order type not supported" by falling back to Algo API if available
+          if (code === -4120 || msg.includes('Order type not supported')) {
+             this.logger.warn(`[${symbol}] Standard STOP_MARKET rejected. Falling back to Algo Order API...`);
+             try {
+                const algoParams = {
+                   symbol,
+                   side: closeDirection as any,
+                   type: 'STOP_MARKET',
+                   stopPrice: slPrice.toFixed(pricePrecision),
+                   closePosition: true,
+                   newClientStrategyId: `sl-${trade.id.substring(0, 8)}`,
+                };
+                const algoRes = await (this.binanceClient as any).restAPI.tradeApi.newAlgoOrder(algoParams);
+                const algoData = typeof algoRes?.data === 'function' ? await algoRes.data() : (algoRes?.data || algoRes);
+                if (algoData && algoData.strategyId) {
+                   this.logger.log(`[${symbol}] Successfully placed SL via Algo API: ${algoData.strategyId}`);
+                   stopLossId = String(algoData.strategyId);
+                   orderType = 'algo';
+                } else {
+                   throw new Error(`Algo API returned invalid response: ${JSON.stringify(algoData)}`);
+                }
+             } catch (algoErr: any) {
+                this.logger.error(`[${symbol}] Algo API fallback failed: ${algoErr.message}`);
+                throw new Error(`Both Standard and Algo API rejected SL: ${msg}`);
+             }
+          }
           // Handle Duplicate Order ID specifically to recover state after timeout
-          if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
+          else if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
             this.logger.log(`[${symbol}] Detected duplicate clientOrderId on SL placement retry. Recovering SL state...`);
             const queryRes = await (this.binanceClient as any).restAPI.tradeApi.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
             const queryData = typeof queryRes?.data === 'function' ? await queryRes.data() : (queryRes?.data || queryRes);
@@ -691,11 +720,35 @@ export class OrderManagerService {
         } else {
           this.logger.log(`Standard SL placement response for ${symbol}: ${JSON.stringify(orderData)}`);
           stopLossId = String(orderData.orderId || orderData.id);
+          orderType = 'standard';
         }
-        orderType = 'standard';
       } catch (err: any) {
         const msg = err.message || '';
-        if (msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
+        if (msg.includes('Order type not supported')) {
+          this.logger.warn(`[${symbol}] Standard STOP_MARKET exception. Falling back to Algo Order API...`);
+          try {
+             const algoParams = {
+                symbol,
+                side: closeDirection as any,
+                type: 'STOP_MARKET',
+                stopPrice: slPrice.toFixed(pricePrecision),
+                closePosition: true,
+                newClientStrategyId: `sl-${trade.id.substring(0, 8)}`,
+             };
+             const algoRes = await (this.binanceClient as any).restAPI.tradeApi.newAlgoOrder(algoParams);
+             const algoData = typeof algoRes?.data === 'function' ? await algoRes.data() : (algoRes?.data || algoRes);
+             if (algoData && algoData.strategyId) {
+                this.logger.log(`[${symbol}] Successfully placed SL via Algo API (fallback): ${algoData.strategyId}`);
+                stopLossId = String(algoData.strategyId);
+                orderType = 'algo';
+             } else {
+                throw new Error(`Algo API (fallback) returned invalid response`);
+             }
+          } catch (algoErr: any) {
+             throw new Error(`Standard API failed and Algo API fallback also failed: ${msg}`);
+          }
+        }
+        else if (msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
           this.logger.log(`[${symbol}] Detected duplicate clientOrderId (via exception) on SL placement retry. Recovering SL state...`);
           const queryRes = await (this.binanceClient as any).restAPI.tradeApi.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
           const queryData = typeof queryRes?.data === 'function' ? await queryRes.data() : (queryRes?.data || queryRes);

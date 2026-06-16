@@ -85,9 +85,9 @@ describe('OrderManagerService', () => {
         })
       );
 
-      // Fix B Verification: Verify quantity is NOT sent for closePosition orders
+      // BOLT Compliance: Verify quantity IS sent for closePosition orders (mandatory fallback)
       const slCall = mockBinanceClient.restAPI.tradeApi.newOrder.mock.calls[1][0];
-      expect(slCall).not.toHaveProperty('quantity');
+      expect(slCall).toHaveProperty('quantity', '0.10000000');
 
       expect(trade?.binance_stop_order_id).toBe('mock_order_id');
     });
@@ -208,6 +208,38 @@ describe('OrderManagerService', () => {
       // Session termination
       const resultTerm = await service.closeTrade('BTCUSDT', { ...trade }, 51000, 'SESSION_TERMINATED');
       expect(resultTerm.trade.status).toBe('CLOSED');
+    });
+  });
+
+  describe('Algo API Fallback', () => {
+    it('falls back to Algo API if standard order is rejected with -4120', async () => {
+      await service.setBinanceClient(mockBinanceClient, false);
+      const trade = {
+        id: 'test-algo-fallback',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 0.1,
+        binance_order_id: 'mock_order_id'
+      } as Trade;
+
+      // First call fails with -4120
+      mockBinanceClient.restAPI.tradeApi.newOrder.mockResolvedValueOnce({
+        data: () => Promise.resolve({ code: -4120, msg: 'Order type not supported' }),
+        headers: {}
+      });
+      // Second call (Algo API) succeeds
+      mockBinanceClient.restAPI.tradeApi.newAlgoOrder.mockResolvedValueOnce({
+        data: () => Promise.resolve({ strategyId: 'algo_strategy_id' }),
+        headers: {}
+      });
+
+      (service as any).marketFeed.getSymbolFilters = jest.fn().mockReturnValue({ filters: [] });
+
+      const result = await service.placeStopLoss(trade, 49500);
+
+      expect(result).toBe('algo_strategy_id');
+      expect(mockBinanceClient.restAPI.tradeApi.newAlgoOrder).toHaveBeenCalled();
+      expect(trade.binance_stop_order_type).toBe('algo');
     });
   });
 

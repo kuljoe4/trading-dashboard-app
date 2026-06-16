@@ -21,6 +21,7 @@ export class PositionTrackerService {
   private closingSymbols: Set<string> = new Set(); // symbols currently in the process of closing
   private rrSequenceIndex: Map<string, number> = new Map(); // symbol -> current milestone index
   private _totalRisk = 0;
+  private _pendingRiskTotal = 0; // BOLT: Track total pending risk in O(1)
   private _activeListCache: Trade[] | null = null;
 
   constructor(
@@ -56,21 +57,27 @@ export class PositionTrackerService {
    * including pending risk reserved for trades currently entering.
    */
   totalRisk(): number {
-    let reserved = 0;
-    for (const r of this.pendingRisk.values()) reserved += r;
-    return roundEight(this._totalRisk + reserved);
+    return roundEight(this._totalRisk + this._pendingRiskTotal);
   }
 
   setEntering(symbol: string, entering: boolean, reservedRisk = 0): void {
     if (entering) {
       this.enteringSymbols.add(symbol);
       if (reservedRisk > 0) {
+        // If updating or re-setting, remove old reserved amount first to maintain O(1) sum
+        const oldReserved = this.pendingRisk.get(symbol) || 0;
+        this._pendingRiskTotal = roundEight(this._pendingRiskTotal - oldReserved + reservedRisk);
+
         this.pendingRisk.set(symbol, reservedRisk);
         this.logger.debug(`[Risk Integrity] Reserved ${reservedRisk} USDT risk for ${symbol} entry.`);
       }
     } else {
       this.enteringSymbols.delete(symbol);
-      this.pendingRisk.delete(symbol);
+      const oldReserved = this.pendingRisk.get(symbol) || 0;
+      if (oldReserved > 0) {
+        this._pendingRiskTotal = roundEight(this._pendingRiskTotal - oldReserved);
+        this.pendingRisk.delete(symbol);
+      }
     }
   }
 
@@ -345,10 +352,16 @@ export class PositionTrackerService {
    * DATA-07: Manual recalculation of total risk to ensure state consistency
    */
   recalculateTotalRisk(): void {
-    let risk = 0;
+    let activeRisk = 0;
     for (const t of this.trades.values()) {
-      risk += (t.risk_usdt || 0);
+      activeRisk += (t.risk_usdt || 0);
     }
-    this._totalRisk = roundEight(risk);
+    this._totalRisk = roundEight(activeRisk);
+
+    let pendingRiskSum = 0;
+    for (const r of this.pendingRisk.values()) {
+      pendingRiskSum += r;
+    }
+    this._pendingRiskTotal = roundEight(pendingRiskSum);
   }
 }

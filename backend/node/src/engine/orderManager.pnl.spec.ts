@@ -24,8 +24,10 @@ describe('OrderManagerService - PnL Consistency', () => {
     };
     mockTradingSession = {
       isRateLimited: jest.fn().mockReturnValue(false),
+      isOrderRateLimited: jest.fn().mockReturnValue(false),
       binanceRateLimit: { used_1m: 0, limit: 2400 },
       updateRateLimit: jest.fn(),
+      updateOrderRateLimits: jest.fn(),
       realTimePositions: new Map()
     };
     service = new OrderManagerService(
@@ -45,8 +47,10 @@ describe('OrderManagerService - PnL Consistency', () => {
           newAlgoOrder: jest.fn(),
           cancelOrder: jest.fn(),
           cancelAlgoOrder: jest.fn(),
-          positionInformationV2: jest.fn(),
+          positionInformationV3: jest.fn(),
           placeMultipleOrders: jest.fn(),
+          accountTradeList: jest.fn(),
+          queryOrder: jest.fn(),
         },
         accountApi: {
           futuresPositionRiskV2: jest.fn(),
@@ -74,7 +78,7 @@ describe('OrderManagerService - PnL Consistency', () => {
 
     // Simulate Binance rejecting the close order because position is already closed
     mockBinanceClient.restAPI.tradeApi.newOrder.mockRejectedValue(new Error('Position side does not match'));
-    mockBinanceClient.restAPI.tradeApi.positionInformationV2.mockResolvedValue({
+    mockBinanceClient.restAPI.tradeApi.positionInformationV3.mockResolvedValue({
       data: () => Promise.resolve([{ positionAmt: '0', positionSide: 'BOTH' }]),
       headers: { get: (k: string) => (k === 'X-MBX-USED-WEIGHT-1M' ? '10' : null) }
     });

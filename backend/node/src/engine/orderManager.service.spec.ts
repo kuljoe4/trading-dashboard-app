@@ -80,7 +80,7 @@ describe('OrderManagerService', () => {
           type: 'STOP_MARKET',
           stopPrice: 49500,
           workingType: 'MARK_PRICE',
-          closePosition: 'true'
+          closePosition: true
         })
       );
 
@@ -151,7 +151,7 @@ describe('OrderManagerService', () => {
           type: 'STOP_MARKET',
           stopPrice: 50500,
           workingType: 'MARK_PRICE',
-          closePosition: 'true'
+          closePosition: true
         })
       );
       expect(trade.binance_stop_order_id).toBe('33333');
@@ -185,7 +185,7 @@ describe('OrderManagerService', () => {
           side: 'SELL',
           type: 'MARKET',
           quantity: 0.1,
-          reduceOnly: 'true',
+          reduceOnly: true,
         })
       );
     });

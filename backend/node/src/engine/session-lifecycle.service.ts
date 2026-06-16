@@ -78,7 +78,7 @@ export class SessionLifecycleService {
             this.logger.debug('Binance position mode is already One-Way.');
           } else {
             this.monitoringService.incrementApiRequests();
-            const modeRes = await bc.restAPI.changePositionMode({ dualSidePosition: 'false' } as any);
+            const modeRes = await bc.restAPI.changePositionMode({ dualSidePosition: false } as any);
             const modeData = await modeRes.data();
             const modeMsg = `Binance position mode set to One-Way: ${JSON.stringify(modeData)}`;
             this.logger.log(modeMsg);

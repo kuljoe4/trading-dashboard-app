@@ -219,7 +219,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
               </button>
             </Tooltip>
           </div>
-          <div className="text-lg md:text-2xl font-black font-mono tracking-tighter" style={{ color: pnlColor(s.activePnl) }}>
+          <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter" style={{ color: pnlColor(s.activePnl) }}>
             {fmtUSD(s.activePnl)}
           </div>
           <div className="text-[9px] md:text-[10px] text-dim font-black uppercase tracking-widest mt-1.5 flex flex-col items-end gap-0.5">

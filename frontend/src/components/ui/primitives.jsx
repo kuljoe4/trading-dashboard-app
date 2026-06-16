@@ -103,9 +103,9 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
           </button>
         </div>
         <div className="flex items-center w-full gap-2">
-          <div className="flex flex-col flex-grow min-w-0">
+          <div className="flex flex-col flex-grow min-w-0 text-right">
             <div className={cn(
-              "text-sm md:text-base lg:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate",
+              "text-sm md:text-sm lg:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate",
               isLocked ? "text-dim/60" : "text-text",
               syncing && "opacity-40 blur-[1px]"
             )}>
@@ -183,19 +183,19 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
       {syncing && (
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />
       )}
-      <div className="flex flex-col gap-1 w-full self-start">
-        <div className="flex items-center gap-1.5">
+      <div className="flex flex-col gap-1 w-full">
+        <div className="flex items-center gap-1.5 self-start">
             <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-tight" aria-hidden="true">{label}</div>
             {tooltipText && <Tooltip content={tooltipText}><Info size={10} className="text-dim hover:text-accent cursor-help" /></Tooltip>}
         </div>
         <div className={cn(
-          "text-sm md:text-base lg:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate",
+          "text-sm md:text-sm lg:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate text-right",
           color,
           syncing && "opacity-40 blur-[1px]"
         )}>{sanitizedValue}</div>
         {subValue && (
           <div className={cn(
-            "text-[8px] md:text-[9px] text-dim font-mono font-black uppercase flex items-center gap-1.5",
+            "text-[8px] md:text-[8px] lg:text-[9px] text-dim font-mono font-black uppercase flex items-center justify-end gap-1.5",
             syncing && "text-accent/60 animate-pulse"
           )}>
             {syncing && <Loader2 size={8} className="animate-spin" aria-hidden="true" />}
@@ -310,23 +310,20 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
   return (
     <div
       className={cn(
-        "flex-1 bg-surface border rounded-2xl p-5 md:p-6 transition-all duration-500",
+        "flex-1 bg-surface border rounded-2xl p-5 md:p-6 transition-all duration-500 flex flex-col",
         borderColorClass
       )}
       role="region"
       aria-label={`${label}: ${satisfied ? 'Satisfied' : 'Awaiting'}`}
     >
-      <div className="flex justify-between items-start mb-4 md:mb-6">
-        <div>
-          <div className="text-[10px] md:text-[11px] text-dim tracking-[0.15em] mb-1.5 md:mb-2 uppercase font-bold">{label}</div>
-          <div className={cn("text-xl md:text-2xl font-bold font-mono tracking-tight", textColorClass)}>
+      <div className="flex justify-between items-start mb-4 md:mb-6 gap-4">
+        <div className="text-[10px] md:text-[11px] text-dim tracking-[0.15em] uppercase font-bold shrink-0">{label}</div>
+        <div className="flex flex-col items-end text-right min-w-0">
+          <div className="text-[10px] text-dim mb-2 font-bold uppercase tracking-[0.15em] whitespace-nowrap">THRESHOLD: {thresholdText}</div>
+          <div className={cn("text-xl md:text-lg lg:text-2xl font-bold font-mono tracking-tight truncate w-full", textColorClass)}>
             {formattedValue}
           </div>
-          {sublabel && <div className="text-[11px] text-dim mt-2 font-bold uppercase tracking-tight">{sublabel}</div>}
-        </div>
-        <div className="text-right">
-          <div className="text-[10px] text-dim mb-2 font-bold uppercase tracking-[0.15em]">THRESHOLD</div>
-          <div className="text-[14px] text-text font-mono font-bold">{thresholdText}</div>
+          {sublabel && <div className="text-[11px] text-dim mt-2 font-bold uppercase tracking-tight truncate w-full">{sublabel}</div>}
         </div>
       </div>
 

@@ -120,4 +120,11 @@
   .animate-pulse-slow {
     animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
+  @keyframes shrink-width {
+    from { width: 100%; }
+    to { width: 0%; }
+  }
+  .animate-shrink-width {
+    animation: shrink-width 10s linear forwards;
+  }
 }

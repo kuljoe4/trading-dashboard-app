@@ -21,6 +21,7 @@ import { ExecutionStatus } from '../models/ExecutionResult';
 @Injectable()
 export class ExecutionService {
   private readonly logger = new Logger(ExecutionService.name);
+  private entryCooldowns: Map<string, number> = new Map();
 
   constructor(
     private readonly tickerCache: TickerCacheService,
@@ -108,11 +109,20 @@ export class ExecutionService {
     const symbolConfigMap = (symbolConfigs && symbolConfigs.length > 0) ? new Map(symbolConfigs.map(sc => [sc.symbol, sc])) : null;
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);
 
+    const now = Date.now();
     for (const opp of opportunities) {
       try {
         if (this.positionTracker.hasSymbol(opp.symbol)) {
           this.logger.debug(`${opp.symbol}: Entry skipped - already in position or entering.`);
           continue;
+        }
+
+        const cooldownExpiry = this.entryCooldowns.get(opp.symbol);
+        if (cooldownExpiry && now < cooldownExpiry) {
+          this.logger.debug(`${opp.symbol}: Entry skipped - symbol is in cooldown for ${Math.ceil((cooldownExpiry - now) / 1000)}s`);
+          continue;
+        } else if (cooldownExpiry) {
+          this.entryCooldowns.delete(opp.symbol);
         }
 
         const sc = symbolConfigMap?.get(opp.symbol);
@@ -205,9 +215,26 @@ export class ExecutionService {
               trade: this.engineBroadcaster.serializeTrade(trade, config, price),
               stats: this.sessionState.stats
             });
+          } else {
+            // Entry failed but didn't throw (e.g. ORDER_REJECTED)
+            const cooldownMinutes = 5;
+            this.entryCooldowns.set(opp.symbol, Date.now() + cooldownMinutes * 60 * 1000);
+            this.logger.warn(`${opp.symbol}: Entry failed with status ${result.status}. Cooling down symbol for ${cooldownMinutes}m. Error: ${result.error}`);
+
+            this.broadcastService.broadcast('alert', {
+              level: 'warn',
+              title: 'Entry Failed',
+              message: `${opp.symbol}: ${result.error || 'Order rejected by exchange'}. Skipping for ${cooldownMinutes}m.`,
+              symbol: opp.symbol
+            });
           }
         } catch (err) {
-          this.logger.error(`Failed to process entry for ${opp.symbol}: ${err instanceof Error ? err.message : String(err)}`);
+          const errMsg = err instanceof Error ? err.message : String(err);
+          this.logger.error(`Failed to process entry for ${opp.symbol}: ${errMsg}`);
+
+          // Also cooldown on exceptions to avoid tight-looping on unexpected errors
+          const cooldownMinutes = 2;
+          this.entryCooldowns.set(opp.symbol, Date.now() + cooldownMinutes * 60 * 1000);
         } finally {
           this.positionTracker.setEntering(opp.symbol, false);
         }

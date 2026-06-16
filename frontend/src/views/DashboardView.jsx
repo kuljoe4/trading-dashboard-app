@@ -11,7 +11,7 @@ import {
   ChevronLeft, Plus, Trash2, LayoutDashboard, History,
   Settings as SettingsIcon, Activity, Zap, ShieldCheck,
   BarChart3, XCircle, Pause, Play, Edit3, RefreshCw, Leaf,
-  Briefcase, TrendingUp, ArrowRight
+  Briefcase, TrendingUp, ArrowRight, AlertCircle
 } from 'lucide-react'
 import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -409,7 +409,7 @@ export function DashboardView({ initialStrategy }) {
 
   const {
     sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
-    totalSlUsed, activeTrades, config, setSessionActive,
+    totalSlUsed, activeTrades, alerts, config, setSessionActive,
     updateConfig, patchConfig, gateState, gateReason, hibernating,
     scannerPaused, sessionList, fetchSessions, wsStatus,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
@@ -431,6 +431,7 @@ export function DashboardView({ initialStrategy }) {
     gateReason: state.gateReason,
     hibernating: state.hibernating,
     scannerPaused: state.scannerPaused,
+            alerts: state.alerts,
     sessionList: state.sessionList,
     fetchSessions: state.fetchSessions,
     wsStatus: state.wsStatus,
@@ -719,6 +720,31 @@ export function DashboardView({ initialStrategy }) {
         </ViewHeader>
 
         <div aria-live="polite">
+          <AnimatePresence mode="popLayout">
+            {alerts && alerts.map(alert => (
+              <motion.div
+                key={alert.id}
+                initial={{ opacity: 0, x: 20, scale: 0.95 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className={cn(
+                  "p-4 rounded-2xl mb-4 border shadow-lg flex flex-col gap-1 relative overflow-hidden",
+                  alert.level === 'error' ? "bg-red/10 border-red/30 text-red" :
+                  alert.level === 'warn' ? "bg-amber/10 border-amber/30 text-amber" :
+                  "bg-accent/10 border-accent/30 text-accent"
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  {alert.level === 'error' ? <XCircle size={18} /> : <AlertCircle size={18} />}
+                  <span className="text-sm font-black uppercase tracking-tight">{alert.title || 'System Alert'}</span>
+                  {alert.symbol && <span className="ml-auto bg-surface/50 px-2 py-0.5 rounded text-[10px] font-mono">{alert.symbol}</span>}
+                </div>
+                <p className="text-xs font-bold pl-7 pr-4 opacity-90">{alert.message}</p>
+                <div className="absolute bottom-0 left-0 h-0.5 bg-current opacity-20 animate-shrink-width" style={{ animationDuration: '10s' }} />
+              </motion.div>
+            ))}
+          </AnimatePresence>
+
           <GateBanner
             gateState={gateState}
             scannerPaused={scannerPaused}

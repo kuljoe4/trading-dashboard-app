@@ -27,6 +27,8 @@ export class OrderManagerService {
 
   private consecutiveFailures = 0;
   private readonly MAX_CONSECUTIVE_FAILURES = 3;
+  private circuitBreakerTrippedAt = 0;
+  private readonly CIRCUIT_BREAKER_RESET_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 
   constructor(
     private readonly signalEngine: SignalEngineService,
@@ -114,12 +116,31 @@ export class OrderManagerService {
   }
 
   private checkCircuitBreaker(): boolean {
-    return this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES;
+    if (this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES) {
+      const now = Date.now();
+      if (now - this.circuitBreakerTrippedAt > this.CIRCUIT_BREAKER_RESET_TIMEOUT) {
+        this.logger.log('Circuit breaker auto-reset timeout reached. Attempting recovery...');
+        this.recordSuccess();
+        return false;
+      }
+      return true;
+    }
+    return false;
   }
 
-  private recordFailure() {
+  private recordFailure(isSystemic = true) {
+    if (!isSystemic) {
+      this.logger.debug('Non-systemic failure recorded. Not incrementing global circuit breaker.');
+      return;
+    }
+
     this.consecutiveFailures++;
-    this.logger.warn(`Failure recorded. Consecutive failures: ${this.consecutiveFailures}`);
+    if (this.consecutiveFailures === this.MAX_CONSECUTIVE_FAILURES) {
+      this.circuitBreakerTrippedAt = Date.now();
+      this.logger.error(`CRITICAL: Global Circuit Breaker TRIPPED after ${this.consecutiveFailures} consecutive systemic failures.`);
+    } else {
+      this.logger.warn(`Systemic failure recorded. Consecutive failures: ${this.consecutiveFailures}/${this.MAX_CONSECUTIVE_FAILURES}`);
+    }
   }
 
   private recordSuccess() {
@@ -573,7 +594,13 @@ export class OrderManagerService {
           this.logger.error(agreementMsg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: agreementMsg, level: 'error' });
 
-          this.recordFailure();
+          const isSystemic = !errMsg.includes('agreement') &&
+                             !errMsg.includes('balance') &&
+                             !errMsg.includes('Margin') &&
+                             !errMsg.includes('PERCENT_PRICE') &&
+                             !errMsg.includes('leverage') &&
+                             !errMsg.includes('position');
+          this.recordFailure(isSystemic);
           return { status: ExecutionStatus.ORDER_REJECTED, error: agreementMsg };
         }
         }

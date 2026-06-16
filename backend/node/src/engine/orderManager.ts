@@ -47,9 +47,11 @@ export class OrderManagerService {
     const orderId = String(order.i);
     const side = order.S;
     const type = order.ot;
+    const executionType = order.x; // Execution Type
 
     // Proactively update weight from WS message if available
-    if (status === 'FILLED') {
+    // Guideline: Only process fills if executionType is 'TRADE'
+    if (status === 'FILLED' && executionType === 'TRADE') {
       const activeTrades = this.sessionState.activeTrades;
       const trade = activeTrades.find(t => t.symbol === symbol);
 
@@ -369,6 +371,7 @@ export class OrderManagerService {
             quantity: qty.toFixed(qtyPrecision),
             newOrderRespType: 'RESULT',
             newClientOrderId: entryOrderId,
+            selfTradePreventionMode: 'EXPIRE_MAKER', // Hardening: Prevent self-trading
           };
 
           this.logger.log(`Placing entry order (Attempt ${attempts}): ${JSON.stringify(entryOrder)}`);
@@ -450,7 +453,7 @@ export class OrderManagerService {
             const warningThreshold = metadata.strategy_config?.slippage_warning_threshold ?? 0.001;
             const abortThreshold = Math.min(metadata.strategy_config?.slippage_abort_threshold ?? CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT, CONFIG_LIMITS.SLIPPAGE_ABORT_MAX);
 
-            this.logger.debug(`[Entry] Slippage for ${symbol}: ${(slippage * 100).toFixed(4)}% (Warning: ${(warningThreshold * 100).toFixed(2)}%, Abort: ${(abortThreshold * 100).toFixed(2)}%)`);
+            this.logger.log(`[Entry] Execution for ${symbol}: Target ${entryPrice}, Actual ${absoluteEntryPrice.toFixed(8)} (Slippage: ${(slippage * 100).toFixed(4)}%)`);
 
             if (slippage > abortThreshold) {
               const abortMsg = `[CRITICAL] Slippage for ${symbol} (${(slippage * 100).toFixed(2)}%) exceeded abort threshold (${(abortThreshold * 100).toFixed(2)}%). Unwinding immediately.`;
@@ -459,14 +462,21 @@ export class OrderManagerService {
 
               // Unwind logic
               try {
-                await this.closeTrade(symbol, trade, absoluteEntryPrice, 'SLIPPAGE_ABORT', false, false);
+                const unwindRes = await this.closeTrade(symbol, trade, absoluteEntryPrice, 'SLIPPAGE_ABORT', false, false);
+                if (!unwindRes.exitOccurred) {
+                  this.logger.error(`[FATAL] Slippage abort unwind FAILED for ${symbol}. Position may be lingering!`);
+                  this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+                    msg: `FATAL: Slippage abort unwind failed for ${symbol}. Please check exchange immediately.`,
+                    level: 'error'
+                  });
+                }
                 return { status: ExecutionStatus.ORDER_REJECTED, error: `Slippage abort: ${(slippage * 100).toFixed(2)}%` };
               } catch (unwindErr) {
-                this.logger.error(`Slippage unwind failed for ${symbol}: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);
+                this.logger.error(`Slippage unwind exception for ${symbol}: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);
                 throw unwindErr;
               }
             } else if (slippage > warningThreshold) {
-              this.logger.warn(`Slippage warning for ${symbol}: Estimated ${entryPrice}, Actual ${absoluteEntryPrice} (Delta: ${(slippage * 100).toFixed(2)}%)`);
+              this.logger.warn(`Slippage warning for ${symbol}: Delta ${(slippage * 100).toFixed(2)}% exceeds threshold ${(warningThreshold * 100).toFixed(2)}%`);
             }
             trade.entry_price = roundEight(absoluteEntryPrice);
           }
@@ -588,13 +598,18 @@ export class OrderManagerService {
     slPrice = filtered.price;
 
     // IMMEDIATE TRIGGER GUARD: Check if current price already breached SL
-    // The guard needs to compare against the actual fill price if provided, not just the cached ticker.
-    const ticker = this.tickerCache.getTicker(trade.symbol);
-    const currentPrice = fillPrice || ticker?.mark_price || ticker?.price;
-    if (currentPrice) {
+    // Fix A: Prioritize the authoritative fillPrice and IGNORE the ticker cache if fillPrice is provided.
+    // This prevents race conditions where the ticker cache still reflects pre-execution prices.
+    let currentPrice = fillPrice;
+    if (currentPrice === undefined || currentPrice === 0) {
+      const ticker = this.tickerCache.getTicker(trade.symbol);
+      currentPrice = ticker?.mark_price || ticker?.price;
+    }
+
+    if (currentPrice && currentPrice > 0) {
       const isBreached = trade.direction === 'LONG' ? currentPrice <= slPrice : currentPrice >= slPrice;
       if (isBreached) {
-        this.logger.warn(`[${trade.id.substring(0, 8)}] ${trade.symbol} SL ${slPrice} already breached by price ${currentPrice}. Triggering immediate local close.`);
+        this.logger.warn(`[${trade.id.substring(0, 8)}] ${trade.symbol} SL ${slPrice} already breached by price ${currentPrice} (using authoritative guard). Triggering immediate local close.`);
         this.eventEmitter.emit('trade.exchange_close', {
           symbol: trade.symbol,
           exitPrice: currentPrice,
@@ -633,16 +648,17 @@ export class OrderManagerService {
       const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
 
       // INDUSTRY-BEST-PRACTICE: For Stop Loss, use closePosition: true.
-      // BOLT: Also provide explicit quantity as a fallback to ensure compatibility with all symbols/endpoints.
-      const slOrderParams = {
+      // Fix: When closePosition is true, quantity must NOT be sent for STOP_MARKET orders on Binance Futures.
+      // This avoids "Order type not supported" errors on certain account configurations.
+      const slOrderParams: any = {
         symbol: trade.symbol,
         side: closeDirection as any,
         type: 'STOP_MARKET',
-        quantity: (trade.qty || 0).toFixed(qtyPrecision),
         stopPrice: slPrice.toFixed(pricePrecision),
         closePosition: true,
         workingType: 'MARK_PRICE' as any,
         newClientOrderId: `sl-${trade.id.substring(0, 8)}`,
+        selfTradePreventionMode: 'EXPIRE_MAKER', // Hardening: Prevent self-trading
       };
 
       this.logger.log(`Placing Binance SL order: ${JSON.stringify(slOrderParams)}`);
@@ -1144,6 +1160,7 @@ export class OrderManagerService {
               reduceOnly: true,
               newOrderRespType: 'RESULT',
               newClientOrderId: clientOrderId,
+              selfTradePreventionMode: 'EXPIRE_MAKER', // Hardening: Prevent self-trading
             });
 
             this.updateWeight(response?.headers);

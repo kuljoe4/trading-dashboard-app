@@ -85,6 +85,10 @@ describe('OrderManagerService', () => {
         })
       );
 
+      // Fix B Verification: Verify quantity is NOT sent for closePosition orders
+      const slCall = mockBinanceClient.restAPI.tradeApi.newOrder.mock.calls[1][0];
+      expect(slCall).not.toHaveProperty('quantity');
+
       expect(trade?.binance_stop_order_id).toBe('mock_order_id');
     });
 
@@ -204,6 +208,50 @@ describe('OrderManagerService', () => {
       // Session termination
       const resultTerm = await service.closeTrade('BTCUSDT', { ...trade }, 51000, 'SESSION_TERMINATED');
       expect(resultTerm.trade.status).toBe('CLOSED');
+    });
+  });
+
+  describe('Fix A: Authoritative Guard', () => {
+    it('uses authoritative fillPrice even if ticker cache is breached', async () => {
+      const trade = {
+        id: 'test-id-authoritative',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 0.1,
+        binance_order_id: 'mock_order_id'
+      } as Trade;
+
+      // Mock breached price in ticker cache (49400 < SL 49500)
+      (service as any).tickerCache.getTicker.mockReturnValue({ mark_price: 49400 });
+
+      // Mock marketFeed to return filters for the symbol so it doesn't fail early
+      (service as any).marketFeed.getSymbolFilters = jest.fn().mockReturnValue({ filters: [] });
+      await service.setBinanceClient(mockBinanceClient, false); // Live mode
+
+      // authoritative fillPrice is safe (50000 > SL 49500)
+      const result = await service.placeStopLoss(trade, 49500, 50000);
+
+      expect(result).toBe('mock_order_id');
+      expect(mockBinanceClient.restAPI.tradeApi.newOrder).toHaveBeenCalled();
+    });
+
+    it('triggers locally if authoritative fillPrice is breached even if ticker is safe', async () => {
+      const trade = {
+        id: 'test-id-breached',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 0.1,
+        binance_order_id: 'mock_order_id'
+      } as Trade;
+
+      // Mock safe price in ticker cache (50000 > SL 49500)
+      (service as any).tickerCache.getTicker.mockReturnValue({ mark_price: 50000 });
+
+      // authoritative fillPrice is breached (49400 < SL 49500)
+      const result = await service.placeStopLoss(trade, 49500, 49400);
+
+      expect(result).toBe('TRIGGERED_LOCALLY');
+      expect(mockBinanceClient.restAPI.tradeApi.newOrder).not.toHaveBeenCalled();
     });
   });
 

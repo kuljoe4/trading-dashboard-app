@@ -203,6 +203,7 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
             <span>{subValue}</span>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

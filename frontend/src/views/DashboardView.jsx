@@ -35,9 +35,7 @@ const TemporalRiskGrid = React.memo(() => {
   const waitTime = timeMatch ? `${timeMatch[1]}${timeMatch[2]}` : null;
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 md:gap-4 mb-8 lg:mb-10">
-      <div className="contents md:hidden" /> {/* Spacer for mobile layout alignment */}
-
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4 mb-8 lg:mb-10">
       <InteractiveLimitCard
         label="Period Limit"
         subValue={gateState === 'max_trades_period' ? `Wait ~${waitTime}` : (isAdaptiveTightened ? 'x0.5 Applied' : (tradesInPeriod !== undefined ? `${Math.max(0, (maxTradesPeriod || config.max_trades_per_period) - tradesInPeriod)} Remaining` : null))}
@@ -739,7 +737,7 @@ export function DashboardView({ initialStrategy }) {
             <SectionLabel className="mb-4">
               <Activity size={14} className="text-accent" /> Global Metrics
             </SectionLabel>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 gap-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 gap-y-4">
               <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} tooltipText="Total available funds in the trading account." />
               <StatCard
                 label="Active P&L"
@@ -778,7 +776,7 @@ export function DashboardView({ initialStrategy }) {
 
 
         {/* Main Grid */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 items-start gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 items-start gap-6">
 
           {/* Left Workspace */}
           <div className="flex flex-col gap-6 lg:gap-10 no-scrollbar overflow-hidden">
@@ -788,7 +786,7 @@ export function DashboardView({ initialStrategy }) {
               transition={{ delay: 0.3 }}
             >
               <SectionLabel>Active Strategy</SectionLabel>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {sessionActive ? (
                   <>
                     <StrategyCard
@@ -834,7 +832,7 @@ export function DashboardView({ initialStrategy }) {
                     disabled={loading || isSyncing}
                     aria-label="Create new trading session"
                     className={cn(
-                      "bg-background border-2 border-dashed border-border rounded-2xl p-6 flex flex-col items-center justify-center gap-4 text-dim transition-all group min-h-[200px] col-span-1 md:col-span-2 lg:col-span-3 w-full",
+                      "bg-background border-2 border-dashed border-border rounded-2xl p-6 flex flex-col items-center justify-center gap-4 text-dim transition-all group min-h-[200px] col-span-1 md:col-span-2 w-full",
                       (loading || isSyncing) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
                     )}
                   >

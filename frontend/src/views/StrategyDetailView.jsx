@@ -44,7 +44,7 @@ const StrategyDetailView = ({ s, onBack }) => {
          </div>
       </ViewHeader>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-10">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-10">
         <StatCard
           label="Active P&L"
           value={fmtUSD(s.activePnl)}

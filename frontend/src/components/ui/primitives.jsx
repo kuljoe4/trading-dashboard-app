@@ -60,7 +60,7 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
   return (
     <div
       className={cn(
-        "bg-surface border p-3 md:p-5 rounded-2xl shadow-sm transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[100px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+        "bg-surface border p-3 md:p-4 lg:p-5 rounded-2xl shadow-sm transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[80px] lg:min-h-[100px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
         isLocked ? "border-border/60" : "border-accent/40 bg-accent/[0.02] shadow-[0_0_20px_rgba(91,111,255,0.05)]",
         disabled && "opacity-40 grayscale pointer-events-none",
         usagePct >= 90 && "border-red/40 bg-red/[0.02] shadow-[0_0_20px_rgba(255,68,102,0.1)] animate-pulse-slow",
@@ -103,9 +103,9 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
           </button>
         </div>
         <div className="flex items-center w-full gap-2">
-          <div className="flex flex-col flex-grow">
+          <div className="flex flex-col flex-grow min-w-0">
             <div className={cn(
-              "text-sm md:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate",
+              "text-sm md:text-base lg:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate",
               isLocked ? "text-dim/60" : "text-text",
               syncing && "opacity-40 blur-[1px]"
             )}>
@@ -175,7 +175,7 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
 
   return (
     <div
-      className="bg-surface border border-border/60 p-3 md:p-5 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[100px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+      className="bg-surface border border-border/60 p-3 md:p-4 lg:p-5 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[80px] lg:min-h-[100px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
       role="region"
       aria-label={`${label}: ${value}`}
       aria-busy={syncing}
@@ -189,7 +189,7 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
             {tooltipText && <Tooltip content={tooltipText}><Info size={10} className="text-dim hover:text-accent cursor-help" /></Tooltip>}
         </div>
         <div className={cn(
-          "text-sm md:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate",
+          "text-sm md:text-base lg:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate",
           color,
           syncing && "opacity-40 blur-[1px]"
         )}>{sanitizedValue}</div>

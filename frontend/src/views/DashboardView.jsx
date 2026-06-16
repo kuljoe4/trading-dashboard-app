@@ -122,7 +122,7 @@ const LoadingFallback = () => (
 )
 
 // --- Strategy Card ---
-const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner }) => {
+const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner, className }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
@@ -146,7 +146,8 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
         "bg-surface border border-border/40 rounded-2xl p-5 md:p-6 cursor-pointer transition-all relative group shadow-sm h-full focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none min-w-0",
         tradingMode === 'paper' ? "hover:border-amber/30 hover:shadow-amber/5" :
         tradingMode === 'testnet' ? "hover:border-purple/30 hover:shadow-purple/5" :
-        "hover:border-green/30 hover:shadow-green/5"
+        "hover:border-green/30 hover:shadow-green/5",
+        className
       )}
     >
       {paused && (
@@ -789,42 +790,51 @@ export function DashboardView({ initialStrategy }) {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {sessionActive ? (
                   <>
-                    <StrategyCard
-                      s={{
-                        ...currentStrategy,
-                        ...safeVariantStats[currentStrategy.strategy_label],
-                        activePnl: activePnlMap[currentStrategy.strategy_label] || 0
-                      }}
-                      scannerResults={variantScannerResults[currentStrategy.strategy_label]}
-                      config={config}
-                      paused={sessionPaused}
-                      onPause={togglePause}
-                      onOpenScanner={() => setShowScanner(true)}
-                      onEdit={() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }}
-                      onClick={() => setSelected(currentStrategy.strategy_label)}
-                    />
-                    {(config.strategy_variants || []).filter(v => v.enabled !== false).map((variant, i) => {
-                      const label = variant.strategy_label || `Variant ${i + 1}`;
-                      const variantConfig = { ...config, ...variant };
+                    {(() => {
+                      const activeVariants = (config.strategy_variants || []).filter(v => v.enabled !== false);
+                      const totalCards = 1 + activeVariants.length;
                       return (
-                        <StrategyCard
-                          key={i}
-                          s={{
-                            ...currentStrategy,
-                            strategy_label: label,
-                            ...safeVariantStats[label],
-                            activePnl: activePnlMap[label] || 0
-                          }}
-                          scannerResults={variantScannerResults[label]}
-                          config={variantConfig}
-                          paused={sessionPaused}
-                          onPause={togglePause}
-                          onOpenScanner={() => setShowScanner(true)}
-                          onEdit={() => { setIsEditMode(true); setSelectedConfig(variantConfig); setEditingVariantIndex(i); setShowConfig(true); }}
-                          onClick={() => setSelected(label)}
-                        />
+                        <>
+                          <StrategyCard
+                            s={{
+                              ...currentStrategy,
+                              ...safeVariantStats[currentStrategy.strategy_label],
+                              activePnl: activePnlMap[currentStrategy.strategy_label] || 0
+                            }}
+                            scannerResults={variantScannerResults[currentStrategy.strategy_label]}
+                            config={config}
+                            paused={sessionPaused}
+                            onPause={togglePause}
+                            onOpenScanner={() => setShowScanner(true)}
+                            onEdit={() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }}
+                            onClick={() => setSelected(currentStrategy.strategy_label)}
+                            className={cn(totalCards % 2 !== 0 && "md:col-span-2")}
+                          />
+                          {activeVariants.map((variant, i) => {
+                            const label = variant.strategy_label || `Variant ${i + 1}`;
+                            const variantConfig = { ...config, ...variant };
+                            return (
+                              <StrategyCard
+                                key={i}
+                                s={{
+                                  ...currentStrategy,
+                                  strategy_label: label,
+                                  ...safeVariantStats[label],
+                                  activePnl: activePnlMap[label] || 0
+                                }}
+                                scannerResults={variantScannerResults[label]}
+                                config={variantConfig}
+                                paused={sessionPaused}
+                                onPause={togglePause}
+                                onOpenScanner={() => setShowScanner(true)}
+                                onEdit={() => { setIsEditMode(true); setSelectedConfig(variantConfig); setEditingVariantIndex(i); setShowConfig(true); }}
+                                onClick={() => setSelected(label)}
+                              />
+                            );
+                          })}
+                        </>
                       );
-                    })}
+                    })()}
                   </>
                 ) : (
                   <button

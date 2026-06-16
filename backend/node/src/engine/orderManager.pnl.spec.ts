@@ -42,19 +42,14 @@ describe('OrderManagerService - PnL Consistency', () => {
 
     mockBinanceClient = {
       restAPI: {
-        tradeApi: {
-          newOrder: jest.fn(),
-          newAlgoOrder: jest.fn(),
-          cancelOrder: jest.fn(),
-          cancelAlgoOrder: jest.fn(),
-          positionInformationV3: jest.fn(),
-          placeMultipleOrders: jest.fn(),
-          accountTradeList: jest.fn(),
-          queryOrder: jest.fn(),
-        },
-        accountApi: {
-          futuresPositionRiskV2: jest.fn(),
-        }
+        newOrder: jest.fn(),
+        cancelOrder: jest.fn(),
+        positionInformationV3: jest.fn(),
+        accountTradeList: jest.fn(),
+        queryOrder: jest.fn(),
+        userCommissionRate: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ takerCommissionRate: '0.0004' }) }),
+        modifyOrder: jest.fn(),
+        currentAllOpenOrders: jest.fn(),
       },
     };
   });
@@ -77,12 +72,12 @@ describe('OrderManagerService - PnL Consistency', () => {
     const exitPrice = 49500;
 
     // Simulate Binance rejecting the close order because position is already closed
-    mockBinanceClient.restAPI.tradeApi.newOrder.mockRejectedValue(new Error('Position side does not match'));
-    mockBinanceClient.restAPI.tradeApi.positionInformationV3.mockResolvedValue({
+    mockBinanceClient.restAPI.newOrder.mockRejectedValue(new Error('Position side does not match'));
+    mockBinanceClient.restAPI.positionInformationV3.mockResolvedValue({
       data: () => Promise.resolve([{ positionAmt: '0', positionSide: 'BOTH' }]),
       headers: { get: (k: string) => (k === 'X-MBX-USED-WEIGHT-1M' ? '10' : null) }
     });
-    mockBinanceClient.restAPI.tradeApi.cancelOrder.mockResolvedValue({
+    mockBinanceClient.restAPI.cancelOrder.mockResolvedValue({
       data: () => Promise.resolve({}),
       headers: { get: (k: string) => (k === 'X-MBX-USED-WEIGHT-1M' ? '10' : null) }
     });
@@ -117,7 +112,7 @@ describe('OrderManagerService - PnL Consistency', () => {
     const exitPrice = 51000;
 
     // Simulate failure in live mode but passing paperMode=true to closeTrade
-    mockBinanceClient.restAPI.tradeApi.newOrder.mockRejectedValue(new Error('API Error'));
+    mockBinanceClient.restAPI.newOrder.mockRejectedValue(new Error('API Error'));
 
     const result = await service.closeTrade('BTCUSDT', trade, exitPrice, 'MANUAL_CLOSE', true);
 

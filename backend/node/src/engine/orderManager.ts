@@ -661,7 +661,7 @@ export class OrderManagerService {
         side: closeDirection,
         type: 'STOP_MARKET',
         stopPrice: parseFloat(slPrice.toFixed(pricePrecision)),
-        closePosition: 'true',
+        closePosition: true,
         workingType: 'MARK_PRICE',
         newClientOrderId: `sl-${trade.id.substring(0, 8)}`,
         selfTradePreventionMode: 'EXPIRE_MAKER', // Hardening: Prevent self-trading
@@ -1200,7 +1200,7 @@ export class OrderManagerService {
               side: closeDirection,
               type: 'MARKET',
               quantity: parseFloat((trade.qty || 0).toFixed(precision)),
-              reduceOnly: 'true',
+              reduceOnly: true,
               newOrderRespType: 'RESULT',
               newClientOrderId: clientOrderId,
               selfTradePreventionMode: 'EXPIRE_MAKER', // Hardening: Prevent self-trading

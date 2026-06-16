@@ -12,8 +12,8 @@ importers:
   .:
     dependencies:
       '@binance/derivatives-trading-usds-futures':
-        specifier: ^29.0.0
-        version: 29.0.2
+        specifier: ^31.0.0
+        version: 31.0.0
       '@nestjs/common':
         specifier: ^10.3.0
         version: 10.4.22(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -276,8 +276,8 @@ packages:
   '@binance/common@2.4.0':
     resolution: {integrity: sha512-4vA1CDL4jo7Zt4/amCLoTOeptPuDtGMU09y/2lJCWP4E0+0zOWEB6upCsiA++abmQHtMlEYa3Y+tMPoqHHvRDQ==}
 
-  '@binance/derivatives-trading-usds-futures@29.0.2':
-    resolution: {integrity: sha512-tSkOSKKrVx6SSrEzmBzJcvJr0hnV6qEFQdZAJpKkSF5DnbxQkJakzSD2bsQSK6AD0A7EwI6zJpvRsfNRD7gMqg==}
+  '@binance/derivatives-trading-usds-futures@31.0.0':
+    resolution: {integrity: sha512-imhOHEKzt+ku/ZFHvRSdAJMeKhABBvQiBo7aJ30H0IwYkrsFEMLPJ+CrDZwpaqa61iDTpGMcwmp9860VUvz4cw==}
 
   '@borewit/text-codec@0.2.2':
     resolution: {integrity: sha512-DDaRehssg1aNrH4+2hnj1B7vnUGEjU6OIlyRdkMd0aUdIUvKXrJfXsy8LVtXAy7DRvYVluWbMspsRhz2lcW0mQ==}
@@ -2737,7 +2737,7 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@binance/derivatives-trading-usds-futures@29.0.2':
+  '@binance/derivatives-trading-usds-futures@31.0.0':
     dependencies:
       '@binance/common': 2.4.0
       '@types/ws': 8.18.1

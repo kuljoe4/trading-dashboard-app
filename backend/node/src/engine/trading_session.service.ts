@@ -466,7 +466,7 @@ export class TradingSessionService {
     if (!this.binanceClient) return 0;
     try {
       this.monitoringService.incrementApiRequests();
-      const res = await this.binanceClient.restAPI.accountApi.futuresAccountBalanceV2();
+      const res = await this.binanceClient.restAPI.futuresAccountBalanceV2();
 
       // Update weight if headers are present
       const weight = typeof res?.headers?.get === 'function'
@@ -474,7 +474,7 @@ export class TradingSessionService {
         : (res?.headers?.['x-mbx-used-weight-1m'] || res?.headers?.['X-MBX-USED-WEIGHT-1M']);
       if (weight) this.sessionState.updateRateLimit(parseInt(weight, 10));
 
-      const data = typeof res?.data === 'function' ? await res.data() : (res?.data || res);
+      const data = await res.data() as any;
       const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
       return usdt ? parseFloat(usdt.balance || 0) : 0;
     } catch (e: any) {

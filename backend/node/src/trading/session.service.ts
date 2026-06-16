@@ -241,12 +241,13 @@ export class SessionService implements OnModuleInit {
         const startingBalance = (session.config?.paper_starting_balance || 10000);
         realizedPnl = roundEight(balance - startingBalance);
       } else {
-        // Live/Testnet: Sum all terminal trades for this session using optimized DB aggregation
+        // Live/Testnet: Sum all trades (including OPEN) for this session using optimized DB aggregation
+        // This ensures that fees and funding from active trades are reflected in totalPnl immediately.
         const aggregation = await queryRunner.manager
           .createQueryBuilder(TradeEntity, 'trade')
           .select('SUM(trade.pnl)', 'sum')
           .where('trade.sessionId = :sessionId', { sessionId })
-          .andWhere('trade.status IN (:...statuses)', { statuses: TERMINAL_STATUSES })
+          .andWhere('trade.status IN (:...statuses)', { statuses: [...TERMINAL_STATUSES, 'OPEN'] })
           .getRawOne();
 
         realizedPnl = roundEight(Number(aggregation?.sum || 0));
@@ -635,7 +636,7 @@ export class SessionService implements OnModuleInit {
       const aggregation = await this.tradeRepository.createQueryBuilder('trade')
         .select('SUM(trade.pnl)', 'sum')
         .where('trade.sessionId = :sessionId', { sessionId: this.currentSessionId })
-        .andWhere('trade.status IN (:...statuses)', { statuses: TERMINAL_STATUSES })
+        .andWhere('trade.status IN (:...statuses)', { statuses: [...TERMINAL_STATUSES, 'OPEN'] })
         .getRawOne();
       const realizedPnl = roundEight(Number(aggregation?.sum || 0));
       await this.sessionRepository.update(this.currentSessionId!, { totalPnl: realizedPnl });

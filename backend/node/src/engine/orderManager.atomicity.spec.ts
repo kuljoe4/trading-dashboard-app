@@ -29,8 +29,10 @@ describe('OrderManagerService Atomicity', () => {
     };
     mockSessionState = {
       isRateLimited: jest.fn().mockReturnValue(false),
+      isOrderRateLimited: jest.fn().mockReturnValue(false),
       binanceRateLimit: { used_1m: 0, limit: 2400 },
       updateRateLimit: jest.fn(),
+      updateOrderRateLimits: jest.fn(),
       realTimePositions: new Map()
     };
     mockAuditLog = {

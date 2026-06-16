@@ -238,7 +238,8 @@ export class TradingSessionService {
     await this.sessionLifecycle.stop(this.binanceClient, this.sessionId || undefined, this.config || undefined);
 
     this.sessionState.setActiveTrades([]);
-    // BOLT: minimizeMemoryUsage() clears appliedPnL, which is fine after session stop
+    // BOLT: Clear appliedPnL on stop as it's session-transient
+    this.appliedPnL.clear();
     this.minimizeMemoryUsage();
     this.sessionState.minimize();
     this.tickerCache.clear();
@@ -578,7 +579,6 @@ export class TradingSessionService {
    */
   minimizeMemoryUsage() {
     this.activeWindows.clear();
-    this.appliedPnL.clear();
     this.lastScannerResults = [];
     this.lastVariantScannerResults = [];
     this.lastScannerResultsJson = '';

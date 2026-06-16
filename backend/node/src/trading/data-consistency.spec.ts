@@ -143,10 +143,11 @@ describe('SessionService Data Consistency Fixes', () => {
         config: { live_starting_balance: 1000 }
     });
 
+    const andWhereSpy = jest.fn().mockReturnThis();
     manager.createQueryBuilder.mockReturnValue({
         select: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
-        andWhere: jest.fn().mockReturnThis(),
+        andWhere: andWhereSpy,
         getRawOne: jest.fn().mockResolvedValue({ sum: '100' }),
     });
 
@@ -160,5 +161,13 @@ describe('SessionService Data Consistency Fixes', () => {
         id: 'trade-open',
         pnl: 15.5
     }));
+
+    // Verify that the summation includes OPEN trades
+    expect(andWhereSpy).toHaveBeenCalledWith(
+        'trade.status IN (:...statuses)',
+        expect.objectContaining({
+            statuses: expect.arrayContaining(['OPEN'])
+        })
+    );
   });
 });

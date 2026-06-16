@@ -60,8 +60,10 @@ describe('MomentumScannerService Environment Filtering', () => {
         { incrementApiRequests: jest.fn() } as any, // monitoringService
         {
           isRateLimited: () => false,
+          isOrderRateLimited: () => false,
           binanceRateLimit: { used_1m: 0, limit: 2400 },
           updateRateLimit: jest.fn(),
+          updateOrderRateLimits: jest.fn(),
           realTimePositions: new Map()
         } as any, // sessionState
         mockAuditLog as any,
@@ -83,6 +85,9 @@ describe('MomentumScannerService Environment Filtering', () => {
     expect(result.status).toBe('ORDER_REJECTED');
     expect(result.error).toContain('not tradable');
 
+    // Mock getTicker and newOrder to return reasonable price for slippage check
+    (orderManager as any).tickerCache.getTicker = jest.fn().mockReturnValue({ price: 1, symbol: 'TRADABLE' });
+    mockRest.tradeApi.newOrder.mockResolvedValue({ data: () => Promise.resolve({ orderId: 'mock', avgPrice: '1', executedQty: '100' }), headers: {} });
     const resultSuccess = await orderManager.enter('sess', 'TRADABLE', 'LONG', 1, 100, 0.5, 2);
     // Should be SUCCESS now that we mocked changeInitialLeverage and newOrder correctly
     expect(resultSuccess.status).toBe('SUCCESS');

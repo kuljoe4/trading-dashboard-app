@@ -95,8 +95,8 @@ describe('MarketFeedService Leak Fixes', () => {
     // Mock existing candles where the MOST RECENT (at index 0) is fresh
     // The check is: lastCandle.time + intervalMs >= Date.now() - (intervalMs * 2)
     (klineStore.getRecentCandles as any).mockReturnValue([
-      { time: now - intervalMs * 100 },
-      { time: now }
+      { time: now },
+      { time: now - intervalMs * 100 }
     ]);
 
     (service as any).running = true;

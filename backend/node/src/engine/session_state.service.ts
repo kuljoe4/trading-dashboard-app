@@ -173,6 +173,7 @@ export class SessionStateService {
   getBinanceRateLimit() {
     return {
       used_weight_1m: this.binanceRateLimit.used_1m,
+      limit: this.binanceRateLimit.limit,
       weight_limit: this.binanceRateLimit.limit,
       used_order_10s: this.binanceOrderLimit.used_10s,
       order_limit_10s: this.binanceOrderLimit.limit_10s,

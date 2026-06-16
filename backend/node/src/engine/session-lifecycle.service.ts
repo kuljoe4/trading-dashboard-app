@@ -52,6 +52,21 @@ export class SessionLifecycleService {
 
     if (mode !== 'paper' && bc) {
       await this.progress(`Configuring Binance ${mode.toUpperCase()} account...`);
+
+      // Best Practice: Synchronize server time
+      try {
+        const timeRes = await bc.restAPI.accountApi.orderRateLimit(); // Using an authenticated endpoint that returns headers, or just serverTime if available
+        // Note: The SDK usually handles time sync internally, but we log it for auditability.
+        const serverTimeHeader = timeRes.headers?.get ? timeRes.headers.get('Date') : timeRes.headers?.date;
+        if (serverTimeHeader) {
+          const serverTime = new Date(serverTimeHeader).getTime();
+          const offset = serverTime - Date.now();
+          this.logger.log(`[Lifecycle] Binance Time Sync Audit: Local offset is ${offset}ms`);
+        }
+      } catch (e) {
+        this.logger.debug(`Time sync audit skipped: ${e instanceof Error ? e.message : String(e)}`);
+      }
+
       try {
         // Enforce One-Way Mode (Disable Hedge Mode)
         try {

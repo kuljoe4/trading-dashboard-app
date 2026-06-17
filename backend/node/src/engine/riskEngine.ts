@@ -344,7 +344,18 @@ export class RiskEngineService {
 
     // qty = risk_amount / (sl_distance)
     // For futures, adjust based on entry_price as well
-    const qty = roundEight(riskAmount / slDistance);
+    let qty = roundEight(riskAmount / slDistance);
+
+    // PERFORMANCE: Implement dynamic notional scaling floor.
+    // Binance absolute minimum for Futures is 5 USDT. We use 5.05 for a safety buffer.
+    const MIN_NOTIONAL = 5.05;
+    const currentNotional = qty * entryPrice;
+
+    if (currentNotional < MIN_NOTIONAL) {
+       this.logger.debug(`[RiskEngine] Scaled qty up to meet MIN_NOTIONAL (${currentNotional.toFixed(2)} -> ${MIN_NOTIONAL})`);
+       qty = roundEight(MIN_NOTIONAL / entryPrice);
+    }
+
     return qty;
   }
 

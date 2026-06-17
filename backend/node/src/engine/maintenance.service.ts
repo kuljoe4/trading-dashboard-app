@@ -40,23 +40,34 @@ export class MaintenanceService {
       const allPositions = await this.orderManager.fetchAllPositions();
       const activePositionsMap = new Map(allPositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0).map(p => [p.symbol, p]));
 
-      let slOrdersSymbols = new Set<string>();
+      let slOrdersBySymbol = new Map<string, any[]>();
 
       const isSlOrder = (o: any) => (o.type === 'STOP_MARKET' || o.type === 'STOP') && (o.closePosition === true || o.closePosition === 'true' || o.reduceOnly === true || o.reduceOnly === 'true');
 
       if (uniqueSymbols.length > 40) {
         const allOrders = await this.orderManager.fetchAllOpenOrders();
-        slOrdersSymbols = new Set(allOrders.filter(isSlOrder).map(o => o.symbol));
+        allOrders.filter(isSlOrder).forEach(o => {
+          const list = slOrdersBySymbol.get(o.symbol) || [];
+          list.push(o);
+          slOrdersBySymbol.set(o.symbol, list);
+        });
       } else {
         for (const symbol of uniqueSymbols) {
            const orders = await this.orderManager.fetchOpenOrders(symbol);
-           if (orders.some(isSlOrder)) slOrdersSymbols.add(symbol);
+           slOrdersBySymbol.set(symbol, orders.filter(isSlOrder));
         }
       }
 
       for (const trade of activeTrades) {
         try {
           if (!trade.binance_order_id) continue;
+
+          // Audit Item 13: Skip symbols undergoing ratchet updates to avoid desync race
+          if (this.orderManager.isRatcheting(trade.symbol)) {
+             this.logger.debug(`[Watchdog] Skipping audit for ${trade.symbol}: Ratchet update in progress.`);
+             continue;
+          }
+
           const pos = activePositionsMap.get(trade.symbol);
 
           if (!pos) {
@@ -70,10 +81,19 @@ export class MaintenanceService {
             continue;
           }
 
-          const hasProtection = slOrdersSymbols.has(trade.symbol);
+          const slOrders = slOrdersBySymbol.get(trade.symbol) || [];
+          const hasProtection = slOrders.some(o => String(o.orderId) === trade.binance_stop_order_id || o.clientOrderId === `sl-${(trade.id || '').substring(0, 8)}`);
 
           if (!hasProtection) {
-            this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} position found without SL order on Binance. Re-placing...`);
+            this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} position found without expected SL order on Binance. (Expected: ${trade.binance_stop_order_id}). Found: ${slOrders.length}. Re-placing...`);
+
+            // SECURITY: If we found orders that DON'T match our expected ID, they are likely orphans from a race condition.
+            // We should cancel them before placing a new authoritative one.
+            for (const orphan of slOrders) {
+               this.logger.log(`[Watchdog] Canceling orphan SL ${orphan.orderId} for ${trade.symbol} before re-protection.`);
+               await this.orderManager.cancelBinanceOrder(trade.symbol, String(orphan.orderId), 'standard');
+            }
+
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Watchdog] Missing SL detected for ${trade.symbol}. Recovering protection...`, level: 'warn' });
             await this.orderManager.placeStopLoss(trade, trade.current_sl);
           }

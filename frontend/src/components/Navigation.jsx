@@ -5,7 +5,7 @@ import { useTradingStore } from '../store/trading'
 import { cn, Tooltip } from './ui/primitives'
 
 export const Sidebar = ({ selected }) => {
-  const { wsStatus, sidebarCollapsed: collapsed, toggleSidebar, monitoring, rateLimit, rateLimitLastSync, gateState, isEcoMode, isSyncing, sessionActive } = useTradingStore()
+  const { wsStatus, sidebarCollapsed: collapsed, toggleSidebar, monitoring, rateLimit, rateLimitLastSync, gateState, isEcoMode, isSyncing, sessionActive, activeTrades } = useTradingStore()
   const [isHovered, setIsHovered] = React.useState(false)
   const isExpanded = !collapsed || isHovered
 
@@ -56,7 +56,14 @@ export const Sidebar = ({ selected }) => {
                 isActive(item.path) ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:bg-white/5 hover:text-text"
               )}
             >
-              <item.icon size={20} className="shrink-0" />
+              <div className="relative">
+                <item.icon size={20} className="shrink-0" />
+                {item.path === '/trades' && activeTrades?.length > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 bg-accent text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center border-2 border-surface shadow-sm animate-in zoom-in duration-300">
+                    {activeTrades.length}
+                  </span>
+                )}
+              </div>
               {isExpanded ? <span>{item.label}</span> : (
                 <span className="text-[7px] font-black uppercase tracking-tighter opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-1">{item.label}</span>
               )}
@@ -123,7 +130,7 @@ export const MobileHealthBar = () => {
 }
 
 export const BottomNav = ({ selected }) => {
-  const { wsStatus, monitoring, rateLimit, rateLimitLastSync, gateState, isEcoMode, healthEnabled, isSyncing } = useTradingStore()
+  const { wsStatus, monitoring, rateLimit, rateLimitLastSync, gateState, isEcoMode, healthEnabled, isSyncing, activeTrades } = useTradingStore()
   const isActive = (path) => {
     if (path === '/') return !selected && window.location.hash === '#/'
     return window.location.hash.startsWith(`#${path}`)
@@ -153,7 +160,14 @@ export const BottomNav = ({ selected }) => {
               isActive(item.path) ? "text-accent" : "text-dim hover:text-text"
             )}
           >
-            <item.icon size={20} />
+            <div className="relative">
+              <item.icon size={20} />
+              {item.path === '/trades' && activeTrades?.length > 0 && (
+                <span className="absolute -top-1.5 -right-2 bg-accent text-white text-[8px] font-black w-3.5 h-3.5 rounded-full flex items-center justify-center border border-surface shadow-sm animate-in zoom-in duration-300">
+                  {activeTrades.length}
+                </span>
+              )}
+            </div>
             <span className="text-[10px] font-bold uppercase tracking-widest">{item.label}</span>
           </button>
         ))}

@@ -256,8 +256,26 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     <div className="flex flex-col h-full bg-surface text-text overflow-hidden relative">
       <div className="sticky top-0 z-30 bg-surface/80 backdrop-blur-md border-b border-border">
         <div className="p-5 flex justify-between items-center">
-          <div><div className="text-lg font-bold">Configure Engine</div><div className="text-[11px] text-dim font-medium uppercase tracking-widest">Strategy Orchestration</div></div>
-          <button type="button" onClick={onClose} aria-label="Close configuration" className="p-2 hover:bg-white/5 rounded-full transition-colors"><X size={18} className="text-dim" /></button>
+          <div className="min-w-0 flex-1 mr-4">
+             <div className="text-lg font-black tracking-tight truncate uppercase flex items-center gap-2">
+               {cfg.strategy_label || 'Configure Engine'}
+               {isDirty && <span className="w-2 h-2 rounded-full bg-accent animate-pulse shrink-0" />}
+             </div>
+             <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2 truncate">
+               {isDirty ? (
+                 <span className="text-accent flex items-center gap-1.5 shrink-0">
+                   <Activity size={10} className="animate-pulse" /> Unsaved Changes
+                 </span>
+               ) : (
+                 <span className="flex items-center gap-1.5 shrink-0">
+                   <ShieldCheck size={10} className="text-green/60" /> Strategy Synced
+                 </span>
+               )}
+               <span className="opacity-40">/</span>
+               <span className="truncate">Orchestration Center</span>
+             </div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close configuration" className="p-2 hover:bg-white/5 rounded-full transition-colors shrink-0"><X size={18} className="text-dim" /></button>
         </div>
         <div className="flex gap-2 p-4 overflow-x-auto no-scrollbar touch-pan-x" data-vaul-no-drag>
           {[
@@ -701,8 +719,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                              {pMode === 'testnet' && <DemoBadge />}
                              {pMode === 'live' && <LiveBadge />}
                            </div>
-                           {loadedPresetName === p.name && isDirty && (
-                             <span className="text-[9px] bg-amber/10 text-amber px-1.5 py-0.5 rounded shrink-0">Modified</span>
+                           {loadedPresetName === p.name && (
+                             <span className={cn("text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase", isDirty ? "bg-amber/10 text-amber" : "bg-accent/10 text-accent")}>
+                               {isDirty ? "Modified" : "Current"}
+                             </span>
                            )}
                         </div>
                         <div className="text-[10px] text-dim font-bold uppercase tracking-tight">{p.config.scan_interval} · {p.config.scan_pct_threshold}% · {p.config.risk_pct_per_trade}% Risk</div>

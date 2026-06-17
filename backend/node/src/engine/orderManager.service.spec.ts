@@ -40,8 +40,43 @@ describe('OrderManagerService', () => {
         positionInformationV3: jest.fn().mockResolvedValue({ data: () => Promise.resolve([]), headers: {} }),
         accountTradeList: jest.fn().mockResolvedValue({ data: () => Promise.resolve([]), headers: {} }),
         currentAllOpenOrders: jest.fn().mockResolvedValue({ data: () => Promise.resolve([]), headers: {} }),
+        newAlgoOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ orderId: '77777' }), headers: {} }),
+        cancelAlgoOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
       },
     };
+  });
+
+  describe('Algo Order API Fallback', () => {
+    it('retries SL placement via newAlgoOrder if standard newOrder fails with Algo Order API error', async () => {
+      await service.setBinanceClient(mockBinanceClient, false); // Live mode
+
+      const trade = {
+        id: 'test-algo-id',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 0.1,
+        binance_order_id: '11111'
+      } as Trade;
+
+      // Mock standard newOrder failure
+      mockBinanceClient.restAPI.newOrder.mockRejectedValueOnce(new Error('Order type not supported for this endpoint. Please use the Algo Order API endpoints instead.'));
+
+      // Mock marketFeed to return filters
+      (service as any).marketFeed.getSymbolFilters = jest.fn().mockReturnValue({ filters: [] });
+
+      const result = await service.placeStopLoss(trade, 49500);
+
+      expect(mockBinanceClient.restAPI.newOrder).toHaveBeenCalled();
+      expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalledWith(
+        expect.objectContaining({
+          symbol: 'BTCUSDT',
+          algoType: 'CONDITIONAL',
+          clientAlgoId: 'sl-test-alg'
+        })
+      );
+      expect(result).toBe('77777');
+      expect(trade.binance_stop_order_type).toBe('algo');
+    });
   });
 
   describe('enter', () => {
@@ -80,10 +115,13 @@ describe('OrderManagerService', () => {
           type: 'STOP_MARKET',
           stopPrice: 49500,
           workingType: 'MARK_PRICE',
-          reduceOnly: true,
-          quantity: '0.10000000'
+          closePosition: true
         })
       );
+
+      // BOLT Compliance: Verify quantity IS NOT sent for closePosition orders as per memory/fapi best practices
+      const slCall = mockBinanceClient.restAPI.newOrder.mock.calls[1][0];
+      expect(slCall).not.toHaveProperty('quantity');
 
       expect(trade?.binance_stop_order_id).toBe('99999');
     });
@@ -148,8 +186,7 @@ describe('OrderManagerService', () => {
           type: 'STOP_MARKET',
           stopPrice: 50500,
           workingType: 'MARK_PRICE',
-          reduceOnly: true,
-          quantity: '0.10000000'
+          closePosition: true
         })
       );
       expect(trade.binance_stop_order_id).toBe('33333');

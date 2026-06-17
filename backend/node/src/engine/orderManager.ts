@@ -690,17 +690,16 @@ export class OrderManagerService {
       const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
 
       // INDUSTRY-BEST-PRACTICE (2026): Standardize on standard STOP_MARKET orders for Stop Loss.
-      // We use closePosition: true which automatically handles the full position size and doesn't require quantity.
-      // This is the most robust way to ensure the entire position is closed.
+      // We use quantity and reduceOnly: true for maximum compatibility across all Binance environments (Testnet/Live).
       const slOrderParams: any = {
         symbol,
         side: closeDirection as any,
         type: 'STOP_MARKET',
+        quantity: parseFloat(trade.qty.toFixed(qtyPrecision)),
         stopPrice: parseFloat(slPrice.toFixed(pricePrecision)),
         workingType: 'MARK_PRICE',
         newClientOrderId: `sl-${trade.id.substring(0, 8)}`,
-        closePosition: true,
-        timeInForce: 'GTE_GTC', // Good Till Event (GTC)
+        reduceOnly: true,
         priceProtect: true
       };
 

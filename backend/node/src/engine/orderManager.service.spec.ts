@@ -68,7 +68,7 @@ describe('OrderManagerService', () => {
           symbol: 'BTCUSDT',
           type: 'STOP_MARKET',
           stopPrice: 49500,
-          closePosition: true,
+          reduceOnly: true,
           newClientOrderId: 'sl-test-sta'
         })
       );
@@ -111,7 +111,7 @@ describe('OrderManagerService', () => {
           type: 'STOP_MARKET',
           stopPrice: 49500,
           workingType: 'MARK_PRICE',
-          closePosition: true
+          reduceOnly: true
         })
       );
 
@@ -177,7 +177,7 @@ describe('OrderManagerService', () => {
           type: 'STOP_MARKET',
           stopPrice: 50500,
           workingType: 'MARK_PRICE',
-          closePosition: true
+          reduceOnly: true
         })
       );
       expect(trade.binance_stop_order_id).toBe('99999');

@@ -742,43 +742,54 @@ export function DashboardView({ initialStrategy }) {
               </a>
             </motion.div>
           )}
-          <div className="fixed top-20 right-6 z-[200] flex flex-col gap-2 w-full max-w-[320px] pointer-events-none">
+          <div className="fixed top-18 right-4 z-[200] flex flex-col gap-1.5 w-full max-w-[280px] pointer-events-none">
             <AnimatePresence mode="popLayout">
+              {alerts && alerts.length > 2 && (
+                <motion.button
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  onClick={() => updateStats({ alerts: [] })}
+                  className="mb-1 self-end px-2 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded-md text-[9px] font-bold uppercase tracking-wider text-white/40 hover:text-white transition-all pointer-events-auto backdrop-blur-md"
+                >
+                  Dismiss All
+                </motion.button>
+              )}
               {alerts && alerts.map(alert => (
                 <motion.div
                   key={alert.id}
                   layout
-                  initial={{ opacity: 0, x: 40, scale: 0.95 }}
+                  initial={{ opacity: 0, x: 30, scale: 0.98 }}
                   animate={{ opacity: 1, x: 0, scale: 1 }}
-                  exit={{ opacity: 0, x: 10, scale: 0.95 }}
+                  exit={{ opacity: 0, x: 10, scale: 0.98 }}
                   className={cn(
-                    "py-3 px-4 rounded-xl border shadow-xl flex flex-col gap-0.5 relative overflow-hidden pointer-events-auto",
-                    alert.level === 'error' ? "bg-red/10 border-red/30 text-red-400 backdrop-blur-xl" :
-                    alert.level === 'warn' ? "bg-amber/10 border-amber/30 text-amber-400 backdrop-blur-xl" :
-                    "bg-accent/10 border-accent/30 text-accent-400 backdrop-blur-xl"
+                    "py-2.5 px-3.5 rounded-lg border shadow-lg flex flex-col gap-0.5 relative overflow-hidden pointer-events-auto",
+                    alert.level === 'error' ? "bg-red/5 border-red/20 text-red-400 backdrop-blur-2xl" :
+                    alert.level === 'warn' ? "bg-amber/5 border-amber/20 text-amber-400 backdrop-blur-2xl" :
+                    "bg-accent/5 border-accent/20 text-accent-400 backdrop-blur-2xl"
                   )}
                 >
                   <button
                     onClick={() => updateStats({ alerts: alerts.filter(a => a.id !== alert.id) })}
-                    className="absolute top-2.5 right-2.5 p-1 hover:bg-white/10 rounded-lg transition-colors group"
+                    className="absolute top-2 right-2 p-0.5 hover:bg-white/10 rounded transition-colors group"
                     aria-label="Dismiss alert"
                   >
-                    <XCircle size={12} className="opacity-30 group-hover:opacity-100 transition-opacity" />
+                    <XCircle size={10} className="opacity-20 group-hover:opacity-100 transition-opacity" />
                   </button>
-                  <div className="flex items-center gap-2.5 pr-6">
-                    {alert.level === 'error' ? <XCircle size={14} className="shrink-0" /> : <AlertCircle size={14} className="shrink-0" />}
+                  <div className="flex items-center gap-2 pr-5">
+                    {alert.level === 'error' ? <XCircle size={12} className="shrink-0 opacity-80" /> : <AlertCircle size={12} className="shrink-0 opacity-80" />}
                     <div className="flex flex-col min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-black uppercase tracking-widest truncate">{alert.title || 'System Alert'}</span>
+                        <span className="text-[9px] font-black uppercase tracking-[0.1em] truncate opacity-70">{alert.title || 'System Alert'}</span>
                         {alert.count > 1 && (
-                          <span className="bg-current/15 px-1 py-0 rounded-sm text-[8px] font-black">x{alert.count}</span>
+                          <span className="bg-current/10 px-1 py-0 rounded-xs text-[7px] font-black">x{alert.count}</span>
                         )}
                       </div>
                     </div>
-                    {alert.symbol && <span className="ml-auto bg-black/10 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold shrink-0">{alert.symbol}</span>}
+                    {alert.symbol && <span className="ml-auto bg-black/15 px-1 py-0.5 rounded text-[8px] font-mono font-black shrink-0 opacity-90">{alert.symbol}</span>}
                   </div>
-                  <p className="text-[10px] font-medium pl-6 pr-2 leading-snug opacity-80 line-clamp-2">{alert.message}</p>
-                  <div className="absolute bottom-0 left-0 h-0.5 bg-current opacity-20 animate-shrink-width" style={{ animationDuration: '10s' }} />
+                  <p className="text-[10px] font-bold pl-5 pr-1 leading-[1.3] opacity-90 line-clamp-3">{alert.message}</p>
+                  <div className="absolute bottom-0 left-0 h-[1.5px] bg-current opacity-15 animate-shrink-width" style={{ animationDuration: '10s' }} />
                 </motion.div>
               ))}
             </AnimatePresence>

@@ -22,14 +22,6 @@ export class SessionController {
     }
     const config = Object.assign(new SessionConfig(), body.config);
     
-    // Parse signal_params if it's a JSON string
-    if (config.signal_params && typeof config.signal_params === 'string') {
-      try {
-        config.signal_params = JSON.parse(config.signal_params);
-      } catch (e) {
-        // If parsing fails, keep as is
-      }
-    }
     
     return this.sessionService.startSession(config, body.paper_mode ?? true, undefined, clientIp, userAgent);
   }
@@ -53,12 +45,6 @@ export class SessionController {
 
     // Body validation allows partial config for PATCH
     const partialConfig = body.config;
-    
-    if (partialConfig.signal_params && typeof partialConfig.signal_params === 'string') {
-      try {
-        partialConfig.signal_params = JSON.parse(partialConfig.signal_params);
-      } catch (e) {}
-    }
     
     return this.sessionService.updateSession(id, partialConfig, clientIp, userAgent);
   }

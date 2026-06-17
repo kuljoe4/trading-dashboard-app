@@ -343,14 +343,7 @@ export class SessionService implements OnModuleInit {
     }
 
     // 4. Signal Parameter Dependencies
-    let signalParams;
-    try {
-      signalParams = typeof config.signal_params === 'string' 
-        ? JSON.parse(config.signal_params || '{}') 
-        : config.signal_params || {};
-    } catch (e) {
-      throw new BadRequestException('Invalid signal_params format. Must be a valid JSON string or object.');
-    }
+    const signalParams = config.signal_params || {};
     
     const allEnabled = [...(config.enabled_signals || []), ...(config.exit_signals || [])];
 

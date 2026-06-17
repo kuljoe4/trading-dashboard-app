@@ -99,7 +99,7 @@ describe('SessionService Validation', () => {
     it('throws error for invalid EMA Dual Cross parameters', () => {
       const config = new SessionConfig();
       config.enabled_signals = ['ema_dual_cross'];
-      config.signal_params = JSON.stringify({ entry_ema_fast: 21, entry_ema_slow: 9 });
+      config.signal_params = { entry_ema_fast: 21, entry_ema_slow: 9 };
       expect(() => (service as any).validateConfig(config)).toThrow('EMA Dual Cross: Fast period must be less than slow period');
     });
 

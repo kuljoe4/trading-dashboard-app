@@ -33,6 +33,7 @@ export class SessionStateService {
   public gateState: string | null = null;
   public gateReason: string | null = null;
   public hibernating = false;
+  public agreementRequired = false;
   public isAdaptiveTightened = false;
   public realTimePositions: Map<string, { amount: number; entryPrice: number }> = new Map();
   public config: SessionConfig | null = null;
@@ -59,6 +60,7 @@ export class SessionStateService {
     this.gateState = null;
     this.gateReason = null;
     this.hibernating = false;
+    this.agreementRequired = false;
     this.isAdaptiveTightened = false;
     this.paused = false;
     this.binanceRateLimit = { used_1m: 0, limit: 2400 };

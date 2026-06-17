@@ -293,6 +293,10 @@ export class OrderManagerService {
       return { status: ExecutionStatus.CIRCUIT_OPEN, error: 'Circuit breaker is open' };
     }
 
+    if (this.sessionState.agreementRequired) {
+      return { status: ExecutionStatus.ORDER_REJECTED, error: 'Exchange agreement required. Please check Binance.' };
+    }
+
     // Zero-CPU Rate Limiter Guard
     if (!this.paperMode) {
       if (this.sessionState.isRateLimited(0.92)) {
@@ -583,6 +587,7 @@ export class OrderManagerService {
           let agreementMsg = `[${symbol}] Binance entry failed: ${errMsg}`;
           if (errMsg.includes('agreement')) {
             agreementMsg = `CRITICAL: ${errMsg}. Please go to Binance website and sign the required agreement.`;
+            this.sessionState.agreementRequired = true;
           } else if (errMsg.includes('insufficient balance') || errMsg.includes('Margin is insufficient')) {
             agreementMsg = `CRITICAL: Insufficient funds on Binance USDS-M account to open ${symbol}.`;
           } else if (errMsg.includes('PERCENT_PRICE')) {
@@ -681,14 +686,16 @@ export class OrderManagerService {
       const stepSize = parseFloat(lotSize?.stepSize || '0');
       const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
 
-      // INDUSTRY-BEST-PRACTICE: For Stop Loss, use closePosition: true.
-      // Memory: quantity should be omitted when closePosition is true for Binance Futures fapi.
+      // PERFORMANCE: For Stop Loss, switch to reduceOnly: true with explicit quantity.
+      // While closePosition: true is convenient, some fapi versions/SDKs fail if quantity isn't present
+      // and others fail if it IS present. Explicitly using reduceOnly with quantity is more reliable across symbols.
       const slOrderParams: any = {
         symbol: trade.symbol,
         side: closeDirection,
         type: 'STOP_MARKET',
         stopPrice: parseFloat(slPrice.toFixed(pricePrecision)),
-        closePosition: true,
+        quantity: trade.qty.toFixed(qtyPrecision),
+        reduceOnly: true,
         workingType: 'MARK_PRICE',
         newClientOrderId: `sl-${trade.id.substring(0, 8)}`,
         selfTradePreventionMode: 'EXPIRE_MAKER', // Hardening: Prevent self-trading
@@ -773,9 +780,9 @@ export class OrderManagerService {
         continue;
       }
 
-      // BOLT: Handle existing order conflict. If a closePosition order already exists, clear it and retry.
-      if (errMsg.includes('existing') && (errMsg.includes('closePosition') || errMsg.includes('GTE'))) {
-         this.logger.warn(`[${trade.symbol}] [Sync] Detection of potential orphan closePosition order. Attempting proactive cleanup...`);
+      // BOLT: Handle existing order conflict. If a reduceOnly/closePosition order already exists, clear it and retry.
+      if (errMsg.includes('existing') && (errMsg.includes('closePosition') || errMsg.includes('reduceOnly') || errMsg.includes('GTE'))) {
+         this.logger.warn(`[${trade.symbol}] [Sync] Detection of potential orphan protection order. Attempting proactive cleanup...`);
          try {
             // Check standard open orders
             const res = await this.binanceClient.restAPI.currentAllOpenOrders({ symbol: trade.symbol });
@@ -785,9 +792,9 @@ export class OrderManagerService {
 
             if (Array.isArray(orders)) {
               for (const o of orders) {
-                // Binance error implies a closePosition order exists. We look for STOP types with closePosition in the SAME direction.
+                // Binance error implies a conflicting order exists. We look for STOP types with protection flags in the SAME direction.
                 if ((o.type === 'STOP_MARKET' || o.type === 'STOP' || o.type === 'TAKE_PROFIT_MARKET') &&
-                    (o.closePosition === true || o.closePosition === 'true') &&
+                    (o.closePosition === true || o.closePosition === 'true' || o.reduceOnly === true || o.reduceOnly === 'true') &&
                     o.side === closeDirection) {
                   this.logger.log(`Found conflicting orphan SL/TP order ${o.orderId} for ${trade.symbol} (${o.side}). Canceling...`);
                   await this.cancelBinanceOrder(trade.symbol, String(o.orderId));
@@ -810,7 +817,7 @@ export class OrderManagerService {
          continue;
       }
 
-      this.logger.error(`Failed to place Binance SL for ${trade.symbol}: ${errMsg}`);
+      this.logger.warn(`Failed to place Binance SL for ${trade.symbol}: ${errMsg}`);
 
       if (errMsg.includes('insufficient balance') || errMsg.includes('Margin is insufficient')) {
          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
@@ -818,6 +825,7 @@ export class OrderManagerService {
             level: 'error'
          });
       } else if (errMsg.includes('agreement')) {
+         this.sessionState.agreementRequired = true;
          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
             msg: `CRITICAL: Agreement required for ${trade.symbol} SL placement. Please sign the TradFi-Perps agreement on Binance.`,
             level: 'error'

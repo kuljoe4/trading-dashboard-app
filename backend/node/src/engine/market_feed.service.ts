@@ -434,7 +434,11 @@ export class MarketFeedService {
 
     const workers = [];
     for (let i = 0; i < Math.min(CONCURRENCY, initialDepth); i++) {
-      workers.push(processTask());
+      // PERFORMANCE: Stagger worker start times to avoid instant peak load
+      workers.push((async () => {
+        await new Promise(r => setTimeout(r, i * 200));
+        return processTask();
+      })());
     }
 
     await Promise.all(workers);

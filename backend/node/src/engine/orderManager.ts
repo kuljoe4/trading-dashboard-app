@@ -1360,8 +1360,26 @@ export class OrderManagerService {
             // Note: Binance can return "ReduceOnly Order is rejected." or "REDUCE_ONLY"
             if (upperMsg.includes('REDUCE_ONLY') || upperMsg.includes('REDUCEONLY') || upperMsg.includes('POSITION SIDE DOES NOT MATCH')) {
                this.logger.log(`Binance close order for ${symbol} rejected (possibly already closed by exchange SL). Verifying...`);
-               const position = await this.fetchPosition(symbol);
-               if (position && parseFloat(position.positionAmt) === 0) {
+
+               // BOLT: Force direct exchange check for zero-position desync.
+               // We bypass the cache here because we need absolute proof to avoid desync loops.
+               let positionAmt = 0;
+               try {
+                  const response = await this.binanceClient.restAPI.positionInformationV3({ symbol });
+                  this.updateWeight(response?.headers);
+                  const data = await response.data() as any;
+                  if (Array.isArray(data)) {
+                    const activePosition = data.find(p => parseFloat(p.positionAmt) !== 0);
+                    positionAmt = activePosition ? parseFloat(activePosition.positionAmt) : 0;
+                  }
+               } catch (posErr) {
+                  this.logger.error(`[Sync] Failed direct position check for ${symbol}: ${posErr instanceof Error ? posErr.message : String(posErr)}`);
+                  // Fallback to fetchPosition if direct check fails
+                  const position = await this.fetchPosition(symbol);
+                  positionAmt = position ? parseFloat(position.positionAmt) : 0;
+               }
+
+               if (positionAmt === 0) {
                   this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] Confirmed: ${symbol} position is already zero. Triggering Sync Recovery.`);
                   exitPrice = await this.recoverLastExecutionPrice(symbol, trade, exitPrice);
                   trade.exit_reason = trade.exit_reason === 'EXCHANGE_SYNC' ? 'EXCHANGE_SYNC_RECOVERY' : 'EXCHANGE_SL_OR_MANUAL';
@@ -1369,7 +1387,7 @@ export class OrderManagerService {
                   const exitFee = roundEight(exitPrice * trade.qty * this.takerFeeRate);
                   trade.realized_fee = roundEight((trade.realized_fee || 0) + exitFee);
                } else {
-                  this.logger.warn(`Binance close order failed but position still exists for ${symbol}: ${errMsg}`);
+                  this.logger.warn(`Binance close order failed but position still exists for ${symbol} (Amt: ${positionAmt}): ${errMsg}`);
                   throw err;
                }
             } else if (upperMsg.includes('PERCENT_PRICE')) {

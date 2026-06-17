@@ -462,9 +462,85 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                 {field('Max Open Trades', 'max_open_trades', 'number', null, { min: CONFIG_LIMITS.MAX_OPEN_TRADES_MIN })}
                 {field('SL Guard (USDT)', 'total_sl_guard_usdt', 'number', null, { min: 0 })}
               </div>
-              <div className="mt-4 p-4 bg-accent/5 border border-accent/20 rounded-2xl flex justify-between items-center">
-                <div className="flex flex-col"><span className="text-[9px] text-dim uppercase font-bold tracking-widest mb-1">Theoretical Sizing</span><span className="text-sm font-bold font-mono text-amber">{fmtUSD(riskAmount)} <span className="text-[10px] opacity-60 font-medium">AT RISK</span></span></div>
-                <div className="flex flex-col text-right"><span className="text-[9px] text-dim uppercase font-bold tracking-widest mb-1">Return Goal</span><span className="text-sm font-bold font-mono text-accent">{cfg.tp_ratio || 2.0}R <span className="text-[10px] opacity-60 font-medium">REWARD</span></span></div>
+
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="p-4 bg-accent/5 border border-accent/20 rounded-2xl flex justify-between items-center">
+                  <div className="flex flex-col">
+                    <span className="text-[9px] text-dim uppercase font-bold tracking-widest mb-1">Target Risk</span>
+                    <span className="text-sm font-bold font-mono text-amber">{fmtUSD(riskAmount)} <span className="text-[10px] opacity-60 font-medium">USD</span></span>
+                  </div>
+                  <div className="flex flex-col text-right">
+                    <span className="text-[9px] text-dim uppercase font-bold tracking-widest mb-1">Return Goal</span>
+                    <span className="text-sm font-bold font-mono text-accent">{cfg.tp_ratio || 2.0}R <span className="text-[10px] opacity-60 font-medium">REWARD</span></span>
+                  </div>
+                </div>
+
+                <div className={cn(
+                  "p-4 border rounded-2xl flex flex-col justify-center gap-1",
+                  (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05
+                    ? "bg-amber/5 border-amber/20 shadow-[0_0_20px_rgba(245,166,35,0.05)]"
+                    : "bg-background/40 border-border/40"
+                )}>
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] text-dim uppercase font-bold tracking-widest">Min Notional Guard</span>
+                      <div className="w-1 h-1 rounded-full bg-dim/30" />
+                      <span className="text-[8px] text-accent font-bold uppercase tracking-tight">$5.05 Floor</span>
+                    </div>
+                    <Tooltip content="Binance Futures requires a minimum position size of 5 USDT. The engine uses a 5.05 USDT floor (5.00 min + 0.05 safety buffer) and will automatically scale UP small positions.">
+                       <Activity size={10} className="text-dim cursor-help" />
+                    </Tooltip>
+                  </div>
+                  <div className="flex flex-col gap-1.5 mt-0.5">
+                    <div className="flex items-baseline gap-2">
+                      <span className={cn(
+                        "text-sm font-bold font-mono transition-colors",
+                        (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05 ? "text-amber" : "text-text"
+                      )}>
+                        {fmtUSD(Math.max(5.05, riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)))}
+                        <span className="text-[9px] ml-1.5 opacity-40 font-medium uppercase tracking-tight">Execution</span>
+                      </span>
+                      {((riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05) && (
+                        <span className="text-[8px] px-1.5 py-0.5 bg-amber text-black font-black rounded-sm uppercase animate-pulse">Auto-Scaled</span>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-1 border-l border-border/50 pl-2 py-0.5">
+                      <p className="text-[8px] text-dim/60 font-mono leading-tight">
+                        Math: {fmtUSD(riskAmount)} Target Risk / {(cfg.sl_distance_pct || 0.8).toFixed(1)}% SL = {fmtUSD(riskAmount / ((cfg.sl_distance_pct || 0.8) / 100))} Notional
+                      </p>
+                      <p className="text-[7px] text-dim/40 font-bold uppercase tracking-tighter">
+                        Exchange Rule: $5.00 (Min) + $0.05 (Buffer) = $5.05 Requirement
+                      </p>
+                      <p className="text-[7px] font-black text-accent uppercase tracking-widest mt-0.5">
+                        Status: {(riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05 ? "⚠️ Scaling up to meet exchange minimum" : "✅ Threshold met, using precise sizing"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 p-4 bg-surface/50 border border-border/40 rounded-xl space-y-3">
+                 <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-accent">
+                    <Target size={12} /> Sizing Guide
+                 </div>
+                 <div className="space-y-2">
+                    <p className="text-[10px] text-dim leading-relaxed font-medium">
+                       Position size (Qty) is derived from <span className="text-text font-bold">Target Risk $ / SL Distance</span>.
+                    </p>
+                    <div className="bg-background/40 p-2.5 rounded-lg border border-border/30">
+                       <div className="flex items-center gap-1.5 mb-1.5">
+                          <Zap size={10} className="text-accent" />
+                          <span className="text-[9px] text-accent font-black uppercase tracking-widest">Scaling Example</span>
+                       </div>
+                       <p className="text-[10px] font-mono text-dim leading-tight">
+                          $0.10 risk @ 5% SL = $2.00 notional.<br/>
+                          <span className="text-amber font-bold">→ Engine scales entry to $5.05</span>
+                       </p>
+                    </div>
+                    <p className="text-[9px] text-dim/60 italic leading-snug">
+                       Tight SLs or higher Risk % result in larger positions. Wide SLs or low Risk % result in smaller positions. The engine protects you from exchange rejections by enforcing the $5.05 minimum.
+                    </p>
+                 </div>
               </div>
             </section>
 

@@ -439,9 +439,10 @@ export const HistoryView = () => {
                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
                <input
                  type="text"
-                 placeholder="Search history..."
+                 placeholder="Search history... [/]"
                  value={search}
                  onChange={(e) => setSearch(e.target.value)}
+                 onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
                  className="bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-[11px] font-bold focus:border-accent outline-none transition-all w-[180px] lg:w-[240px]"
                />
                {search && (
@@ -461,9 +462,10 @@ export const HistoryView = () => {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
           <input
             type="text"
-            placeholder="Search history..."
+            placeholder="Search history... [/]"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
             className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-3 text-xs font-bold focus:border-accent outline-none transition-all"
           />
           {search && (
@@ -498,6 +500,7 @@ export const HistoryView = () => {
             label="Total Performance"
             value={fmtUSD(totalPnl)}
             color={pnlClass(totalPnl)}
+            tooltipText="Net profit/loss including realized fees and funding across all recorded history."
             subValue={
               <span className={cn("flex items-center gap-1", pnlClass(currentAnalytics?.overallPnlPct))}>
                 <span className="text-[0.8em] opacity-80">{(currentAnalytics?.overallPnlPct || 0) > 0 ? '▴' : (currentAnalytics?.overallPnlPct || 0) < 0 ? '▾' : ''}</span>

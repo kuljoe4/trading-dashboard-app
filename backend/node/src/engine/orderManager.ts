@@ -600,11 +600,13 @@ export class OrderManagerService {
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: agreementMsg, level: 'error' });
 
           const isSystemic = !errMsg.includes('agreement') &&
+                             !errMsg.includes('TradFi-Perps') &&
                              !errMsg.includes('balance') &&
                              !errMsg.includes('Margin') &&
                              !errMsg.includes('PERCENT_PRICE') &&
                              !errMsg.includes('leverage') &&
                              !errMsg.includes('position') &&
+                             !errMsg.includes('quantity') &&
                              !errMsg.includes('Algo Order API');
           this.recordFailure(isSystemic);
           return { status: ExecutionStatus.ORDER_REJECTED, error: agreementMsg };
@@ -708,25 +710,59 @@ export class OrderManagerService {
       try {
         let response;
         try {
+          // Attempt 1: Standard SL (closePosition: true, no quantity)
           response = await this.binanceClient.restAPI.newOrder(slOrderParams);
         } catch (standardErr: any) {
           const standardMsg = standardErr.message || '';
+
           if (standardMsg.includes('Algo Order API')) {
-             this.logger.warn(`[${symbol}] Standard SL placement failed (Algo required). Retrying via newAlgoOrder...`);
-             const algoParams = {
-               symbol,
-               side: closeDirection as any,
-               type: 'STOP_MARKET',
-               stopPrice: slOrderParams.stopPrice,
-               algoType: 'CONDITIONAL',
-               newOrderRespType: 'RESULT',
-               workingType: 'MARK_PRICE',
-               clientAlgoId: slOrderParams.newClientOrderId,
-             };
-             response = await this.binanceClient.restAPI.newAlgoOrder(algoParams as any);
-             orderType = 'algo';
+            this.logger.warn(`[${symbol}] Standard SL failed (Algo required). Fallback to newAlgoOrder...`);
+            orderType = 'algo';
+            response = await this.binanceClient.restAPI.newAlgoOrder({
+              symbol,
+              side: closeDirection as any,
+              type: 'STOP_MARKET',
+              quantity: parseFloat(trade.qty.toFixed(qtyPrecision)),
+              stopPrice: slOrderParams.stopPrice,
+              algoType: 'CONDITIONAL',
+              newOrderRespType: 'RESULT',
+              workingType: 'MARK_PRICE',
+              clientAlgoId: slOrderParams.newClientOrderId,
+              reduceOnly: 'true'
+            } as any);
+          } else if (standardMsg.includes('quantity')) {
+            this.logger.warn(`[${symbol}] Standard SL failed (Quantity required). Retrying with explicit qty...`);
+            const retryParams = {
+              ...slOrderParams,
+              quantity: parseFloat(trade.qty.toFixed(qtyPrecision)),
+              closePosition: undefined,
+              reduceOnly: 'true'
+            };
+            delete retryParams.closePosition;
+            try {
+              response = await this.binanceClient.restAPI.newOrder(retryParams);
+            } catch (retryErr: any) {
+              if (retryErr.message?.includes('Algo Order API')) {
+                this.logger.warn(`[${symbol}] Standard SL with qty also failed (Algo required). Fallback to newAlgoOrder...`);
+                orderType = 'algo';
+                response = await this.binanceClient.restAPI.newAlgoOrder({
+                  symbol,
+                  side: closeDirection as any,
+                  type: 'STOP_MARKET',
+                  quantity: retryParams.quantity,
+                  stopPrice: slOrderParams.stopPrice,
+                  algoType: 'CONDITIONAL',
+                  newOrderRespType: 'RESULT',
+                  workingType: 'MARK_PRICE',
+                  clientAlgoId: slOrderParams.newClientOrderId,
+                  reduceOnly: 'true'
+                } as any);
+              } else {
+                throw retryErr;
+              }
+            }
           } else {
-             throw standardErr;
+            throw standardErr;
           }
         }
 
@@ -801,9 +837,9 @@ export class OrderManagerService {
         continue;
       }
 
-      // BOLT: Handle existing order conflict. If a reduceOnly/closePosition order already exists, clear it and retry.
-      if (errMsg.includes('existing') && (errMsg.includes('closePosition') || errMsg.includes('reduceOnly') || errMsg.includes('GTE'))) {
-         this.logger.warn(`[${trade.symbol}] [Sync] Detection of potential orphan protection order. Attempting proactive cleanup...`);
+      // BOLT: Handle existing order conflict. If a closePosition order already exists, clear it and retry.
+      if (errMsg.includes('existing') && (errMsg.includes('closePosition') || errMsg.includes('GTE'))) {
+         this.logger.warn(`[${trade.symbol}] [Sync] Detection of potential orphan closePosition order. Attempting proactive cleanup...`);
          try {
             // Check standard open orders
             const res = await this.binanceClient.restAPI.currentAllOpenOrders({ symbol: trade.symbol });
@@ -813,12 +849,12 @@ export class OrderManagerService {
 
             if (Array.isArray(orders)) {
               for (const o of orders) {
-                // Binance error implies a conflicting order exists. We look for STOP types with protection flags in the SAME direction.
+                // Binance error implies a closePosition order exists. We look for STOP types with closePosition in the SAME direction.
                 if ((o.type === 'STOP_MARKET' || o.type === 'STOP' || o.type === 'TAKE_PROFIT_MARKET') &&
-                    (o.closePosition === true || o.closePosition === 'true' || o.reduceOnly === true || o.reduceOnly === 'true') &&
+                    (o.closePosition === true || o.closePosition === 'true') &&
                     o.side === closeDirection) {
                   this.logger.log(`Found conflicting orphan SL/TP order ${o.orderId} for ${trade.symbol} (${o.side}). Canceling...`);
-                  await this.cancelBinanceOrder(trade.symbol, String(o.orderId));
+                  await this.cancelBinanceOrder(trade.symbol, String(o.orderId), 'standard');
                   cleanedCount++;
                 }
               }

@@ -99,6 +99,7 @@ const sessionConfigAllowedKeys = [
   'frequency_tod_integration',
   'max_total_risk_pct',
   'total_sl_guard_usdt',
+  'auto_scale_min_notional',
   'paper_mode',
   'trading_mode',
   'paper_starting_balance',
@@ -144,11 +145,15 @@ const sanitizeSessionConfig = (config) => {
     }
   })
 
-  if (sanitized.signal_params !== undefined && typeof sanitized.signal_params !== 'string') {
+  // BOLT: Ensure signal_params is always an object to match backend schema.
+  // This handles cases where local state or variants might still have stringified JSON or null.
+  if (sanitized.signal_params === null) {
+    delete sanitized.signal_params
+  } else if (typeof sanitized.signal_params === 'string') {
     try {
-      sanitized.signal_params = JSON.stringify(sanitized.signal_params)
-    } catch (error) {
-      /* keep original if serialization fails */
+      sanitized.signal_params = JSON.parse(sanitized.signal_params || '{}')
+    } catch (e) {
+      sanitized.signal_params = {}
     }
   }
 

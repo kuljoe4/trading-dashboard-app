@@ -742,42 +742,43 @@ export function DashboardView({ initialStrategy }) {
               </a>
             </motion.div>
           )}
-          <div className="fixed top-24 right-4 z-[200] flex flex-col gap-3 w-full max-w-sm pointer-events-none">
+          <div className="fixed top-20 right-6 z-[200] flex flex-col gap-2 w-full max-w-[320px] pointer-events-none">
             <AnimatePresence mode="popLayout">
               {alerts && alerts.map(alert => (
                 <motion.div
                   key={alert.id}
                   layout
-                  initial={{ opacity: 0, x: 50, scale: 0.9 }}
+                  initial={{ opacity: 0, x: 40, scale: 0.95 }}
                   animate={{ opacity: 1, x: 0, scale: 1 }}
-                  exit={{ opacity: 0, x: 20, scale: 0.95 }}
+                  exit={{ opacity: 0, x: 10, scale: 0.95 }}
                   className={cn(
-                    "p-4 rounded-2xl border shadow-2xl flex flex-col gap-1 relative overflow-hidden pointer-events-auto",
-                    alert.level === 'error' ? "bg-red/20 border-red/40 text-red-400 backdrop-blur-md" :
-                    alert.level === 'warn' ? "bg-amber/20 border-amber/40 text-amber-400 backdrop-blur-md" :
-                    "bg-accent/20 border-accent/40 text-accent-400 backdrop-blur-md"
+                    "py-3 px-4 rounded-xl border shadow-xl flex flex-col gap-0.5 relative overflow-hidden pointer-events-auto",
+                    alert.level === 'error' ? "bg-red/10 border-red/30 text-red-400 backdrop-blur-xl" :
+                    alert.level === 'warn' ? "bg-amber/10 border-amber/30 text-amber-400 backdrop-blur-xl" :
+                    "bg-accent/10 border-accent/30 text-accent-400 backdrop-blur-xl"
                   )}
                 >
                   <button
                     onClick={() => updateStats({ alerts: alerts.filter(a => a.id !== alert.id) })}
-                    className="absolute top-2 right-2 p-1 hover:bg-white/10 rounded-lg transition-colors"
+                    className="absolute top-2.5 right-2.5 p-1 hover:bg-white/10 rounded-lg transition-colors group"
+                    aria-label="Dismiss alert"
                   >
-                    <XCircle size={14} className="opacity-40" />
+                    <XCircle size={12} className="opacity-30 group-hover:opacity-100 transition-opacity" />
                   </button>
-                  <div className="flex items-center gap-3 pr-6">
-                    {alert.level === 'error' ? <XCircle size={18} className="shrink-0" /> : <AlertCircle size={18} className="shrink-0" />}
+                  <div className="flex items-center gap-2.5 pr-6">
+                    {alert.level === 'error' ? <XCircle size={14} className="shrink-0" /> : <AlertCircle size={14} className="shrink-0" />}
                     <div className="flex flex-col min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-black uppercase tracking-tight truncate">{alert.title || 'System Alert'}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-black uppercase tracking-widest truncate">{alert.title || 'System Alert'}</span>
                         {alert.count > 1 && (
-                          <span className="bg-current/20 px-1.5 py-0.5 rounded text-[9px] font-black">x{alert.count}</span>
+                          <span className="bg-current/15 px-1 py-0 rounded-sm text-[8px] font-black">x{alert.count}</span>
                         )}
                       </div>
                     </div>
-                    {alert.symbol && <span className="ml-auto bg-black/20 px-2 py-0.5 rounded text-[10px] font-mono shrink-0">{alert.symbol}</span>}
+                    {alert.symbol && <span className="ml-auto bg-black/10 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold shrink-0">{alert.symbol}</span>}
                   </div>
-                  <p className="text-[11px] font-bold pl-7 pr-2 leading-relaxed opacity-90">{alert.message}</p>
-                  <div className="absolute bottom-0 left-0 h-0.5 bg-current opacity-30 animate-shrink-width" style={{ animationDuration: '10s' }} />
+                  <p className="text-[10px] font-medium pl-6 pr-2 leading-snug opacity-80 line-clamp-2">{alert.message}</p>
+                  <div className="absolute bottom-0 left-0 h-0.5 bg-current opacity-20 animate-shrink-width" style={{ animationDuration: '10s' }} />
                 </motion.div>
               ))}
             </AnimatePresence>

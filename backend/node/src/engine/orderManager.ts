@@ -689,28 +689,28 @@ export class OrderManagerService {
       const stepSize = parseFloat(lotSize?.stepSize || '0');
       const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
 
-      // INDUSTRY-BEST-PRACTICE (2026): Standardize on Algo Order API for all Stop Loss placements.
-      // This is the most reliable endpoint for conditional orders on Binance Futures USD-M.
+      // INDUSTRY-BEST-PRACTICE (2026): Standardize on standard STOP_MARKET orders for Stop Loss.
+      // We use closePosition: true which automatically handles the full position size and doesn't require quantity.
+      // This is the most robust way to ensure the entire position is closed.
       const slOrderParams: any = {
         symbol,
         side: closeDirection as any,
         type: 'STOP_MARKET',
-        quantity: parseFloat(trade.qty.toFixed(qtyPrecision)),
         stopPrice: parseFloat(slPrice.toFixed(pricePrecision)),
-        algoType: 'CONDITIONAL',
-        newOrderRespType: 'RESULT',
         workingType: 'MARK_PRICE',
-        clientAlgoId: `sl-${trade.id.substring(0, 8)}`,
-        reduceOnly: 'true'
+        newClientOrderId: `sl-${trade.id.substring(0, 8)}`,
+        closePosition: true,
+        timeInForce: 'GTE_GTC', // Good Till Event (GTC)
+        priceProtect: true
       };
 
-      this.logger.log(`Placing Binance Algo SL order: ${JSON.stringify(slOrderParams)}`);
+      this.logger.log(`Placing Binance Standard SL order: ${JSON.stringify(slOrderParams)}`);
 
       let stopLossId: string | null = null;
-      let orderType: 'standard' | 'algo' = 'algo';
+      let orderType: 'standard' | 'algo' = 'standard';
 
       try {
-        const response = await this.binanceClient.restAPI.newAlgoOrder(slOrderParams as any);
+        const response = await this.binanceClient.restAPI.newOrder(slOrderParams as any);
         this.updateWeight(response?.headers);
         const orderData = await response.data() as any;
 
@@ -720,12 +720,12 @@ export class OrderManagerService {
 
           // Handle Duplicate Order ID specifically to recover state after timeout
           if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
-            this.logger.log(`[${symbol}] [Sync] Detected duplicate clientAlgoId on SL retry. Recovering SL state...`);
-            const queryRes = await this.binanceClient.restAPI.queryAlgoOrder({ clientAlgoId: slOrderParams.clientAlgoId });
+            this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId on SL retry. Recovering SL state...`);
+            const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
             const queryData = await queryRes.data() as any;
-            if (queryData && (queryData.algoId || queryData.orderId)) {
-              this.logger.log(`[${symbol}] [Sync] Successfully recovered existing SL order state: ${queryData.algoId || queryData.orderId}`);
-              stopLossId = String(queryData.algoId || queryData.orderId);
+            if (queryData && queryData.orderId) {
+              this.logger.log(`[${symbol}] [Sync] Successfully recovered existing SL order state: ${queryData.orderId}`);
+              stopLossId = String(queryData.orderId);
             } else {
               this.logger.error(`[${symbol}] [Sync] SL Order ID duplicate detected but query failed or returned no data: ${msg}`);
               throw new Error(`SL Order ID duplicate but query failed: ${msg}`);
@@ -735,18 +735,18 @@ export class OrderManagerService {
             throw new Error(`SL placement failed: ${msg}`);
           }
         } else {
-          this.logger.log(`Algo SL placement response for ${symbol}: ${JSON.stringify(orderData)}`);
-          stopLossId = String(orderData.algoId || orderData.orderId || orderData.id);
+          this.logger.log(`Standard SL placement response for ${symbol}: ${JSON.stringify(orderData)}`);
+          stopLossId = String(orderData.orderId || orderData.id);
         }
       } catch (err: any) {
         const msg = err.message || '';
         if (msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
-          this.logger.log(`[${symbol}] [Sync] Detected duplicate clientAlgoId (via exception) on SL retry. Recovering SL state...`);
-          const queryRes = await this.binanceClient.restAPI.queryAlgoOrder({ clientAlgoId: slOrderParams.clientAlgoId });
+          this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId (via exception) on SL retry. Recovering SL state...`);
+          const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
           const queryData = await queryRes.data() as any;
-          if (queryData && (queryData.algoId || queryData.orderId)) {
-            this.logger.log(`[${symbol}] [Sync] Successfully recovered existing SL order state: ${queryData.algoId || queryData.orderId}`);
-            stopLossId = String(queryData.algoId || queryData.orderId);
+          if (queryData && queryData.orderId) {
+            this.logger.log(`[${symbol}] [Sync] Successfully recovered existing SL order state: ${queryData.orderId}`);
+            stopLossId = String(queryData.orderId);
           } else {
             this.logger.error(`[${symbol}] [Sync] SL Order ID duplicate (exception) but query failed or returned no data.`);
             throw err;
@@ -847,8 +847,8 @@ export class OrderManagerService {
 
     const oldSlId = trade.binance_stop_order_id;
     if (oldSlId) {
-      this.logger.debug(`[SL] Canceling existing Algo SL ${oldSlId} before replacement.`);
-      await this.cancelBinanceOrder(trade.symbol, oldSlId, 'algo');
+      this.logger.debug(`[SL] Canceling existing ${trade.binance_stop_order_type || 'SL'} ${oldSlId} before replacement.`);
+      await this.cancelBinanceOrder(trade.symbol, oldSlId, (trade.binance_stop_order_type as any) || 'standard');
       trade.binance_stop_order_id = undefined;
     }
     return !!(await this.placeStopLoss(trade, newSlPrice));

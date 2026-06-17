@@ -434,6 +434,7 @@ export function DashboardView({ initialStrategy }) {
     agreementRequired: state.agreementRequired,
     scannerPaused: state.scannerPaused,
             alerts: state.alerts,
+    updateStats: state.updateStats,
     sessionList: state.sessionList,
     fetchSessions: state.fetchSessions,
     wsStatus: state.wsStatus,
@@ -485,10 +486,6 @@ export function DashboardView({ initialStrategy }) {
     Object.values(activePnlMap).reduce((acc, val) => acc + val, 0)
   , [activePnlMap]);
 
-
-  const { updateStats } = useTradingStore(state => ({
-    updateStats: state.updateStats
-  }), shallow)
 
   const [loading, setLoading] = useState(false)
 

@@ -67,6 +67,7 @@ describe('OrderManagerService', () => {
         expect.objectContaining({
           symbol: 'BTCUSDT',
           algoType: 'CONDITIONAL',
+          type: 'STOP_MARKET',
           stopPrice: 49500,
           reduceOnly: true,
           newClientOrderId: 'sl-test-sta'
@@ -136,6 +137,7 @@ describe('OrderManagerService', () => {
           symbol: 'BTCUSDT',
           side: 'SELL',
           algoType: 'CONDITIONAL',
+          type: 'STOP_MARKET',
           stopPrice: 49500,
           workingType: 'MARK_PRICE',
           reduceOnly: true
@@ -202,6 +204,7 @@ describe('OrderManagerService', () => {
       expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalledWith(
         expect.objectContaining({
           algoType: 'CONDITIONAL',
+          type: 'STOP_MARKET',
           stopPrice: 50500,
           workingType: 'MARK_PRICE',
           reduceOnly: true

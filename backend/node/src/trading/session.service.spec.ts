@@ -412,4 +412,56 @@ describe('SessionService Validation', () => {
       expect(mockLogRepository.count).not.toHaveBeenCalled();
     });
   });
+
+  describe('updateSession merging and protection', () => {
+    let mockQueryRunner: any;
+
+    beforeEach(() => {
+      mockQueryRunner = {
+        connect: jest.fn().mockResolvedValue(undefined),
+        startTransaction: jest.fn().mockResolvedValue(undefined),
+        commitTransaction: jest.fn().mockResolvedValue(undefined),
+        rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+        release: jest.fn().mockResolvedValue(undefined),
+        manager: {
+          update: jest.fn(),
+          findOne: jest.fn(),
+        },
+      };
+      mockRepository.manager = {
+        connection: {
+          createQueryRunner: jest.fn().mockReturnValue(mockQueryRunner),
+        },
+      };
+    });
+
+    it('should perform a shallow merge and preserve trading mode', async () => {
+      const sessionId = 'session-id';
+      const existingSession = {
+        id: sessionId,
+        tradingMode: 'live',
+        paperMode: false,
+        config: {
+          strategy_label: 'Original',
+          max_trades_24h: 50,
+          trading_mode: 'live',
+          paper_mode: false
+        }
+      };
+
+      mockQueryRunner.manager.findOne.mockResolvedValue(existingSession);
+
+      const partialConfig = { max_trades_24h: 100, trading_mode: 'paper' } as any;
+      await service.updateSession(sessionId, partialConfig);
+
+      expect(mockQueryRunner.manager.update).toHaveBeenCalledWith(SessionEntity, sessionId, {
+        config: expect.objectContaining({
+          strategy_label: 'Original',
+          max_trades_24h: 100,
+          trading_mode: 'live',
+          paper_mode: false
+        })
+      });
+    });
+  });
 });

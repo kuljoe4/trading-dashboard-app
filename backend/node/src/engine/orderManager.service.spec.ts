@@ -30,7 +30,7 @@ describe('OrderManagerService', () => {
     
     mockBinanceClient = {
       restAPI: {
-        newOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ orderId: '99999' }), headers: {} }),
+        newOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ orderId: '99999', status: 'NEW' }), headers: {} }),
         placeMultipleOrders: jest.fn().mockResolvedValue({ data: () => Promise.resolve([{ orderId: '99999' }, { orderId: '88888' }]), headers: {} }),
         cancelOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
         changeInitialLeverage: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
@@ -40,7 +40,8 @@ describe('OrderManagerService', () => {
         positionInformationV3: jest.fn().mockResolvedValue({ data: () => Promise.resolve([]), headers: {} }),
         accountTradeList: jest.fn().mockResolvedValue({ data: () => Promise.resolve([]), headers: {} }),
         currentAllOpenOrders: jest.fn().mockResolvedValue({ data: () => Promise.resolve([]), headers: {} }),
-        newAlgoOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ orderId: '77777' }), headers: {} }),
+        cancelAllOpenOrders: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
+        newAlgoOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ algoId: '77777', algoStatus: 'NEW' }), headers: {} }),
         cancelAlgoOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
       },
     };
@@ -75,6 +76,33 @@ describe('OrderManagerService', () => {
       );
       expect(result).toBe('77777');
       expect(trade.binance_stop_order_type).toBe('algo');
+    });
+
+    it('validates algorithmic order responses correctly via validateStopLossPlacement', async () => {
+      await service.setBinanceClient(mockBinanceClient, false);
+      const symbol = 'BTCUSDT';
+      const response = { algoId: 12345, algoStatus: 'NEW' };
+
+      const validation = service.validateStopLossPlacement(symbol, response);
+      expect(validation.isValid).toBe(true);
+      expect(validation.orderId).toBe('12345');
+    });
+
+    it('validates standard order responses correctly via validateStopLossPlacement', async () => {
+      const symbol = 'BTCUSDT';
+      const response = { orderId: 67890, status: 'FILLED' };
+
+      const validation = service.validateStopLossPlacement(symbol, response);
+      expect(validation.isValid).toBe(true);
+      expect(validation.orderId).toBe('67890');
+    });
+
+    it('rejects invalid status in validateStopLossPlacement', async () => {
+      const symbol = 'BTCUSDT';
+      const response = { orderId: 67890, status: 'CANCELED' };
+
+      const validation = service.validateStopLossPlacement(symbol, response);
+      expect(validation.isValid).toBe(false);
     });
 
     it('falls back to standard STOP_MARKET if Algo API is not supported (-4120)', async () => {
@@ -236,6 +264,24 @@ describe('OrderManagerService', () => {
           orderId: BigInt('44444')
         })
       );
+    });
+
+    it('aggressively clears order board during SL_PLACEMENT_FAILURE', async () => {
+      await service.setBinanceClient(mockBinanceClient, false);
+      const trade = {
+        id: 'test-unwind-id',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 0.1,
+        entry_price: 50000,
+        binance_order_id: '11111'
+      } as Trade;
+
+      await service.closeTrade('BTCUSDT', trade, 50000, 'SL_PLACEMENT_FAILURE');
+
+      expect(mockBinanceClient.restAPI.cancelAllOpenOrders).toHaveBeenCalledWith({
+        symbol: 'BTCUSDT'
+      });
       expect(mockBinanceClient.restAPI.newOrder).toHaveBeenCalledWith(
         expect.objectContaining({
           symbol: 'BTCUSDT',

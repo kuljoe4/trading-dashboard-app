@@ -68,7 +68,7 @@ describe('OrderManagerService', () => {
           symbol: 'BTCUSDT',
           algoType: 'CONDITIONAL',
           type: 'STOP_MARKET',
-          stopPrice: 49500,
+          triggerPrice: 49500,
           reduceOnly: true,
           newClientOrderId: 'sl-test-sta'
         })
@@ -100,6 +100,7 @@ describe('OrderManagerService', () => {
           stopPrice: 49500
         })
       );
+      expect((mockBinanceClient.restAPI.newOrder.mock.calls[0][0] as any).triggerPrice).toBeUndefined();
       expect(result).toBe('99999');
       expect(trade.binance_stop_order_type).toBe('standard');
     });
@@ -138,7 +139,7 @@ describe('OrderManagerService', () => {
           side: 'SELL',
           algoType: 'CONDITIONAL',
           type: 'STOP_MARKET',
-          stopPrice: 49500,
+          triggerPrice: 49500,
           workingType: 'MARK_PRICE',
           reduceOnly: true
         })
@@ -205,7 +206,7 @@ describe('OrderManagerService', () => {
         expect.objectContaining({
           algoType: 'CONDITIONAL',
           type: 'STOP_MARKET',
-          stopPrice: 50500,
+          triggerPrice: 50500,
           workingType: 'MARK_PRICE',
           reduceOnly: true
         })
@@ -364,6 +365,42 @@ describe('OrderManagerService', () => {
       expect(result.exitTriggered).toBe(true);
       expect(result.exitSignalType).toBe('ema_close');
       expect(trade.exit_signals_status?.ema_close.fired).toBe(true);
+    });
+  });
+
+  describe('PERCENT_PRICE Fallback', () => {
+    it('attempts an aggressive LIMIT order if MARKET close fails due to PERCENT_PRICE', async () => {
+      await service.setBinanceClient(mockBinanceClient, false);
+      const trade = {
+        id: 'test-id-percent-price',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 0.1,
+        entry_price: 50000,
+        binance_order_id: '11111'
+      } as Trade;
+
+      // Mock MARKET order failure
+      mockBinanceClient.restAPI.newOrder.mockRejectedValueOnce(new Error('PERCENT_PRICE filter limit.'));
+      // Mock LIMIT fallback success
+      mockBinanceClient.restAPI.newOrder.mockResolvedValueOnce({
+        data: () => Promise.resolve({ orderId: 'limit-123' }),
+        headers: {}
+      });
+
+      // We expect it to resolve to { exitOccurred: false } because the fallback order
+      // is placed but not yet filled/authoritative in this sync loop.
+      const result = await service.closeTrade('BTCUSDT', trade, 45000, 'SLIPPAGE_ABORT');
+      expect(result.exitOccurred).toBe(false);
+
+      // Check for LIMIT fallback
+      expect(mockBinanceClient.restAPI.newOrder).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'LIMIT',
+          timeInForce: 'IOC'
+        })
+      );
+      expect(trade.binance_close_order_id).toBe('limit-123');
     });
   });
 });

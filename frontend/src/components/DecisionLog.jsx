@@ -138,9 +138,10 @@ export const DecisionLog = React.memo(() => {
           <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
           <input
             type="text"
-            placeholder="Search activity logs..."
+            placeholder="Search activity logs... [/]"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
             className="w-full bg-surface border border-border rounded-xl pl-10 pr-4 py-2 text-[11px] font-bold focus:border-accent focus:outline-accent outline-offset-1 transition-all"
           />
           {search && (
@@ -225,6 +226,14 @@ export const DecisionLog = React.memo(() => {
                   ? 'System activity will appear here once the engine starts.'
                   : 'Try adjusting your filters to see more activity.'}
               </p>
+              {search && (
+                <button
+                  onClick={() => setSearch('')}
+                  className="mt-4 px-4 py-1.5 bg-accent/10 border border-accent/20 text-accent rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-all active:scale-95"
+                >
+                  Clear Search
+                </button>
+              )}
             </motion.div>
           ) : (
             visibleLogs.map((log) => (

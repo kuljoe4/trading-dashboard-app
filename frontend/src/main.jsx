@@ -99,6 +99,14 @@ const App = () => {
       if (e.key === '3' || e.key.toLowerCase() === 'h') window.location.hash = '#/history';
       if (e.key === '4') window.location.hash = '#/settings';
       if (e.key.toLowerCase() === 's') window.dispatchEvent(new Event('toggle-scanner'));
+      if (e.key === '/') {
+        e.preventDefault();
+        const searchInput = document.querySelector('input[placeholder*="Search"]');
+        if (searchInput) {
+          searchInput.focus();
+          searchInput.select();
+        }
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);

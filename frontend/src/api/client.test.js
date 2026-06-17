@@ -16,7 +16,7 @@ describe('sanitizeSessionConfig', () => {
     assert.equal(sanitized.scan_interval, '1m')
     assert.equal(sanitized.entry_side, 'long')
     assert.strictEqual(sanitized.unsupported_field, undefined)
-    assert.equal(sanitized.signal_params, JSON.stringify({ ma_period: 10 }))
+    assert.deepEqual(sanitized.signal_params, { ma_period: 10 })
   })
 
   it('returns an empty object for invalid config values', () => {
@@ -132,7 +132,7 @@ describe('sanitizeSessionConfig', () => {
         scan_lookback: 3,
         enabled_signals: ['momentum_pct'],
         signal_logic: 'any',
-        signal_params: JSON.stringify({ ma_period: 10, ema_period: 20 }),
+        signal_params: { ma_period: 10, ema_period: 20 },
         paper_mode: true,
         trading_mode: 'paper',
       },
@@ -169,12 +169,36 @@ describe('sanitizeSessionConfig', () => {
     assert.equal(sanitized.strategy_variants.length, 1)
     assert.equal(sanitized.strategy_variants[0].strategy_label, 'Variant 1')
     assert.strictEqual(sanitized.strategy_variants[0].unknown_variant_prop, undefined)
-    assert.equal(sanitized.strategy_variants[0].signal_params, JSON.stringify({ ma_period: 20 }))
+    assert.deepEqual(sanitized.strategy_variants[0].signal_params, { ma_period: 20 })
 
     assert.equal(sanitized.single_symbol_configs.length, 1)
     assert.equal(sanitized.single_symbol_configs[0].symbol, 'BTCUSDT')
     assert.strictEqual(sanitized.single_symbol_configs[0].unknown_symbol_prop, undefined)
     assert.equal(sanitized.single_symbol_configs[0].custom_config.strategy_label, 'Custom BTC')
     assert.strictEqual(sanitized.single_symbol_configs[0].custom_config.unknown_custom_prop, undefined)
+  })
+
+  it('converts stringified signal_params back to object', () => {
+    const config = {
+      signal_params: JSON.stringify({ ma_period: 50 })
+    }
+    const sanitized = sanitizeSessionConfig(config)
+    assert.deepEqual(sanitized.signal_params, { ma_period: 50 })
+  })
+
+  it('preserves auto_scale_min_notional', () => {
+    const config = {
+      auto_scale_min_notional: false
+    }
+    const sanitized = sanitizeSessionConfig(config)
+    assert.strictEqual(sanitized.auto_scale_min_notional, false)
+  })
+
+  it('removes signal_params if it is null', () => {
+    const config = {
+      signal_params: null
+    }
+    const sanitized = sanitizeSessionConfig(config)
+    assert.strictEqual(sanitized.signal_params, undefined)
   })
 })

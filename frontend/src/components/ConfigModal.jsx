@@ -211,7 +211,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     const c = { ...cfg, strategy_label: (cfg.strategy_label || presetName || generatedPresetName || 'Momentum Strategy').trim() };
     const sp = { ...(typeof cfg.signal_params === 'string' ? JSON.parse(cfg.signal_params || '{}') : cfg.signal_params || {}) };
     ['ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period', 'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow'].forEach(k => { if (cfg[`signal_params_${k}`]) sp[k] = cfg[`signal_params_${k}`]; });
-    c.signal_params = JSON.stringify(sp);
+    c.signal_params = sp;
     // UI Conversion: UI percentage back to backend decimal
     if (c.slippage_warning_threshold !== undefined) {
       c.slippage_warning_threshold = c.slippage_warning_threshold / 100;
@@ -477,7 +477,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
 
                 <div className={cn(
                   "p-4 border rounded-2xl flex flex-col justify-center gap-1",
-                  (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05
+                  cfg.auto_scale_min_notional !== false && (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05
                     ? "bg-amber/5 border-amber/20 shadow-[0_0_20px_rgba(245,166,35,0.05)]"
                     : "bg-background/40 border-border/40"
                 )}>
@@ -487,20 +487,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                       <div className="w-1 h-1 rounded-full bg-dim/30" />
                       <span className="text-[8px] text-accent font-bold uppercase tracking-tight">$5.05 Floor</span>
                     </div>
-                    <Tooltip content="Binance Futures requires a minimum position size of 5 USDT. The engine uses a 5.05 USDT floor (5.00 min + 0.05 safety buffer) and will automatically scale UP small positions.">
-                       <Activity size={10} className="text-dim cursor-help" />
-                    </Tooltip>
+                    <div className="flex items-center gap-2">
+                      <Toggle value={cfg.auto_scale_min_notional !== false} onChange={(v) => setField('auto_scale_min_notional', v)} color="bg-accent" />
+                      <Tooltip content="Binance Futures requires a minimum position size of 5 USDT. When enabled, the engine automatically scales UP small positions to $5.05 to avoid exchange rejections.">
+                         <Activity size={10} className="text-dim cursor-help" />
+                      </Tooltip>
+                    </div>
                   </div>
                   <div className="flex flex-col gap-1.5 mt-0.5">
                     <div className="flex items-baseline gap-2">
                       <span className={cn(
                         "text-sm font-bold font-mono transition-colors",
-                        (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05 ? "text-amber" : "text-text"
+                        cfg.auto_scale_min_notional !== false && (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05 ? "text-amber" : "text-text"
                       )}>
-                        {fmtUSD(Math.max(5.05, riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)))}
+                        {fmtUSD(cfg.auto_scale_min_notional !== false ? Math.max(5.05, riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) : (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)))}
                         <span className="text-[9px] ml-1.5 opacity-40 font-medium uppercase tracking-tight">Execution</span>
                       </span>
-                      {((riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05) && (
+                      {(cfg.auto_scale_min_notional !== false && (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05) && (
                         <span className="text-[8px] px-1.5 py-0.5 bg-amber text-black font-black rounded-sm uppercase animate-pulse">Auto-Scaled</span>
                       )}
                     </div>
@@ -512,7 +515,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                         Exchange Rule: $5.00 (Min) + $0.05 (Buffer) = $5.05 Requirement
                       </p>
                       <p className="text-[7px] font-black text-accent uppercase tracking-widest mt-0.5">
-                        Status: {(riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05 ? "⚠️ Scaling up to meet exchange minimum" : "✅ Threshold met, using precise sizing"}
+                        Status: {cfg.auto_scale_min_notional === false ? "❌ Scaling disabled, risk of rejection" : (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05 ? "⚠️ Scaling up to meet exchange minimum" : "✅ Threshold met, using precise sizing"}
                       </p>
                     </div>
                   </div>
@@ -534,7 +537,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                        </div>
                        <p className="text-[10px] font-mono text-dim leading-tight">
                           $0.10 risk @ 5% SL = $2.00 notional.<br/>
-                          <span className="text-amber font-bold">→ Engine scales entry to $5.05</span>
+                          <span className={cn(cfg.auto_scale_min_notional === false ? "text-red" : "text-amber", "font-bold")}>
+                            {cfg.auto_scale_min_notional === false ? "→ Exchange will REJECT order" : "→ Engine scales entry to $5.05"}
+                          </span>
                        </p>
                     </div>
                     <p className="text-[9px] text-dim/60 italic leading-snug">

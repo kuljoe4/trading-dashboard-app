@@ -348,12 +348,15 @@ export class RiskEngineService {
 
     // PERFORMANCE: Implement dynamic notional scaling floor.
     // Binance absolute minimum for Futures is 5 USDT. We use 5.05 for a safety buffer.
-    const MIN_NOTIONAL = 5.05;
-    const currentNotional = qty * entryPrice;
+    const autoScale = config.auto_scale_min_notional ?? true;
+    if (autoScale) {
+      const MIN_NOTIONAL = 5.05;
+      const currentNotional = qty * entryPrice;
 
-    if (currentNotional < MIN_NOTIONAL) {
-       this.logger.debug(`[RiskEngine] Scaled qty up to meet MIN_NOTIONAL (${currentNotional.toFixed(2)} -> ${MIN_NOTIONAL})`);
-       qty = roundEight(MIN_NOTIONAL / entryPrice);
+      if (currentNotional < MIN_NOTIONAL) {
+         this.logger.debug(`[RiskEngine] Scaled qty up to meet MIN_NOTIONAL (${currentNotional.toFixed(2)} -> ${MIN_NOTIONAL})`);
+         qty = roundEight(MIN_NOTIONAL / entryPrice);
+      }
     }
 
     return qty;

@@ -1,5 +1,5 @@
 import { IsString, IsNumber, IsOptional, IsEnum, IsArray, IsBoolean, Min, Max, IsObject, ValidateNested, MaxLength, ArrayMaxSize } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { CONFIG_LIMITS } from './constants';
 
 export class SingleSymbolConfig {
@@ -124,6 +124,12 @@ export class SessionConfig {
 
   @IsObject()
   @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      try { return JSON.parse(value); } catch (e) { return {}; }
+    }
+    return value === null ? undefined : value;
+  })
   signal_params?: Record<string, any>;
 
   // Stop Loss Configuration
@@ -260,6 +266,10 @@ export class SessionConfig {
   @Min(0)
   @IsOptional()
   total_sl_guard_usdt?: number = CONFIG_LIMITS.TOTAL_SL_GUARD_DEFAULT;
+
+  @IsBoolean()
+  @IsOptional()
+  auto_scale_min_notional?: boolean = true;
 
   // Balance & Mode Configuration
   @IsBoolean()

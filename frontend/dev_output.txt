@@ -1,0 +1,29 @@
+
+> momentum-engine-frontend@0.0.0 dev /app/frontend
+> vite
+
+
+  VITE v4.5.14  ready in 272 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+10:59:13 PM [vite] page reload src/components/ConfigModal.jsx
+10:59:13 PM [vite] page reload dev_output.txt
+11:01:30 PM [vite] page reload src/components/ConfigModal.jsx
+11:01:30 PM [vite] page reload dev_output.txt
+11:01:59 PM [vite] page reload src/store/trading.js
+11:01:59 PM [vite] page reload dev_output.txt
+11:03:26 PM [vite] page reload src/api/client.js
+11:03:26 PM [vite] page reload dev_output.txt
+11:10:33 PM [vite] page reload src/api/client.test.js
+11:10:33 PM [vite] page reload dev_output.txt
+11:15:10 PM [vite] page reload src/api/client.js
+11:15:10 PM [vite] page reload dev_output.txt
+11:15:39 PM [vite] page reload src/api/client.test.js
+11:15:39 PM [vite] page reload dev_output.txt
+11:15:47 PM [vite] page reload src/api/client.test.js
+11:15:47 PM [vite] page reload dev_output.txt
+11:20:10 PM [vite] page reload src/api/client.js
+11:20:10 PM [vite] page reload dev_output.txt
+11:20:29 PM [vite] page reload src/api/client.test.js
+11:20:29 PM [vite] page reload dev_output.txt

@@ -689,83 +689,28 @@ export class OrderManagerService {
       const stepSize = parseFloat(lotSize?.stepSize || '0');
       const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
 
-      // INDUSTRY-BEST-PRACTICE: For Stop Loss, use closePosition: true.
-      // Memory: quantity should be omitted when closePosition is true for Binance Futures fapi.
+      // INDUSTRY-BEST-PRACTICE (2026): Standardize on Algo Order API for all Stop Loss placements.
+      // This is the most reliable endpoint for conditional orders on Binance Futures USD-M.
       const slOrderParams: any = {
-        symbol: trade.symbol,
-        side: closeDirection,
+        symbol,
+        side: closeDirection as any,
         type: 'STOP_MARKET',
+        quantity: parseFloat(trade.qty.toFixed(qtyPrecision)),
         stopPrice: parseFloat(slPrice.toFixed(pricePrecision)),
-        closePosition: true,
+        algoType: 'CONDITIONAL',
+        newOrderRespType: 'RESULT',
         workingType: 'MARK_PRICE',
-        newClientOrderId: `sl-${trade.id.substring(0, 8)}`,
-        selfTradePreventionMode: 'EXPIRE_MAKER', // Hardening: Prevent self-trading
+        clientAlgoId: `sl-${trade.id.substring(0, 8)}`,
+        reduceOnly: 'true'
       };
 
-      this.logger.log(`Placing Binance SL order: ${JSON.stringify(slOrderParams)}`);
+      this.logger.log(`Placing Binance Algo SL order: ${JSON.stringify(slOrderParams)}`);
 
       let stopLossId: string | null = null;
-      let orderType: 'standard' | 'algo' = 'standard';
+      let orderType: 'standard' | 'algo' = 'algo';
 
       try {
-        let response;
-        try {
-          // Attempt 1: Standard SL (closePosition: true, no quantity)
-          response = await this.binanceClient.restAPI.newOrder(slOrderParams);
-        } catch (standardErr: any) {
-          const standardMsg = standardErr.message || '';
-
-          if (standardMsg.includes('Algo Order API')) {
-            this.logger.warn(`[${symbol}] Standard SL failed (Algo required). Fallback to newAlgoOrder...`);
-            orderType = 'algo';
-            response = await this.binanceClient.restAPI.newAlgoOrder({
-              symbol,
-              side: closeDirection as any,
-              type: 'STOP_MARKET',
-              quantity: parseFloat(trade.qty.toFixed(qtyPrecision)),
-              stopPrice: slOrderParams.stopPrice,
-              algoType: 'CONDITIONAL',
-              newOrderRespType: 'RESULT',
-              workingType: 'MARK_PRICE',
-              clientAlgoId: slOrderParams.newClientOrderId,
-              reduceOnly: 'true'
-            } as any);
-          } else if (standardMsg.includes('quantity')) {
-            this.logger.warn(`[${symbol}] Standard SL failed (Quantity required). Retrying with explicit qty...`);
-            const retryParams = {
-              ...slOrderParams,
-              quantity: parseFloat(trade.qty.toFixed(qtyPrecision)),
-              closePosition: undefined,
-              reduceOnly: 'true'
-            };
-            delete retryParams.closePosition;
-            try {
-              response = await this.binanceClient.restAPI.newOrder(retryParams);
-            } catch (retryErr: any) {
-              if (retryErr.message?.includes('Algo Order API')) {
-                this.logger.warn(`[${symbol}] Standard SL with qty also failed (Algo required). Fallback to newAlgoOrder...`);
-                orderType = 'algo';
-                response = await this.binanceClient.restAPI.newAlgoOrder({
-                  symbol,
-                  side: closeDirection as any,
-                  type: 'STOP_MARKET',
-                  quantity: retryParams.quantity,
-                  stopPrice: slOrderParams.stopPrice,
-                  algoType: 'CONDITIONAL',
-                  newOrderRespType: 'RESULT',
-                  workingType: 'MARK_PRICE',
-                  clientAlgoId: slOrderParams.newClientOrderId,
-                  reduceOnly: 'true'
-                } as any);
-              } else {
-                throw retryErr;
-              }
-            }
-          } else {
-            throw standardErr;
-          }
-        }
-
+        const response = await this.binanceClient.restAPI.newAlgoOrder(slOrderParams as any);
         this.updateWeight(response?.headers);
         const orderData = await response.data() as any;
 
@@ -775,12 +720,12 @@ export class OrderManagerService {
 
           // Handle Duplicate Order ID specifically to recover state after timeout
           if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
-            this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId on SL placement retry. Recovering SL state...`);
-            const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
+            this.logger.log(`[${symbol}] [Sync] Detected duplicate clientAlgoId on SL retry. Recovering SL state...`);
+            const queryRes = await this.binanceClient.restAPI.queryAlgoOrder({ clientAlgoId: slOrderParams.clientAlgoId });
             const queryData = await queryRes.data() as any;
-            if (queryData && queryData.orderId) {
-              this.logger.log(`[${symbol}] [Sync] Successfully recovered existing SL order state: ${queryData.orderId}`);
-              stopLossId = String(queryData.orderId);
+            if (queryData && (queryData.algoId || queryData.orderId)) {
+              this.logger.log(`[${symbol}] [Sync] Successfully recovered existing SL order state: ${queryData.algoId || queryData.orderId}`);
+              stopLossId = String(queryData.algoId || queryData.orderId);
             } else {
               this.logger.error(`[${symbol}] [Sync] SL Order ID duplicate detected but query failed or returned no data: ${msg}`);
               throw new Error(`SL Order ID duplicate but query failed: ${msg}`);
@@ -790,19 +735,18 @@ export class OrderManagerService {
             throw new Error(`SL placement failed: ${msg}`);
           }
         } else {
-          this.logger.log(`${orderType === 'algo' ? 'Algo' : 'Standard'} SL placement response for ${symbol}: ${JSON.stringify(orderData)}`);
-          stopLossId = String(orderData.orderId || orderData.id);
+          this.logger.log(`Algo SL placement response for ${symbol}: ${JSON.stringify(orderData)}`);
+          stopLossId = String(orderData.algoId || orderData.orderId || orderData.id);
         }
       } catch (err: any) {
         const msg = err.message || '';
         if (msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
-          this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId (via exception) on SL placement retry. Recovering SL state...`);
-          const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
+          this.logger.log(`[${symbol}] [Sync] Detected duplicate clientAlgoId (via exception) on SL retry. Recovering SL state...`);
+          const queryRes = await this.binanceClient.restAPI.queryAlgoOrder({ clientAlgoId: slOrderParams.clientAlgoId });
           const queryData = await queryRes.data() as any;
-          if (queryData && queryData.orderId) {
-            this.logger.log(`[${symbol}] [Sync] Successfully recovered existing SL order state: ${queryData.orderId}`);
-            stopLossId = String(queryData.orderId);
-            orderType = 'standard';
+          if (queryData && (queryData.algoId || queryData.orderId)) {
+            this.logger.log(`[${symbol}] [Sync] Successfully recovered existing SL order state: ${queryData.algoId || queryData.orderId}`);
+            stopLossId = String(queryData.algoId || queryData.orderId);
           } else {
             this.logger.error(`[${symbol}] [Sync] SL Order ID duplicate (exception) but query failed or returned no data.`);
             throw err;
@@ -901,97 +845,13 @@ export class OrderManagerService {
   async updateStopLoss(trade: Trade, newSlPrice: number, prevSlPrice?: number): Promise<boolean> {
     if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return true;
 
-    // Algo orders cannot be updated via modifyOrder, must replace
-    if (trade.binance_stop_order_type === 'algo') {
-      const oldSlId = trade.binance_stop_order_id;
-      if (oldSlId) {
-        this.logger.debug(`[SL] Canceling existing Algo SL ${oldSlId} before replacement.`);
-        await this.cancelBinanceOrder(trade.symbol, oldSlId, 'algo');
-        trade.binance_stop_order_id = undefined;
-      }
-      return !!(await this.placeStopLoss(trade, newSlPrice));
-    }
-
-    const risk = Math.abs(trade.entry_price - trade.initial_sl);
-    const move = Math.abs(newSlPrice - trade.current_sl);
-    const isSmallMove = move < (risk * 0.15);
-
-    // Order Rate Limit Guard
-    if (this.sessionState.isOrderRateLimited(isSmallMove ? 2 : 1)) {
-       this.logger.debug(`Skipping SL update for ${trade.symbol} due to order rate limits (move: ${move.toFixed(4)})`);
-       return true;
-    }
-
-    const filters = this.marketFeed.getSymbolFilters(trade.symbol);
-    const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
-    const tickSize = parseFloat(priceFilter?.tickSize || '0');
-    const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
-    const formattedPrice = newSlPrice.toFixed(pricePrecision);
-
-    // PERFORMANCE: Use modifyOrder for Standard API to avoid protection gaps
-    if (trade.binance_stop_order_id && trade.binance_stop_order_type === 'standard') {
-      try {
-        this.logger.log(`Ratcheting SL for ${trade.symbol} via modifyOrder: ${trade.current_sl} -> ${formattedPrice}`);
-        const res = await this.binanceClient.restAPI.modifyOrder({
-          symbol: trade.symbol,
-          orderId: BigInt(trade.binance_stop_order_id),
-          price: parseFloat(formattedPrice) // STOP_MARKET requires price instead of stopPrice in some fapi versions
-        } as any);
-          this.updateWeight(res?.headers);
-        return true;
-      } catch (err: any) {
-        const msg = err.message || String(err);
-        this.logger.warn(`Failed to modify SL for ${trade.symbol}: ${msg}. Falling back to replace.`);
-        // If modify fails (e.g. order filled), we fall through to the replace logic
-      }
-    }
-
-    // For failed modify or symbols that don't support it, handle closePosition constraint.
-    // Binance only allows ONE closePosition order. To update, we must CANCEL first then REPLACE.
     const oldSlId = trade.binance_stop_order_id;
-
     if (oldSlId) {
-      this.logger.debug(`[SL] Canceling existing SL ${oldSlId} for ${trade.symbol} before replacement.`);
-      const cancelSuccess = await this.cancelBinanceOrder(trade.symbol, oldSlId, trade.binance_stop_order_type as any);
-      if (cancelSuccess) {
-         trade.binance_stop_order_id = undefined;
-      }
+      this.logger.debug(`[SL] Canceling existing Algo SL ${oldSlId} before replacement.`);
+      await this.cancelBinanceOrder(trade.symbol, oldSlId, 'algo');
+      trade.binance_stop_order_id = undefined;
     }
-
-    // Place NEW stop loss after old one is cleared
-    let result = await this.placeStopLoss(trade, newSlPrice);
-
-    // ROLLBACK LOGIC: If new SL placement fails, attempt to re-place the OLD one
-    if (!result && prevSlPrice) {
-       this.logger.warn(`[SL] Replacement failed for ${trade.symbol}. Attempting ROLLBACK to previous SL at ${prevSlPrice}...`);
-       result = await this.placeStopLoss(trade, prevSlPrice);
-       if (result) {
-          this.logger.log(`[SL] Successfully rolled back protection for ${trade.symbol} to ${prevSlPrice}.`);
-          // DATA-CONSISTENCY: Sync local state back to the rolled-back price
-          trade.current_sl = prevSlPrice;
-          return false; // Still return false because the requested update failed
-       }
-    }
-
-    if (!result) {
-       this.logger.error(`[CRITICAL] SL Replacement & Rollback failed for ${trade.symbol}. Position is UNPROTECTED. Attempting emergency unwind...`);
-       try {
-          const unwindRes = await this.closeTrade(trade.symbol, trade, trade.entry_price, 'UNPROTECTED_SL_FAILURE');
-          if (unwindRes.exitOccurred) {
-             this.logger.warn(`[RECOVERY] Successfully closed unprotected ${trade.symbol} position.`);
-             this.eventEmitter.emit('trade.exchange_close', {
-                symbol: trade.symbol,
-                exitPrice: trade.exit_price || trade.entry_price,
-                reason: 'UNPROTECTED_SL_FAILURE'
-             });
-          }
-       } catch (unwindErr) {
-          this.logger.error(`[FATAL] Emergency unwind FAILED for unprotected ${trade.symbol} position: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);
-       }
-       return false;
-    }
-
-    return true;
+    return !!(await this.placeStopLoss(trade, newSlPrice));
   }
 
   /**

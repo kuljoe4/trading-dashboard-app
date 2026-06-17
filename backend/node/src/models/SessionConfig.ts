@@ -331,6 +331,7 @@ export class SessionConfig {
   @IsNumber()
   @IsOptional()
   @Min(0)
+  @Max(CONFIG_LIMITS.SLIPPAGE_ABORT_MAX)
   slippage_abort_threshold: number = CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT;
 
   @IsBoolean()

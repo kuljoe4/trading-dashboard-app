@@ -129,13 +129,28 @@ export class SessionService implements OnModuleInit {
 
           if (session) {
             const mode = session.tradingMode || (session.paperMode ? 'paper' : 'live');
-            const startingBalance = mode === 'paper'
-              ? (session.config?.paper_starting_balance || 10000)
-              : (session.config?.live_starting_balance || 0);
+            let realizedPnl: number;
+
+            if (mode === 'paper') {
+              const startingBalance = (session.config?.paper_starting_balance || 10000);
+              realizedPnl = roundEight(balance - startingBalance);
+            } else {
+              // Live/Testnet: Sum all trades (including OPEN) for this session using optimized DB aggregation
+              // This ensures that fees and funding from active trades are reflected in totalPnl immediately
+              // and prevents corruption from external deposits/withdrawals.
+              const aggregation = await queryRunner.manager
+                .createQueryBuilder(TradeEntity, 'trade')
+                .select('SUM(trade.pnl)', 'sum')
+                .where('trade.sessionId = :sessionId', { sessionId })
+                .andWhere('trade.status IN (:...statuses)', { statuses: [...TERMINAL_STATUSES, 'OPEN'] })
+                .getRawOne();
+
+              realizedPnl = roundEight(Number(aggregation?.sum || 0));
+            }
 
             await queryRunner.manager.update(SessionEntity, sessionId, {
               balance,
-              totalPnl: roundEight(balance - startingBalance)
+              totalPnl: realizedPnl
             });
 
             const updateData: any = {};

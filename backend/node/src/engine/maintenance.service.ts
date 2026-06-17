@@ -58,7 +58,18 @@ export class MaintenanceService {
         try {
           if (!trade.binance_order_id) continue;
           const pos = activePositionsMap.get(trade.symbol);
-          if (!pos) continue;
+
+          if (!pos) {
+            // BOLT: Handle orphaned local positions. If bot thinks it's open but exchange says 0.
+            this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} is active locally but NO position found on Binance. Triggering Sync Closure.`);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Watchdog] Ghost position detected for ${trade.symbol}. Force-syncing to closed.`, level: 'error' });
+
+            // Trigger a local sync-only closure to stop the engine from trying to manage this non-existent trade.
+            // We use EXCHANGE_SYNC so it doesn't try to send more orders.
+            await this.orderManager.closeTrade(trade.symbol, trade, 0, 'EXCHANGE_SYNC', false, true);
+            continue;
+          }
+
           const hasProtection = slOrdersSymbols.has(trade.symbol);
 
           if (!hasProtection) {

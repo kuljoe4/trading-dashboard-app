@@ -120,7 +120,10 @@ export class SessionLifecycleService {
           this.sessionState.balancePaper = b;
           this.sessionState.lastExchangeBalance = b;
           if (b === 0) {
-            await this.progress(`Binance ${mode} balance is 0. Gating until funds are available.`, 'warn');
+            const zeroBalMsg = `CRITICAL: Binance ${mode.toUpperCase()} balance is 0. Initialization halted. Please fund your account.`;
+            this.logger.error(zeroBalMsg);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: zeroBalMsg, level: 'error' });
+            throw new ConfigValidationException(zeroBalMsg);
           }
         }
       } catch (e) {

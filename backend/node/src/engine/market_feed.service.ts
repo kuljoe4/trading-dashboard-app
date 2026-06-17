@@ -110,7 +110,16 @@ export class MarketFeedService {
           for (const s of data.symbols) {
             // BOLT: Only include symbols that are actively trading in the target environment
             if (s.status === 'TRADING' || s.status === 'SETTLING') {
-              this.exchangeInfo.set(s.symbol, s);
+              // COMPLIANCE: Filter out TradFi/Non-Crypto symbols (Gold, Silver, Equities)
+              // Binance Futures uses underlyingType 'COIN' for standard cryptocurrencies.
+              const isCrypto = s.underlyingType === 'COIN' || !s.underlyingType;
+              const isTradFi = s.underlyingType === 'COMMODITY' || s.underlyingType === 'EQUITY' || s.underlyingType === 'INDEX';
+
+              if (isCrypto && !isTradFi) {
+                this.exchangeInfo.set(s.symbol, s);
+              } else {
+                this.logger.debug(`Filtering out non-crypto symbol: ${s.symbol} (Type: ${s.underlyingType})`);
+              }
             }
           }
           this.lastExchangeInfoFetch = now;
@@ -392,32 +401,45 @@ export class MarketFeedService {
   private async processBackfillQueue() {
     if (this.backfillProcessing || this.backfillQueue.length === 0) return;
     this.backfillProcessing = true;
-    this.logger.log(`Starting kline backfill queue. Depth: ${this.backfillQueue.length}`);
+    const initialDepth = this.backfillQueue.length;
+    this.logger.log(`Starting concurrent kline backfill queue. Depth: ${initialDepth}`);
 
-    while (this.backfillQueue.length > 0) {
-      if (!this.running) break;
+    const CONCURRENCY = 5;
+    const processTask = async () => {
+      while (this.backfillQueue.length > 0 && this.running) {
+        // Stricter rate limit for background tasks (80% of limit threshold)
+        const rateLimit = this.sessionState.getBinanceRateLimit();
+        const usedWeight = rateLimit.used_weight_1m;
+        const limit = rateLimit.weight_limit || ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT;
+        const pauseThreshold = Math.floor(limit * 0.8);
 
-      // Stricter rate limit for background tasks (80% of limit threshold)
-      const rateLimit = this.sessionState.getBinanceRateLimit();
-      const usedWeight = rateLimit.used_weight_1m;
-      const limit = rateLimit.weight_limit || ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT;
-      const pauseThreshold = Math.floor(limit * 0.8);
+        if (usedWeight > pauseThreshold) {
+          this.logger.debug(`Backfill worker pausing (Weight: ${usedWeight}/${limit})...`);
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          continue;
+        }
 
-      if (usedWeight > pauseThreshold) {
-        this.logger.debug(`Pausing kline backfill queue (Weight: ${usedWeight}/${limit})...`);
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        continue;
+        const task = this.backfillQueue.shift();
+        if (task) {
+          try {
+            await this.backfillKlines(task.symbol, task.interval);
+          } catch (err) {
+            this.logger.error(`Backfill failed for ${task.symbol} ${task.interval}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+          // Small delay between requests to smooth out weight consumption
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
       }
+    };
 
-      const task = this.backfillQueue.shift();
-      if (task) {
-        await this.backfillKlines(task.symbol, task.interval);
-        // Small delay between requests to smooth out weight consumption
-        await new Promise(resolve => setTimeout(resolve, 200));
-      }
+    const workers = [];
+    for (let i = 0; i < Math.min(CONCURRENCY, initialDepth); i++) {
+      workers.push(processTask());
     }
 
+    await Promise.all(workers);
     this.backfillProcessing = false;
+    this.logger.log(`Concurrent kline backfill complete.`);
   }
 
   private async backfillKlines(symbol: string, interval: string) {

@@ -46,8 +46,8 @@ describe('OrderManagerService', () => {
     };
   });
 
-  describe('Standard SL Order API', () => {
-    it('uses standard newOrder with closePosition: true for SL placement in live mode', async () => {
+  describe('Algo SL Order API', () => {
+    it('uses newAlgoOrder with algoType: CONDITIONAL for SL placement in live mode', async () => {
       await service.setBinanceClient(mockBinanceClient, false); // Live mode
 
       const trade = {
@@ -63,13 +63,40 @@ describe('OrderManagerService', () => {
 
       const result = await service.placeStopLoss(trade, 49500);
 
-      expect(mockBinanceClient.restAPI.newOrder).toHaveBeenCalledWith(
+      expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalledWith(
         expect.objectContaining({
           symbol: 'BTCUSDT',
-          type: 'STOP_MARKET',
+          algoType: 'CONDITIONAL',
           stopPrice: 49500,
           reduceOnly: true,
           newClientOrderId: 'sl-test-sta'
+        })
+      );
+      expect(result).toBe('77777');
+      expect(trade.binance_stop_order_type).toBe('algo');
+    });
+
+    it('falls back to standard STOP_MARKET if Algo API is not supported (-4120)', async () => {
+      await service.setBinanceClient(mockBinanceClient, false);
+
+      mockBinanceClient.restAPI.newAlgoOrder.mockRejectedValueOnce(new Error('Order type not supported for this endpoint. (-4120)'));
+
+      const trade = {
+        id: 'test-fallback-id',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 0.1,
+        binance_order_id: '11111'
+      } as Trade;
+
+      (service as any).marketFeed.getSymbolFilters = jest.fn().mockReturnValue({ filters: [] });
+
+      const result = await service.placeStopLoss(trade, 49500);
+
+      expect(mockBinanceClient.restAPI.newOrder).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'STOP_MARKET',
+          stopPrice: 49500
         })
       );
       expect(result).toBe('99999');
@@ -78,7 +105,7 @@ describe('OrderManagerService', () => {
   });
 
   describe('enter', () => {
-    it('places entry via newOrder and stop loss via standard newOrder in live mode separately', async () => {
+    it('places entry via newOrder and stop loss via newAlgoOrder in live mode separately', async () => {
       await service.setBinanceClient(mockBinanceClient, false); // Live mode
 
       const result = await service.enter(
@@ -104,18 +131,18 @@ describe('OrderManagerService', () => {
         })
       );
 
-      expect(mockBinanceClient.restAPI.newOrder).toHaveBeenCalledWith(
+      expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalledWith(
         expect.objectContaining({
           symbol: 'BTCUSDT',
           side: 'SELL',
-          type: 'STOP_MARKET',
+          algoType: 'CONDITIONAL',
           stopPrice: 49500,
           workingType: 'MARK_PRICE',
           reduceOnly: true
         })
       );
 
-      expect(trade?.binance_stop_order_id).toBe('99999');
+      expect(trade?.binance_stop_order_id).toBe('77777');
     });
 
     it('is idempotent for setBinanceClient (only fetches and logs once)', async () => {
@@ -172,15 +199,15 @@ describe('OrderManagerService', () => {
           orderId: BigInt('22222')
         })
       );
-      expect(mockBinanceClient.restAPI.newOrder).toHaveBeenCalledWith(
+      expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'STOP_MARKET',
+          algoType: 'CONDITIONAL',
           stopPrice: 50500,
           workingType: 'MARK_PRICE',
           reduceOnly: true
         })
       );
-      expect(trade.binance_stop_order_id).toBe('99999');
+      expect(trade.binance_stop_order_id).toBe('77777');
     });
   });
 
@@ -278,8 +305,8 @@ describe('OrderManagerService', () => {
       // authoritative fillPrice is safe (50000 > SL 49500)
       const result = await service.placeStopLoss(trade, 49500, 50000);
 
-      expect(result).toBe('99999');
-      expect(mockBinanceClient.restAPI.newOrder).toHaveBeenCalled();
+      expect(result).toBe('77777');
+      expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalled();
     });
 
     it('triggers locally if authoritative fillPrice is breached even if ticker is safe', async () => {

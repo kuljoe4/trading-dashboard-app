@@ -51,24 +51,28 @@ export class OrderManagerService {
     const type = order.ot;
     const executionType = order.x; // Execution Type
 
-    // Proactively update weight from WS message if available
-    // Guideline: Only process fills if executionType is 'TRADE'
-    if (status === 'FILLED' && executionType === 'TRADE') {
+    // Accuracy Improvement: Update trade entry/exit price from User Data Stream (ORDER_TRADE_UPDATE)
+    if (executionType === 'TRADE') {
       const activeTrades = this.sessionState.activeTrades;
       const trade = activeTrades.find(t => t.symbol === symbol);
 
       if (trade) {
         const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
-        this.logger.debug(`[${tradeIdShort8}] Processing Binance order FILLED: ${symbol} ${side} (${orderId}, clientOrderId=${clientOrderId})`);
+        const avgPrice = parseFloat(order.ap || '0');
+        const lastPrice = parseFloat(order.L || '0');
 
         // BOLT: Handle both REST order IDs and Client IDs for SL matching
         const isSlOrder =
           trade.binance_stop_order_id === orderId ||
           (clientOrderId && clientOrderId.startsWith(`sl-${tradeIdShort8}`));
 
-        if (isSlOrder) {
+        const isEntryOrder =
+          trade.binance_order_id === orderId ||
+          (clientOrderId && clientOrderId.startsWith(`ent-${tradeIdShort8}`));
+
+        if (status === 'FILLED' && isSlOrder) {
           this.logger.log(`[${tradeIdShort8}] Binance SL HIT for ${symbol}. Closing trade locally.`);
-          let exitPrice = parseFloat(order.ap || order.p || '0');
+          let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
 
           if (exitPrice === 0) {
              const tickerPrice = this.tickerCache.getPrice(symbol);
@@ -91,9 +95,15 @@ export class OrderManagerService {
             reason: 'SL_HIT'
           });
         }
-        else if (side !== (trade.direction === 'LONG' ? 'BUY' : 'SELL')) {
+        else if (isEntryOrder) {
+           if (avgPrice > 0 && trade.entry_price !== avgPrice) {
+              this.logger.log(`[${tradeIdShort8}] [Sync] Updating entry price from UDS for ${symbol}: ${trade.entry_price} -> ${avgPrice}`);
+              trade.entry_price = roundEight(avgPrice);
+           }
+        }
+        else if (status === 'FILLED' && side !== (trade.direction === 'LONG' ? 'BUY' : 'SELL')) {
            this.logger.log(`[${tradeIdShort8}] Non-entry order FILLED for ${symbol} (${side}). Closing trade locally.`);
-           let exitPrice = parseFloat(order.ap || order.p || '0');
+           let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
 
            if (exitPrice === 0) {
               const tickerPrice = this.tickerCache.getPrice(symbol);
@@ -691,10 +701,12 @@ export class OrderManagerService {
 
       // INDUSTRY-BEST-PRACTICE (2026): Standardize on standard STOP_MARKET orders for Stop Loss.
       // We use quantity and reduceOnly: true for maximum compatibility across all Binance environments (Testnet/Live).
+      // COMPLIANCE: Binance deprecated standard STOP_MARKET for some accounts/symbols.
+      // We use the Algo Order API (CONDITIONAL) as the primary method for Stop Loss.
       const slOrderParams: any = {
         symbol,
         side: closeDirection as any,
-        type: 'STOP_MARKET',
+        algoType: 'CONDITIONAL',
         quantity: parseFloat(trade.qty.toFixed(qtyPrecision)),
         stopPrice: parseFloat(slPrice.toFixed(pricePrecision)),
         workingType: 'MARK_PRICE',
@@ -703,13 +715,13 @@ export class OrderManagerService {
         priceProtect: true
       };
 
-      this.logger.log(`Placing Binance Standard SL order: ${JSON.stringify(slOrderParams)}`);
+      this.logger.log(`Placing Binance Algo SL order: ${JSON.stringify(slOrderParams)}`);
 
       let stopLossId: string | null = null;
-      let orderType: 'standard' | 'algo' = 'standard';
+      let orderType: 'standard' | 'algo' = 'algo';
 
       try {
-        const response = await this.binanceClient.restAPI.newOrder(slOrderParams as any);
+        const response = await this.binanceClient.restAPI.newAlgoOrder(slOrderParams as any);
         this.updateWeight(response?.headers);
         const orderData = await response.data() as any;
 
@@ -720,6 +732,7 @@ export class OrderManagerService {
           // Handle Duplicate Order ID specifically to recover state after timeout
           if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
             this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId on SL retry. Recovering SL state...`);
+            // Algo orders might need a different query endpoint or different parameters
             const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
             const queryData = await queryRes.data() as any;
             if (queryData && queryData.orderId) {
@@ -739,7 +752,26 @@ export class OrderManagerService {
         }
       } catch (err: any) {
         const msg = err.message || '';
-        if (msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
+        if (msg.includes('Order type not supported') || msg.includes('-4120')) {
+          this.logger.warn(`[${symbol}] Algo Order API not supported or failed. Falling back to standard STOP_MARKET...`);
+          const standardParams = { ...slOrderParams };
+          delete standardParams.algoType;
+          standardParams.type = 'STOP_MARKET';
+          try {
+            const fallbackRes = await this.binanceClient.restAPI.newOrder(standardParams as any);
+            const fallbackData = await fallbackRes.data() as any;
+            if (fallbackData.orderId) {
+              stopLossId = String(fallbackData.orderId);
+              orderType = 'standard';
+              this.logger.log(`Standard SL fallback successful: ${stopLossId}`);
+            } else {
+              throw new Error(fallbackData.msg || 'Fallback failed');
+            }
+          } catch (fallbackErr: any) {
+            this.logger.error(`Standard SL fallback failed: ${fallbackErr.message}`);
+            throw fallbackErr;
+          }
+        } else if (msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
           this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId (via exception) on SL retry. Recovering SL state...`);
           const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
           const queryData = await queryRes.data() as any;

@@ -119,6 +119,12 @@ describe('SessionService Validation', () => {
       config.max_total_risk_pct = 5;
       expect(() => (service as any).validateConfig(config)).not.toThrow();
     });
+
+    it('throws error for invalid slippage_abort_threshold (FIX VERIFICATION)', () => {
+      const config = new SessionConfig();
+      config.slippage_abort_threshold = 0.5; // Max is 0.15
+      expect(() => (service as any).validateConfig(config)).toThrow('Slippage abort threshold cannot exceed 15%');
+    });
   });
 
   describe('startSession Security Enforcement', () => {

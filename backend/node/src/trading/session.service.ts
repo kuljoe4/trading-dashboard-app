@@ -19,6 +19,7 @@ import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { AnalyticsService } from '../engine/analytics.service';
 import { updateLogLevels } from '../lib/logger';
 import { roundEight } from '../lib/math';
+import { CONFIG_LIMITS } from '../models/constants';
 
 @Injectable()
 export class SessionService implements OnModuleInit {
@@ -373,6 +374,10 @@ export class SessionService implements OnModuleInit {
     const maxTotalRisk = config.max_total_risk_pct ?? 100;
     if (riskPerTrade > maxTotalRisk) {
       throw new BadRequestException('Risk per trade cannot exceed maximum total risk');
+    }
+
+    if (config.slippage_abort_threshold != null && config.slippage_abort_threshold > CONFIG_LIMITS.SLIPPAGE_ABORT_MAX) {
+      throw new BadRequestException(`Slippage abort threshold cannot exceed ${CONFIG_LIMITS.SLIPPAGE_ABORT_MAX * 100}%`);
     }
   }
 

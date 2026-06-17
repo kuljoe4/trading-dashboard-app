@@ -6,7 +6,9 @@ import { SessionConfig } from '../../models/SessionConfig';
 export class StartSessionDto {
   @IsOptional()
   @IsObject()
-  config?: any;
+  @ValidateNested()
+  @Type(() => SessionConfig)
+  config?: SessionConfig;
 
   @IsOptional()
   @IsBoolean()
@@ -28,5 +30,7 @@ export class PauseSessionDto {
 export class UpdateSessionDto {
   @IsObject()
   @IsNotEmpty()
-  config: any;
+  @ValidateNested()
+  @Type(() => SessionConfig)
+  config: Partial<SessionConfig>;
 }

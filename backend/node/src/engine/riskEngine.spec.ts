@@ -91,4 +91,49 @@ describe('RiskEngineService - Frequency Limits', () => {
       expect(result.reason).toContain(`${Math.round(effectivePeriodMs / 60000)}m`);
     }
   });
+
+  describe('EnteringCount Safety', () => {
+    it('should include enteringCount in global max open trades check', () => {
+      const activeTrades = new Array(4).fill({ symbol: 'BTCUSDT' }) as any;
+      const closedTrades: any[] = [];
+      const balance = 10000;
+      const config = { max_open_trades: 5 } as any;
+      const totalSlUsed = 0;
+      const enteringCount = 1;
+
+      // With 4 active and 1 entering, total is 5 (max). Next entry should be blocked.
+      const result = service.canEnter(activeTrades, closedTrades, balance, 'ETHUSDT', config, totalSlUsed, enteringCount);
+      expect(result.canEnter).toBe(false);
+      expect(result.reason).toContain('Global max open trades (5) reached (incl. 1 pending)');
+    });
+
+    it('should include enteringCount in trades_per_period limit', () => {
+      const activeTrades: any[] = [];
+      const closedTrades: any[] = [];
+      const balance = 10000;
+      const config = { max_trades_per_period: 2, trades_period_min: 60 } as any;
+      const totalSlUsed = 0;
+      const enteringCount = 2;
+
+      const result = service.canEnter(activeTrades, closedTrades, balance, 'BTCUSDT', config, totalSlUsed, enteringCount);
+      expect(result.canEnter).toBe(false);
+      expect(result.reason).toContain('Max trades per period reached');
+    });
+
+    it('should enforce spacing if enteringCount > 0', () => {
+      const activeTrades: any[] = [];
+      const closedTrades: any[] = [];
+      const balance = 10000;
+      const config = {
+        frequency_shaping_enabled: true,
+        min_trade_interval_min: 5
+      } as any;
+      const totalSlUsed = 0;
+      const enteringCount = 1;
+
+      const result = service.canEnter(activeTrades, closedTrades, balance, 'BTCUSDT', config, totalSlUsed, enteringCount);
+      expect(result.canEnter).toBe(false);
+      expect(result.reason).toContain('Trade spacing active');
+    });
+  });
 });

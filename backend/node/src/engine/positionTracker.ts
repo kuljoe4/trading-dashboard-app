@@ -52,6 +52,10 @@ export class PositionTrackerService {
     return this.trades.size;
   }
 
+  enteringCount(): number {
+    return this.enteringSymbols.size;
+  }
+
   /**
    * BOLT OPTIMIZATION: Returns pre-calculated total risk in O(1),
    * including pending risk reserved for trades currently entering.

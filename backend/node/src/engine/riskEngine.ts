@@ -19,7 +19,8 @@ export class RiskEngineService {
     balance: number,
     symbol: string,
     config: SessionConfig,
-    totalSlUsed: number
+    totalSlUsed: number,
+    enteringCount = 0
   ): { canEnter: boolean; reason: string; isAdaptiveTightened?: boolean } {
     const now = Date.now();
 
@@ -29,8 +30,9 @@ export class RiskEngineService {
     const maxTotalRiskPct = config.max_total_risk_pct ?? 5.0;
     const totalSlGuardUsdt = config.total_sl_guard_usdt ?? 200.0;
 
-    if (activeTrades.length >= maxOpenTrades) {
-      return { canEnter: false, reason: `Global max open trades (${maxOpenTrades}) reached` };
+    // BOLT: Include enteringCount in capacity check to prevent exceeding limits during concurrency
+    if (activeTrades.length + enteringCount >= maxOpenTrades) {
+      return { canEnter: false, reason: `Global max open trades (${maxOpenTrades}) reached (incl. ${enteringCount} pending)` };
     }
 
     const symbolTradeCount = activeTrades.filter(t => t.symbol === symbol).length;
@@ -48,7 +50,7 @@ export class RiskEngineService {
     }
 
     // 2. Frequency, Spacing & Performance Check (ULTRA-OPTIMIZED SINGLE PASS)
-    return this.checkFrequencyAndPerformanceLimits(activeTrades, closedTrades, config, now);
+    return this.checkFrequencyAndPerformanceLimits(activeTrades, closedTrades, config, now, enteringCount);
   }
 
   /**
@@ -59,7 +61,8 @@ export class RiskEngineService {
     activeTrades: Trade[],
     closedTrades: Trade[],
     config: SessionConfig,
-    now: number
+    now: number,
+    enteringCount = 0
   ): {
     canEnter: boolean;
     reason: string;
@@ -83,7 +86,8 @@ export class RiskEngineService {
 
     // BOLT: Determine mostRecentTradeTs first to calculate jitter and period window upfront.
     // This is O(1) + O(Active) where Active is typically < 10.
-    let mostRecentTradeTs = 0;
+    // BOLT: If trades are currently entering, treat 'now' as the most recent trade TS to enforce spacing.
+    let mostRecentTradeTs = enteringCount > 0 ? now : 0;
     for (let i = 0; i < activeTrades.length; i++) {
       const entryRaw = activeTrades[i].entry_ts;
       if (entryRaw) {
@@ -108,8 +112,8 @@ export class RiskEngineService {
     const periodStartMs = now - effectivePeriodMs;
     const dayAgo = now - (24 * 60 * 60 * 1000);
 
-    let tradesIn24h = 0;
-    let tradesInPeriod = 0;
+    let tradesIn24h = enteringCount;
+    let tradesInPeriod = enteringCount;
     let hourTradesCount = 0;
     let wins = 0;
     let oldestTradeInPeriodTs = now;

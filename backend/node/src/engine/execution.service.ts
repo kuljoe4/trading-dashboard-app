@@ -141,7 +141,8 @@ export class ExecutionService {
           }
 
           const activeTrades = this.positionTracker.activeList();
-          const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk());
+          const enteringCount = this.positionTracker.enteringCount();
+          const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk(), enteringCount);
 
           if (!riskResult.canEnter) {
             if (!riskResult.reason.includes('Max open trades for')) {

@@ -30,7 +30,5 @@ export class PauseSessionDto {
 export class UpdateSessionDto {
   @IsObject()
   @IsNotEmpty()
-  @ValidateNested()
-  @Type(() => SessionConfig)
-  config: Partial<SessionConfig>;
+  config: Record<string, any>;
 }

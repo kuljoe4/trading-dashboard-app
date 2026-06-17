@@ -1,6 +1,8 @@
 import { Injectable, Logger, OnModuleInit, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { Session as SessionEntity } from '../models/entities/Session.entity';
 import { TradeEntity, TERMINAL_STATUSES } from '../models/entities/Trade.entity';
 import { Log as LogEntity } from '../models/entities/Log.entity';
@@ -680,38 +682,92 @@ export class SessionService implements OnModuleInit {
     return { strategyId: this.currentSessionId, status: 'started' };
   }
 
+  private updateSessionPromiseChains: Map<string, Promise<any>> = new Map();
+
   async updateSession(id: string, partialConfig: Partial<SessionConfig>, ip?: string, userAgent?: string) {
-    const session = await this.sessionRepository.findOne({ where: { id } });
-    if (!session) throw new NotFoundException('Session not found');
+    // Audit Item 13: Mutex/Promise chain to prevent race conditions during high-frequency config updates.
+    // Scoped per-session to prevent global bottlenecks.
+    const chain = this.updateSessionPromiseChains.get(id) || Promise.resolve();
 
-    const mergedConfig = {
-      ...(session.config || {}),
-      ...partialConfig
-    };
+    const next = chain
+      .then(() => this.executeUpdateSession(id, partialConfig, ip, userAgent))
+      .catch(e => {
+        // Log error but don't rethrow to avoid breaking the chain for subsequent updates.
+        // We throw it inside a wrapper so the caller gets the error, but the chain itself recovers.
+        this.logger.error(`Config update failed for session ${id}: ${e.message}`);
+        throw e;
+      })
+      .finally(() => {
+        // Optional: clean up the map if this was the last update in the chain
+      });
 
-    // Deep validation of full merged config
-    this.validateConfig(mergedConfig as SessionConfig);
+    this.updateSessionPromiseChains.set(id, next.catch(() => {})); // The chain itself must always be resolved for the next update
+    return next;
+  }
 
-    // Ensure we pass a plain object for the config column
-    this.logger.log(`[Config Persistence] Saving updated config for session ${id}: frequency_shaping=${mergedConfig.frequency_shaping_enabled}, max_24h=${mergedConfig.max_trades_24h}, jitter=${mergedConfig.trades_jitter_pct}, spacing=${mergedConfig.min_trade_interval_min}`);
-    await this.sessionRepository.update(id, { config: mergedConfig });
+  private async executeUpdateSession(id: string, partialConfig: Partial<SessionConfig>, ip?: string, userAgent?: string) {
+    const queryRunner = this.sessionRepository.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    // If this is the active session, hot-reload the config in the engine
-    if (this.sessionRunning && this.currentSessionId === id) {
-      updateLogLevels(!!mergedConfig.debug_mode);
-      this.tradingSessionService.updateConfig(mergedConfig as SessionConfig);
+    try {
+      // 0. Lock Session row to serialize all updates and fetch latest state
+      const session = await queryRunner.manager.findOne(SessionEntity, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+        select: ['id', 'tradingMode', 'paperMode', 'config']
+      });
+
+      if (!session) throw new NotFoundException('Session not found');
+
+      // 1. Merge state instead of overwriting, strictly preserving the live mode and established paper mode
+      const mergedConfig = {
+        ...(session.config || {}),
+        ...partialConfig,
+        trading_mode: session.tradingMode,
+        paper_mode: session.paperMode,
+      };
+
+      // 2. Deep validation of full merged config
+      // SEC-01: Re-apply DTO-level validation on the merged object to ensure data integrity
+      const configInstance = plainToInstance(SessionConfig, mergedConfig);
+      const errors = await validate(configInstance);
+      if (errors.length > 0) {
+        this.logger.warn(`Validation failed for merged config: ${JSON.stringify(errors)}`);
+        throw new BadRequestException('Invalid configuration parameters');
+      }
+
+      this.validateConfig(configInstance);
+
+      // 3. Save updated config
+      this.logger.log(`[Config Persistence] Saving updated config for session ${id}: frequency_shaping=${mergedConfig.frequency_shaping_enabled}, max_24h=${mergedConfig.max_trades_24h}, jitter=${mergedConfig.trades_jitter_pct}, spacing=${mergedConfig.min_trade_interval_min}`);
+      await queryRunner.manager.update(SessionEntity, id, { config: mergedConfig });
+
+      await queryRunner.commitTransaction();
+
+      // 4. If this is the active session, hot-reload the config in the engine
+      if (this.sessionRunning && this.currentSessionId === id) {
+        updateLogLevels(!!mergedConfig.debug_mode);
+        this.tradingSessionService.updateConfig(mergedConfig as SessionConfig);
+      }
+
+      await this.auditLog.log({
+        action: 'UPDATE_SESSION_CONFIG',
+        resourceId: id,
+        actor: ip,
+        ip,
+        userAgent,
+        details: { partialConfig }
+      });
+
+      return { status: 'updated', config: mergedConfig };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(`Transaction rolled back: Failed to update session ${id}: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
-
-    await this.auditLog.log({
-      action: 'UPDATE_SESSION_CONFIG',
-      resourceId: id,
-      actor: ip,
-      ip,
-      userAgent,
-      details: { partialConfig }
-    });
-
-    return { status: 'updated', config: mergedConfig };
   }
 
   async pauseSession(paused: boolean, ip?: string, userAgent?: string) {

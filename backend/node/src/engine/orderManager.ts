@@ -210,6 +210,34 @@ export class OrderManagerService {
     }
   }
 
+  /**
+   * DATA-07: Robust validation for both standard and algorithmic order responses.
+   * Ensures that Stop Loss placement is confirmed active on the exchange before proceeding.
+   */
+  public validateStopLossPlacement(symbol: string, response: any): { isValid: boolean, orderId?: string } {
+    if (!response) {
+      this.logger.error(`[${symbol}] Received null or undefined order response payload from exchange.`);
+      return { isValid: false };
+    }
+
+    // Fallback chain for status variants: 'algoStatus' for Algo Order API, 'status' for standard
+    const status = (response.algoStatus || response.status || '').toUpperCase();
+    // Fallback chain for identifiers: 'algoId' for Algo Order API, 'orderId' for standard
+    const identifier = String(response.algoId || response.orderId || '');
+
+    const validStatuses = ['NEW', 'FILLED', 'PARTIALLY_FILLED'];
+
+    if (!status || !validStatuses.includes(status)) {
+      this.logger.error(
+        `[${symbol}] Stop Loss validation failed. Active status: [${status}]. Raw: ${JSON.stringify(response)}`
+      );
+      return { isValid: false };
+    }
+
+    this.logger.log(`[${symbol}] SL confirmed active on exchange. ID: ${identifier}`);
+    return { isValid: true, orderId: identifier };
+  }
+
   public applyFilters(symbol: string, price: number, qty: number, options: { priceRounding?: 'round' | 'floor' | 'ceil', skipNotionalCheck?: boolean } = {}) {
     const filters = this.marketFeed.getSymbolFilters(symbol);
     if (!filters) return { price, qty };
@@ -754,8 +782,12 @@ export class OrderManagerService {
             throw new Error(`SL placement failed: ${msg}`);
           }
         } else {
-          this.logger.log(`Standard SL placement response for ${symbol}: ${JSON.stringify(orderData)}`);
-          stopLossId = String(orderData.orderId || orderData.id);
+          const validation = this.validateStopLossPlacement(symbol, orderData);
+          if (validation.isValid) {
+            stopLossId = validation.orderId!;
+          } else {
+            throw new Error(`Stop Loss validation failed for ${symbol}`);
+          }
         }
       } catch (err: any) {
         const msg = err.message || '';
@@ -771,12 +803,13 @@ export class OrderManagerService {
           try {
             const fallbackRes = await this.binanceClient.restAPI.newOrder(standardParams as any);
             const fallbackData = await fallbackRes.data() as any;
-            if (fallbackData.orderId) {
-              stopLossId = String(fallbackData.orderId);
+            const validation = this.validateStopLossPlacement(symbol, fallbackData);
+            if (validation.isValid) {
+              stopLossId = validation.orderId!;
               orderType = 'standard';
               this.logger.log(`Standard SL fallback successful: ${stopLossId}`);
             } else {
-              throw new Error(fallbackData.msg || 'Fallback failed');
+              throw new Error(fallbackData.msg || 'Fallback failed validation');
             }
           } catch (fallbackErr: any) {
             this.logger.error(`Standard SL fallback failed: ${fallbackErr.message}`);
@@ -1189,8 +1222,20 @@ export class OrderManagerService {
         trade.last_close_attempt_ts = nowTs;
 
         try {
-          // If there is an exchange stop loss, cancel it to prevent orphans
-          if (trade.binance_stop_order_id) {
+          // SECURITY: Aggressively clear the order board for this symbol before emergency unwinds.
+          // This prevents orphan SL/TP orders from triggering new unmanaged positions.
+          if (exitReason === 'SL_PLACEMENT_FAILURE' || exitReason === 'SLIPPAGE_ABORT') {
+            this.logger.warn(`[${symbol}] Initiating critical unwind sweep. Clearing ALL open orders...`);
+            try {
+              // fapi/v1/allOpenOrders cancels ALL open orders for a symbol including Algo orders
+              await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol });
+              this.logger.log(`[${symbol}] Pre-unwind target sweep complete. All active orders killed.`);
+              trade.binance_stop_order_id = undefined;
+            } catch (sweepErr: any) {
+              this.logger.error(`[${symbol}] Pre-unwind sweep failed: ${sweepErr.message}`);
+            }
+          } else if (trade.binance_stop_order_id) {
+            // Standard close: just cancel the known SL
             await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type as any);
             trade.binance_stop_order_id = undefined;
           }

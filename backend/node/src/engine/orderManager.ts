@@ -30,6 +30,9 @@ export class OrderManagerService {
   private circuitBreakerTrippedAt = 0;
   private readonly CIRCUIT_BREAKER_RESET_TIMEOUT = 10 * 60 * 1000; // 10 minutes
 
+  // Audit Item 13: In-flight ratchet locks to prevent Watchdog race conditions
+  private ratchetLocks: Map<string, boolean> = new Map();
+
   constructor(
     private readonly signalEngine: SignalEngineService,
     private readonly marketFeed: MarketFeedService,
@@ -920,13 +923,28 @@ export class OrderManagerService {
   async updateStopLoss(trade: Trade, newSlPrice: number, prevSlPrice?: number): Promise<boolean> {
     if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return true;
 
-    const oldSlId = trade.binance_stop_order_id;
-    if (oldSlId) {
-      this.logger.debug(`[SL] Canceling existing ${trade.binance_stop_order_type || 'SL'} ${oldSlId} before replacement.`);
-      await this.cancelBinanceOrder(trade.symbol, oldSlId, (trade.binance_stop_order_type as any) || 'standard');
-      trade.binance_stop_order_id = undefined;
+    // LOCK: Prevent Watchdog from interfering during the cancel/replace window
+    this.ratchetLocks.set(trade.symbol, true);
+
+    try {
+      const oldSlId = trade.binance_stop_order_id;
+      if (oldSlId) {
+        this.logger.debug(`[SL] Canceling existing ${trade.binance_stop_order_type || 'SL'} ${oldSlId} before replacement.`);
+        await this.cancelBinanceOrder(trade.symbol, oldSlId, (trade.binance_stop_order_type as any) || 'standard');
+        trade.binance_stop_order_id = undefined;
+      }
+      const newSlId = await this.placeStopLoss(trade, newSlPrice);
+      return !!newSlId;
+    } finally {
+      this.ratchetLocks.delete(trade.symbol);
     }
-    return !!(await this.placeStopLoss(trade, newSlPrice));
+  }
+
+  /**
+   * Check if a symbol is currently being ratcheted
+   */
+  isRatcheting(symbol: string): boolean {
+    return this.ratchetLocks.get(symbol) === true;
   }
 
   /**

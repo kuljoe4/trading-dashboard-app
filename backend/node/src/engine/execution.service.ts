@@ -110,149 +110,140 @@ export class ExecutionService {
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);
 
     const now = Date.now();
-    // PERFORMANCE: Use concurrent execution for opportunities to minimize latency during volatility bursts.
-    // We cap concurrency at 5 to avoid weight spikes and OS resource exhaustion.
-    const CONCURRENCY_LIMIT = 5;
-    const processBatch = async (opps: any[]) => {
-      await Promise.all(opps.map(async (opp) => {
-        try {
-          if (this.positionTracker.hasSymbol(opp.symbol)) {
-            this.logger.debug(`${opp.symbol}: Entry skipped - already in position or entering.`);
-            return;
-          }
-
-          const cooldownExpiry = this.entryCooldowns.get(opp.symbol);
-          if (cooldownExpiry && now < cooldownExpiry) {
-            this.logger.debug(`${opp.symbol}: Entry skipped - symbol is in cooldown for ${Math.ceil((cooldownExpiry - now) / 1000)}s`);
-            return;
-          } else if (cooldownExpiry) {
-            this.entryCooldowns.delete(opp.symbol);
-          }
-
-          const sc = symbolConfigMap?.get(opp.symbol);
-          const symbolConfig = (sc?.use_custom_config && sc.custom_config) ? { ...config, ...sc.custom_config } as SessionConfig : config;
-
-          const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry', false);
-          if (!signalResult.allFired) {
-            if (signalResult.reason.includes('warm-up')) {
-              this.logger.debug(`${opp.symbol}: Entry blocked - ${signalResult.reason}`);
-            }
-            return;
-          }
-
-          const activeTrades = this.positionTracker.activeList();
-          const enteringCount = this.positionTracker.enteringCount();
-          const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk(), enteringCount);
-
-          if (!riskResult.canEnter) {
-            if (!riskResult.reason.includes('Max open trades for')) {
-              this.sessionState.gateState = this.gatingService.mapGateState(riskResult.reason);
-              this.broadcastService.broadcast('gate', {
-                gateState: this.sessionState.gateState,
-                reason: riskResult.reason,
-                scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused
-              });
-            }
-            return;
-          }
-
-          const price = this.tickerCache.getPrice(opp.symbol);
-          if (!price) return;
-
-          const lookback = this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
-          let slPrice = this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.minLow, lookback.maxHigh, opp.symbol);
-
-          const slFiltered = this.orderManager.applyFilters(opp.symbol, slPrice, 1, {
-            priceRounding: opp.direction.toUpperCase() === 'LONG' ? 'floor' : 'ceil',
-            skipNotionalCheck: true
-          });
-          slPrice = slFiltered.price;
-
-          const qty = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
-
-          if (qty <= 0) {
-            this.logger.debug(`${opp.symbol}: Position size is 0 after SL filtering. SL: ${slPrice}, Entry: ${price}`);
-            return;
-          }
-          const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
-
-          const reservedRisk = roundEight(Math.abs(price - slPrice) * qty);
-
-          const ticker = this.tickerCache.getTicker(opp.symbol);
-          const openPrice = ticker?.open_24h || price;
-          const dailyChangeAtEntry = ((price - openPrice) / openPrice) * 100 * (opp.direction.toUpperCase() === 'LONG' ? 1 : -1);
-
-          this.logger.log(`[Risk Integrity] Reserving ${reservedRisk.toFixed(2)} USDT risk for ${opp.symbol} entry attempt.`);
-          this.positionTracker.setEntering(opp.symbol, true, reservedRisk);
-
-          try {
-            const result = await this.orderManager.enter(
-              (this.sessionState.config as any)?.sessionId || uuid().substring(0, 8),
-              opp.symbol,
-              opp.direction.toUpperCase() as any,
-              price,
-              qty,
-              slPrice,
-              tpPrice,
-              {
-                strategy_label: strategyLabel,
-                strategy_config: symbolConfig,
-                entry_daily_change_pct: dailyChangeAtEntry
-              }
-            );
-
-            if (result.status === ExecutionStatus.SUCCESS && result.data) {
-              const trade = result.data;
-              this.positionTracker.addTrade(trade);
-              this.sessionState.updateStatsOnEntry();
-
-              if (onTradeUpdate) {
-                await onTradeUpdate(trade, balance);
-              }
-
-              this.sessionState.setActiveTrades(this.positionTracker.activeList());
-              this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, config);
-
-              this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
-              this.broadcastService.broadcast('trade_event', {
-                event: 'opened',
-                symbol: opp.symbol,
-                trade: this.engineBroadcaster.serializeTrade(trade, config, price),
-                stats: this.sessionState.stats
-              });
-            } else {
-              // Entry failed but didn't throw (e.g. ORDER_REJECTED)
-              const cooldownMinutes = 5;
-              this.entryCooldowns.set(opp.symbol, Date.now() + cooldownMinutes * 60 * 1000);
-              this.logger.warn(`${opp.symbol}: Entry failed with status ${result.status}. Cooling down symbol for ${cooldownMinutes}m. Error: ${result.error}`);
-
-              this.broadcastService.broadcast('alert', {
-                level: 'warn',
-                title: 'Entry Failed',
-                message: `${opp.symbol}: ${result.error || 'Order rejected by exchange'}. Skipping for ${cooldownMinutes}m.`,
-                symbol: opp.symbol
-              });
-            }
-          } catch (err) {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            this.logger.error(`Failed to process entry for ${opp.symbol}: ${errMsg}`);
-
-            // Also cooldown on exceptions to avoid tight-looping on unexpected errors
-            const cooldownMinutes = 2;
-            this.entryCooldowns.set(opp.symbol, Date.now() + cooldownMinutes * 60 * 1000);
-          } finally {
-            this.positionTracker.setEntering(opp.symbol, false);
-          }
-        } catch (oppErr) {
-          this.logger.error(`Critical Error processing opportunity for ${opp.symbol}: ${oppErr instanceof Error ? oppErr.message : String(oppErr)}`);
+    // BOLT: Sequential processing of opportunities ensures that RiskEngine spacing
+    // and frequency limits are correctly enforced between each entry.
+    for (const opp of opportunities) {
+      try {
+        if (this.positionTracker.hasSymbol(opp.symbol)) {
+          this.logger.debug(`${opp.symbol}: Entry skipped - already in position or entering.`);
+          continue;
         }
-      }));
-    };
 
-    // Process in chunks of CONCURRENCY_LIMIT
-    for (let i = 0; i < opportunities.length; i += CONCURRENCY_LIMIT) {
-      const chunk = opportunities.slice(i, i + CONCURRENCY_LIMIT);
-      await processBatch(chunk);
+        const cooldownExpiry = this.entryCooldowns.get(opp.symbol);
+        if (cooldownExpiry && now < cooldownExpiry) {
+          this.logger.debug(`${opp.symbol}: Entry skipped - symbol is in cooldown for ${Math.ceil((cooldownExpiry - now) / 1000)}s`);
+          continue;
+        } else if (cooldownExpiry) {
+          this.entryCooldowns.delete(opp.symbol);
+        }
+
+        const sc = symbolConfigMap?.get(opp.symbol);
+        const symbolConfig = (sc?.use_custom_config && sc.custom_config) ? { ...config, ...sc.custom_config } as SessionConfig : config;
+
+        const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry', false);
+        if (!signalResult.allFired) {
+          if (signalResult.reason.includes('warm-up')) {
+            this.logger.debug(`${opp.symbol}: Entry blocked - ${signalResult.reason}`);
+          }
+          continue;
+        }
+
+        const activeTrades = this.positionTracker.activeList();
+        const enteringCount = this.positionTracker.enteringCount();
+        const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk(), enteringCount);
+
+        if (!riskResult.canEnter) {
+          if (!riskResult.reason.includes('Max open trades for')) {
+            this.sessionState.gateState = this.gatingService.mapGateState(riskResult.reason);
+            this.broadcastService.broadcast('gate', {
+              gateState: this.sessionState.gateState,
+              reason: riskResult.reason,
+              scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused
+            });
+          }
+          continue;
+        }
+
+        const price = this.tickerCache.getPrice(opp.symbol);
+        if (!price) continue;
+
+        const lookback = this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
+        let slPrice = this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.minLow, lookback.maxHigh, opp.symbol);
+
+        const slFiltered = this.orderManager.applyFilters(opp.symbol, slPrice, 1, {
+          priceRounding: opp.direction.toUpperCase() === 'LONG' ? 'floor' : 'ceil',
+          skipNotionalCheck: true
+        });
+        slPrice = slFiltered.price;
+
+        const qty = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
+
+        if (qty <= 0) {
+          this.logger.debug(`${opp.symbol}: Position size is 0 after SL filtering. SL: ${slPrice}, Entry: ${price}`);
+          continue;
+        }
+        const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
+
+        const reservedRisk = roundEight(Math.abs(price - slPrice) * qty);
+
+        const ticker = this.tickerCache.getTicker(opp.symbol);
+        const openPrice = ticker?.open_24h || price;
+        const dailyChangeAtEntry = ((price - openPrice) / openPrice) * 100 * (opp.direction.toUpperCase() === 'LONG' ? 1 : -1);
+
+        this.logger.log(`[Risk Integrity] Reserving ${reservedRisk.toFixed(2)} USDT risk for ${opp.symbol} entry attempt.`);
+        this.positionTracker.setEntering(opp.symbol, true, reservedRisk);
+
+        try {
+          const result = await this.orderManager.enter(
+            (this.sessionState.config as any)?.sessionId || uuid().substring(0, 8),
+            opp.symbol,
+            opp.direction.toUpperCase() as any,
+            price,
+            qty,
+            slPrice,
+            tpPrice,
+            {
+              strategy_label: strategyLabel,
+              strategy_config: symbolConfig,
+              entry_daily_change_pct: dailyChangeAtEntry
+            }
+          );
+
+          if (result.status === ExecutionStatus.SUCCESS && result.data) {
+            const trade = result.data;
+            this.positionTracker.addTrade(trade);
+            this.sessionState.updateStatsOnEntry();
+
+            if (onTradeUpdate) {
+              await onTradeUpdate(trade, balance);
+            }
+
+            this.sessionState.setActiveTrades(this.positionTracker.activeList());
+            this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, config);
+
+            this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
+            this.broadcastService.broadcast('trade_event', {
+              event: 'opened',
+              symbol: opp.symbol,
+              trade: this.engineBroadcaster.serializeTrade(trade, config, price),
+              stats: this.sessionState.stats
+            });
+          } else {
+            // Entry failed but didn't throw (e.g. ORDER_REJECTED)
+            const cooldownMinutes = 5;
+            this.entryCooldowns.set(opp.symbol, Date.now() + cooldownMinutes * 60 * 1000);
+            this.logger.warn(`${opp.symbol}: Entry failed with status ${result.status}. Cooling down symbol for ${cooldownMinutes}m. Error: ${result.error}`);
+
+            this.broadcastService.broadcast('alert', {
+              level: 'warn',
+              title: 'Entry Failed',
+              message: `${opp.symbol}: ${result.error || 'Order rejected by exchange'}. Skipping for ${cooldownMinutes}m.`,
+              symbol: opp.symbol
+            });
+          }
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          this.logger.error(`Failed to process entry for ${opp.symbol}: ${errMsg}`);
+
+          // Also cooldown on exceptions to avoid tight-looping on unexpected errors
+          const cooldownMinutes = 2;
+          this.entryCooldowns.set(opp.symbol, Date.now() + cooldownMinutes * 60 * 1000);
+        } finally {
+          this.positionTracker.setEntering(opp.symbol, false);
+        }
+      } catch (oppErr) {
+        this.logger.error(`Critical Error processing opportunity for ${opp.symbol}: ${oppErr instanceof Error ? oppErr.message : String(oppErr)}`);
+      }
     }
   }
 }

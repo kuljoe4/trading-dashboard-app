@@ -585,7 +585,7 @@ export class OrderManagerService {
           }
 
           let agreementMsg = `[${symbol}] Binance entry failed: ${errMsg}`;
-          if (errMsg.includes('agreement')) {
+          if (errMsg.includes('agreement') || errMsg.includes('TradFi-Perps')) {
             agreementMsg = `CRITICAL: ${errMsg}. Please go to Binance website and sign the required agreement.`;
             this.sessionState.agreementRequired = true;
           } else if (errMsg.includes('insufficient balance') || errMsg.includes('Margin is insufficient')) {
@@ -604,7 +604,8 @@ export class OrderManagerService {
                              !errMsg.includes('Margin') &&
                              !errMsg.includes('PERCENT_PRICE') &&
                              !errMsg.includes('leverage') &&
-                             !errMsg.includes('position');
+                             !errMsg.includes('position') &&
+                             !errMsg.includes('Algo Order API');
           this.recordFailure(isSystemic);
           return { status: ExecutionStatus.ORDER_REJECTED, error: agreementMsg };
         }
@@ -686,16 +687,14 @@ export class OrderManagerService {
       const stepSize = parseFloat(lotSize?.stepSize || '0');
       const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
 
-      // PERFORMANCE: For Stop Loss, switch to reduceOnly: true with explicit quantity.
-      // While closePosition: true is convenient, some fapi versions/SDKs fail if quantity isn't present
-      // and others fail if it IS present. Explicitly using reduceOnly with quantity is more reliable across symbols.
+      // INDUSTRY-BEST-PRACTICE: For Stop Loss, use closePosition: true.
+      // Memory: quantity should be omitted when closePosition is true for Binance Futures fapi.
       const slOrderParams: any = {
         symbol: trade.symbol,
         side: closeDirection,
         type: 'STOP_MARKET',
         stopPrice: parseFloat(slPrice.toFixed(pricePrecision)),
-        quantity: trade.qty.toFixed(qtyPrecision),
-        reduceOnly: true,
+        closePosition: true,
         workingType: 'MARK_PRICE',
         newClientOrderId: `sl-${trade.id.substring(0, 8)}`,
         selfTradePreventionMode: 'EXPIRE_MAKER', // Hardening: Prevent self-trading
@@ -707,7 +706,30 @@ export class OrderManagerService {
       let orderType: 'standard' | 'algo' = 'standard';
 
       try {
-        const response = await this.binanceClient.restAPI.newOrder(slOrderParams);
+        let response;
+        try {
+          response = await this.binanceClient.restAPI.newOrder(slOrderParams);
+        } catch (standardErr: any) {
+          const standardMsg = standardErr.message || '';
+          if (standardMsg.includes('Algo Order API')) {
+             this.logger.warn(`[${symbol}] Standard SL placement failed (Algo required). Retrying via newAlgoOrder...`);
+             const algoParams = {
+               symbol,
+               side: closeDirection as any,
+               type: 'STOP_MARKET',
+               stopPrice: slOrderParams.stopPrice,
+               algoType: 'CONDITIONAL',
+               newOrderRespType: 'RESULT',
+               workingType: 'MARK_PRICE',
+               clientAlgoId: slOrderParams.newClientOrderId,
+             };
+             response = await this.binanceClient.restAPI.newAlgoOrder(algoParams as any);
+             orderType = 'algo';
+          } else {
+             throw standardErr;
+          }
+        }
+
         this.updateWeight(response?.headers);
         const orderData = await response.data() as any;
 
@@ -732,9 +754,8 @@ export class OrderManagerService {
             throw new Error(`SL placement failed: ${msg}`);
           }
         } else {
-          this.logger.log(`Standard SL placement response for ${symbol}: ${JSON.stringify(orderData)}`);
+          this.logger.log(`${orderType === 'algo' ? 'Algo' : 'Standard'} SL placement response for ${symbol}: ${JSON.stringify(orderData)}`);
           stopLossId = String(orderData.orderId || orderData.id);
-          orderType = 'standard';
         }
       } catch (err: any) {
         const msg = err.message || '';
@@ -824,7 +845,7 @@ export class OrderManagerService {
             msg: `CRITICAL: Insufficient funds for SL placement on ${trade.symbol}. Unwind may be required.`,
             level: 'error'
          });
-      } else if (errMsg.includes('agreement')) {
+      } else if (errMsg.includes('agreement') || errMsg.includes('TradFi-Perps')) {
          this.sessionState.agreementRequired = true;
          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
             msg: `CRITICAL: Agreement required for ${trade.symbol} SL placement. Please sign the TradFi-Perps agreement on Binance.`,
@@ -843,6 +864,17 @@ export class OrderManagerService {
    */
   async updateStopLoss(trade: Trade, newSlPrice: number, prevSlPrice?: number): Promise<boolean> {
     if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return true;
+
+    // Algo orders cannot be updated via modifyOrder, must replace
+    if (trade.binance_stop_order_type === 'algo') {
+      const oldSlId = trade.binance_stop_order_id;
+      if (oldSlId) {
+        this.logger.debug(`[SL] Canceling existing Algo SL ${oldSlId} before replacement.`);
+        await this.cancelBinanceOrder(trade.symbol, oldSlId, 'algo');
+        trade.binance_stop_order_id = undefined;
+      }
+      return !!(await this.placeStopLoss(trade, newSlPrice));
+    }
 
     const risk = Math.abs(trade.entry_price - trade.initial_sl);
     const move = Math.abs(newSlPrice - trade.current_sl);
@@ -884,7 +916,7 @@ export class OrderManagerService {
 
     if (oldSlId) {
       this.logger.debug(`[SL] Canceling existing SL ${oldSlId} for ${trade.symbol} before replacement.`);
-      const cancelSuccess = await this.cancelBinanceOrder(trade.symbol, oldSlId);
+      const cancelSuccess = await this.cancelBinanceOrder(trade.symbol, oldSlId, trade.binance_stop_order_type as any);
       if (cancelSuccess) {
          trade.binance_stop_order_id = undefined;
       }
@@ -929,13 +961,16 @@ export class OrderManagerService {
   /**
    * Cancel an order on Binance
    */
-  async cancelBinanceOrder(symbol: string, orderId: string): Promise<boolean> {
+  async cancelBinanceOrder(symbol: string, orderId: string, orderType: 'standard' | 'algo' = 'standard'): Promise<boolean> {
     if (this.paperMode || !this.binanceClient) return true;
 
     try {
-      const response = await this.binanceClient.restAPI.cancelOrder({ symbol, orderId: BigInt(orderId) });
+      const response = orderType === 'algo'
+        ? await this.binanceClient.restAPI.cancelAlgoOrder({ symbol, algoId: orderId } as any)
+        : await this.binanceClient.restAPI.cancelOrder({ symbol, orderId: BigInt(orderId) });
+
       this.updateWeight(response?.headers);
-      this.logger.log(`Binance order canceled: ${symbol} order_id=${orderId}`);
+      this.logger.log(`Binance ${orderType} order canceled: ${symbol} order_id=${orderId}`);
       return true;
     } catch (err) {
       // If order is already filled or canceled, we can ignore the error
@@ -1218,7 +1253,7 @@ export class OrderManagerService {
         try {
           // If there is an exchange stop loss, cancel it to prevent orphans
           if (trade.binance_stop_order_id) {
-            await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id);
+            await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type as any);
             trade.binance_stop_order_id = undefined;
           }
 

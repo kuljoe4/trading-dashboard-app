@@ -482,10 +482,16 @@ export class OrderManagerService {
              }
           }
 
-          // FINAL FALLBACK: If still 0, use estimated price
+          // FINAL FALLBACK: If still 0, try ticker cache then estimated price
           if (absoluteEntryPrice === 0) {
-             this.logger.warn(`Authoritative price query failed for ${symbol} entry. Using estimated price ${entryPrice}.`);
-             absoluteEntryPrice = entryPrice;
+             const tickerPrice = this.tickerCache.getPrice(symbol);
+             if (tickerPrice && tickerPrice > 0) {
+                this.logger.log(`[${symbol}] [Sync] Using ticker cache fallback for entry: ${tickerPrice}`);
+                absoluteEntryPrice = tickerPrice;
+             } else {
+                this.logger.warn(`Authoritative price query and ticker cache failed for ${symbol} entry. Using estimated price ${entryPrice}.`);
+                absoluteEntryPrice = entryPrice;
+             }
           }
 
           const executedQty = parseFloat(entryReceipt.executedQty || '0');
@@ -707,6 +713,7 @@ export class OrderManagerService {
         symbol,
         side: closeDirection as any,
         algoType: 'CONDITIONAL',
+        type: 'STOP_MARKET',
         quantity: parseFloat(trade.qty.toFixed(qtyPrecision)),
         stopPrice: parseFloat(slPrice.toFixed(pricePrecision)),
         workingType: 'MARK_PRICE',
@@ -1192,11 +1199,23 @@ export class OrderManagerService {
             const precision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
 
             const clientOrderId = `cls-${trade.id.replace(/-/g, '').substring(0, 20)}`;
+
+            // COMPLIANCE: Ensure price filters and ticker-informed quantities are used for emergency closes
+            // to stay within PERCENT_PRICE boundaries.
+            const ticker = this.tickerCache.getTicker(symbol);
+            const refPrice = ticker?.mark_price || ticker?.price || exitPrice;
+            const filteredExit = this.applyFilters(symbol, refPrice, trade.qty, { skipNotionalCheck: true });
+
+            if (filteredExit.qty <= 0) {
+               this.logger.error(`[${symbol}] [Sync] Filtered close quantity is 0. Falling back to raw quantity.`);
+               filteredExit.qty = trade.qty;
+            }
+
             const response = await this.binanceClient.restAPI.newOrder({
               symbol,
               side: closeDirection,
               type: 'MARKET',
-              quantity: parseFloat((trade.qty || 0).toFixed(precision)),
+              quantity: parseFloat(filteredExit.qty.toFixed(precision)),
               reduceOnly: true,
               newOrderRespType: 'RESULT',
               newClientOrderId: clientOrderId,
@@ -1255,10 +1274,16 @@ export class OrderManagerService {
                }
             }
 
-            // FINAL FALLBACK: If still 0, use estimated price
+            // FINAL FALLBACK: If still 0, try ticker cache then estimated price
             if (absoluteExitPrice === 0) {
-               this.logger.warn(`Authoritative price query failed for ${symbol} exit. Using estimated price ${exitPrice}.`);
-               absoluteExitPrice = exitPrice;
+               const tickerPrice = this.tickerCache.getPrice(symbol);
+               if (tickerPrice && tickerPrice > 0) {
+                  this.logger.log(`[${symbol}] [Sync] Using ticker cache fallback for exit: ${tickerPrice}`);
+                  absoluteExitPrice = tickerPrice;
+               } else {
+                  this.logger.warn(`Authoritative price query and ticker cache failed for ${symbol} exit. Using estimated price ${exitPrice}.`);
+                  absoluteExitPrice = exitPrice;
+               }
             }
 
             const executedExitQtyFinal = parseFloat(orderData.executedQty || '0');

@@ -714,8 +714,8 @@ export class OrderManagerService {
         side: closeDirection as any,
         algoType: 'CONDITIONAL',
         type: 'STOP_MARKET',
-        quantity: parseFloat(trade.qty.toFixed(qtyPrecision)),
-        triggerPrice: parseFloat(slPrice.toFixed(pricePrecision)), // COMPLIANCE: Algo API requires triggerPrice, not stopPrice
+        quantity: trade.qty.toFixed(qtyPrecision),
+        triggerPrice: slPrice.toFixed(pricePrecision), // COMPLIANCE: Algo API requires triggerPrice as string
         workingType: 'MARK_PRICE',
         newClientOrderId: `sl-${trade.id.substring(0, 8)}`,
         reduceOnly: true,
@@ -1356,8 +1356,8 @@ export class OrderManagerService {
                       symbol,
                       side: closeDirection,
                       type: 'LIMIT',
-                      quantity: parseFloat(filteredLimit.qty.toFixed(limitQtyPrecision)),
-                      price: parseFloat(filteredLimit.price.toFixed(8)), // applyFilters already rounds to tickSize
+                      quantity: filteredLimit.qty.toFixed(limitQtyPrecision),
+                      price: filteredLimit.price.toFixed(8), // applyFilters already rounds to tickSize
                       timeInForce: 'IOC', // Immediate or Cancel: if it can't fill now at this price, cancel
                       reduceOnly: true,
                       newClientOrderId: clientOrderId

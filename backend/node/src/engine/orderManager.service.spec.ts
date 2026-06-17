@@ -80,13 +80,10 @@ describe('OrderManagerService', () => {
           type: 'STOP_MARKET',
           stopPrice: 49500,
           workingType: 'MARK_PRICE',
-          closePosition: true
+          reduceOnly: true,
+          quantity: '0.10000000'
         })
       );
-
-      // BOLT Compliance: Verify quantity IS NOT sent for closePosition orders as per memory/fapi best practices
-      const slCall = mockBinanceClient.restAPI.newOrder.mock.calls[1][0];
-      expect(slCall).not.toHaveProperty('quantity');
 
       expect(trade?.binance_stop_order_id).toBe('99999');
     });
@@ -151,7 +148,8 @@ describe('OrderManagerService', () => {
           type: 'STOP_MARKET',
           stopPrice: 50500,
           workingType: 'MARK_PRICE',
-          closePosition: true
+          reduceOnly: true,
+          quantity: '0.10000000'
         })
       );
       expect(trade.binance_stop_order_id).toBe('33333');

@@ -410,7 +410,7 @@ export function DashboardView({ initialStrategy }) {
   const {
     sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
     totalSlUsed, activeTrades, alerts, config, setSessionActive,
-    updateConfig, patchConfig, gateState, gateReason, hibernating,
+    updateConfig, patchConfig, gateState, gateReason, hibernating, agreementRequired,
     scannerPaused, sessionList, fetchSessions, wsStatus,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
     healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened
@@ -430,6 +430,7 @@ export function DashboardView({ initialStrategy }) {
     gateState: state.gateState,
     gateReason: state.gateReason,
     hibernating: state.hibernating,
+    agreementRequired: state.agreementRequired,
     scannerPaused: state.scannerPaused,
             alerts: state.alerts,
     sessionList: state.sessionList,
@@ -720,6 +721,29 @@ export function DashboardView({ initialStrategy }) {
         </ViewHeader>
 
         <div aria-live="polite">
+          {agreementRequired && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-red/20 border border-red/40 p-5 rounded-2xl mb-6 flex flex-col md:flex-row items-center gap-4 shadow-xl"
+            >
+              <div className="w-12 h-12 rounded-full bg-red/20 flex items-center justify-center text-red shrink-0 animate-pulse">
+                <AlertCircle size={24} />
+              </div>
+              <div className="flex-1 text-center md:text-left">
+                <h3 className="text-sm font-black uppercase tracking-tight text-red mb-1">Exchange Agreement Required</h3>
+                <p className="text-xs font-bold text-red/80">Binance requires you to sign the TradFi-Perps agreement contract. Trading is restricted until this is completed on the Binance website.</p>
+              </div>
+              <a
+                href="https://www.binance.com/en/futures/BTCUSDT"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-6 py-2.5 bg-red text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-red/90 transition-all shadow-lg active:scale-95 shrink-0"
+              >
+                Go to Binance
+              </a>
+            </motion.div>
+          )}
           <AnimatePresence mode="popLayout">
             {alerts && alerts.map(alert => (
               <motion.div

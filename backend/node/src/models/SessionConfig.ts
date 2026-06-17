@@ -122,10 +122,9 @@ export class SessionConfig {
   @IsOptional()
   signal_logic?: 'any' | 'all' = 'all';
 
-  @IsString()
+  @IsObject()
   @IsOptional()
-  @MaxLength(2000)
-  signal_params?: string;
+  signal_params?: Record<string, any>;
 
   // Stop Loss Configuration
   @IsEnum(['pct', 'lookback_low/high'])

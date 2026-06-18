@@ -105,6 +105,9 @@ export class TradeEntity {
   @Column('jsonb', { nullable: true })
   strategy_config: any;
 
+  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP', onUpdate: 'CURRENT_TIMESTAMP' })
+  updated_at: Date;
+
   @ManyToOne(() => Session)
   @JoinColumn({ name: 'sessionId' })
   session: Session;

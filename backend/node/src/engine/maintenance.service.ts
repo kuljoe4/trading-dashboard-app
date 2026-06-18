@@ -33,7 +33,20 @@ export class MaintenanceService {
     const activeTrades = this.positionTracker.activeList();
     if (activeTrades.length === 0) return;
 
-    const uniqueSymbols = Array.from(new Set(activeTrades.map(t => t.symbol)));
+    // Filter out trades that are still in cooldown
+    const tradesToAudit = activeTrades.filter(trade => {
+      if (!trade.binance_order_id) return false;
+      const lastUpdateTs = trade.updated_at ? new Date(trade.updated_at).getTime() : 0;
+      const secondsSinceUpdate = (Date.now() - lastUpdateTs) / 1000;
+      return secondsSinceUpdate >= 45;
+    });
+
+    if (tradesToAudit.length === 0) {
+      this.isProcessingWatchdog = false;
+      return;
+    }
+
+    const uniqueSymbols = Array.from(new Set(tradesToAudit.map(t => t.symbol)));
     this.logger.log(`[Watchdog] Running protection audit for ${uniqueSymbols.length} unique symbols (Hybrid Strategy)...`);
 
     try {
@@ -58,9 +71,11 @@ export class MaintenanceService {
         }
       }
 
-      for (const trade of activeTrades) {
+      for (const trade of tradesToAudit) {
         try {
-          if (!trade.binance_order_id) continue;
+          // Cooldown check moved up to batch filter for efficiency
+          const lastUpdateTs = trade.updated_at ? new Date(trade.updated_at).getTime() : 0;
+          const secondsSinceUpdate = (Date.now() - lastUpdateTs) / 1000;
 
           // Audit Item 13: Skip symbols undergoing ratchet updates to avoid desync race
           if (this.orderManager.isRatcheting(trade.symbol)) {
@@ -85,17 +100,31 @@ export class MaintenanceService {
           const hasProtection = slOrders.some(o => String(o.orderId) === trade.binance_stop_order_id || o.clientOrderId === `sl-${(trade.id || '').substring(0, 8)}`);
 
           if (!hasProtection) {
+            // STRATEGY B: NUCLEAR OPTION
+            // If the unprotected position is older than 2 minutes, the situation is critical.
+            // Market close the position to protect capital.
+            if (secondsSinceUpdate > 120) {
+              const nuclearMsg = `[Watchdog] NUCLEAR OPTION: ${trade.symbol} unprotected for >2 minutes. Market closing position for capital safety.`;
+              this.logger.error(nuclearMsg);
+              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: nuclearMsg, level: 'error' });
+
+              await this.orderManager.closeTrade(trade.symbol, trade, 0, 'WATCHDOG_NUCLEAR_CLOSE', false, false);
+              continue;
+            }
+
             this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} position found without expected SL order on Binance. (Expected: ${trade.binance_stop_order_id}). Found: ${slOrders.length}. Re-placing...`);
 
             // SECURITY: If we found orders that DON'T match our expected ID, they are likely orphans from a race condition.
             // We should cancel them before placing a new authoritative one.
+            // AUDIT-FIRST: We cancel ALL found orders to ensure we have a clean slate.
             for (const orphan of slOrders) {
-               this.logger.log(`[Watchdog] Canceling orphan SL ${orphan.orderId} for ${trade.symbol} before re-protection.`);
-               await this.orderManager.cancelBinanceOrder(trade.symbol, String(orphan.orderId), 'standard');
+               this.logger.log(`[Watchdog] Canceling potential orphan SL ${orphan.orderId} for ${trade.symbol} before re-protection.`);
+               await this.orderManager.cancelBinanceOrder(trade.symbol, String(orphan.orderId), orphan.algoType ? 'algo' : 'standard');
             }
 
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Watchdog] Missing SL detected for ${trade.symbol}. Recovering protection...`, level: 'warn' });
             await this.orderManager.placeStopLoss(trade, trade.current_sl);
+            trade.updated_at = new Date();
           }
         } catch (innerErr) {
           this.logger.error(`[Watchdog] Error auditing ${trade.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);

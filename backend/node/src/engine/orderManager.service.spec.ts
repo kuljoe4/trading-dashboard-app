@@ -222,12 +222,18 @@ describe('OrderManagerService', () => {
         binance_stop_order_type: 'standard'
       } as Trade;
 
+      // Audit-first: queryOrder will return existing order 99999
+      mockBinanceClient.restAPI.queryOrder.mockResolvedValueOnce({
+        data: () => Promise.resolve({ orderId: '99999', status: 'NEW', stopPrice: '50000' }),
+        headers: {}
+      });
+
       await service.updateStopLoss(trade, 50500);
 
       expect(mockBinanceClient.restAPI.cancelOrder).toHaveBeenCalledWith(
         expect.objectContaining({
           symbol: 'BTCUSDT',
-          orderId: BigInt('22222')
+          orderId: BigInt('99999')
         })
       );
       expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalledWith(
@@ -258,10 +264,9 @@ describe('OrderManagerService', () => {
 
       await service.closeTrade('BTCUSDT', trade, 51000, 'TP_HIT');
 
-      expect(mockBinanceClient.restAPI.cancelOrder).toHaveBeenCalledWith(
+      expect(mockBinanceClient.restAPI.cancelAllOpenOrders).toHaveBeenCalledWith(
         expect.objectContaining({
-          symbol: 'BTCUSDT',
-          orderId: BigInt('44444')
+          symbol: 'BTCUSDT'
         })
       );
     });

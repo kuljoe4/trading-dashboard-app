@@ -134,6 +134,7 @@ export class PositionTrackerService {
     const prevIndex = this.rrSequenceIndex.get(symbol) || -1;
     if (currentIndex > prevIndex && currentIndex >= 0) {
       this.rrSequenceIndex.set(symbol, currentIndex);
+      trade.updated_at = new Date();
 
       // Get target RR for this milestone
       const exitRr = exitRrSequence[currentIndex] ?? 0;

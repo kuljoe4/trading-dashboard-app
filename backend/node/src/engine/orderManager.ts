@@ -404,6 +404,7 @@ export class OrderManagerService {
         strategy_label: metadata.strategy_label,
         strategy_config: metadata.strategy_config,
         entry_daily_change_pct: metadata.entry_daily_change_pct,
+        updated_at: new Date(),
       } as Trade;
 
       // In live mode, attempt to place actual order using batchOrders for zero-cost network optimization
@@ -848,6 +849,7 @@ export class OrderManagerService {
         resourceId: trade.id,
         details: { symbol: trade.symbol, slPrice, orderId: stopLossId }
       });
+      trade.updated_at = new Date();
       return String(stopLossId);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -927,13 +929,39 @@ export class OrderManagerService {
     this.ratchetLocks.set(trade.symbol, true);
 
     try {
-      const oldSlId = trade.binance_stop_order_id;
-      if (oldSlId) {
-        this.logger.debug(`[SL] Canceling existing ${trade.binance_stop_order_type || 'SL'} ${oldSlId} before replacement.`);
-        await this.cancelBinanceOrder(trade.symbol, oldSlId, (trade.binance_stop_order_type as any) || 'standard');
-        trade.binance_stop_order_id = undefined;
+      // BEST-PRACTICE: Deterministic client IDs and audit-first flow.
+      // We check for the deterministic ID "sl-[short-id]" before blindly placing a new one.
+      const deterministicClientId = `sl-${trade.id.substring(0, 8)}`;
+      let existingOrder: any = null;
+
+      try {
+        const queryRes = await this.binanceClient.restAPI.queryOrder({
+          symbol: trade.symbol,
+          origClientOrderId: deterministicClientId
+        });
+        existingOrder = await queryRes.data();
+      } catch (e: any) {
+        this.logger.debug(`[SL] No existing order with ID ${deterministicClientId} found via query.`);
       }
+
+      if (existingOrder && existingOrder.orderId) {
+        const status = existingOrder.status?.toUpperCase();
+        if (status === 'NEW' || status === 'PARTIALLY_FILLED') {
+           // Only replace if price is significantly different or if it's a mandatory ratchet
+           const currentExchangeSl = parseFloat(existingOrder.stopPrice || existingOrder.triggerPrice || '0');
+           if (Math.abs(currentExchangeSl - newSlPrice) / newSlPrice < 0.0001) {
+              this.logger.log(`[SL] Existing order ${existingOrder.orderId} matches target price ${newSlPrice}. Skipping redundant update.`);
+              trade.binance_stop_order_id = String(existingOrder.orderId);
+              return true;
+           }
+
+           this.logger.debug(`[SL] Replacing existing order ${existingOrder.orderId} at ${currentExchangeSl} with new price ${newSlPrice}.`);
+           await this.cancelBinanceOrder(trade.symbol, String(existingOrder.orderId), existingOrder.algoType ? 'algo' : 'standard');
+        }
+      }
+
       const newSlId = await this.placeStopLoss(trade, newSlPrice);
+      if (newSlId) trade.updated_at = new Date();
       return !!newSlId;
     } finally {
       this.ratchetLocks.delete(trade.symbol);
@@ -1236,6 +1264,16 @@ export class OrderManagerService {
 
       // In live mode, place close order with reduce-only for safety
       if (!paperMode && !localOnly && this.binanceClient && trade.binance_order_id) {
+      // INDUSTRY-BEST-PRACTICE: Critical cleanup-on-close safety net.
+      // Flush ALL open orders for this symbol to prevent orphans.
+      try {
+        this.logger.log(`[${symbol}] [Sync] Finalizing trade closure. Flushing ALL open orders to eliminate potential orphans...`);
+        await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol });
+        trade.binance_stop_order_id = undefined;
+      } catch (flushErr: any) {
+        this.logger.warn(`[${symbol}] [Sync] Cleanup-on-close flush failed: ${flushErr.message}`);
+      }
+
         trade.close_attempts = attempts + 1;
         trade.last_close_attempt_ts = nowTs;
 

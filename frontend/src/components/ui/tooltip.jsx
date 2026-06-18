@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useMemo } from 'react'
 import * as TooltipPrimitive from "@radix-ui/react-tooltip"
-import { cn } from "./primitives"
+import { cn } from "./utils"
 
 const TooltipContext = createContext({
   activeTooltipId: null,

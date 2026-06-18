@@ -77,6 +77,7 @@ describe('SessionService Data Consistency Fixes', () => {
       mockSettingsRepository,
       mockBalanceHistoryRepository,
       mockTradingSessionService,
+      {} as any, // orderManager
       { emit: jest.fn() } as any,
       {} as any, // analytics
       {} as any, // binanceClientFactory

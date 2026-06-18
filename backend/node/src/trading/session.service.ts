@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, BadRequestException, NotFoundException, ConflictException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { plainToInstance } from 'class-transformer';
@@ -9,6 +9,7 @@ import { Log as LogEntity } from '../models/entities/Log.entity';
 import { BalanceHistory as BalanceHistoryEntity } from '../models/entities/BalanceHistory.entity';
 import { SessionConfig } from '../models/SessionConfig';
 import { TradingSessionService } from '../engine/trading_session.service';
+import { OrderManagerService } from '../engine/orderManager';
 import { ENGINE_EVENTS } from '../engine/events';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { AuditLogService } from './audit-log.service';
@@ -49,6 +50,8 @@ export class SessionService implements OnModuleInit {
     @InjectRepository(BalanceHistoryEntity)
     private balanceHistoryRepository: Repository<BalanceHistoryEntity>,
     private tradingSessionService: TradingSessionService,
+    @Inject(forwardRef(() => OrderManagerService))
+    private orderManager: OrderManagerService,
     private eventEmitter: EventEmitter2,
     private analyticsService: AnalyticsService,
     private binanceClientFactory: BinanceClientFactory,
@@ -544,8 +547,8 @@ export class SessionService implements OnModuleInit {
               try {
                 this.logger.log(`[Reconciliation] Attempting cleanup of orphaned SL ${trade.binance_stop_order_id} for ${trade.symbol}`);
                 await this.orderManager.cancelBinanceOrder(trade.symbol, trade.binance_stop_order_id, trade.binance_stop_order_type as any);
-              } catch (cancelErr) {
-                this.logger.debug(`[Reconciliation] Orphan SL cleanup failed (expected if already gone): ${cancelErr.message}`);
+              } catch (cancelErr: any) {
+                this.logger.debug(`[Reconciliation] Orphan SL cleanup failed (expected if already gone): ${cancelErr.message || String(cancelErr)}`);
               }
             }
 

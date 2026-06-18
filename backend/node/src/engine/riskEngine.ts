@@ -102,18 +102,24 @@ export class RiskEngineService {
     // BOLT: If trades are currently entering, treat 'now' as the most recent trade TS to enforce spacing.
     let mostRecentTradeTs = enteringCount > 0 ? now : 0;
     for (let i = 0; i < activeTrades.length; i++) {
-      const entryRaw = activeTrades[i].entry_ts;
+      const t = activeTrades[i];
+      if (t.is_reconciliation) continue;
+      const entryRaw = t.entry_ts;
       if (entryRaw) {
         const ts = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
         if (ts > mostRecentTradeTs) mostRecentTradeTs = ts;
       }
     }
-    if (closedTrades.length > 0) {
-      const entryRaw = closedTrades[0].entry_ts;
+    // BOLT: Find most recent organic trade in closed trades (ignoring reconciliations)
+    for (let i = 0; i < closedTrades.length; i++) {
+      const t = closedTrades[i];
+      if (t.is_reconciliation) continue;
+      const entryRaw = t.entry_ts;
       if (entryRaw) {
         const ts = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
         if (ts > mostRecentTradeTs) mostRecentTradeTs = ts;
       }
+      break; // Only need the first (most recent) organic one
     }
 
     // Apply stable jitter to the period window to prevent "stampeding"
@@ -428,16 +434,21 @@ export class RiskEngineService {
     let qty = roundEight(riskAmount / slDistance);
 
     // PERFORMANCE: Implement dynamic notional scaling floor.
-    // Binance absolute minimum for Futures is 5 USDT. We use 5.05 for a safety buffer.
+    // Binance absolute minimum for Futures is 5 USDT. We use 5.01 for a safety buffer.
     const autoScale = config.auto_scale_min_notional ?? true;
-    if (autoScale) {
-      const MIN_NOTIONAL = 5.05;
-      const currentNotional = qty * entryPrice;
+    const MIN_NOTIONAL = 5.0;
+    const MIN_NOTIONAL_SCALED = 5.01;
 
-      if (currentNotional < MIN_NOTIONAL) {
-         this.logger.debug(`[RiskEngine] Scaled qty up to meet MIN_NOTIONAL (${currentNotional.toFixed(2)} -> ${MIN_NOTIONAL})`);
-         qty = roundEight(MIN_NOTIONAL / entryPrice);
+    let currentNotional = qty * entryPrice;
+
+    if (autoScale) {
+      if (currentNotional < MIN_NOTIONAL_SCALED) {
+         this.logger.debug(`[RiskEngine] Scaled qty up to meet MIN_NOTIONAL (${currentNotional.toFixed(2)} -> ${MIN_NOTIONAL_SCALED})`);
+         qty = roundEight(MIN_NOTIONAL_SCALED / entryPrice);
       }
+    } else if (currentNotional < MIN_NOTIONAL) {
+       this.logger.warn(`[RiskEngine] Trade setup discarded: notional ${currentNotional.toFixed(2)} is below minimum ${MIN_NOTIONAL} USDT.`);
+       return 0;
     }
 
     return qty;

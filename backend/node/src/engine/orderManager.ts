@@ -971,7 +971,8 @@ export class OrderManagerService {
         : await this.binanceClient.restAPI.cancelOrder({ symbol, orderId: BigInt(orderId) });
 
       this.updateWeight(response?.headers);
-      this.logger.log(`Binance ${orderType} order canceled: ${symbol} order_id=${orderId}`);
+      const data = await response.data();
+      this.logger.log(`Binance ${orderType} order canceled: ${symbol} order_id=${orderId}. Response: ${JSON.stringify(data)}`);
       return true;
     } catch (err) {
       // If order is already filled or canceled, we can ignore the error

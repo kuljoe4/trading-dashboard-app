@@ -473,4 +473,115 @@ describe('OrderManagerService', () => {
       expect(trade.binance_close_order_id).toBe('limit-123');
     });
   });
+
+  describe('Binance Rejection Handlers', () => {
+    it('handles -2021 (Order would immediately trigger) by triggering local close', async () => {
+      await service.setBinanceClient(mockBinanceClient, false);
+      const trade = {
+        id: 'test-immediate-id',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 0.1,
+        binance_order_id: '11111'
+      } as Trade;
+
+      mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValueOnce({
+        data: () => Promise.resolve({ code: -2021, msg: 'Order would immediately trigger.' }),
+        headers: {}
+      });
+
+      (service as any).tickerCache.getPrice.mockReturnValue(49000);
+      const emitSpy = jest.spyOn((service as any).eventEmitter, 'emit');
+
+      const result = await service.placeStopLoss(trade, 49500);
+
+      expect(result).toBe('TRIGGERED_LOCALLY');
+      expect(emitSpy).toHaveBeenCalledWith('trade.exchange_close', expect.objectContaining({
+        reason: 'SL_HIT',
+        exitPrice: 49000
+      }));
+    });
+
+    it('handles -1116 (ReduceOnly invalid) as a Sync Recovery', async () => {
+      await service.setBinanceClient(mockBinanceClient, false);
+      const trade = {
+        id: 'test-reduce-id',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 0.1,
+        binance_order_id: '11111'
+      } as Trade;
+
+      mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValueOnce({
+        data: () => Promise.resolve({ code: -1116, msg: 'No position found for reduce-only order.' }),
+        headers: {}
+      });
+
+      const emitSpy = jest.spyOn((service as any).eventEmitter, 'emit');
+
+      const result = await service.placeStopLoss(trade, 49500);
+
+      expect(result).toBe('TRIGGERED_LOCALLY');
+      expect(emitSpy).toHaveBeenCalledWith('trade.exchange_close', expect.objectContaining({
+        reason: 'EXCHANGE_SYNC'
+      }));
+    });
+
+    it('handles -4044 (Account position is empty) as a Sync Recovery', async () => {
+      await service.setBinanceClient(mockBinanceClient, false);
+      const trade = {
+        id: 'test-sync-id',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 0.1,
+        entry_price: 50000,
+        binance_order_id: '11111'
+      } as Trade;
+
+      mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValueOnce({
+        data: () => Promise.resolve({ code: -4044, msg: 'Account position is empty.' }),
+        headers: {}
+      });
+
+      const emitSpy = jest.spyOn((service as any).eventEmitter, 'emit');
+
+      const result = await service.placeStopLoss(trade, 49500);
+
+      expect(result).toBe('TRIGGERED_LOCALLY');
+      expect(emitSpy).toHaveBeenCalledWith('trade.exchange_close', expect.objectContaining({
+        reason: 'EXCHANGE_SYNC'
+      }));
+    });
+
+    it('trips circuit breaker on systemic failures', async () => {
+      await service.setBinanceClient(mockBinanceClient, false);
+      const trade = {
+        id: 'test-circuit-id',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 0.1,
+        binance_order_id: '11111'
+      } as Trade;
+
+      // systemic error -4001 (Margin insufficient)
+      mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValue({
+        data: () => Promise.resolve({ code: -4001, msg: 'Margin is insufficient.' }),
+        headers: {}
+      });
+
+      const recordFailureSpy = jest.spyOn(service as any, 'recordFailure');
+
+      // Fail 3 times to trip circuit breaker
+      await service.placeStopLoss(trade, 49500);
+      await service.placeStopLoss(trade, 49500);
+      await service.placeStopLoss(trade, 49500);
+
+      expect(recordFailureSpy).toHaveBeenCalledTimes(3);
+      expect((service as any).consecutiveFailures).toBe(3);
+
+      // Verify enter is now blocked
+      const result = await service.enter('session_1', 'BTCUSDT', 'LONG', 50000, 0.1, 49000, null);
+      expect(result.status).toBe(ExecutionStatus.CIRCUIT_OPEN);
+    });
+  });
 });

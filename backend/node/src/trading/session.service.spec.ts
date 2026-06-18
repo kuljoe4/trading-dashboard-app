@@ -38,6 +38,10 @@ describe('SessionService Validation', () => {
     log: jest.fn(),
   } as any;
 
+  const mockOrderManagerService = {
+    cancelBinanceOrder: jest.fn(),
+  } as any;
+
   const mockTradeRepository = {
     find: jest.fn().mockResolvedValue([]),
     create: jest.fn(),
@@ -62,6 +66,7 @@ describe('SessionService Validation', () => {
       mockRepository, // Settings
       mockRepository, // BalanceHistory
       mockTradingSessionService,
+      mockOrderManagerService,
       { emit: jest.fn() } as any, // EventEmitter2
       mockAnalyticsService,
       mockBinanceClientFactory,
@@ -206,6 +211,7 @@ describe('SessionService Validation', () => {
         mockRepository, // Settings
         mockRepository, // BalanceHistory
         mockTradingSessionService,
+      mockOrderManagerService,
         { emit: jest.fn() } as any, // EventEmitter2
         mockAnalyticsService,
         mockBinanceClientFactory,

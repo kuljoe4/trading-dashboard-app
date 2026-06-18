@@ -208,7 +208,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       const cp = await this.tickerCache.getPrice(t.symbol); const ep = cp ?? t.last_price ?? t.entry_price;
       const res = await this.positionTracker.closeTrade(t.symbol, ep, 'SESSION_TERMINATED', this.config!, this.config?.paper_mode ?? true);
       if (res.exitOccurred && res.trade) {
-        this.sessionState.updateStatsOnClose((res.trade.pnl || 0) > 0, res.trade.pnl || 0); this.sessionState.addClosedTrade(res.trade);
+        this.sessionState.updateStatsOnClose((res.trade.pnl || 0) > 0, res.trade.pnl || 0, res.trade.is_reconciliation); this.sessionState.addClosedTrade(res.trade);
         await this.updateBalance(res.trade); if (this.onTradeUpdate) await this.onTradeUpdate(res.trade, this.getBalance());
       } else {
         t.status = 'CLOSED'; t.exit_ts = new Date(); t.exit_reason = 'SESSION_TERMINATED'; t.exit_price = ep;
@@ -229,7 +229,7 @@ export class TradingSessionService implements OnApplicationShutdown {
         const notional = t.entry_price * (t.qty || 0);
         const finalPnlPct = (notional !== 0) ? (t.pnl / notional) * 100 : 0;
         t.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
-        this.sessionState.addClosedTrade(t); this.sessionState.updateStatsOnClose((t.pnl || 0) > 0, t.pnl || 0);
+        this.sessionState.addClosedTrade(t); this.sessionState.updateStatsOnClose((t.pnl || 0) > 0, t.pnl || 0, t.is_reconciliation);
         await this.updateBalance(t); if (this.onTradeUpdate) await this.onTradeUpdate(t, this.getBalance());
         this.positionTracker.removeTrade(t.symbol);
       }
@@ -685,9 +685,9 @@ export class TradingSessionService implements OnApplicationShutdown {
   }
 
   @OnEvent('trade.exchange_close')
-  async handleExchangeClose(payload: { symbol: string, exitPrice: number, reason: string }) {
+  async handleExchangeClose(payload: { symbol: string, exitPrice: number, reason: string, isReconciliation?: boolean }) {
     if (!this.running) return;
-    const { symbol, exitPrice, reason } = payload;
+    const { symbol, exitPrice, reason, isReconciliation } = payload;
 
     const trade = this.positionTracker.activeList().find(t => t.symbol === symbol);
     if (!trade) return;
@@ -700,12 +700,13 @@ export class TradingSessionService implements OnApplicationShutdown {
     const res = await this.positionTracker.closeTrade(symbol, exitPrice, reason, this.config!, this.config?.paper_mode ?? true, true);
 
     if (res.exitOccurred && res.trade) {
+      if (isReconciliation) res.trade.is_reconciliation = true;
       await this.finalizeTradeClosure(res.trade, exitPrice, reason);
     }
   }
 
   private async finalizeTradeClosure(trade: Trade, exitPrice: number, reason: string) {
-      this.sessionState.updateStatsOnClose((trade.pnl || 0) > 0, trade.pnl || 0);
+      this.sessionState.updateStatsOnClose((trade.pnl || 0) > 0, trade.pnl || 0, trade.is_reconciliation);
       await this.updateBalance(trade);
       this.sessionState.addClosedTrade(trade);
       if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());

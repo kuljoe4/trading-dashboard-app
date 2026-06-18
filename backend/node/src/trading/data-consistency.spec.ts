@@ -120,7 +120,7 @@ describe('SessionService Data Consistency Fixes', () => {
 
     await service.startSession(config, true);
 
-    expect(mockTradeRepository.update).toHaveBeenCalledWith('trade-1', { status: 'CLOSED_ORPHANED', exit_ts: expect.any(Date) });
+    expect(mockTradeRepository.update).toHaveBeenCalledWith('trade-1', { status: 'CLOSED_ORPHANED', exit_ts: expect.any(Date), is_reconciliation: true });
     expect(mockSessionRepository.update).toHaveBeenCalledWith('session-123', { totalPnl: -50 });
   });
 

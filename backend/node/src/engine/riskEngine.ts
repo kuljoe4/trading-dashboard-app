@@ -135,6 +135,9 @@ export class RiskEngineService {
     // BOLT: Manual iteration for O(1) memory overhead.
     // Assuming closedTrades are sorted descending (most recent first).
     const processTrade = (t: Trade, isClosed: boolean): boolean => {
+      // GATING: Skip reconciliation trades to prevent accidental hibernation loops on boot
+      if (t.is_reconciliation) return true;
+
       const entryRaw = t.entry_ts;
       if (!entryRaw) return true;
       const entryTs = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
@@ -195,6 +198,9 @@ export class RiskEngineService {
 
       // Create a temporary processing function for closed trades to populate closedBase
       const processClosed = (t: Trade): boolean => {
+        // GATING: Skip reconciliation trades to prevent accidental hibernation loops on boot
+        if (t.is_reconciliation) return true;
+
         const entryRaw = t.entry_ts;
         if (!entryRaw) return true;
         const entryTs = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();

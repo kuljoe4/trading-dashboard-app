@@ -564,20 +564,27 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
              if (totalQty > 0) absoluteEntryPrice = weightedSum / totalQty;
           }
 
-          // DATA-CONSISTENCY: Fallback for 0 price responses - Query exchange for authoritative fill price
+          // DATA-CONSISTENCY: Fallback for 0 price responses - wait for UDS or Query exchange for authoritative fill price
           if (absoluteEntryPrice === 0 && trade.binance_order_id) {
-             try {
-                this.logger.log(`[${symbol}] [Sync] Binance returned 0 price for entry. Fetching authoritative price via queryOrder...`);
-                const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, orderId: BigInt(trade.binance_order_id) });
-                const queryData = await queryRes.data() as any;
-                absoluteEntryPrice = parseFloat(queryData.avgPrice || queryData.price || '0');
-                if (absoluteEntryPrice > 0) {
-                  this.logger.log(`[${symbol}] [Sync] Successfully fetched authoritative entry price: ${absoluteEntryPrice}`);
-                } else {
-                  this.logger.warn(`[${symbol}] [Sync] Exchange query returned 0 or missing price for order ${trade.binance_order_id}.`);
-                }
-             } catch (queryErr) {
-                this.logger.warn(`[${symbol}] [Sync] Failed to fetch authoritative price: ${queryErr instanceof Error ? queryErr.message : String(queryErr)}`);
+             this.logger.log(`[${symbol}] [Sync] Binance returned 0 price for entry. Attempting fill price recovery...`);
+             absoluteEntryPrice = await this.recoverLastExecutionPrice(symbol, trade, 0);
+
+             if (absoluteEntryPrice === 0) {
+               try {
+                  this.logger.log(`[${symbol}] [Sync] No fill price found in cache. Fetching authoritative price via queryOrder REST API...`);
+                  const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, orderId: BigInt(trade.binance_order_id) });
+                  const queryData = await queryRes.data() as any;
+                  absoluteEntryPrice = parseFloat(queryData.avgPrice || queryData.price || '0');
+                  if (absoluteEntryPrice > 0) {
+                    this.logger.log(`[${symbol}] [Sync] Successfully fetched authoritative entry price via REST: ${absoluteEntryPrice}`);
+                  } else {
+                    this.logger.warn(`[${symbol}] [Sync] Exchange query returned 0 or missing price for order ${trade.binance_order_id}.`);
+                  }
+               } catch (queryErr) {
+                  this.logger.warn(`[${symbol}] [Sync] Failed to fetch authoritative price via REST: ${queryErr instanceof Error ? queryErr.message : String(queryErr)}`);
+               }
+             } else {
+               this.logger.log(`[${symbol}] [Sync] Successfully recovered entry fill price via cache/UDS: ${absoluteEntryPrice}`);
              }
           }
 
@@ -596,11 +603,16 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
           const executedQty = parseFloat(entryReceipt.executedQty || '0');
 
           if (absoluteEntryPrice > 0) {
-            const slippage = Math.abs(absoluteEntryPrice - entryPrice) / entryPrice;
+            // Direction-aware slippage calculation: only deterioration (worse price) counts as positive slippage.
+            // Price improvements result in negative slippage and are ignored.
+            const slippage = direction === 'LONG'
+              ? (absoluteEntryPrice - entryPrice) / entryPrice
+              : (entryPrice - absoluteEntryPrice) / entryPrice;
+
             const warningThreshold = metadata.strategy_config?.slippage_warning_threshold ?? 0.001;
             const abortThreshold = Math.min(metadata.strategy_config?.slippage_abort_threshold ?? CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT, CONFIG_LIMITS.SLIPPAGE_ABORT_MAX);
 
-            this.logger.log(`[Entry] Execution for ${symbol}: Target ${entryPrice}, Actual ${absoluteEntryPrice.toFixed(8)} (Slippage: ${(slippage * 100).toFixed(4)}%)`);
+            this.logger.log(`[Entry] Execution for ${symbol} (${direction}): Target ${entryPrice}, Actual ${absoluteEntryPrice.toFixed(8)} | Raw Slippage: ${(slippage * 100).toFixed(4)}%`);
 
             if (slippage > abortThreshold) {
               const abortMsg = `[CRITICAL] Slippage for ${symbol} (${(slippage * 100).toFixed(2)}%) exceeded abort threshold (${(abortThreshold * 100).toFixed(2)}%). Unwinding immediately.`;
@@ -623,7 +635,9 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
                 throw unwindErr;
               }
             } else if (slippage > warningThreshold) {
-              this.logger.warn(`Slippage warning for ${symbol}: Delta ${(slippage * 100).toFixed(2)}% exceeds threshold ${(warningThreshold * 100).toFixed(2)}%`);
+              this.logger.warn(`Slippage warning for ${symbol}: Deterioration of ${(slippage * 100).toFixed(2)}% exceeds threshold ${(warningThreshold * 100).toFixed(2)}%`);
+            } else if (slippage < 0) {
+              this.logger.log(`[Entry] Price improvement detected for ${symbol}: ${Math.abs(slippage * 100).toFixed(4)}% better than target.`);
             }
             trade.entry_price = roundEight(absoluteEntryPrice);
           }
@@ -632,6 +646,13 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
           // Recalculate SL after actual fill to maintain intended risk distance
           const originalDistance = Math.abs(entryPrice - slPrice);
           slPrice = direction === 'LONG' ? trade.entry_price - originalDistance : trade.entry_price + originalDistance;
+
+          // Industry Standard: Sanitize recalculated SL to eliminate floating-point noise before local state update
+          const entryFilters = this.marketFeed.getSymbolFilters(symbol);
+          const entryPriceFilter = entryFilters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
+          const entryPrecision = getPrecisionFromString(entryPriceFilter?.tickSize || '0');
+          slPrice = parseFloat(slPrice.toFixed(entryPrecision));
+
           trade.current_sl = trade.initial_sl = slPrice;
 
           // Zero-Cost Math Estimation for fees
@@ -751,7 +772,16 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
    * Place a STOP_MARKET order on Binance for stop loss protection
    */
   async placeStopLoss(trade: Trade, slPrice: number, fillPrice?: number): Promise<{ orderId: string; price: number } | null> {
-    let currentSlPrice = slPrice;
+    const filters = this.marketFeed.getSymbolFilters(trade.symbol);
+    const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
+    const precision = getPrecisionFromString(priceFilter?.tickSize || '0');
+
+    // Industry Standard: Sanitize input price to eliminate floating-point noise (.0000000000002)
+    let currentSlPrice = parseFloat(slPrice.toFixed(precision));
+    if (Math.abs(currentSlPrice - slPrice) > 1e-10) {
+      this.logger.debug(`[${trade.symbol}] Sanitized SL price: ${slPrice} -> ${currentSlPrice} (Precision: ${precision})`);
+    }
+
     let adaptiveAttempts = 0;
     const MAX_ADAPTIVE_ATTEMPTS = 3;
 
@@ -1151,6 +1181,17 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
    * Update an existing stop loss without protection gaps (Ratcheting)
    */
   async updateStopLoss(trade: Trade, newSlPrice: number, prevSlPrice?: number): Promise<{ success: boolean, price?: number }> {
+    const filters = this.marketFeed.getSymbolFilters(trade.symbol);
+    const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
+    const precision = getPrecisionFromString(priceFilter?.tickSize || '0');
+
+    // Industry Standard: Sanitize input price to eliminate floating-point noise (.0000000000002)
+    const sanitizedSlPrice = parseFloat(newSlPrice.toFixed(precision));
+    if (Math.abs(sanitizedSlPrice - newSlPrice) > 1e-10) {
+      this.logger.debug(`[${trade.symbol}] Sanitized update SL price: ${newSlPrice} -> ${sanitizedSlPrice} (Precision: ${precision})`);
+    }
+    newSlPrice = sanitizedSlPrice;
+
     if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return { success: true, price: newSlPrice };
 
     // LOCK: Prevent Watchdog from interfering during the cancel/replace window

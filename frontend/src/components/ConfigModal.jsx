@@ -14,6 +14,7 @@ const SIGNALS = [
   ['ema_price_cross', 'EMA Price Cross', 'Entry when price crosses EMA.'],
   ['ema_dual_cross', 'EMA Dual Cross', 'Entry when fast EMA crosses slow EMA.'],
   ['ema_close', 'EMA Close', 'Entry when candle closes favorable side of EMA.'],
+  ['ema_dual_close', 'EMA Dual Close', 'Entry when candle closes above both EMAs.'],
   ['ma', 'MA Cross', 'Entry when price crosses simple Moving Average.'],
   ['engulfing', 'Engulfing', 'Entry on bullish or bearish engulfing pattern.'],
 ]

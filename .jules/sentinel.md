@@ -1,16 +1,29 @@
-# Sentinel's Journal
+## 2026-06-07 - [WebSocket Auth Throttling Bypass]
+**Vulnerability:** IP-based brute-force protection (throttling) was bypassed for WebSocket connections when the authentication token was missing or had an invalid format/length.
+**Learning:** Security checks that return early (fail-fast) must still trigger defensive mechanisms like failure counters. In `server.ts`, the `verifyClient` hook logged the rejection but didn't call `recordFailure(clientIp)`, allowing attackers to bypass the 10-attempt limit by sending malformed requests.
+**Prevention:** Always ensure that all authentication failure paths, including initial validation/sanity checks, invoke the throttling/audit system before returning a rejection.
 
-## 2026-05-12 - Input Validation and Partial Updates for Sensitive Credentials
-**Vulnerability:** Lack of strict input validation on Binance API key/secret update endpoint, and accidental deletion of credentials during partial updates.
-**Learning:** Even internal-ish management endpoints need strict DTO-based validation to prevent malformed data or DoS via large inputs. Partial updates should be handled explicitly to avoid overwriting existing data with empty values if the client only sends one field.
-**Prevention:** Always use NestJS `ValidationPipe` with dedicated DTOs and only update fields that are explicitly provided in the request.
+## 2026-06-07 - [Memory Exhaustion via Unbounded IP Failure Tracking]
+**Vulnerability:** The `FAILURES` map in `throttle.ts` had no maximum size limit, allowing an attacker to spoof thousands of unique IP addresses to exhaust server memory (DoS).
+**Learning:** In-memory security tracking structures (like IP blacklists or failure counters) must always be bounded in size to prevent they themselves becoming an attack vector.
+**Prevention:** Implement a hard limit on Map size with an eviction policy (e.g., FIFO) for all in-memory tracking structures.
 
-## 2025-05-20 - Missing Security Headers and Loose Credential Sanitization
-**Vulnerability:** The backend was missing essential security headers (X-Frame-Options, CSP, etc.), and Binance API credentials were not trimmed, potentially leading to auth failures due to whitespace.
-**Learning:** Defense-in-depth requires both transport-level protections (headers) and strict input handling for sensitive data. Even if the frontend is trusted, the backend must enforce security boundaries.
-**Prevention:** Implement global security header middleware and always sanitize/validate sensitive inputs at the controller level, even if using DTOs.
+## 2026-06-08 - [IP Spoofing via Multiple X-Forwarded-For Headers]
+**Vulnerability:** The `extractIp` utility only considered the first element of an array when multiple `X-Forwarded-For` headers were provided, allowing attackers to spoof their IP and bypass brute-force protections.
+**Learning:** Node.js/Express can represent repeated headers as an array. Security logic that relies on `X-Forwarded-For` must account for this by joining all header values before extracting the reliable (last) IP in the chain.
+**Prevention:** Always normalize `X-Forwarded-For` by joining array values into a single comma-separated string before parsing the IP chain.
 
-## 2026-05-19 - Missing Field-Level Exclusion for Sensitive Credentials
-**Vulnerability:** Sensitive Binance API credentials in the `Settings` entity were missing the `select: false` attribute, making them susceptible to accidental exposure in generic TypeORM queries (e.g., `repository.find()`).
-**Learning:** Defense-in-depth requires that secrets are not only encrypted but also excluded from default data retrieval paths. Relying on manual field filtering in controllers is error-prone.
-**Prevention:** Always mark sensitive columns with `select: false` in TypeORM entities and explicitly select them only in the specific services or controllers where they are required for functional operations.
+## 2026-06-08 - [Incomplete Brute-Force Protection in WebSocket Handshake]
+**Vulnerability:** Several rejection paths in the WebSocket `verifyClient` hook (unauthorized origins and malformed URLs) failed to record the failure in the IP throttling system.
+**Learning:** Security middleware must be exhaustive. If a request is rejected for any security or structural reason, it should contribute to the sender's failure count to prevent "stealthy" probing or DoS via error-triggering payloads.
+**Prevention:** Ensure every `return done(false)` in `verifyClient` (or equivalent handshake hooks) is preceded by a call to the throttling/audit system.
+
+## 2026-06-15 - [Comprehensive Audit Metadata Propagation]
+**Vulnerability:** Audit logs only captured action and actor (IP), but lacked depth (User-Agent, specific resource IDs) for many sensitive operations, making forensic analysis difficult.
+**Learning:** Security auditing must be pervasive and include as much context as possible without logging secrets. By propagating IP and User-Agent from the controller layer down to the service layer for all state-changing operations, we create a much more robust trail.
+**Prevention:** Always extract `ip` and `userAgent` at the edge (controllers) and pass them through to audit logging services for any action that modifies system state (configurations, session control, credential updates).
+
+## 2026-06-18 - [Permissive CORS Wildcard Bypass]
+**Vulnerability:** The CORS origin validation logic used a greedy `.*` regex for wildcards, allowing attackers to bypass origin checks by injecting the allowed domain into paths, query parameters, or fragments (e.g., `https://attacker.com/.example.com` matching `https://*.example.com`).
+**Learning:** Wildcards in security-sensitive string matching must be constrained to the expected character set. Hostname wildcards should never match path separators (`/`), query starts (`?`), or fragment identifiers (`#`).
+**Prevention:** Use restrictive character classes (e.g., `[^/?#]+`) instead of `.*` when generating regular expressions for wildcard matching in URLs or hostnames.

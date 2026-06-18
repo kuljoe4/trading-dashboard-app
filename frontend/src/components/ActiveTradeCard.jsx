@@ -1,140 +1,134 @@
 import React, { useState, useEffect } from 'react'
-import { fmtUSD, pnlColor } from '../lib/theme'
+import { cn, Tooltip } from './ui/primitives'
+import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { sessionAPI } from '../api/client'
 import { ShieldCheck } from 'lucide-react'
+import { motion } from 'framer-motion'
 
-const price = (value) => {
-  if (value == null || Number.isNaN(Number(value))) return '---'
-  const n = Number(value)
-  return n >= 100 ? `$${n.toFixed(2)}` : `$${n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}`
-}
-
-const timeSince = (entryTs) => {
-  if (!entryTs) return 'Just now'
-  const now = Date.now()
-  const entry = new Date(entryTs).getTime()
-  const diff = Math.floor((now - entry) / 1000)
-  if (diff < 60) return `${diff}s ago`
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
-  const hours = Math.floor(diff / 3600)
-  const mins = Math.floor((diff % 3600) / 60)
-  return `${hours}h ${mins}m ago`
-}
-
-const duration = (entryTs) => {
-  if (!entryTs) return '0s'
-  const now = Date.now()
-  const entry = new Date(entryTs).getTime()
-  const diff = Math.floor((now - entry) / 1000)
-  const h = Math.floor(diff / 3600)
-  const m = Math.floor((diff % 3600) / 60)
-  const s = diff % 60
-  if (h > 0) return `${h}h ${m}m ${s}s`
-  if (m > 0) return `${m}m ${s}s`
-  return `${s}s`
-}
-
-export const ActiveTradeCard = ({ trade, config, onTradeClose }) => {
-  const [isClosing, setIsClosing] = useState(false)
-  const [confirmClose, setConfirmClose] = useState(false)
-
-  useEffect(() => {
-    if (confirmClose) {
-      const timer = setTimeout(() => setConfirmClose(false), 3000)
-      return () => clearTimeout(timer)
-    }
-  }, [confirmClose])
-
-  const handleClose = async () => {
-    setConfirmClose(false)
-    setIsClosing(true)
-    try {
-      await sessionAPI.closeTrade(trade.symbol)
-      if (onTradeClose) {
-        onTradeClose(trade.symbol)
-      }
-    } catch (error) {
-      console.error('Failed to close trade:', error)
-      alert(`Error closing trade: ${error.message}`)
-    } finally {
-      setIsClosing(false)
+export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      onClick()
     }
   }
 
-  const entryTime = trade.entry_ts || trade.entry_time
-  const pctChange = trade.entry_price && trade.current_price
-    ? ((trade.current_price - trade.entry_price) / trade.entry_price * 100).toFixed(2)
-    : null
-  const slDist = trade.entry_price && trade.sl_price
-    ? ((Math.abs(trade.entry_price - trade.sl_price) / trade.entry_price) * 100).toFixed(2)
-    : null
+  const entry = Number(trade.entry_price || 0)
+  const mark = Number(trade.mark_price || trade.last_price || 0)
+  const sl = Number(trade.sl_price || 0)
+  const tp = Number(trade.tp_price || 0)
+  const isLong = trade.direction === 'LONG'
+
+  // BOLT: Direction-aware Price Runway.
+  // We orient the runway so SL is always 0% and TP (or 3R) is 100%.
+  // Entry point is dynamically calculated.
+  let progress = 50
+  let entryMarkPos = 50
+
+  if (entry && mark && sl) {
+    if (tp) {
+      const totalRange = Math.abs(tp - sl)
+      const distFromSl = Math.abs(mark - sl)
+      progress = Math.max(0, Math.min(100, (distFromSl / totalRange) * 100))
+      entryMarkPos = Math.max(0, Math.min(100, (Math.abs(entry - sl) / totalRange) * 100))
+    } else {
+      // Without TP, we use a reference of 3R profit for the 100% mark
+      const distToSl = Math.abs(entry - sl)
+      const targetProfitPrice = isLong ? (entry + distToSl * 3) : (entry - distToSl * 3)
+      const totalRange = Math.abs(targetProfitPrice - sl)
+
+      progress = Math.max(0, Math.min(100, (Math.abs(mark - sl) / totalRange) * 100))
+      entryMarkPos = (Math.abs(entry - sl) / totalRange) * 100
+    }
+  }
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-5 flex flex-col gap-4 w-full flex-1 shadow-sm">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2 text-sm font-bold">
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2">
-              <span>{trade.symbol || '---'}</span>
-              <span className={trade.direction === 'LONG' ? 'text-green' : 'text-red'}>{trade.direction || '---'}</span>
+    <motion.div
+      layout
+      whileHover={{ scale: 1.01 }}
+      onClick={onClick}
+      onKeyDown={handleKeyDown}
+      role="button"
+      tabIndex={0}
+      className="bg-surface border border-border/40 rounded-2xl p-4 md:p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.98]"
+      aria-label={`View details for ${trade.symbol} ${trade.direction} trade, ${fmtUSD(trade.pnl)} P&L, ${Number(trade.rr || 0).toFixed(2)} RR`}
+    >
+      <div className="flex items-center justify-between gap-3 min-w-0">
+        <div className="flex flex-col gap-1 min-w-0 flex-1">
+          <div className="flex items-center gap-2 whitespace-nowrap overflow-hidden">
+            <span className="text-sm md:text-base font-black font-mono tracking-tight shrink-0">{trade.symbol || '---'}</span>
+            <span className={cn("text-[9px] md:text-xs font-black px-1.5 py-0.5 rounded border uppercase shrink-0", isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5')}>
+              {isLong ? '▲' : '▼'} {trade.direction || '---'}
+            </span>
+          </div>
+          {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
+            <div className="flex items-center gap-1 whitespace-nowrap overflow-hidden">
+              <ShieldCheck size={10} className="text-accent shrink-0" />
+              <span className="text-[9px] font-black text-accent uppercase tracking-widest opacity-80 truncate">Monitored</span>
             </div>
-            {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
-              <div className="flex items-center gap-1 mt-0.5">
-                <ShieldCheck size={10} className="text-accent" />
-                <span className="text-[9px] font-bold text-accent uppercase tracking-tighter">Monitored Symbol</span>
-              </div>
+          )}
+        </div>
+
+        <div className="flex flex-col items-end shrink-0 min-w-[80px]">
+          <div className={cn(
+            "text-base md:text-lg lg:text-xl font-black font-mono tracking-tighter leading-none mb-1",
+            trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlClass(trade.pnl) : 'text-dim'
+          )}>
+            {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] md:text-[11px] font-black font-mono text-dim/60 uppercase tracking-widest">
+              {Number(trade.rr || 0).toFixed(2)}R
+            </span>
+            {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
+              <Tooltip content={`Commission: -${fmtUSD(trade.realized_fee || 0)} | Funding: ${trade.funding_fee > 0 ? '-' : '+'}${fmtUSD(Math.abs(trade.funding_fee || 0))}`}>
+                <div className="text-[8px] md:text-[9px] font-black font-mono text-red/40 uppercase tracking-tighter cursor-help border-b border-dotted border-red/10">
+                  -{fmtUSD(safeNum(trade.realized_fee) + safeNum(trade.funding_fee))}
+                </div>
+              </Tooltip>
             )}
           </div>
         </div>
-        <div className={`text-lg font-bold ${trade.pnl != null ? pnlColor(trade.pnl) : 'text-dim'}`}>
-          {trade.pnl != null ? fmtUSD(trade.pnl) : '---'}
+      </div>
+
+      {/* Mini Price Runway */}
+      <div className="flex flex-col gap-2">
+        <div
+          className="h-1.5 w-full bg-border/40 rounded-full overflow-hidden relative"
+          role="progressbar"
+          aria-valuenow={Math.round(progress)}
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-label={`Trade progress from SL to TP: ${Math.round(progress)}%`}
+        >
+          {/* Entry Point Marker */}
+          <div
+            className="absolute top-0 bottom-0 w-px bg-white/40 z-20"
+            style={{ left: `${entryMarkPos}%` }}
+            aria-hidden="true"
+          />
+          {/* Progress Bar */}
+          <div
+            className={cn(
+              "h-full transition-all duration-500 shadow-[0_0_10px_rgba(0,0,0,0.2)]",
+              trade.pnl >= 0 ? "bg-green" : "bg-red"
+            )}
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <div className="flex justify-between text-[9px] font-bold text-dim uppercase tracking-widest font-mono">
+          <div className="flex flex-col items-start">
+            <span className="text-red/60">SL</span>
+            <span className="text-[8px] opacity-40">{entry ? ((Math.abs(entry - sl) / entry) * 100).toFixed(1) : 0}%</span>
+          </div>
+          <span className="text-text/20">Entry</span>
+          <div className="flex flex-col items-end">
+            <span className="text-green/60">{tp ? 'TP' : '3R'}</span>
+            <span className="text-[8px] opacity-40">{tp && entry ? ((Math.abs(tp - entry) / entry) * 100).toFixed(1) : '---'}</span>
+          </div>
         </div>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-dim">
-        <div className="flex flex-col gap-1">
-          <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">Entry</span>
-          <span>{trade.entry_price != null ? price(trade.entry_price) : '---'}</span>
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">Current</span>
-          <span>{trade.current_price != null ? price(trade.current_price) : '---'}</span>
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">% Change</span>
-          <span className={pctChange != null ? (pctChange >= 0 ? 'text-green font-bold' : 'text-red font-bold') : ''}>
-            {pctChange != null ? `${pctChange >= 0 ? '+' : ''}${pctChange}%` : '---'}
-          </span>
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">SL Dist</span>
-          <span className="text-amber font-bold">{slDist != null ? `${slDist}%` : '---'}</span>
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">Opened</span>
-          <span>{entryTime ? new Date(entryTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '---'}</span>
-        </div>
-        <div className="flex flex-col gap-1">
-          <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">Duration</span>
-          <span>{duration(entryTime)}</span>
-        </div>
-        <div className="flex flex-col gap-1 sm:col-span-2">
-          <span className="font-semibold text-[11px] uppercase tracking-[0.15em]">Time Ago</span>
-          <span>{timeSince(entryTime)}</span>
-        </div>
-      </div>
-      <button
-        onClick={() => {
-          if (confirmClose) {
-            handleClose()
-          } else {
-            setConfirmClose(true)
-          }
-        }}
-        disabled={isClosing}
-        className={`mt-2 px-4 py-2 bg-red hover:bg-red/80 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-all ${confirmClose ? 'animate-pulse ring-2 ring-red ring-offset-2 ring-offset-surface' : ''}`}
-      >
-        {isClosing ? 'Closing...' : confirmClose ? 'Confirm?' : 'Close Position'}
-      </button>
-    </div>
-)
+    </motion.div>
+  )
 }
+

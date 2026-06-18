@@ -1,5 +1,6 @@
 import { IsString, IsNumber, IsOptional, IsEnum, IsArray, IsBoolean, Min, Max, IsObject, ValidateNested, MaxLength, ArrayMaxSize } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
+import { CONFIG_LIMITS } from './constants';
 
 export class SingleSymbolConfig {
   @IsString()
@@ -33,7 +34,7 @@ export class SessionConfig {
 
   @IsArray()
   @IsOptional()
-  @ArrayMaxSize(10)
+  @ArrayMaxSize(CONFIG_LIMITS.MAX_VARIANTS)
   @ValidateNested({ each: true })
   @Type(() => SessionConfig)
   strategy_variants?: Partial<SessionConfig>[] = [];
@@ -44,7 +45,7 @@ export class SessionConfig {
 
   @IsArray()
   @IsOptional()
-  @ArrayMaxSize(100)
+  @ArrayMaxSize(CONFIG_LIMITS.MAX_SINGLE_SYMBOL_MONITORS)
   @ValidateNested({ each: true })
   @Type(() => SingleSymbolConfig)
   single_symbol_configs: SingleSymbolConfig[] = [];
@@ -60,7 +61,7 @@ export class SessionConfig {
   scan_lookback: number = 3;
 
   @IsNumber()
-  @Min(0)
+  @Min(CONFIG_LIMITS.SCAN_PCT_THRESHOLD_MIN)
   @IsOptional()
   scan_pct_threshold: number = 2.0;
 
@@ -84,10 +85,16 @@ export class SessionConfig {
   scan_check_interval_sec?: number = 5;
 
   @IsNumber()
-  @Min(1)
-  @Max(200)
+  @Min(CONFIG_LIMITS.WATCHLIST_MIN)
+  @Max(CONFIG_LIMITS.WATCHLIST_MAX)
   @IsOptional()
-  watchlist_size: number = 50;
+  watchlist_size: number = CONFIG_LIMITS.WATCHLIST_DEFAULT;
+
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  watchlist_offset?: number = 0;
 
   @IsEnum(['both', 'long', 'short'])
   @IsOptional()
@@ -108,17 +115,22 @@ export class SessionConfig {
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
-  @ArrayMaxSize(20)
+  @ArrayMaxSize(CONFIG_LIMITS.MAX_SIGNALS)
   enabled_signals?: string[] = ['momentum_pct'];
 
   @IsEnum(['any', 'all'])
   @IsOptional()
   signal_logic?: 'any' | 'all' = 'all';
 
-  @IsString()
+  @IsObject()
   @IsOptional()
-  @MaxLength(2000)
-  signal_params?: string;
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      try { return JSON.parse(value); } catch (e) { return {}; }
+    }
+    return value === null ? undefined : value;
+  })
+  signal_params?: Record<string, any>;
 
   // Stop Loss Configuration
   @IsEnum(['pct', 'lookback_low/high'])
@@ -126,10 +138,10 @@ export class SessionConfig {
   sl_type?: 'pct' | 'lookback_low/high' = "pct";
 
   @IsNumber()
-  @Min(0.1)
-  @Max(10)
+  @Min(CONFIG_LIMITS.SL_DISTANCE_MIN)
+  @Max(CONFIG_LIMITS.SL_DISTANCE_MAX)
   @IsOptional()
-  sl_distance_pct?: number = 0.8;
+  sl_distance_pct?: number = CONFIG_LIMITS.SL_DISTANCE_DEFAULT;
 
   @IsNumber()
   @Min(1)
@@ -161,9 +173,9 @@ export class SessionConfig {
   tp_mode?: 'fixed' | 'exp_rr_seq' = 'fixed';
 
   @IsNumber()
-  @Min(0.1)
+  @Min(CONFIG_LIMITS.TP_RATIO_MIN)
   @IsOptional()
-  tp_ratio?: number = 2.0;
+  tp_ratio?: number = CONFIG_LIMITS.TP_RATIO_DEFAULT;
 
   // Exponential RR Sequence for Profit Locking
   @IsArray()
@@ -182,7 +194,7 @@ export class SessionConfig {
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
-  @ArrayMaxSize(20)
+  @ArrayMaxSize(CONFIG_LIMITS.MAX_SIGNALS)
   exit_signals?: string[] = [];
 
   @IsEnum(['any', 'all'])
@@ -195,15 +207,15 @@ export class SessionConfig {
 
   // Risk Management
   @IsNumber()
-  @Min(0.01)
-  @Max(100)
+  @Min(CONFIG_LIMITS.RISK_PER_TRADE_MIN)
+  @Max(CONFIG_LIMITS.RISK_PER_TRADE_MAX)
   @IsOptional()
-  risk_pct_per_trade?: number = 1.0;
+  risk_pct_per_trade?: number = CONFIG_LIMITS.RISK_PER_TRADE_DEFAULT;
 
   @IsNumber()
-  @Min(1)
+  @Min(CONFIG_LIMITS.MAX_OPEN_TRADES_MIN)
   @IsOptional()
-  max_open_trades?: number = 5;
+  max_open_trades?: number = CONFIG_LIMITS.MAX_OPEN_TRADES_DEFAULT;
 
   @IsNumber()
   @Min(1)
@@ -221,15 +233,43 @@ export class SessionConfig {
   trades_period_min?: number = 60;
 
   @IsNumber()
-  @Min(0.1)
-  @Max(100)
+  @Min(0)
   @IsOptional()
-  max_total_risk_pct?: number = 5.0;
+  max_trades_24h?: number = 50;
 
   @IsNumber()
   @Min(0)
   @IsOptional()
-  total_sl_guard_usdt?: number = 200.0;
+  min_trade_interval_min?: number = 0;
+
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  trades_jitter_pct?: number = 0;
+
+  @IsBoolean()
+  @IsOptional()
+  frequency_shaping_enabled?: boolean = false;
+
+  @IsBoolean()
+  @IsOptional()
+  frequency_tod_integration?: boolean = false;
+
+  @IsNumber()
+  @Min(CONFIG_LIMITS.MAX_TOTAL_RISK_MIN)
+  @Max(CONFIG_LIMITS.MAX_TOTAL_RISK_MAX)
+  @IsOptional()
+  max_total_risk_pct?: number = CONFIG_LIMITS.MAX_TOTAL_RISK_DEFAULT;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  total_sl_guard_usdt?: number = CONFIG_LIMITS.TOTAL_SL_GUARD_DEFAULT;
+
+  @IsBoolean()
+  @IsOptional()
+  auto_scale_min_notional?: boolean = true;
 
   // Balance & Mode Configuration
   @IsBoolean()
@@ -243,12 +283,17 @@ export class SessionConfig {
   @IsNumber()
   @Min(0)
   @IsOptional()
-  paper_starting_balance?: number = 10000.0;
+  paper_starting_balance?: number = CONFIG_LIMITS.PAPER_STARTING_BALANCE_DEFAULT;
 
   @IsNumber()
   @Min(0)
   @IsOptional()
-  live_starting_balance?: number = 10000.0;
+  testnet_starting_balance?: number = 10000.0;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  live_starting_balance?: number = CONFIG_LIMITS.LIVE_STARTING_BALANCE_DEFAULT;
 
   // API & Monitoring
   @IsBoolean()
@@ -258,7 +303,7 @@ export class SessionConfig {
   // Schedule & Advanced Risk
   @IsArray()
   @IsOptional()
-  @ArrayMaxSize(10)
+  @ArrayMaxSize(CONFIG_LIMITS.MAX_TRADING_WINDOWS)
   @IsObject({ each: true })
   trading_windows?: { start: string; end: string }[] = [];
 
@@ -269,4 +314,42 @@ export class SessionConfig {
   @IsNumber()
   @IsOptional()
   tod_min_winrate?: number = 40.0;
+
+  // Performance & Debug
+  @IsNumber()
+  @IsOptional()
+  @Min(CONFIG_LIMITS.HOT_LOOP_MIN)
+  hot_loop_interval_ms?: number = CONFIG_LIMITS.HOT_LOOP_DEFAULT;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(CONFIG_LIMITS.MAIN_LOOP_MIN)
+  main_loop_interval_ms?: number = CONFIG_LIMITS.MAIN_LOOP_DEFAULT;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(CONFIG_LIMITS.LEVERAGE_MIN)
+  @Max(CONFIG_LIMITS.LEVERAGE_MAX)
+  leverage: number = CONFIG_LIMITS.LEVERAGE_DEFAULT;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  slippage_warning_threshold: number = CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0)
+  @Max(CONFIG_LIMITS.SLIPPAGE_ABORT_MAX)
+  slippage_abort_threshold: number = CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT;
+
+  @IsBoolean()
+  @IsOptional()
+  debug_mode?: boolean = false;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(CONFIG_LIMITS.TRAILING_GUARD_MIN)
+  @Max(CONFIG_LIMITS.TRAILING_GUARD_MAX)
+  trailing_guard_buffer_pct?: number = CONFIG_LIMITS.TRAILING_GUARD_DEFAULT;
 }

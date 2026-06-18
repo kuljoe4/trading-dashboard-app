@@ -2,155 +2,382 @@ import { Injectable, Logger } from '@nestjs/common';
 import { SessionConfig } from '../models/SessionConfig';
 import { Trade } from '../models/Trade';
 import { v4 as uuid } from 'uuid';
+import { roundEight } from '../lib/math';
+import { ConfigValidationException } from '../lib/exceptions';
 
 @Injectable()
 export class RiskEngineService {
   private readonly logger = new Logger(RiskEngineService.name);
+
+  // BOLT OPTIMIZATION: Cache for closed trade aggregates to avoid redundant O(N) scans
+  private _closedStatsCache: {
+    key: string;
+    stats: {
+      tradesIn24h: number;
+      tradesInPeriod: number;
+      hourTradesCount: number;
+      wins: number;
+      oldestTradeIn24hTs: number;
+      oldestTradeInPeriodTs: number;
+    }
+  } | null = null;
   
   /**
    * Check if a new trade can be entered based on risk limits
+   * Refactored for rolling windows, randomization, and spacing.
    */
-  async canEnter(
+  canEnter(
     activeTrades: Trade[],
     closedTrades: Trade[],
     balance: number,
     symbol: string,
     config: SessionConfig,
-    totalSlUsed: number
-  ): Promise<{ canEnter: boolean; reason: string }> {
-    // Check global max open trades
+    totalSlUsed: number,
+    enteringCount = 0
+  ): ReturnType<RiskEngineService['checkFrequencyAndPerformanceLimits']> {
+    const now = Date.now();
+
+    // 1. Static Configuration Checks
     const maxOpenTrades = config.max_open_trades ?? 5;
     const maxOpenTradesPerSymbol = config.max_open_trades_per_symbol ?? 1;
     const maxTotalRiskPct = config.max_total_risk_pct ?? 5.0;
     const totalSlGuardUsdt = config.total_sl_guard_usdt ?? 200.0;
 
-    if (activeTrades.length >= maxOpenTrades) {
-      return {
-        canEnter: false,
-        reason: `Global max open trades (${maxOpenTrades}) reached`
-      };
+    // BOLT: Include enteringCount in capacity check to prevent exceeding limits during concurrency
+    if (activeTrades.length + enteringCount >= maxOpenTrades) {
+      return { canEnter: false, reason: `Global max open trades (${maxOpenTrades}) reached (incl. ${enteringCount} pending)` };
     }
 
-    // Check max trades per period (sliding window)
-    const maxTradesPeriod = config.max_trades_per_period ?? 0;
-    const periodMin = config.trades_period_min ?? 60;
-
-    if (maxTradesPeriod > 0) {
-      const now = Date.now();
-      const periodStartMs = now - periodMin * 60 * 1000;
-      let tradesInPeriod = 0;
-
-      // BOLT OPTIMIZATION: Manual loops to avoid array spread and multiple filters
-      for (const t of activeTrades) {
-        if (t.entry_ts && new Date(t.entry_ts).getTime() >= periodStartMs) {
-          tradesInPeriod++;
-        }
-      }
-
-      // If we already reached the limit, exit early
-      if (tradesInPeriod >= maxTradesPeriod) {
-        return {
-          canEnter: false,
-          reason: `Max trades per period (${maxTradesPeriod} per ${periodMin}m) reached`
-        };
-      }
-
-      for (const t of closedTrades) {
-        if (t.entry_ts && new Date(t.entry_ts).getTime() >= periodStartMs) {
-          tradesInPeriod++;
-          if (tradesInPeriod >= maxTradesPeriod) break;
-        }
-      }
-
-      if (tradesInPeriod >= maxTradesPeriod) {
-        return {
-          canEnter: false,
-          reason: `Max trades per period (${maxTradesPeriod} per ${periodMin}m) reached`
-        };
-      }
-    }
-
-    // Check per-symbol max open trades
     const symbolTradeCount = activeTrades.filter(t => t.symbol === symbol).length;
     if (symbolTradeCount >= maxOpenTradesPerSymbol) {
-      return {
-        canEnter: false,
-        reason: `Max open trades for ${symbol} (${maxOpenTradesPerSymbol}) reached`
-      };
+      return { canEnter: false, reason: `Max open trades for ${symbol} (${maxOpenTradesPerSymbol}) reached` };
     }
 
-    // Check total risk percentage
     const totalRiskPct = (totalSlUsed / balance) * 100;
     if (totalRiskPct >= maxTotalRiskPct) {
-      return {
-        canEnter: false,
-        reason: `Total risk ${totalRiskPct.toFixed(2)}% >= max ${maxTotalRiskPct}%`
-      };
+      return { canEnter: false, reason: `Total risk ${totalRiskPct.toFixed(2)}% >= max ${maxTotalRiskPct}%` };
     }
 
-    // Check absolute SL guard in USDT
     if (totalSlUsed >= totalSlGuardUsdt) {
-      return {
-        canEnter: false,
-        reason: `Total SL ${totalSlUsed.toFixed(2)} USDT >= guard ${totalSlGuardUsdt} USDT`
-      };
+      return { canEnter: false, reason: `Total SL ${totalSlUsed.toFixed(2)} USDT >= guard ${totalSlGuardUsdt} USDT` };
     }
 
-    // Check Time-of-Day historical performance
-    if (config.risk_use_tod_stats && closedTrades.length > 5) {
-      const currentHour = new Date().getUTCHours();
-      let hourTradesCount = 0;
-      let wins = 0;
+    // 2. Frequency, Spacing & Performance Check (ULTRA-OPTIMIZED SINGLE PASS)
+    return this.checkFrequencyAndPerformanceLimits(activeTrades, closedTrades, config, now, enteringCount);
+  }
 
-      // BOLT OPTIMIZATION: Single loop to calculate stats without intermediate arrays
-      for (const t of closedTrades) {
-        if (t.exit_ts) {
-          const exitTs = new Date(t.exit_ts);
-          if (exitTs.getUTCHours() === currentHour) {
-            hourTradesCount++;
-            if ((t.pnl || 0) > 0) wins++;
-          }
-        }
+  /**
+   * BOLT OPTIMIZATION: Consolidates Period, 24h, Spacing, and TOD Performance checks into a single O(N) pass.
+   * Avoids spread operators and array allocations to prevent stack overflow on large trade histories.
+   */
+  private checkFrequencyAndPerformanceLimits(
+    activeTrades: Trade[],
+    closedTrades: Trade[],
+    config: SessionConfig,
+    now: number,
+    enteringCount = 0
+  ): {
+    canEnter: boolean;
+    reason: string;
+    isAdaptiveTightened?: boolean;
+    tradesInPeriod?: number;
+    maxTradesPeriod?: number;
+    tradesIn24h?: number;
+    maxTrades24h?: number;
+    mostRecentTradeTs?: number;
+    oldestTradeIn24hTs?: number;
+    oldestTradeInPeriodTs?: number;
+  } {
+    const maxTradesPeriod = config.max_trades_per_period ?? 0;
+    const periodMinBase = config.trades_period_min ?? 60;
+    const maxTrades24h = config.max_trades_24h ?? 50;
+    const shapingEnabled = config.frequency_shaping_enabled ?? false;
+    const minIntervalMsBase = shapingEnabled ? (config.min_trade_interval_min ?? 0) * 60 * 1000 : 0;
+    const jitterPct = shapingEnabled ? (config.trades_jitter_pct ?? 0) : 0;
+    const useTodStats = config.risk_use_tod_stats && closedTrades.length > 5;
+    const currentHour = useTodStats ? new Date().getUTCHours() : -1;
+
+    // BOLT: Determine mostRecentTradeTs first to calculate jitter and period window upfront.
+    // This is O(1) + O(Active) where Active is typically < 10.
+    // BOLT: If trades are currently entering, treat 'now' as the most recent trade TS to enforce spacing.
+    let mostRecentTradeTs = enteringCount > 0 ? now : 0;
+    for (let i = 0; i < activeTrades.length; i++) {
+      const t = activeTrades[i];
+      if (t.is_reconciliation) continue;
+      const entryRaw = t.entry_ts;
+      if (entryRaw) {
+        const ts = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
+        if (ts > mostRecentTradeTs) mostRecentTradeTs = ts;
+      }
+    }
+    // BOLT: Find most recent organic trade in closed trades (ignoring reconciliations)
+    for (let i = 0; i < closedTrades.length; i++) {
+      const t = closedTrades[i];
+      if (t.is_reconciliation) continue;
+      const entryRaw = t.entry_ts;
+      if (entryRaw) {
+        const ts = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
+        if (ts > mostRecentTradeTs) mostRecentTradeTs = ts;
+      }
+      break; // Only need the first (most recent) organic one
+    }
+
+    // Apply stable jitter to the period window to prevent "stampeding"
+    const jitterFactor = jitterPct > 0
+      ? 1 + ((Math.abs(Math.sin(mostRecentTradeTs || 0)) * jitterPct) / 100)
+      : 1;
+
+    const effectivePeriodMs = periodMinBase * 60 * 1000 * jitterFactor;
+    const periodStartMs = now - effectivePeriodMs;
+    const dayAgo = now - (24 * 60 * 60 * 1000);
+
+    let tradesIn24h = enteringCount;
+    let tradesInPeriod = enteringCount;
+    let hourTradesCount = 0;
+    let wins = 0;
+    let oldestTradeInPeriodTs = now;
+    let oldestTradeIn24hTs = now;
+
+    // BOLT: Manual iteration for O(1) memory overhead.
+    // Assuming closedTrades are sorted descending (most recent first).
+    const processTrade = (t: Trade, isClosed: boolean): boolean => {
+      // GATING: Skip reconciliation trades to prevent accidental hibernation loops on boot
+      if (t.is_reconciliation) return true;
+
+      const entryRaw = t.entry_ts;
+      if (!entryRaw) return true;
+      const entryTs = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
+      if (entryTs === 0) return true;
+
+      // BOLT: Optimization - Early exit if trade is older than 24h and we are in the closedTrades list.
+      if (isClosed && entryTs < dayAgo) return false;
+
+      // Track rolling 24h limit
+      if (entryTs >= dayAgo) {
+        tradesIn24h++;
+        if (entryTs < oldestTradeIn24hTs) oldestTradeIn24hTs = entryTs;
       }
 
-      if (hourTradesCount >= 3) {
-        const winRate = (wins / hourTradesCount) * 100;
-        const minWinRate = config.tod_min_winrate ?? 40.0;
+      // Track rolling period limit
+      if (entryTs >= periodStartMs) {
+        tradesInPeriod++;
+        if (entryTs < oldestTradeInPeriodTs) oldestTradeInPeriodTs = entryTs;
+      }
 
-        if (winRate < minWinRate) {
+      // Track Time-of-Day stats
+      const exitRaw = t.exit_ts;
+      if (useTodStats && exitRaw) {
+        const exitTs = exitRaw instanceof Date ? exitRaw : new Date(exitRaw);
+        if (exitTs.getUTCHours() === currentHour) {
+          hourTradesCount++;
+          if ((t.pnl || 0) > 0) wins++;
+        }
+      }
+      return true;
+    };
+
+    for (let i = 0; i < activeTrades.length; i++) {
+      processTrade(activeTrades[i], false);
+    }
+
+    // BOLT OPTIMIZATION: Use cached closed trade stats if available for the current window
+    const cacheKey = `${closedTrades.length}_${closedTrades[0]?.id || 'none'}_${currentHour}_${Math.floor(dayAgo / 1000)}_${Math.floor(periodStartMs / 1000)}`;
+
+    if (this._closedStatsCache && this._closedStatsCache.key === cacheKey) {
+      const s = this._closedStatsCache.stats;
+      tradesIn24h += s.tradesIn24h;
+      tradesInPeriod += s.tradesInPeriod;
+      hourTradesCount += s.hourTradesCount;
+      wins += s.wins;
+      if (s.oldestTradeIn24hTs < oldestTradeIn24hTs) oldestTradeIn24hTs = s.oldestTradeIn24hTs;
+      if (s.oldestTradeInPeriodTs < oldestTradeInPeriodTs) oldestTradeInPeriodTs = s.oldestTradeInPeriodTs;
+    } else {
+      // Cache Miss: Perform O(N) scan over closed trades
+      const closedBase = {
+        tradesIn24h: 0,
+        tradesInPeriod: 0,
+        hourTradesCount: 0,
+        wins: 0,
+        oldestTradeIn24hTs: now,
+        oldestTradeInPeriodTs: now,
+      };
+
+      // Create a temporary processing function for closed trades to populate closedBase
+      const processClosed = (t: Trade): boolean => {
+        // GATING: Skip reconciliation trades to prevent accidental hibernation loops on boot
+        if (t.is_reconciliation) return true;
+
+        const entryRaw = t.entry_ts;
+        if (!entryRaw) return true;
+        const entryTs = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
+        if (entryTs === 0) return true;
+        if (entryTs < dayAgo) return false;
+
+        if (entryTs >= dayAgo) {
+          closedBase.tradesIn24h++;
+          if (entryTs < closedBase.oldestTradeIn24hTs) closedBase.oldestTradeIn24hTs = entryTs;
+        }
+        if (entryTs >= periodStartMs) {
+          closedBase.tradesInPeriod++;
+          if (entryTs < closedBase.oldestTradeInPeriodTs) closedBase.oldestTradeInPeriodTs = entryTs;
+        }
+        const exitRaw = t.exit_ts;
+        if (useTodStats && exitRaw) {
+          const exitTs = exitRaw instanceof Date ? exitRaw : new Date(exitRaw);
+          if (exitTs.getUTCHours() === currentHour) {
+            closedBase.hourTradesCount++;
+            if ((t.pnl || 0) > 0) closedBase.wins++;
+          }
+        }
+        return true;
+      };
+
+      for (let i = 0; i < closedTrades.length; i++) {
+        if (!processClosed(closedTrades[i])) break;
+      }
+
+      // Update Cache
+      this._closedStatsCache = { key: cacheKey, stats: closedBase };
+
+      // Add closedBase to running totals
+      tradesIn24h += closedBase.tradesIn24h;
+      tradesInPeriod += closedBase.tradesInPeriod;
+      hourTradesCount += closedBase.hourTradesCount;
+      wins += closedBase.wins;
+      if (closedBase.oldestTradeIn24hTs < oldestTradeIn24hTs) oldestTradeIn24hTs = closedBase.oldestTradeIn24hTs;
+      if (closedBase.oldestTradeInPeriodTs < oldestTradeInPeriodTs) oldestTradeInPeriodTs = closedBase.oldestTradeInPeriodTs;
+    }
+
+    // 4. TOD Performance Check (Pre-calculated for Adaptive Spacing)
+    let adaptiveMultiplier = 1.0;
+    let isAdaptiveTightened = false;
+    if (useTodStats && hourTradesCount >= 3) {
+      const winRate = (wins / hourTradesCount) * 100;
+      const minWinRate = config.tod_min_winrate ?? 40.0;
+      if (winRate < minWinRate) {
+        if (config.frequency_tod_integration && shapingEnabled) {
+          adaptiveMultiplier = 2.0; // Double the interval, half the period limit
+          isAdaptiveTightened = true;
+        } else {
           return {
             canEnter: false,
-            reason: `Historical performance for hour ${currentHour} is low (${winRate.toFixed(1)}% WR)`
+            reason: `Historical performance for hour ${currentHour} is low (${winRate.toFixed(1)}% WR)`,
+            isAdaptiveTightened,
+            tradesInPeriod,
+            maxTradesPeriod: Math.max(1, Math.floor(maxTradesPeriod * (isAdaptiveTightened ? 0.5 : 1.0))),
+            tradesIn24h,
+            maxTrades24h,
+            mostRecentTradeTs,
+            oldestTradeIn24hTs,
+            oldestTradeInPeriodTs
           };
         }
       }
     }
 
-    return { canEnter: true, reason: 'OK' };
+    // 1. Min Interval Spacing Check
+    const effectiveMinIntervalMs = minIntervalMsBase * adaptiveMultiplier;
+    const effectiveMaxTradesPeriod = isAdaptiveTightened
+      ? Math.max(1, Math.floor(maxTradesPeriod * 0.5))
+      : maxTradesPeriod;
+
+    if (effectiveMinIntervalMs > 0 && mostRecentTradeTs > 0) {
+      const elapsed = now - mostRecentTradeTs;
+      if (elapsed < effectiveMinIntervalMs) {
+        const waitMin = Math.ceil((effectiveMinIntervalMs - elapsed) / 60000);
+        const adaptiveNote = isAdaptiveTightened ? ' (Adaptive TOD Tightening)' : '';
+        return {
+          canEnter: false,
+          reason: `Trade spacing active${adaptiveNote}. Wait ~${waitMin}m before next entry.`,
+          isAdaptiveTightened,
+          tradesInPeriod,
+          maxTradesPeriod: effectiveMaxTradesPeriod,
+          tradesIn24h,
+          maxTrades24h,
+          mostRecentTradeTs,
+          oldestTradeIn24hTs,
+          oldestTradeInPeriodTs
+        };
+      }
+    }
+
+    // 2. Rolling Period Limit (with Jitter and Adaptive Scaling)
+    if (effectiveMaxTradesPeriod > 0 && tradesInPeriod >= effectiveMaxTradesPeriod) {
+      const nextSlotMs = oldestTradeInPeriodTs + effectivePeriodMs - now;
+      const nextSlotMin = Math.ceil(nextSlotMs / 60000);
+      const adaptiveNote = isAdaptiveTightened ? ' (Adaptive TOD Tightening)' : '';
+      return {
+        canEnter: false,
+        reason: `Max trades per period reached (${maxTradesPeriod}/${Math.round(effectivePeriodMs / 60000)}m)${adaptiveNote}. Next slot in ~${nextSlotMin}m.`,
+        isAdaptiveTightened,
+        tradesInPeriod,
+        maxTradesPeriod: effectiveMaxTradesPeriod,
+        tradesIn24h,
+        maxTrades24h,
+        mostRecentTradeTs,
+        oldestTradeIn24hTs,
+        oldestTradeInPeriodTs
+      };
+    }
+
+    // 3. Rolling 24h Limit
+    if (maxTrades24h > 0 && tradesIn24h >= maxTrades24h) {
+      const nextSlotMs = oldestTradeIn24hTs + (24 * 60 * 60 * 1000) - now;
+      const nextSlotHours = (nextSlotMs / (60 * 60 * 1000)).toFixed(1);
+      return {
+        canEnter: false,
+        reason: `Rolling 24h limit reached (${tradesIn24h}/${maxTrades24h}). Next slot in ~${nextSlotHours}h.`,
+        isAdaptiveTightened,
+        tradesInPeriod,
+        maxTradesPeriod: effectiveMaxTradesPeriod,
+        tradesIn24h,
+        maxTrades24h,
+        mostRecentTradeTs,
+        oldestTradeIn24hTs,
+        oldestTradeInPeriodTs
+      };
+    }
+
+    return {
+      canEnter: true,
+      reason: 'OK',
+      isAdaptiveTightened,
+      tradesInPeriod,
+      maxTradesPeriod: effectiveMaxTradesPeriod,
+      tradesIn24h,
+      maxTrades24h,
+      mostRecentTradeTs,
+      oldestTradeIn24hTs,
+      oldestTradeInPeriodTs
+    };
   }
 
   /**
    * Calculate stop loss price based on SL type configuration
    * BOLT OPTIMIZATION: Accept scalar min/max extremes instead of arrays to reduce memory churn.
    */
-  async computeSl(
+  computeSl(
     entryPrice: number,
     direction: 'LONG' | 'SHORT',
     config: SessionConfig,
     minLow?: number,
-    maxHigh?: number
-  ): Promise<number> {
+    maxHigh?: number,
+    symbol?: string
+  ): number {
     if (config.sl_type === 'pct') {
       // Simple percentage-based SL
       const distance = entryPrice * ((config.sl_distance_pct ?? 0.8) / 100);
-      return direction === 'LONG' ? entryPrice - distance : entryPrice + distance;
+      const sl = direction === 'LONG' ? entryPrice - distance : entryPrice + distance;
+      this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Pct SL: ${sl.toFixed(5)} (dist: ${config.sl_distance_pct}%)`);
+      return sl;
     }
 
     // SL based on lookback period extremes
     if (config.sl_type === 'lookback_low/high') {
-      if (minLow === undefined || maxHigh === undefined || minLow === Infinity || maxHigh === -Infinity) {
+      if (minLow === undefined || maxHigh === undefined || minLow === 0 || maxHigh === 0 || minLow === Infinity || maxHigh === -Infinity) {
         // Fallback to percentage if lookback data not available
-        return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' });
+        this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} Lookback extremes unavailable (minLow: ${minLow}, maxHigh: ${maxHigh}). Falling back to Pct SL.`);
+        return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' }, undefined, undefined, symbol);
       }
 
       const minPct = config.sl_min_pct ?? 0.3;
@@ -158,32 +385,43 @@ export class RiskEngineService {
       const minDistance = entryPrice * (minPct / 100);
       const maxDistance = entryPrice * (maxPct / 100);
 
+      let structuralSl: number;
+      let rawDistance: number;
+
       if (direction === 'LONG') {
-        const structuralSl = minLow;
-        const rawDistance = Math.abs(entryPrice - structuralSl);
-        const clampedDistance = Math.min(Math.max(rawDistance, minDistance), maxDistance);
-        return entryPrice - clampedDistance;
+        structuralSl = minLow;
+        rawDistance = Math.abs(entryPrice - structuralSl);
+      } else {
+        structuralSl = maxHigh;
+        rawDistance = Math.abs(structuralSl - entryPrice);
       }
 
-      const structuralSl = maxHigh;
-      const rawDistance = Math.abs(structuralSl - entryPrice);
       const clampedDistance = Math.min(Math.max(rawDistance, minDistance), maxDistance);
-      return entryPrice + clampedDistance;
+      const finalSl = direction === 'LONG' ? entryPrice - clampedDistance : entryPrice + clampedDistance;
+
+      this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Lookback SL Journey:
+        Entry: ${entryPrice}
+        Extreme (${direction === 'LONG' ? 'Low' : 'High'}): ${structuralSl}
+        Raw Dist: ${rawDistance.toFixed(5)} (${((rawDistance / entryPrice) * 100).toFixed(2)}%)
+        Clamped Dist: ${clampedDistance.toFixed(5)} (${((clampedDistance / entryPrice) * 100).toFixed(2)}%) [Min: ${minPct}%, Max: ${maxPct}%]
+        Final SL: ${finalSl.toFixed(5)}`);
+
+      return finalSl;
     }
 
-    throw new Error(`Unknown sl_type: ${config.sl_type}`);
+    throw new ConfigValidationException(`Unknown sl_type: ${config.sl_type}`);
   }
 
   /**
    * Calculate position size (quantity) based on risk parameters
    */
-  async computePositionSize(
+  computePositionSize(
     balance: number,
     entryPrice: number,
     slPrice: number,
     direction: 'LONG' | 'SHORT',
     config: SessionConfig
-  ): Promise<number> {
+  ): number {
     if (balance <= 0 || entryPrice <= 0) return 0;
 
     const riskAmount = balance * ((config.risk_pct_per_trade ?? 1.0) / 100);
@@ -193,19 +431,38 @@ export class RiskEngineService {
 
     // qty = risk_amount / (sl_distance)
     // For futures, adjust based on entry_price as well
-    const qty = riskAmount / slDistance;
+    let qty = roundEight(riskAmount / slDistance);
+
+    // PERFORMANCE: Implement dynamic notional scaling floor.
+    // Binance absolute minimum for Futures is 5 USDT. We use 5.01 for a safety buffer.
+    const autoScale = config.auto_scale_min_notional ?? true;
+    const MIN_NOTIONAL = 5.0;
+    const MIN_NOTIONAL_SCALED = 5.01;
+
+    let currentNotional = qty * entryPrice;
+
+    if (autoScale) {
+      if (currentNotional < MIN_NOTIONAL_SCALED) {
+         this.logger.debug(`[RiskEngine] Scaled qty up to meet MIN_NOTIONAL (${currentNotional.toFixed(2)} -> ${MIN_NOTIONAL_SCALED})`);
+         qty = roundEight(MIN_NOTIONAL_SCALED / entryPrice);
+      }
+    } else if (currentNotional < MIN_NOTIONAL) {
+       this.logger.warn(`[RiskEngine] Trade setup discarded: notional ${currentNotional.toFixed(2)} is below minimum ${MIN_NOTIONAL} USDT.`);
+       return 0;
+    }
+
     return qty;
   }
 
   /**
    * Calculate initial Take Profit price based on exit RR sequence
    */
-  async computeTp(
+  computeTp(
     entryPrice: number,
     slPrice: number,
     direction: 'LONG' | 'SHORT',
     config: SessionConfig,
-  ): Promise<number | null> {
+  ): number | null {
     if (config.tp_mode === 'exp_rr_seq') {
       return null;
     }

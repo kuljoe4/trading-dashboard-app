@@ -11,7 +11,8 @@ const POWERS_OF_10 = [1, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10];
  * Replaced string-based exponential rounding with O(1) math ops.
  * Approximately 40x faster than previous implementation.
  */
-export function roundEight(value: number): number {
+export function roundEight(value: number | undefined | null): number {
+  if (value === undefined || value === null || value === 0 || !Number.isFinite(value)) return 0;
   // Industry Standard: Use toFixed to eliminate floating-point noise (.0000000000002)
   return parseFloat(value.toFixed(8));
 }

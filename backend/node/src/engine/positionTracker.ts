@@ -331,7 +331,8 @@ export class PositionTrackerService {
     this.rrSequenceIndex.delete(symbol);
     this._activeListCache = null;
 
-    const msg = `Trade closed: ${symbol} Exit=${exitPrice} P&L=${result.trade.pnl.toFixed(2)} (${(result.trade.pnl_pct ?? 0).toFixed(2)}%) Reason=${exitReason}`;
+    const finalizedExitPrice = result.trade.exit_price || exitPrice;
+    const msg = `Trade closed: ${symbol} Exit=${finalizedExitPrice} P&L=${result.trade.pnl.toFixed(2)} (${(result.trade.pnl_pct ?? 0).toFixed(2)}%) Reason=${exitReason}`;
     this.logger.log(msg);
     this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
 

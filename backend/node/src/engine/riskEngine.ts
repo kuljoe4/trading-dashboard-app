@@ -102,18 +102,24 @@ export class RiskEngineService {
     // BOLT: If trades are currently entering, treat 'now' as the most recent trade TS to enforce spacing.
     let mostRecentTradeTs = enteringCount > 0 ? now : 0;
     for (let i = 0; i < activeTrades.length; i++) {
-      const entryRaw = activeTrades[i].entry_ts;
+      const t = activeTrades[i];
+      if (t.is_reconciliation) continue;
+      const entryRaw = t.entry_ts;
       if (entryRaw) {
         const ts = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
         if (ts > mostRecentTradeTs) mostRecentTradeTs = ts;
       }
     }
-    if (closedTrades.length > 0) {
-      const entryRaw = closedTrades[0].entry_ts;
+    // BOLT: Find most recent organic trade in closed trades (ignoring reconciliations)
+    for (let i = 0; i < closedTrades.length; i++) {
+      const t = closedTrades[i];
+      if (t.is_reconciliation) continue;
+      const entryRaw = t.entry_ts;
       if (entryRaw) {
         const ts = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
         if (ts > mostRecentTradeTs) mostRecentTradeTs = ts;
       }
+      break; // Only need the first (most recent) organic one
     }
 
     // Apply stable jitter to the period window to prevent "stampeding"

@@ -42,7 +42,7 @@ export class AnalyticsService {
     // BOLT OPTIMIZATION: Combine multiple iterations into a single-pass loop
     // 1. Initial filter and sort (necessary for equity curve)
     const sortedTrades = [...trades]
-      .filter(t => t.status !== 'OPEN' && t.exit_ts)
+      .filter(t => t.status !== 'OPEN' && t.exit_ts && !t.is_reconciliation)
       .sort((a, b) => a.exit_ts!.getTime() - b.exit_ts!.getTime());
 
     const totalTrades = sortedTrades.length;

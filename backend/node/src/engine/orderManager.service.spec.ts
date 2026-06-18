@@ -13,7 +13,14 @@ describe('OrderManagerService', () => {
     };
     service = new OrderManagerService(
       mockSignalEngine,
-      { getSymbolFilters: (symbol: string) => ({ filters: [] }) } as any,
+      {
+        getSymbolFilters: (symbol: string) => ({
+          filters: [
+            { filterType: 'PRICE_FILTER', tickSize: '1' },
+            { filterType: 'LOT_SIZE', stepSize: '0.001' }
+          ]
+        })
+      } as any,
       { getTicker: jest.fn(), getPrice: jest.fn() } as any, // tickerCache
       { incrementApiRequests: jest.fn() } as any, // monitoringService
       {
@@ -159,7 +166,7 @@ describe('OrderManagerService', () => {
           symbol: 'BTCUSDT',
           side: 'BUY',
           type: 'MARKET',
-          quantity: '0.10000000'
+          quantity: '0.100'
         })
       );
 
@@ -169,7 +176,7 @@ describe('OrderManagerService', () => {
           side: 'SELL',
           algoType: 'CONDITIONAL',
           type: 'STOP_MARKET',
-          triggerPrice: '49500.00000000',
+          triggerPrice: '49500',
           workingType: 'MARK_PRICE',
           reduceOnly: true
         })
@@ -242,7 +249,7 @@ describe('OrderManagerService', () => {
         expect.objectContaining({
           algoType: 'CONDITIONAL',
           type: 'STOP_MARKET',
-          triggerPrice: '50500.00000000',
+          triggerPrice: '50500',
           workingType: 'MARK_PRICE',
           reduceOnly: true
         })

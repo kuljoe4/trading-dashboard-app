@@ -1,5 +1,6 @@
 import { Controller, Post, Get, Body, Patch, Delete, Param, ParseUUIDPipe, Query, BadRequestException, UseGuards, Req } from '@nestjs/common';
 import { Request } from 'express';
+import { plainToInstance } from 'class-transformer';
 import { SessionService } from './session.service';
 import { ApiKeyGuard } from '../lib/api-key.guard';
 import { SessionConfig } from '../models/SessionConfig';
@@ -20,9 +21,7 @@ export class SessionController {
     if (body.sessionId) {
       return this.sessionService.startSession(body.config || {} as any, body.paper_mode ?? true, body.sessionId, clientIp, userAgent);
     }
-    const config = Object.assign(new SessionConfig(), body.config);
-    
-    
+    const config = plainToInstance(SessionConfig, body.config || {});
     return this.sessionService.startSession(config, body.paper_mode ?? true, undefined, clientIp, userAgent);
   }
 

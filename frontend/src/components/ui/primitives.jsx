@@ -401,53 +401,7 @@ export const PnLBars = React.memo(({ trades }) => {
   );
 })
 
-// --- Tooltip ---
-export const Tooltip = ({ children, content, side = "top", align = "center", className }) => {
-  if (!content) return children;
-
-  const id = React.useId();
-  const { activeTooltipId, setActiveTooltipId } = useTooltipContext();
-
-  const open = activeTooltipId === id;
-  const setOpen = (isOpen) => {
-    if (isOpen) setActiveTooltipId(id);
-    else if (open) setActiveTooltipId(null);
-  };
-
-  return (
-    <TooltipPrimitive.Root
-      open={open}
-      onOpenChange={setOpen}
-    >
-      <TooltipPrimitive.Trigger
-        asChild
-        onClick={(e) => {
-          // On mobile/touch devices, toggle on click/tap
-          if (window.matchMedia('(pointer: coarse)').matches || window.matchMedia('(max-width: 768px)').matches) {
-            e.stopPropagation();
-            setOpen(!open);
-          }
-        }}
-      >
-        {children}
-      </TooltipPrimitive.Trigger>
-      <TooltipPrimitive.Portal>
-        <TooltipPrimitive.Content
-          side={side}
-          align={align}
-          sideOffset={8}
-          className={cn(
-            "z-[100] max-w-[calc(100vw-32px)] md:max-w-md overflow-hidden rounded-xl bg-surface border border-border/80 p-5 text-[12px] font-medium text-text shadow-2xl animate-in fade-in zoom-in-95 duration-200 whitespace-normal break-words",
-            className
-          )}
-        >
-          {content}
-          <TooltipPrimitive.Arrow className="fill-border" />
-        </TooltipPrimitive.Content>
-      </TooltipPrimitive.Portal>
-    </TooltipPrimitive.Root>
-  );
-};
+export { Tooltip } from './tooltip'
 
 export const VisuallyHidden = ({ children }) => (
   <span className="absolute w-[1px] h-[1px] p-0 -m-[1px] overflow-hidden whitespace-nowrap border-0 clip-[rect(0,0,0,0)]">

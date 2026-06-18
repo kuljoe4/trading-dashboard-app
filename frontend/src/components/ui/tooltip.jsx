@@ -29,24 +29,48 @@ export const TooltipProvider = ({ children, ...props }) => {
   )
 }
 
-export const Tooltip = ({ onOpenChange, ...props }) => {
-  const id = React.useId()
-  const { setActiveTooltipId } = useTooltipContext()
+export const Tooltip = ({ children, content, side = "top", align = "center", className, onOpenChange, ...props }) => {
+  if (!content) return children;
+
+  const id = React.useId();
+  const { activeTooltipId, setActiveTooltipId } = useTooltipContext();
+
+  const open = activeTooltipId === id;
+  const setOpen = (isOpen) => {
+    if (isOpen) setActiveTooltipId(id);
+    else if (open) setActiveTooltipId(null);
+    onOpenChange?.(isOpen);
+  };
 
   return (
     <TooltipPrimitive.Root
-      onOpenChange={(open) => {
-        if (open) setActiveTooltipId(id)
-        else setActiveTooltipId(null)
-        onOpenChange?.(open)
-      }}
+      open={open}
+      onOpenChange={setOpen}
       {...props}
-    />
-  )
-}
+    >
+      <TooltipPrimitive.Trigger
+        asChild
+        onClick={(e) => {
+          // On mobile/touch devices, toggle on click/tap
+          if (window.matchMedia('(pointer: coarse)').matches || window.matchMedia('(max-width: 768px)').matches) {
+            e.stopPropagation();
+            setOpen(!open);
+          }
+        }}
+      >
+        {children}
+      </TooltipPrimitive.Trigger>
+      <TooltipContent side={side} align={align} className={className}>
+        {content}
+        <TooltipPrimitive.Arrow className="fill-border/50" />
+      </TooltipContent>
+    </TooltipPrimitive.Root>
+  );
+};
+
 export const TooltipTrigger = TooltipPrimitive.Trigger
 
-export const TooltipContent = React.forwardRef(({ className, sideOffset = 4, ...props }, ref) => (
+export const TooltipContent = React.forwardRef(({ className, sideOffset = 8, ...props }, ref) => (
   <TooltipPrimitive.Portal>
     <TooltipPrimitive.Content
       ref={ref}

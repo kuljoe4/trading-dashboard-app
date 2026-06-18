@@ -8,6 +8,19 @@ import { ConfigValidationException } from '../lib/exceptions';
 @Injectable()
 export class RiskEngineService {
   private readonly logger = new Logger(RiskEngineService.name);
+
+  // BOLT OPTIMIZATION: Cache for closed trade aggregates to avoid redundant O(N) scans
+  private _closedStatsCache: {
+    key: string;
+    stats: {
+      tradesIn24h: number;
+      tradesInPeriod: number;
+      hourTradesCount: number;
+      wins: number;
+      oldestTradeIn24hTs: number;
+      oldestTradeInPeriodTs: number;
+    }
+  } | null = null;
   
   /**
    * Check if a new trade can be entered based on risk limits
@@ -21,7 +34,7 @@ export class RiskEngineService {
     config: SessionConfig,
     totalSlUsed: number,
     enteringCount = 0
-  ): { canEnter: boolean; reason: string; isAdaptiveTightened?: boolean } {
+  ): ReturnType<RiskEngineService['checkFrequencyAndPerformanceLimits']> {
     const now = Date.now();
 
     // 1. Static Configuration Checks
@@ -157,8 +170,70 @@ export class RiskEngineService {
     for (let i = 0; i < activeTrades.length; i++) {
       processTrade(activeTrades[i], false);
     }
-    for (let i = 0; i < closedTrades.length; i++) {
-      if (!processTrade(closedTrades[i], true)) break;
+
+    // BOLT OPTIMIZATION: Use cached closed trade stats if available for the current window
+    const cacheKey = `${closedTrades.length}_${closedTrades[0]?.id || 'none'}_${currentHour}_${Math.floor(dayAgo / 1000)}_${Math.floor(periodStartMs / 1000)}`;
+
+    if (this._closedStatsCache && this._closedStatsCache.key === cacheKey) {
+      const s = this._closedStatsCache.stats;
+      tradesIn24h += s.tradesIn24h;
+      tradesInPeriod += s.tradesInPeriod;
+      hourTradesCount += s.hourTradesCount;
+      wins += s.wins;
+      if (s.oldestTradeIn24hTs < oldestTradeIn24hTs) oldestTradeIn24hTs = s.oldestTradeIn24hTs;
+      if (s.oldestTradeInPeriodTs < oldestTradeInPeriodTs) oldestTradeInPeriodTs = s.oldestTradeInPeriodTs;
+    } else {
+      // Cache Miss: Perform O(N) scan over closed trades
+      const closedBase = {
+        tradesIn24h: 0,
+        tradesInPeriod: 0,
+        hourTradesCount: 0,
+        wins: 0,
+        oldestTradeIn24hTs: now,
+        oldestTradeInPeriodTs: now,
+      };
+
+      // Create a temporary processing function for closed trades to populate closedBase
+      const processClosed = (t: Trade): boolean => {
+        const entryRaw = t.entry_ts;
+        if (!entryRaw) return true;
+        const entryTs = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
+        if (entryTs === 0) return true;
+        if (entryTs < dayAgo) return false;
+
+        if (entryTs >= dayAgo) {
+          closedBase.tradesIn24h++;
+          if (entryTs < closedBase.oldestTradeIn24hTs) closedBase.oldestTradeIn24hTs = entryTs;
+        }
+        if (entryTs >= periodStartMs) {
+          closedBase.tradesInPeriod++;
+          if (entryTs < closedBase.oldestTradeInPeriodTs) closedBase.oldestTradeInPeriodTs = entryTs;
+        }
+        const exitRaw = t.exit_ts;
+        if (useTodStats && exitRaw) {
+          const exitTs = exitRaw instanceof Date ? exitRaw : new Date(exitRaw);
+          if (exitTs.getUTCHours() === currentHour) {
+            closedBase.hourTradesCount++;
+            if ((t.pnl || 0) > 0) closedBase.wins++;
+          }
+        }
+        return true;
+      };
+
+      for (let i = 0; i < closedTrades.length; i++) {
+        if (!processClosed(closedTrades[i])) break;
+      }
+
+      // Update Cache
+      this._closedStatsCache = { key: cacheKey, stats: closedBase };
+
+      // Add closedBase to running totals
+      tradesIn24h += closedBase.tradesIn24h;
+      tradesInPeriod += closedBase.tradesInPeriod;
+      hourTradesCount += closedBase.hourTradesCount;
+      wins += closedBase.wins;
+      if (closedBase.oldestTradeIn24hTs < oldestTradeIn24hTs) oldestTradeIn24hTs = closedBase.oldestTradeIn24hTs;
+      if (closedBase.oldestTradeInPeriodTs < oldestTradeInPeriodTs) oldestTradeInPeriodTs = closedBase.oldestTradeInPeriodTs;
     }
 
     // 4. TOD Performance Check (Pre-calculated for Adaptive Spacing)

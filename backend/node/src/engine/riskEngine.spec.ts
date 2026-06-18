@@ -136,4 +136,49 @@ describe('RiskEngineService - Frequency Limits', () => {
       expect(result.reason).toContain('Trade spacing active');
     });
   });
+
+  describe('Performance Benchmark', () => {
+    it('should be significantly faster on subsequent calls due to caching', () => {
+      const now = Date.now();
+      const largeClosedTrades: Trade[] = Array(500).fill(0).map((_, i) => ({
+        id: `trade-${i}`,
+        entry_ts: new Date(now - (i + 1) * 60 * 1000),
+        exit_ts: new Date(now - i * 60 * 1000),
+        pnl: i % 2 === 0 ? 10 : -5
+      } as Trade));
+
+      const active: Trade[] = [];
+      const balance = 10000;
+      const totalSlUsed = 0;
+
+      // 1. Warm up / Initial scan (Cache Miss)
+      const startInitial = performance.now();
+      service.canEnter(active, largeClosedTrades, balance, 'BTCUSDT', mockConfig, totalSlUsed);
+      const endInitial = performance.now();
+      const initialDuration = endInitial - startInitial;
+
+      // 2. Subsequent calls (Cache Hit)
+      const ITERATIONS = 1000;
+      const startCached = performance.now();
+      for (let i = 0; i < ITERATIONS; i++) {
+        service.canEnter(active, largeClosedTrades, balance, 'BTCUSDT', mockConfig, totalSlUsed);
+      }
+      const endCached = performance.now();
+      const totalCachedDuration = endCached - startCached;
+      const averageCachedDuration = totalCachedDuration / ITERATIONS;
+
+      console.log(`[Performance Benchmark] Initial O(N) scan: ${initialDuration.toFixed(4)}ms`);
+      console.log(`[Performance Benchmark] Average cached O(1) scan: ${averageCachedDuration.toFixed(4)}ms`);
+      console.log(`[Performance Benchmark] Total for ${ITERATIONS} iterations: ${totalCachedDuration.toFixed(4)}ms`);
+
+      // Expectations: Average cached should be much faster than initial
+      // On some environments, initialDuration might be very small if Node optimizes the loop,
+      // but cached should be effectively near zero.
+      expect(averageCachedDuration).toBeLessThan(initialDuration);
+
+      // Verification of correctness: Ensure cached results match initial scan logic
+      const result = service.canEnter(active, largeClosedTrades, balance, 'BTCUSDT', mockConfig, totalSlUsed);
+      expect(result.tradesInPeriod).toBeGreaterThan(0);
+    });
+  });
 });

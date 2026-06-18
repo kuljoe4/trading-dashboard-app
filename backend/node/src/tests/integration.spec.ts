@@ -37,6 +37,7 @@ describe('Trade Lifecycle Integration', () => {
 
     mockTickerCache = {
       getPrice: jest.fn().mockReturnValue(50000),
+      getTicker: jest.fn().mockReturnValue({ symbol: 'BTCUSDT', price: 50000, volume_24h: 1000000 }),
       bulkUpdate: jest.fn(),
       getCacheSize: jest.fn().mockReturnValue(1),
       clear: jest.fn(),
@@ -64,11 +65,13 @@ describe('Trade Lifecycle Integration', () => {
     mockPositionTracker = {
       activeList: jest.fn().mockReturnValue([]),
       activeCount: jest.fn().mockReturnValue(0),
+      enteringCount: jest.fn().mockReturnValue(0),
       totalRisk: jest.fn().mockReturnValue(0),
       hasSymbol: jest.fn().mockReturnValue(false),
       addTrade: jest.fn(),
       removeTrade: jest.fn(),
       closeTrade: jest.fn(),
+      setEntering: jest.fn(),
       checkRrSequenceAdjustments: jest.fn(),
       checkExitConditions: jest.fn(),
       setTradeUpdateCallback: jest.fn(),
@@ -77,6 +80,7 @@ describe('Trade Lifecycle Integration', () => {
     mockOrderManager = {
       enter: jest.fn(),
       setBinanceClient: jest.fn(),
+      applyFilters: jest.fn().mockImplementation((s, p, q) => ({ price: p, qty: q })),
     };
 
     mockSessionState = {

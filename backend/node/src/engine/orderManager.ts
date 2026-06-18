@@ -863,34 +863,18 @@ export class OrderManagerService {
 
       // BOLT: Handle existing order conflict. If a closePosition order already exists, clear it and retry.
       if (errMsg.includes('existing') && (errMsg.includes('closePosition') || errMsg.includes('GTE'))) {
-         this.logger.warn(`[${trade.symbol}] [Sync] Detection of potential orphan closePosition order. Attempting proactive cleanup...`);
+         this.logger.warn(`[${trade.symbol}] [Sync] Detection of potential orphan closePosition order conflict. Executing aggressive symbol flush...`);
          try {
-            // Check standard open orders
-            const res = await this.binanceClient.restAPI.currentAllOpenOrders({ symbol: trade.symbol });
-            this.updateWeight(res?.headers);
-            const orders = await res.data() as any;
-            let cleanedCount = 0;
+            // Aggressive symbol flush to clear ANY conflicting orders (Standard or Algo)
+            const flushRes = await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol: trade.symbol });
+            this.updateWeight(flushRes?.headers);
 
-            if (Array.isArray(orders)) {
-              for (const o of orders) {
-                // Binance error implies a closePosition order exists. We look for STOP types with closePosition in the SAME direction.
-                if ((o.type === 'STOP_MARKET' || o.type === 'STOP' || o.type === 'TAKE_PROFIT_MARKET') &&
-                    (o.closePosition === true || o.closePosition === 'true') &&
-                    o.side === closeDirection) {
-                  this.logger.log(`Found conflicting orphan SL/TP order ${o.orderId} for ${trade.symbol} (${o.side}). Canceling...`);
-                  await this.cancelBinanceOrder(trade.symbol, String(o.orderId), 'standard');
-                  cleanedCount++;
-                }
-              }
-            }
-
-
-            if (cleanedCount > 0 && attempts < MAX_ATTEMPTS) {
-              this.logger.log(`Cleaned ${cleanedCount} orphan orders for ${trade.symbol}. Retrying SL placement...`);
+            if (attempts < MAX_ATTEMPTS) {
+              this.logger.log(`[${trade.symbol}] [Sync] Aggressive flush complete. Retrying SL placement (Attempt ${attempts + 1})...`);
               continue;
             }
          } catch (cleanupErr) {
-            this.logger.error(`Failed to cleanup orphan SL for ${trade.symbol}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
+            this.logger.error(`Failed to cleanup orphan conflict for ${trade.symbol}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
          }
       } else if ((errMsg.includes('Time in Force') || errMsg.includes('GTE')) && attempts < MAX_ATTEMPTS) {
          this.logger.warn(`Transient SL error for ${trade.symbol}: ${errMsg}. Retrying (Attempt ${attempts + 1}/${MAX_ATTEMPTS})...`);
@@ -1264,36 +1248,47 @@ export class OrderManagerService {
 
       // In live mode, place close order with reduce-only for safety
       if (!paperMode && !localOnly && this.binanceClient && trade.binance_order_id) {
-      // INDUSTRY-BEST-PRACTICE: Critical cleanup-on-close safety net.
-      // Flush ALL open orders for this symbol to prevent orphans.
-      try {
-        this.logger.log(`[${symbol}] [Sync] Finalizing trade closure. Flushing ALL open orders to eliminate potential orphans...`);
-        await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol });
-        trade.binance_stop_order_id = undefined;
-      } catch (flushErr: any) {
-        this.logger.warn(`[${symbol}] [Sync] Cleanup-on-close flush failed: ${flushErr.message}`);
-      }
-
         trade.close_attempts = attempts + 1;
         trade.last_close_attempt_ts = nowTs;
 
         try {
-          // SECURITY: Aggressively clear the order board for this symbol before emergency unwinds.
-          // This prevents orphan SL/TP orders from triggering new unmanaged positions.
-          if (exitReason === 'SL_PLACEMENT_FAILURE' || exitReason === 'SLIPPAGE_ABORT') {
-            this.logger.warn(`[${symbol}] Initiating critical unwind sweep. Clearing ALL open orders...`);
+          // 1. Explicitly cancel the known Stop Loss order first (Algo or Standard)
+          // We wrap this in a non-blocking try-catch to ensure failures don't abort the entire closure.
+          if (trade.binance_stop_order_id) {
             try {
-              // fapi/v1/allOpenOrders cancels ALL open orders for a symbol including Algo orders
+              this.logger.log(`[${symbol}] [Sync] Canceling known SL order ${trade.binance_stop_order_id} (${trade.binance_stop_order_type || 'standard'})...`);
+              const canceled = await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type as any);
+              if (canceled) {
+                this.logger.log(`[${symbol}] [Sync] SL order ${trade.binance_stop_order_id} canceled successfully.`);
+              } else {
+                this.logger.warn(`[${symbol}] [Sync] SL order cancellation returned false. Proceeding with flush.`);
+              }
+            } catch (cancelErr: any) {
+              this.logger.error(`[${symbol}] [Sync] Failed to cancel orphan SL: ${cancelErr.message}`);
+            }
+            trade.binance_stop_order_id = undefined;
+          }
+
+          // 2. Critical cleanup-on-close safety net: Flush ALL remaining open orders for this symbol.
+          // This handles any manual orders, TP orders, or orphaned SLs the engine isn't tracking.
+          try {
+            this.logger.log(`[${symbol}] [Sync] Finalizing trade closure. Flushing ALL remaining open orders to eliminate potential orphans...`);
+            const flushRes = await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol });
+            this.updateWeight(flushRes?.headers);
+            this.logger.log(`[${symbol}] [Sync] Global symbol flush complete.`);
+          } catch (flushErr: any) {
+            this.logger.warn(`[${symbol}] [Sync] Cleanup-on-close flush failed: ${flushErr.message}`);
+          }
+
+          // 3. Handle specific emergency unwinds
+          if (exitReason === 'SL_PLACEMENT_FAILURE' || exitReason === 'SLIPPAGE_ABORT') {
+            this.logger.warn(`[${symbol}] Initiating critical unwind sweep. Ensuring ALL open orders are dead...`);
+            try {
               await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol });
-              this.logger.log(`[${symbol}] Pre-unwind target sweep complete. All active orders killed.`);
-              trade.binance_stop_order_id = undefined;
+              this.logger.log(`[${symbol}] Pre-unwind target sweep complete.`);
             } catch (sweepErr: any) {
               this.logger.error(`[${symbol}] Pre-unwind sweep failed: ${sweepErr.message}`);
             }
-          } else if (trade.binance_stop_order_id) {
-            // Standard close: just cancel the known SL
-            await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type as any);
-            trade.binance_stop_order_id = undefined;
           }
 
           const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';

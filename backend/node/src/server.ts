@@ -144,6 +144,8 @@ async function bootstrap() {
   });
 
   await app.init();
+  // Enable graceful shutdown hooks for NestJS
+  app.enableShutdownHooks();
   const httpServer = app.getHttpServer();
   const sessionService = app.get(SessionService);
   const monitoringService = app.get(MonitoringService);

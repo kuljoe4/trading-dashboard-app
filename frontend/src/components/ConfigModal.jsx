@@ -339,10 +339,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
             </section>
 
             <section className="pt-6 border-t border-border/40">
-               <SectionHeader icon={ShieldCheck} title="Manual Monitors" subtitle="Specific symbols to track" />
-               <div className="flex gap-2"><input type="text" placeholder="BTCUSDT" value={symbolSearch} onChange={(e) => setSymbolSearch(e.target.value.toUpperCase())} className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono focus:border-accent outline-none" /><Btn variant="primary" onClick={() => { if (!symbolSearch) return; setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), { symbol: symbolSearch, enabled: true, follow_schedule: true }]); setSymbolSearch(''); }} className="aspect-square p-0 w-12 h-12 flex items-center justify-center"><Plus size={20} /></Btn></div>
+               <div className="flex justify-between items-center mb-4">
+                 <SectionHeader icon={ShieldCheck} title="Manual Monitors" subtitle="Specific symbols to track" />
+                 {(cfg.single_symbol_configs || []).length > 0 && <button type="button" onClick={() => setField('single_symbol_configs', [])} className="text-[10px] font-black uppercase tracking-widest text-red/60 hover:text-red transition-colors flex items-center gap-1.5"><Trash2 size={12} /> Clear All</button>}
+               </div>
+               <div className="flex gap-2">
+                 <div className="relative flex-1">
+                   <input type="text" placeholder="BTCUSDT" value={symbolSearch} onChange={(e) => setSymbolSearch(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (symbolSearch) { setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), { symbol: symbolSearch, enabled: true, follow_schedule: true }]); setSymbolSearch(''); } } if (e.key === 'Escape') setSymbolSearch(''); }} className="w-full bg-surface border border-border rounded-xl pl-4 pr-10 py-3 text-sm font-mono focus:border-accent outline-none hover:border-border-hover transition-colors" />
+                   {symbolSearch && <button type="button" onClick={() => setSymbolSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear input"><X size={16} /></button>}
+                 </div>
+                 <Btn variant="primary" onClick={() => { if (symbolSearch) { setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), { symbol: symbolSearch, enabled: true, follow_schedule: true }]); setSymbolSearch(''); } }} className="aspect-square p-0 w-12 h-12 flex items-center justify-center"><Plus size={20} /></Btn>
+               </div>
                <div className="flex flex-wrap gap-2 mt-4">
-                 {(cfg.single_symbol_configs || []).map((sc, i) => (
+                 {(cfg.single_symbol_configs || []).length === 0 ? (
+                   <p className="text-[10px] text-dim/40 font-bold uppercase tracking-widest p-4 border border-dashed border-border/40 rounded-xl w-full text-center">No symbols tracked manually</p>
+                 ) : cfg.single_symbol_configs.map((sc, i) => (
                    <Chip key={i} active activeClass="bg-accent/10 border-accent/40 text-accent" aria-label={`Remove ${sc.symbol}`} onClick={() => setField('single_symbol_configs', cfg.single_symbol_configs.filter((_, idx) => idx !== i))}>{sc.symbol} <X size={10} className="inline ml-1" /></Chip>
                  ))}
                </div>

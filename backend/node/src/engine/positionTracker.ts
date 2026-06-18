@@ -149,6 +149,22 @@ export class PositionTrackerService {
         newSl = trade.entry_price - risk * exitRr;
       }
 
+      // Audit Item: Dynamic Trailing Boundary Guard
+      // Prevents "Order would immediately trigger" rejections and instant fills by ensuring
+      // the new SL is not too close to (or beyond) the current market price.
+      const buffer = currentPrice * 0.0003; // 0.03% safety buffer
+      if (trade.direction === 'LONG') {
+        if (newSl >= currentPrice - buffer) {
+          this.logger.warn(`[Trailing Guard] Long SL ${newSl.toFixed(5)} is too close to or above market ${currentPrice.toFixed(5)}. Hard capping boundary.`);
+          newSl = currentPrice - buffer;
+        }
+      } else {
+        if (newSl <= currentPrice + buffer) {
+          this.logger.warn(`[Trailing Guard] Short SL ${newSl.toFixed(5)} is too close to or below market ${currentPrice.toFixed(5)}. Hard capping boundary.`);
+          newSl = currentPrice + buffer;
+        }
+      }
+
       // Only move SL deeper into profit (stricter protection)
       if (trade.direction === 'LONG' && newSl) {
         if (newSl > trade.current_sl) {

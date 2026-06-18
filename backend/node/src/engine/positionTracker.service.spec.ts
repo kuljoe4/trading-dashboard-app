@@ -93,6 +93,197 @@ describe('PositionTrackerService', () => {
       expect(trade.current_sl).toBe(50000); // No change
       expect(mockOrderManager.updateStopLoss).not.toHaveBeenCalled();
     });
+
+    it('caps the SL adjustment if it is too close to the current market price (Trailing Guard)', async () => {
+      const trade = {
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        entry_price: 50000,
+        initial_sl: 49000,
+        current_sl: 49000,
+        status: 'OPEN',
+        max_rr_achieved: 0,
+        sl_adjustments: [],
+      } as unknown as Trade;
+
+      const config = {
+        live_rr_sequence: [1.0],
+        exit_rr_sequence: [0.0], // target BE
+      } as SessionConfig;
+
+      service.addTrade(trade);
+
+      // Price hits 1.1R (51100), but then flash drops to 50005.
+      // Milestone 0 target is 50000 (BE).
+      // Buffer is 50005 * 0.0003 = 15.0015.
+      // Cap should be 50005 - 15.0015 = 49989.9985.
+      // Since 49989.9985 is NOT greater than current_sl (49000) by enough to move, we need a better test case.
+
+      // Let's use a tighter SL or higher target.
+      // Target: 50500. Market: 50510.
+      // Buffer: 50510 * 0.0003 = 15.153.
+      // Cap: 50510 - 15.153 = 50494.847.
+
+      const trade2 = {
+        symbol: 'ETHUSDT',
+        direction: 'LONG',
+        entry_price: 2000,
+        initial_sl: 1900,
+        current_sl: 1900,
+        status: 'OPEN',
+        max_rr_achieved: 0,
+        sl_adjustments: [],
+      } as unknown as Trade;
+
+      const config2 = {
+        live_rr_sequence: [1.0],
+        exit_rr_sequence: [0.5], // target 2050
+      } as SessionConfig;
+
+      service.addTrade(trade2);
+
+      // Market at 2110 (1.1R). Target SL = 2050.
+      // But if market suddenly at 2055.
+      // Buffer = 2055 * 0.0003 = 0.6165.
+      // Cap = 2055 - 0.6165 = 2054.3835.
+
+      // Update max_rr first by calling with high price
+      await service.checkRrSequenceAdjustments('ETHUSDT', 2110, config2);
+      // current_sl should be 2050.
+      expect(trade2.current_sl).toBe(2050);
+
+      // Now milestone 2: target 2080. Market at 2081.
+      const config3 = {
+        live_rr_sequence: [1.0, 1.5],
+        exit_rr_sequence: [0.5, 0.8], // M1: 2050, M2: 2080
+      } as SessionConfig;
+
+      // Reset milestone index to allow re-trigger if needed, but easier to just use new milestone.
+      // M2 (1.5R) = 2000 + 100 * 1.5 = 2150.
+      // If market hits 2150, target SL = 2080.
+      // If market then at 2081.
+      // Buffer = 2081 * 0.0003 = 0.6243.
+      // Cap = 2081 - 0.6243 = 2080.3757.
+      // Wait, 2080 is BELOW 2080.3757, so it's fine.
+
+      // We want newSl (2080) >= currentPrice (2081) - buffer (0.6) -> 2080 >= 2080.4 -> True.
+      // In this case, newSl becomes 2080.3757.
+
+      await service.checkRrSequenceAdjustments('ETHUSDT', 2155, config3); // Hits M2
+      // Market drops to 2081.
+      // Actually checkRrSequenceAdjustments uses currentPrice for both milestone check and buffer.
+      // So if currentPrice is 2081, it won't hit M2 (2150).
+
+      // Correct test:
+      // Long Entry: 2000. Risk: 100.
+      // M1 (1.0R): 2100. Exit RR: 0.9R -> 2090.
+      // Market at 2101.
+      // Buffer: 2101 * 0.0003 = 0.63.
+      // Cap: 2101 - 0.63 = 2100.37.
+      // Since 2090 < 2100.37, no cap.
+
+      // Market at 2100.1
+      // Target: 2099.9 (Exit RR 0.999R)
+      // Buffer: 2100.1 * 0.0003 = 0.63.
+      // Cap: 2100.1 - 0.63 = 2099.47.
+      // Target 2099.9 > 2099.47 -> Capped!
+
+      const trade3 = {
+        symbol: 'SOLUSDT',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90,
+        current_sl: 90,
+        qty: 1,
+        status: 'OPEN',
+        max_rr_achieved: 0,
+        sl_adjustments: [],
+      } as unknown as Trade;
+
+      const config4 = {
+        live_rr_sequence: [1.0],
+        exit_rr_sequence: [0.999], // Target 109.99
+      } as SessionConfig;
+
+      service.addTrade(trade3);
+      await service.checkRrSequenceAdjustments('SOLUSDT', 110.1, config4);
+
+      // currentPrice = 110.1.
+      // Buffer = 110.1 * 0.0003 = 0.03303.
+      // Cap = 110.1 - 0.03303 = 110.06697.
+      // Target newSl = 100 + 10 * 0.999 = 109.99.
+      // 109.99 < 110.06697. NO CAP.
+
+      // Let's use a HUGE buffer or a VERY tight target.
+      // Target 110.08. Market 110.1.
+      // Cap 110.06697.
+      // 110.08 > 110.06697 -> CAPPED to 110.06697.
+
+      const config5 = {
+        live_rr_sequence: [1.0],
+        exit_rr_sequence: [1.008], // Target 110.08
+      } as SessionConfig;
+
+      const trade4 = {
+        symbol: 'ADAUSDT',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90,
+        current_sl: 90,
+        qty: 1,
+        status: 'OPEN',
+        max_rr_achieved: 0,
+        sl_adjustments: [],
+      } as unknown as Trade;
+
+      service.addTrade(trade4);
+      await service.checkRrSequenceAdjustments('ADAUSDT', 110.1, config5);
+
+      expect(trade4.current_sl).toBeCloseTo(110.06697, 5);
+      expect(mockOrderManager.updateStopLoss).toHaveBeenCalledWith(trade4, expect.closeTo(110.06697, 5), 90);
+    });
+
+    it('caps the SHORT SL adjustment if it is too close to the current market price', async () => {
+      const trade = {
+        symbol: 'SHORTY',
+        direction: 'SHORT',
+        entry_price: 100,
+        initial_sl: 110,
+        current_sl: 110,
+        qty: 1,
+        status: 'OPEN',
+        max_rr_achieved: 0,
+        sl_adjustments: [],
+      } as unknown as Trade;
+
+      // Milestone 1: market at 90 (1.0R).
+      // Target SL: entry - risk * 0.9 = 100 - 10 * 0.9 = 91.
+      const config = {
+        live_rr_sequence: [1.0],
+        exit_rr_sequence: [0.9],
+      } as SessionConfig;
+
+      service.addTrade(trade);
+
+      // Market at 89.9. Target 91. Buffer 89.9 * 0.0003 = 0.02697.
+      // Cap = 89.9 + 0.02697 = 89.92697.
+      // 91 > 89.92697, so NO CAP.
+
+      // Target 89.8. Market 89.9.
+      // Buffer 0.02697.
+      // Cap 89.92697.
+      // 89.8 < 89.92697 -> CAPPED to 89.92697.
+
+      const config2 = {
+        live_rr_sequence: [1.0],
+        exit_rr_sequence: [1.02], // Target 100 - 10 * 1.02 = 89.8
+      } as SessionConfig;
+
+      await service.checkRrSequenceAdjustments('SHORTY', 89.9, config2);
+
+      expect(trade.current_sl).toBeCloseTo(89.92697, 5);
+      expect(mockOrderManager.updateStopLoss).toHaveBeenCalledWith(trade, expect.closeTo(89.92697, 5), 110);
+    });
   });
 
   describe('totalRisk', () => {

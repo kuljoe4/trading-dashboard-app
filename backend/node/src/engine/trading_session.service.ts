@@ -713,6 +713,16 @@ export class TradingSessionService implements OnApplicationShutdown {
       this.sessionState.setActiveTrades(this.positionTracker.activeList());
       this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, this.config!);
 
+      // BOLT: Force immediate UI state sync upon trade closure to ensure dashboard reflects real-time exchange state
+      this.engineBroadcaster.broadcastTick(
+        this.positionTracker.activeList(),
+        this.config!,
+        this.getStrategyConfigs(),
+        this.isEcoMode(),
+        () => this.getActiveWindows(),
+        () => this.getBinanceRateLimit()
+      );
+
       const analytics = this.engineBroadcaster.getLastAnalyticsResult();
 
       this.broadcast('trade_event', {

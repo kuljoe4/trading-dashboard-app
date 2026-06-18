@@ -913,34 +913,42 @@ export class OrderManagerService {
     this.ratchetLocks.set(trade.symbol, true);
 
     try {
-      // BEST-PRACTICE: Deterministic client IDs and audit-first flow.
-      // We check for the deterministic ID "sl-[short-id]" before blindly placing a new one.
+      // 1. Explicitly cancel existing tracked SL order if it exists
+      if (trade.binance_stop_order_id) {
+         this.logger.debug(`[SL] Canceling existing tracked SL ${trade.binance_stop_order_id} before replacement.`);
+         await this.cancelBinanceOrder(trade.symbol, trade.binance_stop_order_id, trade.binance_stop_order_type || 'standard');
+         trade.binance_stop_order_id = undefined;
+      }
+
+      // 2. Audit check for any untracked or duplicate deterministic SLs
       const deterministicClientId = `sl-${trade.id.substring(0, 8)}`;
-      let existingOrder: any = null;
+      let exchangeState: any = null;
 
       try {
         const queryRes = await this.binanceClient.restAPI.queryOrder({
           symbol: trade.symbol,
           origClientOrderId: deterministicClientId
         });
-        existingOrder = await queryRes.data();
+        exchangeState = await queryRes.data();
       } catch (e: any) {
         this.logger.debug(`[SL] No existing order with ID ${deterministicClientId} found via query.`);
       }
 
-      if (existingOrder && existingOrder.orderId) {
-        const status = existingOrder.status?.toUpperCase();
+      if (exchangeState && exchangeState.orderId) {
+        const status = exchangeState.status?.toUpperCase();
         if (status === 'NEW' || status === 'PARTIALLY_FILLED') {
-           // Only replace if price is significantly different or if it's a mandatory ratchet
-           const currentExchangeSl = parseFloat(existingOrder.stopPrice || existingOrder.triggerPrice || '0');
+           const currentExchangeSl = parseFloat(exchangeState.stopPrice || exchangeState.triggerPrice || '0');
+
+           // If it already matches our target, we can adopt it instead of replacing
            if (Math.abs(currentExchangeSl - newSlPrice) / newSlPrice < 0.0001) {
-              this.logger.log(`[SL] Existing order ${existingOrder.orderId} matches target price ${newSlPrice}. Skipping redundant update.`);
-              trade.binance_stop_order_id = String(existingOrder.orderId);
+              this.logger.log(`[SL] Adopted existing order ${exchangeState.orderId} matches target price ${newSlPrice}.`);
+              trade.binance_stop_order_id = String(exchangeState.orderId);
+              trade.binance_stop_order_type = exchangeState.algoType ? 'algo' : 'standard';
               return true;
            }
 
-           this.logger.debug(`[SL] Replacing existing order ${existingOrder.orderId} at ${currentExchangeSl} with new price ${newSlPrice}.`);
-           await this.cancelBinanceOrder(trade.symbol, String(existingOrder.orderId), existingOrder.algoType ? 'algo' : 'standard');
+           this.logger.debug(`[SL] Replacing untracked/duplicate SL ${exchangeState.orderId} at ${currentExchangeSl}.`);
+           await this.cancelBinanceOrder(trade.symbol, String(exchangeState.orderId), exchangeState.algoType ? 'algo' : 'standard');
         }
       }
 

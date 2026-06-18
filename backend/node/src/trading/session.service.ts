@@ -531,12 +531,24 @@ export class SessionService implements OnModuleInit {
       // Check if trade exists on exchange for live/testnet
       if (mode !== 'paper' && binanceClient) {
         try {
-          const res = await (binanceClient.restAPI as any).tradeApi.currentAllOpenOrders({ symbol: trade.symbol });
-          const orders = typeof res.data === 'function' ? await res.data() : (res.data || res);
+          // Fix: SDK v31.0.0 methods are directly on restAPI
+          const res = await binanceClient.restAPI.currentAllOpenOrders({ symbol: trade.symbol });
+          const orders = await res.data();
           const hasOrder = Array.isArray(orders) && orders.some(o => (o as any).orderId == trade.binance_order_id || (o as any).orderId == trade.binance_stop_order_id);
           if (!hasOrder) {
             this.logger.log(`Trade ${trade.symbol} not found on exchange. Marking as closed (orphaned).`);
             await this.logMessage(`Live position for ${trade.symbol} was not found on exchange during reconciliation. Marking as orphaned.`, 'warn');
+
+            // SECURITY: Cleanup any potential orphaned SL orders for this trade specifically
+            if (trade.binance_stop_order_id) {
+              try {
+                this.logger.log(`[Reconciliation] Attempting cleanup of orphaned SL ${trade.binance_stop_order_id} for ${trade.symbol}`);
+                await this.orderManager.cancelBinanceOrder(trade.symbol, trade.binance_stop_order_id, trade.binance_stop_order_type as any);
+              } catch (cancelErr) {
+                this.logger.debug(`[Reconciliation] Orphan SL cleanup failed (expected if already gone): ${cancelErr.message}`);
+              }
+            }
+
             await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date() });
             (trade as any).reconciled_out = true;
             continue;

@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef, OnApplicationShutdown } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { SessionConfig } from '../models/SessionConfig';
 import { Trade } from '../models/Trade';
@@ -33,7 +33,7 @@ function monitoringChangedInternal(curr: any, prev: any): boolean {
 }
 
 @Injectable()
-export class TradingSessionService {
+export class TradingSessionService implements OnApplicationShutdown {
   private readonly logger = new Logger(TradingSessionService.name);
 
   private running = false;
@@ -246,6 +246,29 @@ export class TradingSessionService {
     this.klineStore.clear();
 
     this.broadcastSnapshot('stopped'); return { status: 'stopped' };
+  }
+
+  /**
+   * Graceful Shutdown Hook: Triggered by NestJS when the application is shutting down.
+   * Ensures that intervals and WebSocket connections are cleared without forcing trade closures.
+   */
+  async onApplicationShutdown(signal?: string) {
+    if (!this.running) return;
+    this.logger.log(`Application shutdown initiated (${signal || 'SIGTERM'}). Stopping trading session gracefully...`);
+
+    this.running = false;
+
+    if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
+    if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
+    if (this.fundingCheckInterval) clearInterval(this.fundingCheckInterval);
+    if (this.watchdogInterval) clearInterval(this.watchdogInterval);
+    if (this.balanceFetchTimeout) clearTimeout(this.balanceFetchTimeout);
+    if (this.safetySyncTimeout) clearTimeout(this.safetySyncTimeout);
+
+    // Stop lifecycle (WS connections, streams) without closing trades
+    await this.sessionLifecycle.stop(this.binanceClient, this.sessionId || undefined, this.config || undefined);
+
+    this.logger.log('Graceful shutdown: Session stopped, trades left open on exchange for protection.');
   }
 
   private async hotLoop() {

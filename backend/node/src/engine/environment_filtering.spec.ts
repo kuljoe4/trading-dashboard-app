@@ -72,6 +72,8 @@ describe('MomentumScannerService Environment Filtering', () => {
     (orderManager as any).marketFeed = marketFeed;
     const mockRest = {
       newOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ orderId: 'mock', avgPrice: '50000', executedQty: '1' }), headers: {} }),
+      newAlgoOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ algoId: 'mock-sl', algoStatus: 'NEW' }), headers: {} }),
+      cancelAllOpenOrders: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ code: 0 }), headers: {} }),
       userCommissionRate: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ takerCommissionRate: '0.0004' }) }),
       queryOrder: jest.fn(),
     };
@@ -84,6 +86,7 @@ describe('MomentumScannerService Environment Filtering', () => {
     // Mock getTicker and newOrder to return reasonable price for slippage check
     (orderManager as any).tickerCache.getTicker = jest.fn().mockReturnValue({ price: 1, symbol: 'TRADABLE' });
     mockRest.newOrder.mockResolvedValue({ data: () => Promise.resolve({ orderId: 'mock', avgPrice: '1', executedQty: '100' }), headers: {} });
+    mockRest.newAlgoOrder.mockResolvedValue({ data: () => Promise.resolve({ algoId: 'mock-sl', algoStatus: 'NEW' }), headers: {} });
     const resultSuccess = await orderManager.enter('sess', 'TRADABLE', 'LONG', 1, 100, 0.5, 2);
     // Should be SUCCESS now that we mocked changeInitialLeverage and newOrder correctly
     expect(resultSuccess.status).toBe('SUCCESS');

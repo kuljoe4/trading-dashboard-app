@@ -94,7 +94,8 @@ export class SessionService implements OnModuleInit {
     }
 
     // Cleanup any sessions marked as running in the database on startup
-    // BOLT: Optimize startup cleanup with a single bulk update instead of a loop
+    // BOLT: Optimize startup cleanup with a single bulk update instead of a loop.
+    // Note: Associated open trades are flagged with is_reconciliation: true during startSession().
     this.logger.log('Cleaning up stale running sessions...');
     const updateResult = await this.sessionRepository.update({ running: true }, { running: false });
     if (updateResult.affected && updateResult.affected > 0) {

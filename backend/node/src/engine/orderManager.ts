@@ -863,34 +863,18 @@ export class OrderManagerService {
 
       // BOLT: Handle existing order conflict. If a closePosition order already exists, clear it and retry.
       if (errMsg.includes('existing') && (errMsg.includes('closePosition') || errMsg.includes('GTE'))) {
-         this.logger.warn(`[${trade.symbol}] [Sync] Detection of potential orphan closePosition order. Attempting proactive cleanup...`);
+         this.logger.warn(`[${trade.symbol}] [Sync] Detection of potential orphan closePosition order conflict. Executing aggressive symbol flush...`);
          try {
-            // Check standard open orders
-            const res = await this.binanceClient.restAPI.currentAllOpenOrders({ symbol: trade.symbol });
-            this.updateWeight(res?.headers);
-            const orders = await res.data() as any;
-            let cleanedCount = 0;
+            // Aggressive symbol flush to clear ANY conflicting orders (Standard or Algo)
+            const flushRes = await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol: trade.symbol });
+            this.updateWeight(flushRes?.headers);
 
-            if (Array.isArray(orders)) {
-              for (const o of orders) {
-                // Binance error implies a closePosition order exists. We look for STOP types with closePosition in the SAME direction.
-                if ((o.type === 'STOP_MARKET' || o.type === 'STOP' || o.type === 'TAKE_PROFIT_MARKET') &&
-                    (o.closePosition === true || o.closePosition === 'true') &&
-                    o.side === closeDirection) {
-                  this.logger.log(`Found conflicting orphan SL/TP order ${o.orderId} for ${trade.symbol} (${o.side}). Canceling...`);
-                  await this.cancelBinanceOrder(trade.symbol, String(o.orderId), 'standard');
-                  cleanedCount++;
-                }
-              }
-            }
-
-
-            if (cleanedCount > 0 && attempts < MAX_ATTEMPTS) {
-              this.logger.log(`Cleaned ${cleanedCount} orphan orders for ${trade.symbol}. Retrying SL placement...`);
+            if (attempts < MAX_ATTEMPTS) {
+              this.logger.log(`[${trade.symbol}] [Sync] Aggressive flush complete. Retrying SL placement (Attempt ${attempts + 1})...`);
               continue;
             }
          } catch (cleanupErr) {
-            this.logger.error(`Failed to cleanup orphan SL for ${trade.symbol}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
+            this.logger.error(`Failed to cleanup orphan conflict for ${trade.symbol}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
          }
       } else if ((errMsg.includes('Time in Force') || errMsg.includes('GTE')) && attempts < MAX_ATTEMPTS) {
          this.logger.warn(`Transient SL error for ${trade.symbol}: ${errMsg}. Retrying (Attempt ${attempts + 1}/${MAX_ATTEMPTS})...`);

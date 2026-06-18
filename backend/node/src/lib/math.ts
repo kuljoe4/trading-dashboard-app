@@ -31,9 +31,31 @@ export function roundTo(value: number | undefined | null, decimals: number): num
  * Calculates the number of decimal places for a given tick/step size.
  */
 export function getPrecision(size: number): number {
-  if (!size || size <= 0) return 8;
+  if (size === undefined || size === null || size <= 0) return 8;
+  if (size >= 1) return 0;
   const precision = Math.round(Math.abs(Math.log10(size)));
   return Math.min(20, Math.max(0, precision));
+}
+
+/**
+ * Calculates precision from a string representation to avoid floating point issues.
+ * Returns 8 as a fallback if size is 0 or invalid.
+ */
+export function getPrecisionFromString(sizeStr: string): number {
+  if (!sizeStr || sizeStr === '0' || sizeStr === '0.0') return 8;
+  const val = parseFloat(sizeStr);
+  if (isNaN(val)) return 8;
+  if (val >= 1) return 0;
+
+  // Handle scientific notation (e.g. 1e-5)
+  if (sizeStr.toLowerCase().includes('e')) {
+    const parts = sizeStr.toLowerCase().split('e');
+    const exponent = parseInt(parts[1]);
+    return Math.abs(exponent);
+  }
+
+  const parts = sizeStr.split('.');
+  return parts.length > 1 ? parts[1].length : 0;
 }
 
 /**

@@ -1,4 +1,4 @@
-import { getPrecision, formatPrice, roundTo } from './math';
+import { getPrecision, formatPrice, roundTo, getPrecisionFromString } from './math';
 
 describe('Math Utilities Precision Fix', () => {
   describe('getPrecision', () => {
@@ -12,9 +12,7 @@ describe('Math Utilities Precision Fix', () => {
       expect(getPrecision(0.0000001)).toBe(7);
       expect(getPrecision(0.00000001)).toBe(8);
       expect(getPrecision(1)).toBe(0);
-      expect(getPrecision(10)).toBe(1); // log10(1/10) = -1, abs = 1. Wait, size 10 means 0 precision or negative?
-      // Binance tick sizes are usually <= 1. If tickSize is 10, it means price must be multiple of 10.
-      // Math.abs(Math.log10(10)) is 1. precision is 1? No, it should be 0 or handle it.
+      expect(getPrecision(10)).toBe(0);
     });
 
     it('should handle edge cases', () => {
@@ -31,6 +29,16 @@ describe('Math Utilities Precision Fix', () => {
 
       expect(formatPrice(1.23456789, 0.01)).toBe('1.23');
       expect(formatPrice(1.23456789, 0.0001)).toBe('1.2346'); // toFixed rounds
+    });
+  });
+
+  describe('getPrecisionFromString', () => {
+    it('should return correct precision for strings', () => {
+      expect(getPrecisionFromString('0.1')).toBe(1);
+      expect(getPrecisionFromString('0.0001')).toBe(4);
+      expect(getPrecisionFromString('1')).toBe(0);
+      expect(getPrecisionFromString('10.0')).toBe(0);
+      expect(getPrecisionFromString('1e-5')).toBe(5);
     });
   });
 

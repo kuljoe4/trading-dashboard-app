@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { DerivativesTradingUsdsFutures } from '@binance/derivatives-trading-usds-futures';
 import { Trade } from '../models/Trade';
@@ -18,7 +18,7 @@ import { ExchangeExecutionException } from '../lib/exceptions';
 import { ExecutionResult, ExecutionStatus } from '../models/ExecutionResult';
 
 @Injectable()
-export class OrderManagerService {
+export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OrderManagerService.name);
 
   private binanceClient: DerivativesTradingUsdsFutures | null = null;
@@ -36,6 +36,7 @@ export class OrderManagerService {
   // Performance: Authoritative fill price cache from User Data Stream to minimize REST latency
   // Keyed by orderId or clientOrderId to prevent cross-order corruption
   private lastFills: Map<string, { price: number, timestamp: number }> = new Map();
+  private cacheCleanupInterval: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly signalEngine: SignalEngineService,
@@ -46,6 +47,34 @@ export class OrderManagerService {
     private readonly auditLog: AuditLogService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
+
+  onModuleInit() {
+    // Audit Hardening: Periodic cleanup of the fill price cache to prevent memory leaks
+    this.cacheCleanupInterval = setInterval(() => {
+      const now = Date.now();
+      const expirationMs = 60000; // Keep entries for 60 seconds
+      let pruned = 0;
+
+      for (const [key, entry] of this.lastFills.entries()) {
+        if (now - entry.timestamp > expirationMs) {
+          this.lastFills.delete(key);
+          pruned++;
+        }
+      }
+
+      if (pruned > 0) {
+        this.logger.debug(`[Cache] Pruned ${pruned} stale fill price entries from memory.`);
+      }
+    }, 300000); // Clean up every 5 minutes
+    this.cacheCleanupInterval.unref?.();
+  }
+
+  onModuleDestroy() {
+    if (this.cacheCleanupInterval) {
+      clearInterval(this.cacheCleanupInterval);
+      this.cacheCleanupInterval = null;
+    }
+  }
 
   @OnEvent('binance.order_update')
   async handleBinanceOrderUpdate(payload: any) {

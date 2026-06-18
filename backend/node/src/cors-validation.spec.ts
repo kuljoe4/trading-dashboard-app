@@ -56,4 +56,20 @@ describe('checkOrigin', () => {
     expect(checkOrigin('https://example.com', messyPatterns)).toBe(true);
     expect(checkOrigin('https://test.example.org', messyPatterns)).toBe(true);
   });
+
+  it('should block malicious bypass attempts using permissive wildcards', () => {
+    const wildcardPatterns = ['https://*.example.com'];
+
+    // Path injection: would match if using .*
+    expect(checkOrigin('https://attacker.com/.example.com', wildcardPatterns)).toBe(false);
+
+    // Query parameter injection: would match if using .*
+    expect(checkOrigin('https://attacker.com?q=test.example.com', wildcardPatterns)).toBe(false);
+
+    // Fragment injection: would match if using .*
+    expect(checkOrigin('https://attacker.com#test.example.com', wildcardPatterns)).toBe(false);
+
+    // Subdomain with special characters that should be blocked
+    expect(checkOrigin('https://sub/folder.example.com', wildcardPatterns)).toBe(false);
+  });
 });

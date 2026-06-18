@@ -13,7 +13,7 @@ export const checkOrigin = (origin: string, allowedOrigins: string[]): boolean =
       const regexPattern = normalizedPattern
         .split("*")
         .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-        .join(".*");
+        .join("[^/?#]+");
       return new RegExp(`^${regexPattern}$`, "i").test(normalizedOrigin);
     }
     return normalizedPattern.toLowerCase() === normalizedOrigin.toLowerCase();

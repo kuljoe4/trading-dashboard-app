@@ -190,8 +190,8 @@ export class SessionStateService {
     this.statsVersion++;
   }
 
-  updateStatsOnClose(isWin: boolean, pnl: number = 0) {
-    if (isWin) this.stats.hitCount++;
+  updateStatsOnClose(isWin: boolean, pnl: number = 0, isReconciliation: boolean = false) {
+    if (!isReconciliation && isWin) this.stats.hitCount++;
     this.stats.totalPnl = roundEight(this.stats.totalPnl + pnl);
     this.statsVersion++;
   }
@@ -200,12 +200,17 @@ export class SessionStateService {
     const label = trade.strategy_label || this.config?.strategy_label || 'Momentum Strategy';
     if (!trade.strategy_label) trade.strategy_label = label;
 
+    // Reconciliation trades should contribute to PnL (for accurate balance) but NOT to counts/hits
+    // to avoid penalizing or artificially boosting strategy performance metrics.
     if (!this.cachedClosedTradesStats[label]) {
       this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
     }
     this.cachedClosedTradesStats[label].pnl = roundEight(this.cachedClosedTradesStats[label].pnl + (trade.pnl || 0));
-    this.cachedClosedTradesStats[label].count++;
-    if ((trade.pnl || 0) > 0) this.cachedClosedTradesStats[label].hits++;
+
+    if (!trade.is_reconciliation) {
+      this.cachedClosedTradesStats[label].count++;
+      if ((trade.pnl || 0) > 0) this.cachedClosedTradesStats[label].hits++;
+    }
 
     this.closedTrades.unshift(trade);
     if (this.closedTrades.length > 500) {
@@ -217,8 +222,10 @@ export class SessionStateService {
     const label = trade.strategy_label || 'Momentum Strategy';
     if (this.cachedClosedTradesStats[label]) {
       this.cachedClosedTradesStats[label].pnl = roundEight(this.cachedClosedTradesStats[label].pnl - (trade.pnl || 0));
-      this.cachedClosedTradesStats[label].count--;
-      if ((trade.pnl || 0) > 0) this.cachedClosedTradesStats[label].hits--;
+      if (!trade.is_reconciliation) {
+        this.cachedClosedTradesStats[label].count--;
+        if ((trade.pnl || 0) > 0) this.cachedClosedTradesStats[label].hits--;
+      }
     }
     if (this.closedTrades[0] && this.closedTrades[0].id === trade.id) {
       this.closedTrades.shift();

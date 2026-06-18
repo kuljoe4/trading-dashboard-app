@@ -98,6 +98,8 @@ export class Trade {
 
   strategy_config?: Partial<import('./SessionConfig').SessionConfig>;
 
+  is_reconciliation?: boolean;
+
   _sig_json?: string;
 
   _last_funding_delta?: number;

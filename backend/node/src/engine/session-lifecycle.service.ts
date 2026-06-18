@@ -309,7 +309,8 @@ export class SessionLifecycleService {
                     this.eventEmitter.emit('trade.exchange_close', {
                       symbol,
                       exitPrice: 0, // Will use ticker fallback
-                      reason: 'EXCHANGE_SYNC'
+                      reason: 'EXCHANGE_SYNC',
+                      isReconciliation: true
                     });
                   }
                 }

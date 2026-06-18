@@ -524,7 +524,7 @@ export class SessionService implements OnModuleInit {
 
       if (isOrphaned) {
         this.logger.log(`Trade ${trade.symbol} (Session: ${trade.sessionId}) is orphaned. Marking as closed.`);
-        await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date() });
+        await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date(), is_reconciliation: true });
         await this.logMessage(`Trade ${trade.symbol} was orphaned during downtime and marked closed.`, 'warn');
         (trade as any).reconciled_out = true;
         recalculationNeeded = true;
@@ -552,7 +552,7 @@ export class SessionService implements OnModuleInit {
               }
             }
 
-            await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date() });
+            await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date(), is_reconciliation: true });
             (trade as any).reconciled_out = true;
             continue;
           }
@@ -590,7 +590,7 @@ export class SessionService implements OnModuleInit {
             if (reason === 'AUTO_RECONCILED_SL') terminalStatus = 'CLOSED_SL';
             else if (reason === 'AUTO_RECONCILED_TP') terminalStatus = 'CLOSED_TP';
 
-            const updatedTrade = { ...trade, status: terminalStatus, exit_ts: new Date(), exit_price: currentPrice, pnl, exit_reason: reason };
+            const updatedTrade = { ...trade, status: terminalStatus, exit_ts: new Date(), exit_price: currentPrice, pnl, exit_reason: reason, is_reconciliation: true };
             await this.saveTradeAtomic(updatedTrade, roundEight(Number(session.balance) + pnl));
             (trade as any).reconciled_out = true;
           }
@@ -626,7 +626,7 @@ export class SessionService implements OnModuleInit {
             if (!hasPosition) {
               this.logger.log(`Live position for ${trade.symbol} not found on exchange. Marking as closed (orphaned).`);
               await this.logMessage(`Live position for ${trade.symbol} was not found on exchange during reconciliation. Marking as orphaned.`, 'warn');
-              await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date() });
+              await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date(), is_reconciliation: true });
               (trade as any).reconciled_out = true;
               recalculationNeeded = true;
             } else {

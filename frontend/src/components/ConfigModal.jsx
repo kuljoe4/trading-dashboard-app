@@ -62,6 +62,7 @@ const flattenConfig = (config) => {
       signal_params_exit_ema_slow: params.exit_ema_slow,
       live_rr_sequence: Array.isArray(config.live_rr_sequence) ? config.live_rr_sequence : [1.0, 2.0, 4.0],
       exit_rr_sequence: Array.isArray(config.exit_rr_sequence) ? config.exit_rr_sequence : [0.0, 1.0, 2.0],
+      trailing_guard_buffer_pct: config.trailing_guard_buffer_pct !== undefined ? config.trailing_guard_buffer_pct : CONFIG_LIMITS.TRAILING_GUARD_DEFAULT,
       // UI Conversion: backend decimal to UI percentage
       slippage_warning_threshold: config.slippage_warning_threshold !== undefined ? config.slippage_warning_threshold * 100 : (CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT * 100 || 0.1),
     };
@@ -213,6 +214,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     const sp = { ...(typeof cfg.signal_params === 'string' ? JSON.parse(cfg.signal_params || '{}') : cfg.signal_params || {}) };
     ['ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period', 'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow'].forEach(k => { if (cfg[`signal_params_${k}`]) sp[k] = cfg[`signal_params_${k}`]; });
     c.signal_params = sp;
+    c.trailing_guard_buffer_pct = cfg.trailing_guard_buffer_pct;
     // UI Conversion: UI percentage back to backend decimal
     if (c.slippage_warning_threshold !== undefined) {
       c.slippage_warning_threshold = c.slippage_warning_threshold / 100;
@@ -413,6 +415,35 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                   </div>
                 </div>
               </div>
+
+              {(cfg.enabled_signals || []).includes('ema_dual_close') && (
+                <div className="mt-8 p-5 bg-accent/5 border border-accent/20 rounded-2xl space-y-3 animate-in fade-in slide-in-from-top-2 duration-500 shadow-[0_4px_24px_rgba(var(--accent-rgb),0.04)]">
+                   <div className="flex items-center gap-2.5 text-[10px] font-black uppercase tracking-[0.15em] text-accent">
+                      <div className="p-1.5 bg-accent/10 rounded-lg">
+                        <Zap size={14} className="fill-accent/20" />
+                      </div>
+                      EMA Dual Close Logic
+                   </div>
+                   <div className="space-y-2.5">
+                      <p className="text-[11px] text-dim leading-relaxed font-medium">
+                         An authoritative trend-following strategy that requires absolute alignment across two time horizons.
+                      </p>
+                      <div className="grid grid-cols-2 gap-3">
+                         <div className="p-3 bg-background/40 border border-border/30 rounded-xl">
+                            <div className="text-[9px] font-black text-green uppercase tracking-wider mb-1">Long Entry</div>
+                            <div className="text-[10px] font-mono text-text/80">Price {'>'} Fast EMA<br/>Price {'>'} Slow EMA</div>
+                         </div>
+                         <div className="p-3 bg-background/40 border border-border/30 rounded-xl">
+                            <div className="text-[9px] font-black text-red uppercase tracking-wider mb-1">Short Entry</div>
+                            <div className="text-[10px] font-mono text-text/80">Price {'<'} Fast EMA<br/>Price {'<'} Slow EMA</div>
+                         </div>
+                      </div>
+                      <p className="text-[10px] text-dim/60 italic leading-snug border-l-2 border-accent/20 pl-3">
+                         The engine interprets this as a "one-way door": if the price crosses back through <span className="text-text font-bold">either</span> EMA, the trend is considered broken and the position is closed.
+                      </p>
+                   </div>
+                </div>
+              )}
             </section>
 
             <section className="pt-6 border-t border-border/40">
@@ -581,6 +612,45 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                   {field('Floor Min %', 'sl_min_pct', 'number', null, { min: 0.1, step: 0.1 })}
                   {field('Ceiling Max %', 'sl_max_pct', 'number', null, { min: 0.1, step: 0.1 })}
                 </div>
+                <div className="md:col-span-2">
+                  <Tooltip content="Safety buffer that prevents trailing stops from being placed too close to the market price. This avoids 'Order would immediately trigger' errors and instant fills during high volatility. Recommended: 0.03% to 0.05%.">
+                    {field('Trailing Guard (%)', 'trailing_guard_buffer_pct', 'number', null, { min: CONFIG_LIMITS.TRAILING_GUARD_MIN, max: CONFIG_LIMITS.TRAILING_GUARD_MAX, step: 0.01 })}
+                  </Tooltip>
+                </div>
+              </div>
+
+              <div className="mt-6 p-5 bg-accent/5 border border-accent/20 rounded-2xl space-y-3.5 shadow-sm">
+                 <div className="flex items-center gap-2.5 text-[10px] font-black uppercase tracking-[0.15em] text-accent">
+                    <div className="p-1.5 bg-accent/10 rounded-lg group">
+                      <ShieldCheck size={14} className="fill-accent/20 group-hover:animate-pulse" />
+                    </div>
+                    Trailing Safety Guide
+                 </div>
+                 <div className="space-y-3">
+                    <p className="text-[11px] text-dim leading-relaxed font-medium">
+                       The <span className="text-text font-bold">Trailing Guard</span> prevents exchange rejections (Error -4120) by maintaining a mandatory gap between your Stop Loss and the active Market Price.
+                    </p>
+                    <div className="bg-background/40 p-3 rounded-xl border border-border/30 relative overflow-hidden group">
+                       <div className="absolute top-0 left-0 w-1 h-full bg-accent/30" />
+                       <div className="flex items-center gap-1.5 mb-2">
+                          <Activity size={10} className="text-accent group-hover:animate-bounce" />
+                          <span className="text-[9px] text-accent font-black uppercase tracking-widest">Dynamic Hard-Cap Example</span>
+                       </div>
+                       <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                             <div className="text-[8px] text-dim/40 font-bold uppercase tracking-tighter text-dim/60">Current Market</div>
+                             <div className="text-xs font-mono font-bold text-text/90">0.14302</div>
+                          </div>
+                          <div className="space-y-1 text-right">
+                             <div className="text-[8px] text-dim/40 font-bold uppercase tracking-tighter text-dim/60">Engine Response</div>
+                             <div className="text-xs font-mono font-bold text-amber">0.14305</div>
+                          </div>
+                       </div>
+                    </div>
+                    <p className="text-[10px] text-dim/60 italic leading-snug border-l-2 border-accent/20 pl-3">
+                       Essential for SHORT trades near entry and high-volatility LONG trades. Prevents "instant fills" caused by the market spread touching your stop exactly at the moment of update.
+                    </p>
+                 </div>
               </div>
             </section>
 

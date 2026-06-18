@@ -346,4 +346,10 @@ export class SessionConfig {
   @IsBoolean()
   @IsOptional()
   debug_mode?: boolean = false;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(CONFIG_LIMITS.TRAILING_GUARD_MIN)
+  @Max(CONFIG_LIMITS.TRAILING_GUARD_MAX)
+  trailing_guard_buffer_pct?: number = CONFIG_LIMITS.TRAILING_GUARD_DEFAULT;
 }

@@ -338,6 +338,10 @@ export class OrderManagerService {
       return { status: ExecutionStatus.ORDER_REJECTED, error: 'Exchange agreement required. Please check Binance.' };
     }
 
+    if (this.checkCircuitBreaker()) {
+      return { status: ExecutionStatus.CIRCUIT_OPEN, error: 'Circuit breaker is open due to systemic failures' };
+    }
+
     // Zero-CPU Rate Limiter Guard
     if (!this.paperMode) {
       if (this.sessionState.isRateLimited(0.92)) {
@@ -634,14 +638,14 @@ export class OrderManagerService {
 
           let agreementMsg = `[${symbol}] Binance entry failed: ${errMsg}`;
           if (errMsg.includes('agreement') || errMsg.includes('TradFi-Perps')) {
-            agreementMsg = `CRITICAL: ${errMsg}. Please go to Binance website and sign the required agreement.`;
+            agreementMsg = `CRITICAL: Binance agreement required. Please sign TradFi-Perps on Binance website. (${errMsg})`;
             this.sessionState.agreementRequired = true;
-          } else if (errMsg.includes('insufficient balance') || errMsg.includes('Margin is insufficient')) {
-            agreementMsg = `CRITICAL: Insufficient funds on Binance USDS-M account to open ${symbol}.`;
+          } else if (errMsg.includes('insufficient balance') || errMsg.includes('Margin is insufficient') || errMsg.includes('-2019') || errMsg.includes('-2010')) {
+            agreementMsg = `CRITICAL: Insufficient funds on Binance USDS-M account to open ${symbol} (Error -2019/-2010).`;
           } else if (errMsg.includes('PERCENT_PRICE')) {
-            agreementMsg = `CRITICAL: ${symbol} entry failed. The market is too volatile or liquidity is too low (PERCENT_PRICE filter). Try reducing risk or increasing SL distance.`;
+            agreementMsg = `CRITICAL: ${symbol} entry failed. Price outside protection bands (PERCENT_PRICE). Try increasing SL distance.`;
           } else if (errMsg.includes('leverage') || errMsg.includes('allowable position') || errMsg.includes('max allowable position') || errMsg.includes('position at current leverage')) {
-            agreementMsg = `CRITICAL: Position limit exceeded at current leverage for ${symbol}. Please adjust leverage or position size on Binance.`;
+            agreementMsg = `CRITICAL: Position limit exceeded at current leverage for ${symbol}. Adjust leverage on Binance.`;
           }
 
           this.logger.error(agreementMsg);
@@ -781,8 +785,32 @@ export class OrderManagerService {
               this.logger.error(`[${symbol}] [Sync] SL Order ID duplicate detected but query failed or returned no data: ${msg}`);
               throw new Error(`SL Order ID duplicate but query failed: ${msg}`);
             }
+          } else if (code === -2021) {
+            // "Order would immediately trigger" - This means price is already at/past our SL
+            const warnMsg = `[${symbol}] SL REJECTED: Price overran target (Code: -2021). Forcing emergency local close.`;
+            this.logger.warn(warnMsg);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: warnMsg, level: 'warn' });
+            this.eventEmitter.emit('trade.exchange_close', {
+              symbol,
+              exitPrice: this.tickerCache.getPrice(symbol) || slPrice,
+              reason: 'SL_HIT'
+            });
+            return 'TRIGGERED_LOCALLY';
+          } else if (code === -4044 || code === -4045 || code === -1116) {
+            // "Account position is empty", "Position side does not match", or "ReduceOnly invalid" - Already closed!
+            const syncMsg = `[${symbol}] SL REJECTED: Position already closed on exchange (Code: ${code}). Syncing state.`;
+            this.logger.log(syncMsg);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: syncMsg, level: 'info' });
+            this.eventEmitter.emit('trade.exchange_close', {
+               symbol,
+               exitPrice: this.tickerCache.getPrice(symbol) || trade.entry_price,
+               reason: 'EXCHANGE_SYNC'
+            });
+            return 'TRIGGERED_LOCALLY';
           } else {
-            this.logger.warn(`[${symbol}] SL order rejected by exchange: ${msg} (Code: ${code})`);
+            const errorMsg = `[${symbol}] SL REJECTED: ${msg} (Code: ${code})`;
+            this.logger.warn(errorMsg);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: errorMsg, level: 'warn' });
             throw new Error(`SL placement failed: ${msg}`);
           }
         } else {
@@ -819,6 +847,26 @@ export class OrderManagerService {
             this.logger.error(`Standard SL fallback failed: ${fallbackErr.message}`);
             throw fallbackErr;
           }
+        } else if (msg.includes('Order would immediately trigger') || msg.includes('-2021') || msg.includes('-4115') || msg.includes('-4118')) {
+          const warnMsg = `[${symbol}] SL REJECTED: Price protection or trigger breach (Code: ${msg}). Forcing emergency close.`;
+          this.logger.warn(warnMsg);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: warnMsg, level: 'warn' });
+          this.eventEmitter.emit('trade.exchange_close', {
+            symbol,
+            exitPrice: this.tickerCache.getPrice(symbol) || slPrice,
+            reason: 'SL_HIT'
+          });
+          return 'TRIGGERED_LOCALLY';
+        } else if (msg.includes('Account position is empty') || msg.includes('-4044') || msg.includes('-4045') || msg.includes('-4141') || msg.includes('-1116')) {
+          const syncMsg = `[${symbol}] SL REJECTED: Position mismatch or closed (Code: ${msg}). Syncing state.`;
+          this.logger.log(syncMsg);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: syncMsg, level: 'info' });
+          this.eventEmitter.emit('trade.exchange_close', {
+             symbol,
+             exitPrice: this.tickerCache.getPrice(symbol) || trade.entry_price,
+             reason: 'EXCHANGE_SYNC'
+          });
+          return 'TRIGGERED_LOCALLY';
         } else if (msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
           this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId (via exception) on SL retry. Recovering SL state...`);
           const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
@@ -861,9 +909,9 @@ export class OrderManagerService {
         continue;
       }
 
-      // BOLT: Handle existing order conflict. If a closePosition order already exists, clear it and retry.
-      if (errMsg.includes('existing') && (errMsg.includes('closePosition') || errMsg.includes('GTE'))) {
-         this.logger.warn(`[${trade.symbol}] [Sync] Detection of potential orphan closePosition order conflict. Executing aggressive symbol flush...`);
+      // BOLT: Handle existing order conflict. If a closePosition order already exists or max stop orders reached, clear it and retry.
+      if ((errMsg.includes('existing') && (errMsg.includes('closePosition') || errMsg.includes('GTE'))) || errMsg.includes('-2027')) {
+         this.logger.warn(`[${trade.symbol}] [Sync] SL conflict detected (${errMsg}). Executing aggressive symbol flush...`);
          try {
             // Aggressive symbol flush to clear ANY conflicting orders (Standard or Algo)
             const flushRes = await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol: trade.symbol });
@@ -883,6 +931,19 @@ export class OrderManagerService {
       }
 
       this.logger.warn(`Failed to place Binance SL for ${trade.symbol}: ${errMsg}`);
+
+      const isSystemic = errMsg.includes('Margin is insufficient') ||
+                         errMsg.includes('Too many requests') ||
+                         errMsg.includes('Invalid API-key') ||
+                         errMsg.includes('-4001') ||
+                         errMsg.includes('-2010') ||
+                         errMsg.includes('-1015') ||
+                         errMsg.includes('-1003') ||
+                         errMsg.includes('-2015') ||
+                         errMsg.includes('-1111') ||
+                         errMsg.includes('-1102') ||
+                         errMsg.includes('-4016');
+      this.recordFailure(isSystemic);
 
       if (errMsg.includes('insufficient balance') || errMsg.includes('Margin is insufficient')) {
          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
@@ -991,6 +1052,14 @@ export class OrderManagerService {
         return true;
       }
       this.logger.warn(`Failed to cancel Binance order ${orderId}: ${errMsg}`);
+
+      const isSystemic = errMsg.includes('Invalid API-key') ||
+                         errMsg.includes('Too many requests') ||
+                         errMsg.includes('-1015') ||
+                         errMsg.includes('-1003') ||
+                         errMsg.includes('-2015');
+      if (isSystemic) this.recordFailure(true);
+
       return false;
     }
   }
@@ -1232,6 +1301,10 @@ export class OrderManagerService {
     try {
       if (trade.close_blocked) {
          return { trade, exitOccurred: false, closeBlocked: true };
+      }
+
+      if (!paperMode && this.checkCircuitBreaker()) {
+         this.logger.warn(`[${symbol}] Circuit breaker is open. Proceeding with emergency close despite systemic failures.`);
       }
 
       // Structural Close Attempt Throttling & Backoff

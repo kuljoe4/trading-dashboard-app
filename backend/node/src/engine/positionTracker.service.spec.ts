@@ -15,7 +15,7 @@ describe('PositionTrackerService', () => {
     mockRiskEngine = {};
     mockSignalEngine = {};
     mockOrderManager = {
-      updateStopLoss: jest.fn().mockResolvedValue(undefined),
+      updateStopLoss: jest.fn().mockImplementation((trade, newSl) => Promise.resolve({ success: true, price: newSl })),
     };
     mockTickerCache = {};
     mockKlineStore = {};

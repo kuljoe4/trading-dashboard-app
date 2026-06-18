@@ -70,6 +70,7 @@ export class Trade {
     reason: string;
     milestone_index: number;
     max_rr_achieved?: number;
+    adaptive?: boolean;
   }[];
 
   pnl_pct?: number;

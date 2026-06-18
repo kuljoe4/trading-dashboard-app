@@ -41,9 +41,17 @@ export class AnalyticsService {
   calculateAnalytics(trades: TradeEntity[], startingBalance: number = 10000, currentBalance?: number): AnalyticsResult {
     // BOLT OPTIMIZATION: Combine multiple iterations into a single-pass loop
     // 1. Initial filter and sort (necessary for equity curve)
+    // BOLT: Include OPEN trades if they have PnL (realized portion + unrealized)
+    // to align with Dashboard totalPnl. OPEN trades are sorted at the END of the curve
+    // using the current timestamp to avoid historical curve distortion.
+    const now = Date.now();
     const sortedTrades = [...trades]
-      .filter(t => t.status !== 'OPEN' && t.exit_ts)
-      .sort((a, b) => a.exit_ts!.getTime() - b.exit_ts!.getTime());
+      .filter(t => (t.status !== 'OPEN' && t.exit_ts) || (t.status === 'OPEN' && Number(t.pnl || 0) !== 0))
+      .sort((a, b) => {
+        const timeA = a.status === 'OPEN' ? now : (a.exit_ts?.getTime() || 0);
+        const timeB = b.status === 'OPEN' ? now : (b.exit_ts?.getTime() || 0);
+        return timeA - timeB;
+      });
 
     const totalTrades = sortedTrades.length;
     let currentPnL = 0;
@@ -96,12 +104,12 @@ export class AnalyticsService {
       if (ddPct > maxDDPct) maxDDPct = ddPct;
 
       cumulativePnL[i] = {
-        ts: t.exit_ts!.toISOString(),
+        ts: (t.status === 'OPEN' ? new Date(now) : (t.exit_ts || new Date())).toISOString(),
         pnl: roundTo(currentPnL, 2),
       };
 
       // Time of Day
-      const hour = t.exit_ts!.getUTCHours();
+      const hour = (t.status === 'OPEN' ? new Date(now) : (t.exit_ts || new Date())).getUTCHours();
       const stats = todStats[hour];
       stats.pnl += pnl;
       stats.total += 1;

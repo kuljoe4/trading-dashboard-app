@@ -963,23 +963,51 @@ export class SessionService implements OnModuleInit {
     let startingBalance: number | undefined;
     let currentBalance: number | undefined;
 
-    if (this.currentSessionId && currentStatus.running) {
-      // Reuse history already fetched in getStatus() to minimize DB load
-      trades = currentStatus.history || [];
-      startingBalance = currentStatus.config?.paper_mode ? currentStatus.config?.paper_starting_balance : currentStatus.config?.live_starting_balance;
-      currentBalance = currentStatus.balance;
-    } else {
-      // Fallback for global analytics or inactive sessions
-      trades = await this.tradeRepository.find({
-        select: ['pnl', 'exit_ts', 'status'],
-        where: {
-          status: In(TERMINAL_STATUSES as any),
-          ...(this.currentSessionId ? { sessionId: this.currentSessionId } : {})
+    const mode = currentStatus.tradingMode || (currentStatus.paperMode ? 'paper' : 'live');
+
+    // 1. Fetch relevant trades from DB
+    const dbTrades = await this.tradeRepository.find({
+      select: ['id', 'symbol', 'pnl', 'exit_ts', 'status', 'strategy_config', 'entry_ts', 'entry_price', 'qty', 'direction'],
+      where: {
+        status: In([...TERMINAL_STATUSES, 'OPEN'] as any),
+        ...(this.currentSessionId ? { sessionId: this.currentSessionId } : {})
+      }
+    });
+
+    // 2. Filter by mode and enrich OPEN trades with Unrealized PnL from the engine
+    const activePriceMap = new Map<string, number>();
+    (currentStatus.activeTrades || []).forEach((at: any) => {
+        if (at.id) activePriceMap.set(at.id, at.current_price);
+        if (at.symbol) activePriceMap.set(at.symbol, at.current_price);
+    });
+
+    trades = dbTrades.filter(t => {
+      const tConfig = t.strategy_config || {};
+      const tMode = tConfig.trading_mode || (tConfig.paper_mode === false ? 'live' : 'paper');
+      return tMode === mode;
+    }).map(t => {
+      if (t.status === 'OPEN') {
+        const currentPrice = activePriceMap.get(t.id) || activePriceMap.get(t.symbol);
+        if (currentPrice) {
+          const direction = t.direction?.toUpperCase() || 'LONG';
+          const grossUnrealized = direction === 'LONG'
+            ? (currentPrice - Number(t.entry_price)) * Number(t.qty)
+            : (Number(t.entry_price) - currentPrice) * Number(t.qty);
+
+          // Resulting pnl for analytics = Net Realized (Fees/Funding) + Gross Unrealized.
+          return { ...t, pnl: roundEight(Number(t.pnl || 0) + grossUnrealized) };
         }
-      });
+      }
+      return t;
+    });
+
+    // 3. Determine starting balance context
+    if (this.currentSessionId && currentStatus.running) {
+      startingBalance = currentStatus.config?.paper_mode ? currentStatus.config?.paper_starting_balance : currentStatus.config?.live_starting_balance;
+    } else {
       startingBalance = this.currentSessionId ? await this.getStartingBalanceForSession(this.currentSessionId) : undefined;
-      currentBalance = currentStatus.balance;
     }
+    currentBalance = currentStatus.balance;
 
     const result = this.analyticsService.calculateAnalytics(
       trades as any,

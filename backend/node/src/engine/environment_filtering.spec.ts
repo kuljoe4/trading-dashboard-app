@@ -71,9 +71,12 @@ describe('MomentumScannerService Environment Filtering', () => {
     );
     (orderManager as any).marketFeed = marketFeed;
     const mockRest = {
-      newOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ orderId: 'mock', avgPrice: '50000', executedQty: '1' }), headers: {} }),
+      newOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ orderId: 'mock', avgPrice: '50000', executedQty: '1', status: 'FILLED' }), headers: {} }),
+      newAlgoOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ algoId: 'mock-sl', algoStatus: 'NEW' }), headers: {} }),
       userCommissionRate: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ takerCommissionRate: '0.0004' }) }),
       queryOrder: jest.fn(),
+      changeInitialLeverage: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ leverage: 20 }), headers: {} }),
+      cancelAllOpenOrders: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ code: 200 }), headers: {} }),
     };
     orderManager.setBinanceClient({ restAPI: mockRest } as any, false); // Live mode
 

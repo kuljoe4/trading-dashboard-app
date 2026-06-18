@@ -1,17 +1,12 @@
 import React from 'react'
 import { motion } from 'framer-motion'
-import { clsx } from "clsx"
-import { twMerge } from "tailwind-merge"
+import { cn } from "./utils"
 import * as ProgressPrimitive from "@radix-ui/react-progress"
 import * as TooltipPrimitive from "@radix-ui/react-tooltip"
 import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock, Info } from 'lucide-react'
 import { Sparkline as SparklineChart } from '../DataCharts'
 import { useTradingStore } from '../../store/trading'
-import { useTooltipContext } from './tooltip'
-
-export function cn(...inputs) {
-  return twMerge(clsx(inputs))
-}
+import { useTooltipContext, Tooltip } from './tooltip'
 
 // --- Pulse dot ---
 export const PulseDot = React.memo(({ color = "bg-green" }) => (
@@ -402,6 +397,7 @@ export const PnLBars = React.memo(({ trades }) => {
 })
 
 export { Tooltip } from './tooltip'
+export { cn } from './utils'
 
 export const VisuallyHidden = ({ children }) => (
   <span className="absolute w-[1px] h-[1px] p-0 -m-[1px] overflow-hidden whitespace-nowrap border-0 clip-[rect(0,0,0,0)]">

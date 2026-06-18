@@ -101,4 +101,6 @@ export class Trade {
   _sig_json?: string;
 
   _last_funding_delta?: number;
+
+  updated_at?: Date;
 }

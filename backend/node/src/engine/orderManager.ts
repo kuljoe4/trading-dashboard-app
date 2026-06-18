@@ -599,12 +599,12 @@ export class OrderManagerService {
           });
 
           // Place SL separately. Pass actual fill price for immediate-breach guard.
-          const slOrderId = await this.placeStopLoss(trade, slPrice, trade.entry_price);
-          if (slOrderId === 'TRIGGERED_LOCALLY') {
+          const slResult = await this.placeStopLoss(trade, slPrice, trade.entry_price);
+          if (slResult?.orderId === 'TRIGGERED_LOCALLY') {
              this.logger.log(`[${trade.id.substring(0, 8)}] SL for ${symbol} was triggered locally during entry. Trade will be closed.`);
              return { status: ExecutionStatus.SUCCESS, data: trade };
           }
-          if (!slOrderId) {
+          if (!slResult) {
             this.logger.warn(`SL placement failed for ${symbol}. Performing emergency unwind...`);
             try {
               const unwindResult = await this.closeTrade(symbol, trade, entryPrice, 'SL_PLACEMENT_FAILURE');
@@ -687,29 +687,66 @@ export class OrderManagerService {
   /**
    * Place a STOP_MARKET order on Binance for stop loss protection
    */
-  async placeStopLoss(trade: Trade, slPrice: number, fillPrice?: number): Promise<string | null> {
-    const filtered = this.applyFilters(trade.symbol, slPrice, trade.qty, { skipNotionalCheck: true });
-    slPrice = filtered.price;
+  async placeStopLoss(trade: Trade, slPrice: number, fillPrice?: number): Promise<{ orderId: string; price: number } | null> {
+    let currentSlPrice = slPrice;
+    let adaptiveAttempts = 0;
+    const MAX_ADAPTIVE_ATTEMPTS = 3;
+
+    // Outer loop for Adaptive Buffer Strategy
+    adaptiveLoop: while (adaptiveAttempts <= MAX_ADAPTIVE_ATTEMPTS) {
+    const filtered = this.applyFilters(trade.symbol, currentSlPrice, trade.qty, { skipNotionalCheck: true });
+    currentSlPrice = filtered.price;
 
     // IMMEDIATE TRIGGER GUARD: Check if current price already breached SL
-    // Fix A: Prioritize the authoritative fillPrice and IGNORE the ticker cache if fillPrice is provided.
-    // This prevents race conditions where the ticker cache still reflects pre-execution prices.
-    let currentPrice = fillPrice;
-    if (currentPrice === undefined || currentPrice === 0) {
+    let currentMarketPrice = fillPrice;
+    if (currentMarketPrice === undefined || currentMarketPrice === 0) {
       const ticker = this.tickerCache.getTicker(trade.symbol);
-      currentPrice = ticker?.mark_price || ticker?.price;
+      currentMarketPrice = ticker?.mark_price || ticker?.price;
     }
 
-    if (currentPrice && currentPrice > 0) {
-      const isBreached = trade.direction === 'LONG' ? currentPrice <= slPrice : currentPrice >= slPrice;
+    if (currentMarketPrice && currentMarketPrice > 0) {
+      const isBreached = trade.direction === 'LONG' ? currentMarketPrice <= currentSlPrice : currentMarketPrice >= currentSlPrice;
       if (isBreached) {
-        this.logger.warn(`[${trade.id.substring(0, 8)}] ${trade.symbol} SL ${slPrice} already breached by price ${currentPrice} (using authoritative guard). Triggering immediate local close.`);
+        // PROFITABILITY GUARD: Only adapt if current SL is already in profit (above breakeven)
+        // Breakeven includes a 0.1% buffer for taker fees (0.04% * 2 + safety)
+        const feeBuffer = 0.001;
+        const isProfitable = trade.direction === 'LONG'
+           ? currentSlPrice >= trade.entry_price * (1 + feeBuffer)
+           : currentSlPrice <= trade.entry_price * (1 - feeBuffer);
+
+        const canAdapt = adaptiveAttempts < MAX_ADAPTIVE_ATTEMPTS && isProfitable;
+
+        if (canAdapt) {
+           adaptiveAttempts++;
+           const multiplier = Math.pow(2, adaptiveAttempts);
+           const config = this.sessionState.config;
+           const bufferPct = (config?.trailing_guard_buffer_pct ?? CONFIG_LIMITS.TRAILING_GUARD_DEFAULT) * multiplier;
+
+           let adjustedSl: number;
+           if (trade.direction === 'LONG') {
+              adjustedSl = currentMarketPrice * (1 - bufferPct / 100);
+              // Hard floor at entry price to ensure we don't turn a profit into a loss
+              adjustedSl = Math.max(adjustedSl, trade.entry_price * (1 + feeBuffer));
+           } else {
+              adjustedSl = currentMarketPrice * (1 + bufferPct / 100);
+              adjustedSl = Math.min(adjustedSl, trade.entry_price * (1 - feeBuffer));
+           }
+
+           const logMsg = `[Adaptive SL] Pre-emptive breach for ${trade.symbol}. Multiplier x${multiplier}: ${currentSlPrice.toFixed(5)} -> ${adjustedSl.toFixed(5)} (Attempt ${adaptiveAttempts}/${MAX_ADAPTIVE_ATTEMPTS})`;
+           this.logger.warn(logMsg);
+           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: logMsg, level: 'warn' });
+
+           currentSlPrice = adjustedSl;
+               continue adaptiveLoop;
+        }
+
+        this.logger.warn(`[${trade.id.substring(0, 8)}] ${trade.symbol} SL ${currentSlPrice} already breached by price ${currentMarketPrice}. Adaptive limit reached or not profitable. Closing.`);
         this.eventEmitter.emit('trade.exchange_close', {
           symbol: trade.symbol,
-          exitPrice: currentPrice,
+          exitPrice: currentMarketPrice,
           reason: 'SL_HIT'
         });
-        return 'TRIGGERED_LOCALLY';
+        return { orderId: 'TRIGGERED_LOCALLY', price: currentSlPrice };
       }
     }
 
@@ -722,16 +759,16 @@ export class OrderManagerService {
     }
 
     // PERFORMANCE: Implement retry for network errors
-    let attempts = 0;
-    const MAX_ATTEMPTS = 2;
+    let networkAttempts = 0;
+    const MAX_NETWORK_ATTEMPTS = 2;
 
-    while (attempts < MAX_ATTEMPTS) {
+    while (networkAttempts < MAX_NETWORK_ATTEMPTS) {
     const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
     const filters = this.marketFeed.getSymbolFilters(trade.symbol);
     const symbol = trade.symbol;
 
     try {
-      attempts++;
+      networkAttempts++;
 
       const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
       const tickSize = parseFloat(priceFilter?.tickSize || '0');
@@ -786,16 +823,49 @@ export class OrderManagerService {
               throw new Error(`SL Order ID duplicate but query failed: ${msg}`);
             }
           } else if (code === -2021) {
-            // "Order would immediately trigger" - This means price is already at/past our SL
+            // Adaptive Buffer Strategy: If profitable, try widening buffer
+            const feeBuffer = 0.001;
+            const isProfitable = trade.direction === 'LONG'
+               ? currentSlPrice >= trade.entry_price * (1 + feeBuffer)
+               : currentSlPrice <= trade.entry_price * (1 - feeBuffer);
+
+            const canAdapt = adaptiveAttempts < MAX_ADAPTIVE_ATTEMPTS && isProfitable;
+
+            if (canAdapt) {
+               adaptiveAttempts++;
+               const multiplier = Math.pow(2, adaptiveAttempts);
+               const config = this.sessionState.config;
+               const bufferPct = (config?.trailing_guard_buffer_pct ?? CONFIG_LIMITS.TRAILING_GUARD_DEFAULT) * multiplier;
+
+               const ticker = this.tickerCache.getTicker(symbol);
+               const refPrice = ticker?.mark_price || ticker?.price || currentMarketPrice || currentSlPrice;
+
+               let adjustedSl: number;
+               if (trade.direction === 'LONG') {
+                  adjustedSl = refPrice * (1 - bufferPct / 100);
+                  adjustedSl = Math.max(adjustedSl, trade.entry_price * (1 + feeBuffer));
+               } else {
+                  adjustedSl = refPrice * (1 + bufferPct / 100);
+                  adjustedSl = Math.min(adjustedSl, trade.entry_price * (1 - feeBuffer));
+               }
+
+               const logMsg = `[Adaptive SL] Binance rejected -2021 for ${trade.symbol}. Multiplier x${multiplier}: ${currentSlPrice.toFixed(5)} -> ${adjustedSl.toFixed(5)} (Attempt ${adaptiveAttempts}/${MAX_ADAPTIVE_ATTEMPTS})`;
+               this.logger.warn(logMsg);
+               this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: logMsg, level: 'warn' });
+
+               currentSlPrice = adjustedSl;
+               continue adaptiveLoop;
+            }
+
             const warnMsg = `[${symbol}] SL REJECTED: Price overran target (Code: -2021). Forcing emergency local close.`;
             this.logger.warn(warnMsg);
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: warnMsg, level: 'warn' });
             this.eventEmitter.emit('trade.exchange_close', {
               symbol,
-              exitPrice: this.tickerCache.getPrice(symbol) || slPrice,
+              exitPrice: this.tickerCache.getPrice(symbol) || currentSlPrice,
               reason: 'SL_HIT'
             });
-            return 'TRIGGERED_LOCALLY';
+            return { orderId: 'TRIGGERED_LOCALLY', price: currentSlPrice };
           } else if (code === -4044 || code === -4045 || code === -1116) {
             // "Account position is empty", "Position side does not match", or "ReduceOnly invalid" - Already closed!
             const syncMsg = `[${symbol}] SL REJECTED: Position already closed on exchange (Code: ${code}). Syncing state.`;
@@ -806,7 +876,7 @@ export class OrderManagerService {
                exitPrice: this.tickerCache.getPrice(symbol) || trade.entry_price,
                reason: 'EXCHANGE_SYNC'
             });
-            return 'TRIGGERED_LOCALLY';
+            return { orderId: 'TRIGGERED_LOCALLY', price: trade.entry_price };
           } else {
             const errorMsg = `[${symbol}] SL REJECTED: ${msg} (Code: ${code})`;
             this.logger.warn(errorMsg);
@@ -847,16 +917,50 @@ export class OrderManagerService {
             this.logger.error(`Standard SL fallback failed: ${fallbackErr.message}`);
             throw fallbackErr;
           }
-        } else if (msg.includes('Order would immediately trigger') || msg.includes('-2021') || msg.includes('-4115') || msg.includes('-4118')) {
+        } else if (msg.includes('Order would immediately trigger') || msg.includes('-2021') || msg.includes('-2010') || msg.includes('-4115') || msg.includes('-4118')) {
+          // Adaptive Buffer Strategy (Exception variant)
+          const feeBuffer = 0.001;
+          const isProfitable = trade.direction === 'LONG'
+             ? currentSlPrice >= trade.entry_price * (1 + feeBuffer)
+             : currentSlPrice <= trade.entry_price * (1 - feeBuffer);
+
+          const canAdapt = adaptiveAttempts < MAX_ADAPTIVE_ATTEMPTS && isProfitable;
+
+          if (canAdapt) {
+             adaptiveAttempts++;
+             const multiplier = Math.pow(2, adaptiveAttempts);
+             const config = this.sessionState.config;
+             const bufferPct = (config?.trailing_guard_buffer_pct ?? CONFIG_LIMITS.TRAILING_GUARD_DEFAULT) * multiplier;
+
+             const ticker = this.tickerCache.getTicker(symbol);
+             const refPrice = ticker?.mark_price || ticker?.price || currentMarketPrice || currentSlPrice;
+
+             let adjustedSl: number;
+             if (trade.direction === 'LONG') {
+                adjustedSl = refPrice * (1 - bufferPct / 100);
+                adjustedSl = Math.max(adjustedSl, trade.entry_price * (1 + feeBuffer));
+             } else {
+                adjustedSl = refPrice * (1 + bufferPct / 100);
+                adjustedSl = Math.min(adjustedSl, trade.entry_price * (1 - feeBuffer));
+             }
+
+             const logMsg = `[Adaptive SL] Binance rejected SL (exception) for ${trade.symbol}. Multiplier x${multiplier}: ${currentSlPrice.toFixed(5)} -> ${adjustedSl.toFixed(5)} (Attempt ${adaptiveAttempts}/${MAX_ADAPTIVE_ATTEMPTS})`;
+             this.logger.warn(logMsg);
+             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: logMsg, level: 'warn' });
+
+             currentSlPrice = adjustedSl;
+             continue adaptiveLoop;
+          }
+
           const warnMsg = `[${symbol}] SL REJECTED: Price protection or trigger breach (Code: ${msg}). Forcing emergency close.`;
           this.logger.warn(warnMsg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: warnMsg, level: 'warn' });
           this.eventEmitter.emit('trade.exchange_close', {
             symbol,
-            exitPrice: this.tickerCache.getPrice(symbol) || slPrice,
+            exitPrice: this.tickerCache.getPrice(symbol) || currentSlPrice,
             reason: 'SL_HIT'
           });
-          return 'TRIGGERED_LOCALLY';
+          return { orderId: 'TRIGGERED_LOCALLY', price: currentSlPrice };
         } else if (msg.includes('Account position is empty') || msg.includes('-4044') || msg.includes('-4045') || msg.includes('-4141') || msg.includes('-1116')) {
           const syncMsg = `[${symbol}] SL REJECTED: Position mismatch or closed (Code: ${msg}). Syncing state.`;
           this.logger.log(syncMsg);
@@ -866,7 +970,7 @@ export class OrderManagerService {
              exitPrice: this.tickerCache.getPrice(symbol) || trade.entry_price,
              reason: 'EXCHANGE_SYNC'
           });
-          return 'TRIGGERED_LOCALLY';
+          return { orderId: 'TRIGGERED_LOCALLY', price: trade.entry_price };
         } else if (msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
           this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId (via exception) on SL retry. Recovering SL state...`);
           const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
@@ -888,23 +992,30 @@ export class OrderManagerService {
       }
       trade.binance_stop_order_id = stopLossId;
       trade.binance_stop_order_type = orderType;
-      const msgSl = `Binance SL order placed: ${trade.symbol} at ${slPrice} order_id=${stopLossId}`;
+
+      // Accuracy: Ensure local tracking reflects the final price used for placement
+      if (trade.current_sl !== currentSlPrice) {
+         this.logger.log(`[${trade.symbol}] Syncing local SL to adaptive placement price: ${trade.current_sl} -> ${currentSlPrice.toFixed(5)}`);
+         trade.current_sl = currentSlPrice;
+      }
+
+      const msgSl = `Binance SL order placed: ${trade.symbol} at ${currentSlPrice.toFixed(5)} (ID: ${stopLossId})`;
       this.logger.log(msgSl);
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgSl, level: 'info' });
 
       await this.auditLog.log({
         action: 'LIVE_SL_ORDER_PLACED',
         resourceId: trade.id,
-        details: { symbol: trade.symbol, slPrice, orderId: stopLossId }
+        details: { symbol: trade.symbol, slPrice: currentSlPrice, orderId: stopLossId, adaptive: adaptiveAttempts > 0 }
       });
       trade.updated_at = new Date();
-      return String(stopLossId);
+      return { orderId: String(stopLossId), price: currentSlPrice };
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       const isNetworkError = errMsg.includes('Network error') || errMsg.includes('timeout') || errMsg.includes('ECONNRESET');
 
-      if (isNetworkError && attempts < MAX_ATTEMPTS) {
-        this.logger.warn(`Network error placing SL for ${trade.symbol}. Retrying (Attempt ${attempts + 1}/${MAX_ATTEMPTS})...`);
+      if (isNetworkError && networkAttempts < MAX_NETWORK_ATTEMPTS) {
+        this.logger.warn(`Network error placing SL for ${trade.symbol}. Retrying (Attempt ${networkAttempts + 1}/${MAX_NETWORK_ATTEMPTS})...`);
         await new Promise(resolve => setTimeout(resolve, 1000));
         continue;
       }
@@ -917,15 +1028,15 @@ export class OrderManagerService {
             const flushRes = await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol: trade.symbol });
             this.updateWeight(flushRes?.headers);
 
-            if (attempts < MAX_ATTEMPTS) {
-              this.logger.log(`[${trade.symbol}] [Sync] Aggressive flush complete. Retrying SL placement (Attempt ${attempts + 1})...`);
+            if (networkAttempts < MAX_NETWORK_ATTEMPTS) {
+              this.logger.log(`[${trade.symbol}] [Sync] Aggressive flush complete. Retrying SL placement (Attempt ${networkAttempts + 1})...`);
               continue;
             }
          } catch (cleanupErr) {
             this.logger.error(`Failed to cleanup orphan conflict for ${trade.symbol}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`);
          }
-      } else if ((errMsg.includes('Time in Force') || errMsg.includes('GTE')) && attempts < MAX_ATTEMPTS) {
-         this.logger.warn(`Transient SL error for ${trade.symbol}: ${errMsg}. Retrying (Attempt ${attempts + 1}/${MAX_ATTEMPTS})...`);
+      } else if ((errMsg.includes('Time in Force') || errMsg.includes('GTE')) && networkAttempts < MAX_NETWORK_ATTEMPTS) {
+         this.logger.warn(`Transient SL error for ${trade.symbol}: ${errMsg}. Retrying (Attempt ${networkAttempts + 1}/${MAX_NETWORK_ATTEMPTS})...`);
          await new Promise(resolve => setTimeout(resolve, 500));
          continue;
       }
@@ -961,14 +1072,19 @@ export class OrderManagerService {
       return null;
     }
     }
+
+    // If we reached here, it means we exited the inner network loop without success or continue.
+    // Usually this is because network attempts were exhausted.
+    break;
+    }
     return null;
   }
 
   /**
    * Update an existing stop loss without protection gaps (Ratcheting)
    */
-  async updateStopLoss(trade: Trade, newSlPrice: number, prevSlPrice?: number): Promise<boolean> {
-    if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return true;
+  async updateStopLoss(trade: Trade, newSlPrice: number, prevSlPrice?: number): Promise<{ success: boolean, price?: number }> {
+    if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return { success: true, price: newSlPrice };
 
     // LOCK: Prevent Watchdog from interfering during the cancel/replace window
     this.ratchetLocks.set(trade.symbol, true);
@@ -1005,7 +1121,7 @@ export class OrderManagerService {
               this.logger.log(`[SL] Adopted existing order ${exchangeState.orderId} matches target price ${newSlPrice}.`);
               trade.binance_stop_order_id = String(exchangeState.orderId);
               trade.binance_stop_order_type = exchangeState.algoType ? 'algo' : 'standard';
-              return true;
+              return { success: true, price: currentExchangeSl };
            }
 
            this.logger.debug(`[SL] Replacing untracked/duplicate SL ${exchangeState.orderId} at ${currentExchangeSl}.`);
@@ -1013,9 +1129,9 @@ export class OrderManagerService {
         }
       }
 
-      const newSlId = await this.placeStopLoss(trade, newSlPrice);
-      if (newSlId) trade.updated_at = new Date();
-      return !!newSlId;
+      const result = await this.placeStopLoss(trade, newSlPrice);
+      if (result) trade.updated_at = new Date();
+      return { success: !!result, price: result?.price };
     } finally {
       this.ratchetLocks.delete(trade.symbol);
     }

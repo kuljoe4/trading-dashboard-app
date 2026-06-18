@@ -74,7 +74,8 @@ describe('OrderManagerService', () => {
           newClientOrderId: 'sl-test-sta'
         })
       );
-      expect(result).toBe('77777');
+      expect(result?.orderId).toBe('77777');
+      expect(result?.price).toBe(49500);
       expect(trade.binance_stop_order_type).toBe('algo');
     });
 
@@ -129,7 +130,8 @@ describe('OrderManagerService', () => {
         })
       );
       expect((mockBinanceClient.restAPI.newOrder.mock.calls[0][0] as any).triggerPrice).toBeUndefined();
-      expect(result).toBe('99999');
+      expect(result?.orderId).toBe('99999');
+      expect(result?.price).toBe(49500);
       expect(trade.binance_stop_order_type).toBe('standard');
     });
   });
@@ -379,7 +381,7 @@ describe('OrderManagerService', () => {
       // authoritative fillPrice is safe (50000 > SL 49500)
       const result = await service.placeStopLoss(trade, 49500, 50000);
 
-      expect(result).toBe('77777');
+      expect(result?.orderId).toBe('77777');
       expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalled();
     });
 
@@ -398,7 +400,7 @@ describe('OrderManagerService', () => {
       // authoritative fillPrice is breached (49400 < SL 49500)
       const result = await service.placeStopLoss(trade, 49500, 49400);
 
-      expect(result).toBe('TRIGGERED_LOCALLY');
+      expect(result?.orderId).toBe('TRIGGERED_LOCALLY');
       expect(mockBinanceClient.restAPI.newOrder).not.toHaveBeenCalled();
     });
   });
@@ -495,7 +497,7 @@ describe('OrderManagerService', () => {
 
       const result = await service.placeStopLoss(trade, 49500);
 
-      expect(result).toBe('TRIGGERED_LOCALLY');
+      expect(result?.orderId).toBe('TRIGGERED_LOCALLY');
       expect(emitSpy).toHaveBeenCalledWith('trade.exchange_close', expect.objectContaining({
         reason: 'SL_HIT',
         exitPrice: 49000
@@ -521,7 +523,7 @@ describe('OrderManagerService', () => {
 
       const result = await service.placeStopLoss(trade, 49500);
 
-      expect(result).toBe('TRIGGERED_LOCALLY');
+      expect(result?.orderId).toBe('TRIGGERED_LOCALLY');
       expect(emitSpy).toHaveBeenCalledWith('trade.exchange_close', expect.objectContaining({
         reason: 'EXCHANGE_SYNC'
       }));
@@ -547,7 +549,7 @@ describe('OrderManagerService', () => {
 
       const result = await service.placeStopLoss(trade, 49500);
 
-      expect(result).toBe('TRIGGERED_LOCALLY');
+      expect(result?.orderId).toBe('TRIGGERED_LOCALLY');
       expect(emitSpy).toHaveBeenCalledWith('trade.exchange_close', expect.objectContaining({
         reason: 'EXCHANGE_SYNC'
       }));
@@ -582,6 +584,86 @@ describe('OrderManagerService', () => {
       // Verify enter is now blocked
       const result = await service.enter('session_1', 'BTCUSDT', 'LONG', 50000, 0.1, 49000, null);
       expect(result.status).toBe(ExecutionStatus.CIRCUIT_OPEN);
+    });
+
+    it('implements Adaptive Buffer Strategy on -2021 (Immediate Trigger)', async () => {
+      await service.setBinanceClient(mockBinanceClient, false);
+      const trade = {
+        id: 'test-adaptive-id',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 0.1,
+        entry_price: 40000, // Profit is large
+        current_sl: 40500,
+        binance_order_id: '11111'
+      } as Trade;
+
+      // First call: rejected with -2021
+      mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValueOnce({
+        data: () => Promise.resolve({ code: -2021, msg: 'Order would immediately trigger.' }),
+        headers: {}
+      });
+
+      // Second call: success
+      mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValueOnce({
+        data: () => Promise.resolve({ algoId: '88888', algoStatus: 'NEW' }),
+        headers: {}
+      });
+
+      (service as any).tickerCache.getTicker.mockReturnValue({ mark_price: 49000 });
+      (service as any).marketFeed.getSymbolFilters = jest.fn().mockReturnValue({ filters: [] });
+
+      const logMsgSpy = jest.spyOn((service as any).eventEmitter, 'emit');
+
+      const result = await service.placeStopLoss(trade, 49500);
+
+      // Verify success on second attempt
+      expect(result?.orderId).toBe('88888');
+      expect(trade.binance_stop_order_id).toBe('88888');
+
+      // Verify adaptive log was emitted
+      expect(logMsgSpy).toHaveBeenCalledWith('engine.log', expect.objectContaining({
+        msg: expect.stringContaining('[Adaptive SL] Binance rejected -2021'),
+        level: 'warn'
+      }));
+
+      // Verify buffer widening:
+      // 1. Initial breach detected (pre-emptive) -> multiplier 2 -> 0.06%
+      // 2. Reject -2021 -> multiplier 4 -> 0.12%
+      // 49000 * (1 - 0.0012) = 48941.2
+      expect(trade.current_sl).toBeCloseTo(48941.2, 1);
+    });
+
+    it('stops adapting if SL reaches breakeven (Profitability Guard)', async () => {
+      await service.setBinanceClient(mockBinanceClient, false);
+      const trade = {
+        id: 'test-guard-id',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 0.1,
+        entry_price: 50000,
+        current_sl: 50050, // Barely in profit
+        binance_order_id: '11111'
+      } as Trade;
+
+      // rejected with -2021
+      mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValue({
+        data: () => Promise.resolve({ code: -2021, msg: 'Order would immediately trigger.' }),
+        headers: {}
+      });
+
+      (service as any).tickerCache.getTicker.mockReturnValue({ mark_price: 50010 });
+      (service as any).marketFeed.getSymbolFilters = jest.fn().mockReturnValue({ filters: [] });
+
+      const result = await service.placeStopLoss(trade, 50020);
+
+      // Should not adapt because 50020 is too close to 50000 (breakeven floor)
+      // Actually my guard logic: adjustedSl = Math.max(adjustedSl, trade.entry_price * (1 + feeBuffer));
+      // Buffer 50010 * 0.0006 = 30.
+      // 50010 - 30 = 49980.
+      // 49980 < 50050 (1.001 * 50000).
+      // Since it can't adapt profitably, it should trigger local close.
+      expect(result?.orderId).toBe('TRIGGERED_LOCALLY');
     });
   });
 });

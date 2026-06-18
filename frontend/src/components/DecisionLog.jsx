@@ -8,7 +8,7 @@ import { cn, CopyButton, VisuallyHidden } from './ui/primitives'
 const HIGHLIGHTS = {
   positive: ['BUY', 'PROFIT', 'TP', 'HIT', 'SUCCESS', 'STARTED', 'ENTER'],
   negative: ['SELL', 'LOSS', 'SL', 'REJECTED', 'ERROR', 'FAILED', 'STOPPED', 'CRITICAL'],
-  neutral: ['MONITORING', 'WARM-UP', 'SYNC', 'LIFECYCLE', 'RECONCILING']
+  neutral: ['MONITORING', 'WARM-UP', 'SYNC', 'LIFECYCLE', 'RECONCILING', 'ADAPTIVE']
 }
 
 const formatMessage = (msg) => {

@@ -182,9 +182,22 @@ export class PositionTrackerService {
           this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
           this.logSlAdjustment(trade, prevSl, newSl, currentIndex);
           // Update exchange-side SL in live mode
-          this.orderManager.updateStopLoss(trade, newSl, prevSl).then(success => {
-            if (!success) {
+          this.orderManager.updateStopLoss(trade, newSl, prevSl).then(res => {
+            if (!res.success) {
                this.logger.error(`[CRITICAL] Exchange SL update FAILED for ${symbol}. Local state is ahead of exchange.`);
+            } else if (res.price && res.price !== newSl) {
+               // Sync internal state to the adaptive price used by the exchange
+               const delta = (trade.direction === 'LONG' ? trade.entry_price - res.price : res.price - trade.entry_price) * trade.qty;
+               const finalRisk = Math.max(0, delta);
+               this._totalRisk = roundEight(this._totalRisk - trade.risk_usdt + finalRisk);
+               trade.risk_usdt = finalRisk;
+               trade.current_sl = res.price;
+
+               if (trade.sl_adjustments && trade.sl_adjustments.length > 0) {
+                  const last = trade.sl_adjustments[trade.sl_adjustments.length - 1];
+                  (last as any).adaptive = true;
+                  last.new_sl = res.price;
+               }
             }
           }).catch(err => {
             this.logger.error(`Failed to update exchange SL for ${symbol}: ${err.message}`);
@@ -202,9 +215,22 @@ export class PositionTrackerService {
           this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
           this.logSlAdjustment(trade, prevSl, newSl, currentIndex);
           // Update exchange-side SL in live mode
-          this.orderManager.updateStopLoss(trade, newSl, prevSl).then(success => {
-            if (!success) {
+          this.orderManager.updateStopLoss(trade, newSl, prevSl).then(res => {
+            if (!res.success) {
                this.logger.error(`[CRITICAL] Exchange SL update FAILED for ${symbol}. Local state is ahead of exchange.`);
+            } else if (res.price && res.price !== newSl) {
+               // Sync internal state to the adaptive price used by the exchange
+               const delta = (trade.direction === 'SHORT' ? res.price - trade.entry_price : trade.entry_price - res.price) * trade.qty;
+               const finalRisk = Math.max(0, delta);
+               this._totalRisk = roundEight(this._totalRisk - trade.risk_usdt + finalRisk);
+               trade.risk_usdt = finalRisk;
+               trade.current_sl = res.price;
+
+               if (trade.sl_adjustments && trade.sl_adjustments.length > 0) {
+                  const last = trade.sl_adjustments[trade.sl_adjustments.length - 1];
+                  (last as any).adaptive = true;
+                  last.new_sl = res.price;
+               }
             }
           }).catch(err => {
             this.logger.error(`Failed to update exchange SL for ${symbol}: ${err.message}`);
@@ -221,6 +247,7 @@ export class PositionTrackerService {
     prevSl: number,
     newSl: number,
     milestoneIndex: number,
+    adaptive = false,
   ): void {
     const adjustment = {
       timestamp: new Date().toISOString(),
@@ -229,6 +256,7 @@ export class PositionTrackerService {
       reason: `RR_sequence_milestone_${milestoneIndex}`,
       milestone_index: milestoneIndex,
       max_rr_achieved: trade.max_rr_achieved,
+      adaptive,
     };
 
     if (!trade.sl_adjustments) {

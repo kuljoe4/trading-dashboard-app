@@ -512,7 +512,16 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                           <span className="text-dim/30">→</span>
                           <span className="font-mono font-bold text-accent">{price(adj.new_sl)}</span>
                         </div>
-                        <span className="text-dim/60 text-[9px] uppercase tracking-[0.1em]">{adj.reason}</span>
+                        <div className="flex items-center gap-2">
+                           <span className="text-dim/60 text-[9px] uppercase tracking-[0.1em]">{adj.reason}</span>
+                           {adj.adaptive && (
+                              <Tooltip content="Adaptive Guard: This adjustment was automatically widened to prevent exchange rejection or instant fill due to high volatility.">
+                                 <span className="bg-amber/10 text-amber px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter flex items-center gap-1 border border-amber/20">
+                                    <Activity size={8} /> Adaptive
+                                 </span>
+                              </Tooltip>
+                           )}
+                        </div>
                       </div>
                       {i === 0 && (
                         <div className="flex flex-col items-end gap-1">

@@ -78,7 +78,22 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
 
   @OnEvent('binance.order_update')
   async handleBinanceOrderUpdate(payload: any) {
+    if (payload?.e === 'ORDER_TRADE_UPDATE') {
+      const o = payload.o;
+      this.logger.log(`⚙️ [WS INBOUND] Received ORDER_TRADE_UPDATE | ClientID: ${o?.c} | Symbol: ${o?.s} | Status: ${o?.X} | AvgPrice: ${o?.ap} | LastPrice: ${o?.L}`);
+
+      if (o?.c) {
+        const fillPrice = parseFloat(o.ap || o.L || '0');
+        if (fillPrice > 0) {
+          this.lastFills.set(o.c, { price: fillPrice, timestamp: Date.now() });
+          this.logger.log(`💾 [CACHE WRITE] Key: "${o.c}" stored with value: ${fillPrice}`);
+        }
+      }
+    }
+
     const order = payload.o;
+    if (!order) return;
+
     const symbol = order.s;
     const status = order.X; // Order Status
     const clientOrderId = order.c;
@@ -1438,28 +1453,34 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
   private async recoverLastExecutionPrice(symbol: string, trade: Trade, estimate: number): Promise<number> {
     if (!this.binanceClient || this.paperMode) return estimate;
 
+    const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
     // BOLT: Identify the specific order we are looking for to prevent cache collision
     const possibleKeys = [];
     if (trade.binance_stop_order_id) possibleKeys.push(trade.binance_stop_order_id);
     if (trade.binance_order_id) possibleKeys.push(trade.binance_order_id);
     if (trade.binance_close_order_id) possibleKeys.push(trade.binance_close_order_id);
-    possibleKeys.push(`sl-${trade.id.substring(0, 8)}`);
+    possibleKeys.push(`sl-${tradeIdShort8}`);
     possibleKeys.push(`cls-${trade.id.replace(/-/g, '').substring(0, 20)}`);
+    possibleKeys.push(`ent-${trade.id.replace(/-/g, '').substring(0, 20)}`);
+
+    this.logger.log(`🔍 [CACHE READ] Checking lastFills map for Trade: "${tradeIdShort8}" | Keys: ${possibleKeys.join(', ')}`);
 
     // 1. FAST PATH: Check UDS fill cache with Smart Retry (Option A)
-    // We wait up to 200ms to allow WebSocket events to arrive and populate the cache.
-    for (let attempt = 0; attempt < 8; attempt++) {
+    // We wait up to 100ms (5 * 20ms) to allow WebSocket events to arrive and populate the cache.
+    for (let attempt = 0; attempt < 5; attempt++) {
       for (const key of possibleKeys) {
         const cached = this.lastFills.get(key);
         if (cached && Date.now() - cached.timestamp < 30000) {
-          this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] Sync Recovery: Found UDS fill price ${cached.price} for key ${key} (Attempt ${attempt + 1})`);
-          return cached.price;
+          this.logger.log(`🎯 [CACHE HIT] Found price ${cached.price} for Key: "${key}" (Attempt ${attempt + 1})`);
+          return (cached as any).price;
         }
       }
-      if (attempt < 7) {
-        await new Promise(resolve => setTimeout(resolve, 25));
+      if (attempt < 4) {
+        await new Promise(resolve => setTimeout(resolve, 20));
       }
     }
+
+    this.logger.warn(`❌ [CACHE MISS] Trade "${tradeIdShort8}" not in cache after 5 retries. Checking timing details...`);
 
     try {
       const tradesRes = await this.binanceClient.restAPI.accountTradeList({ symbol, limit: 5 });

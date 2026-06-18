@@ -250,7 +250,7 @@ describe('OrderManagerService', () => {
   });
 
   describe('closeTrade', () => {
-    it('cancels active SL order before closing trade', async () => {
+    it('cancels active SL order explicitly before global flush', async () => {
       await service.setBinanceClient(mockBinanceClient, false);
       const trade = {
         id: 'test-id-12345678',
@@ -259,16 +259,35 @@ describe('OrderManagerService', () => {
         qty: 0.1,
         entry_price: 50000,
         binance_order_id: '11111',
-        binance_stop_order_id: '44444',
+        binance_stop_order_id: 'algo-sl-999',
+        binance_stop_order_type: 'algo'
       } as Trade;
+
+      const logSpy = jest.spyOn((service as any).logger, 'log');
 
       await service.closeTrade('BTCUSDT', trade, 51000, 'TP_HIT');
 
+      // Verify explicit cancellation of Algo SL
+      expect(mockBinanceClient.restAPI.cancelAlgoOrder).toHaveBeenCalledWith(
+        expect.objectContaining({
+          symbol: 'BTCUSDT',
+          algoId: 'algo-sl-999'
+        })
+      );
+
+      // Verify subsequent global flush
       expect(mockBinanceClient.restAPI.cancelAllOpenOrders).toHaveBeenCalledWith(
         expect.objectContaining({
           symbol: 'BTCUSDT'
         })
       );
+
+      // Verify logs show the sequence
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Canceling known SL order algo-sl-999 (algo)'));
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('SL order algo-sl-999 canceled successfully'));
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Flushing ALL remaining open orders'));
+
+      logSpy.mockRestore();
     });
 
     it('aggressively clears order board during SL_PLACEMENT_FAILURE', async () => {

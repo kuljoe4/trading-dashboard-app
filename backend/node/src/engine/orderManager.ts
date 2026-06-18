@@ -1264,36 +1264,47 @@ export class OrderManagerService {
 
       // In live mode, place close order with reduce-only for safety
       if (!paperMode && !localOnly && this.binanceClient && trade.binance_order_id) {
-      // INDUSTRY-BEST-PRACTICE: Critical cleanup-on-close safety net.
-      // Flush ALL open orders for this symbol to prevent orphans.
-      try {
-        this.logger.log(`[${symbol}] [Sync] Finalizing trade closure. Flushing ALL open orders to eliminate potential orphans...`);
-        await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol });
-        trade.binance_stop_order_id = undefined;
-      } catch (flushErr: any) {
-        this.logger.warn(`[${symbol}] [Sync] Cleanup-on-close flush failed: ${flushErr.message}`);
-      }
-
         trade.close_attempts = attempts + 1;
         trade.last_close_attempt_ts = nowTs;
 
         try {
-          // SECURITY: Aggressively clear the order board for this symbol before emergency unwinds.
-          // This prevents orphan SL/TP orders from triggering new unmanaged positions.
-          if (exitReason === 'SL_PLACEMENT_FAILURE' || exitReason === 'SLIPPAGE_ABORT') {
-            this.logger.warn(`[${symbol}] Initiating critical unwind sweep. Clearing ALL open orders...`);
+          // 1. Explicitly cancel the known Stop Loss order first (Algo or Standard)
+          // We wrap this in a non-blocking try-catch to ensure failures don't abort the entire closure.
+          if (trade.binance_stop_order_id) {
             try {
-              // fapi/v1/allOpenOrders cancels ALL open orders for a symbol including Algo orders
+              this.logger.log(`[${symbol}] [Sync] Canceling known SL order ${trade.binance_stop_order_id} (${trade.binance_stop_order_type || 'standard'})...`);
+              const canceled = await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type as any);
+              if (canceled) {
+                this.logger.log(`[${symbol}] [Sync] SL order ${trade.binance_stop_order_id} canceled successfully.`);
+              } else {
+                this.logger.warn(`[${symbol}] [Sync] SL order cancellation returned false. Proceeding with flush.`);
+              }
+            } catch (cancelErr: any) {
+              this.logger.error(`[${symbol}] [Sync] Failed to cancel orphan SL: ${cancelErr.message}`);
+            }
+            trade.binance_stop_order_id = undefined;
+          }
+
+          // 2. Critical cleanup-on-close safety net: Flush ALL remaining open orders for this symbol.
+          // This handles any manual orders, TP orders, or orphaned SLs the engine isn't tracking.
+          try {
+            this.logger.log(`[${symbol}] [Sync] Finalizing trade closure. Flushing ALL remaining open orders to eliminate potential orphans...`);
+            const flushRes = await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol });
+            this.updateWeight(flushRes?.headers);
+            this.logger.log(`[${symbol}] [Sync] Global symbol flush complete.`);
+          } catch (flushErr: any) {
+            this.logger.warn(`[${symbol}] [Sync] Cleanup-on-close flush failed: ${flushErr.message}`);
+          }
+
+          // 3. Handle specific emergency unwinds
+          if (exitReason === 'SL_PLACEMENT_FAILURE' || exitReason === 'SLIPPAGE_ABORT') {
+            this.logger.warn(`[${symbol}] Initiating critical unwind sweep. Ensuring ALL open orders are dead...`);
+            try {
               await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol });
-              this.logger.log(`[${symbol}] Pre-unwind target sweep complete. All active orders killed.`);
-              trade.binance_stop_order_id = undefined;
+              this.logger.log(`[${symbol}] Pre-unwind target sweep complete.`);
             } catch (sweepErr: any) {
               this.logger.error(`[${symbol}] Pre-unwind sweep failed: ${sweepErr.message}`);
             }
-          } else if (trade.binance_stop_order_id) {
-            // Standard close: just cancel the known SL
-            await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type as any);
-            trade.binance_stop_order_id = undefined;
           }
 
           const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';

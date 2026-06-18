@@ -12,19 +12,19 @@ const POWERS_OF_10 = [1, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10];
  * Approximately 40x faster than previous implementation.
  */
 export function roundEight(value: number): number {
-  return Math.round(value * 1e8) / 1e8;
+  // Industry Standard: Use toFixed to eliminate floating-point noise (.0000000000002)
+  return parseFloat(value.toFixed(8));
 }
 
 /**
- * BOLT OPTIMIZATION: Rounds to a specific number of decimal places using pre-allocated powers of 10.
- * Replaced toFixed() + Number() with math-based rounding to avoid string allocations and parsing.
- * Approximately 8-10x faster than toFixed().
+ * Rounds to a specific number of decimal places.
+ * Uses toFixed() + parseFloat() to ensure clean decimal representation and eliminate floating-point noise.
+ * This is the Industry Standard for financial applications where precision is more critical than raw micro-speed.
  */
 export function roundTo(value: number | undefined | null, decimals: number): number {
   if (value === undefined || value === null || value === 0 || !Number.isFinite(value)) return 0;
-  const p = decimals < POWERS_OF_10.length ? POWERS_OF_10[decimals] : Math.pow(10, decimals);
-  // Add Number.EPSILON to handle floating point precision errors (e.g. 1.005 rounding correctly to 1.01)
-  return Math.round((value + Number.EPSILON) * p) / p;
+  const safeDecimals = Math.min(20, Math.max(0, decimals));
+  return parseFloat(value.toFixed(safeDecimals));
 }
 
 /**

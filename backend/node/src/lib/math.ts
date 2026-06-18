@@ -28,6 +28,23 @@ export function roundTo(value: number | undefined | null, decimals: number): num
 }
 
 /**
+ * Calculates the number of decimal places for a given tick/step size.
+ */
+export function getPrecision(size: number): number {
+  if (!size || size <= 0) return 8;
+  const precision = Math.round(Math.abs(Math.log10(size)));
+  return Math.min(20, Math.max(0, precision));
+}
+
+/**
+ * Formats a price or quantity to a string with the correct precision for the exchange.
+ */
+export function formatPrice(value: number, tickSize: number): string {
+  const precision = getPrecision(tickSize);
+  return value.toFixed(precision);
+}
+
+/**
  * BOLT OPTIMIZATION: Rounds down to a step size (e.g. for Binance LOT_SIZE)
  * Refactored to use roundTo instead of toFixed() to eliminate string overhead in the hot path.
  */

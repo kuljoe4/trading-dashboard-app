@@ -10,7 +10,7 @@ import { MonitoringService } from './monitoring.service';
 import { SessionStateService } from './session_state.service';
 import { AuditLogService } from '../trading/audit-log.service';
 import { v4 as uuid } from 'uuid';
-import { roundEight, floorStep, roundTo, formatSlType } from '../lib/math';
+import { roundEight, floorStep, roundTo, formatSlType, getPrecision } from '../lib/math';
 import { ENGINE_CONSTANTS, CONFIG_LIMITS } from '../models/constants';
 import { ENGINE_EVENTS } from './events';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -32,6 +32,9 @@ export class OrderManagerService {
 
   // Audit Item 13: In-flight ratchet locks to prevent Watchdog race conditions
   private ratchetLocks: Map<string, boolean> = new Map();
+
+  // Performance: Authoritative fill price cache from User Data Stream to minimize REST latency
+  private lastFills: Map<string, { price: number, timestamp: number }> = new Map();
 
   constructor(
     private readonly signalEngine: SignalEngineService,
@@ -77,6 +80,11 @@ export class OrderManagerService {
           this.logger.log(`[${tradeIdShort8}] Binance SL HIT for ${symbol}. Closing trade locally.`);
           let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
 
+          // Cache authoritative fill price for Sync Recovery
+          if (exitPrice > 0) {
+            this.lastFills.set(symbol, { price: exitPrice, timestamp: Date.now() });
+          }
+
           if (exitPrice === 0) {
              const tickerPrice = this.tickerCache.getPrice(symbol);
              this.logger.warn(`[${tradeIdShort8}] Binance WS returned 0 price for ${symbol} SL. Using ticker fallback: ${tickerPrice}`);
@@ -107,6 +115,11 @@ export class OrderManagerService {
         else if (status === 'FILLED' && side !== (trade.direction === 'LONG' ? 'BUY' : 'SELL')) {
            this.logger.log(`[${tradeIdShort8}] Non-entry order FILLED for ${symbol} (${side}). Closing trade locally.`);
            let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
+
+           // Cache authoritative fill price for Sync Recovery
+           if (exitPrice > 0) {
+             this.lastFills.set(symbol, { price: exitPrice, timestamp: Date.now() });
+           }
 
            if (exitPrice === 0) {
               const tickerPrice = this.tickerCache.getPrice(symbol);
@@ -251,10 +264,11 @@ export class OrderManagerService {
     const priceFilter = filters.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
     if (priceFilter) {
       const tickSize = parseFloat(priceFilter.tickSize);
+      const precision = getPrecision(tickSize);
       const rounding = options.priceRounding || 'round';
-      if (rounding === 'floor') finalPrice = roundEight(Math.floor(price / tickSize) * tickSize);
-      else if (rounding === 'ceil') finalPrice = roundEight(Math.ceil(price / tickSize) * tickSize);
-      else finalPrice = roundEight(Math.round(price / tickSize) * tickSize);
+      if (rounding === 'floor') finalPrice = roundTo(Math.floor(price / tickSize) * tickSize, precision);
+      else if (rounding === 'ceil') finalPrice = roundTo(Math.ceil(price / tickSize) * tickSize, precision);
+      else finalPrice = roundTo(Math.round(price / tickSize) * tickSize, precision);
     }
 
     // PERCENT_PRICE Validation
@@ -426,11 +440,11 @@ export class OrderManagerService {
 
           const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
           const stepSize = parseFloat(lotSize?.stepSize || '0');
-          const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
+          const qtyPrecision = getPrecision(stepSize);
 
           const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
           const tickSize = parseFloat(priceFilter?.tickSize || '0');
-          const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
+          const pricePrecision = getPrecision(tickSize);
 
           const entryOrderId = `ent-${trade.id.replace(/-/g, '').substring(0, 20)}`;
           if (entryOrderId.length > 36) {
@@ -706,6 +720,12 @@ export class OrderManagerService {
 
     if (currentMarketPrice && currentMarketPrice > 0) {
       const isBreached = trade.direction === 'LONG' ? currentMarketPrice <= currentSlPrice : currentMarketPrice >= currentSlPrice;
+
+      const filters = this.marketFeed.getSymbolFilters(trade.symbol);
+      const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
+      const tickSize = parseFloat(priceFilter?.tickSize || '0');
+      const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
+
       if (isBreached) {
         // PROFITABILITY GUARD: Only adapt if current SL is already in profit (above breakeven)
         // Breakeven includes a 0.1% buffer for taker fees (0.04% * 2 + safety)
@@ -732,7 +752,7 @@ export class OrderManagerService {
               adjustedSl = Math.min(adjustedSl, trade.entry_price * (1 - feeBuffer));
            }
 
-           const logMsg = `[Adaptive SL] Pre-emptive breach for ${trade.symbol}. Multiplier x${multiplier}: ${currentSlPrice.toFixed(5)} -> ${adjustedSl.toFixed(5)} (Attempt ${adaptiveAttempts}/${MAX_ADAPTIVE_ATTEMPTS})`;
+           const logMsg = `[Adaptive SL] Pre-emptive breach for ${trade.symbol}. Multiplier x${multiplier}: ${currentSlPrice.toFixed(pricePrecision)} -> ${adjustedSl.toFixed(pricePrecision)} (Attempt ${adaptiveAttempts}/${MAX_ADAPTIVE_ATTEMPTS})`;
            this.logger.warn(logMsg);
            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: logMsg, level: 'warn' });
 
@@ -772,11 +792,11 @@ export class OrderManagerService {
 
       const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
       const tickSize = parseFloat(priceFilter?.tickSize || '0');
-      const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
+    const pricePrecision = getPrecision(tickSize);
 
       const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
       const stepSize = parseFloat(lotSize?.stepSize || '0');
-      const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
+    const qtyPrecision = getPrecision(stepSize);
 
       // INDUSTRY-BEST-PRACTICE (2026): Standardize on standard STOP_MARKET orders for Stop Loss.
       // We use quantity and reduceOnly: true for maximum compatibility across all Binance environments (Testnet/Live).
@@ -849,7 +869,7 @@ export class OrderManagerService {
                   adjustedSl = Math.min(adjustedSl, trade.entry_price * (1 - feeBuffer));
                }
 
-               const logMsg = `[Adaptive SL] Binance rejected -2021 for ${trade.symbol}. Multiplier x${multiplier}: ${currentSlPrice.toFixed(5)} -> ${adjustedSl.toFixed(5)} (Attempt ${adaptiveAttempts}/${MAX_ADAPTIVE_ATTEMPTS})`;
+               const logMsg = `[Adaptive SL] Binance rejected -2021 for ${trade.symbol}. Multiplier x${multiplier}: ${currentSlPrice.toFixed(pricePrecision)} -> ${adjustedSl.toFixed(pricePrecision)} (Attempt ${adaptiveAttempts}/${MAX_ADAPTIVE_ATTEMPTS})`;
                this.logger.warn(logMsg);
                this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: logMsg, level: 'warn' });
 
@@ -944,7 +964,7 @@ export class OrderManagerService {
                 adjustedSl = Math.min(adjustedSl, trade.entry_price * (1 - feeBuffer));
              }
 
-             const logMsg = `[Adaptive SL] Binance rejected SL (exception) for ${trade.symbol}. Multiplier x${multiplier}: ${currentSlPrice.toFixed(5)} -> ${adjustedSl.toFixed(5)} (Attempt ${adaptiveAttempts}/${MAX_ADAPTIVE_ATTEMPTS})`;
+             const logMsg = `[Adaptive SL] Binance rejected SL (exception) for ${trade.symbol}. Multiplier x${multiplier}: ${currentSlPrice.toFixed(pricePrecision)} -> ${adjustedSl.toFixed(pricePrecision)} (Attempt ${adaptiveAttempts}/${MAX_ADAPTIVE_ATTEMPTS})`;
              this.logger.warn(logMsg);
              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: logMsg, level: 'warn' });
 
@@ -995,11 +1015,11 @@ export class OrderManagerService {
 
       // Accuracy: Ensure local tracking reflects the final price used for placement
       if (trade.current_sl !== currentSlPrice) {
-         this.logger.log(`[${trade.symbol}] Syncing local SL to adaptive placement price: ${trade.current_sl} -> ${currentSlPrice.toFixed(5)}`);
+         this.logger.log(`[${trade.symbol}] Syncing local SL to adaptive placement price: ${trade.current_sl} -> ${currentSlPrice.toFixed(pricePrecision)}`);
          trade.current_sl = currentSlPrice;
       }
 
-      const msgSl = `Binance SL order placed: ${trade.symbol} at ${currentSlPrice.toFixed(5)} (ID: ${stopLossId})`;
+      const msgSl = `Binance SL order placed: ${trade.symbol} at ${currentSlPrice.toFixed(pricePrecision)} (ID: ${stopLossId})`;
       this.logger.log(msgSl);
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgSl, level: 'info' });
 
@@ -1385,6 +1405,14 @@ export class OrderManagerService {
 
   private async recoverLastExecutionPrice(symbol: string, trade: Trade, estimate: number): Promise<number> {
     if (!this.binanceClient || this.paperMode) return estimate;
+
+    // 1. FAST PATH: Check UDS fill cache first (zero latency)
+    const cached = this.lastFills.get(symbol);
+    if (cached && Date.now() - cached.timestamp < 30000) {
+       this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] Sync Recovery: Found UDS fill price ${cached.price} (Estimate: ${estimate})`);
+       return cached.price;
+    }
+
     try {
       const tradesRes = await this.binanceClient.restAPI.accountTradeList({ symbol, limit: 5 });
       const trades = await tradesRes.data() as any;
@@ -1494,7 +1522,7 @@ export class OrderManagerService {
             const filters = this.marketFeed.getSymbolFilters(symbol);
             const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
             const stepSize = parseFloat(lotSize?.stepSize || '0');
-            const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
+            const qtyPrecision = getPrecision(stepSize);
 
             const clientOrderId = `cls-${trade.id.replace(/-/g, '').substring(0, 20)}`;
 
@@ -1661,7 +1689,11 @@ export class OrderManagerService {
                     const filters = this.marketFeed.getSymbolFilters(symbol);
                     const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
                     const stepSize = parseFloat(lotSize?.stepSize || '0');
-                    const limitQtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
+                    const limitQtyPrecision = getPrecision(stepSize);
+
+                    const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
+                    const tickSize = parseFloat(priceFilter?.tickSize || '0');
+                    const limitPricePrecision = getPrecision(tickSize);
 
                     const clientOrderId = `cls-lim-${trade.id.replace(/-/g, '').substring(0, 16)}`;
                     const limitResponse = await this.binanceClient.restAPI.newOrder({
@@ -1669,7 +1701,7 @@ export class OrderManagerService {
                       side: closeDirection,
                       type: 'LIMIT',
                       quantity: filteredLimit.qty.toFixed(limitQtyPrecision),
-                      price: filteredLimit.price.toFixed(8), // applyFilters already rounds to tickSize
+                      price: filteredLimit.price.toFixed(limitPricePrecision), // applyFilters already rounds to tickSize
                       timeInForce: 'IOC', // Immediate or Cancel: if it can't fill now at this price, cancel
                       reduceOnly: true,
                       newClientOrderId: clientOrderId

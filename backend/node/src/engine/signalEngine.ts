@@ -38,6 +38,7 @@ export class SignalEngineService {
     ema_price_cross: this.emaSignal.bind(this),
     ema_dual_cross: this.emaDualCrossSignal.bind(this),
     ema_close: this.emaCloseSignal.bind(this),
+    ema_dual_close: this.emaDualCloseSignal.bind(this),
   };
 
   constructor(private readonly klineStore: KlineStoreService) {}
@@ -62,7 +63,7 @@ export class SignalEngineService {
       } else if (signalType === 'ema' || signalType === 'ema_cross' || signalType === 'ema_price_cross' || signalType === 'ema_close') {
         const period = parseInt(params.entry_ema_period || params.ema_period || '12', 10);
         maxReq = Math.max(maxReq, period * 2);
-      } else if (signalType === 'ema_dual_cross') {
+      } else if (signalType === 'ema_dual_cross' || signalType === 'ema_dual_close') {
         const fast = parseInt(params.entry_ema_fast || '9', 10);
         const slow = parseInt(params.entry_ema_slow || '21', 10);
         maxReq = Math.max(maxReq, Math.max(fast, slow) * 2);
@@ -77,7 +78,7 @@ export class SignalEngineService {
         if (signalType === 'ema_close') {
           const period = parseInt(params.exit_ema_period || params.ema_period || '12', 10);
           maxReq = Math.max(maxReq, period * 2);
-        } else if (signalType === 'ema_dual_cross') {
+        } else if (signalType === 'ema_dual_cross' || signalType === 'ema_dual_close') {
           const fast = parseInt(params.exit_ema_fast || '9', 10);
           const slow = parseInt(params.exit_ema_slow || '21', 10);
           maxReq = Math.max(maxReq, Math.max(fast, slow) * 2);
@@ -425,6 +426,79 @@ export class SignalEngineService {
     } catch (error) {
       this.logger.debug(`EMA Dual Cross signal error: ${error instanceof Error ? error.message : String(error)}`);
       return { fired: false, value: 0, threshold: 0, unit: 'error', metric: 'EMA Dual', description: 'Signal error' };
+    }
+  }
+
+  private emaDualCloseSignal(
+    symbol: string,
+    config: any,
+    interval: string,
+    side?: 'LONG' | 'SHORT',
+    purpose: 'entry' | 'exit' = 'entry',
+  ): SignalDetail {
+    try {
+      const params = config.signal_params || {};
+      const fastPeriod = purpose === 'exit'
+        ? parseInt(params.exit_ema_fast || '9', 10)
+        : parseInt(params.entry_ema_fast || '9', 10);
+      const slowPeriod = purpose === 'exit'
+        ? parseInt(params.exit_ema_slow || '21', 10)
+        : parseInt(params.entry_ema_slow || '21', 10);
+
+      const maxPeriod = Math.max(fastPeriod, slowPeriod);
+      const candles = this.klineStore.getRawCandles(symbol, interval);
+      if (candles.length < maxPeriod + 1) {
+        return {
+          fired: false,
+          value: 0,
+          threshold: 0,
+          unit: 'price',
+          metric: 'EMA Dual Close',
+          description: 'Insufficient candle data',
+          insufficientData: true,
+        };
+      }
+
+      const fastRes = this.calculateEMA(candles, fastPeriod, interval, symbol, `EMA Dual Close Fast(${fastPeriod})`);
+      const slowRes = this.calculateEMA(candles, slowPeriod, interval, symbol, `EMA Dual Close Slow(${slowPeriod})`);
+
+      const fastEma = fastRes.value;
+      const slowEma = slowRes.value;
+      const currClose = candles[candles.length - 1].close;
+
+      let fired = false;
+      const threshold = side === 'SHORT' ? Math.min(fastEma, slowEma) : Math.max(fastEma, slowEma);
+
+      if (purpose === 'entry') {
+        if (side === 'LONG') fired = currClose > fastEma && currClose > slowEma;
+        else if (side === 'SHORT') fired = currClose < fastEma && currClose < slowEma;
+        else fired = true;
+      } else {
+        // Exit: price crosses opposite of entry trend
+        if (side === 'LONG') fired = currClose < fastEma || currClose < slowEma;
+        else if (side === 'SHORT') fired = currClose > fastEma || currClose > slowEma;
+        else fired = false;
+      }
+
+      return {
+        fired,
+        value: roundTo(currClose, 2),
+        threshold: roundTo(threshold, 2),
+        insufficientData: fastRes.insufficientData || slowRes.insufficientData,
+        unit: 'price',
+        metric: purpose === 'exit' ? 'Exit EMA Dual Close' : 'Entry EMA Dual Close',
+        description: `Price ${fired ? 'is' : 'not'} favorably aligned with EMA(${fastPeriod}) and EMA(${slowPeriod})`,
+      };
+    } catch (error) {
+      this.logger.debug(`EMA Dual Close signal error: ${error instanceof Error ? error.message : String(error)}`);
+      return {
+        fired: false,
+        value: 0,
+        threshold: 0,
+        unit: 'error',
+        metric: 'EMA Dual Close',
+        description: 'Signal error',
+      };
     }
   }
 

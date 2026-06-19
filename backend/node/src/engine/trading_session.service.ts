@@ -393,7 +393,18 @@ export class TradingSessionService implements OnApplicationShutdown {
 
       const start = performance.now();
       const strategyConfigs = this.getStrategyConfigs(); const opportunitiesBySignature = new Map<string, any[]>(); let primaryOpportunities: any[] = [];
-      for (const sc of strategyConfigs) { const sig = this.scanSignature(sc); if (!opportunitiesBySignature.has(sig)) opportunitiesBySignature.set(sig, this.momentumScanner.scan(sc)); if (primaryOpportunities.length === 0) primaryOpportunities = opportunitiesBySignature.get(sig) || []; }
+
+      // BOLT: Strategy scanning is purely functional and can be parallelized to reduce Main Loop latency
+      const scanPromises = strategyConfigs.map(async (sc) => {
+        const sig = this.scanSignature(sc);
+        if (!opportunitiesBySignature.has(sig)) {
+          const results = this.momentumScanner.scan(sc);
+          opportunitiesBySignature.set(sig, results);
+        }
+      });
+      await Promise.all(scanPromises);
+      primaryOpportunities = opportunitiesBySignature.get(this.scanSignature(strategyConfigs[0])) || [];
+
       const scannerData = strategyConfigs.map(c => ({ strategy_label: c.strategy_label, opportunities: opportunitiesBySignature.get(this.scanSignature(c)) || [] }));
 
       if (this.sessionState.dashboardCount > 0) {

@@ -120,7 +120,7 @@ export class SignalEngineService {
           allFired: false,
           firedSignals: [],
           reason: `Indicator warm-up in progress (${candles.length}/${requiredWarmup} candles)`,
-          details: {
+          details: minimal ? undefined : {
             warmup: {
               fired: false,
               value: candles.length,
@@ -135,7 +135,8 @@ export class SignalEngineService {
       }
     }
 
-    for (const signalType of config.enabled_signals) {
+    for (let i = 0; i < config.enabled_signals.length; i++) {
+      const signalType = config.enabled_signals[i];
       const handler = this.signalHandlers[signalType];
       if (!handler) {
         failedSignals.push(signalType);
@@ -146,7 +147,7 @@ export class SignalEngineService {
       try {
         const result = handler(symbol, config, interval, side, purpose);
         const fired = typeof result === 'boolean' ? result : result.fired;
-        
+
         if (!minimal && typeof result !== 'boolean') {
           details[signalType] = result;
         }
@@ -583,6 +584,8 @@ export class SignalEngineService {
       if (cached) return cached;
     }
 
+    const prevCandle = candles[len - 2];
+
     const insufficientData = len < period * 2;
     if (insufficientData && symbol) {
       const warningKey = `${symbol}:EMA:${period}`;
@@ -598,7 +601,6 @@ export class SignalEngineService {
 
     // BOLT OPTIMIZATION: Try O(1) incremental path using stable prefix
     const stableKey = symbol ? `${symbol}:${interval}:${period}` : null;
-    const prevCandle = candles[len - 2];
     const stable = stableKey ? this.emaStableCache.get(stableKey) : null;
 
     if (stable && stable.time === prevCandle.time && stable.count === len - 1) {
@@ -665,6 +667,8 @@ export class SignalEngineService {
       if (cached) return cached;
     }
 
+    const prevCandle = candles[len - 2];
+
     const insufficientData = len < period * 2;
     if (insufficientData && symbol) {
       const warningKey = `${symbol}:${metric || 'EMA'}:${period}`;
@@ -686,7 +690,6 @@ export class SignalEngineService {
 
     // BOLT OPTIMIZATION: Try O(1) incremental path using stable prefix from last closed candle
     const stableKey = symbol ? `${symbol}:${interval}:${period}` : null;
-    const prevCandle = candles[len - 2];
     const stable = stableKey ? this.emaStableCache.get(stableKey) : null;
 
     if (stable && stable.time === prevCandle.time && stable.count === len - 1) {

@@ -181,7 +181,8 @@ export class RiskEngineService {
     }
 
     // BOLT OPTIMIZATION: Use cached closed trade stats if available for the current window
-    const cacheKey = `${closedTrades.length}_${closedTrades[0]?.id || 'none'}_${currentHour}_${Math.floor(dayAgo / 1000)}_${Math.floor(periodStartMs / 1000)}`;
+    // Use a high-resolution cache key to minimize O(N) scans.
+    const cacheKey = `${closedTrades.length}_${closedTrades[0]?.id || 'none'}_${currentHour}_${Math.floor(now / 1000)}`;
 
     if (this._closedStatsCache && this._closedStatsCache.key === cacheKey) {
       const s = this._closedStatsCache.stats;

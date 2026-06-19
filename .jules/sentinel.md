@@ -27,3 +27,13 @@
 **Vulnerability:** The CORS origin validation logic used a greedy `.*` regex for wildcards, allowing attackers to bypass origin checks by injecting the allowed domain into paths, query parameters, or fragments (e.g., `https://attacker.com/.example.com` matching `https://*.example.com`).
 **Learning:** Wildcards in security-sensitive string matching must be constrained to the expected character set. Hostname wildcards should never match path separators (`/`), query starts (`?`), or fragment identifiers (`#`).
 **Prevention:** Use restrictive character classes (e.g., `[^/?#]+`) instead of `.*` when generating regular expressions for wildcard matching in URLs or hostnames.
+
+## 2026-06-19 - [Unsafe Legacy Plaintext Fallback in Decryption]
+**Vulnerability:** The `decrypt` function returned the input string as-is if it didn't match the expected `iv:tag:encrypted` format, effectively bypassing encryption for any malformed or plaintext data.
+**Learning:** "Fail-open" logic in cryptographic functions can lead to accidental use of unencrypted sensitive data. If the data isn't in the expected secure format, the function must reject it and return a safe default (e.g., empty string) or throw an error.
+**Prevention:** Cryptographic utilities should strictly validate the input format and fail securely (return empty/throw) if the format is invalid or if authentication (MAC check) fails.
+
+## 2026-06-19 - [CPU Exhaustion DoS via Expensive Key Derivation]
+**Vulnerability:** The system performed a synchronous `scryptSync` operation on every encryption or decryption call, which could be leveraged to exhaust server CPU resources if an attacker could trigger frequent cryptographic operations.
+**Learning:** Key derivation functions like `scrypt` are intentionally expensive. While they provide strong protection against brute-force, they must be used efficiently. Caching the derived key for a given raw key/salt combination significantly reduces the CPU overhead for repeated operations.
+**Prevention:** Cache the output of expensive key derivation functions (like `scrypt` or `argon2`) for the duration of the process, ensuring the cache is invalidated if the source key changes.

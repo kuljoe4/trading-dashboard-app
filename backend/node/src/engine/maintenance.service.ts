@@ -50,17 +50,19 @@ export class MaintenanceService {
     this.logger.log(`[Watchdog] Running protection audit for ${uniqueSymbols.length} unique symbols (Hybrid Strategy)...`);
 
     try {
-      const allPositions = await this.orderManager.fetchAllPositions();
+      // BOLT: Parallelize exchange data fetching to minimize watchdog duration
+      const [allPositions, allOrders, allAlgoOrders] = await Promise.all([
+        this.orderManager.fetchAllPositions(),
+        this.orderManager.fetchAllOpenOrders(),
+        this.orderManager.fetchAllOpenAlgoOrders(),
+      ]);
+
       const activePositionsMap = new Map(allPositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0).map(p => [p.symbol, p]));
 
       let slOrdersBySymbol = new Map<string, any[]>();
 
       const isSlOrder = (o: any) => (o.type === 'STOP_MARKET' || o.type === 'STOP' || o.algoType === 'CONDITIONAL') &&
                                     (o.closePosition === true || o.closePosition === 'true' || o.reduceOnly === true || o.reduceOnly === 'true');
-
-      // Hybrid Fetch: Fetch both standard and algo open orders
-      const allOrders = await this.orderManager.fetchAllOpenOrders();
-      const allAlgoOrders = await this.orderManager.fetchAllOpenAlgoOrders();
 
       const combinedOrders = [...allOrders, ...allAlgoOrders];
       combinedOrders.filter(isSlOrder).forEach(o => {

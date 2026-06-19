@@ -71,13 +71,12 @@ To avoid regressions and ensure compliance with exchange (Binance) behavior and 
 - **Discoverability**: All critical metrics must have helper tooltips (`<Tooltip content="..." />`) to align with the user's mental model.
 
 ### 5. Gapless Stop-Loss Updates (Ratcheting)
-- **Standard Orders**: Use `modifyOrder` to update the stop price of an existing `STOP_MARKET` order. This avoids the protection gap inherent in cancel-then-replace.
-- **Fallback**: If `modifyOrder` fails or is unsupported for a symbol, you MUST use **Cancel-then-Replace**. Attempting to place a second `closePosition: true` order while one exists will be rejected by Binance.
-- **Rollback**: If the replacement SL fails, the system must attempt to re-place the OLD SL price to ensure the position remains protected.
+- **Cancel-then-Replace**: The system primarily uses a Cancel-then-Replace strategy for Stop Loss updates to ensure broad compatibility across Binance symbol types.
+- **Audit-First**: `OrderManagerService.updateStopLoss` performs an audit of the exchange state before replacement to detect and adopt or clear untracked SL orders, preventing "Duplicate order" or "Existing order" rejections.
 - **Audit**: Verified in `OrderManagerService.updateStopLoss`.
 
 ### 7. Structural Trading Resilience (2026-06-15)
-- **Algo API**: The Algo Order API is intentionally disabled/removed due to SDK incompatibilities and matching unreliability. Standard `STOP_MARKET` with `closePosition: true` is the only supported protection mechanism.
+- **Algo API**: The Algo Order API is used as the primary method for placing conditional Stop Loss orders (`CONDITIONAL` type) for improved trigger reliability. Standard `STOP_MARKET` orders are used as a fallback if the Algo API is unsupported.
 - **Close Attempts**: Automated closes (e.g. for PERCENT_PRICE rejections) use exponential backoff and a hard ceiling of 5 attempts. After the ceiling, the trade is marked `close_blocked` and requires manual intervention.
 - **Stream Stability**: User Data Streams use a proactive 24-hour reconnect (at 23h 50m) to avoid silent disconnections and event loss.
 - **Fill Price**: Extract fill price primarily via `cumQuote / executedQty` as `avgPrice` is deprecated by Binance.

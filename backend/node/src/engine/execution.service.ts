@@ -45,10 +45,12 @@ export class ExecutionService {
     const activeTrades = this.positionTracker.activeList();
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);
 
-    for (const trade of activeTrades) {
+    // BOLT: Parallelize exit checks to minimize Hot Loop latency.
+    // Exit checks are predominantly local/read-only (except for SL/TP hits which trigger orders).
+    const exitPromises = activeTrades.map(async (trade) => {
       try {
         const currentPrice = this.tickerCache.getPrice(trade.symbol);
-        if (!currentPrice) continue;
+        if (!currentPrice) return;
 
         const tradeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
         await this.positionTracker.checkRrSequenceAdjustments(trade.symbol, currentPrice, tradeConfig);
@@ -101,7 +103,9 @@ export class ExecutionService {
       } catch (err) {
         this.logger.error(`[${(trade.id || 'N/A').substring(0, 8)}] Critical Error in checkExits for ${trade.symbol}: ${err instanceof Error ? err.message : String(err)}`);
       }
-    }
+    });
+
+    await Promise.all(exitPromises);
   }
 
   async processEntries(opportunities: any[], config: SessionConfig, strategyLabel: string, onTradeUpdate?: (t: Trade, b: number) => Promise<void>) {
@@ -130,7 +134,7 @@ export class ExecutionService {
         const sc = symbolConfigMap?.get(opp.symbol);
         const symbolConfig = (sc?.use_custom_config && sc.custom_config) ? { ...config, ...sc.custom_config } as SessionConfig : config;
 
-        const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry', false);
+        const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry', true);
         if (!signalResult.allFired) {
           if (signalResult.reason.includes('warm-up')) {
             this.logger.debug(`${opp.symbol}: Entry blocked - ${signalResult.reason}`);

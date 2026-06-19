@@ -1,8 +1,6 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
 import { Session } from './Session.entity';
 
-export const TERMINAL_STATUSES = ['CLOSED', 'CLOSED_SL', 'CLOSED_TP', 'CLOSED_SIGNAL', 'CLOSED_ORPHANED'] as const;
-
 @Entity()
 export class TradeEntity {
   @PrimaryGeneratedColumn('uuid')

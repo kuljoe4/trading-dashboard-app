@@ -482,9 +482,15 @@ export function DashboardView({ initialStrategy }) {
     return map;
   }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
 
-  const totalActivePnl = useMemo(() =>
-    Object.values(activePnlMap).reduce((acc, val) => acc + val, 0)
-  , [activePnlMap]);
+  const { totalActiveMarketPnl, totalActiveNetPnl } = useMemo(() => {
+    let market = 0;
+    let net = 0;
+    activeTrades.forEach(t => {
+      market += safeNum(t.market_pnl);
+      net += safeNum(t.net_pnl);
+    });
+    return { totalActiveMarketPnl: market, totalActiveNetPnl: net };
+  }, [activeTrades]);
 
 
   const [loading, setLoading] = useState(false)
@@ -817,12 +823,12 @@ export function DashboardView({ initialStrategy }) {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 gap-y-4">
               <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} tooltipText="Total available funds in the trading account." />
               <StatCard
-                label="Active P&L"
-                value={fmtUSD(totalActivePnl)}
-                color={pnlClass(totalActivePnl)}
-                subValue={`Total: ${fmtUSD(totalPnl)}`}
+                label="Net Open Return"
+                value={fmtUSD(totalActiveNetPnl)}
+                color={pnlClass(totalActiveNetPnl)}
+                subValue={`Market Δ: ${fmtUSD(totalActiveMarketPnl)}`}
                 syncing={wsStatus !== 'live'}
-                tooltipText="Current P&L from open trades vs. total session performance."
+                tooltipText="Current Net P&L (after fees) vs. pure market price movement for all open positions."
               />
               <StatCard
                 label="Live Risk"

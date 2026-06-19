@@ -48,13 +48,14 @@ const TradesView = () => {
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 mb-8 lg:mb-12">
         {(() => {
-          const activePnl = activeTrades.reduce((acc, t) => acc + safeNum(t.pnl), 0);
+          const activeNetPnl = activeTrades.reduce((acc, t) => acc + safeNum(t.net_pnl), 0);
+          const activeMarketPnl = activeTrades.reduce((acc, t) => acc + safeNum(t.market_pnl), 0);
           return (
             <StatCard
-              label="Active P&L"
-              value={fmtUSD(activePnl)}
-              color={pnlClass(activePnl)}
-              subValue={`Total: ${fmtUSD(totalPnl)}`}
+              label="Net Open Return"
+              value={fmtUSD(activeNetPnl)}
+              color={pnlClass(activeNetPnl)}
+              subValue={`Market Δ: ${fmtUSD(activeMarketPnl)}`}
             />
           );
         })()}

@@ -14,9 +14,13 @@ const Metric = memo(({ label, value, tooltip }) => (
       <span className="text-[9px] font-black text-dim uppercase tracking-[0.2em]">{label}</span>
       {tooltip && (
         <Tooltip content={tooltip} side="top" align="center" className="z-[102]">
-          <div className="p-1 -m-1 cursor-help">
-            <Info size={12} className="text-dim/40 md:size-[10px]" />
-          </div>
+          <button
+            type="button"
+            aria-label={`More information about ${label}`}
+            className="p-1 -m-1 cursor-help text-dim/40 hover:text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent rounded-sm"
+          >
+            <Info size={12} className="md:size-[10px]" />
+          </button>
         </Tooltip>
       )}
     </div>
@@ -52,11 +56,22 @@ const RRLadder = ({ trade }) => {
              <Zap size={14} className="text-accent" fill="currentColor" /> Guard Ladder
           </SectionLabel>
           <Tooltip content="Incremental profit milestones that automatically adjust your stop loss to lock in gains." className="z-[102]">
-            <Info size={12} className="text-dim/40 cursor-help" />
+            <button
+              type="button"
+              aria-label="More information about Guard Ladder"
+              className="p-1 -m-1 cursor-help text-dim/40 hover:text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent rounded-sm"
+            >
+              <Info size={12} />
+            </button>
           </Tooltip>
         </div>
         <Tooltip content="Live Ratchet: The engine proactively trails your stop loss as these milestones are hit." className="z-[102]">
-          <div className="text-[10px] text-accent font-mono bg-accent/10 px-2 py-0.5 rounded border border-accent/20 cursor-help">Live Ratchet</div>
+          <button
+            type="button"
+            className="text-[10px] text-accent font-mono bg-accent/10 px-2 py-0.5 rounded border border-accent/20 cursor-help focus-visible:ring-1 focus-visible:ring-accent"
+          >
+            Live Ratchet
+          </button>
         </Tooltip>
       </div>
 
@@ -211,9 +226,13 @@ const ExitMonitor = ({ status, logic, trade }) => {
                     <div className="flex items-center gap-1">
                       <span className="text-[7px] font-black text-dim uppercase tracking-widest">Activation</span>
                       <Tooltip content="Proximity to technical trigger threshold. 100% means the signal is fully active." className="z-[102]">
-                        <div className="p-1 -m-1 cursor-help">
-                          <Info size={10} className="text-dim/40 md:size-[8px]" />
-                        </div>
+                      <button
+                        type="button"
+                        aria-label="More information about Activation"
+                        className="p-1 -m-1 cursor-help text-dim/40 hover:text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent rounded-sm"
+                      >
+                        <Info size={10} className="md:size-[8px]" />
+                      </button>
                       </Tooltip>
                     </div>
                     <span className={cn("text-[8px] font-black font-mono", isFired ? "text-red" : "text-accent")}>
@@ -237,9 +256,13 @@ const ExitMonitor = ({ status, logic, trade }) => {
                   <div className="flex justify-between items-center px-0.5">
                     <div className="flex items-center gap-1 w-full justify-end">
                       <Tooltip content="Price Proximity: Visual indicator of how close the price is to the target RR (Take Profit)." className="z-[102]">
-                        <div className="p-1 -m-1 cursor-help">
-                          <Info size={10} className="text-dim/40 md:size-[8px]" />
-                        </div>
+                        <button
+                          type="button"
+                          aria-label="More information about Price Proximity"
+                          className="p-1 -m-1 cursor-help text-dim/40 hover:text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent rounded-sm"
+                        >
+                          <Info size={10} className="md:size-[8px]" />
+                        </button>
                       </Tooltip>
                       <span className="text-[7px] font-black text-dim uppercase tracking-widest text-right">Price Prox.</span>
                     </div>
@@ -486,9 +509,13 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                         <span className="text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
                         {item.tooltip && (
                           <Tooltip content={item.tooltip} className="z-[102]">
-                            <div className="p-1 -m-1 cursor-help">
-                              <Info size={12} className="text-dim/40 md:size-[10px]" />
-                            </div>
+                          <button
+                            type="button"
+                            aria-label={`More information about ${item.label}`}
+                            className="p-1 -m-1 cursor-help text-dim/40 hover:text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent rounded-sm"
+                          >
+                            <Info size={12} className="md:size-[10px]" />
+                          </button>
                           </Tooltip>
                         )}
                       </div>

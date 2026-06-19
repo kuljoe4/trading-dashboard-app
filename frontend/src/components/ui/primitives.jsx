@@ -181,7 +181,17 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
       <div className="flex flex-col gap-0.5 w-full">
         <div className="flex items-start gap-1.5 min-h-[2rem] md:min-h-[2.25rem]">
             <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] flex-1" aria-hidden="true">{label}</div>
-            {tooltipText && <Tooltip content={tooltipText}><Info size={10} className="text-dim hover:text-accent cursor-help shrink-0 mt-0.5" /></Tooltip>}
+            {tooltipText && (
+              <Tooltip content={tooltipText}>
+                <button
+                  type="button"
+                  aria-label={`More information about ${label}`}
+                  className="p-1 -m-1 text-dim hover:text-accent transition-colors cursor-help focus-visible:ring-1 focus-visible:ring-accent rounded-sm shrink-0 mt-0.5"
+                >
+                  <Info size={10} />
+                </button>
+              </Tooltip>
+            )}
         </div>
         <div className="flex flex-col">
           <div className={cn(
@@ -258,31 +268,39 @@ export const StatusBadge = ({ status }) => {
 
 // --- Mode Badges ---
 export const PaperBadge = () => (
-  <span className="px-2.5 py-1 rounded-full border border-amber/20 bg-amber/10 text-[10px] text-amber font-bold tracking-wider flex items-center gap-1.5">
-    <Zap size={10} fill="currentColor" />
-    PAPER
-  </span>
+  <Tooltip content="Paper Mode: Simulated trading with virtual funds. No real capital at risk.">
+    <span className="px-2.5 py-1 rounded-full border border-amber/20 bg-amber/10 text-[10px] text-amber font-bold tracking-wider flex items-center gap-1.5 cursor-help focus-visible:ring-2 focus-visible:ring-amber" tabIndex={0}>
+      <Zap size={10} fill="currentColor" />
+      PAPER
+    </span>
+  </Tooltip>
 )
 
 export const EcoBadge = () => (
-  <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5 shadow-[0_0_10px_rgba(0,229,160,0.05)]">
-    <div className="w-1.5 h-1.5 bg-green rounded-full animate-pulse" />
-    ECO
-  </span>
+  <Tooltip content="Eco Mode: Power saver active. System is throttled to reduce CPU and network usage.">
+    <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5 shadow-[0_0_10px_rgba(0,229,160,0.05)] cursor-help focus-visible:ring-2 focus-visible:ring-green" tabIndex={0}>
+      <div className="w-1.5 h-1.5 bg-green rounded-full animate-pulse" />
+      ECO
+    </span>
+  </Tooltip>
 )
 
 export const DemoBadge = () => (
-  <span className="px-2.5 py-1 rounded-full border border-purple/20 bg-purple/10 text-[10px] text-purple font-bold tracking-wider flex items-center gap-1.5">
-    <Zap size={10} fill="currentColor" />
-    DEMO
-  </span>
+  <Tooltip content="Testnet Mode: Real-time trading on the Binance Testnet (demo) environment.">
+    <span className="px-2.5 py-1 rounded-full border border-purple/20 bg-purple/10 text-[10px] text-purple font-bold tracking-wider flex items-center gap-1.5 cursor-help focus-visible:ring-2 focus-visible:ring-purple" tabIndex={0}>
+      <Zap size={10} fill="currentColor" />
+      DEMO
+    </span>
+  </Tooltip>
 )
 
 export const LiveBadge = () => (
-  <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5">
-    <Zap size={10} fill="currentColor" />
-    LIVE
-  </span>
+  <Tooltip content="Live Mode: Real-capital trading on Binance USDS-M Futures. Use with caution.">
+    <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5 cursor-help focus-visible:ring-2 focus-visible:ring-green" tabIndex={0}>
+      <Zap size={10} fill="currentColor" />
+      LIVE
+    </span>
+  </Tooltip>
 )
 
 // --- Condition Widget ---

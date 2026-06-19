@@ -1,6 +1,7 @@
 import { SessionService } from './session.service';
 import { SessionConfig } from '../models/SessionConfig';
-import { TradeEntity, TERMINAL_STATUSES } from '../models/entities/Trade.entity';
+import { TradeEntity } from '../models/entities/Trade.entity';
+import { TERMINAL_STATUSES } from '../models/entities/constants';
 
 describe('SessionService Data Consistency Fixes', () => {
   let service: SessionService;

@@ -80,11 +80,15 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
   async handleBinanceOrderUpdate(payload: any) {
     if (payload?.e === 'ORDER_TRADE_UPDATE') {
       const o = payload.o;
-      this.logger.log(`⚙️ [WS INBOUND] Received ORDER_TRADE_UPDATE | ClientID: ${o?.c} | Symbol: ${o?.s} | Status: ${o?.X} | AvgPrice: ${o?.ap} | LastPrice: ${o?.L}`);
+      this.logger.log(`⚙️ [WS INBOUND] Received ORDER_TRADE_UPDATE | OrderID: ${o?.i} | ClientID: ${o?.c} | Symbol: ${o?.s} | Status: ${o?.X} | AvgPrice: ${o?.ap} | LastPrice: ${o?.L}`);
 
-      if (o?.c) {
-        const fillPrice = parseFloat(o.ap || o.L || '0');
-        if (fillPrice > 0) {
+      const fillPrice = parseFloat(o.ap || o.L || '0');
+      if (fillPrice > 0) {
+        if (o.i) {
+          this.lastFills.set(String(o.i), { price: fillPrice, timestamp: Date.now() });
+          this.logger.log(`💾 [CACHE WRITE] Key: "${o.i}" stored with value: ${fillPrice}`);
+        }
+        if (o.c) {
           this.lastFills.set(o.c, { price: fillPrice, timestamp: Date.now() });
           this.logger.log(`💾 [CACHE WRITE] Key: "${o.c}" stored with value: ${fillPrice}`);
         }

@@ -278,7 +278,7 @@ export class MarketFeedService {
         let symbols: string[];
         if (config.symbols && config.symbols.length > 0) symbols = config.symbols;
         else {
-          const top = await this.tickerCache.topByVolume((config.watchlist_size || 50) + (config.watchlist_offset || 0), config.excluded_symbols || []);
+          const top = this.tickerCache.topByVolume((config.watchlist_size || 50) + (config.watchlist_offset || 0), config.excluded_symbols || []);
           const slicedTop = top.slice(config.watchlist_offset || 0);
           symbols = slicedTop.map((t: any) => t.symbol);
         }

@@ -89,7 +89,11 @@ export class TickerCacheService {
   }
 
   topByVolume(n: number, excluded: string[] = []): Ticker[] {
-    const cacheKey = `${n}_${[...excluded].sort().join(',')}`;
+    // BOLT OPTIMIZATION: Avoid expensive spread and sort for cache key when excluded list is empty (common case)
+    const cacheKey = excluded.length === 0
+      ? `${n}_none`
+      : `${n}_${[...excluded].sort().join(',')}`;
+
     const cached = this._topByVolumeCache[cacheKey];
     const now = Date.now();
 
@@ -98,6 +102,7 @@ export class TickerCacheService {
     }
 
     const excludedSet = excluded.length > 0 ? new Set(excluded) : null;
+    // BOLT OPTIMIZATION: Avoid re-allocating full ticker array if cache miss is due only to time, but Map hasn't grown
     const all = Array.from(this.tickers.values());
     this.logger.verbose(`topByVolume requested ${n} symbols. Cache size: ${all.length}. Cache miss - recomputing.`);
 

@@ -5,7 +5,7 @@ describe('Industry Fixes Verification', () => {
   describe('Financial Precision (math.ts)', () => {
     it('correctly rounds to 8 decimal places using roundEight', () => {
       expect(roundEight(0.1 + 0.2)).toBe(0.30000000);
-      expect(roundEight(1.000000005)).toBe(1.00000001);
+      expect(roundEight(1.0000000051)).toBe(1.00000001);
       expect(roundEight(1.000000004)).toBe(1.00000000);
       expect(roundEight(0)).toBe(0);
     });

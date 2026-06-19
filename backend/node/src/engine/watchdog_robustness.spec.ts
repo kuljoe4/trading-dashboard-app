@@ -24,12 +24,14 @@ describe('Watchdog Robustness', () => {
         {
           provide: OrderManagerService,
           useValue: {
-            fetchAllPositions: jest.fn(),
-            fetchOpenOrders: jest.fn(),
+            fetchAllPositions: jest.fn().mockResolvedValue([]),
+            fetchOpenOrders: jest.fn().mockResolvedValue([]),
+            fetchAllOpenOrders: jest.fn().mockResolvedValue([]),
+            fetchAllOpenAlgoOrders: jest.fn().mockResolvedValue([]),
             isRatcheting: jest.fn().mockReturnValue(false),
-            placeStopLoss: jest.fn(),
-            cancelBinanceOrder: jest.fn(),
-            closeTrade: jest.fn(),
+            placeStopLoss: jest.fn().mockResolvedValue({ orderId: '777' }),
+            cancelBinanceOrder: jest.fn().mockResolvedValue(true),
+            closeTrade: jest.fn().mockResolvedValue({ exitOccurred: true }),
           },
         },
         {
@@ -75,7 +77,8 @@ describe('Watchdog Robustness', () => {
 
     (positionTracker.activeList as jest.Mock).mockReturnValue([trade]);
     (orderManager.fetchAllPositions as jest.Mock).mockResolvedValue([{ symbol: 'BTCUSDT', positionAmt: '1.0' }]);
-    (orderManager.fetchOpenOrders as jest.Mock).mockResolvedValue([]); // No SL found
+    (orderManager.fetchAllOpenOrders as jest.Mock).mockResolvedValue([]);
+    (orderManager.fetchAllOpenAlgoOrders as jest.Mock).mockResolvedValue([]); // No SL found
 
     await service.protectionWatchdog(true, { paper_mode: false } as any);
 
@@ -92,7 +95,8 @@ describe('Watchdog Robustness', () => {
 
     (positionTracker.activeList as jest.Mock).mockReturnValue([trade]);
     (orderManager.fetchAllPositions as jest.Mock).mockResolvedValue([{ symbol: 'BTCUSDT', positionAmt: '1.0' }]);
-    (orderManager.fetchOpenOrders as jest.Mock).mockResolvedValue([]); // No SL found
+    (orderManager.fetchAllOpenOrders as jest.Mock).mockResolvedValue([]);
+    (orderManager.fetchAllOpenAlgoOrders as jest.Mock).mockResolvedValue([]); // No SL found
 
     await service.protectionWatchdog(true, { paper_mode: false } as any);
 

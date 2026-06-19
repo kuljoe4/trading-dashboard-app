@@ -1,4 +1,4 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
 import { Session } from './Session.entity';
 
 @Entity()
@@ -39,6 +39,18 @@ export class TradeEntity {
   @Column('decimal', { precision: 20, scale: 8, default: 0 })
   pnl: number;
 
+  @Column('decimal', { precision: 20, scale: 8, default: 0 })
+  realized_fee: number;
+
+  @Column('decimal', { precision: 20, scale: 8, default: 0 })
+  funding_fee: number;
+
+  @Column('decimal', { precision: 20, scale: 8, default: 0 })
+  risk_usdt: number;
+
+  @Column('decimal', { precision: 20, scale: 8, nullable: true })
+  initial_risk_usdt: number | null;
+
   @Index()
   @Column()
   status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL' | 'CLOSED_ORPHANED';
@@ -53,11 +65,20 @@ export class TradeEntity {
   @Column({ nullable: true })
   exit_reason: string;
 
+  @Column({ nullable: true })
+  exit_signal_type: string;
+
+  @Column({ nullable: true })
+  exit_signal_reason: string;
+
   @Column('jsonb', { default: [] })
   sl_adjustments: any[];
 
   @Column('decimal', { precision: 10, scale: 4, nullable: true })
   pnl_pct: number;
+
+  @Column('decimal', { precision: 10, scale: 4, nullable: true })
+  entry_daily_change_pct: number;
 
   @Column({ nullable: true })
   binance_order_id: string;
@@ -67,6 +88,15 @@ export class TradeEntity {
 
   @Column({ nullable: true })
   binance_stop_order_id: string;
+
+  @Column({ nullable: true })
+  binance_stop_order_type: string;
+
+  @Column({ default: false })
+  is_reconciliation: boolean;
+
+  @UpdateDateColumn()
+  updated_at: Date;
 
   @Index()
   @Column({ nullable: true })

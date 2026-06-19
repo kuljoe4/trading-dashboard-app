@@ -80,11 +80,15 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
   async handleBinanceOrderUpdate(payload: any) {
     if (payload?.e === 'ORDER_TRADE_UPDATE') {
       const o = payload.o;
-      this.logger.log(`⚙️ [WS INBOUND] Received ORDER_TRADE_UPDATE | ClientID: ${o?.c} | Symbol: ${o?.s} | Status: ${o?.X} | AvgPrice: ${o?.ap} | LastPrice: ${o?.L}`);
+      this.logger.log(`⚙️ [WS INBOUND] Received ORDER_TRADE_UPDATE | OrderID: ${o?.i} | ClientID: ${o?.c} | Symbol: ${o?.s} | Status: ${o?.X} | AvgPrice: ${o?.ap} | LastPrice: ${o?.L}`);
 
-      if (o?.c) {
-        const fillPrice = parseFloat(o.ap || o.L || '0');
-        if (fillPrice > 0) {
+      const fillPrice = parseFloat(o.ap || o.L || '0');
+      if (fillPrice > 0) {
+        if (o.i) {
+          this.lastFills.set(String(o.i), { price: fillPrice, timestamp: Date.now() });
+          this.logger.log(`💾 [CACHE WRITE] Key: "${o.i}" stored with value: ${fillPrice}`);
+        }
+        if (o.c) {
           this.lastFills.set(o.c, { price: fillPrice, timestamp: Date.now() });
           this.logger.log(`💾 [CACHE WRITE] Key: "${o.c}" stored with value: ${fillPrice}`);
         }
@@ -567,7 +571,7 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
           // DATA-CONSISTENCY: Fallback for 0 price responses - wait for UDS or Query exchange for authoritative fill price
           if (absoluteEntryPrice === 0 && trade.binance_order_id) {
              this.logger.log(`[${symbol}] [Sync] Binance returned 0 price for entry. Attempting fill price recovery...`);
-             absoluteEntryPrice = await this.recoverLastExecutionPrice(symbol, trade, 0);
+             absoluteEntryPrice = await this.recoverLastExecutionPrice(symbol, trade, 0, true, trade.binance_order_id);
 
              if (absoluteEntryPrice === 0) {
                try {
@@ -603,6 +607,9 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
           const executedQty = parseFloat(entryReceipt.executedQty || '0');
 
           if (absoluteEntryPrice > 0) {
+            trade.entry_price = roundEight(absoluteEntryPrice);
+            if (executedQty > 0) trade.qty = executedQty;
+
             // Direction-aware slippage calculation: only deterioration (worse price) counts as positive slippage.
             // Price improvements result in negative slippage and are ignored.
             const slippage = direction === 'LONG'
@@ -639,9 +646,7 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
             } else if (slippage < 0) {
               this.logger.log(`[Entry] Price improvement detected for ${symbol}: ${Math.abs(slippage * 100).toFixed(4)}% better than target.`);
             }
-            trade.entry_price = roundEight(absoluteEntryPrice);
           }
-          if (executedQty > 0) trade.qty = executedQty;
 
           // Recalculate SL after actual fill to maintain intended risk distance
           const originalDistance = Math.abs(entryPrice - slPrice);
@@ -1491,55 +1496,84 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async recoverLastExecutionPrice(symbol: string, trade: Trade, estimate: number): Promise<number> {
+  private async recoverLastExecutionPrice(
+    symbol: string,
+    trade: Trade,
+    estimate: number,
+    isEntry = false,
+    targetOrderId?: string
+  ): Promise<number> {
     if (!this.binanceClient || this.paperMode) return estimate;
 
     const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
     // BOLT: Identify the specific order we are looking for to prevent cache collision
     const possibleKeys = [];
+    if (targetOrderId) possibleKeys.push(String(targetOrderId));
     if (trade.binance_stop_order_id) possibleKeys.push(trade.binance_stop_order_id);
     if (trade.binance_order_id) possibleKeys.push(trade.binance_order_id);
     if (trade.binance_close_order_id) possibleKeys.push(trade.binance_close_order_id);
+
+    // Add Client IDs to search set
     possibleKeys.push(`sl-${tradeIdShort8}`);
     possibleKeys.push(`cls-${trade.id.replace(/-/g, '').substring(0, 20)}`);
     possibleKeys.push(`ent-${trade.id.replace(/-/g, '').substring(0, 20)}`);
 
     this.logger.log(`🔍 [CACHE READ] Checking lastFills map for Trade: "${tradeIdShort8}" | Keys: ${possibleKeys.join(', ')}`);
 
-    // 1. FAST PATH: Check UDS fill cache with Smart Retry (Option A)
-    // We wait up to 100ms (5 * 20ms) to allow WebSocket events to arrive and populate the cache.
-    for (let attempt = 0; attempt < 5; attempt++) {
+    // 1. FAST PATH: Check UDS fill cache with Smart Retry
+    // We wait up to 500ms (10 * 50ms) to allow WebSocket events to arrive and populate the cache.
+    // This handles network latency and processing delays for ORDER_TRADE_UPDATE.
+    for (let attempt = 0; attempt < 10; attempt++) {
       for (const key of possibleKeys) {
         const cached = this.lastFills.get(key);
-        if (cached && Date.now() - cached.timestamp < 30000) {
+        if (cached && Date.now() - cached.timestamp < 60000) {
           this.logger.log(`🎯 [CACHE HIT] Found price ${cached.price} for Key: "${key}" (Attempt ${attempt + 1})`);
-          return (cached as any).price;
+          return cached.price;
         }
       }
-      if (attempt < 4) {
-        await new Promise(resolve => setTimeout(resolve, 20));
+      if (attempt < 9) {
+        if (attempt % 2 === 0) this.logger.debug(`[Cache Retry] Waiting for fill price cache for ${tradeIdShort8} (Attempt ${attempt + 1}/10)...`);
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
     }
 
-    this.logger.warn(`❌ [CACHE MISS] Trade "${tradeIdShort8}" not in cache after 5 retries. Checking timing details...`);
+    this.logger.warn(`❌ [CACHE MISS] Trade "${tradeIdShort8}" not in cache after 5 retries. Checking trade history...`);
 
     try {
-      const tradesRes = await this.binanceClient.restAPI.accountTradeList({ symbol, limit: 5 });
+      // 2. FALLBACK: Query trade list to find authoritative fills
+      const tradesRes = await this.binanceClient.restAPI.accountTradeList({ symbol, limit: 10 });
       const trades = await tradesRes.data() as any;
+
       if (Array.isArray(trades) && trades.length > 0) {
-        const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
-        const closingTrades = trades.filter(t => t.side === closeDirection);
-        if (closingTrades.length > 0) {
-          const lastFill = closingTrades.sort((a, b) => b.time - a.time)[0];
-          const fillPrice = parseFloat(lastFill.price);
+        const targetSide = isEntry
+          ? (trade.direction === 'LONG' ? 'BUY' : 'SELL')
+          : (trade.direction === 'LONG' ? 'SELL' : 'BUY');
+
+        // Strategy: If we have targetOrderId, find exact match.
+        // Otherwise, find latest match for the correct side.
+        let match: any = null;
+
+        if (targetOrderId) {
+           match = trades.find(t => String(t.orderId) === String(targetOrderId));
+        }
+
+        if (!match) {
+           const sideMatches = trades.filter(t => t.side === targetSide);
+           if (sideMatches.length > 0) {
+              match = sideMatches.sort((a, b) => b.time - a.time)[0];
+           }
+        }
+
+        if (match) {
+          const fillPrice = parseFloat(match.price);
           if (fillPrice > 0) {
-            this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] Sync Recovery: Found fill price ${fillPrice} (Estimate: ${estimate})`);
+            this.logger.log(`[${tradeIdShort8}] [Sync] Found fill price in history: ${fillPrice} (Side: ${targetSide}, Order: ${match.orderId})`);
             return fillPrice;
           }
         }
       }
     } catch (e: any) {
-      this.logger.debug(`[${(trade.id || 'N/A').substring(0, 8)}] Execution price recovery failed: ${e.message}`);
+      this.logger.debug(`[${tradeIdShort8}] Execution price recovery failed: ${e.message}`);
     }
     return estimate;
   }
@@ -1578,7 +1612,7 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
       if (!paperMode && this.binanceClient && (exitPrice === 0 || (localOnly && exitReason === 'EXCHANGE_SYNC'))) {
         const tickerPrice = this.tickerCache.getPrice(symbol);
         const estimate = exitPrice || tickerPrice || trade.current_sl;
-        exitPrice = await this.recoverLastExecutionPrice(symbol, trade, estimate);
+        exitPrice = await this.recoverLastExecutionPrice(symbol, trade, estimate, false, trade.binance_stop_order_id || trade.binance_close_order_id);
         if (exitReason === 'EXCHANGE_SYNC') exitReason = 'EXCHANGE_SYNC_RECOVERY';
       }
 
@@ -1767,7 +1801,7 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
 
                if (positionAmt === 0) {
                   this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] Confirmed: ${symbol} position is already zero. Triggering Sync Recovery.`);
-                  exitPrice = await this.recoverLastExecutionPrice(symbol, trade, exitPrice);
+                  exitPrice = await this.recoverLastExecutionPrice(symbol, trade, exitPrice, false, trade.binance_stop_order_id || trade.binance_close_order_id);
                   trade.exit_reason = trade.exit_reason === 'EXCHANGE_SYNC' ? 'EXCHANGE_SYNC_RECOVERY' : 'EXCHANGE_SL_OR_MANUAL';
                   // Use actual taker fee rate for live mode recovery
                   const exitFee = roundEight(exitPrice * trade.qty * this.takerFeeRate);

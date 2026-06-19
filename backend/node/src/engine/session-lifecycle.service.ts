@@ -270,8 +270,16 @@ export class SessionLifecycleService {
 
       this.userDataWs.on('message', async (payload: any) => {
         try {
-          // SDK WebsocketStreams.connect returns a connection that emits 'message' with the already parsed object or string
-          const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
+          let data: any;
+          if (Buffer.isBuffer(payload)) {
+            data = JSON.parse(payload.toString());
+          } else if (typeof payload === 'string') {
+            data = JSON.parse(payload);
+          } else {
+            data = payload;
+          }
+
+          if (!data) return;
 
           if (data.e === 'ACCOUNT_UPDATE' && data.a) {
             // Real-time Balance Tracking (Zero Weight)

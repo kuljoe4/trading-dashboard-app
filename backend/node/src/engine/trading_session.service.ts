@@ -205,7 +205,7 @@ export class TradingSessionService implements OnApplicationShutdown {
 
     const active = this.positionTracker.activeList();
     for (const t of active) {
-      const cp = await this.tickerCache.getPrice(t.symbol); const ep = cp ?? t.last_price ?? t.entry_price;
+      const cp = this.tickerCache.getPrice(t.symbol); const ep = cp ?? t.last_price ?? t.entry_price;
       const res = await this.positionTracker.closeTrade(t.symbol, ep, 'SESSION_TERMINATED', this.config!, this.config?.paper_mode ?? true);
       if (res.exitOccurred && res.trade) {
         this.sessionState.updateStatsOnClose((res.trade.pnl || 0) > 0, res.trade.pnl || 0, res.trade.is_reconciliation); this.sessionState.addClosedTrade(res.trade);
@@ -745,7 +745,7 @@ export class TradingSessionService implements OnApplicationShutdown {
     if (!this.running) return { success: false, error: 'No session running' };
     const trade = this.positionTracker.activeList().find(t => t.symbol === symbol);
     if (!trade) return { success: false, error: `No open position for ${symbol}` };
-    const cp = await this.tickerCache.getPrice(symbol); if (!cp) return { success: false, error: `Could not fetch price for ${symbol}` };
+    const cp = this.tickerCache.getPrice(symbol); if (!cp) return { success: false, error: `Could not fetch price for ${symbol}` };
     const res = await this.positionTracker.closeTrade(symbol, cp, 'MANUAL_CLOSE', this.config!, this.config?.paper_mode ?? true);
     if (res.exitOccurred && res.trade) {
       const pp = this.sessionState.balancePaper; const pl = this.sessionState.balanceLive;

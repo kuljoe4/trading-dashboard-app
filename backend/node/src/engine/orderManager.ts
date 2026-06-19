@@ -1517,8 +1517,9 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(`🔍 [CACHE READ] Checking lastFills map for Trade: "${tradeIdShort8}" | Keys: ${possibleKeys.join(', ')}`);
 
     // 1. FAST PATH: Check UDS fill cache with Smart Retry
-    // We wait up to 100ms (5 * 20ms) to allow WebSocket events to arrive and populate the cache.
-    for (let attempt = 0; attempt < 5; attempt++) {
+    // We wait up to 500ms (10 * 50ms) to allow WebSocket events to arrive and populate the cache.
+    // This handles network latency and processing delays for ORDER_TRADE_UPDATE.
+    for (let attempt = 0; attempt < 10; attempt++) {
       for (const key of possibleKeys) {
         const cached = this.lastFills.get(key);
         if (cached && Date.now() - cached.timestamp < 60000) {
@@ -1526,8 +1527,9 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
           return cached.price;
         }
       }
-      if (attempt < 4) {
-        await new Promise(resolve => setTimeout(resolve, 20));
+      if (attempt < 9) {
+        if (attempt % 2 === 0) this.logger.debug(`[Cache Retry] Waiting for fill price cache for ${tradeIdShort8} (Attempt ${attempt + 1}/10)...`);
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
     }
 

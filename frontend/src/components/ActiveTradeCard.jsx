@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { cn, Tooltip, CopyButton } from './ui/primitives'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { sessionAPI } from '../api/client'
-import { ShieldCheck } from 'lucide-react'
+import { ShieldCheck, Info } from 'lucide-react'
 import { motion } from 'framer-motion'
 
 export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {

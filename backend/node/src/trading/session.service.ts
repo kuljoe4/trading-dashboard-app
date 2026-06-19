@@ -469,9 +469,19 @@ export class SessionService implements OnModuleInit {
 
     // Load potentially orphaned open trades for reconciliation
     // For the active session, we'll resume these trades in the engine
-    const openTrades = await this.tradeRepository.find({
-      where: { status: 'OPEN' as any }
-    });
+    let openTrades: TradeEntity[] = [];
+    try {
+      openTrades = await this.tradeRepository.find({
+        where: { status: 'OPEN' as any }
+      });
+    } catch (e: any) {
+      this.logger.error(`Failed to fetch open trades for reconciliation: ${e.message}`);
+      // Check if it's a schema issue and provide more context
+      if (e.message.includes('column') || e.message.includes('relation')) {
+        this.logger.error('CRITICAL: Database schema mismatch detected. Ensure all migrations have run successfully.');
+      }
+      throw e; // Still throw because we can't safely proceed without knowing open trades
+    }
 
     // Instantiate Binance client if not in paper mode
     let binanceClient = null;

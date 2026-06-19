@@ -1,0 +1,170 @@
+64c81e8 Merge pull request #348 from kuljoe4/fix/400-bad-request-sanitization-5863998778127117490
+af73b4a fix: resolve 400 Bad Request, restore scanner offset, and fix tooltip wrapping
+e2b3f96 fix: prevent double-counting PnL/fees on session restart
+daa130f ⚡ Bolt: Signal Evaluation & EMA Caching Optimization
+4db6736 🎨 Palette: Enhance Trade History UX
+21ccb88 Harden WebSocket authentication failure paths
+dd65588 fix(engine): add missing roundEight import in ExecutionService
+35b09e0 Merge branch 'master' into fix-pnl-inaccuracy-and-race-conditions-8789253062796866081
+0addf27 Merge branch 'master' into fix/scanner-resilience-sl-conflict-1786841175507496449
+19acda2 feat: add watchlist offset setting and volume rank display
+23a1816 fix: prevent resource leaks and optimize network usage
+46ba5b7 feat: comprehensive trading analytics and premium UI overhaul
+630f3ab Fix mobile tooltip visibility, decision log scroll, and add Est. PnL
+78f8234 feat: add expectancy status and enhance history filtering
+628b046 fix: improve binance position mode sync, sl resilience, and mobile tooltips
+2195ce4 feat(ui): sidebar cleanup, decision log improvements, and history view markers
+2d079a2 ⚡ Bolt: Optimize signal evaluation hot path
+9ad8b68 fix: resolve db crash, frontend reference error, and missing scrollbars
+1bbbaca fix: comprehensive SL reliability, advanced UI metrics, and log hydration
+278b19f fix: resolved orphan SLs, optimized latency, fixed config persistence, and added journey tracing
+8e67237 fix: resolve UI visibility issue for leverage and slippage fields
+f7956c5 fix: resolve engine data inconsistencies and wire missing UI fields
+07a1b08 🎨 Palette: Context-aware empty state and scroll fix for DecisionLog
+2a659e3 🛡️ Sentinel: Hardened WebSocket auth throttling and fixed session memory leaks
+da2ce57 ⚡ Bolt: Optimized EMA convergence lookback
+e35f6c3 fix(engine): full audit fixes for Binance API, warmup, and price consistency
+b8ee011 feat: optimize binance api usage and enhance lifecycle visibility
+be7ad12 fix(frontend): resolve ReferenceError when closing trades
+b36042f fix: resolve JSX nesting error in HistoryView.jsx
+7b9eee0 feat: enhance technical exit signals UI and modal reactivity
+885d99c feat: ultra-compact standardized header, enhanced sync, and global UX optimization
+e1a22d5 fix: resolve nginx duplicate directive and binance sl identifier extraction
+2ea7a9f fix: prevent double-deduction of entry fees in paper mode
+b682fa0 🛡️ Sentinel: Fix potential info leakage and log resource exhaustion
+db4d9a6 🎨 Palette: Financial UI Polish and Accessibility
+668907b ⚡ Bolt: optimize broadcastTick hot path
+8d89ad4 fix: resolve startup instability and Binance SL order failures
+2d2d40d Implement Binance best practices and fix TS2554 build error
+b9c35e9 fix: resolve binance execution errors, notional warnings, and price discrepancies
+7102a1e perf: robust trading engine optimization and rate-limit stabilization
+55773ec Merge branch 'master' into fix-history-and-price-discrepancies-9642543652755174474
+12d7e35 fix: resolve Tooltip reference error and NaN fee display
+ace86f4 fix: update OrderManagerService instantiation in tests
+f84b468 docs: add RECOMMENDED_ALPHA.md with strategy configuration
+f8c7cd1 feat(frontend): improve HistoryView accessibility and utility
+c21ad12 feat: comprehensive fee and funding accuracy and UI visibility
+255a9e1 🛡️ Sentinel: Fix IP spoofing vulnerability in throttle logic
+e540503 ⚡ Bolt: zero-allocation ticker updates in hot path
+fa7b9ad Merge branch 'master' into fix-history-view-tag-mismatch-9594728471591903998
+ddc09a9 ui/ux: improve component layouts and restore trade history
+6807267 chore: final UI/UX professional standards, touch support, and data reliability
+f38d77e fix: resolve frontend JSX mismatch and backend test constructor errors
+a661c58 feat(frontend): implement UI/UX enhancements and visual feedback
+862729b feat: comprehensive mobile UI/UX optimization and persistence
+ccad446 audit: initialize canonical review state and update verification tests
+eecf805 Establish stateful UI/UX review system and apply accessibility refinements
+eb751c3 Merge branch 'master' into bolt-engine-optimization-15983615545122172904
+7239b1b fix: handle Binance 'ReduceOnly' and 'Unknown order' errors in OrderManagerService
+f70e4f4 🛡️ Sentinel: Harden DoS protections for IP throttling and API key validation
+d981c2b 🎨 Palette: Add accessible Copy Symbol buttons to scanner views
+e0227b4 fix: sync active trades with exchange data and cleanup UI
+6a20755 fix: implement environment-specific symbol validation and fix typo
+5af7c45 fix: complete overhaul of Binance Futures algo order placement
+8717a48 fix: update Binance SDK calls and implement SL workaround
+41b45ff fix: resolve build errors in backend engine services
+754a0f0 Merge branch 'master' into fix/binance-api-integration-7266170046437404221
+fbf1776 refactor: harden core architecture and extract fidelity logic
+216bc05 fix: high-fidelity real-time balance synchronization and logging
+48083e6 fix: eliminate resource leaks and optimize redundant broadcasts
+94cfc2f fix(backend): ensure atomic trade state transitions in OrderManagerService
+a01b470 ⚡ Bolt: Persistent state tracking for broadcast efficiency
+89464f7 🎨 Palette: Add Copy Ticker utility to Scanner
+47502b0 sentinel: harden security headers and fix ws auth throttling
+eb6d3e3 fix(frontend): prevent ConfigModal state resets and race conditions
+af1aa93 Refactor trade detail and overview UI to remove data redundancies
+2f93e38 feat: implement aggressive RAM optimization and remove system monitoring
+f9d6b1c docs: add comprehensive industry standard assessment
+75cf515 fix(engine): ensure atomicity in live trade closure
+908cbaa ⚡ Bolt: optimize hot-path scanner and broadcaster
+7f6ba86 Add aria-current="page" to active navigation buttons in Sidebar and BottomNav components to improve semantic accessibility and context for assistive technologies.
+16d369c 🛡️ Sentinel: Fix IP spoofing and enhance audit logging
+262238f Fix ReferenceError (TDZ) in DashboardView and optimize resource usage.
+c392e4d Enhance and optimize Active Trade Detail Modal
+f3533b7 Refine EquityCurve aesthetic for a sharper, technical look
+a394392 docs: codify architectural patterns into reusable agent skills
+965defb fix(backend): resolve TS18046 unknown error type in session-lifecycle.service.ts
+710dc55 Comprehensive production hardening: architecture, security, and auditability.
+bfee188 docs: comprehensive industry standard and code quality review
+a460cd0 fix: ensure PnL consistency and fee simulation on session stop
+7e609e7 🛡️ Sentinel: Add Audit Logging and Cache Hardening
+b978b80 ⚡ Bolt: Engine Hot-Path Signal & List Optimization
+9b97a96 🎨 Palette: Improve accessibility and symbol copying
+a15cca5 fix: resolve TS2307 build error and strategy_config type mismatch
+208057b Refactor: Decompose TradingSessionService and harden type safety
+2ed474e fix: robust CORS origin validation and case-insensitivity
+059ca7e fix(backend): improve CORS origin validation robustness
+1184de5 fix(backend): support wildcard patterns in ALLOWED_ORIGINS
+cbb14a4 fix: PnL and fee consistency in OrderManagerService
+477f695 feat(ui): replace native alert with localized error feedback in ActiveTradeCard
+a335a98 🛡️ Sentinel: implement authentication hardening and brute-force protection
+7b20e81 ⚡ Bolt: High-performance mathematical rounding
+7108d6b fix: resolve production boot loop and deferred env var enforcement
+9af97cc fix: robust idempotent migrations with type alignment and non-destructive reconciliation
+3b2f7bb fix(build): resolve backend TS error and frontend icon imports
+ead976f Fix: Add health and streaming feature toggles to trading store configuration
+c803407 feat: add technical logic tooltips to strategy signals
+15c781b Merge branch 'master' into fix-pnl-consistency-fees-8257716380826462255
+b53c47c Merge branch 'master' into bolt-math-rounding-optimization-17067296771848559409
+dbbf706 docs: comprehensive technical evaluation and industry review
+df98108 🛡️ Sentinel: [security enhancement] Implement encryption at rest for Binance API keys
+8dc384e Merge branch 'master' into arch-review-refactor-2180415386815399713
+c05d0c6 fix: align individual trade PnL with total session balance by tracking fees
+7564a35 UI/UX: Fix cockpit desktop layout and restore missing config inputs
+d3d333c 🛡️ Sentinel: [HIGH] Enforce ADMIN_API_KEY in production
+7642638 ⚡ Bolt: Optimized Hot-Loop Broadcasting and Delta Detection
+81a92eb 🎨 palette: replace native confirm with ConfirmationModal and add loading states
+a7e5195 docs: industry standard & code quality review; feat: global error boundary
+d4ba710 fix: correct directional risk logic in position tracking and order entry
+6e5dc89 Fix: Address Senior Engineering Review Audit
+2c147ee ⚡ Bolt: Optimize totalRisk to O(1) in PositionTrackerService
+284d307 feat: implement lifecycle-scoped subscriptions and tiered data flow
+f09a7a2 🛡️ Sentinel: Fix information disclosure via global exception filter
+d6c2e5c 🎨 Palette: Unified destructive confirmation UX and accessibility fixes
+46b1c70 refactor: centralize constants and resolve configuration drift
+33d4b04 fix: resolve DashboardView crash and optimize debug tools
+432fcdd Refactor entry evaluation and optimize delta-tick synchronization
+572a7e2 Merge branch 'master' into fix-autonomous-trading-and-resource-suppression-10284222375697339452
+d0097b4 feat: comprehensive architecture audit and system-wide optimizations
+d9b4170 docs: audit hard caps and hard-coded values
+c5934c8 Fix regressions and optimize resource profile
+3537fba Merge branch 'master' into codex/optimize-resource-footprints-and-update-readme
+9dfd43a feat: implement industry standard improvements for trading reliability
+6756842 fix: harmonize PnL calculation across engine and database
+876d6f5 feat(ux): implement keyboard shortcuts for navigation and scanner
+eedbe3c 🛡️ Sentinel: implement WebSocket heartbeat to prevent resource exhaustion
+9c5f4c5 ⚡ Bolt: Zero-allocation kline updates and shared empty arrays
+5b7f915 Optimize resource usage and fix PnL synchronization issues
+17660be Merge branch 'master' into fix-dashboard-data-caching-17683916942840427099
+c933111 Merge branch 'master' into optimization-network-and-resource-scaling-4021401595239972595
+93e1a5c Implement unbounded growth mitigation and performance optimizations
+a5c4bd9 perf: optimize resource usage and network egress during gated states
+b10b5fd fix(frontend): improve mobile UX and keyboard handling in ConfigModal
+f23e2ea Merge branch 'master' into fix-pnl-consistency-18123367388952924579
+6db0117 feat(ui): standardize tooltips across ConfigModal and HistoryView
+287234b 🛡️ Sentinel: [MEDIUM] Fix timing attacks on secret comparison
+366d7ad ⚡ Bolt: Optimize MomentumScannerService with early return
+5a9b7a0 fix: correct trade status assignment for manual and session termination exits
+beff389 🎨 Palette: Improve accessibility for confirmation buttons
+61a1ea6 🛡️ Sentinel: Implement API Key Authorization and WebSocket Stability
+8b93da1 ⚡ Bolt: Optimize cockpit metrics and fix activePnl bug
+7f30036 fix: add risk_usdt property to Trade model and entity
+02a4dc3 Aggressive resource optimization: prune cockpit data & enhance backend stats
+a8f1418 Finalize aggressive resource optimization and precision tuning
+f2f550e feat: implement atomic persistence for session balance and PnL
+eda8436 🎨 Palette: Implement accessible technical tooltips
+aecae62 perf: implement zero-allocation candle processing in hot paths
+ad283bd 🛡️ Sentinel: [HIGH] Harden origin validation in backend
+9200ea8 feat: document resource footprints and optimize engine efficiency
+8db3a8a fix: config modal resets and scanner flickering
+922b690 feat: finalize dynamic log level management and system-wide log optimization
+799484a fix: centralize terminal statuses and fix query drift
+7906f9b fix(backend): resolve TypeScript compilation errors in TradingSessionService
+f6a6474 Merge branch 'master' into bolt-engine-depromisification-1380264620925004843
+e523a86 fix: prevent Node.js crash when closing WebSockets during connection
+129b3e7 feat(ui): add rotating chevron to ActiveTradeBar details toggle
+24a768f Fix Stop Loss lookback behavior and enhance signal transparency
+28d109c fix: persist account balance and reconcile stale positions on restart
+686dc5e Merge pull request #80 from kuljoe4/master
+083b60c ⚡ Multi-Strategy Engine: support concurrent strategies and updated analytics
+56c8861 Merge remote-tracking branch 'origin/feature-exit-logic-explanation-9497477849247464841' into merge-prs-work

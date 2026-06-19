@@ -23,11 +23,21 @@ export class Trade {
 
   pnl: number = 0;
 
+  realized_fee: number = 0;
+
+  funding_fee: number = 0;
+
+  risk_usdt: number = 0;
+
+  initial_risk_usdt?: number;
+
   status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL' | 'CLOSED_ORPHANED' = 'OPEN';
 
   exit_ts?: Date;
 
   exit_price?: number;
+
+  mark_price?: number;
 
   last_price?: number;
 
@@ -60,9 +70,12 @@ export class Trade {
     reason: string;
     milestone_index: number;
     max_rr_achieved?: number;
+    adaptive?: boolean;
   }[];
 
   pnl_pct?: number;
+
+  entry_daily_change_pct?: number;
 
   quantity?: number;
 
@@ -72,9 +85,25 @@ export class Trade {
 
   binance_stop_order_id?: string;
 
+  binance_stop_order_type?: 'standard' | 'algo';
+
+  close_attempts?: number;
+
+  last_close_attempt_ts?: number;
+
+  close_blocked?: boolean;
+
   sessionId?: string;
 
   strategy_label?: string;
 
   strategy_config?: Partial<import('./SessionConfig').SessionConfig>;
+
+  is_reconciliation?: boolean;
+
+  _sig_json?: string;
+
+  _last_funding_delta?: number;
+
+  updated_at?: Date;
 }

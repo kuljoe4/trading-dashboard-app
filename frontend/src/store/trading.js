@@ -1,149 +1,56 @@
-import { create } from 'zustand'
+import { createWithEqualityFn } from 'zustand/traditional'
 import { sessionAPI } from '../api/client'
+import { CONFIG_LIMITS, ENGINE_CONSTANTS } from '../constants/configLimits'
 
-const toNumber = (value, fallback = 0) => {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : fallback
+const toNumber = (v, f = 0) => { const p = Number(v); return Number.isFinite(p) ? p : f; }
+const MAX_LOG_LINES = 500;
+const DEFAULT_LOG_FILTERS = { info: true, warn: true, error: true };
+
+const normalizeOpportunity = (o = {}) => {
+  const m = toNumber(o.pct ?? o.momentum ?? o.percent_change);
+  const d = (o.dir ?? o.direction ?? (m >= 0 ? 'long' : 'short')).toString().toLowerCase();
+  return { ...o, symbol: o.symbol ?? '---', pct: m, momentum: m, dir: d, direction: d, vol: toNumber(o.vol ?? o.volume ?? o.volume_usdt ?? o.volume_24h), score: toNumber(o.score), price: toNumber(o.price) };
 }
 
-const DEFAULT_LOG_FILTERS = {
-  info: true,
-  warn: true,
-  error: true,
-}
-
-const loadLogFilters = () => {
-  try {
-    const stored = localStorage.getItem('log_filters')
-    return stored ? JSON.parse(stored) : DEFAULT_LOG_FILTERS
-  } catch (e) {
-    return DEFAULT_LOG_FILTERS
+const normalizeTrade = (t = {}, pt = null) => {
+  if (!t || typeof t !== 'object') return null;
+  const p = pt || {};
+  const f = `${t.pnl}:${t.rr}:${t.current_price}:${t.sl_price}`;
+  if (p._fingerprint === f && !t._delta && !t._thin) return p;
+  if (t._delta || t._thin) {
+    return { ...p, ...t, pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl, rr: t.rr !== undefined ? toNumber(t.rr) : p.rr, current_price: t.current_price !== undefined ? toNumber(t.current_price) : p.current_price, sl_price: t.sl_price !== undefined ? toNumber(t.sl_price) : p.sl_price, max_rr: t.max_rr !== undefined ? toNumber(t.max_rr) : p.max_rr, exit_signals_status: t.exit_signals_status || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence, exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence, sl_adjustments: t.sl_adjustments || p.sl_adjustments, exit_signal_logic: t.exit_signal_logic || p.exit_signal_logic, tp_mode: t.tp_mode || p.tp_mode, tp_ratio: t.tp_ratio !== undefined ? toNumber(t.tp_ratio) : p.tp_ratio };
   }
+  const ep = toNumber(t.entry_price ?? t.entry ?? p.entry_price);
+  return { ...t, symbol: t.symbol ?? p.symbol ?? '---', strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy', direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(), entry_price: ep, current_price: toNumber(t.current_price ?? t.current ?? p.current_price ?? t.exit_price ?? ep, ep), sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price), initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl), tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp), pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl ?? 0, rr: (t.rr !== undefined) ? toNumber(t.rr) : p.rr ?? 0, max_rr: (t.max_rr !== undefined) ? toNumber(t.max_rr) : p.max_rr ?? 0, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [], exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [], tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'), tp_ratio: (t.tp_ratio !== undefined) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0, sl_adjustments: t.sl_adjustments || p.sl_adjustments || [], exit_reason: t.exit_reason ?? p.exit_reason, exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price), paper_mode: t.paper_mode ?? p.paper_mode ?? true, qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0), max_rr_achieved: toNumber(t.max_rr_achieved ?? t.max_rr ?? p.max_rr_achieved ?? 0), exit_signals_status: t.exit_signals_status || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, _fingerprint: f };
 }
 
-const saveLogFilters = (filters) => {
-  try {
-    localStorage.setItem('log_filters', JSON.stringify(filters))
-  } catch (e) {
-    // ignore storage errors
-  }
+const deepMerge = (target, source) => {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return source;
+  if (!target || typeof target !== 'object' || Array.isArray(target)) return source;
+
+  const output = { ...target };
+  Object.keys(source).forEach(key => {
+    if (source[key] instanceof Object && !Array.isArray(source[key]) && key in target) {
+      output[key] = deepMerge(target[key], source[key]);
+    } else {
+      output[key] = source[key];
+    }
+  });
+  return output;
+};
+
+const normalizeLog = (l = {}) => {
+  const lv = (l.level || l.lv || 'info').toString().toLowerCase();
+  const m = (l.msg || l.message || '').toString().trim();
+  return { ...l, id: l.id || Math.random().toString(36).substring(2, 15), ts: l.ts || l.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), level: ['info', 'warn', 'error'].includes(lv) ? lv : 'info', msg: m };
 }
-
-const normalizeOpportunity = (opp = {}) => {
-  const momentum = toNumber(opp.pct ?? opp.momentum ?? opp.percent_change)
-  const direction = (opp.dir ?? opp.direction ?? (momentum >= 0 ? 'long' : 'short')).toString().toLowerCase()
-
-  return {
-    ...opp,
-    symbol: opp.symbol ?? '---',
-    pct: momentum,
-    momentum,
-    dir: direction,
-    direction,
-    vol: toNumber(opp.vol ?? opp.volume ?? opp.volume_usdt ?? opp.volume_24h),
-    score: toNumber(opp.score),
-    price: toNumber(opp.price),
-  }
-}
-
-const normalizeTrade = (trade = {}, prevTrade = null) => {
-  if (!trade || typeof trade !== 'object') return null;
-
-  const prev = prevTrade || {};
-
-  // If this is a delta update, merge it with previous state
-  if (trade._delta) {
-    return {
-      ...prev,
-      ...trade,
-      pnl: trade.pnl !== undefined ? toNumber(trade.pnl) : prev.pnl,
-      rr: trade.rr !== undefined ? toNumber(trade.rr) : prev.rr,
-      current_price: trade.current_price !== undefined ? toNumber(trade.current_price) : prev.current_price,
-      sl_price: trade.sl_price !== undefined ? toNumber(trade.sl_price) : prev.sl_price,
-      max_rr: trade.max_rr !== undefined ? toNumber(trade.max_rr) : prev.max_rr,
-    };
-  }
-
-  // Preserve existing values when websocket data is partial to avoid flicker
-  const entry_price = toNumber(trade.entry_price ?? trade.entry ?? prev.entry_price);
-  const current_price = toNumber(
-    trade.current_price ?? trade.current ?? prev.current_price ?? trade.exit_price ?? entry_price,
-    entry_price,
-  );
-  const sl_price = toNumber(trade.sl_price ?? trade.current_sl ?? trade.sl ?? trade.initial_sl ?? prev.sl_price);
-  const initial_sl = toNumber(trade.initial_sl ?? trade.sl_price ?? trade.sl ?? prev.initial_sl);
-
-  let pnl = prev.pnl ?? 0;
-  if (trade.pnl !== undefined && trade.pnl !== null) {
-    pnl = toNumber(trade.pnl);
-  }
-
-  return {
-    ...trade,
-    symbol: trade.symbol ?? prev.symbol ?? '---',
-    strategy_label: trade.strategy_label ?? prev.strategy_label ?? 'Momentum Strategy',
-    direction: (trade.direction ?? trade.side ?? prev.direction ?? '').toString().toUpperCase(),
-    entry_price,
-    current_price,
-    sl_price,
-    initial_sl,
-    tp_price: trade.tp_price == null && trade.tp == null ? prev.tp_price ?? null : toNumber(trade.tp_price ?? trade.tp),
-    pnl,
-    rr: (trade.rr !== undefined && trade.rr !== null) ? toNumber(trade.rr) : prev.rr ?? 0,
-    max_rr: (trade.max_rr !== undefined && trade.max_rr !== null) ? toNumber(trade.max_rr) : prev.max_rr ?? 0,
-    live_rr_sequence: trade.live_rr_sequence || prev.live_rr_sequence || [],
-    exit_rr_sequence: trade.exit_rr_sequence || prev.exit_rr_sequence || [],
-    tp_mode: trade.tp_mode || prev.tp_mode || (trade.tp_price == null && trade.tp == null ? 'exp_rr_seq' : 'fixed'),
-    tp_ratio: (trade.tp_ratio !== undefined && trade.tp_ratio !== null) ? toNumber(trade.tp_ratio, 2) : prev.tp_ratio ?? 0,
-    sl_type: trade.sl_type ?? prev.sl_type,
-    sl_adjustments: trade.sl_adjustments || prev.sl_adjustments || [],
-    exit_reason: trade.exit_reason ?? prev.exit_reason,
-    exit_price: trade.exit_price == null ? (prev.exit_price == null ? undefined : toNumber(prev.exit_price)) : toNumber(trade.exit_price),
-    paper_mode: trade.paper_mode ?? prev.paper_mode ?? true,
-    qty: trade.qty ?? trade.quantity ?? prev.qty ?? 0,
-  };
-}
-
-const normalizeLog = (log = {}) => {
-  const level = (log.level || log.lv || 'info').toString().toLowerCase()
-  const msg = (log.msg || log.message || '').toString().trim()
-
-  return {
-    ...log,
-    id: log.id || Math.random().toString(36).substring(2, 15),
-    ts: log.ts || log.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    level: ['info', 'warn', 'error'].includes(level) ? level : 'info',
-    msg,
-  }
-}
-
-const uniqueLogs = (logs = []) => {
-  const seen = new Set()
-  return logs.filter((log) => {
-    const normalized = normalizeLog(log)
-    const key = `${normalized.level}::${normalized.msg}::${normalized.ts}`
-    if (seen.has(key) || !normalized.msg) return false
-    seen.add(key)
-    return true
-  })
-}
-
-const normalizeWindow = (window = {}) => ({
-  ...window,
-  symbol: window.symbol || '---',
-  direction: (window.direction || window.dir || 'long').toString().toLowerCase(),
-  pct_change: toNumber(window.pct_change ?? window.pct),
-  remaining_ms: toNumber(window.remaining_ms),
-  checks: toNumber(window.checks),
-  entries: toNumber(window.entries),
-})
 
 const defaultConfig = {
   paper_mode: true,
   strategy_label: 'Momentum Strategy',
   strategy_variants: [],
-  max_total_risk_pct: 5,
-  total_sl_guard_usdt: 200,
+  max_total_risk_pct: CONFIG_LIMITS.MAX_TOTAL_RISK_DEFAULT,
+  total_sl_guard_usdt: CONFIG_LIMITS.TOTAL_SL_GUARD_DEFAULT,
   scan_interval: '5m',
   scan_pct_threshold: 2.0,
   scan_lookback: 3,
@@ -152,380 +59,279 @@ const defaultConfig = {
   scan_window_duration_sec: 90,
   scan_check_interval_sec: 5,
   entry_side: 'both',
-  watchlist_size: 50,
+  watchlist_size: CONFIG_LIMITS.WATCHLIST_DEFAULT,
+  watchlist_offset: 0,
   enabled_signals: ['momentum_pct'],
   signal_logic: 'all',
   tp_mode: 'fixed',
-  tp_ratio: 2,
+  tp_ratio: CONFIG_LIMITS.TP_RATIO_DEFAULT,
   live_rr_sequence: [1, 2, 4],
   exit_rr_sequence: [0, 1, 2],
   sl_type: 'pct',
-  sl_distance_pct: 0.8,
+  sl_distance_pct: CONFIG_LIMITS.SL_DISTANCE_DEFAULT,
   sl_lookback_timeframe: '5m',
   sl_lookback_period: 5,
   sl_min_pct: 0.3,
   sl_max_pct: 3,
-  risk_pct_per_trade: 1,
-  max_open_trades: 5,
-  paper_starting_balance: 10000,
-  live_starting_balance: 10000,
-}
+  trading_mode: localStorage.getItem('global_trading_mode') || 'paper',
+  risk_pct_per_trade: CONFIG_LIMITS.RISK_PER_TRADE_DEFAULT,
+  max_open_trades: CONFIG_LIMITS.MAX_OPEN_TRADES_DEFAULT,
+  max_trades_per_period: 10,
+  trades_period_min: 60,
+  max_trades_24h: CONFIG_LIMITS.MAX_TRADES_24H_DEFAULT,
+  min_trade_interval_min: CONFIG_LIMITS.MIN_TRADE_INTERVAL_DEFAULT,
+  trades_jitter_pct: CONFIG_LIMITS.TRADES_JITTER_DEFAULT,
+  frequency_shaping_enabled: false,
+  frequency_tod_integration: false,
+  paper_starting_balance: CONFIG_LIMITS.PAPER_STARTING_BALANCE_DEFAULT,
+  live_starting_balance: CONFIG_LIMITS.LIVE_STARTING_BALANCE_DEFAULT,
+  hot_loop_interval_ms: CONFIG_LIMITS.HOT_LOOP_DEFAULT,
+  main_loop_interval_ms: CONFIG_LIMITS.MAIN_LOOP_DEFAULT,
+  slippage_warning_threshold: CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT || 0.001,
+  auto_scale_min_notional: true,
+  debug_mode: false,
+};
 
-export const useTradingStore = create((set, get) => ({
-  sessionActive: false,
-  sessionPaused: false,
-  strategyId: null,
-  balance: 10000,
-  totalPnl: 0,
-  totalRiskPct: 0,
-  totalSlUsed: 0,
-  activeTrades: [],
-  logs: [],
-  scannerResults: [],
-  variantScannerResults: {},
-  activeWindows: [],
-  tradeHistory: [],
-  lifetimeAnalytics: null,
-  gateState: null,
-  scannerPaused: false,
-  wsStatus: 'offline',
-  sessionList: [],
-  monitoring: null,
-  analytics: null,
-  rateLimit: {
-    used_weight_1m: 0,
-    limit: 1200,
-    used_pct: 0,
-  },
-  sessionSummary: null,
+export const useTradingStore = createWithEqualityFn((set, get) => ({
+  sessionActive: false, sessionPaused: false, strategyId: null, balance: 10000, totalPnl: 0, totalRiskPct: 0, totalSlUsed: 0,
+  activeTrades: [], logs: [], logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
+  gateState: null, gateReason: null, hibernating: false, isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
+  alerts: [],
+  isSyncing: false, configSyncing: false,
+  debugToolsEnabled: localStorage.getItem('debug_tools_enabled') === 'true',
+  rateLimit: { used_weight_1m: 0, limit: ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT, used_pct: 0 },
+  rateLimitLastSync: new Date().toISOString(),
   config: defaultConfig,
-  logFilters: loadLogFilters(),
-  
-  // UX Settings
+  sidebarCollapsed: localStorage.getItem('sidebar_collapsed') === 'true', 
   healthEnabled: localStorage.getItem('health_enabled') !== 'false',
   streamingEnabled: localStorage.getItem('streaming_enabled') !== 'false',
-  sidebarCollapsed: localStorage.getItem('sidebar_collapsed') === 'true',
-  isThrottled: false,
-
-  toggleSidebar: () => {
-    const next = !get().sidebarCollapsed
-    localStorage.setItem('sidebar_collapsed', next)
-    set({ sidebarCollapsed: next })
+  isThrottled: false, entryCount: 0, hitCount: 0,
+  
+  _subscriptions: { trades: new Map(), strategies: new Map(), globalTrades: 0, scanner: 0 },
+  _focusTimer: null,
+  registerInterest: (type, id) => {
+    const subs = { ...get()._subscriptions };
+    if (type === 'trade') subs.trades.set(id, (subs.trades.get(id) || 0) + 1);
+    else if (type === 'strategy') subs.strategies.set(id, (subs.strategies.get(id) || 0) + 1);
+    else if (type === 'global_trades') subs.globalTrades++;
+    else if (type === 'scanner') subs.scanner++;
+    set({ _subscriptions: subs });
+    get()._syncFocusToBackend();
+  },
+  unregisterInterest: (type, id) => {
+    const subs = { ...get()._subscriptions };
+    if (type === 'trade') { const count = (subs.trades.get(id) || 0) - 1; if (count <= 0) subs.trades.delete(id); else subs.trades.set(id, count); }
+    else if (type === 'strategy') { const count = (subs.strategies.get(id) || 0) - 1; if (count <= 0) subs.strategies.delete(id); else subs.strategies.set(id, count); }
+    else if (type === 'global_trades') subs.globalTrades = Math.max(0, subs.globalTrades - 1);
+    else if (type === 'scanner') subs.scanner = Math.max(0, subs.scanner - 1);
+    set({ _subscriptions: subs });
+    get()._syncFocusToBackend();
+  },
+  _syncFocusToBackend: () => {
+    if (get()._focusTimer) clearTimeout(get()._focusTimer);
+    set({ _focusTimer: setTimeout(() => {
+      const subs = get()._subscriptions;
+      const ws = get().ws;
+      if (ws?.readyState === WebSocket.OPEN) {
+        if (subs.trades.size > 0) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: true, tradeId: Array.from(subs.trades.keys())[0] }));
+        else if (subs.strategies.size > 0) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: true, strategyLabel: Array.from(subs.strategies.keys())[0] }));
+        else if (subs.globalTrades > 0 || subs.scanner > 0) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: false }));
+      }
+    }, 100) });
   },
   
-  setThrottled: (isThrottled) => {
-    set({ isThrottled })
-    const ws = get().ws
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'set_active', active: !isThrottled }))
+  toggleSidebar: () => { const n = !get().sidebarCollapsed; localStorage.setItem('sidebar_collapsed', n); set({ sidebarCollapsed: n }); },
+  setHealthEnabled: (e) => { localStorage.setItem('health_enabled', e); set({ healthEnabled: e }); },
+  setStreamingEnabled: (e) => { localStorage.setItem('streaming_enabled', e); set({ streamingEnabled: e }); },
+  toggleLogFilter: (level) => set((st) => ({ logFilters: { ...st.logFilters, [level]: !st.logFilters[level] } })),
+  setSyncing: (s) => set({ isSyncing: s }),
+  sync: async () => {
+    try {
+      const res = await sessionAPI.status();
+      const st = get();
+      if (res.data.running) {
+        st.setSessionActive(true, res.data.strategyId || res.data.strategy_id);
+      }
+      set({
+        balance: res.data.balance ?? st.balance,
+        totalPnl: res.data.totalPnl ?? st.totalPnl,
+        totalRiskPct: res.data.totalRiskPct ?? st.totalRiskPct,
+        totalSlUsed: res.data.totalSlUsed ?? 0,
+        activeTrades: res.data.activeTrades || [],
+        variantStats: res.data.variant_stats || {},
+        isAdaptiveTightened: res.data.isAdaptiveTightened ?? st.isAdaptiveTightened,
+        scannerResults: res.data.scannerResults || [],
+        activeWindows: res.data.activeWindows || [],
+        tradeHistory: res.data.history || [],
+        config: res.data.config ? deepMerge(st.config, res.data.config) : st.config,
+        rateLimitLastSync: res.data.rateLimit ? new Date().toISOString() : st.rateLimitLastSync,
+      });
+    } catch (e) {
+      if (e.code === 'ERR_CANCELED') return;
+      console.error("Manual sync failed", e);
     }
   },
-
-  setHealthEnabled: (enabled) => {
-    localStorage.setItem('health_enabled', enabled)
-    set({ healthEnabled: enabled })
-    
-    // Signal preference to backend if WS is open
-    const ws = get().ws
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'set_monitoring', enabled }))
+  setThrottled: (t) => {
+    set({ isThrottled: t });
+    const ws = get().ws;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'set_active', active: !t }));
+    } else if (!t && get().sessionActive) {
+      // If we are unthrottling (coming back) and WS is dead, reconnect immediately
+      get().connectWS();
     }
   },
-  
-  setStreamingEnabled: (enabled) => {
-    localStorage.setItem('streaming_enabled', enabled)
-    set({ streamingEnabled: enabled })
-  },
+  setFocusMode: (f, tid = null, s = null) => { const ws = get().ws; if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: f, tradeId: tid, strategyLabel: s })); },
+  setSessionActive: (a, id) => {
+    const wasActive = get().sessionActive;
+    set({ sessionActive: a, strategyId: id });
 
-  setFocusMode: (focused) => {
-    const ws = get().ws
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: focused }))
-    }
-  },
-
-  setSessionActive: (active, id) => {
-    set({ sessionActive: active, strategyId: id })
-    if (active) {
-      get().connectWS()
+    if (a) {
+      get().connectWS();
     } else {
-      get().disconnectWS()
+      get().disconnectWS();
+      // Proactively clear ephemeral state on termination
+      set({
+        activeTrades: [],
+        scannerResults: [],
+        variantScannerResults: {},
+        variantStats: {},
+        gateState: null,
+        gateReason: null,
+        hibernating: false,
+        totalRiskPct: 0,
+        totalSlUsed: 0
+      });
+      // Fetch fresh history and analytics after termination
+      if (wasActive) {
+        get().sync();
+        get().fetchTradeHistory();
+        get().fetchSessions();
+      }
     }
   },
-
-  clearSessionState: (summary = null) => set({
-    sessionActive: false,
-    sessionPaused: false,
-    strategyId: null,
-    activeTrades: [],
-    scannerResults: [],
-    activeWindows: [],
-    gateState: null,
-    scannerPaused: false,
-    monitoring: null,
-    rateLimit: { used_weight_1m: 0, limit: 1200, used_pct: 0 },
-    sessionSummary: summary,
-  }),
-
-  fetchSessions: async () => {
-    try {
-      const res = await sessionAPI.list()
-      set({ sessionList: res.data })
-    } catch (e) {
-      console.error('tradingStore: fetchSessions error:', e);
+  fetchSessions: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.list(); set({ sessionList: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
+  fetchLifetimeAnalytics: async (m = 'paper') => { set({ isSyncing: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
+  fetchTradeHistory: async (sid = 'all') => { set({ isSyncing: true }); try { const r = await sessionAPI.history(sid); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
+  updateStats: (s) => set((st) => ({ ...st, ...s })),
+  updateConfig: (c) => {
+    console.log('[Config Trace] updateConfig called with:', c);
+    if (c.trading_mode) {
+      localStorage.setItem('global_trading_mode', c.trading_mode);
     }
+    set((st) => ({ config: deepMerge(st.config, c) }));
   },
 
-  fetchLifetimeAnalytics: async (mode = 'paper') => {
-    try {
-      const res = await sessionAPI.getLifetimeAnalytics(mode)
-      set({ lifetimeAnalytics: res.data })
-    } catch (e) {
-      console.error('tradingStore: fetchLifetimeAnalytics error:', e);
+  patchConfig: async (patch) => {
+    const st = get();
+    console.log('[Config Trace] patchConfig initiating:', patch);
+    const newConfig = deepMerge(st.config, patch);
+
+    // Update local state immediately for instant feedback
+    set({ config: newConfig, configSyncing: true });
+
+    // Sync to backend if session is active
+    if (st.sessionActive && st.strategyId) {
+      try {
+        console.log('[Config Trace] Syncing patch to backend...');
+        const res = await sessionAPI.update(st.strategyId, patch);
+        console.log('[Config Trace] Sync successful:', res.data);
+      } catch (e) {
+        console.error("[Store] Failed to patch config on backend", e);
+      } finally {
+        set({ configSyncing: false });
+      }
+    } else {
+      set({ configSyncing: false });
     }
   },
-
-  resetPaperBalance: async () => {
-    try {
-      await sessionAPI.resetPaperBalance()
-      await get().fetchLifetimeAnalytics()
-      return true
-    } catch (e) {
-      console.error('tradingStore: resetPaperBalance error:', e);
-      return false
-    }
-  },
-
-  updateStats: (stats) => set((state) => ({ ...state, ...stats })),
-  updateConfig: (newConfig) => set((state) => ({ config: { ...state.config, ...newConfig } })),
-  toggleLogFilter: (level) => set((state) => {
-    const next = { ...state.logFilters, [level]: !state.logFilters[level] }
-    saveLogFilters(next)
-    const ws = get().ws
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'set_log_filters', filters: next }))
-    }
-    return { logFilters: next }
-  }),
-  addLog: (log) => set((state) => {
-    const normalized = normalizeLog(log)
-    if (!normalized.msg) return {}
-    if (state.logs.length > 0 && state.logs[0].level === normalized.level && state.logs[0].msg === normalized.msg) return {}
-    return { logs: [normalized, ...state.logs].slice(0, 100) }
-  }),
-
-  ws: null,
+  
+  ws: null, reconnectAttempts: 0,
   connectWS: () => {
-    if (get().ws) return
-    set({ wsStatus: 'connecting' })
+    if (get().ws) return;
+    set({ wsStatus: 'connecting' });
+    let u = import.meta.env.VITE_WS_URL || `${window.location.protocol === 'https:' ? 'wss://' : 'ws://'}${window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '')}/session/ws`;
+    if (u && !u.includes('/session/ws')) u = u.replace(/\/$/, '') + '/session/ws';
+    const ak = localStorage.getItem('MOMENTUM_ADMIN_API_KEY') || import.meta.env.VITE_ADMIN_API_KEY;
+    if (ak) u += (u.includes('?') ? '&' : '?') + `token=${encodeURIComponent(ak)}`;
+    const ws = new WebSocket(u);
+    ws.onopen = () => { set({ wsStatus: 'live', reconnectAttempts: 0 }); ws.send(JSON.stringify({ type: 'set_active', active: !get().isThrottled })); };
+    let lsu = 0;
+    ws.onmessage = (e) => {
+      if (get().isThrottled) return;
+      const d = JSON.parse(e.data);
+      if (d.type === 'status' || d.type === 'session') {
+        set((st) => {
+          const stop = d.status === 'stopped' || d.running === false;
+          let nt = st.activeTrades; if (stop) nt = []; else if (d.activeTrades) { const m = new Map(st.activeTrades.map(t => [t.symbol, t])); nt = d.activeTrades.map(t => normalizeTrade(t, m.get(t.symbol))).filter(Boolean); }
 
-    let wsUrl = import.meta.env.VITE_WS_URL;
-    
-    if (wsUrl) {
-      // Ensure the URL ends with /session/ws
-      if (!wsUrl.endsWith('/session/ws')) {
-        wsUrl = wsUrl.replace(/\/$/, '') + '/session/ws';
-      }
-    } else {
-      const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-      const host = window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '');
-      wsUrl = `${protocol}${host}/session/ws`;
-    }
-
-    const ws = new WebSocket(wsUrl)
-
-    ws.onopen = () => {
-      set({ wsStatus: 'live' })
-      // Send current health preference on open
-      ws.send(JSON.stringify({ type: 'set_monitoring', enabled: get().healthEnabled }))
-      ws.send(JSON.stringify({ type: 'set_log_filters', filters: get().logFilters }))
-      ws.send(JSON.stringify({ type: 'set_active', active: !get().isThrottled }))
-    }
-
-    // Throttled scanner update to prevent React choking on high-freq updates
-    let lastScannerUpdate = 0;
-    const SCANNER_THROTTLE_MS = 200;
-
-    ws.onmessage = (event) => {
-      if (!get().streamingEnabled || get().isThrottled) return;
-      const data = JSON.parse(event.data)
-
-      if (data.type === 'status') {
-        set((state) => {
-          const stopped = data.running === false
-          const nextTrades = stopped ? [] : (data.activeTrades?.map(t => {
-            const prev = state.activeTrades.find(p => p.symbol === t.symbol);
-            return normalizeTrade(t, prev);
-          }).filter(Boolean) || state.activeTrades);
-
-          return {
-            sessionActive: data.running,
-            sessionPaused: data.paused ?? state.sessionPaused,
-            strategyId: data.strategyId || state.strategyId,
-            balance: data.balance ?? state.balance,
-            totalPnl: (data.totalPnl !== undefined && data.totalPnl !== null) ? toNumber(data.totalPnl) : state.totalPnl,
-            totalRiskPct: data.totalRiskPct ?? state.totalRiskPct,
-            totalSlUsed: data.totalSlUsed ?? state.totalSlUsed,
-            activeTrades: nextTrades,
-            logs: data.logLines ? uniqueLogs(data.logLines).slice(0, 100) : state.logs,
-            scannerResults: data.scannerResults?.map(normalizeOpportunity) || state.scannerResults,
-            activeWindows: data.activeWindows?.map(normalizeWindow) || state.activeWindows,
-            tradeHistory: data.history?.map(t => {
-               const prev = state.tradeHistory.find(p => p.symbol === t.symbol);
-               return normalizeTrade(t, prev);
-            }).filter(Boolean) || state.tradeHistory,
-            gateState: data.gateState ?? state.gateState,
-            scannerPaused: data.scannerPaused ?? state.scannerPaused,
-            config: data.config ? { ...state.config, ...data.config } : state.config,
+          // BOLT: Smart history merging to prevent flickering or data loss.
+          // We only update history if the backend provides a non-empty list.
+          // This allows session-specific updates without wiping global history.
+          let nextHistory = st.tradeHistory;
+          if (d.history && Array.isArray(d.history) && d.history.length > 0) {
+            const incoming = d.history.map(t => normalizeTrade(t)).filter(Boolean);
+            const m = new Map(st.tradeHistory.map(t => [t.id, t]));
+            incoming.forEach(t => m.set(t.id, t));
+            nextHistory = Array.from(m.values()).sort((a, b) => new Date(b.exit_ts || b.createdAt).getTime() - new Date(a.exit_ts || a.createdAt).getTime());
           }
-        })
-      } else if (data.type === 'session') {
-        set((state) => {
-          const stopped = data.status === 'stopped'
-          const nextTrades = stopped ? [] : (data.activeTrades?.map(t => {
-            const prev = state.activeTrades.find(p => p.symbol === t.symbol);
-            return normalizeTrade(t, prev);
-          }).filter(Boolean) || state.activeTrades);
 
-          return {
-            sessionActive: data.running ?? data.status === 'started',
-            sessionPaused: data.paused ?? false,
-            balance: data.balance ?? state.balance,
-            config: data.config ? { ...state.config, ...data.config } : state.config,
-            activeTrades: nextTrades,
-            scannerResults: data.scannerResults?.map(normalizeOpportunity) || state.scannerResults,
-            activeWindows: data.activeWindows?.map(normalizeWindow) || state.activeWindows,
-            tradeHistory: data.history?.map(t => {
-              const prev = state.tradeHistory.find(p => p.symbol === t.symbol);
-              return normalizeTrade(t, prev);
-            }).filter(Boolean) || state.tradeHistory,
-            gateState: data.gateState ?? state.gateState,
-            scannerPaused: data.scannerPaused ?? state.scannerPaused,
-            sessionSummary: stopped
-              ? {
-                  endedAt: new Date().toISOString(),
-                  totalPnl: state.totalPnl,
-                  tradeCount: state.tradeHistory.length,
-                  reason: 'stopped',
-                }
-              : null,
+          // BOLT: Prevent flickering during config sync
+          const nextConfig = d.config ? (st.configSyncing ? st.config : deepMerge(st.config, d.config)) : st.config;
+
+          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, logs: d.logLines?.map(normalizeLog) || st.logs, scannerResults: d.scannerResults?.map(normalizeOpportunity) || st.scannerResults, activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: nextHistory, gateState: d.gateState ?? st.gateState, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, scannerPaused: d.scannerPaused ?? st.scannerPaused, config: nextConfig, tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h };
+        });
+      } else if (d.type === 'tick') {
+        set((st) => {
+          let nt = st.activeTrades; if (d.trades && Array.isArray(d.trades)) { const m = new Map(st.activeTrades.map(t => [t.id, t])); d.trades.forEach(t => { const p = m.get(t.id); const n = normalizeTrade(t, p); if (n) m.set(t.id, n); }); if (d._heartbeat) { const ids = new Set(d.trades.map(t => t.id)); for (const id of m.keys()) if (!ids.has(id)) m.delete(id); } nt = Array.from(m.values()); }
+
+          // BOLT: Prevent flickering during config sync. If local state is in-flight, ignore config updates from ticks.
+          let nextConfig = st.config;
+          if (d.config) {
+            if (st.configSyncing) {
+              console.log('[Config Trace] Ignoring incoming config tick (sync in progress)');
+              nextConfig = st.config;
+            } else {
+              nextConfig = deepMerge(st.config, d.config);
+            }
           }
-        })
-      } else if (data.type === 'tick') {
-        set((state) => {
-          const nextTrades = data.trades ? (data.trades || []).map(t => {
-            const prev = state.activeTrades.find(p => p.symbol === t.symbol);
-            return normalizeTrade(t, prev);
-          }).filter(Boolean) : state.activeTrades;
-
-          // Only update activeTrades if reference should change (data changed)
-          // We still allow PnL changes to trigger updates, but we avoid re-creating 
-          // the array if the backend sends redundant ticks.
-          const tradesChanged = !data.trades || nextTrades.length !== state.activeTrades.length || 
-                               nextTrades.some((t, i) => t.symbol !== state.activeTrades[i]?.symbol || t.pnl !== state.activeTrades[i]?.pnl || t.current_price !== state.activeTrades[i]?.current_price);
 
           return {
-            balance: data.balance ?? state.balance,
-            totalPnl: (data.total_pnl !== undefined && data.total_pnl !== null) ? toNumber(data.total_pnl) : state.totalPnl,
-            totalRiskPct: data.total_risk_pct ?? state.totalRiskPct,
-            totalSlUsed: data.total_sl_used ?? state.totalSlUsed,
-            activeTrades: tradesChanged ? nextTrades : state.activeTrades,
-            activeWindows: data.activeWindows ? (data.activeWindows || []).map(normalizeWindow) : state.activeWindows,
-            gateState: data.gateState !== undefined ? data.gateState : state.gateState,
-            sessionPaused: data.paused !== undefined ? data.paused : state.sessionPaused,
-            scannerPaused: data.scannerPaused !== undefined ? data.scannerPaused : state.scannerPaused,
-            rateLimit: data.rateLimit || state.rateLimit,
-            monitoring: data.monitoring || state.monitoring,
-            analytics: data.analytics ? { ...state.analytics, ...data.analytics } : state.analytics,
-            config: data.config ? { ...state.config, ...data.config } : state.config,
+            balance: d.balance ?? st.balance, totalPnl: d.total_pnl ?? st.totalPnl, totalRiskPct: d.total_risk_pct ?? st.totalRiskPct, totalSlUsed: d.total_sl_used ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, variantStats: d.variant_stats || st.variantStats, activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, hibernating: d.hibernating ?? st.hibernating, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, scannerPaused: d.scannerPaused ?? st.scannerPaused, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics,
+            config: nextConfig,
+            tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h
           };
-        })
-      } else if (data.type === 'log') {
-        get().addLog(data)
-      } else if (data.type === 'scanner') {
+        });
+      } else if (d.type === 'log') set(st => ({ logs: [normalizeLog(d), ...st.logs].slice(0, MAX_LOG_LINES) }));
+      else if (d.type === 'scanner') {
+        const now = Date.now(); if (now - lsu < 200) return; lsu = now;
+        set(st => ({ scannerResults: (d.opportunities || []).map(o => { const n = normalizeOpportunity(o); const p = st.scannerResults.find(x => x.symbol === n.symbol); return p ? { ...n, history: n.history ?? p.history, signalResult: n.signalResult ?? p.signalResult } : n; }), variantScannerResults: d.variant_opportunities ? d.variant_opportunities.reduce((acc, v) => { acc[v.strategy_label] = v.opportunities.map(normalizeOpportunity); return acc; }, {}) : st.variantScannerResults, activeWindows: d.activeWindows || st.activeWindows }));
+      } else if (d.type === 'trade_event') {
+        const t = d.trade ? normalizeTrade(d.trade) : null;
+        set(st => ({ activeTrades: d.event === 'closed' ? st.activeTrades.filter(x => x.symbol !== d.symbol) : (t ? [...st.activeTrades, t] : st.activeTrades), tradeHistory: d.event === 'closed' && t ? [t, ...st.tradeHistory].slice(0, 50) : st.tradeHistory, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount }));
+      } else if (d.type === 'gate') set(st => ({ gateState: d.gateState, gateReason: d.reason, hibernating: d.hibernating ?? st.hibernating, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, scannerPaused: d.scannerPaused }));
+      else if (d.type === 'alert') {
         const now = Date.now();
-        if (now - lastScannerUpdate >= SCANNER_THROTTLE_MS) {
-          const variantResults = {};
-          if (data.variant_opportunities) {
-            data.variant_opportunities.forEach(v => {
-               variantResults[v.strategy_label] = (v.opportunities || []).map(normalizeOpportunity);
-            });
+        const newAlert = { id: Math.random().toString(36).substring(2, 11), ts: now, ...d };
+
+        set(st => {
+          // Coalesce logic: If an alert with same title/message exists within last 5s, update its TS and keep it
+          const existing = st.alerts.find(a => a.title === d.title && a.message === d.message && (now - a.ts < 5000));
+          if (existing) {
+             return { alerts: st.alerts.map(a => a.id === existing.id ? { ...a, ts: now, count: (a.count || 1) + 1 } : a) };
           }
+          return { alerts: [newAlert, ...st.alerts].slice(0, 10) };
+        });
 
-          set((state) => {
-            const nextResults = (data.opportunities || []).map(o => {
-              const normalized = normalizeOpportunity(o);
-              const prev = state.scannerResults.find(p => p.symbol === normalized.symbol);
-              if (prev && normalized.history === undefined) {
-                normalized.history = prev.history;
-              }
-              return normalized;
-            });
-
-            const nextVariantResults = {};
-            Object.keys(variantResults).forEach(label => {
-              nextVariantResults[label] = variantResults[label].map(o => {
-                const prev = state.variantScannerResults[label]?.find(p => p.symbol === o.symbol);
-                if (prev && o.history === undefined) {
-                  o.history = prev.history;
-                }
-                return o;
-              });
-            });
-
-            return {
-              scannerResults: nextResults,
-              variantScannerResults: nextVariantResults,
-              activeWindows: (data.activeWindows || []).map(normalizeWindow),
-            };
-          })
-          lastScannerUpdate = now;
-        }
-      } else if (data.type === 'session_terminated') {
-        const currentState = get()
-        get().addLog({ level: 'warn', msg: 'Session terminated, clearing active positions.' })
-        get().clearSessionState({
-          endedAt: new Date().toISOString(),
-          totalPnl: currentState.totalPnl,
-          tradeCount: currentState.tradeHistory.length,
-          reason: data.reason || 'terminated',
-        })
-      } else if (data.type === 'trade_event') {
-        const trade = data.trade ? normalizeTrade(data.trade) : null
-        get().addLog({ level: 'info', msg: `${data.symbol}: ${data.event} ${data.reason || ''}` })
-        set((state) => ({
-          activeTrades: data.event === 'closed'
-            ? state.activeTrades.filter((t) => t.symbol !== data.symbol)
-            : state.activeTrades,
-          tradeHistory: data.event === 'closed' && trade
-            ? [trade, ...state.tradeHistory].slice(0, 50)
-            : state.tradeHistory,
-        }))
-      } else if (data.type === 'gate') {
-        set((state) => ({
-          gateState: data.gateState,
-          scannerPaused: data.scannerPaused,
-        }))
-        get().addLog({ level: 'warn', msg: data.reason || 'Risk gate active' })
+        // Auto-remove alert after 10 seconds of no updates
+        setTimeout(() => {
+          set(st => ({ alerts: st.alerts.filter(a => a.id !== newAlert.id || (Date.now() - a.ts < 10000)) }));
+        }, 10000);
       }
-    }
-
-    ws.onclose = () => {
-      set({ ws: null, wsStatus: 'offline' })
-      if (get().sessionActive) {
-        setTimeout(() => get().connectWS(), 2000)
-      }
-    }
-
-    ws.onerror = () => set({ wsStatus: 'failed' })
-
-    set({ ws })
+      else if (d.type === 'session_terminated') get().setSessionActive(false, null);
+    };
+    ws.onclose = () => { set({ ws: null, wsStatus: 'offline' }); if (get().sessionActive) { const att = get().reconnectAttempts; const del = Math.min(1000 * Math.pow(2, att), 30000); set({ reconnectAttempts: att + 1 }); setTimeout(() => get().connectWS(), del); } };
+    set({ ws });
   },
-
-  disconnectWS: () => {
-    if (get().ws) {
-      get().ws.close()
-      set({ ws: null, wsStatus: 'offline' })
-    }
-  },
+  disconnectWS: () => { if (get().ws) { get().ws.close(); set({ ws: null, wsStatus: 'offline' }); } },
 }))

@@ -1,6 +1,7 @@
 import { SessionService } from './session.service';
 import { SessionConfig } from '../models/SessionConfig';
 import { Session as SessionEntity } from '../models/entities/Session.entity';
+import { TradeEntity } from '../models/entities/Trade.entity';
 
 describe('SessionService Validation', () => {
   let service: SessionService;
@@ -20,10 +21,25 @@ describe('SessionService Validation', () => {
     setBalanceUpdateCallback: jest.fn(),
     setTradeUpdateCallback: jest.fn(),
     updateConfig: jest.fn(),
+    setBinanceClient: jest.fn(),
+    fetchPosition: jest.fn(),
+    getStatus: jest.fn().mockReturnValue({ running: false, activeTrades: [] }),
   } as any;
 
   const mockAnalyticsService = {
     calculateAnalytics: jest.fn(),
+  } as any;
+
+  const mockBinanceClientFactory = {
+    createClient: jest.fn(),
+  } as any;
+
+  const mockAuditLogService = {
+    log: jest.fn(),
+  } as any;
+
+  const mockOrderManagerService = {
+    cancelBinanceOrder: jest.fn(),
   } as any;
 
   const mockTradeRepository = {
@@ -33,16 +49,28 @@ describe('SessionService Validation', () => {
     update: jest.fn(),
   } as any;
 
+  const mockLogRepository = {
+    find: jest.fn().mockResolvedValue([]),
+    count: jest.fn().mockResolvedValue(0),
+    insert: jest.fn().mockResolvedValue({}),
+    delete: jest.fn().mockResolvedValue({}),
+    findOne: jest.fn().mockResolvedValue(null),
+  } as any;
+
   beforeEach(() => {
     jest.clearAllMocks();
     service = new SessionService(
-      mockRepository,
-      mockTradeRepository,
-      mockRepository,
-      mockRepository,
-      mockRepository,
+      mockRepository, // Session
+      mockTradeRepository, // Trade
+      mockLogRepository, // Log
+      mockRepository, // Settings
+      mockRepository, // BalanceHistory
       mockTradingSessionService,
-      mockAnalyticsService
+      mockOrderManagerService,
+      { emit: jest.fn() } as any, // EventEmitter2
+      mockAnalyticsService,
+      mockBinanceClientFactory,
+      mockAuditLogService
     );
   });
 
@@ -76,7 +104,7 @@ describe('SessionService Validation', () => {
     it('throws error for invalid EMA Dual Cross parameters', () => {
       const config = new SessionConfig();
       config.enabled_signals = ['ema_dual_cross'];
-      config.signal_params = JSON.stringify({ entry_ema_fast: 21, entry_ema_slow: 9 });
+      config.signal_params = { entry_ema_fast: 21, entry_ema_slow: 9 };
       expect(() => (service as any).validateConfig(config)).toThrow('EMA Dual Cross: Fast period must be less than slow period');
     });
 
@@ -95,6 +123,66 @@ describe('SessionService Validation', () => {
       config.risk_pct_per_trade = 1;
       config.max_total_risk_pct = 5;
       expect(() => (service as any).validateConfig(config)).not.toThrow();
+    });
+
+    it('throws error for invalid slippage_abort_threshold (FIX VERIFICATION)', () => {
+      const config = new SessionConfig();
+      config.slippage_abort_threshold = 0.5; // Max is 0.15
+      expect(() => (service as any).validateConfig(config)).toThrow('Slippage abort threshold cannot exceed 15%');
+    });
+  });
+
+  describe('startSession Security Enforcement', () => {
+    it('throws ConfigValidationException if starting a live session without ENCRYPTION_KEY', async () => {
+      const config = new SessionConfig();
+      config.trading_mode = 'live';
+
+      const originalEnv = process.env.ENCRYPTION_KEY;
+      process.env.ENCRYPTION_KEY = ''; // Empty string simulates missing env
+
+      try {
+        await service.startSession(config, false);
+        throw new Error('Should have thrown ConfigValidationException');
+      } catch (e: any) {
+        expect(e.message).toContain('ENCRYPTION_KEY must be set to start a session in live or testnet mode');
+      } finally {
+        process.env.ENCRYPTION_KEY = originalEnv;
+      }
+    });
+
+    it('throws ConfigValidationException if starting a testnet session without ENCRYPTION_KEY', async () => {
+      const config = new SessionConfig();
+      config.trading_mode = 'testnet';
+
+      const originalEnv = process.env.ENCRYPTION_KEY;
+      process.env.ENCRYPTION_KEY = ''; // Empty string simulates missing env
+
+      try {
+        await service.startSession(config, false);
+        throw new Error('Should have thrown ConfigValidationException');
+      } catch (e: any) {
+        expect(e.message).toContain('ENCRYPTION_KEY must be set to start a session in live or testnet mode');
+      } finally {
+        process.env.ENCRYPTION_KEY = originalEnv;
+      }
+    });
+
+    it('allows starting a paper session without ENCRYPTION_KEY', async () => {
+      const config = new SessionConfig();
+      config.trading_mode = 'paper';
+
+      mockRepository.save.mockResolvedValue({ id: 'paper-uuid', balance: 10000, running: true });
+      mockRepository.findOne.mockResolvedValue({ paper_balance: 10000.0 });
+
+      const originalEnv = process.env.ENCRYPTION_KEY;
+      delete process.env.ENCRYPTION_KEY;
+
+      try {
+        await service.startSession(config, true);
+        expect(mockTradingSessionService.start).toHaveBeenCalled();
+      } finally {
+        process.env.ENCRYPTION_KEY = originalEnv;
+      }
     });
   });
 
@@ -123,7 +211,11 @@ describe('SessionService Validation', () => {
         mockRepository, // Settings
         mockRepository, // BalanceHistory
         mockTradingSessionService,
-        mockAnalyticsService
+      mockOrderManagerService,
+        { emit: jest.fn() } as any, // EventEmitter2
+        mockAnalyticsService,
+        mockBinanceClientFactory,
+        mockAuditLogService
       );
       
       (service as any).currentSessionId = 'test-id';
@@ -195,12 +287,13 @@ describe('SessionService Validation', () => {
       };
     });
 
-    it('should rollback transaction if trade save fails', async () => {
+    it('should rollback transaction and throw error if trade save fails', async () => {
       const trade = { symbol: 'BTCUSDT', status: 'CLOSED', entry_price: 50000, qty: 1, pnl: 100 } as any;
+      mockQueryRunner.manager.findOne.mockResolvedValue({ id: 'session-123', paperMode: true });
       mockQueryRunner.manager.save.mockRejectedValue(new Error('DB SAVE FAILED'));
       (service as any).currentSessionId = 'session-123';
 
-      await service.saveTradeAtomic(trade, 10100);
+      await expect(service.saveTradeAtomic(trade, 10100)).rejects.toThrow('DB SAVE FAILED');
 
       expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
       expect(mockQueryRunner.commitTransaction).not.toHaveBeenCalled();
@@ -248,6 +341,132 @@ describe('SessionService Validation', () => {
       expect(mockQueryRunner.manager.update).toHaveBeenCalledWith(SessionEntity, 'session-123', {
         balance: 10100,
         totalPnl: 100
+      });
+    });
+
+    it('should persist exit_signal_type and exit_signal_reason', async () => {
+      const trade = {
+        symbol: 'BTCUSDT',
+        status: 'CLOSED_SIGNAL',
+        entry_price: 50000,
+        qty: 1,
+        pnl: 100,
+        exit_signal_type: 'EMA_CROSS',
+        exit_signal_reason: 'Fast EMA crossed below slow EMA'
+      } as any;
+      (service as any).currentSessionId = 'session-123';
+
+      mockTradeRepository.create.mockImplementation((d: any) => d);
+
+      const mockQueryBuilder = {
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getRawOne: jest.fn().mockResolvedValue({ sum: '100' }),
+      };
+      mockQueryRunner.manager.createQueryBuilder = jest.fn().mockReturnValue(mockQueryBuilder);
+      mockQueryRunner.manager.findOne.mockResolvedValue({ id: 'session-123', paperMode: true });
+
+      await service.saveTradeAtomic(trade, 10100);
+
+      expect(mockQueryRunner.manager.save).toHaveBeenCalledWith(TradeEntity, expect.objectContaining({
+        exit_signal_type: 'EMA_CROSS',
+        exit_signal_reason: 'Fast EMA crossed below slow EMA'
+      }));
+    });
+  });
+
+  describe('logMessage rate limiting', () => {
+    it('should rate limit logs per minute', async () => {
+      (service as any).currentSessionId = 'session-123';
+      const insertSpy = mockLogRepository.insert;
+
+      // Send 60 logs
+      for (let i = 0; i < 60; i++) {
+        await service.logMessage(`log ${i}`);
+      }
+      expect(insertSpy).toHaveBeenCalledTimes(60);
+
+      // Send 61st log - should be rate limited
+      await service.logMessage('log 61');
+      expect(insertSpy).toHaveBeenCalledTimes(60);
+    });
+
+    it('should use in-memory counter for 2000 log cap', async () => {
+      (service as any).currentSessionId = 'session-cap';
+
+      // Mock initial count
+      mockLogRepository.count.mockResolvedValue(1999);
+
+      // 1st log - should pass and increment to 2000
+      await service.logMessage('log 1');
+      expect(mockLogRepository.insert).toHaveBeenCalled();
+      expect(mockLogRepository.count).toHaveBeenCalledTimes(1);
+
+      // 2nd log (info) - should be blocked by cap
+      jest.clearAllMocks();
+      await service.logMessage('log 2', 'info');
+      expect(mockLogRepository.insert).not.toHaveBeenCalled();
+      // Should NOT call count() again
+      expect(mockLogRepository.count).not.toHaveBeenCalled();
+
+      // 3rd log (error) - should trigger deletion and insertion
+      jest.clearAllMocks();
+      mockLogRepository.findOne.mockResolvedValue({ id: 'old-log' });
+      await service.logMessage('log 3', 'error');
+      expect(mockLogRepository.delete).toHaveBeenCalledWith('old-log');
+      expect(mockLogRepository.insert).toHaveBeenCalled();
+      expect(mockLogRepository.count).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateSession merging and protection', () => {
+    let mockQueryRunner: any;
+
+    beforeEach(() => {
+      mockQueryRunner = {
+        connect: jest.fn().mockResolvedValue(undefined),
+        startTransaction: jest.fn().mockResolvedValue(undefined),
+        commitTransaction: jest.fn().mockResolvedValue(undefined),
+        rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+        release: jest.fn().mockResolvedValue(undefined),
+        manager: {
+          update: jest.fn(),
+          findOne: jest.fn(),
+        },
+      };
+      mockRepository.manager = {
+        connection: {
+          createQueryRunner: jest.fn().mockReturnValue(mockQueryRunner),
+        },
+      };
+    });
+
+    it('should perform a shallow merge and preserve trading mode', async () => {
+      const sessionId = 'session-id';
+      const existingSession = {
+        id: sessionId,
+        tradingMode: 'live',
+        paperMode: false,
+        config: {
+          strategy_label: 'Original',
+          max_trades_24h: 50,
+          trading_mode: 'live',
+          paper_mode: false
+        }
+      };
+
+      mockQueryRunner.manager.findOne.mockResolvedValue(existingSession);
+
+      const partialConfig = { max_trades_24h: 100, trading_mode: 'paper' } as any;
+      await service.updateSession(sessionId, partialConfig);
+
+      expect(mockQueryRunner.manager.update).toHaveBeenCalledWith(SessionEntity, sessionId, {
+        config: expect.objectContaining({
+          strategy_label: 'Original',
+          max_trades_24h: 100,
+          trading_mode: 'live',
+          paper_mode: false
+        })
       });
     });
   });

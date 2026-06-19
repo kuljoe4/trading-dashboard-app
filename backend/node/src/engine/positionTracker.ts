@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
 import { RiskEngineService } from './riskEngine';
@@ -6,14 +7,23 @@ import { SignalEngineService } from './signalEngine';
 import { OrderManagerService } from './orderManager';
 import { TickerCacheService } from './ticker_cache.service';
 import { KlineStoreService } from './kline_store.service';
+import { SessionStateService } from './session_state.service';
+import { roundEight } from '../lib/math';
+import { ENGINE_EVENTS } from './events';
+import { CONFIG_LIMITS } from '../models/constants';
 
 @Injectable()
 export class PositionTrackerService {
   private readonly logger = new Logger(PositionTrackerService.name);
 
   private trades: Map<string, Trade> = new Map(); // symbol -> Trade
+  private enteringSymbols: Set<string> = new Set(); // symbols currently in the process of entering
+  private pendingRisk: Map<string, number> = new Map(); // symbol -> reserved risk amount
+  private closingSymbols: Set<string> = new Set(); // symbols currently in the process of closing
   private rrSequenceIndex: Map<string, number> = new Map(); // symbol -> current milestone index
-  private onTradeUpdate: ((trade: Trade) => void) | null = null;
+  private _totalRisk = 0;
+  private _pendingRiskTotal = 0; // BOLT: Track total pending risk in O(1)
+  private _activeListCache: Trade[] | null = null;
 
   constructor(
     private readonly riskEngine: RiskEngineService,
@@ -21,39 +31,72 @@ export class PositionTrackerService {
     private readonly orderManager: OrderManagerService,
     private readonly tickerCache: TickerCacheService,
     private readonly klineStore: KlineStoreService,
+    private readonly sessionState: SessionStateService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  setCallbacks(onClose: (closed: any) => void, onTick: () => void) {
-    // Callbacks would be set from server
-  }
-
-  setTradeUpdateCallback(cb: (trade: Trade) => void) {
-    this.onTradeUpdate = cb;
-  }
-
   hasSymbol(symbol: string): boolean {
-    return this.trades.has(symbol);
+    return this.trades.has(symbol) || this.enteringSymbols.has(symbol);
+  }
+
+  isEntering(symbol: string): boolean {
+    return this.enteringSymbols.has(symbol);
   }
 
   activeList(): Trade[] {
-    return Array.from(this.trades.values());
+    if (this._activeListCache) return this._activeListCache;
+    this._activeListCache = Array.from(this.trades.values());
+    return this._activeListCache;
+  }
+
+  activeCount(): number {
+    return this.trades.size;
+  }
+
+  enteringCount(): number {
+    return this.enteringSymbols.size;
   }
 
   /**
-   * BOLT OPTIMIZATION: Use direct loop over Map values instead of creating an array.
-   * Eliminates O(N) allocation in the 1s hot loop and 2s main loop.
+   * BOLT OPTIMIZATION: Returns pre-calculated total risk in O(1),
+   * including pending risk reserved for trades currently entering.
    */
   totalRisk(): number {
-    let sum = 0;
-    for (const trade of this.trades.values()) {
-      sum += Math.abs(trade.entry_price - trade.current_sl) * trade.qty;
+    return roundEight(this._totalRisk + this._pendingRiskTotal);
+  }
+
+  setEntering(symbol: string, entering: boolean, reservedRisk = 0): void {
+    if (entering) {
+      this.enteringSymbols.add(symbol);
+      if (reservedRisk > 0) {
+        // If updating or re-setting, remove old reserved amount first to maintain O(1) sum
+        const oldReserved = this.pendingRisk.get(symbol) || 0;
+        this._pendingRiskTotal = roundEight(this._pendingRiskTotal - oldReserved + reservedRisk);
+
+        this.pendingRisk.set(symbol, reservedRisk);
+        this.logger.debug(`[Risk Integrity] Reserved ${reservedRisk} USDT risk for ${symbol} entry.`);
+      }
+    } else {
+      this.enteringSymbols.delete(symbol);
+      const oldReserved = this.pendingRisk.get(symbol) || 0;
+      if (oldReserved > 0) {
+        this._pendingRiskTotal = roundEight(this._pendingRiskTotal - oldReserved);
+        this.pendingRisk.delete(symbol);
+      }
     }
-    return sum;
   }
 
   addTrade(trade: Trade): void {
+    // Correctly handle symbol overwrites to prevent double-counting risk
+    const existing = this.trades.get(trade.symbol);
+    if (existing) {
+      this._totalRisk = roundEight(this._totalRisk - (existing.risk_usdt || 0));
+    }
+
     this.trades.set(trade.symbol, trade);
     this.rrSequenceIndex.set(trade.symbol, -1);
+    this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt || 0));
+    this._activeListCache = null;
   }
 
   async checkRrSequenceAdjustments(
@@ -92,6 +135,7 @@ export class PositionTrackerService {
     const prevIndex = this.rrSequenceIndex.get(symbol) || -1;
     if (currentIndex > prevIndex && currentIndex >= 0) {
       this.rrSequenceIndex.set(symbol, currentIndex);
+      trade.updated_at = new Date();
 
       // Get target RR for this milestone
       const exitRr = exitRrSequence[currentIndex] ?? 0;
@@ -106,30 +150,93 @@ export class PositionTrackerService {
         newSl = trade.entry_price - risk * exitRr;
       }
 
+      // Audit Item: Dynamic Trailing Boundary Guard
+      // Prevents "Order would immediately trigger" rejections and instant fills by ensuring
+      // the new SL is not too close to (or beyond) the current market price.
+      const bufferPct = config.trailing_guard_buffer_pct ?? CONFIG_LIMITS.TRAILING_GUARD_DEFAULT;
+      const buffer = currentPrice * (bufferPct / 100);
+      if (trade.direction === 'LONG') {
+        if (newSl >= currentPrice - buffer) {
+          const msg = `[Trailing Guard] Long SL ${newSl.toFixed(5)} capped at ${ (currentPrice - buffer).toFixed(5)} (Market: ${currentPrice.toFixed(5)})`;
+          this.logger.warn(msg);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'warn' });
+          newSl = currentPrice - buffer;
+        }
+      } else {
+        if (newSl <= currentPrice + buffer) {
+          const msg = `[Trailing Guard] Short SL ${newSl.toFixed(5)} capped at ${ (currentPrice + buffer).toFixed(5)} (Market: ${currentPrice.toFixed(5)})`;
+          this.logger.warn(msg);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'warn' });
+          newSl = currentPrice + buffer;
+        }
+      }
+
       // Only move SL deeper into profit (stricter protection)
       if (trade.direction === 'LONG' && newSl) {
         if (newSl > trade.current_sl) {
           const prevSl = trade.current_sl;
+          const prevRisk = trade.risk_usdt || 0;
           trade.current_sl = newSl;
+          trade.risk_usdt = Math.max(0, trade.entry_price - trade.current_sl) * trade.qty;
+          // Update running total risk with the delta
+          this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
           this.logSlAdjustment(trade, prevSl, newSl, currentIndex);
           // Update exchange-side SL in live mode
-          this.orderManager.updateStopLoss(trade, newSl).catch(err => {
+          this.orderManager.updateStopLoss(trade, newSl, prevSl).then(res => {
+            if (!res.success) {
+               this.logger.error(`[CRITICAL] Exchange SL update FAILED for ${symbol}. Local state is ahead of exchange.`);
+            } else if (res.price && res.price !== newSl) {
+               // Sync internal state to the adaptive price used by the exchange
+               const delta = (trade.direction === 'LONG' ? trade.entry_price - res.price : res.price - trade.entry_price) * trade.qty;
+               const finalRisk = Math.max(0, delta);
+               this._totalRisk = roundEight(this._totalRisk - trade.risk_usdt + finalRisk);
+               trade.risk_usdt = finalRisk;
+               trade.current_sl = res.price;
+
+               if (trade.sl_adjustments && trade.sl_adjustments.length > 0) {
+                  const last = trade.sl_adjustments[trade.sl_adjustments.length - 1];
+                  (last as any).adaptive = true;
+                  last.new_sl = res.price;
+               }
+            }
+          }).catch(err => {
             this.logger.error(`Failed to update exchange SL for ${symbol}: ${err.message}`);
           });
           // Notify of trade state change for persistence
-          if (this.onTradeUpdate) this.onTradeUpdate(trade);
+          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
         }
       } else if (trade.direction === 'SHORT' && newSl) {
         if (newSl < trade.current_sl) {
           const prevSl = trade.current_sl;
+          const prevRisk = trade.risk_usdt || 0;
           trade.current_sl = newSl;
+          trade.risk_usdt = Math.max(0, trade.current_sl - trade.entry_price) * trade.qty;
+          // Update running total risk with the delta
+          this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
           this.logSlAdjustment(trade, prevSl, newSl, currentIndex);
           // Update exchange-side SL in live mode
-          this.orderManager.updateStopLoss(trade, newSl).catch(err => {
+          this.orderManager.updateStopLoss(trade, newSl, prevSl).then(res => {
+            if (!res.success) {
+               this.logger.error(`[CRITICAL] Exchange SL update FAILED for ${symbol}. Local state is ahead of exchange.`);
+            } else if (res.price && res.price !== newSl) {
+               // Sync internal state to the adaptive price used by the exchange
+               const delta = (trade.direction === 'SHORT' ? res.price - trade.entry_price : trade.entry_price - res.price) * trade.qty;
+               const finalRisk = Math.max(0, delta);
+               this._totalRisk = roundEight(this._totalRisk - trade.risk_usdt + finalRisk);
+               trade.risk_usdt = finalRisk;
+               trade.current_sl = res.price;
+
+               if (trade.sl_adjustments && trade.sl_adjustments.length > 0) {
+                  const last = trade.sl_adjustments[trade.sl_adjustments.length - 1];
+                  (last as any).adaptive = true;
+                  last.new_sl = res.price;
+               }
+            }
+          }).catch(err => {
             this.logger.error(`Failed to update exchange SL for ${symbol}: ${err.message}`);
           });
           // Notify of trade state change for persistence
-          if (this.onTradeUpdate) this.onTradeUpdate(trade);
+          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
         }
       }
     }
@@ -140,6 +247,7 @@ export class PositionTrackerService {
     prevSl: number,
     newSl: number,
     milestoneIndex: number,
+    adaptive = false,
   ): void {
     const adjustment = {
       timestamp: new Date().toISOString(),
@@ -148,6 +256,7 @@ export class PositionTrackerService {
       reason: `RR_sequence_milestone_${milestoneIndex}`,
       milestone_index: milestoneIndex,
       max_rr_achieved: trade.max_rr_achieved,
+      adaptive,
     };
 
     if (!trade.sl_adjustments) {
@@ -160,25 +269,23 @@ export class PositionTrackerService {
     );
   }
 
-  async checkExitConditions(
+  checkExitConditions(
     symbol: string,
     currentPrice: number,
     config: SessionConfig,
     interval: string = '1m',
-  ): Promise<{ exitOccurred: boolean; exitType: string; exitReason: string } | null> {
+  ): { exitOccurred: boolean; exitType: string; exitReason: string } | null {
     const trade = this.trades.get(symbol);
     if (!trade || trade.status !== 'OPEN') return null;
 
     // Check SL hit
-    if (trade.direction === 'LONG' && currentPrice <= trade.current_sl) {
-      return {
-        exitOccurred: true,
-        exitType: 'CLOSED_SL',
-        exitReason: 'SL_HIT',
-      };
-    }
+    if ((trade.direction === 'LONG' && currentPrice <= trade.current_sl) ||
+        (trade.direction === 'SHORT' && currentPrice >= trade.current_sl)) {
 
-    if (trade.direction === 'SHORT' && currentPrice >= trade.current_sl) {
+      const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
+      trade.exit_signal_type = 'STOP_LOSS';
+      trade.exit_signal_reason = `${slType}: Price ${currentPrice} reached SL ${trade.current_sl}`;
+
       return {
         exitOccurred: true,
         exitType: 'CLOSED_SL',
@@ -188,6 +295,8 @@ export class PositionTrackerService {
 
     // Check TP hit
     if (trade.tp != null && trade.direction === 'LONG' && currentPrice >= trade.tp) {
+      trade.exit_signal_type = 'TAKE_PROFIT';
+      trade.exit_signal_reason = `Price ${currentPrice} >= TP ${trade.tp}`;
       return {
         exitOccurred: true,
         exitType: 'CLOSED_TP',
@@ -196,6 +305,8 @@ export class PositionTrackerService {
     }
 
     if (trade.tp != null && trade.direction === 'SHORT' && currentPrice <= trade.tp) {
+      trade.exit_signal_type = 'TAKE_PROFIT';
+      trade.exit_signal_reason = `Price ${currentPrice} <= TP ${trade.tp}`;
       return {
         exitOccurred: true,
         exitType: 'CLOSED_TP',
@@ -204,7 +315,7 @@ export class PositionTrackerService {
     }
 
     // Check exit signals
-    const { exitTriggered, exitSignalType } = await this.orderManager.checkExitSignals(
+    const { exitTriggered, exitSignalType } = this.orderManager.checkExitSignals(
       symbol,
       trade,
       config,
@@ -212,6 +323,14 @@ export class PositionTrackerService {
     );
 
     if (exitTriggered) {
+      trade.exit_signal_type = exitSignalType;
+      if (exitSignalType === 'combined') {
+        trade.exit_signal_reason = `All signals fired: ${config.exit_signals?.join(', ')}`;
+      } else {
+        const status = trade.exit_signals_status?.[exitSignalType || ''];
+        trade.exit_signal_reason = status?.description || `Signal ${exitSignalType} fired`;
+      }
+
       return {
         exitOccurred: true,
         exitType: 'CLOSED_SIGNAL',
@@ -227,30 +346,78 @@ export class PositionTrackerService {
     exitPrice: number,
     exitReason: string,
     config?: SessionConfig,
-  ): Promise<{ trade: Trade | null; exitOccurred: boolean }> {
+    paperMode?: boolean,
+    localOnly?: boolean,
+  ): Promise<{ trade: Trade | null; exitOccurred: boolean; closeBlocked?: boolean }> {
     const trade = this.trades.get(symbol);
-    if (!trade || trade.status !== 'OPEN') {
+    if (!trade || trade.status !== 'OPEN' || this.closingSymbols.has(symbol)) {
       return { trade: null, exitOccurred: false };
     }
 
-    const result = await this.orderManager.closeTrade(symbol, trade, exitPrice, exitReason);
+    this.closingSymbols.add(symbol);
+
+    try {
+    if (exitReason === 'MANUAL_CLOSE') {
+      trade.exit_signal_type = 'MANUAL';
+      trade.exit_signal_reason = 'User manually closed position';
+    } else if (exitReason === 'SESSION_TERMINATED') {
+      trade.exit_signal_type = 'SESSION_TERMINATED';
+      trade.exit_signal_reason = 'Trading session was stopped by user';
+    }
+
+    const result = await this.orderManager.closeTrade(symbol, trade, exitPrice, exitReason, paperMode, localOnly);
     if (!result.exitOccurred || !result.trade) {
-      return { trade: null, exitOccurred: false };
+      this.closingSymbols.delete(symbol);
+      return { trade: null, exitOccurred: false, closeBlocked: result.closeBlocked };
     }
 
     // Remove from tracking after exchange close/recording
+    const existing = this.trades.get(symbol);
+    if (existing) {
+      this._totalRisk = roundEight(this._totalRisk - (existing.risk_usdt || 0));
+    }
     this.trades.delete(symbol);
+    this.closingSymbols.delete(symbol);
     this.rrSequenceIndex.delete(symbol);
+    this._activeListCache = null;
 
-    this.logger.log(
-      `Trade closed: ${symbol} Exit=${exitPrice} P&L=${result.trade.pnl.toFixed(2)} (${(result.trade.pnl_pct ?? 0).toFixed(2)}%) Reason=${exitReason}`,
-    );
+    const finalizedExitPrice = result.trade.exit_price || exitPrice;
+    const msg = `Trade closed: ${symbol} Exit=${finalizedExitPrice} P&L=${result.trade.pnl.toFixed(2)} (${(result.trade.pnl_pct ?? 0).toFixed(2)}%) Reason=${exitReason}`;
+    this.logger.log(msg);
+    this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
 
     return { trade: result.trade, exitOccurred: true };
+    } catch (err) {
+      this.logger.error(`Error during closeTrade for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
+      this.closingSymbols.delete(symbol);
+      return { trade: null, exitOccurred: false };
+    }
   }
 
   removeTrade(symbol: string): void {
+    const existing = this.trades.get(symbol);
+    if (existing) {
+      this._totalRisk = roundEight(this._totalRisk - (existing.risk_usdt || 0));
+    }
     this.trades.delete(symbol);
     this.rrSequenceIndex.delete(symbol);
+    this._activeListCache = null;
+  }
+
+  /**
+   * DATA-07: Manual recalculation of total risk to ensure state consistency
+   */
+  recalculateTotalRisk(): void {
+    let activeRisk = 0;
+    for (const t of this.trades.values()) {
+      activeRisk += (t.risk_usdt || 0);
+    }
+    this._totalRisk = roundEight(activeRisk);
+
+    let pendingRiskSum = 0;
+    for (const r of this.pendingRisk.values()) {
+      pendingRiskSum += r;
+    }
+    this._pendingRiskTotal = roundEight(pendingRiskSum);
   }
 }

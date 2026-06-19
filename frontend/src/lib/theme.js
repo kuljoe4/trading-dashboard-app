@@ -20,11 +20,50 @@ export const C = {
   accentDim: "#5b6fff20",
 };
 
-export const pnlColor = (pnl) => (pnl >= 0 ? C.green : C.red);
+export const pnlColor = (pnl) => {
+  const n = Number(pnl);
+  if (n === 0) return C.dim;
+  return n > 0 ? C.green : C.red;
+};
+
+export const pnlClass = (pnl) => {
+  const n = Number(pnl);
+  if (n === 0) return "text-dim";
+  return n > 0 ? "text-green" : "text-red";
+};
+
+export const safeNum = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
+// Performance: Pre-allocate formatters to avoid GC pressure in hot loops
+const usdFormatter2 = new Intl.NumberFormat('en-US', {
+  style: 'decimal',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+});
+
+const usdFormatter4 = new Intl.NumberFormat('en-US', {
+  style: 'decimal',
+  minimumFractionDigits: 4,
+  maximumFractionDigits: 4
+});
+
 export const fmtUSD = (val) => {
   const n = Number(val || 0);
-  const formatted = Math.abs(n).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return n >= 0 ? `+$${formatted}` : `-$${formatted}`;
+  const absN = Math.abs(n);
+  const formatter = (absN < 1 && absN > 0) ? usdFormatter4 : usdFormatter2;
+  const formatted = formatter.format(absN);
+
+  // If the value rounds to zero or is exactly zero, return neutral format
+  if (n === 0 || formatted === '0.00' || formatted === '0.0000') return `$${formatted}`;
+
+  // BOLT: Clean up visuals - use either arrow OR sign, not both (Double Negative issue)
+  // We'll keep the arrow as it's more distinct in the financial context.
+  // Use small variants (▴/▾) as per project standard.
+  const prefix = n > 0 ? '▴ $' : '▾ $';
+  return `${prefix}${formatted}`;
 };
 export const fmt = (n, d = 2) => {
   const val = Number(n || 0);

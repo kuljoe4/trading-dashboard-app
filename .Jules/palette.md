@@ -1,35 +1,23 @@
-## 2025-05-14 - [Enhanced Button Primitives & Form Accessibility]
-**Learning:** Generic primitives like `Btn` often miss critical states (disabled, focus) and attribute support (props spreading), which limits their accessibility and usability. Forms also frequently lack proper label-input associations.
-**Action:** Always ensure UI primitives support `disabled` states, spread props for ARIA/title attributes, and have clear focus indicators. Use `htmlFor` and `id` to explicitly link labels and inputs.
-## 2025-05-11 - [Accessibility for Trading Visualizations]
-**Learning:** Data visualization components like PnL bars and sparklines are often overlooked for accessibility. Adding ARIA roles like `role="img"` and descriptive `aria-label` provides essential context for screen reader users without cluttering the visual UI.
-**Action:** Always include `role="img"` and `aria-label` on SVG or custom-div based visualization components.
+## 2025-05-16 - Accessible Interactive Headers and Utility Buttons
+**Learning:** Interactive accordion headers implemented as `div`s require explicit ARIA roles, tab indexing, and keyboard event handlers (Enter/Space) to be accessible. Utility buttons like "Copy" should be hidden by default to maintain high data density but must be revealed on both hover *and* focus-visible to ensure keyboard users can discover and use them.
+**Action:** Always add `role="button"`, `tabIndex={0}`, and `onKeyDown` to non-native interactive elements. Use `opacity-0 group-hover:opacity-100 focus-visible:opacity-100` for micro-interactions.
 
-## 2025-05-11 - [Unified Button Primitive UX]
-**Learning:** Consolidating raw HTML buttons into a single `Btn` primitive ensures that accessibility fixes (like `aria-label`) and interaction improvements (like disabled state cursors and transitions) propagate consistently throughout the dashboard cockpit.
-**Action:** Prefer refactoring unique buttons to use the shared `Btn` primitive whenever possible to maintain UX standards.
-## 2026-05-13 - [API Secret Visibility Toggle]
-**Learning:** Sensitive fields like API Secrets benefit greatly from a visibility toggle, allowing users to verify long, complex strings before submission. Proper implementation requires adjusting input padding (e.g., `pr-12`) to prevent text from overlapping the toggle icon and using descriptive ARIA labels.
-**Action:** Always provide a visibility toggle for sensitive credentials and ensure no visual collision between input text and the toggle button.
+## 2025-05-16 - Robust Frontend Verification Workaround
+**Learning:** Frontend verification in restricted environments often fails due to remote font-loading timeouts. Blocking font requests (`context.route("**/*.{ttf,woff,woff2,otf}", lambda route: route.abort())`) and injecting fallback system fonts (`* { font-family: sans-serif !important; }`) reliably bypasses these hangs. Additionally, mocking backend APIs using `page.route` prevents "Network Error" alerts and allows verification of data-dependent UI states.
+**Action:** Use font-blocking and API mocking in Playwright scripts when remote assets or backend connectivity is unreliable.
 
-## 2025-05-15 - [Icon-Only Button Accessibility & Tooltips]
-**Learning:** Icon-only buttons in navigation (especially when collapsed) and dashboards are invisible to screen readers and potentially confusing to users if visual tooltips are missing. Proper accessibility requires `aria-label` for screen readers and `title` attributes to provide native tooltips in compact states.
-**Action:** Always include `aria-label` on icon-only buttons. For collapsed sidebars or compact UI, also provide a `title` attribute to ensure functional clarity for all users.
+## 2026-06-11 - Intuitive Labeling and Mobile Layout Robustness
+**Learning:** Technical labels like "SL Distance" and "Initial Risk" are often ambiguous to users. Using explicit, context-aware names like "Stop Distance (Live)" and "Max Entry Risk" combined with helper tooltips significantly improves mental model alignment. Additionally, absolute-positioned elements (like timers) in compact mobile layouts frequently cause overlaps; integrating these into the natural flex flow of labels ensures layout stability across all screen sizes.
+**Action:** Prioritize descriptive, long-form labels with tooltips for critical metrics. Avoid absolute positioning for content that can vary in length (like timers or prices) to prevent UI collisions on small screens.
 
-## 2026-05-15 - [Custom Switch Accessibility]
-**Learning:** Custom toggle switches implemented as standard buttons lack the necessary semantic meaning for screen readers. Without `role="switch"` and `aria-checked`, users of assistive technology cannot perceive the component's state or purpose.
-**Action:** Always accompany custom-styled toggle buttons with `role="switch"`, `aria-checked`, and a descriptive `aria-label`.
+## 2026-06-11 - Decision Log Parsing and Filterable Discovery
+**Learning:** Dense activity logs are difficult to parse without visual cues. Word-based regex highlighting (e.g., coloring "BUY" green and "SELL" red) significantly reduces cognitive load. Furthermore, horizontal scrolling for long log lines is essential on mobile to prevent clipping or excessive vertical growth that breaks the "sticky" interaction patterns.
+**Action:** Implement search/filtering for all log-heavy components. Use context-aware color coding for domain-specific keywords. Always enable `overflow-x-auto` with `whitespace-nowrap` for technical log entries.
 
-## 2026-05-18 - [Destructive Action Confirmation]
-**Learning:** For high-stakes destructive actions like closing a trade, a two-stage "Click to Confirm" pattern provides a lightweight but effective safety net. Adding an `animate-pulse` effect and a 3-second auto-reset ensures the state change is visually obvious and self-correcting. Using `aria-live="polite"` ensures accessibility for screen readers during the state transition.
-**Action:** Implement two-stage confirmation for destructive UI actions, ensuring clear visual feedback, auto-reset timeouts, and accessible status announcements.
+## 2026-06-11 - Decision Log Detail and Global Clipboard Access
+**Learning:** For high-density log feeds, a detail modal provides much-needed focus for inspecting specific events. Pairing individual log inspection with a "Copy All" capability at the header level optimizes for both forensic deep-dives and quick status sharing. Consistent modal design (using Radix Dialog) ensures these micro-interactions feel like a native part of the engine's orchestration layer.
+**Action:** Provide `Dialog`-based detail views for list items. Implement "Copy All" with visual feedback in log headers. Maintain 1:1 design language between trade and log modals.
 
-## 2026-05-23 - [Contextual Empty States & Transition Accessibility]
-**Learning:** Empty states in active dashboards (like Decision Logs) are often static and unhelpful. Adding contextual icons (distinguishing "no data" vs "no results matching filters") and using smooth `framer-motion` transitions makes the UI feel alive. Additionally, toggled filters must use `aria-pressed` to communicate state to screen readers.
-**Action:** Always design empty states with contextual icons and helpful guidance. Use `aria-pressed` for filter buttons and `AnimatePresence` for smooth list transitions.
-## 2026-05-20 - [Detail Toggle Accessibility & Logic Refinement]
-**Learning:** Collapsible detail sections in dashboards (like trade bars and strategy cards) require `aria-expanded` on the trigger button to effectively communicate their state to screen readers. Furthermore, duplicate logic in state-management hooks (e.g., multiple `useEffect` blocks for the same timer) can accrue during rapid iterations and should be consolidated to improve maintainability.
-**Action:** Always accompany collapsible triggers with `aria-expanded` and perform periodic logic audits to eliminate redundant effects.
-## 2026-05-20 - [Standardizing Destructive Confirmation UX]
-**Learning:** Applying a consistent two-stage "Click to Confirm" pattern across all destructive session-level actions (not just individual trades) prevents catastrophic accidental data loss or session termination. Using `aria-live="polite"` and updating `aria-label` ensures the state change is accessible to screen readers.
-**Action:** Always implement confirmation gates for destructive buttons (Terminate, Delete, Clear) using a timed auto-reset pattern with clear visual and audible feedback.
+## 2026-06-15 - Global Search Shortcut Guarding and Interaction
+**Learning:** Global keyboard shortcuts (like `/` for search) must include strict target guards (checking against `INPUT`, `TEXTAREA`, or `isContentEditable`) to prevent hijacking the user's natural typing flow within those fields. Additionally, pairing `focus()` with `select()` on search inputs dramatically improves UX by allowing users to immediately overwrite a previous query without manual deletion.
+**Action:** Always guard global shortcuts with `e.target` checks. Use `searchInput.select()` after `focus()` for one-touch query replacement.

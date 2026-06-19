@@ -1,33 +1,20 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import WebSocket from 'ws';
 import { SessionConfig } from '../models/SessionConfig';
+import { ENGINE_CONSTANTS } from '../models/constants';
 import { TickerCacheService } from './ticker_cache.service';
 import { KlineStoreService } from './kline_store.service';
-import { TradingSessionService } from './trading_session.service';
+import { SessionStateService } from './session_state.service';
+import { SignalEngineService } from './signalEngine';
 import { MonitoringService } from './monitoring.service';
-
-const BINANCE_WS_BASE = 'wss://fstream.binance.com/market';
+import { ENGINE_EVENTS } from './events';
 
 interface BinanceKline {
   stream?: string;
   data?: {
     k: {
-      t: number;
-      T: number;
-      s: string;
-      i: string;
-      f: number;
-      L: number;
-      o: string;
-      c: string;
-      h: string;
-      l: string;
-      v: string;
-      n: number;
-      x: boolean;
-      q: string;
-      V: string;
-      Q: string;
+      t: number; T: number; s: string; i: string; f: number; L: number; o: string; c: string; h: string; l: string; v: string; n: number; x: boolean; q: string; V: string; Q: string;
     };
   };
 }
@@ -37,167 +24,263 @@ export class MarketFeedService {
   private readonly logger = new Logger(MarketFeedService.name);
   private running = false;
   private miniTickerWs: WebSocket | null = null;
-  private combinedKlineWsList: WebSocket[] = [];
-  private activeWatchlist: Map<string, Set<string>> = new Map(); // symbol -> Set of intervals
+  private miniTickerReconnecting = false;
+  private markTickerWs: WebSocket | null = null;
+  private combinedKlineWsList: Set<WebSocket> = new Set();
+  private exchangeInfo: Map<string, any> = new Map();
+  private lastExchangeInfoFetch = 0;
+  private lastExchangeInfoBase = '';
+  private activeWatchlist: Map<string, Set<string>> = new Map();
   private subscriptionTasks: any[] = [];
-  private onCandeClose: ((symbol: string) => Promise<void>) | null = null;
+  private onCandleClose: ((symbol: string) => Promise<void>) | null = null;
   private watchlistInterval: NodeJS.Timeout | null = null;
+  private watchlistUpdatePending = false;
+  private watchlistUpdateTimeout: NodeJS.Timeout | null = null;
+  private backfillQueue: { symbol: string, interval: string }[] = [];
+  private backfillProcessing = false;
 
   constructor(
     private tickerCache: TickerCacheService,
     private klineStore: KlineStoreService,
-    @Inject(forwardRef(() => TradingSessionService))
-    private tradingSession: TradingSessionService,
+    private sessionState: SessionStateService,
+    private signalEngine: SignalEngineService,
     private monitoringService: MonitoringService,
   ) {}
 
-  setCandeCloseCallback(cb: (symbol: string) => Promise<void>) {
-    this.onCandeClose = cb;
+  setCandleCloseCallback(cb: (symbol: string) => Promise<void>) {
+    this.onCandleClose = cb;
   }
 
   async start(config: SessionConfig) {
+    if (this.running) await this.stop();
     this.running = true;
-    this.logger.log('MarketFeed starting');
 
-    // Start !miniTicker@arr stream first
+    const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
+    const restBase = mode === 'testnet'
+        ? 'https://demo-fapi.binance.com'
+        : ENGINE_CONSTANTS.BINANCE_REST_BASE;
+
+    await this.fetchExchangeInfo(restBase);
     this.startMiniTickerStream();
+    this.startMarkTickerStream();
 
-    // Prioritize WebSocket for initial data. Fallback to REST only if WS is slow.
     const waitForWs = new Promise<void>((resolve) => {
       const check = setInterval(() => {
-        if (this.tickerCache.getCacheSize() > 0) {
-          clearInterval(check);
-          this.logger.log('Initial tickers populated from WebSocket');
-          resolve();
-        }
+        if (this.tickerCache.getCacheSize() > 0) { clearInterval(check); resolve(); }
       }, 100);
-      
-      // 5s timeout for fallback
-      setTimeout(() => {
-        clearInterval(check);
-        resolve();
-      }, 5000);
+      setTimeout(() => { clearInterval(check); resolve(); }, 5000);
     });
 
     await waitForWs;
-
-    if (this.tickerCache.getCacheSize() === 0) {
-      this.logger.log('WebSocket data not received yet, falling back to REST seeding');
-      await this.fetchInitialTickers();
-    }
-
-    // Start watchlist manager
+    if (this.tickerCache.getCacheSize() === 0) await this.fetchInitialTickers();
     this.startWatchlistManager(config);
-
-    this.logger.log('MarketFeed started');
   }
 
-  private updateWeight(headers: Headers) {
-    const weight = headers.get('X-MBX-USED-WEIGHT-1M');
+  public updateWeight(headers: any) {
+    if (!headers) return;
+    const weight = typeof headers.get === 'function' ? headers.get('X-MBX-USED-WEIGHT-1M') : (headers['x-mbx-used-weight-1m'] || headers['X-MBX-USED-WEIGHT-1M']);
     if (weight) {
-      this.tradingSession.updateRateLimit(parseInt(weight));
+      const currentWeight = parseInt(weight, 10);
+      this.logger.debug(`Binance Weight Update: ${currentWeight}`);
+      this.sessionState.updateRateLimit(currentWeight);
     }
   }
 
-  private async fetchInitialTickers() {
-    this.logger.log('Fetching initial tickers from Binance REST API...');
+  private async fetchExchangeInfo(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
+    const now = Date.now();
+    if (this.exchangeInfo.size > 0 && this.lastExchangeInfoBase === restBase && now - this.lastExchangeInfoFetch < 3600000) return;
     try {
       this.monitoringService.incrementApiRequests();
-      const response = await fetch('https://fapi.binance.com/fapi/v1/ticker/24hr');
+      const response = await fetch(`${restBase}/fapi/v1/exchangeInfo`);
       this.updateWeight(response.headers);
+      if (response.ok) {
+        const data: any = await response.json();
 
+        // Dynamic Rate Limit Detection
+        if (data && Array.isArray(data.rateLimits)) {
+           const requestWeightLimit = data.rateLimits.find((l: any) => l.rateLimitType === 'REQUEST_WEIGHT' && l.interval === 'MINUTE');
+           if (requestWeightLimit) {
+              this.sessionState.updateRateLimit(this.sessionState.binanceRateLimit.used_1m, parseInt(requestWeightLimit.limit, 10));
+              this.logger.log(`Dynamic Binance Rate Limit detected: ${requestWeightLimit.limit}/min`);
+           }
+        }
+
+        if (data && Array.isArray(data.symbols)) {
+          this.exchangeInfo.clear();
+          for (const s of data.symbols) {
+            // BOLT: Only include symbols that are actively trading in the target environment
+            if (s.status === 'TRADING' || s.status === 'SETTLING') {
+              // COMPLIANCE: Filter out TradFi/Non-Crypto symbols (Gold, Silver, Equities)
+              // Binance Futures uses underlyingType 'COIN' for standard cryptocurrencies.
+              const isCrypto = s.underlyingType === 'COIN' || !s.underlyingType;
+              const isTradFi = s.underlyingType === 'COMMODITY' || s.underlyingType === 'EQUITY' || s.underlyingType === 'INDEX';
+
+              if (isCrypto && !isTradFi) {
+                this.exchangeInfo.set(s.symbol, s);
+              } else {
+                this.logger.debug(`Filtering out non-crypto symbol: ${s.symbol} (Type: ${s.underlyingType})`);
+              }
+            }
+          }
+          this.lastExchangeInfoFetch = now;
+          this.lastExchangeInfoBase = restBase;
+        }
+      }
+    } catch (error) {
+      this.logger.error(`Failed to fetch exchange info from ${restBase}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  getSymbolFilters(symbol: string) { return this.exchangeInfo.get(symbol); }
+
+  private async fetchInitialTickers() {
+    try {
+      this.monitoringService.incrementApiRequests();
+      const response = await fetch(`${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/ticker/24hr`);
+      this.updateWeight(response.headers);
       if (response.ok) {
         const tickers = await response.json();
         if (Array.isArray(tickers)) {
           const usdtTickers = tickers.filter(t => t.symbol.endsWith('USDT'));
-          await this.tickerCache.bulkUpdate(usdtTickers);
-          this.logger.log(`Seeded ${usdtTickers.length} USDT tickers from REST API`);
+          this.tickerCache.bulkUpdate(usdtTickers);
         }
       }
-    } catch (error) {
-      this.logger.warn(`Fetch initial tickers error: ${error instanceof Error ? error.message : String(error)}`);
+    } catch (error) {}
+  }
+
+  private safeClose(ws: WebSocket | null) {
+    if (!ws) return;
+    try {
+      // Only terminate if it's OPEN or CLOSING. 
+      // If it's CONNECTING, 'close()' is safer to avoid "WebSocket closed before connection established" error.
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CLOSING) {
+        ws.terminate();
+      } else if (ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+    } catch (err) {
+      this.logger.debug(`Error during safeClose: ${err}`);
     }
   }
 
   async stop() {
     this.running = false;
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
+    if (this.watchlistUpdateTimeout) clearTimeout(this.watchlistUpdateTimeout);
 
+    this.miniTickerReconnecting = true; // Block reconnection during stop
     if (this.miniTickerWs) {
-      this.miniTickerWs.close();
+      this.safeClose(this.miniTickerWs);
       this.miniTickerWs = null;
+    }
+    if (this.markTickerWs) {
+      this.safeClose(this.markTickerWs);
+      this.markTickerWs = null;
     }
 
     for (const ws of this.combinedKlineWsList) {
-      ws.close();
+      (ws as any)._isExplicitClose = true;
+      this.safeClose(ws);
     }
-    this.combinedKlineWsList = [];
+    this.combinedKlineWsList.clear();
 
-    for (const task of this.subscriptionTasks) {
-      clearTimeout(task);
-    }
+    for (const task of this.subscriptionTasks) clearTimeout(task);
     this.subscriptionTasks = [];
-
-    this.logger.log('MarketFeed stopped');
+    this.exchangeInfo.clear();
+    this.activeWatchlist.clear();
+    this.logger.verbose('MarketFeedService: Resources cleared');
   }
 
   private startMiniTickerStream() {
     const connect = () => {
       if (!this.running) return;
-
-      const url = `${BINANCE_WS_BASE}/ws/!miniTicker@arr`;
-      const ws = new WebSocket(url, { handshakeTimeout: 15000 });
-
-      ws.on('open', () => {
-        this.logger.log('miniTicker stream connected');
-      });
-
-      ws.on('message', async (data: Buffer) => {
+      const ws = new WebSocket(`${ENGINE_CONSTANTS.BINANCE_WS_BASE}/ws/!miniTicker@arr`, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+      ws.on('message', (data: Buffer) => {
+        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) return;
         try {
-          const msg = JSON.parse(data.toString());
+          const msg = JSON.parse(data as any);
           let tickers: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
-          if (tickers.length > 0) {
-            await this.tickerCache.bulkUpdate(tickers);
-          }
+          if (tickers.length > 0) this.tickerCache.bulkUpdate(tickers);
         } catch (err) {
-          this.logger.warn(`miniTicker parse error: ${err instanceof Error ? err.message : String(err)}`);
+          this.logger.error(`Error processing mini-ticker stream: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
-
       ws.on('close', () => {
-        if (this.running) {
-          this.subscriptionTasks.push(setTimeout(() => connect(), 2000));
+        this.miniTickerWs = null;
+        if (this.running && !this.miniTickerReconnecting) {
+          this.logger.debug('Mini-ticker stream closed. Reconnecting...');
+          const timeout = setTimeout(() => {
+            this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== timeout);
+            connect();
+          }, ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS);
+          this.subscriptionTasks.push(timeout);
         }
       });
-
       this.miniTickerWs = ws;
     };
+    connect();
+  }
 
+  private startMarkTickerStream() {
+    const connect = () => {
+      if (!this.running) return;
+      const ws = new WebSocket(`${ENGINE_CONSTANTS.BINANCE_WS_BASE}/ws/!markTicker@arr@1s`, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+      ws.on('message', (data: Buffer) => {
+        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) return;
+        try {
+          const msg = JSON.parse(data as any);
+          const updates = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
+          for (const u of updates) {
+            // Field 'p' is Mark Price in !markTicker@arr
+            this.tickerCache.updateTicker(u.s, undefined, undefined, undefined, u.p);
+          }
+        } catch (err) {
+          this.logger.error(`Error processing mark-ticker stream: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      });
+      ws.on('close', () => {
+        this.markTickerWs = null;
+        if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS));
+      });
+      this.markTickerWs = ws;
+    };
     connect();
   }
 
   private startWatchlistManager(config: SessionConfig) {
+    if (this.watchlistInterval) clearInterval(this.watchlistInterval);
     this.updateWatchlist(config);
-    this.watchlistInterval = setInterval(() => this.updateWatchlist(config), 60000);
+    this.watchlistInterval = setInterval(() => this.updateWatchlist(config), ENGINE_CONSTANTS.WATCHLIST_REFRESH_INTERVAL_MS);
+    this.watchlistInterval.unref?.();
   }
 
-  async updateWatchlist(config: SessionConfig = (this.tradingSession as any).config) {
+  @OnEvent(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE)
+  async updateWatchlist(config: SessionConfig = this.sessionState.config!) {
     if (!this.running || !config) return;
+    if (this.watchlistUpdatePending) return;
+    if (this.watchlistUpdateTimeout) clearTimeout(this.watchlistUpdateTimeout);
+    this.watchlistUpdateTimeout = setTimeout(async () => {
+      this.watchlistUpdatePending = true;
+      try { await this.executeWatchlistUpdate(config); } finally {
+        this.watchlistUpdatePending = false;
+        this.watchlistUpdateTimeout = null;
+      }
+    }, 2000);
+  }
 
+  private async executeWatchlistUpdate(config: SessionConfig) {
     try {
       const newWatchlist = new Map<string, Set<string>>();
+      const isGated = this.sessionState.isGated();
+      const activeTrades = this.sessionState.activeTrades;
 
-      // 1. Global Scanner Symbols
-      if (config.global_scanner_enabled !== false) {
+      if (config.global_scanner_enabled !== false && !(isGated && activeTrades.length === 0)) {
         let symbols: string[];
-        if (config.symbols && config.symbols.length > 0) {
-          symbols = config.symbols;
-        } else {
-          const top = await this.tickerCache.topByVolume(
-            config.watchlist_size || 50,
-            config.excluded_symbols || [],
-          );
-          symbols = top.map((t: any) => t.symbol);
+        if (config.symbols && config.symbols.length > 0) symbols = config.symbols;
+        else {
+          const top = await this.tickerCache.topByVolume((config.watchlist_size || 50) + (config.watchlist_offset || 0), config.excluded_symbols || []);
+          const slicedTop = top.slice(config.watchlist_offset || 0);
+          symbols = slicedTop.map((t: any) => t.symbol);
         }
         const globalInterval = config.scan_interval || '1m';
         for (const s of symbols) {
@@ -206,147 +289,100 @@ export class MarketFeedService {
         }
       }
 
-      // 2. Single Symbol Monitor Symbols
       if (config.single_symbol_configs) {
         for (const sc of config.single_symbol_configs) {
           if (!sc.enabled) continue;
           if (!newWatchlist.has(sc.symbol)) newWatchlist.set(sc.symbol, new Set());
-
-          const interval = sc.use_custom_config && sc.custom_config?.scan_interval
-            ? sc.custom_config.scan_interval
-            : config.scan_interval || '1m';
-
+          const interval = sc.use_custom_config && sc.custom_config?.scan_interval ? sc.custom_config.scan_interval : config.scan_interval || '1m';
           newWatchlist.get(sc.symbol)!.add(interval);
         }
       }
 
-      // 3. Active Trade Symbols (CRITICAL for exit signals)
-      const activeTrades = this.tradingSession.getStatus().activeTrades;
       for (const trade of activeTrades) {
         const t = trade as any;
         if (!newWatchlist.has(t.symbol)) newWatchlist.set(t.symbol, new Set());
-
-        // Add both 1m (default) and strategy interval
         newWatchlist.get(t.symbol)!.add('1m');
-        if (config.scan_interval) {
-          newWatchlist.get(t.symbol)!.add(config.scan_interval);
-        }
-        if (t.strategy_config?.scan_interval) {
-          newWatchlist.get(t.symbol)!.add(t.strategy_config.scan_interval);
-        }
+        if (config.scan_interval) newWatchlist.get(t.symbol)!.add(config.scan_interval);
+        if (t.strategy_config?.scan_interval) newWatchlist.get(t.symbol)!.add(t.strategy_config.scan_interval);
+        if (t.strategy_config?.sl_lookback_timeframe) newWatchlist.get(t.symbol)!.add(t.strategy_config.sl_lookback_timeframe);
       }
 
-      // Check if watchlist changed
+      if (config.sl_lookback_timeframe) {
+        for (const [symbol, intervals] of newWatchlist) intervals.add(config.sl_lookback_timeframe);
+      }
+
       let changed = newWatchlist.size !== this.activeWatchlist.size;
       if (!changed) {
         for (const [symbol, intervals] of newWatchlist) {
           const oldIntervals = this.activeWatchlist.get(symbol);
-          if (!oldIntervals || oldIntervals.size !== intervals.size || [...intervals].some(i => !oldIntervals.has(i))) {
-            changed = true;
-            break;
-          }
+          if (!oldIntervals || oldIntervals.size !== intervals.size) { changed = true; break; }
+          for (const i of intervals) { if (!oldIntervals.has(i)) { changed = true; break; } }
+          if (changed) break;
         }
       }
 
       if (changed) {
-        this.logger.log(`Watchlist changed. Rebuilding combined kline streams for ${newWatchlist.size} symbols.`);
         const prevWatchlist = this.activeWatchlist;
         this.activeWatchlist = newWatchlist;
         await this.rebuildCombinedKlineStream();
-
-        // Backfill new symbol/interval combinations
         for (const [symbol, intervals] of newWatchlist) {
           for (const interval of intervals) {
             const oldIntervals = prevWatchlist.get(symbol);
             if (!oldIntervals || !oldIntervals.has(interval)) {
-              await this.backfillKlines(symbol, interval);
+              this.backfillQueue.push({ symbol, interval });
             }
           }
         }
+        this.processBackfillQueue();
       }
-    } catch (err) {
-      this.logger.warn(`Watchlist update error: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    } catch (err) {}
   }
 
   private async rebuildCombinedKlineStream() {
     for (const ws of this.combinedKlineWsList) {
-      ws.close();
+      (ws as any)._isExplicitClose = true;
+      this.safeClose(ws);
     }
-    this.combinedKlineWsList = [];
-
+    this.combinedKlineWsList.clear();
     if (this.activeWatchlist.size === 0) return;
-
-    // Flatten watchlist to streams
     const allStreams: string[] = [];
     for (const [symbol, intervals] of this.activeWatchlist) {
-      for (const interval of intervals) {
-        allStreams.push(`${symbol.toLowerCase()}@kline_${interval}`);
-      }
+      for (const interval of intervals) allStreams.push(`${symbol.toLowerCase()}@kline_${interval}`);
     }
-
-    // Split streams into chunks of 20 to avoid URL length issues
     const CHUNK_SIZE = 20;
     const chunks = [];
-    for (let i = 0; i < allStreams.length; i += CHUNK_SIZE) {
-      chunks.push(allStreams.slice(i, i + CHUNK_SIZE));
-    }
-    
-    this.logger.log(`Creating ${chunks.length} kline streams for ${allStreams.length} symbol-interval pairs.`);
-
+    for (let i = 0; i < allStreams.length; i += CHUNK_SIZE) chunks.push(allStreams.slice(i, i + CHUNK_SIZE));
     for (const chunk of chunks) {
       const streams = chunk.join('/');
-      const url = `${BINANCE_WS_BASE}/stream?streams=${streams}`;
-      
+      const url = `${ENGINE_CONSTANTS.BINANCE_WS_BASE}/stream?streams=${streams}`;
       const connect = () => {
         if (!this.running) return;
-
-        const ws = new WebSocket(url, { handshakeTimeout: 15000 });
-        let backoff = 2000;
-
-        ws.on('open', () => {
-          this.logger.log(`Combined kline stream connected for ${chunk.length} symbols`);
-        });
-
-        ws.on('message', async (data: Buffer) => {
+        const ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+        ws.on('message', (data: Buffer) => {
           try {
-            const msg: BinanceKline = JSON.parse(data.toString());
+            const msg: BinanceKline = JSON.parse(data as any);
             const kline = msg.data?.k;
             if (kline) {
-              const symbol = kline.s;
-              const interval = kline.i;
-              await this.klineStore.upsertCandle(symbol, interval, kline);
-              
-              // Pro: Immediate price propagation to ticker cache
-              // BOLT: Only update price to preserve accurate 24h volume from miniTicker stream
-              await this.tickerCache.bulkUpdate([{
-                s: symbol,
-                c: kline.c
-              }]);
-
-              if (kline.x && this.onCandeClose) {
-                await this.onCandeClose(symbol);
-              }
+              this.klineStore.upsertCandle(kline.s, kline.i, kline);
+              this.tickerCache.updateTicker(kline.s, kline.c);
+              if (kline.x && this.onCandleClose) this.onCandleClose(kline.s).catch(() => {});
             }
           } catch (err) {
-            this.logger.warn(`Combined kline parse error: ${err instanceof Error ? err.message : String(err)}`);
+            this.logger.error(`Error processing combined kline stream: ${err instanceof Error ? err.message : String(err)}`);
           }
         });
-
         ws.on('close', () => {
-          if (this.running) {
-            this.subscriptionTasks.push(setTimeout(() => connect(), backoff));
-            backoff = Math.min(backoff * 1.5, 30000);
+          if (this.running && !(ws as any)._isExplicitClose) {
+            this.logger.debug('Combined kline stream closed. Reconnecting...');
+            const timeout = setTimeout(() => {
+              this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== timeout);
+              connect();
+            }, ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS);
+            this.subscriptionTasks.push(timeout);
           }
         });
-
-        ws.on('error', (err) => {
-          this.logger.warn(`Combined kline WS error (${chunk.length} symbols): ${err.message}`);
-        });
-
-        this.combinedKlineWsList.push(ws);
+        this.combinedKlineWsList.add(ws);
       };
-
       connect();
     }
   }
@@ -362,39 +398,81 @@ export class MarketFeedService {
     }
   }
 
-  private async backfillKlines(symbol: string, interval: string) {
-    // Check if we already have data for this symbol/interval to avoid redundant seeding
-    // BOLT: Also check if data is stale (older than 2 intervals)
-    const existingCandles = await this.klineStore.getRecentCandles(symbol, interval, 1);
-    if (existingCandles.length > 0) {
-      const lastCandle = existingCandles[0];
-      const intervalMs = this.parseIntervalToMs(interval);
-      const isStale = Date.now() - lastCandle.time > intervalMs * 2;
+  private async processBackfillQueue() {
+    if (this.backfillProcessing || this.backfillQueue.length === 0) return;
+    this.backfillProcessing = true;
+    const initialDepth = this.backfillQueue.length;
+    this.logger.log(`Starting concurrent kline backfill queue. Depth: ${initialDepth}`);
 
-      if (!isStale) {
-        this.logger.debug(`Skipping backfill for ${symbol}/${interval}: Data is fresh`);
-        return;
-      }
-      this.logger.log(`Backfilling ${symbol}/${interval}: Existing data is stale`);
-    }
+    const CONCURRENCY = 5;
+    const processTask = async () => {
+      while (this.backfillQueue.length > 0 && this.running) {
+        // Stricter rate limit for background tasks (80% of limit threshold)
+        const rateLimit = this.sessionState.getBinanceRateLimit();
+        const usedWeight = rateLimit.used_weight_1m;
+        const limit = rateLimit.weight_limit || ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT;
+        const pauseThreshold = Math.floor(limit * 0.8);
 
-    // Basic concurrency limit for backfills: random delay to spread requests
-    await new Promise(resolve => setTimeout(resolve, Math.random() * 2000));
+        if (usedWeight > pauseThreshold) {
+          this.logger.debug(`Backfill worker pausing (Weight: ${usedWeight}/${limit})...`);
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          continue;
+        }
 
-    try {
-      const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=500`;
-      this.monitoringService.incrementApiRequests();
-      const response = await fetch(url);
-      this.updateWeight(response.headers);
-      
-      if (response.ok) {
-        const klines = await response.json();
-        if (Array.isArray(klines)) {
-          await this.klineStore.seedFromRest(symbol, interval, klines);
+        const task = this.backfillQueue.shift();
+        if (task) {
+          try {
+            await this.backfillKlines(task.symbol, task.interval);
+          } catch (err) {
+            this.logger.error(`Backfill failed for ${task.symbol} ${task.interval}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+          // Small delay between requests to smooth out weight consumption
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
-    } catch (error) {
-      this.logger.warn(`Backfill failed for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
+    };
+
+    const workers = [];
+    for (let i = 0; i < Math.min(CONCURRENCY, initialDepth); i++) {
+      // PERFORMANCE: Stagger worker start times to avoid instant peak load
+      workers.push((async () => {
+        await new Promise(r => setTimeout(r, i * 200));
+        return processTask();
+      })());
+    }
+
+    await Promise.all(workers);
+    this.backfillProcessing = false;
+    this.logger.log(`Concurrent kline backfill complete.`);
+  }
+
+  private async backfillKlines(symbol: string, interval: string) {
+    const requiredWarmup = this.sessionState.config ? this.signalEngine.getRequiredWarmup(this.sessionState.config) : 100;
+    const existingCandles = await this.klineStore.getRecentCandles(symbol, interval, requiredWarmup);
+
+    if (existingCandles.length >= requiredWarmup) {
+      const lastCandle = existingCandles[0];
+      const intervalMs = this.parseIntervalToMs(interval);
+      // If the most recent candle is still fresh enough, skip backfill
+      if (lastCandle.time + intervalMs >= Date.now() - (intervalMs * 2)) {
+        this.logger.debug(`Skipping kline backfill for ${symbol} ${interval}: Already have ${existingCandles.length}/${requiredWarmup} candles and data is fresh.`);
+        return;
+      }
+    } else {
+      this.logger.log(`Backfilling klines for ${symbol} ${interval}: Have ${existingCandles.length}, need ${requiredWarmup} for warmup.`);
+    }
+
+    await new Promise(resolve => setTimeout(resolve, Math.random() * ENGINE_CONSTANTS.BACKFILL_MAX_JITTER_MS));
+    try {
+      const url = `${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${this.klineStore.getMaxCandles()}`;
+      this.monitoringService.incrementApiRequests();
+      const response = await fetch(url);
+      if (response.ok) {
+        const klines = await response.json();
+        if (Array.isArray(klines)) await this.klineStore.seedFromRest(symbol, interval, klines);
+      }
+    } catch (err) {
+      this.logger.error(`Watchlist update failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }

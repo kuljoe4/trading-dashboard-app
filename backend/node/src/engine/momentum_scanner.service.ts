@@ -1,13 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SessionConfig } from '../models/SessionConfig';
+import { ENGINE_CONSTANTS } from '../models/constants';
 import { KlineStoreService, Candle } from './kline_store.service';
 import { TickerCacheService } from './ticker_cache.service';
+import { MarketFeedService } from './market_feed.service';
 
 export interface Opportunity {
   symbol: string;
   price: number;
   momentum: number; // Price momentum percentage
   volume_24h: number;
+  volume_rank?: number;
   score: number; // 0-100 opportunity score
   direction: 'LONG' | 'SHORT';
   history?: number[]; // Recent close prices for sparkline
@@ -20,6 +23,7 @@ export class MomentumScannerService {
   constructor(
     private readonly klineStore: KlineStoreService,
     private readonly tickerCache: TickerCacheService,
+    private readonly marketFeed: MarketFeedService,
   ) {}
 
   private isValidPrice(value: number): boolean {
@@ -34,20 +38,20 @@ export class MomentumScannerService {
   }
 
   async start(config: SessionConfig) {
-    this.logger.log(
+    this.logger.verbose(
       `MomentumScanner started with watchlist_size=${config.watchlist_size}`,
     );
   }
 
   async stop() {
-    this.logger.log('MomentumScanner stopped');
+    this.logger.verbose('MomentumScanner stopped');
   }
 
   /**
    * Scan for momentum opportunities based on recent price action
    * Returns top opportunities sorted by score (highest first)
    */
-  async scan(config: SessionConfig): Promise<Opportunity[]> {
+  scan(config: SessionConfig): Opportunity[] {
     try {
       const results: { opp: Opportunity; candles: Candle[] }[] = [];
 
@@ -57,79 +61,105 @@ export class MomentumScannerService {
         if (config.symbols && config.symbols.length > 0) {
           symbols = config.symbols;
         } else {
-          const topByVolume = await this.tickerCache.topByVolume(
-            config.watchlist_size || 10,
+          const topByVolume = this.tickerCache.topByVolume(
+            (config.watchlist_size || 10) + (config.watchlist_offset || 0),
             config.excluded_symbols || [],
           );
-          symbols = topByVolume.map((t: any) => t.symbol);
+          const slicedTop = topByVolume.slice(config.watchlist_offset || 0);
+          symbols = slicedTop.map((t: any) => t.symbol);
         }
 
         const interval = config.scan_interval || '1m';
-        const globalPromises = symbols.map(async (symbol) => {
+        for (let i = 0; i < symbols.length; i++) {
+          const symbol = symbols[i];
           try {
-            return await this.scanSymbol(symbol, interval, config);
+            const res = this.scanSymbol(symbol, interval, config);
+            if (res) {
+              // Populate volume_rank based on absolute position in the volume-sorted list
+              res.opp.volume_rank = (config.watchlist_offset || 0) + i + 1;
+              results.push(res);
+            }
           } catch (error) {
-            this.logger.debug(`Global scan error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
-            return null;
+            this.logger.verbose(`Global scan error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
           }
-        });
-        const globalResults = await Promise.all(globalPromises);
-        results.push(...globalResults.filter((r): r is { opp: Opportunity, candles: Candle[] } => r !== null));
+        }
       }
 
       // 2. Single Symbol Monitors
       if (config.single_symbol_configs && config.single_symbol_configs.length > 0) {
-        const singlePromises = config.single_symbol_configs
-          .filter(sc => sc.enabled)
-          .map(async (sc) => {
-            try {
-              const symbolConfig = sc.use_custom_config && sc.custom_config
-                ? { ...config, ...sc.custom_config }
-                : config;
-              const interval = symbolConfig.scan_interval || '1m';
-              return await this.scanSymbol(sc.symbol, interval, symbolConfig);
-            } catch (error) {
-              this.logger.debug(`Single symbol scan error for ${sc.symbol}: ${error instanceof Error ? error.message : String(error)}`);
-              return null;
-            }
-          });
-        const singleResults = await Promise.all(singlePromises);
+        const singleResults: { opp: Opportunity; candles: Candle[] }[] = [];
+        for (const sc of config.single_symbol_configs) {
+          if (!sc.enabled) continue;
+          try {
+            const symbolConfig = sc.use_custom_config && sc.custom_config
+              ? { ...config, ...sc.custom_config }
+              : config;
+            const interval = symbolConfig.scan_interval || '1m';
+            const res = this.scanSymbol(sc.symbol, interval, symbolConfig);
+            if (res) singleResults.push(res);
+          } catch (error) {
+            this.logger.verbose(`Single symbol scan error for ${sc.symbol}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
 
         // Use a map to prevent duplicate symbols if they are in both global and single
-        const resultMap = new Map(results.map(r => [r.opp.symbol, r]));
+        // BOLT OPTIMIZATION: Populate Map directly from results to avoid results.map() allocation
+        const resultMap = new Map<string, { opp: Opportunity; candles: Candle[] }>();
+        for (const r of results) {
+          resultMap.set(r.opp.symbol, r);
+        }
         for (const r of singleResults) {
           if (r) resultMap.set(r.opp.symbol, r);
         }
 
         results.length = 0;
-        results.push(...resultMap.values());
+        // BOLT OPTIMIZATION: Use direct loop instead of spread results.push(...resultMap.values()) to avoid intermediate array
+        for (const r of resultMap.values()) {
+          results.push(r);
+        }
       }
-      const tempResults = results.filter((r): r is { opp: Opportunity, candles: Candle[] } => r !== null);
+      // BOLT OPTIMIZATION: results are already guaranteed to be non-null
+      const tempResults = results;
 
-      // Sort by score descending and take top 15
+      // Sort by score descending and take top results
       tempResults.sort((a, b) => b.opp.score - a.opp.score);
 
-      const topResults = tempResults.slice(0, 15);
+      const topResults = tempResults.slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS);
 
-      // BOLT OPTIMIZATION: Only map history for the final top 15 results
-      return topResults.map(({ opp, candles }) => ({
-        ...opp,
-        history: candles.slice(-20).map(c => c.close),
-      }));
+      // BOLT OPTIMIZATION: Only map history for the final top results
+      return topResults.map(({ opp, candles }) => {
+        const historyLen = Math.min(ENGINE_CONSTANTS.SPARKLINE_HISTORY_LEN, candles.length);
+        const history: number[] = new Array(historyLen);
+        const startIdx = candles.length - historyLen;
+        for (let i = 0; i < historyLen; i++) {
+          history[i] = candles[startIdx + i].close;
+        }
+        return {
+          ...opp,
+          history,
+        };
+      });
     } catch (error) {
       this.logger.warn(`Scan error: ${error instanceof Error ? error.message : String(error)}`);
       return [];
     }
   }
 
-  private async scanSymbol(
+  private scanSymbol(
     symbol: string,
     interval: string,
     config: SessionConfig,
-  ): Promise<{ opp: Opportunity, candles: Candle[] } | null> {
+  ): { opp: Opportunity, candles: Candle[] } | null {
+    // BOLT OPTIMIZATION: Filter out symbols that are not in the current exchange info (e.g. not on Testnet)
+    // before performing any calculations.
+    const filters = this.marketFeed.getSymbolFilters(symbol);
+    if (!filters) {
+      return null;
+    }
+
     // Get recent candles for momentum calculation
     const lookback = Math.max(config.scan_lookback || 1, 1);
-    const candles = await this.klineStore.getRecentCandles(symbol, interval, Math.max(20, lookback + 1));
+    const candles = this.klineStore.getRawCandles(symbol, interval);
     if (candles.length < lookback + 1) {
       return null;
     }
@@ -138,7 +168,7 @@ export class MomentumScannerService {
     const previousPrice = candles[candles.length - 1 - lookback].close;
 
     if (!this.isValidPrice(currentPrice) || !this.isValidPrice(previousPrice)) {
-      this.logger.debug(
+      this.logger.verbose(
         `Skipping scan for ${symbol} due invalid candle prices current=${currentPrice} previous=${previousPrice}`,
       );
       return null;
@@ -147,9 +177,15 @@ export class MomentumScannerService {
     // Calculate simple momentum
     const momentumPct = this.calculateMomentum(currentPrice, previousPrice);
     if (!Number.isFinite(momentumPct)) {
-      this.logger.debug(
+      this.logger.verbose(
         `Skipping scan for ${symbol} due invalid momentum current=${currentPrice} previous=${previousPrice}`,
       );
+      return null;
+    }
+
+    // BOLT OPTIMIZATION: Early return if momentum is below threshold to avoid expensive volatility/trend calculations
+    const threshold = config.scan_pct_threshold ?? 0;
+    if (Math.abs(momentumPct) < threshold) {
       return null;
     }
 
@@ -166,7 +202,7 @@ export class MomentumScannerService {
 
     // Get current price and volume
     // BOLT OPTIMIZATION: Use O(1) ticker lookup instead of O(N) array search
-    const tickerData = await this.tickerCache.getTicker(symbol);
+    const tickerData = this.tickerCache.getTicker(symbol);
 
     const displayPrice = this.isValidPrice(tickerData?.price ?? 0)
       ? tickerData!.price

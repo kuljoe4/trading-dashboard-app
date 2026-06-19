@@ -51,7 +51,7 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
       role="button"
       tabIndex={0}
       className="bg-surface border border-border/40 rounded-2xl p-4 md:p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.98]"
-      aria-label={`View details for ${trade.symbol} ${trade.direction} trade, ${fmtUSD(trade.pnl)} P&L, ${Number(trade.rr || 0).toFixed(2)} RR`}
+      aria-label={`View details for ${trade.symbol} ${trade.direction} trade, ${fmtUSD(trade.net_pnl)} Net Return, ${Number(trade.rr || 0).toFixed(2)} RR`}
     >
       <div className="flex items-center justify-between gap-3 min-w-0 group">
         <div className="flex flex-col gap-1 min-w-0 flex-1">
@@ -70,24 +70,66 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
           )}
         </div>
 
-        <div className="flex flex-col items-end shrink-0 min-w-[80px]">
-          <div className={cn(
-            "text-base md:text-lg lg:text-xl font-black font-mono tracking-tighter leading-none mb-1",
-            trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlClass(trade.pnl) : 'text-dim'
-          )}>
-            {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
+        <div className="flex items-center gap-6 shrink-0">
+          <div className="flex flex-col items-end">
+            <span className="text-[7px] font-black text-dim uppercase tracking-[0.2em] mb-1 opacity-60">Market Gain</span>
+            <div className={cn(
+              "text-xs md:text-sm font-black font-mono tracking-tighter",
+              trade.market_pnl != null && !isNaN(Number(trade.market_pnl)) ? pnlClass(trade.market_pnl) : 'text-dim'
+            )}>
+              {trade.market_pnl != null && !isNaN(Number(trade.market_pnl)) ? fmtUSD(trade.market_pnl) : '$0.00'}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] md:text-[11px] font-black font-mono text-dim/60 uppercase tracking-widest">
-              {Number(trade.rr || 0).toFixed(2)}R
+
+          <div className="w-px h-8 bg-border/40" />
+
+          <div className="flex flex-col items-end min-w-[100px] relative">
+            <span className="text-[7px] font-black text-dim uppercase tracking-[0.2em] mb-1 opacity-60 flex items-center gap-1">
+              Net Return <Info size={8} className="text-dim/40" />
             </span>
-            {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
-              <Tooltip content={`Commission: -${fmtUSD(trade.realized_fee || 0)} | Funding: ${trade.funding_fee > 0 ? '-' : '+'}${fmtUSD(Math.abs(trade.funding_fee || 0))}`}>
-                <div className="text-[8px] md:text-[9px] font-black font-mono text-red/40 uppercase tracking-tighter cursor-help border-b border-dotted border-red/10">
-                  -{fmtUSD(safeNum(trade.realized_fee) + safeNum(trade.funding_fee))}
+            <div className={cn(
+              "px-3 py-1.5 rounded-xl border font-black font-mono tracking-tighter leading-none transition-all duration-300",
+              trade.net_pnl > 0 ? "bg-green/5 border-green/20 text-green shadow-[0_0_15px_rgba(0,229,160,0.05)]" :
+              trade.net_pnl < 0 ? "bg-red/5 border-red/20 text-red shadow-[0_0_15px_rgba(255,68,102,0.05)]" :
+              "bg-surface border-border text-dim"
+            )}>
+              <Tooltip content={
+                <div className="flex flex-col gap-2 p-2 min-w-[160px]">
+                  <div className="text-[10px] font-black uppercase tracking-widest border-b border-white/10 pb-2 mb-1">Position Cost Breakdown</div>
+                  <div className="flex justify-between items-center gap-4">
+                    <span className="text-dim text-[9px] font-bold uppercase tracking-tight">Market Gain</span>
+                    <span className={cn("font-mono font-bold text-[11px]", (trade.market_pnl || 0) >= 0 ? "text-green" : "text-red")}>{fmtUSD(trade.market_pnl || 0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center gap-4">
+                    <span className="text-dim text-[9px] font-bold uppercase tracking-tight">Open Fee</span>
+                    <span className="text-red/80 font-mono font-bold text-[11px]">-{fmtUSD(trade.realized_fee || 0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center gap-4">
+                    <span className="text-dim text-[9px] font-bold uppercase tracking-tight">Funding</span>
+                    <span className={cn("font-mono font-bold text-[11px]", (trade.funding_fee || 0) > 0 ? "text-red/80" : "text-green/80")}>
+                      {(trade.funding_fee || 0) > 0 ? '-' : '+'}{fmtUSD(Math.abs(trade.funding_fee || 0))}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center gap-4 border-t border-white/10 pt-2 mt-1">
+                    <span className="text-white text-[10px] font-black uppercase tracking-widest">Net Total</span>
+                    <span className={cn("font-mono font-black text-[12px]", (trade.net_pnl || 0) >= 0 ? "text-green" : "text-red")}>{fmtUSD(trade.net_pnl || 0)}</span>
+                  </div>
                 </div>
+              }>
+                <button
+                   className="text-base md:text-lg lg:text-xl focus:outline-none focus:ring-2 focus:ring-accent/50 rounded transition-all active:scale-95"
+                   tabIndex={0}
+                   aria-label={`Net Return: ${fmtUSD(trade.net_pnl)}, hover for breakdown`}
+                >
+                  {trade.net_pnl != null && !isNaN(Number(trade.net_pnl)) ? fmtUSD(trade.net_pnl) : '$0.00'}
+                </button>
               </Tooltip>
-            )}
+            </div>
+            <div className="mt-1.5">
+               <span className="text-[10px] md:text-[11px] font-black font-mono text-dim/60 uppercase tracking-widest">
+                 {Number(trade.rr || 0).toFixed(2)}R
+               </span>
+            </div>
           </div>
         </div>
       </div>

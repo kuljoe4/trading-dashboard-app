@@ -66,6 +66,8 @@ export class EngineBroadcasterService {
     }
 
     let pnl = 0;
+    let marketPnl = 0;
+    let netPnl = 0;
     let rrValue = 0;
     let pnlPct = 0;
 
@@ -74,18 +76,25 @@ export class EngineBroadcasterService {
     if (isTerminal) {
       // DATA-CONSISTENCY: For terminal trades, use stored Net values to ensure fees are reflected in history
       pnl = trade.pnl ?? 0;
-      pnlPct = trade.pnl_pct ?? 0;
+      netPnl = pnl;
 
       const exitPrice = trade.exit_price ?? entry;
+      marketPnl = roundEight(direction === 'LONG' ? (exitPrice - entry) * (trade.qty ?? 0) : (entry - exitPrice) * (trade.qty ?? 0));
+
+      pnlPct = trade.pnl_pct ?? 0;
+
       const risk = Math.abs(entry - (trade.initial_sl ?? entry)) || 1;
       rrValue = (direction === 'LONG' ? (exitPrice - entry) : (entry - exitPrice)) / risk;
     } else if (current !== undefined && Number.isFinite(current) && Number.isFinite(entry)) {
-      const grossPnl = direction === 'LONG' ? (current - entry) * (trade.qty ?? 0) : (entry - current) * (trade.qty ?? 0);
+      marketPnl = roundEight(direction === 'LONG' ? (current - entry) * (trade.qty ?? 0) : (entry - current) * (trade.qty ?? 0));
+
+      // Net PnL = Market PnL - Fees - Funding
+      netPnl = roundEight(marketPnl - (trade.realized_fee || 0) - (trade.funding_fee || 0));
 
       // BOLT: For active trades, we display Unrealized PnL (Gross) to match exchange UI.
       // Total wallet balance already accounts for entry fees, so we only subtract realized_fee
       // during the final trade closure recording in the database.
-      pnl = roundEight(grossPnl);
+      pnl = marketPnl;
       pnlPct = entry ? ((current - entry) / entry) * 100 * (direction === 'LONG' ? 1 : -1) : 0;
 
       const risk = Math.abs(entry - (trade.initial_sl ?? trade.current_sl ?? entry)) || 1;
@@ -101,6 +110,8 @@ export class EngineBroadcasterService {
         sl_price: roundTo(trade.current_sl, 8),
         tp_price: roundTo(trade.tp, 8),
         pnl: roundTo(pnl, 2),
+        market_pnl: roundTo(marketPnl, 2),
+        net_pnl: roundTo(netPnl, 2),
         pnl_pct: roundTo(pnlPct, 4),
         realized_fee: roundTo(trade.realized_fee, 2),
         funding_fee: roundTo(trade.funding_fee || 0, 2),
@@ -126,6 +137,8 @@ export class EngineBroadcasterService {
       sl_price: roundTo(trade.current_sl, 8),
       tp_price: roundTo(trade.tp, 8),
       pnl: roundTo(pnl, 2),
+      market_pnl: roundTo(marketPnl, 2),
+      net_pnl: roundTo(netPnl, 2),
       pnl_pct: roundTo(pnlPct, 4),
       realized_fee: roundTo(trade.realized_fee, 2),
       funding_fee: roundTo(trade.funding_fee || 0, 2),

@@ -369,12 +369,20 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
             <div className="absolute top-0 right-0 p-4 opacity-10">
               <Activity size={32} className="md:w-20 md:h-20" />
             </div>
-            <div className="flex items-center gap-2 mb-1 md:mb-2">
-              <span className="text-[7px] md:text-[10px] font-black text-dim uppercase tracking-[0.2em]">
-                {trade.exit_ts ? 'Realized P&L' : 'Live Return'}
-              </span>
-              <div className={cn("text-lg md:text-4xl font-black font-mono tracking-tighter", pnlClass(trade.pnl))}>
-                {fmtUSD(trade.pnl)}
+            <div className="flex items-center justify-center gap-4 md:gap-8 mb-2 md:mb-4">
+              <div className="flex flex-col items-center px-4 py-2 rounded-2xl bg-white/[0.02] border border-white/[0.05]">
+                <span className="text-[7px] md:text-[8px] font-black text-dim uppercase tracking-[0.3em] mb-2 opacity-60">
+                  {trade.exit_ts ? 'Final Net' : 'Net Position'}
+                </span>
+                <div className={cn("text-xl md:text-6xl font-black font-mono tracking-tighter leading-none mb-1", pnlClass(trade.net_pnl))}>
+                  {fmtUSD(trade.net_pnl)}
+                </div>
+              </div>
+              <div className="flex flex-col items-center opacity-40">
+                <span className="text-[7px] md:text-[8px] font-black text-dim uppercase tracking-[0.3em] mb-2">Market Delta</span>
+                <div className={cn("text-sm md:text-3xl font-black font-mono tracking-tighter leading-none", pnlClass(trade.market_pnl))}>
+                  {fmtUSD(trade.market_pnl)}
+                </div>
               </div>
             </div>
             <div className={cn("px-2 py-0.5 md:px-4 md:py-1.5 rounded-full text-[8px] md:text-xs font-black font-mono shadow-sm", trade.pnl >= 0 ? "bg-green/10 text-green" : "bg-red/10 text-red")}>

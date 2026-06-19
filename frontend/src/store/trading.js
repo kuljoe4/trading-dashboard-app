@@ -18,10 +18,55 @@ const normalizeTrade = (t = {}, pt = null) => {
   const f = `${t.pnl}:${t.rr}:${t.current_price}:${t.sl_price}`;
   if (p._fingerprint === f && !t._delta && !t._thin) return p;
   if (t._delta || t._thin) {
-    return { ...p, ...t, pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl, rr: t.rr !== undefined ? toNumber(t.rr) : p.rr, current_price: t.current_price !== undefined ? toNumber(t.current_price) : p.current_price, sl_price: t.sl_price !== undefined ? toNumber(t.sl_price) : p.sl_price, max_rr: t.max_rr !== undefined ? toNumber(t.max_rr) : p.max_rr, exit_signals_status: t.exit_signals_status || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence, exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence, sl_adjustments: t.sl_adjustments || p.sl_adjustments, exit_signal_logic: t.exit_signal_logic || p.exit_signal_logic, tp_mode: t.tp_mode || p.tp_mode, tp_ratio: t.tp_ratio !== undefined ? toNumber(t.tp_ratio) : p.tp_ratio };
+    return {
+      ...p, ...t,
+      pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl,
+      market_pnl: t.market_pnl !== undefined ? toNumber(t.market_pnl) : p.market_pnl,
+      net_pnl: t.net_pnl !== undefined ? toNumber(t.net_pnl) : p.net_pnl,
+      rr: t.rr !== undefined ? toNumber(t.rr) : p.rr,
+      current_price: t.current_price !== undefined ? toNumber(t.current_price) : p.current_price,
+      sl_price: t.sl_price !== undefined ? toNumber(t.sl_price) : p.sl_price,
+      max_rr: t.max_rr !== undefined ? toNumber(t.max_rr) : p.max_rr,
+      exit_signals_status: t.exit_signals_status || p.exit_signals_status || {},
+      strategy_config: t.strategy_config || p.strategy_config,
+      live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence,
+      exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence,
+      sl_adjustments: t.sl_adjustments || p.sl_adjustments,
+      exit_signal_logic: t.exit_signal_logic || p.exit_signal_logic,
+      tp_mode: t.tp_mode || p.tp_mode,
+      tp_ratio: t.tp_ratio !== undefined ? toNumber(t.tp_ratio) : p.tp_ratio
+    };
   }
   const ep = toNumber(t.entry_price ?? t.entry ?? p.entry_price);
-  return { ...t, symbol: t.symbol ?? p.symbol ?? '---', strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy', direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(), entry_price: ep, current_price: toNumber(t.current_price ?? t.current ?? p.current_price ?? t.exit_price ?? ep, ep), sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price), initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl), tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp), pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl ?? 0, rr: (t.rr !== undefined) ? toNumber(t.rr) : p.rr ?? 0, max_rr: (t.max_rr !== undefined) ? toNumber(t.max_rr) : p.max_rr ?? 0, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [], exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [], tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'), tp_ratio: (t.tp_ratio !== undefined) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0, sl_adjustments: t.sl_adjustments || p.sl_adjustments || [], exit_reason: t.exit_reason ?? p.exit_reason, exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price), paper_mode: t.paper_mode ?? p.paper_mode ?? true, qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0), max_rr_achieved: toNumber(t.max_rr_achieved ?? t.max_rr ?? p.max_rr_achieved ?? 0), exit_signals_status: t.exit_signals_status || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, _fingerprint: f };
+  return {
+    ...t,
+    symbol: t.symbol ?? p.symbol ?? '---',
+    strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy',
+    direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(),
+    entry_price: ep,
+    current_price: toNumber(t.current_price ?? t.current ?? p.current_price ?? t.exit_price ?? ep, ep),
+    sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price),
+    initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl),
+    tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp),
+    pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl ?? 0,
+    market_pnl: t.market_pnl !== undefined ? toNumber(t.market_pnl) : p.market_pnl ?? 0,
+    net_pnl: t.net_pnl !== undefined ? toNumber(t.net_pnl) : p.net_pnl ?? 0,
+    rr: (t.rr !== undefined) ? toNumber(t.rr) : p.rr ?? 0,
+    max_rr: (t.max_rr !== undefined) ? toNumber(t.max_rr) : p.max_rr ?? 0,
+    live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [],
+    exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [],
+    tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'),
+    tp_ratio: (t.tp_ratio !== undefined) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0,
+    sl_adjustments: t.sl_adjustments || p.sl_adjustments || [],
+    exit_reason: t.exit_reason ?? p.exit_reason,
+    exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price),
+    paper_mode: t.paper_mode ?? p.paper_mode ?? true,
+    qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0),
+    max_rr_achieved: toNumber(t.max_rr_achieved ?? t.max_rr ?? p.max_rr_achieved ?? 0),
+    exit_signals_status: t.exit_signals_status || p.exit_signals_status || {},
+    strategy_config: t.strategy_config || p.strategy_config,
+    _fingerprint: f
+  };
 }
 
 const deepMerge = (target, source) => {

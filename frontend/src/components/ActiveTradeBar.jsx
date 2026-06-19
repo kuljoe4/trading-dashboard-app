@@ -13,7 +13,8 @@ export const ActiveTradeBar = () => {
 
   if (!sessionActive || activeTrades.length === 0) return null
 
-  const totalPnl = activeTrades.reduce((sum, t) => sum + safeNum(t.pnl), 0)
+  const totalMarketPnl = activeTrades.reduce((sum, t) => sum + safeNum(t.market_pnl), 0)
+  const totalNetPnl = activeTrades.reduce((sum, t) => sum + safeNum(t.net_pnl), 0)
 
   const getEstSlPnl = (t) => {
     const sl = Number(t.sl_price || 0)
@@ -56,37 +57,63 @@ export const ActiveTradeBar = () => {
             <ArrowLeftRight size={20} />
           </div>
           <div>
-            <div className="text-[10px] text-dim font-bold uppercase tracking-widest">Active Positions</div>
-            <div className="text-sm font-bold flex items-center gap-2">
-              {activeTrades.length} Trades · <span style={{ color: pnlColor(totalPnl) }}>{fmtUSD(totalPnl)}</span>
+            <div className="text-[10px] text-dim font-black uppercase tracking-[0.2em] mb-0.5">Active Positions</div>
+            <div className="text-xs font-bold flex items-center gap-3">
+              <span className="text-text/60">{activeTrades.length} Open</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[8px] text-dim/60 uppercase">Net</span>
+                <span className={cn("font-mono", pnlClass(totalNetPnl))}>{fmtUSD(totalNetPnl)}</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="flex-1 overflow-x-auto no-scrollbar flex gap-2" role="list">
+        <div className="flex-1 overflow-x-auto no-scrollbar flex gap-3" role="list">
           {activeTrades.map(t => {
             const slPnl = getEstSlPnl(t)
             return (
-              <div key={t.symbol} className="flex flex-col gap-1">
-                <button
-                  onClick={() => handleClose(t.symbol)}
-                  role="listitem"
-                  aria-label={closing === t.symbol ? `Confirm closing ${t.symbol} position` : `Close ${t.symbol} position`}
-                  className={cn(
-                    "px-3 py-2 rounded-xl border text-[10px] font-bold font-mono transition-all flex items-center gap-2 shrink-0 focus-visible:ring-2 focus-visible:ring-red outline-none",
-                    closing === t.symbol ? "bg-red border-red text-white scale-95" :
-                    closing === 'CANCELLED' ? "bg-amber/20 border-amber/40 text-amber" :
-                    "bg-white/5 border-white/10 hover:bg-white/10 hover:border-red/40"
-                  )}
-                >
-                  {t.symbol.replace('USDT', '')}
-                  <span style={{ color: closing === t.symbol ? 'white' : pnlColor(t.pnl) }}>
-                    {closing === t.symbol ? 'CONFIRM' : closing === 'CANCELLED' ? 'CANCELLED' : fmtUSD(t.pnl)}
-                  </span>
-                </button>
-                <div className="flex items-center justify-center px-1">
-                   <span className={cn("text-[8px] font-mono font-bold uppercase tracking-tighter opacity-60", pnlClass(slPnl))}>
-                     SL: {fmtUSD(slPnl)}
+              <div key={t.symbol} className="flex flex-col gap-1.5 min-w-fit">
+                <Tooltip content={
+                   <div className="flex flex-col gap-2 p-1 min-w-[140px]">
+                     <div className="text-[9px] font-black uppercase tracking-widest border-b border-white/10 pb-1 mb-1">{t.symbol} Breakdown</div>
+                     <div className="flex justify-between items-center gap-4">
+                       <span className="text-dim text-[8px] uppercase">Market</span>
+                       <span className={cn("font-mono font-bold", (t.market_pnl || 0) >= 0 ? "text-green" : "text-red")}>{fmtUSD(t.market_pnl || 0)}</span>
+                     </div>
+                     <div className="flex justify-between items-center gap-4">
+                       <span className="text-dim text-[8px] uppercase">Fees/Funding</span>
+                       <span className="text-red/80 font-mono font-bold">-{fmtUSD(safeNum(t.realized_fee) + safeNum(t.funding_fee))}</span>
+                     </div>
+                     <div className="flex justify-between items-center gap-4 border-t border-white/10 pt-1 mt-1">
+                       <span className="text-white text-[8px] font-black uppercase">Net Total</span>
+                       <span className={cn("font-mono font-bold", (t.net_pnl || 0) >= 0 ? "text-green" : "text-red")}>{fmtUSD(t.net_pnl || 0)}</span>
+                     </div>
+                   </div>
+                }>
+                  <button
+                    onClick={() => handleClose(t.symbol)}
+                    role="listitem"
+                    aria-label={closing === t.symbol ? `Confirm closing ${t.symbol} position` : `Close ${t.symbol} position`}
+                    className={cn(
+                      "px-4 py-2.5 rounded-xl border text-[10px] font-black font-mono transition-all flex items-center gap-3 shrink-0 focus-visible:ring-2 focus-visible:ring-red outline-none relative overflow-hidden group/btn",
+                      closing === t.symbol ? "bg-red border-red text-white scale-95 shadow-[0_0_20px_rgba(255,68,102,0.4)]" :
+                      closing === 'CANCELLED' ? "bg-amber/20 border-amber/40 text-amber" :
+                      "bg-white/5 border-white/10 hover:bg-white/10 hover:border-red/40 shadow-sm"
+                    )}
+                  >
+                    <span className="opacity-60">{t.symbol.replace('USDT', '')}</span>
+                    <span className={cn("font-black", closing === t.symbol ? 'text-white' : pnlClass(t.net_pnl))}>
+                      {closing === t.symbol ? 'CONFIRM' : closing === 'CANCELLED' ? 'CANCELLED' : fmtUSD(t.net_pnl)}
+                    </span>
+                  </button>
+                </Tooltip>
+                <div className="flex items-center justify-between px-1">
+                   <div className="flex items-center gap-1 opacity-60">
+                      <div className={cn("w-1 h-1 rounded-full", (t.market_pnl || 0) >= 0 ? "bg-green" : "bg-red")} />
+                      <span className="text-[7px] font-mono text-dim">{fmtUSD(t.market_pnl || 0)}</span>
+                   </div>
+                   <span className={cn("text-[7px] font-mono font-black uppercase tracking-tighter opacity-40", pnlClass(slPnl))}>
+                     {fmtUSD(slPnl)}
                    </span>
                 </div>
               </div>

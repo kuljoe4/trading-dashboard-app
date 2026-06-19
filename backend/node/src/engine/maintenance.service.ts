@@ -55,21 +55,19 @@ export class MaintenanceService {
 
       let slOrdersBySymbol = new Map<string, any[]>();
 
-      const isSlOrder = (o: any) => (o.type === 'STOP_MARKET' || o.type === 'STOP') && (o.closePosition === true || o.closePosition === 'true' || o.reduceOnly === true || o.reduceOnly === 'true');
+      const isSlOrder = (o: any) => (o.type === 'STOP_MARKET' || o.type === 'STOP' || o.algoType === 'CONDITIONAL') &&
+                                    (o.closePosition === true || o.closePosition === 'true' || o.reduceOnly === true || o.reduceOnly === 'true');
 
-      if (uniqueSymbols.length > 40) {
-        const allOrders = await this.orderManager.fetchAllOpenOrders();
-        allOrders.filter(isSlOrder).forEach(o => {
-          const list = slOrdersBySymbol.get(o.symbol) || [];
-          list.push(o);
-          slOrdersBySymbol.set(o.symbol, list);
-        });
-      } else {
-        for (const symbol of uniqueSymbols) {
-           const orders = await this.orderManager.fetchOpenOrders(symbol);
-           slOrdersBySymbol.set(symbol, orders.filter(isSlOrder));
-        }
-      }
+      // Hybrid Fetch: Fetch both standard and algo open orders
+      const allOrders = await this.orderManager.fetchAllOpenOrders();
+      const allAlgoOrders = await this.orderManager.fetchAllOpenAlgoOrders();
+
+      const combinedOrders = [...allOrders, ...allAlgoOrders];
+      combinedOrders.filter(isSlOrder).forEach(o => {
+        const list = slOrdersBySymbol.get(o.symbol) || [];
+        list.push(o);
+        slOrdersBySymbol.set(o.symbol, list);
+      });
 
       for (const trade of tradesToAudit) {
         try {

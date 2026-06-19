@@ -482,12 +482,16 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
 
       // In live mode, attempt to place actual order using batchOrders for zero-cost network optimization
       if (!this.paperMode && this.binanceClient) {
-        let attempts = 0;
-        const MAX_ATTEMPTS = 3;
-        let lastError: any = null;
+        // LOCK: Prevent Watchdog from interfering until SL is placed
+        this.ratchetLocks.set(symbol, true);
 
-        while (attempts < MAX_ATTEMPTS) {
         try {
+          let attempts = 0;
+          const MAX_ATTEMPTS = 3;
+          let lastError: any = null;
+
+          while (attempts < MAX_ATTEMPTS) {
+          try {
           attempts++;
           const binanceDirection = direction === 'LONG' ? 'BUY' : 'SELL';
           const closeDirection = direction === 'LONG' ? 'SELL' : 'BUY';
@@ -610,6 +614,12 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
             trade.entry_price = roundEight(absoluteEntryPrice);
             if (executedQty > 0) trade.qty = executedQty;
 
+            // Seed the cache immediately to bypass WS delay
+            this.lastFills.set(String(entryReceipt.orderId), { price: absoluteEntryPrice, timestamp: Date.now() });
+            if (entryReceipt.clientOrderId) {
+              this.lastFills.set(entryReceipt.clientOrderId, { price: absoluteEntryPrice, timestamp: Date.now() });
+            }
+
             // Direction-aware slippage calculation: only deterioration (worse price) counts as positive slippage.
             // Price improvements result in negative slippage and are ignored.
             const slippage = direction === 'LONG'
@@ -686,6 +696,7 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
             resourceId: trade.id,
             details: { symbol, direction, qty, orderId: entryReceipt.orderId }
           });
+      trade.updated_at = new Date();
 
           // Place SL separately. Pass actual fill price for immediate-breach guard.
           const slResult = await this.placeStopLoss(trade, slPrice, trade.entry_price);
@@ -752,6 +763,9 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
           this.recordFailure(isSystemic);
           return { status: ExecutionStatus.ORDER_REJECTED, error: agreementMsg };
         }
+        }
+        } finally {
+          this.ratchetLocks.delete(symbol);
         }
       } else if (this.paperMode) {
         // Simulate paper entry fee (taker rate)
@@ -1309,10 +1323,20 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * @deprecated Algo API removed. Returns empty list.
+   * Fetch all open algorithmic orders from Binance
    */
   public async fetchAllOpenAlgoOrders(): Promise<any[]> {
-    return [];
+    if (!this.binanceClient) return [];
+    try {
+      this.monitoringService.incrementApiRequests();
+      const response = await this.binanceClient.restAPI.currentAllAlgoOpenOrders();
+      this.updateWeight(response?.headers);
+      const data = await response.data() as any;
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      this.logger.warn(`Failed to fetch all open algo orders: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
   }
 
 
@@ -1586,6 +1610,9 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
     paperMode = this.paperMode,
     localOnly = false,
   ): Promise<{ trade: Trade; exitOccurred: boolean; closeBlocked?: boolean }> {
+    // LOCK: Prevent Watchdog interference during closure
+    this.ratchetLocks.set(symbol, true);
+
     try {
       if (trade.close_blocked) {
          return { trade, exitOccurred: false, closeBlocked: true };
@@ -1701,6 +1728,7 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
                const newAmount = Math.max(0, Math.abs(currentCached.amount) - executedExitQty);
                this.sessionState.realTimePositions.set(symbol, { ...currentCached, amount: newAmount });
             }
+          trade.updated_at = new Date();
             this.logger.log(`Close order response for ${symbol}: ${JSON.stringify(orderData)}`);
             trade.binance_close_order_id = orderData.orderId;
 
@@ -1757,7 +1785,15 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
 
             const executedExitQtyFinal = parseFloat(orderData.executedQty || '0');
 
-            if (absoluteExitPrice > 0) exitPrice = roundEight(absoluteExitPrice);
+            if (absoluteExitPrice > 0) {
+              exitPrice = roundEight(absoluteExitPrice);
+
+              // Seed the cache immediately to bypass WS delay
+              this.lastFills.set(String(orderData.orderId), { price: absoluteExitPrice, timestamp: Date.now() });
+              if (orderData.clientOrderId) {
+                this.lastFills.set(orderData.clientOrderId, { price: absoluteExitPrice, timestamp: Date.now() });
+              }
+            }
 
             // Zero-Cost Math Estimation for exit fees
             const exitNotional = (executedExitQtyFinal > 0 ? executedExitQtyFinal : trade.qty) * exitPrice;
@@ -1933,6 +1969,8 @@ export class OrderManagerService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.error(`Close failed: ${error instanceof Error ? error.message : String(error)}`);
       return { trade, exitOccurred: false };
+    } finally {
+      this.ratchetLocks.delete(symbol);
     }
   }
 }

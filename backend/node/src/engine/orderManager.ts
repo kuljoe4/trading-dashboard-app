@@ -456,6 +456,8 @@ export class OrderManagerService {
           if (entryReceipt.code && entryReceipt.code !== 0) {
             const code = entryReceipt.code;
             const msg = entryReceipt.msg || '';
+            this.logger.warn(`[${symbol}] Entry order failed. Code: ${code}, Message: ${msg}, Raw: ${JSON.stringify(entryReceipt)}`);
+
             // Handle Duplicate Order ID specifically to recover state
             if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
                this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId on entry retry. Recovering order state...`);
@@ -808,6 +810,7 @@ export class OrderManagerService {
         if (orderData.code && orderData.code !== 0) {
           const code = orderData.code;
           const msg = orderData.msg || '';
+            this.logger.warn(`[${symbol}] SL placement failed. Code: ${code}, Message: ${msg}, Raw: ${JSON.stringify(orderData)}`);
 
           // Handle Duplicate Order ID specifically to recover state after timeout
           if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
@@ -1674,9 +1677,9 @@ export class OrderManagerService {
                   this.logger.warn(`Binance close order failed but position still exists for ${symbol} (Amt: ${positionAmt}): ${errMsg}`);
                   throw err;
                }
-            } else if (upperMsg.includes('PERCENT_PRICE')) {
-               const tip = `The price is currently outside Binance's protection bands. This usually happens during extreme volatility. Manual intervention on Binance website may be required if the engine cannot close the trade.`;
-               this.logger.error(`${symbol}: Close failed due to PERCENT_PRICE filter (Attempt ${trade.close_attempts}/${MAX_CLOSE_ATTEMPTS}). ${tip}`);
+            } else if (upperMsg.includes('PERCENT_PRICE') || upperMsg.includes('PRICE DEVIATED') || upperMsg.includes('DEVIATION')) {
+               const tip = `The price is currently outside Binance's protection bands (deviation). This usually happens during extreme volatility. Manual intervention on Binance website may be required if the engine cannot close the trade.`;
+               this.logger.error(`${symbol}: Close failed due to price protection/deviation (Attempt ${trade.close_attempts}/${MAX_CLOSE_ATTEMPTS}). ${tip}. Error: ${errMsg}`);
 
                if (trade.close_attempts && trade.close_attempts >= MAX_CLOSE_ATTEMPTS) {
                   trade.close_blocked = true;

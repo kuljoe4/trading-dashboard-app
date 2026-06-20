@@ -721,15 +721,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                   <Toggle value={cfg.frequency_shaping_enabled === true} onChange={(v) => setField('frequency_shaping_enabled', v)} />
                 </div>
 
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-6 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
+                  {field('Period Limit', 'max_trades_per_period', 'number', null, { min: 0 })}
+                  {field('Period (min)', 'trades_period_min', 'number', null, { min: 1 })}
+                  {field('Max 24h', 'max_trades_24h', 'number', null, { min: 0 })}
+                </div>
+
                 {cfg.frequency_shaping_enabled && (
-                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 md:grid-cols-4 gap-6 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
-                    {field('Period Limit', 'max_trades_per_period', 'number', null, { min: 0 })}
-                    {field('Period (min)', 'trades_period_min', 'number', null, { min: 1 })}
-                    {field('Max 24h', 'max_trades_24h', 'number', null, { min: 0 })}
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 md:grid-cols-2 gap-6 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
                     {field('Min Interval (m)', 'min_trade_interval_min', 'number', null, { min: 0 })}
-                    <div className="md:col-span-2">
-                      {field('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
-                    </div>
+                    {field('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
                   </motion.div>
                 )}
 

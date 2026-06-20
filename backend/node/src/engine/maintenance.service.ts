@@ -83,6 +83,12 @@ export class MaintenanceService {
              continue;
           }
 
+          // SRE-01: Respect blocked closure status to avoid infinite requests/loops for positions with PERCENT_PRICE issues
+          if (trade.close_blocked) {
+            this.logger.debug(`[Watchdog] Skipping audit for ${trade.symbol}: Closure is explicitly blocked due to previous failures.`);
+            continue;
+          }
+
           let pos = activePositionsMap.get(trade.symbol);
 
           if (!pos) {
@@ -94,7 +100,13 @@ export class MaintenanceService {
 
             if (freshAmt === 0) {
               // BOLT: Handle orphaned local positions. If bot thinks it's open but exchange says 0.
-              this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} is active locally but NO position found on Binance after fresh verification. Triggering Sync Closure.`);
+              const metadata = {
+                id: trade.id,
+                entryPrice: trade.entry_price,
+                qty: trade.qty,
+                duration: trade.entry_ts ? (Date.now() - new Date(trade.entry_ts).getTime()) / 1000 : 0
+              };
+              this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} is active locally but NO position found on Binance after fresh verification. Triggering Sync Closure. Meta: ${JSON.stringify(metadata)}`);
               this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Watchdog] Ghost position detected for ${trade.symbol}. Force-syncing to closed.`, level: 'error' });
 
               // NEW: Emit event instead of direct call to ensure proper cleanup orchestration in TradingSessionService
@@ -105,7 +117,7 @@ export class MaintenanceService {
               });
               continue;
             } else {
-              this.logger.log(`[Watchdog] ${trade.symbol} ghost check recovered: Position ${freshAmt} found via fresh query.`);
+              this.logger.log(`[Watchdog] ${trade.symbol} ghost check recovered: Position ${freshAmt} found via fresh query. Metadata: ${JSON.stringify(freshPos)}`);
               pos = freshPos;
             }
           }
@@ -149,7 +161,14 @@ export class MaintenanceService {
               const validSl = freshSlOrders.find(o => Math.abs(parseFloat(o.origQty || o.quantity) - trade.qty) < 0.00000001);
               if (validSl) {
                 const newId = String(validSl.algoId || validSl.orderId);
-                this.logger.warn(`[Watchdog] ${trade.symbol} found untracked SL protection (${newId}) with matching quantity. Adopting and syncing.`);
+                const metadata = {
+                  newId,
+                  oldId: trade.binance_stop_order_id,
+                  price: validSl.stopPrice || validSl.triggerPrice,
+                  qty: validSl.origQty || validSl.quantity,
+                  type: validSl.algoType ? 'algo' : 'standard'
+                };
+                this.logger.warn(`[Watchdog] ${trade.symbol} found untracked SL protection. Adopting and syncing state. Meta: ${JSON.stringify(metadata)}`);
                 trade.binance_stop_order_id = newId;
                 trade.binance_stop_order_type = validSl.algoType ? 'algo' : 'standard';
                 const exSlPrice = parseFloat(validSl.stopPrice || validSl.triggerPrice);
@@ -158,6 +177,7 @@ export class MaintenanceService {
                 }
                 trade.updated_at = new Date();
                 matchingOrder = validSl;
+                this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
               }
             }
           }

@@ -95,6 +95,12 @@ export class TradeEntity {
   @Column({ default: false })
   is_reconciliation: boolean;
 
+  @Column({ default: 0 })
+  close_attempts: number;
+
+  @Column({ default: false })
+  close_blocked: boolean;
+
   @UpdateDateColumn()
   updated_at: Date;
 

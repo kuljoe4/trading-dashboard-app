@@ -250,6 +250,8 @@ export class SessionService implements OnModuleInit {
         ...persistenceTrade,
         exit_signal_type: trade.exit_signal_type,
         exit_signal_reason: trade.exit_signal_reason,
+        close_attempts: trade.close_attempts || 0,
+        close_blocked: !!trade.close_blocked,
         sessionId,
       });
       await queryRunner.manager.save(TradeEntity, tradeEntity);

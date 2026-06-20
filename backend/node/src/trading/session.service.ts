@@ -726,6 +726,8 @@ export class SessionService implements OnModuleInit {
                   entry_ts: new Date(),
                   is_reconciliation: true,
                   strategy_label: 'Exchange Reconciliation',
+                  close_attempts: 0,
+                  close_blocked: false,
                   binance_order_id: 'RECON-' + uuid().substring(0, 8),
                   binance_stop_order_id: slId,
                   binance_stop_order_type: slType as any,

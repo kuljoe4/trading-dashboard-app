@@ -21,6 +21,7 @@ import { ExecutionStatus } from '../models/ExecutionResult';
 @Injectable()
 export class ExecutionService {
   private readonly logger = new Logger(ExecutionService.name);
+  // BOLT: Mode-aware cooldowns to ensure Live mode failures don't block Paper mode testing
   private entryCooldowns: Map<string, number> = new Map();
 
   constructor(
@@ -119,12 +120,14 @@ export class ExecutionService {
           continue;
         }
 
-        const cooldownExpiry = this.entryCooldowns.get(opp.symbol);
+        const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
+        const cooldownKey = `${mode}:${opp.symbol}`;
+        const cooldownExpiry = this.entryCooldowns.get(cooldownKey);
         if (cooldownExpiry && now < cooldownExpiry) {
-          this.logger.debug(`${opp.symbol}: Entry skipped - symbol is in cooldown for ${Math.ceil((cooldownExpiry - now) / 1000)}s`);
+          this.logger.debug(`${opp.symbol}: Entry skipped (${mode}) - symbol is in cooldown for ${Math.ceil((cooldownExpiry - now) / 1000)}s`);
           continue;
         } else if (cooldownExpiry) {
-          this.entryCooldowns.delete(opp.symbol);
+          this.entryCooldowns.delete(cooldownKey);
         }
 
         const sc = symbolConfigMap?.get(opp.symbol);
@@ -221,8 +224,9 @@ export class ExecutionService {
           } else {
             // Entry failed but didn't throw (e.g. ORDER_REJECTED)
             const cooldownMinutes = 5;
-            this.entryCooldowns.set(opp.symbol, Date.now() + cooldownMinutes * 60 * 1000);
-            this.logger.warn(`${opp.symbol}: Entry failed with status ${result.status}. Cooling down symbol for ${cooldownMinutes}m. Error: ${result.error}`);
+            const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
+            this.entryCooldowns.set(`${mode}:${opp.symbol}`, Date.now() + cooldownMinutes * 60 * 1000);
+            this.logger.warn(`${opp.symbol}: Entry failed (${mode}) with status ${result.status}. Cooling down for ${cooldownMinutes}m. Error: ${result.error}`);
 
             this.broadcastService.broadcast('alert', {
               level: 'warn',
@@ -237,7 +241,8 @@ export class ExecutionService {
 
           // Also cooldown on exceptions to avoid tight-looping on unexpected errors
           const cooldownMinutes = 2;
-          this.entryCooldowns.set(opp.symbol, Date.now() + cooldownMinutes * 60 * 1000);
+          const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
+          this.entryCooldowns.set(`${mode}:${opp.symbol}`, Date.now() + cooldownMinutes * 60 * 1000);
         } finally {
           this.positionTracker.setEntering(opp.symbol, false);
         }

@@ -28,6 +28,8 @@ export interface TradeSerializationDto {
   strategy_config?: Partial<SessionConfig>;
   entry_daily_change_pct?: number;
   initial_risk_usdt?: number;
+  close_attempts?: number;
+  close_blocked?: boolean;
   _delta?: boolean;
   _thin?: boolean;
   _sl_len?: number;
@@ -51,6 +53,8 @@ export interface TickTradeDto {
   entry_price: number;
   qty: number;
   entry_daily_change_pct?: number;
+  close_attempts?: number;
+  close_blocked?: boolean;
   initial_risk_usdt?: number;
   _thin: boolean;
   _sl_len: number;

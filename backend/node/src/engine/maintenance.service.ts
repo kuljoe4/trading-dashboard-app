@@ -136,6 +136,7 @@ export class MaintenanceService {
             this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
           }
 
+          // Ensure we don't try to repair protection for blocked trades either
           const slOrders = slOrdersBySymbol.get(trade.symbol) || [];
           let matchingOrder = slOrders.find(o =>
             String(o.orderId) === trade.binance_stop_order_id ||

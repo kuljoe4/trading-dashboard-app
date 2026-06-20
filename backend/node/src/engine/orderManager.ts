@@ -135,6 +135,8 @@ export class OrderManagerService {
              reason: 'EXCHANGE_FILL'
            });
         }
+      } else {
+        this.logger.debug(`[UDS] Received TRADE update for ${symbol} (${side}) but no local active trade matches.`);
       }
     } else if (status === 'EXPIRED' || status === 'CANCELED') {
         // Handle canceled SL orders if necessary
@@ -1466,7 +1468,9 @@ export class OrderManagerService {
     localOnly = false,
   ): Promise<{ trade: Trade; exitOccurred: boolean; closeBlocked?: boolean }> {
     try {
-      if (trade.close_blocked) {
+      // SRE-01: Only block if we are actually attempting an exchange operation.
+      // localOnly syncs must always be allowed to clear "ghost" trades and blocked states.
+      if (trade.close_blocked && !localOnly) {
          return { trade, exitOccurred: false, closeBlocked: true };
       }
 
@@ -1483,7 +1487,7 @@ export class OrderManagerService {
       if (!paperMode && attempts > 0) {
          const backoffMs = Math.min(300000, 5000 * Math.pow(2, attempts - 1));
          if (nowTs - lastAttempt < backoffMs) {
-            this.logger.debug(`[${symbol}] Close attempt deferred (Backoff: ${backoffMs}ms, Attempt: ${attempts})`);
+            this.logger.warn(`[${symbol}] Close attempt deferred. Backoff: ${backoffMs}ms, Attempt: ${attempts}, Prev Reason: ${trade.exit_reason || 'unknown'}`);
             return { trade, exitOccurred: false };
          }
       }
@@ -1497,8 +1501,10 @@ export class OrderManagerService {
 
       // In live mode, place close order with reduce-only for safety
       if (!paperMode && !localOnly && this.binanceClient && trade.binance_order_id) {
-        trade.close_attempts = attempts + 1;
+        trade.close_attempts = (trade.close_attempts || 0) + 1;
         trade.last_close_attempt_ts = nowTs;
+        // Persistence trigger for every attempt increment
+        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
 
         try {
           // 1. Explicitly cancel the known Stop Loss order first (Algo or Standard)
@@ -1687,11 +1693,25 @@ export class OrderManagerService {
                   const exitFee = roundEight(exitPrice * trade.qty * this.takerFeeRate);
                   trade.realized_fee = roundEight((trade.realized_fee || 0) + exitFee);
                } else {
-                  this.logger.warn(`Binance close order failed but position still exists for ${symbol} (Amt: ${positionAmt}): ${errMsg}`);
+                  this.logger.warn(`Binance close order failed (REDUCE_ONLY) but position still exists for ${symbol} (Amt: ${positionAmt}). Error: ${errMsg}`);
+
+                  // RISK-04: Apply universal attempt ceiling even for ReduceOnly rejections
+                  if (trade.close_attempts && trade.close_attempts >= MAX_CLOSE_ATTEMPTS) {
+                    trade.close_blocked = true;
+                    const blockMsg = `CRITICAL: ${symbol} close attempt ceiling reached (REDUCE_ONLY). Automated closes are now BLOCKED. Manual intervention required. Error: ${errMsg}`;
+                    this.logger.error(blockMsg);
+                    this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: blockMsg, level: 'error' });
+                  }
+
+                  this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
                   throw err;
                }
             } else if (upperMsg.includes('PERCENT_PRICE') || upperMsg.includes('PRICE DEVIATED') || upperMsg.includes('DEVIATION')) {
-               const tip = `The price is currently outside Binance's protection bands (deviation). This usually happens during extreme volatility. Manual intervention on Binance website may be required if the engine cannot close the trade.`;
+               const ticker = this.tickerCache.getTicker(symbol);
+               const markPrice = ticker?.mark_price || ticker?.price;
+               const deviation = markPrice ? (Math.abs(exitPrice - markPrice) / markPrice * 100).toFixed(2) : 'unknown';
+
+               const tip = `The price is currently outside Binance's protection bands (${deviation}% deviation). This usually happens during extreme volatility (e.g. BSB 15% threshold). Manual intervention on Binance website is REQUIRED to close this position.`;
                this.logger.error(`${symbol}: Close failed due to price protection/deviation (Attempt ${trade.close_attempts}/${MAX_CLOSE_ATTEMPTS}). ${tip}. Error: ${errMsg}`);
 
                if (trade.close_attempts && trade.close_attempts >= MAX_CLOSE_ATTEMPTS) {
@@ -1737,14 +1757,21 @@ export class OrderManagerService {
                     this.logger.error(`Aggressive LIMIT fallback failed for ${symbol}: ${limitErr instanceof Error ? limitErr.message : String(limitErr)}`);
                   }
                }
-               // Note: We don't re-throw here if we want to allow the fallback to be "handled"
-               // but for the sake of existing logic and to avoid side-effects, we maintain the throw
-               // and adjust the test expectation to handle the resolution if success is expected,
-               // OR we keep the throw and expect the test to catch it.
-               // Given the test failure, it seems my fallback logic didn't prevent the throw.
+
+               this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
                throw err;
             } else {
-               this.logger.warn(`Binance close order failed for ${symbol}: ${errMsg}`);
+               this.logger.warn(`Binance close order failed for ${symbol}. Code: ${err instanceof Error ? (err as any).code : 'unknown'}. Error: ${errMsg}`);
+
+               // RISK-04: Apply universal attempt ceiling for ALL types of Binance failures
+               if (trade.close_attempts && trade.close_attempts >= MAX_CLOSE_ATTEMPTS) {
+                 trade.close_blocked = true;
+                 const blockMsg = `CRITICAL: ${symbol} close attempt ceiling reached. Automated closes are now BLOCKED for this symbol. Please intervene manually on Binance. Error: ${errMsg}`;
+                 this.logger.error(blockMsg);
+                 this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: blockMsg, level: 'error' });
+               }
+
+               this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
                throw err;
             }
           }

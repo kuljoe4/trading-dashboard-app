@@ -632,9 +632,10 @@ export class TradingSessionService implements OnApplicationShutdown {
 
     // DATA-CONSISTENCY: Use mode-specific profit calculation.
     // Live mode uses internal PnL tracking to ignore deposits.
+    const activeRealizedPnl = this.positionTracker.activeList().reduce((acc, t) => acc + Number(t.pnl || 0), 0);
     const totalPnl = mode === 'paper'
       ? roundEight(currentBalance - startingBalance)
-      : roundEight(this.sessionState.stats.totalPnl || 0);
+      : roundEight((this.sessionState.stats.totalPnl || 0) + activeRealizedPnl);
 
     return {
       running: this.running,

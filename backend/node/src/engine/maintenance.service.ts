@@ -188,9 +188,16 @@ export class MaintenanceService {
             // If the unprotected position is older than 2 minutes, the situation is critical.
             // Market close the position to protect capital.
             if (secondsSinceUpdate > 120) {
-              const nuclearMsg = `[Watchdog] NUCLEAR OPTION: ${trade.symbol} unprotected for >2 minutes. Market closing position for capital safety.`;
+              const metadata = {
+                id: trade.id,
+                symbol: trade.symbol,
+                qty: trade.qty,
+                unprotectedDuration: secondsSinceUpdate,
+                lastUpdate: trade.updated_at
+              };
+              const nuclearMsg = `[Watchdog] NUCLEAR OPTION: ${trade.symbol} unprotected for ${secondsSinceUpdate.toFixed(0)}s. Market closing position for capital safety. Meta: ${JSON.stringify(metadata)}`;
               this.logger.error(nuclearMsg);
-              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: nuclearMsg, level: 'error' });
+              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Watchdog] Nuclear Option triggered for ${trade.symbol} due to protection gap.`, level: 'error' });
 
               // NEW: Emit event to ensure TradingSessionService handles the full closure lifecycle
               this.eventEmitter.emit('trade.exchange_close', {

@@ -225,7 +225,7 @@ export class SessionConfig {
   @IsNumber()
   @Min(0)
   @IsOptional()
-  max_trades_per_period?: number = 10;
+  max_trades_per_period?: number = 0;
 
   @IsNumber()
   @Min(1)
@@ -235,7 +235,7 @@ export class SessionConfig {
   @IsNumber()
   @Min(0)
   @IsOptional()
-  max_trades_24h?: number = 50;
+  max_trades_24h?: number = CONFIG_LIMITS.MAX_TRADES_24H_DEFAULT;
 
   @IsNumber()
   @Min(0)

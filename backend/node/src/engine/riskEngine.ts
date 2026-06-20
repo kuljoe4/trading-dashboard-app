@@ -88,9 +88,9 @@ export class RiskEngineService {
     oldestTradeIn24hTs?: number;
     oldestTradeInPeriodTs?: number;
   } {
-    const maxTradesPeriod = config.max_trades_per_period ?? 0;
-    const periodMinBase = config.trades_period_min ?? 60;
-    const maxTrades24h = config.max_trades_24h ?? 50;
+    const maxTradesPeriod = config.max_trades_per_period || 0;
+    const periodMinBase = config.trades_period_min || 60;
+    const maxTrades24h = config.max_trades_24h || 0;
     const shapingEnabled = config.frequency_shaping_enabled ?? false;
     const minIntervalMsBase = shapingEnabled ? (config.min_trade_interval_min ?? 0) * 60 * 1000 : 0;
     const jitterPct = shapingEnabled ? (config.trades_jitter_pct ?? 0) : 0;

@@ -364,7 +364,7 @@ export class EngineBroadcasterService {
       hibernating: this.sessionState.hibernating,
       isAdaptiveTightened: this.sessionState.isAdaptiveTightened,
       paused: this.sessionState.paused,
-      scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused,
+      scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.gateState === 'max_trades_24h' || this.sessionState.paused,
       activeWindows: getActiveWindows(),
       rateLimit: getBinanceRateLimit(),
       stats: this.sessionState.stats,

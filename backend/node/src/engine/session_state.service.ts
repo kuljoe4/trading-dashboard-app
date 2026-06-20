@@ -107,7 +107,7 @@ export class SessionStateService {
 
   isGated(): boolean {
     return this.paused ||
-      ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(this.gateState || '');
+      ['max_trades', 'sl_guard', 'max_trades_period', 'max_trades_24h', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(this.gateState || '');
   }
 
   updateRateLimit(used1m: number, limit?: number) {

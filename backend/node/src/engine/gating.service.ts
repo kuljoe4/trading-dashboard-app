@@ -27,6 +27,7 @@ export class GatingService {
   public mapGateState(reason: string): string {
     if (reason.includes('max open trades')) return 'max_trades';
     if (reason.includes('Max trades per period')) return 'max_trades_period';
+    if (reason.includes('24h limit')) return 'max_trades_24h';
     if (reason.includes('Total SL')) return 'sl_guard';
     if (reason.includes('Total risk')) return 'risk_pct';
     if (reason.includes('Historical performance')) return 'tod_risk';

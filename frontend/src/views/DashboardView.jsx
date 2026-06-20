@@ -64,7 +64,7 @@ const TemporalRiskGrid = React.memo(() => {
 
       <InteractiveLimitCard
         label="24h Limit"
-        subValue={gateReason?.includes('24h limit') ? `Wait ~${waitTime}` : (tradesIn24h !== undefined ? `${Math.max(0, (maxTrades24h || config.max_trades_24h) - tradesIn24h)} Remaining` : (config.frequency_shaping_enabled ? 'Rolling' : 'Inactive'))}
+        subValue={gateReason?.includes('24h limit') ? `Wait ~${waitTime}` : (tradesIn24h !== undefined ? `${Math.max(0, (maxTrades24h || config.max_trades_24h) - tradesIn24h)} Remaining` : (config.max_trades_24h > 0 ? 'Rolling' : 'Inactive'))}
         tooltip="Total trade entry quota for a rolling 24-hour period."
         value={config.max_trades_24h || 0}
         min={0}
@@ -72,7 +72,6 @@ const TemporalRiskGrid = React.memo(() => {
         onIncrement={() => patchConfig({ max_trades_24h: (config.max_trades_24h || 0) + 5 })}
         onDecrement={() => patchConfig({ max_trades_24h: Math.max(0, (config.max_trades_24h || 0) - 5) })}
         syncing={configSyncing}
-        disabled={config.frequency_shaping_enabled === false}
         usagePct={tradesIn24h !== undefined ? (tradesIn24h / (maxTrades24h || config.max_trades_24h || 1)) * 100 : undefined}
       />
 
@@ -273,6 +272,7 @@ const GateBanner = ({ gateState, scannerPaused, reason, hibernating, activeTrade
   const messages = {
     max_trades: 'Maximum open trades reached. Entry gated.',
     max_trades_period: 'Maximum trades for the current period reached. Scanner paused.',
+    max_trades_24h: 'Rolling 24h limit reached. Scanner paused.',
     sl_guard: 'Session Stop-Loss Guard reached. All entries blocked.',
     risk_pct: 'Total risk limit reached. Entries restricted.',
     tod_risk: 'Historical performance risk for this hour. Entries blocked.',
@@ -280,7 +280,7 @@ const GateBanner = ({ gateState, scannerPaused, reason, hibernating, activeTrade
     risk: 'Risk gate active. Monitoring only.',
   }
 
-  const isGatedIdle = (gateState === 'sleeping' || gateState === 'max_trades_period' || gateState === 'sl_guard') && activeTradesCount === 0;
+  const isGatedIdle = (gateState === 'sleeping' || gateState === 'max_trades_period' || gateState === 'max_trades_24h' || gateState === 'sl_guard') && activeTradesCount === 0;
 
   return (
     <motion.div

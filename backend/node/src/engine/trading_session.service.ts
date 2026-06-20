@@ -365,7 +365,7 @@ export class TradingSessionService implements OnApplicationShutdown {
           gateState: this.sessionState.gateState,
           reason: riskResult.reason,
           isAdaptiveTightened: riskResult.isAdaptiveTightened,
-          scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused
+          scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.gateState === 'max_trades_24h' || this.sessionState.paused
         });
       }
       if (!this.sessionState.hibernating) this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, this.config);
@@ -489,7 +489,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       config: this.config,
       gateState: this.sessionState.gateState,
       isAdaptiveTightened: this.sessionState.isAdaptiveTightened,
-      scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused,
+      scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.gateState === 'max_trades_24h' || this.sessionState.paused,
       activeTrades: this.positionTracker.activeList().map((t) => this.engineBroadcaster.serializeTrade(t, this.config!)),
       scannerResults: this.lastScannerResults,
       activeWindows: this.getActiveWindows(),
@@ -657,7 +657,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       maxTradesPeriod: this.engineBroadcaster.getLastRiskResult()?.maxTradesPeriod,
       tradesIn24h: this.engineBroadcaster.getLastRiskResult()?.tradesIn24h,
       maxTrades24h: this.engineBroadcaster.getLastRiskResult()?.maxTrades24h,
-      scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused,
+      scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.gateState === 'max_trades_24h' || this.sessionState.paused,
       history: this.sessionState.closedTrades.slice(0, 50).map((t) => this.engineBroadcaster.serializeTrade(t, this.config!, t.exit_price)),
     };
   }

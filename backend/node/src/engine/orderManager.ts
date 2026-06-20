@@ -1187,19 +1187,30 @@ export class OrderManagerService {
       // Use standard endpoint
       const response = await this.binanceClient.restAPI.currentAllOpenOrders();
       this.updateWeight(response?.headers);
-      const data = await response.data() as any;
-      return Array.isArray(data) ? data : [];
+      const standardOrders = (await response.data() as any[]) || [];
+
+      // Also fetch algorithmic orders (Stop Losses)
+      const algoOrders = await this.fetchAllOpenAlgoOrders();
+
+      return [...standardOrders, ...algoOrders];
     } catch (err) {
       this.logger.warn(`Failed to fetch all open orders: ${err instanceof Error ? err.message : String(err)}`);
       return [];
     }
   }
 
-  /**
-   * @deprecated Algo API removed. Returns empty list.
-   */
   public async fetchAllOpenAlgoOrders(): Promise<any[]> {
-    return [];
+    if (!this.binanceClient) return [];
+    try {
+      this.monitoringService.incrementApiRequests();
+      const response = await this.binanceClient.restAPI.currentAllAlgoOpenOrders();
+      this.updateWeight(response?.headers);
+      const data = await response.data() as any;
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      this.logger.warn(`Failed to fetch all open algo orders: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
   }
 
 
@@ -1310,10 +1321,13 @@ export class OrderManagerService {
       const response = await this.binanceClient.restAPI.positionInformationV3();
       this.updateWeight(response.headers);
       const data = await response.data() as any;
-      return Array.isArray(data) ? data : [];
+      if (!Array.isArray(data)) {
+        throw new Error(`Invalid position data received: ${JSON.stringify(data)}`);
+      }
+      return data;
     } catch (err) {
-      this.logger.warn(`Failed to fetch all positions: ${err instanceof Error ? err.message : String(err)}`);
-      return [];
+      this.logger.error(`Failed to fetch all positions: ${err instanceof Error ? err.message : String(err)}`);
+      throw err; // Rethrow so Watchdog doesn't assume 0 positions
     }
   }
 
@@ -1322,28 +1336,49 @@ export class OrderManagerService {
     if (!this.paperMode && this.sessionState.isRateLimited(0.95)) return [];
     try {
       this.monitoringService.incrementApiRequests();
+      // 1. Fetch standard orders
       const res = await this.binanceClient.restAPI.currentAllOpenOrders({ symbol });
       this.updateWeight(res?.headers);
-      const data = await res.data() as any;
-      return Array.isArray(data) ? data : [];
+      const standardOrders = (await res.data() as any[]) || [];
+
+      // 2. Fetch algorithmic orders (Stop Losses)
+      const algoOrders = await this.fetchOpenAlgoOrders(symbol);
+
+      return [...standardOrders, ...algoOrders];
     } catch (err) {
       this.logger.debug(`[${symbol}] Failed to fetch open orders: ${err instanceof Error ? err.message : String(err)}`);
       return [];
     }
   }
 
+  public async fetchOpenAlgoOrders(symbol: string): Promise<any[]> {
+    if (!this.binanceClient) return [];
+    try {
+      this.monitoringService.incrementApiRequests();
+      const response = await this.binanceClient.restAPI.currentAllAlgoOpenOrders({ symbol });
+      this.updateWeight(response?.headers);
+      const data = await response.data() as any;
+      return Array.isArray(data) ? data : [];
+    } catch (err) {
+      this.logger.warn(`[${symbol}] Failed to fetch open algo orders: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
+  }
 
-  public async fetchPosition(symbol: string): Promise<any | null> {
+
+  public async fetchPosition(symbol: string, options: { forceFresh?: boolean } = {}): Promise<any | null> {
     // Zero-Weight Path: Prefer local real-time cache from User Data Stream
-    const cached = this.sessionState.realTimePositions.get(symbol);
-    if (cached) {
-       return {
-          symbol,
-          positionAmt: String(cached.amount),
-          entryPrice: String(cached.entryPrice),
-          unRealizedProfit: '0', // Not critical for closure checks
-          positionSide: 'BOTH'
-       };
+    if (!options.forceFresh) {
+      const cached = this.sessionState.realTimePositions.get(symbol);
+      if (cached) {
+         return {
+            symbol,
+            positionAmt: String(cached.amount),
+            entryPrice: String(cached.entryPrice),
+            unRealizedProfit: '0', // Not critical for closure checks
+            positionSide: 'BOTH'
+         };
+      }
     }
 
     if (!this.binanceClient) return null;

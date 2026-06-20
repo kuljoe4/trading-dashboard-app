@@ -77,29 +77,113 @@ export class MaintenanceService {
           const lastUpdateTs = trade.updated_at ? new Date(trade.updated_at).getTime() : 0;
           const secondsSinceUpdate = (Date.now() - lastUpdateTs) / 1000;
 
-          // Audit Item 13: Skip symbols undergoing ratchet updates to avoid desync race
-          if (this.orderManager.isRatcheting(trade.symbol)) {
-             this.logger.debug(`[Watchdog] Skipping audit for ${trade.symbol}: Ratchet update in progress.`);
+          // Audit Item 13: Skip symbols undergoing lifecycle transitions to avoid desync race
+          if (this.orderManager.isRatcheting(trade.symbol) || this.positionTracker.isEntering(trade.symbol) || this.positionTracker.isClosing(trade.symbol)) {
+             this.logger.debug(`[Watchdog] Skipping audit for ${trade.symbol}: Ratchet or transition in progress.`);
              continue;
           }
 
-          const pos = activePositionsMap.get(trade.symbol);
-
-          if (!pos) {
-            // BOLT: Handle orphaned local positions. If bot thinks it's open but exchange says 0.
-            this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} is active locally but NO position found on Binance. Triggering Sync Closure.`);
-            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Watchdog] Ghost position detected for ${trade.symbol}. Force-syncing to closed.`, level: 'error' });
-
-            // Trigger a local sync-only closure to stop the engine from trying to manage this non-existent trade.
-            // We use EXCHANGE_SYNC so it doesn't try to send more orders.
-            await this.orderManager.closeTrade(trade.symbol, trade, 0, 'EXCHANGE_SYNC', false, true);
+          // SRE-01: Respect blocked closure status to avoid infinite requests/loops for positions with PERCENT_PRICE issues
+          if (trade.close_blocked) {
+            this.logger.debug(`[Watchdog] Skipping audit for ${trade.symbol}: Closure is explicitly blocked due to previous failures.`);
             continue;
           }
 
-          const slOrders = slOrdersBySymbol.get(trade.symbol) || [];
-          const hasProtection = slOrders.some(o => String(o.orderId) === trade.binance_stop_order_id || o.clientOrderId === `sl-${(trade.id || '').substring(0, 8)}`);
+          let pos = activePositionsMap.get(trade.symbol);
 
-          if (!hasProtection) {
+          if (!pos) {
+            // DOUBLE CHECK: Perform a fresh, non-cached position fetch before deciding it's a ghost.
+            // This prevents race conditions with User Data Stream lag.
+            this.logger.debug(`[Watchdog] Potential ghost for ${trade.symbol}. Performing fresh verification...`);
+            const freshPos = await this.orderManager.fetchPosition(trade.symbol, { forceFresh: true });
+            const freshAmt = freshPos ? Math.abs(parseFloat(freshPos.positionAmt)) : 0;
+
+            if (freshAmt === 0) {
+              // BOLT: Handle orphaned local positions. If bot thinks it's open but exchange says 0.
+              const metadata = {
+                id: trade.id,
+                entryPrice: trade.entry_price,
+                qty: trade.qty,
+                duration: trade.entry_ts ? (Date.now() - new Date(trade.entry_ts).getTime()) / 1000 : 0
+              };
+              this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} is active locally but NO position found on Binance after fresh verification. Triggering Sync Closure. Meta: ${JSON.stringify(metadata)}`);
+              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Watchdog] Ghost position detected for ${trade.symbol}. Force-syncing to closed.`, level: 'error' });
+
+              // NEW: Emit event instead of direct call to ensure proper cleanup orchestration in TradingSessionService
+              this.eventEmitter.emit('trade.exchange_close', {
+                symbol: trade.symbol,
+                exitPrice: 0,
+                reason: 'EXCHANGE_SYNC'
+              });
+              continue;
+            } else {
+              this.logger.log(`[Watchdog] ${trade.symbol} ghost check recovered: Position ${freshAmt} found via fresh query. Metadata: ${JSON.stringify(freshPos)}`);
+              pos = freshPos;
+            }
+          }
+
+          // INTEL: Verify position quantity matches local record. Partial fills or manual changes can cause desync.
+          const exAmt = Math.abs(parseFloat(pos.positionAmt));
+          if (Math.abs(exAmt - trade.qty) > 0.00000001) {
+            this.logger.warn(`[Watchdog] ${trade.symbol} quantity mismatch: Local ${trade.qty} vs Exchange ${exAmt}. Syncing local state.`);
+            trade.qty = exAmt;
+            // Update risk_usdt for accurate gating
+            const risk = Math.abs(trade.entry_price - trade.current_sl);
+            trade.risk_usdt = roundEight(risk * trade.qty);
+            trade.updated_at = new Date();
+            this.positionTracker.recalculateTotalRisk();
+            // Notify of state change to ensure DB persistence
+            this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+          }
+
+          const slOrders = slOrdersBySymbol.get(trade.symbol) || [];
+          let matchingOrder = slOrders.find(o =>
+            String(o.orderId) === trade.binance_stop_order_id ||
+            String(o.algoId) === trade.binance_stop_order_id ||
+            o.clientOrderId === `sl-${(trade.id || '').substring(0, 8)}`
+          );
+
+          if (!matchingOrder) {
+            // DOUBLE CHECK: Perform a fresh query of open orders for this symbol.
+            this.logger.debug(`[Watchdog] ${trade.symbol} protection missing in batch. Performing fresh verification...`);
+            const freshOrders = await this.orderManager.fetchOpenOrders(trade.symbol);
+            const freshSlOrders = freshOrders.filter(isSlOrder);
+
+            matchingOrder = freshSlOrders.find(o =>
+              String(o.orderId) === trade.binance_stop_order_id ||
+              String(o.algoId) === trade.binance_stop_order_id ||
+              o.clientOrderId === `sl-${(trade.id || '').substring(0, 8)}`
+            );
+
+            // INTEL: Broaden protection detection. Any valid Reduce-Only STOP order counts.
+            if (!matchingOrder && freshSlOrders.length > 0) {
+              // Check if the order quantity matches (or is close enough)
+              const validSl = freshSlOrders.find(o => Math.abs(parseFloat(o.origQty || o.quantity) - trade.qty) < 0.00000001);
+              if (validSl) {
+                const newId = String(validSl.algoId || validSl.orderId);
+                const metadata = {
+                  newId,
+                  oldId: trade.binance_stop_order_id,
+                  price: validSl.stopPrice || validSl.triggerPrice,
+                  qty: validSl.origQty || validSl.quantity,
+                  type: validSl.algoType ? 'algo' : 'standard'
+                };
+                this.logger.warn(`[Watchdog] ${trade.symbol} found untracked SL protection. Adopting and syncing state. Meta: ${JSON.stringify(metadata)}`);
+                trade.binance_stop_order_id = newId;
+                trade.binance_stop_order_type = validSl.algoType ? 'algo' : 'standard';
+                const exSlPrice = parseFloat(validSl.stopPrice || validSl.triggerPrice);
+                if (exSlPrice > 0 && Math.abs(exSlPrice - trade.current_sl) > 0.00000001) {
+                  trade.current_sl = exSlPrice;
+                }
+                trade.updated_at = new Date();
+                matchingOrder = validSl;
+                this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+              }
+            }
+          }
+
+          if (!matchingOrder) {
+
             // STRATEGY B: NUCLEAR OPTION
             // If the unprotected position is older than 2 minutes, the situation is critical.
             // Market close the position to protect capital.
@@ -108,19 +192,16 @@ export class MaintenanceService {
               this.logger.error(nuclearMsg);
               this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: nuclearMsg, level: 'error' });
 
-              await this.orderManager.closeTrade(trade.symbol, trade, 0, 'WATCHDOG_NUCLEAR_CLOSE', false, false);
+              // NEW: Emit event to ensure TradingSessionService handles the full closure lifecycle
+              this.eventEmitter.emit('trade.exchange_close', {
+                symbol: trade.symbol,
+                exitPrice: 0,
+                reason: 'WATCHDOG_NUCLEAR_CLOSE'
+              });
               continue;
             }
 
-            this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} position found without expected SL order on Binance. (Expected: ${trade.binance_stop_order_id}). Found: ${slOrders.length}. Re-placing...`);
-
-            // SECURITY: If we found orders that DON'T match our expected ID, they are likely orphans from a race condition.
-            // We should cancel them before placing a new authoritative one.
-            // AUDIT-FIRST: We cancel ALL found orders to ensure we have a clean slate.
-            for (const orphan of slOrders) {
-               this.logger.log(`[Watchdog] Canceling potential orphan SL ${orphan.orderId} for ${trade.symbol} before re-protection.`);
-               await this.orderManager.cancelBinanceOrder(trade.symbol, String(orphan.orderId), orphan.algoType ? 'algo' : 'standard');
-            }
+            this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} position found without expected SL order on Binance. (Expected: ${trade.binance_stop_order_id}). Found: 0. Re-placing...`);
 
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Watchdog] Missing SL detected for ${trade.symbol}. Recovering protection...`, level: 'warn' });
             await this.orderManager.placeStopLoss(trade, trade.current_sl);

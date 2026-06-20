@@ -45,6 +45,9 @@ export class OrderManagerService {
 
   @OnEvent('binance.order_update')
   async handleBinanceOrderUpdate(payload: any) {
+    // DEBUG: Expose raw UDS payload for traceability
+    this.logger.debug(`[UDS INBOUND] Order update: ${JSON.stringify(payload)}`);
+
     const order = payload.o;
     const symbol = order.s;
     const status = order.X; // Order Status
@@ -74,7 +77,16 @@ export class OrderManagerService {
           (clientOrderId && clientOrderId.startsWith(`ent-${tradeIdShort8}`));
 
         if (status === 'FILLED' && isSlOrder) {
-          this.logger.log(`[${tradeIdShort8}] Binance SL HIT for ${symbol}. Closing trade locally.`);
+          const metadata = {
+            orderId,
+            clientOrderId,
+            avgPrice,
+            lastPrice,
+            rawPrice: order.p,
+            status,
+            executionType
+          };
+          this.logger.log(`[${tradeIdShort8}] Binance SL HIT for ${symbol}. Closing trade locally. Meta: ${JSON.stringify(metadata)}`);
           let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
 
           if (exitPrice === 0) {
@@ -99,6 +111,7 @@ export class OrderManagerService {
           });
         }
         else if (isEntryOrder) {
+           this.logger.debug(`[${tradeIdShort8}] [UDS] Entry order update for ${symbol}: Status=${status}, Price=${avgPrice}, Qty=${order.z}/${order.q}`);
            if (avgPrice > 0 && trade.entry_price !== avgPrice) {
               this.logger.log(`[${tradeIdShort8}] [Sync] Updating entry price from UDS for ${symbol}: ${trade.entry_price} -> ${avgPrice}`);
               trade.entry_price = roundEight(avgPrice);

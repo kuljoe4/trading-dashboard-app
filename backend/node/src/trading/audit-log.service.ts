@@ -22,8 +22,16 @@ export class AuditLogService {
     level?: 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';
   }) {
     try {
-      const entry = this.auditLogRepository.create({
+      // SENTINEL: Truncate metadata to prevent resource exhaustion attacks via oversized headers/metadata
+      const sanitizedParams = {
         ...params,
+        userAgent: params.userAgent ? params.userAgent.substring(0, 1000) : params.userAgent,
+        actor: params.actor ? params.actor.substring(0, 255) : params.actor,
+        ip: params.ip ? params.ip.substring(0, 45) : params.ip,
+      };
+
+      const entry = this.auditLogRepository.create({
+        ...sanitizedParams,
         level: params.level || 'INFO',
         timestamp: new Date(),
       });

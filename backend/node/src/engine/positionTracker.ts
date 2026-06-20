@@ -43,6 +43,10 @@ export class PositionTrackerService {
     return this.enteringSymbols.has(symbol);
   }
 
+  isClosing(symbol: string): boolean {
+    return this.closingSymbols.has(symbol);
+  }
+
   activeList(): Trade[] {
     if (this._activeListCache) return this._activeListCache;
     this._activeListCache = Array.from(this.trades.values());

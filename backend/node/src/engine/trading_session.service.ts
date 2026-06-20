@@ -694,10 +694,12 @@ export class TradingSessionService implements OnApplicationShutdown {
 
     this.logger.log(`Handling exchange-triggered close for ${symbol} @ ${exitPrice} (${reason})`);
 
-    // We pass localOnly=true to closeTrade to ensure it only updates local state
-    // and doesn't try to send another close order to Binance,
-    // since the exchange already closed it.
-    const res = await this.positionTracker.closeTrade(symbol, exitPrice, reason, this.config!, this.config?.paper_mode ?? true, true);
+    // Determination: Should we only update local state or attempt an exchange close?
+    // Reasons like SL_HIT, EXCHANGE_FILL, and EXCHANGE_SYNC (ghost positions) imply the exchange is already at 0.
+    // WATCHDOG_NUCLEAR_CLOSE however requires an active market close order.
+    const localOnly = reason !== 'WATCHDOG_NUCLEAR_CLOSE';
+
+    const res = await this.positionTracker.closeTrade(symbol, exitPrice, reason, this.config!, this.config?.paper_mode ?? true, localOnly);
 
     if (res.exitOccurred && res.trade) {
       if (isReconciliation) res.trade.is_reconciliation = true;

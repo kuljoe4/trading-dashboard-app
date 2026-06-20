@@ -10,15 +10,19 @@ describe('Watchdog Robustness', () => {
   let service: MaintenanceService;
   let positionTracker: PositionTrackerService;
   let orderManager: OrderManagerService;
+  let module: TestingModule;
 
   beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
+    module = await Test.createTestingModule({
       providers: [
         MaintenanceService,
         {
           provide: PositionTrackerService,
           useValue: {
             activeList: jest.fn(),
+            isEntering: jest.fn().mockReturnValue(false),
+            isClosing: jest.fn().mockReturnValue(false),
+            recalculateTotalRisk: jest.fn(),
           },
         },
         {
@@ -26,6 +30,7 @@ describe('Watchdog Robustness', () => {
           useValue: {
             fetchAllPositions: jest.fn(),
             fetchOpenOrders: jest.fn(),
+            fetchPosition: jest.fn(),
             isRatcheting: jest.fn().mockReturnValue(false),
             placeStopLoss: jest.fn(),
             cancelBinanceOrder: jest.fn(),
@@ -84,26 +89,27 @@ describe('Watchdog Robustness', () => {
   });
 
   it('should trigger NUCLEAR OPTION if unprotected for > 2 minutes', async () => {
+    const eventEmitter = module.get<EventEmitter2>(EventEmitter2);
     const trade = {
+      id: 'test-uuid',
       symbol: 'BTCUSDT',
       binance_order_id: '123',
+      qty: 1.0,
       updated_at: new Date(Date.now() - 150000), // 150s ago (> 120s)
     } as Trade;
 
     (positionTracker.activeList as jest.Mock).mockReturnValue([trade]);
     (orderManager.fetchAllPositions as jest.Mock).mockResolvedValue([{ symbol: 'BTCUSDT', positionAmt: '1.0' }]);
-    (orderManager.fetchOpenOrders as jest.Mock).mockResolvedValue([]); // No SL found
+    (orderManager.fetchOpenOrders as jest.Mock).mockResolvedValue([]); // No SL found in batch or fresh
 
     await service.protectionWatchdog(true, { paper_mode: false } as any);
 
-    expect(orderManager.closeTrade).toHaveBeenCalledWith(
-      'BTCUSDT',
-      trade,
-      0,
-      'WATCHDOG_NUCLEAR_CLOSE',
-      false,
-      false
-    );
+    // Should emit closure event instead of calling orderManager directly
+    expect(eventEmitter.emit).toHaveBeenCalledWith('trade.exchange_close', {
+      symbol: 'BTCUSDT',
+      exitPrice: 0,
+      reason: 'WATCHDOG_NUCLEAR_CLOSE'
+    });
     expect(orderManager.placeStopLoss).not.toHaveBeenCalled(); // Close instead of repair
   });
 });

@@ -615,9 +615,16 @@ export class SessionService implements OnModuleInit {
     // Reconcile open trades with actual exchange positions
     if (mode !== 'paper' && binanceClient) {
       try {
+        // GLOBAL RECONCILIATION: Fetch ALL active positions from exchange
+        const allExchangePositions = await this.tradingSessionService.fetchAllPositions();
+        const activeExPositions = allExchangePositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0);
+
+        // PERF: Use Map for O(1) lookup during cross-reconciliation
+        const activeExMap = new Map(activeExPositions.map(p => [p.symbol, p]));
+
         for (const trade of sessionOpenTrades) {
           try {
-            const position = await this.tradingSessionService.fetchPosition(trade.symbol);
+            const position = activeExMap.get(trade.symbol);
             const posAmt = position ? parseFloat(position.positionAmt) : 0;
             const hasPosition = Math.abs(posAmt) > 0;
 
@@ -629,8 +636,7 @@ export class SessionService implements OnModuleInit {
               recalculationNeeded = true;
             } else {
               // BOLT: Sync local trade state with actual exchange position to ensure entry price and qty accuracy
-              const exEntryPrice = parseFloat(position.entryPrice);
-              const exUnrealizedPnl = parseFloat(position.unRealizedProfit);
+              const exEntryPrice = parseFloat(position!.entryPrice);
 
               if (exEntryPrice > 0 && Math.abs(exEntryPrice - Number(trade.entry_price)) > (exEntryPrice * 0.0001)) {
                  this.logger.log(`Syncing entry price for ${trade.symbol}: ${trade.entry_price} -> ${exEntryPrice}`);
@@ -650,6 +656,86 @@ export class SessionService implements OnModuleInit {
             }
           } catch (innerErr) {
             this.logger.error(`Failed to reconcile ${trade.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
+          }
+        }
+
+        // INVERSE RECONCILIATION: Check for exchange positions with NO local record
+        const localSymbols = new Set(sessionOpenTrades.filter(t => !(t as any).reconciled_out).map(t => t.symbol));
+        const ghostPositions = activeExPositions.filter(p => !localSymbols.has(p.symbol));
+
+        // PERF: If multiple ghost positions, fetch all orders once to save API weight
+        let allOrdersMap = new Map<string, any[]>();
+        if (ghostPositions.length > 3) {
+          try {
+            const allExOrders = await this.orderManager.fetchAllOpenOrders();
+            for (const o of allExOrders) {
+              const list = allOrdersMap.get(o.symbol) || [];
+              list.push(o);
+              allOrdersMap.set(o.symbol, list);
+            }
+          } catch (e) {
+            this.logger.warn(`[Reconciliation] Failed to bulk fetch orders: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+
+        for (const exPos of ghostPositions) {
+          try {
+               const amt = parseFloat(exPos.positionAmt);
+               const entryPrice = parseFloat(exPos.entryPrice);
+               const direction = amt > 0 ? 'LONG' : 'SHORT';
+               const qty = Math.abs(amt);
+
+               // RESEARCH: Attempt to discover existing SL protection on exchange for this position
+               let slPrice = 0;
+               let slId = undefined;
+               let slType = undefined;
+
+               try {
+                 const exOrders = allOrdersMap.has(exPos.symbol)
+                    ? allOrdersMap.get(exPos.symbol)!
+                    : await this.orderManager.fetchOpenOrders(exPos.symbol);
+
+                 const slOrder = exOrders.find((o: any) => (o.type === 'STOP_MARKET' || o.type === 'STOP' || o.type === 'STOP_LOSS') && (o.reduceOnly === true || o.reduceOnly === 'true' || o.closePosition === true || o.closePosition === 'true'));
+
+                 if (slOrder) {
+                    slPrice = parseFloat(slOrder.stopPrice || slOrder.triggerPrice || '0');
+                    slId = String(slOrder.algoId || slOrder.orderId);
+                    slType = (slOrder.algoId || slOrder.algoType) ? 'algo' : 'standard';
+                 }
+               } catch (orderErr) {
+                 this.logger.warn(`[Reconciliation] Failed to fetch existing orders for ${exPos.symbol}: ${orderErr instanceof Error ? orderErr.message : String(orderErr)}`);
+               }
+
+               const msg = `CRITICAL: Found exchange-only position for ${exPos.symbol} (${direction} ${qty} @ ${entryPrice}). ${slId ? 'Discovered existing SL at ' + slPrice : 'No SL found'}. Importing as synthetic trade.`;
+               this.logger.error(msg);
+               await this.logMessage(msg, 'error');
+
+               // Create synthetic trade for tracking/protection
+               const syntheticTrade = this.tradeRepository.create({
+                  id: uuid(),
+                  symbol: exPos.symbol,
+                  direction,
+                  entry_price: entryPrice,
+                  qty,
+                  initial_sl: slPrice || entryPrice * (direction === 'LONG' ? 0.98 : 1.02),
+                  current_sl: slPrice || entryPrice * (direction === 'LONG' ? 0.98 : 1.02),
+                  status: 'OPEN' as any,
+                  sessionId: this.currentSessionId,
+                  entry_ts: new Date(),
+                  is_reconciliation: true,
+                  strategy_label: 'Exchange Reconciliation',
+                  binance_order_id: 'RECON-' + uuid().substring(0, 8),
+                  binance_stop_order_id: slId,
+                  binance_stop_order_type: slType as any,
+                  pnl: 0,
+                  risk_usdt: Math.abs(entryPrice - (slPrice || entryPrice * 0.98)) * qty,
+               });
+
+               await this.tradeRepository.save(syntheticTrade);
+               sessionOpenTrades.push(syntheticTrade);
+               recalculationNeeded = true;
+          } catch (innerErr) {
+            this.logger.error(`[Reconciliation] Failed to create synthetic trade for ${exPos.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
           }
         }
       } catch (e) {

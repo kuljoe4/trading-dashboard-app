@@ -382,12 +382,12 @@ describe('SessionService Validation', () => {
 
       // Send 60 logs
       for (let i = 0; i < 60; i++) {
-        await service.logMessage(`log ${i}`);
+        await (service as any).logMessage(`log ${i}`);
       }
       expect(insertSpy).toHaveBeenCalledTimes(60);
 
       // Send 61st log - should be rate limited
-      await service.logMessage('log 61');
+      await (service as any).logMessage('log 61');
       expect(insertSpy).toHaveBeenCalledTimes(60);
     });
 
@@ -398,13 +398,13 @@ describe('SessionService Validation', () => {
       mockLogRepository.count.mockResolvedValue(1999);
 
       // 1st log - should pass and increment to 2000
-      await service.logMessage('log 1');
+      await (service as any).logMessage('log 1');
       expect(mockLogRepository.insert).toHaveBeenCalled();
       expect(mockLogRepository.count).toHaveBeenCalledTimes(1);
 
       // 2nd log (info) - should be blocked by cap
       jest.clearAllMocks();
-      await service.logMessage('log 2', 'info');
+      await (service as any).logMessage('log 2', 'info');
       expect(mockLogRepository.insert).not.toHaveBeenCalled();
       // Should NOT call count() again
       expect(mockLogRepository.count).not.toHaveBeenCalled();
@@ -412,7 +412,7 @@ describe('SessionService Validation', () => {
       // 3rd log (error) - should trigger deletion and insertion
       jest.clearAllMocks();
       mockLogRepository.findOne.mockResolvedValue({ id: 'old-log' });
-      await service.logMessage('log 3', 'error');
+      await (service as any).logMessage('log 3', 'error');
       expect(mockLogRepository.delete).toHaveBeenCalledWith('old-log');
       expect(mockLogRepository.insert).toHaveBeenCalled();
       expect(mockLogRepository.count).not.toHaveBeenCalled();
@@ -458,7 +458,7 @@ describe('SessionService Validation', () => {
       mockQueryRunner.manager.findOne.mockResolvedValue(existingSession);
 
       const partialConfig = { max_trades_24h: 100, trading_mode: 'paper' } as any;
-      await service.updateSession(sessionId, partialConfig);
+      await (service as any).updateSession(sessionId, partialConfig);
 
       expect(mockQueryRunner.manager.update).toHaveBeenCalledWith(SessionEntity, sessionId, {
         config: expect.objectContaining({

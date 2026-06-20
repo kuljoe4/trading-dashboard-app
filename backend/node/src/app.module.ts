@@ -10,6 +10,7 @@ import { Settings } from './models/entities/Settings.entity';
 import { Log } from './models/entities/Log.entity';
 import { AuditLog } from './models/entities/AuditLog.entity';
 import { BalanceHistory } from './models/entities/BalanceHistory.entity';
+import { StrategyPreset } from './models/entities/StrategyPreset.entity';
 
 @Module({
   imports: [
@@ -22,7 +23,7 @@ import { BalanceHistory } from './models/entities/BalanceHistory.entity';
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
         url: configService.get<string>('DATABASE_URL'),
-        entities: [Session, TradeEntity, Settings, Log, AuditLog, BalanceHistory],
+        entities: [Session, TradeEntity, Settings, Log, AuditLog, BalanceHistory, StrategyPreset],
         synchronize: false, // Explicitly disable synchronize in all environments
         migrations: [__dirname + '/migrations/*.{ts,js}'],
         migrationsRun: true,

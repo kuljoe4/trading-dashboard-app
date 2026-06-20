@@ -7,6 +7,7 @@ import { Log as LogEntity } from '../models/entities/Log.entity';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { AuditLog as AuditLogEntity } from '../models/entities/AuditLog.entity';
 import { BalanceHistory as BalanceHistoryEntity } from '../models/entities/BalanceHistory.entity';
+import { StrategyPreset as StrategyPresetEntity } from '../models/entities/StrategyPreset.entity';
 import { SignalEngineService } from '../engine/signalEngine';
 import { RiskEngineService } from '../engine/riskEngine';
 import { PositionTrackerService } from '../engine/positionTracker';
@@ -25,6 +26,7 @@ import { AuditLogService } from './audit-log.service';
 import { SessionController } from './session.controller';
 import { SettingsController } from './settings.controller';
 import { MonitoringController } from './monitoring.controller';
+import { PresetsController } from './presets.controller';
 import { ApiKeyGuard } from '../lib/api-key.guard';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { MonitoringService } from '../engine/monitoring.service';
@@ -37,9 +39,9 @@ import { MaintenanceService } from '../engine/maintenance.service';
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([SessionEntity, TradeEntity, LogEntity, SettingsEntity, AuditLogEntity, BalanceHistoryEntity]),
+    TypeOrmModule.forFeature([SessionEntity, TradeEntity, LogEntity, SettingsEntity, AuditLogEntity, BalanceHistoryEntity, StrategyPresetEntity]),
   ],
-  controllers: [SessionController, SettingsController, MonitoringController],
+  controllers: [SessionController, SettingsController, MonitoringController, PresetsController],
   providers: [
     SignalEngineService,
     RiskEngineService,

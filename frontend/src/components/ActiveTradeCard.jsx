@@ -60,6 +60,13 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
             <span className={cn("text-[9px] md:text-xs font-black px-1.5 py-0.5 rounded border uppercase shrink-0", isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5')}>
               {isLong ? '▲' : '▼'} {trade.direction || '---'}
             </span>
+            {trade.is_reconciliation && (
+              <Tooltip content="Reconciled Trade: This trade was automatically imported from the exchange or resumed after a system restart.">
+                <span className="bg-amber/10 text-amber border border-amber/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter cursor-help">
+                  Recon
+                </span>
+              </Tooltip>
+            )}
           </div>
           {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
             <div className="flex items-center gap-1 whitespace-nowrap overflow-hidden">

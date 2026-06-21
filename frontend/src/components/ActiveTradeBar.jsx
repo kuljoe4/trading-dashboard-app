@@ -79,7 +79,10 @@ export const ActiveTradeBar = () => {
                     "bg-white/5 border-white/10 hover:bg-white/10 hover:border-red/40"
                   )}
                 >
-                  {t.symbol.replace('USDT', '')}
+                  <div className="flex items-center gap-1.5">
+                    {t.is_reconciliation && <div className="w-1.5 h-1.5 rounded-full bg-amber shadow-[0_0_5px_rgba(245,166,35,0.5)]" />}
+                    {t.symbol.replace('USDT', '')}
+                  </div>
                   <span style={{ color: closing === t.symbol ? 'white' : pnlColor(t.pnl) }}>
                     {closing === t.symbol ? 'CONFIRM' : closing === 'CANCELLED' ? 'CANCELLED' : fmtUSD(t.pnl)}
                   </span>

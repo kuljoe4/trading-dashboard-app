@@ -190,6 +190,12 @@ export const settingsAPI = {
   updateKeys: (keys) => api.post('/settings/keys', keys),
 }
 
+export const presetsAPI = {
+  list: () => api.get('/presets'),
+  save: (name, config) => api.post('/presets', { name, config }),
+  delete: (name) => api.delete(`/presets/${name}`),
+}
+
 export { sanitizeSessionConfig }
 
 export default api

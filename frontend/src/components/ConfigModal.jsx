@@ -4,7 +4,7 @@ import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Cloc
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 import { CONFIG_LIMITS } from '../constants/configLimits'
-import { settingsAPI } from '../api/client'
+import { settingsAPI, presetsAPI } from '../api/client'
 
 const fmtUSD = (v) => `$${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -122,7 +122,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     const parts = [i, r].filter(Boolean); return parts.join(' · ') || 'New session preset';
   }, [cfg.scan_interval, cfg.risk_pct_per_trade])
 
-  useEffect(() => { const saved = localStorage.getItem('strategy_presets'); if (saved) setPresets(JSON.parse(saved)); }, [])
+  useEffect(() => {
+    const loadPresets = async () => {
+      try {
+        const res = await presetsAPI.list();
+        setPresets(res.data);
+      } catch (e) {
+        console.error('[ConfigModal] Error loading presets:', e);
+      }
+    };
+    loadPresets();
+  }, [])
 
   // Check API key configuration for testnet and live modes
   useEffect(() => {
@@ -185,7 +195,24 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     }))
   }
 
-  const savePreset = () => { if (!validate(cfg)) return; const name = (presetName || generatedPresetName).trim(); if (!name) return; const { strategy_variants, ...pc } = cfg; const next = [...presets.filter(p => p.name !== name), { name, config: { ...pc, strategy_label: name } }]; setPresets(next); localStorage.setItem('strategy_presets', JSON.stringify(next)); setPresetName(''); setSaveSuccess(true); setTimeout(() => setSaveSuccess(false), 2000); }
+  const savePreset = async () => {
+    if (!validate(cfg)) return;
+    const name = (presetName || generatedPresetName).trim();
+    if (!name) return;
+    const { strategy_variants, ...pc } = cfg;
+    try {
+      const res = await presetsAPI.save(name, { ...pc, strategy_label: name });
+      const next = [...presets.filter(p => p.name !== name), res.data];
+      setPresets(next);
+      setPresetName('');
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
+    } catch (e) {
+      console.error('[ConfigModal] Error saving preset:', e);
+      alert('Failed to save preset');
+    }
+  }
+
   const loadPreset = (p) => { 
     setCfg({ ...p.config }); 
     setLoadedPresetName(p.name);
@@ -193,7 +220,18 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     setErrors({}); 
     setIsDirty(false);
   }
-  const deletePreset = (e, name) => { e.stopPropagation(); const next = presets.filter(p => p.name !== name); setPresets(next); localStorage.setItem('strategy_presets', JSON.stringify(next)); }
+
+  const deletePreset = async (e, name) => {
+    e.stopPropagation();
+    try {
+      await presetsAPI.delete(name);
+      const next = presets.filter(p => p.name !== name);
+      setPresets(next);
+    } catch (e) {
+      console.error('[ConfigModal] Error deleting preset:', e);
+      alert('Failed to delete preset');
+    }
+  }
   const toggleVariant = (e, p) => {
     e.stopPropagation()
     const variants = cfg.strategy_variants || []

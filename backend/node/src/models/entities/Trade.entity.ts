@@ -64,6 +64,12 @@ export class TradeEntity {
   @Column('decimal', { precision: 20, scale: 8, nullable: true })
   exit_price: number;
 
+  @Column('decimal', { precision: 20, scale: 8, nullable: true })
+  mark_price: number;
+
+  @Column('decimal', { precision: 20, scale: 8, nullable: true })
+  last_price: number;
+
   @Column({ nullable: true })
   exit_reason: string;
 
@@ -73,11 +79,20 @@ export class TradeEntity {
   @Column({ nullable: true })
   exit_signal_reason: string;
 
+  @Column('jsonb', { nullable: true })
+  exit_signals_status: any;
+
   @Column('jsonb', { default: [] })
   sl_adjustments: any[];
 
   @Column('decimal', { precision: 10, scale: 4, nullable: true })
   pnl_pct: number;
+
+  @Column({ nullable: true })
+  entry_signal_type: string;
+
+  @Column('decimal', { precision: 20, scale: 8, default: 0, nullable: false })
+  entry_signal_confidence: number;
 
   @Column({ nullable: true })
   binance_order_id: string;
@@ -90,6 +105,18 @@ export class TradeEntity {
 
   @Column({ nullable: true })
   binance_stop_order_type: 'standard' | 'algo';
+
+  @Column({ default: 0, nullable: false })
+  close_attempts: number;
+
+  @Column('bigint', { nullable: true, transformer: {
+    to: (value: number) => value,
+    from: (value: string) => value ? parseInt(value, 10) : null
+  } })
+  last_close_attempt_ts: number;
+
+  @Column({ default: false, nullable: false })
+  close_blocked: boolean;
 
   @Column('decimal', { precision: 10, scale: 4, nullable: true })
   entry_daily_change_pct: number;

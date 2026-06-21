@@ -77,7 +77,7 @@ To avoid regressions and ensure compliance with exchange (Binance) behavior and 
 - **Audit**: Verified in `OrderManagerService.updateStopLoss`.
 
 ### 7. Structural Trading Resilience (2026-06-21 Update)
-- **Algo API**: The Algo Order API is intentionally disabled/removed. Standard `STOP_MARKET` with `closePosition: true` is the only supported protection mechanism.
+- **Algo API**: The Algo Order API (CONDITIONAL) is the primary path for stop-loss protection. Standard `STOP_MARKET` with `closePosition: true` is used as a mandatory fallback if the Algo API is unsupported (-4120).
 - **Protection Gaps**: `closeTrade` must attempt to close the position *before* canceling stop-losses, and must implement a 're-arm SL' rollback if the close order fails (e.g., due to illiquidity/PERCENT_PRICE).
 - **Nuclear Bypass**: The Watchdog's 'Nuclear Option' must bypass the `close_blocked` attempt ceiling to ensure capital safety.
 - **Risk Integrity**: Position sizing via `auto_scale_min_notional` must not exceed 3x the intended dollar risk.

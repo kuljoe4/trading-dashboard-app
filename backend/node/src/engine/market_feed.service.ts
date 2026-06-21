@@ -103,6 +103,17 @@ export class MarketFeedService {
               this.sessionState.updateRateLimit(this.sessionState.binanceRateLimit.used_1m, parseInt(requestWeightLimit.limit, 10));
               this.logger.log(`Dynamic Binance Rate Limit detected: ${requestWeightLimit.limit}/min`);
            }
+
+           const orderLimit10s = data.rateLimits.find((l: any) => l.rateLimitType === 'ORDERS' && l.interval === 'SECOND' && l.intervalNum === 10);
+           const orderLimit1m = data.rateLimits.find((l: any) => l.rateLimitType === 'ORDERS' && l.interval === 'MINUTE');
+
+           if (orderLimit10s || orderLimit1m) {
+              this.sessionState.updateOrderRateLimits(null, {
+                limit10s: orderLimit10s ? parseInt(orderLimit10s.limit, 10) : undefined,
+                limit1m: orderLimit1m ? parseInt(orderLimit1m.limit, 10) : undefined
+              });
+              this.logger.log(`Dynamic Binance Order Limits: 10s=${orderLimit10s?.limit}, 1m=${orderLimit1m?.limit}`);
+           }
         }
 
         if (data && Array.isArray(data.symbols)) {

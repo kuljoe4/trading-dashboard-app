@@ -268,7 +268,7 @@ export class OrderManagerService {
     return { isValid: true, orderId: identifier };
   }
 
-  public applyFilters(symbol: string, price: number, qty: number, options: { priceRounding?: 'round' | 'floor' | 'ceil', skipNotionalCheck?: boolean } = {}) {
+  public applyFilters(symbol: string, price: number, qty: number, options: { priceRounding?: 'round' | 'floor' | 'ceil', skipNotionalCheck?: boolean, clampToPercentPrice?: boolean } = {}) {
     const filters = this.marketFeed.getSymbolFilters(symbol);
     if (!filters) return { price, qty };
 
@@ -284,7 +284,7 @@ export class OrderManagerService {
       else finalPrice = roundEight(Math.round(price / tickSize) * tickSize);
     }
 
-    // PERCENT_PRICE Validation
+    // PERCENT_PRICE Validation & Clamping
     const percentPriceFilter = filters.filters.find((f: any) => f.filterType === 'PERCENT_PRICE');
     if (percentPriceFilter && !this.paperMode) {
       const ticker = this.tickerCache.getTicker(symbol);
@@ -296,21 +296,29 @@ export class OrderManagerService {
         const minPrice = markPrice * multiplierDown;
 
         if (finalPrice > maxPrice || finalPrice < minPrice) {
-          // SL/TP orders are often placed outside standard bands. We only block if it's an ENTRY attempt (qty > 0 and not skipNotionalCheck)
-          const isStopLossOrTp = !!options.skipNotionalCheck;
-
-          if (!isStopLossOrTp) {
-            this.logger.warn(`${symbol}: Price ${finalPrice} outside PERCENT_PRICE band [${minPrice.toFixed(5)}, ${maxPrice.toFixed(5)}] (Mark: ${markPrice})`);
-            // We don't block yet, but we might want to return 0 qty if it's too far
-            if (Math.abs(finalPrice - markPrice) / markPrice > 0.05) {
-               this.logger.error(`${symbol}: CRITICAL - Price too far from Mark. Rejecting order.`);
-               return { price: finalPrice, qty: 0 };
-            }
+          if (options.clampToPercentPrice) {
+             const prevPrice = finalPrice;
+             finalPrice = Math.min(Math.max(finalPrice, minPrice), maxPrice);
+             // Re-apply tick size rounding after clamping
+             if (priceFilter) {
+               const tickSize = parseFloat(priceFilter.tickSize);
+               finalPrice = roundEight(Math.round(finalPrice / tickSize) * tickSize);
+             }
+             this.logger.log(`${symbol}: Price ${prevPrice} clamped to PERCENT_PRICE band edge ${finalPrice} (Mark: ${markPrice})`);
           } else {
-            // For SL/TP, we just log a debug message if it's within 10% of mark, or warn if further
-            const deviation = Math.abs(finalPrice - markPrice) / markPrice;
-            if (deviation > 0.1) {
-              this.logger.warn(`${symbol}: SL/TP Price ${finalPrice} significantly far from Mark (${(deviation * 100).toFixed(2)}%). Proceeding with filtered price.`);
+            const isStopLossOrTp = !!options.skipNotionalCheck;
+
+            if (!isStopLossOrTp) {
+              this.logger.warn(`${symbol}: Price ${finalPrice} outside PERCENT_PRICE band [${minPrice.toFixed(5)}, ${maxPrice.toFixed(5)}] (Mark: ${markPrice})`);
+              if (Math.abs(finalPrice - markPrice) / markPrice > 0.05) {
+                 this.logger.error(`${symbol}: CRITICAL - Price too far from Mark. Rejecting order.`);
+                 return { price: finalPrice, qty: 0 };
+              }
+            } else {
+              const deviation = Math.abs(finalPrice - markPrice) / markPrice;
+              if (deviation > 0.1) {
+                this.logger.warn(`${symbol}: SL/TP Price ${finalPrice} significantly far from Mark (${(deviation * 100).toFixed(2)}%). Proceeding with filtered price.`);
+              }
             }
           }
         }
@@ -648,18 +656,19 @@ export class OrderManagerService {
              this.logger.log(`[${trade.id.substring(0, 8)}] SL for ${symbol} was triggered locally during entry. Trade will be closed.`);
              return { status: ExecutionStatus.SUCCESS, data: trade };
           }
-          if (!slResult) {
-            this.logger.warn(`SL placement failed for ${symbol}. Performing emergency unwind...`);
+          if (!slResult || slResult.error) {
+            const slError = slResult?.error || 'Unknown SL placement error';
+            this.logger.warn(`SL placement failed for ${symbol}: ${slError}. Performing emergency unwind...`);
             try {
               const unwindResult = await this.closeTrade(symbol, trade, entryPrice, 'SL_PLACEMENT_FAILURE');
               if (unwindResult.exitOccurred) {
-                return { status: ExecutionStatus.SL_FAILED, data: trade, unwindPerformed: true };
+                return { status: ExecutionStatus.SL_FAILED, data: trade, unwindPerformed: true, error: slError };
               } else {
-                throw new Error('Emergency unwind failed');
+                throw new Error(`Emergency unwind failed after SL error: ${slError}`);
               }
             } catch (unwindErr) {
               this.logger.error(`CRITICAL: Emergency unwind failed for ${symbol}: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);
-              throw new ExchangeExecutionException(`SL placement failed and emergency unwind also failed for ${symbol}`);
+              throw new ExchangeExecutionException(`SL placement failed (${slError}) and emergency unwind also failed for ${symbol}`);
             }
           }
           break; // Success, exit retry loop
@@ -731,7 +740,7 @@ export class OrderManagerService {
   /**
    * Place a STOP_MARKET order on Binance for stop loss protection
    */
-  async placeStopLoss(trade: Trade, slPrice: number, fillPrice?: number): Promise<{ orderId: string; price: number } | null> {
+  async placeStopLoss(trade: Trade, slPrice: number, fillPrice?: number): Promise<{ orderId: string; price: number, error?: string } | null> {
     let currentSlPrice = slPrice;
     let adaptiveAttempts = 0;
     const MAX_ADAPTIVE_ATTEMPTS = 3;
@@ -822,28 +831,29 @@ export class OrderManagerService {
       const stepSize = parseFloat(lotSize?.stepSize || '0');
       const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
 
-      // INDUSTRY-BEST-PRACTICE (2026): Standardize on standard STOP_MARKET orders for Stop Loss.
-      // COMPLIANCE (AGENTS.md): We use closePosition: true for immunity to quantity drift,
-      // but still include quantity for symbol-specific compatibility.
+      // INDUSTRY-BEST-PRACTICE (2026): Adaptive SL Placement Strategy.
+      // We prioritize the Algo Order API (CONDITIONAL) as it is more reliable for certain accounts,
+      // but fall back to standard STOP_MARKET with closePosition: true for universal compatibility.
       const slOrderParams: any = {
         symbol,
         side: closeDirection as any,
+        algoType: 'CONDITIONAL',
         type: 'STOP_MARKET',
         quantity: trade.qty.toFixed(qtyPrecision),
-        stopPrice: currentSlPrice.toFixed(pricePrecision),
+        triggerPrice: currentSlPrice.toFixed(pricePrecision),
         workingType: 'MARK_PRICE',
         newClientOrderId: `sl-${trade.id.substring(0, 8)}`,
-        closePosition: true,
+        reduceOnly: true,
         priceProtect: true
       };
 
-      this.logger.log(`Placing Binance SL order (closePosition): ${JSON.stringify(slOrderParams)}`);
+      this.logger.log(`Placing Binance Algo SL order: ${JSON.stringify(slOrderParams)}`);
 
       let stopLossId: string | null = null;
-      let orderType: 'standard' | 'algo' = 'standard';
+      let orderType: 'standard' | 'algo' = 'algo';
 
       try {
-        const response = await this.binanceClient.restAPI.newOrder(slOrderParams as any);
+        const response = await this.binanceClient.restAPI.newAlgoOrder(slOrderParams as any);
         this.updateWeight(response?.headers);
         const orderData = await response.data() as any;
 
@@ -855,6 +865,7 @@ export class OrderManagerService {
           // Handle Duplicate Order ID specifically to recover state after timeout
           if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
             this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId on SL retry. Recovering SL state...`);
+            // Algo orders might need a different query endpoint or different parameters
             const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
             const queryData = await queryRes.data() as any;
             if (queryData && queryData.orderId) {
@@ -923,7 +934,7 @@ export class OrderManagerService {
             const errorMsg = `[${symbol}] SL REJECTED: ${msg} (Code: ${code})`;
             this.logger.warn(errorMsg);
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: errorMsg, level: 'warn' });
-            throw new Error(`SL placement failed: ${msg}`);
+            return { orderId: '', price: 0, error: msg };
           }
         } else {
           const validation = this.validateStopLossPlacement(symbol, orderData);
@@ -935,7 +946,34 @@ export class OrderManagerService {
         }
       } catch (err: any) {
         const msg = err.message || '';
-        if (msg.includes('Order would immediately trigger') || msg.includes('-2021') || msg.includes('-2010') || msg.includes('-4115') || msg.includes('-4118')) {
+        if (msg.includes('Order type not supported') || msg.includes('-4120')) {
+          this.logger.warn(`[${symbol}] Algo Order API not supported or failed. Falling back to standard STOP_MARKET...`);
+          const standardParams = { ...slOrderParams };
+          delete standardParams.algoType;
+          standardParams.type = 'STOP_MARKET';
+          // COMPLIANCE: Standard API uses stopPrice, while Algo API used triggerPrice
+          (standardParams as any).stopPrice = standardParams.triggerPrice;
+          delete (standardParams as any).triggerPrice;
+          // Use closePosition for standard path immunity
+          (standardParams as any).closePosition = true;
+          delete (standardParams as any).reduceOnly;
+
+          try {
+            const fallbackRes = await this.binanceClient.restAPI.newOrder(standardParams as any);
+            const fallbackData = await fallbackRes.data() as any;
+            const validation = this.validateStopLossPlacement(symbol, fallbackData);
+            if (validation.isValid) {
+              stopLossId = validation.orderId!;
+              orderType = 'standard';
+              this.logger.log(`Standard SL fallback successful: ${stopLossId}`);
+            } else {
+              throw new Error(fallbackData.msg || 'Fallback failed validation');
+            }
+          } catch (fallbackErr: any) {
+            this.logger.error(`Standard SL fallback failed: ${fallbackErr.message}`);
+            return { orderId: '', price: 0, error: fallbackErr.message };
+          }
+        } else if (msg.includes('Order would immediately trigger') || msg.includes('-2021') || msg.includes('-2010') || msg.includes('-4115') || msg.includes('-4118')) {
           // Adaptive Buffer Strategy (Exception variant)
           const feeBuffer = 0.001;
           const isProfitable = trade.direction === 'LONG'
@@ -1001,7 +1039,7 @@ export class OrderManagerService {
             throw err;
           }
         } else {
-          throw err;
+          return { orderId: '', price: 0, error: err.message || String(err) };
         }
       }
 
@@ -1467,7 +1505,7 @@ export class OrderManagerService {
     paperMode = this.paperMode,
     localOnly = false,
     options: { ignoreBlocked?: boolean } = {}
-  ): Promise<{ trade: Trade; exitOccurred: boolean; closeBlocked?: boolean }> {
+  ): Promise<{ trade: Trade; exitOccurred: boolean; closeBlocked?: boolean, error?: string }> {
     // SRE: Per-symbol concurrency lock to prevent overlapping closure attempts
     if (!paperMode && !localOnly && this.closureLocks.get(symbol)) {
        this.logger.debug(`[${symbol}] Closure already in progress. Skipping redundant request.`);
@@ -1765,7 +1803,10 @@ export class OrderManagerService {
                   try {
                     const ticker = this.tickerCache.getTicker(symbol);
                     const limitPrice = ticker?.mark_price || ticker?.price || exitPrice;
-                    const filteredLimit = this.applyFilters(symbol, limitPrice, trade.qty, { priceRounding: trade.direction === 'LONG' ? 'floor' : 'ceil' });
+                    const filteredLimit = this.applyFilters(symbol, limitPrice, trade.qty, {
+                      priceRounding: trade.direction === 'LONG' ? 'floor' : 'ceil',
+                      clampToPercentPrice: true // Ensure LIMIT is inside exchange bands
+                    });
 
                     const filters = this.marketFeed.getSymbolFilters(symbol);
                     const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
@@ -1874,8 +1915,9 @@ export class OrderManagerService {
 
       return { trade, exitOccurred: true };
     } catch (error) {
-      this.logger.error(`Close failed: ${error instanceof Error ? error.message : String(error)}`);
-      return { trade, exitOccurred: false };
+      const errMsg = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Close failed: ${errMsg}`);
+      return { trade, exitOccurred: false, error: errMsg };
     } finally {
       if (!paperMode && !localOnly) this.closureLocks.delete(symbol);
     }

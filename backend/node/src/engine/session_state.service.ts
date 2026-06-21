@@ -117,7 +117,11 @@ export class SessionStateService {
     }
   }
 
-  updateOrderRateLimits(headers: any) {
+  updateOrderRateLimits(headers: any | null, limits?: { limit10s?: number, limit1m?: number }) {
+    if (limits) {
+       if (limits.limit10s) this.binanceOrderLimit.limit_10s = limits.limit10s;
+       if (limits.limit1m) this.binanceOrderLimit.limit_1m = limits.limit1m;
+    }
     if (!headers) return;
 
     const getHeader = (name: string) => {

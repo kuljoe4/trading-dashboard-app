@@ -56,7 +56,7 @@ export class TradeEntity {
   status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL' | 'CLOSED_ORPHANED';
 
   @Index()
-  @Column({ nullable: true })
+  @Column({ type: 'timestamp', nullable: true })
   exit_ts: Date | null;
 
   @Column('decimal', { precision: 20, scale: 8, nullable: true })
@@ -68,19 +68,19 @@ export class TradeEntity {
   @Column('decimal', { precision: 20, scale: 8, nullable: true })
   last_price: number | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   exit_reason: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   exit_signal_type: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   exit_signal_reason: string | null;
 
   @Column('jsonb', { nullable: true })
   exit_signals_status: any;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   entry_signal_type: string | null;
 
   @Column('decimal', { precision: 10, scale: 4, default: 0 })
@@ -95,16 +95,16 @@ export class TradeEntity {
   @Column('decimal', { precision: 10, scale: 4, nullable: true })
   entry_daily_change_pct: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   binance_order_id: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   binance_close_order_id: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   binance_stop_order_id: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   binance_stop_order_type: string | null;
 
   @Column({ default: false })
@@ -126,11 +126,11 @@ export class TradeEntity {
   updated_at: Date;
 
   @Index()
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   sessionId: string | null;
 
   @Index()
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   strategy_label: string | null;
 
   @Column('jsonb', { nullable: true })

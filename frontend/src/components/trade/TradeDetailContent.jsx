@@ -354,8 +354,17 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                 {fmtUSD(trade.pnl)}
               </div>
             </div>
-            <div className={cn("px-2 py-0.5 md:px-4 md:py-1.5 rounded-full text-[8px] md:text-xs font-black font-mono shadow-sm", trade.pnl >= 0 ? "bg-green/10 text-green" : "bg-red/10 text-red")}>
-              ROI: {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
+            <div className="flex items-center gap-2">
+              <div className={cn("px-2 py-0.5 md:px-4 md:py-1.5 rounded-full text-[8px] md:text-xs font-black font-mono shadow-sm", trade.pnl >= 0 ? "bg-green/10 text-green" : "bg-red/10 text-red")}>
+                ROI: {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
+              </div>
+              {trade.is_reconciliation && (
+                <Tooltip content="Reconciled Trade: This position was automatically synchronized from the exchange state.">
+                  <div className="bg-amber/10 text-amber border border-amber/20 px-2 py-0.5 md:px-4 md:py-1.5 rounded-full text-[8px] md:text-xs font-black uppercase tracking-widest cursor-help shadow-sm flex items-center gap-1.5">
+                    <Activity size={12} className="md:size-3" /> Reconciled
+                  </div>
+                </Tooltip>
+              )}
             </div>
           </div>
         </div>

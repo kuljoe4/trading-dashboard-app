@@ -524,22 +524,30 @@ export class SessionService implements OnModuleInit {
     let recalculationNeeded = false;
     for (const trade of openTrades) {
       let isOrphaned = false;
+      let orphanReason = '';
+
       if (trade.sessionId) {
         const tSession = await this.sessionRepository.findOne({ where: { id: trade.sessionId } });
-        if (!tSession || (!tSession.running && tSession.id !== this.currentSessionId)) {
+        if (!tSession) {
           isOrphaned = true;
+          orphanReason = `Session ${trade.sessionId} not found`;
+        } else if (!tSession.running && tSession.id !== this.currentSessionId) {
+          isOrphaned = true;
+          orphanReason = `Session ${trade.sessionId} is no longer running`;
         }
       } else {
         const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
-        if (Date.now() - (trade.entry_ts ? new Date(trade.entry_ts).getTime() : 0) > STALE_THRESHOLD_MS) {
+        const entryTime = trade.entry_ts ? new Date(trade.entry_ts).getTime() : 0;
+        if (Date.now() - entryTime > STALE_THRESHOLD_MS) {
           isOrphaned = true;
+          orphanReason = `Trade exceeded stale threshold (Entry: ${trade.entry_ts})`;
         }
       }
 
       if (isOrphaned) {
-        this.logger.log(`Trade ${trade.symbol} (Session: ${trade.sessionId}) is orphaned. Marking as closed.`);
+        this.logger.warn(`[Reconciliation] Trade ${trade.symbol} (${trade.id}) is orphaned. Reason: ${orphanReason}. Marking as closed.`);
         await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date(), is_reconciliation: true });
-        await this.logMessage(`Trade ${trade.symbol} was orphaned during downtime and marked closed.`, 'warn');
+        await this.logMessage(`Trade ${trade.symbol} was orphaned (${orphanReason}) and marked closed.`, 'warn');
         (trade as any).reconciled_out = true;
         recalculationNeeded = true;
         continue;
@@ -645,7 +653,7 @@ export class SessionService implements OnModuleInit {
             const hasPosition = Math.abs(posAmt) > 0;
 
             if (!hasPosition) {
-              this.logger.log(`Live position for ${trade.symbol} not found on exchange. Marking as closed (orphaned).`);
+              this.logger.error(`[Reconciliation] [CRITICAL] Live position for ${trade.symbol} not found on exchange during bulk audit. Marking as closed.`);
               await this.logMessage(`Live position for ${trade.symbol} was not found on exchange during reconciliation. Marking as orphaned.`, 'warn');
               await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date(), is_reconciliation: true });
               (trade as any).reconciled_out = true;

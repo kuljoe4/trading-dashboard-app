@@ -57,31 +57,31 @@ export class TradeEntity {
 
   @Index()
   @Column({ nullable: true })
-  exit_ts: Date;
+  exit_ts: Date | null;
 
   @Column('decimal', { precision: 20, scale: 8, nullable: true })
-  exit_price: number;
+  exit_price: number | null;
 
   @Column('decimal', { precision: 20, scale: 8, nullable: true })
-  mark_price: number;
+  mark_price: number | null;
 
   @Column('decimal', { precision: 20, scale: 8, nullable: true })
-  last_price: number;
+  last_price: number | null;
 
   @Column({ nullable: true })
-  exit_reason: string;
+  exit_reason: string | null;
 
   @Column({ nullable: true })
-  exit_signal_type: string;
+  exit_signal_type: string | null;
 
   @Column({ nullable: true })
-  exit_signal_reason: string;
+  exit_signal_reason: string | null;
 
   @Column('jsonb', { nullable: true })
   exit_signals_status: any;
 
   @Column({ nullable: true })
-  entry_signal_type: string;
+  entry_signal_type: string | null;
 
   @Column('decimal', { precision: 10, scale: 4, default: 0 })
   entry_signal_confidence: number;
@@ -96,16 +96,16 @@ export class TradeEntity {
   entry_daily_change_pct: number;
 
   @Column({ nullable: true })
-  binance_order_id: string;
+  binance_order_id: string | null;
 
   @Column({ nullable: true })
-  binance_close_order_id: string;
+  binance_close_order_id: string | null;
 
   @Column({ nullable: true })
-  binance_stop_order_id: string;
+  binance_stop_order_id: string | null;
 
   @Column({ nullable: true })
-  binance_stop_order_type: string;
+  binance_stop_order_type: string | null;
 
   @Column({ default: false })
   is_reconciliation: boolean;
@@ -127,11 +127,11 @@ export class TradeEntity {
 
   @Index()
   @Column({ nullable: true })
-  sessionId: string;
+  sessionId: string | null;
 
   @Index()
   @Column({ nullable: true })
-  strategy_label: string;
+  strategy_label: string | null;
 
   @Column('jsonb', { nullable: true })
   strategy_config: any;

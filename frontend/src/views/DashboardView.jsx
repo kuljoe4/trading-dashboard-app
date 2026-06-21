@@ -297,13 +297,21 @@ const GateBanner = ({ gateState, scannerPaused, reason, hibernating, activeTrade
         <span className="uppercase tracking-widest">{messages[gateState] || 'Risk gate active.'}</span>
         {hibernating ? (
            <Tooltip content="Deep Sleep (Hibernation) Active: All market data connections closed to save maximum CPU/Memory. Engine will wake up automatically when limit expires.">
-            <div className="ml-auto bg-accent/20 px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border border-accent/40 text-accent">
+            <div
+              className="ml-auto bg-accent/20 px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border border-accent/40 text-accent cursor-help focus-visible:ring-2 focus-visible:ring-accent outline-none"
+              tabIndex={0}
+              role="button"
+            >
               <Zap size={10} fill="currentColor" /> DEEP SLEEP
             </div>
           </Tooltip>
         ) : isGatedIdle && (
           <Tooltip content="Resource Suppression Active: Market feed and scanner are throttled to save CPU/Memory while idle.">
-            <div className="ml-auto bg-accent/10 px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border border-accent/20">
+            <div
+              className="ml-auto bg-accent/10 px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border border-accent/20 cursor-help focus-visible:ring-2 focus-visible:ring-accent outline-none"
+              tabIndex={0}
+              role="button"
+            >
               <Leaf size={10} /> RESOURCE SAVER
             </div>
           </Tooltip>
@@ -686,7 +694,11 @@ export function DashboardView({ initialStrategy }) {
           <div className="flex gap-3">
             {config.frequency_shaping_enabled && (
               <Tooltip content="Adaptive Frequency Shaping is ACTIVE. Limits will automatically tighten if TOD performance drops.">
-                <div className="hidden xl:flex items-center gap-2 px-3 py-1.5 bg-accent/10 border border-accent/20 rounded-xl text-[10px] font-bold text-accent uppercase tracking-widest animate-in fade-in zoom-in duration-500">
+                <div
+                  className="hidden xl:flex items-center gap-2 px-3 py-1.5 bg-accent/10 border border-accent/20 rounded-xl text-[10px] font-bold text-accent uppercase tracking-widest animate-in fade-in zoom-in duration-500 cursor-help focus-visible:ring-2 focus-visible:ring-accent outline-none"
+                  tabIndex={0}
+                  role="button"
+                >
                   <Activity size={12} />
                   Frequency Guard
                 </div>

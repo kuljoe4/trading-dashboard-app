@@ -78,10 +78,14 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
         <div className="flex items-start w-full min-h-[2rem] md:min-h-[2.25rem]">
           <div className="flex items-center gap-2 flex-grow overflow-hidden mr-1">
             <Tooltip content={tooltip}>
-              <div className={cn(
-                "text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] cursor-help hover:text-dim/80 transition-colors",
-                tooltip && "border-b border-dotted border-dim/30"
-              )}>{label}</div>
+              <div
+                className={cn(
+                  "text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] cursor-help hover:text-dim/80 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-accent rounded-sm",
+                  tooltip && "border-b border-dotted border-dim/30"
+                )}
+                tabIndex={0}
+                role="button"
+              >{label}</div>
             </Tooltip>
             {indicator === 'amber' && (
               <Tooltip content="Adaptive tightening active">

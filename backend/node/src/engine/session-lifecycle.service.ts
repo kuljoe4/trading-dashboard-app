@@ -254,14 +254,18 @@ export class SessionLifecycleService {
       this.userDataWs = await bc.websocketStreams.connect({ stream: this.listenKey });
       this.isUdsConnected = true;
 
+      this.monitoringService.setUdsStatus('CONNECTED');
+
       this.userDataWs.on('error', (err: any) => {
         this.isUdsConnected = false;
+        this.monitoringService.setUdsStatus('DISCONNECTED');
         this.logger.error(`User Data Stream error: ${err.message || String(err)}`);
       });
 
       this.userDataWs.on('close', () => {
         if (this.userDataWs === oldWs) return; // Ignore close from old stream during transition
         this.isUdsConnected = false;
+        this.monitoringService.setUdsStatus('DISCONNECTED');
         if (this.running) {
           this.logger.warn('User Data Stream closed unexpectedly. Reconnecting...');
           setTimeout(() => this.startUserDataStream(bc, true).catch(() => {}), 5000);
@@ -269,6 +273,7 @@ export class SessionLifecycleService {
       });
 
       this.userDataWs.on('message', async (payload: any) => {
+        this.monitoringService.recordUdsPing();
         try {
           // SDK WebsocketStreams.connect returns a connection that emits 'message' with the already parsed object or string
           const data = typeof payload === 'string' ? JSON.parse(payload) : payload;

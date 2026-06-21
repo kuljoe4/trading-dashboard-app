@@ -31,6 +31,7 @@ export class SessionService implements OnModuleInit {
   
   private sessionRunning = false;
   private currentSessionId: string | null = null;
+  private reconcileIntervalId: NodeJS.Timeout | null = null;
   private wsBroadcaster: (data: any) => void = () => {};
 
   private analyticsCache: { data: any; ts: number } | null = null;
@@ -678,79 +679,11 @@ export class SessionService implements OnModuleInit {
         const localSymbols = new Set(sessionOpenTrades.filter(t => !(t as any).reconciled_out).map(t => t.symbol));
         const ghostPositions = activeExPositions.filter(p => !localSymbols.has(p.symbol));
 
-        // PERF: If multiple ghost positions, fetch all orders once to save API weight
-        let allOrdersMap = new Map<string, any[]>();
-        if (ghostPositions.length > 3) {
-          try {
-            const allExOrders = await this.orderManager.fetchAllOpenOrders();
-            for (const o of allExOrders) {
-              const list = allOrdersMap.get(o.symbol) || [];
-              list.push(o);
-              allOrdersMap.set(o.symbol, list);
-            }
-          } catch (e) {
-            this.logger.warn(`[Reconciliation] Failed to bulk fetch orders: ${e instanceof Error ? e.message : String(e)}`);
-          }
-        }
-
-        for (const exPos of ghostPositions) {
-          try {
-               const amt = parseFloat(exPos.positionAmt);
-               const entryPrice = parseFloat(exPos.entryPrice);
-               const direction = amt > 0 ? 'LONG' : 'SHORT';
-               const qty = Math.abs(amt);
-
-               // RESEARCH: Attempt to discover existing SL protection on exchange for this position
-               let slPrice = 0;
-               let slId = undefined;
-               let slType = undefined;
-
-               try {
-                 const exOrders = allOrdersMap.has(exPos.symbol)
-                    ? allOrdersMap.get(exPos.symbol)!
-                    : await this.orderManager.fetchOpenOrders(exPos.symbol);
-
-                 const slOrder = exOrders.find((o: any) => (o.type === 'STOP_MARKET' || o.type === 'STOP' || o.type === 'STOP_LOSS') && (o.reduceOnly === true || o.reduceOnly === 'true' || o.closePosition === true || o.closePosition === 'true'));
-
-                 if (slOrder) {
-                    slPrice = parseFloat(slOrder.stopPrice || slOrder.triggerPrice || '0');
-                    slId = String(slOrder.algoId || slOrder.orderId);
-                    slType = (slOrder.algoId || slOrder.algoType) ? 'algo' : 'standard';
-                 }
-               } catch (orderErr) {
-                 this.logger.warn(`[Reconciliation] Failed to fetch existing orders for ${exPos.symbol}: ${orderErr instanceof Error ? orderErr.message : String(orderErr)}`);
-               }
-
-               const msg = `CRITICAL: Found exchange-only position for ${exPos.symbol} (${direction} ${qty} @ ${entryPrice}). ${slId ? 'Discovered existing SL at ' + slPrice : 'No SL found'}. Importing as synthetic trade.`;
-               this.logger.error(msg);
-               await this.logMessage(msg, 'error');
-
-               // Create synthetic trade for tracking/protection
-               const syntheticTrade = this.tradeRepository.create({
-                  id: uuid(),
-                  symbol: exPos.symbol,
-                  direction,
-                  entry_price: entryPrice,
-                  qty,
-                  initial_sl: slPrice || entryPrice * (direction === 'LONG' ? 0.98 : 1.02),
-                  current_sl: slPrice || entryPrice * (direction === 'LONG' ? 0.98 : 1.02),
-                  status: 'OPEN' as any,
-                  sessionId: this.currentSessionId,
-                  entry_ts: new Date(),
-                  is_reconciliation: true,
-                  strategy_label: 'Exchange Reconciliation',
-                  binance_order_id: 'RECON-' + uuid().substring(0, 8),
-                  binance_stop_order_id: slId,
-                  binance_stop_order_type: slType as any,
-                  pnl: 0,
-                  risk_usdt: Math.abs(entryPrice - (slPrice || entryPrice * 0.98)) * qty,
-               });
-
-               await this.tradeRepository.save(syntheticTrade);
-               sessionOpenTrades.push(syntheticTrade);
-               recalculationNeeded = true;
-          } catch (innerErr) {
-            this.logger.error(`[Reconciliation] Failed to create synthetic trade for ${exPos.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
+        if (ghostPositions.length > 0) {
+          const imported = await this.adoptExchangePositions(ghostPositions, mode);
+          if (imported.length > 0) {
+            sessionOpenTrades.push(...imported);
+            recalculationNeeded = true;
           }
         }
       } catch (e) {
@@ -789,6 +722,17 @@ export class SessionService implements OnModuleInit {
     // Start the actual trading engine
     await this.tradingSessionService.start(config, binanceClient, this.currentSessionId, initialHistory as any, currentGlobalBalance, filteredOpenTrades as any);
 
+    // SRE-02: Periodic Full Reconciliation to catch missed events/sync issues
+    if (mode !== 'paper') {
+       if (this.reconcileIntervalId) clearInterval(this.reconcileIntervalId);
+       this.reconcileIntervalId = setInterval(() => {
+          if (this.sessionRunning && this.currentSessionId) {
+             this.logger.log(`[SRE] Initiating periodic full state reconciliation...`);
+             this.reconcileLiveState(binanceClient).catch(e => this.logger.error(`Periodic reconciliation failed: ${e.message}`));
+          }
+       }, 30 * 60 * 1000); // Every 30 minutes
+    }
+
     this.logger.log(`Session ${this.currentSessionId} ${sessionId ? 'restarted' : 'started'} in ${mode} mode`);
     await this.logMessage(`Session started in ${mode} mode with ${currentGlobalBalance} starting balance.`, 'info');
 
@@ -802,6 +746,161 @@ export class SessionService implements OnModuleInit {
     });
 
     return { strategyId: this.currentSessionId, status: 'started' };
+  }
+
+  /**
+   * SRE: Performs a full audit of local state against Binance exchange state.
+   * This is the "TruthFallback" part of the Hybrid Event-Loop architecture.
+   */
+  private async reconcileLiveState(binanceClient: any) {
+    if (!this.sessionRunning || !this.currentSessionId) return;
+
+    const session = await this.sessionRepository.findOne({ where: { id: this.currentSessionId }, select: ['id', 'tradingMode', 'paperMode'] });
+    const mode = session?.tradingMode || (session?.paperMode ? 'paper' : 'live');
+
+    try {
+      this.logger.log(`[SRE] Periodic full state reconciliation started for ${mode.toUpperCase()} session ${this.currentSessionId}`);
+
+      const allExchangePositions = await this.tradingSessionService.fetchAllPositions();
+      const activeExPositions = allExchangePositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0);
+      const activeExMap = new Map(activeExPositions.map(p => [p.symbol, p]));
+
+      const localOpenTrades = this.tradingSessionService.getActiveTradesRaw();
+      const localSymbols = new Set(localOpenTrades.map(t => t.symbol));
+
+      this.logger.debug(`[Reconciliation] Local symbols: [${Array.from(localSymbols).join(',')}], Exchange symbols: [${Array.from(activeExMap.keys()).join(',')}]`);
+
+      // 1. Audit Local Trades (Local -> Exchange)
+      for (const trade of localOpenTrades) {
+        // Skip reconciliation trades themselves to avoid loops, and only check truly OPEN trades
+        if (trade.is_reconciliation || trade.status !== 'OPEN') continue;
+
+        const exPos = activeExMap.get(trade.symbol);
+        if (!exPos) {
+           const metadata = { id: trade.id, entryPrice: trade.entry_price, qty: trade.qty, entryTs: trade.entry_ts };
+           this.logger.error(`[Reconciliation] [CRITICAL] Local ${mode.toUpperCase()} trade ${trade.symbol} not found on exchange. Triggering sync close. Meta: ${JSON.stringify(metadata)}`);
+
+           this.eventEmitter.emit('trade.exchange_close', {
+              symbol: trade.symbol,
+              exitPrice: 0,
+              reason: 'EXCHANGE_SYNC',
+              isReconciliation: true
+           });
+        }
+      }
+
+      // 2. Audit Exchange Positions (Exchange -> Local)
+      const ghostPositions = activeExPositions.filter(p => !localSymbols.has(p.symbol));
+      if (ghostPositions.length > 0) {
+        this.logger.warn(`[Reconciliation] Found ${ghostPositions.length} untracked positions during periodic audit. Adopting...`);
+        const imported = await this.adoptExchangePositions(ghostPositions, mode);
+
+        // Hot-add adopted trades to the running engine
+        for (const t of imported) {
+          const tradeModel = plainToInstance(Trade, t);
+          this.tradingSessionService.getActiveTradesRaw().push(tradeModel as any);
+          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade: tradeModel });
+        }
+
+        if (imported.length > 0) {
+           this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
+        }
+      }
+      this.logger.log(`[SRE] Periodic reconciliation complete. State verified.`);
+    } catch (e) {
+      this.logger.error(`[Reconciliation] Periodic logic failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /**
+   * SRE: Adopts exchange positions by creating local synthetic trade records.
+   * Ensures that "ghost" trades are brought under system protection and UI visibility.
+   */
+  private async adoptExchangePositions(ghostPositions: any[], mode: string): Promise<TradeEntity[]> {
+    const imported: TradeEntity[] = [];
+    if (ghostPositions.length === 0) return imported;
+
+    // PERF: If multiple ghost positions, fetch all orders once to save API weight
+    let allOrdersMap = new Map<string, any[]>();
+    if (ghostPositions.length > 3) {
+      try {
+        const allExOrders = await this.orderManager.fetchAllOpenOrders();
+        for (const o of allExOrders) {
+          const list = allOrdersMap.get(o.symbol) || [];
+          list.push(o);
+          allOrdersMap.set(o.symbol, list);
+        }
+      } catch (e) {
+        this.logger.warn(`[Reconciliation] Failed to bulk fetch orders: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    for (const exPos of ghostPositions) {
+      try {
+        const amt = parseFloat(exPos.positionAmt);
+        const entryPrice = parseFloat(exPos.entryPrice);
+        const direction = amt > 0 ? 'LONG' : 'SHORT';
+        const qty = Math.abs(amt);
+
+        // RESEARCH: Attempt to discover existing SL protection on exchange for this position
+        let slPrice = 0;
+        let slId = undefined;
+        let slType = undefined;
+
+        try {
+          const exOrders = allOrdersMap.has(exPos.symbol)
+            ? allOrdersMap.get(exPos.symbol)!
+            : await this.orderManager.fetchOpenOrders(exPos.symbol);
+
+          const slOrder = exOrders.find((o: any) =>
+            (o.type === 'STOP_MARKET' || o.type === 'STOP' || o.type === 'STOP_LOSS') &&
+            (o.reduceOnly === true || o.reduceOnly === 'true' || o.closePosition === true || o.closePosition === 'true')
+          );
+
+          if (slOrder) {
+            slPrice = parseFloat(slOrder.stopPrice || slOrder.triggerPrice || '0');
+            slId = String(slOrder.algoId || slOrder.orderId);
+            slType = (slOrder.algoId || slOrder.algoType) ? 'algo' : 'standard';
+          }
+        } catch (orderErr) {
+          this.logger.warn(`[Reconciliation] Failed to fetch existing orders for ${exPos.symbol}: ${orderErr instanceof Error ? orderErr.message : String(orderErr)}`);
+        }
+
+        const msg = `CRITICAL: Found exchange-only position for ${exPos.symbol} (${direction} ${qty} @ ${entryPrice}). ${slId ? 'Discovered existing SL at ' + slPrice : 'No SL found'}. Importing as synthetic trade. Mode: ${mode.toUpperCase()}`;
+        this.logger.error(msg);
+        await this.logMessage(msg, 'error');
+
+        // Create synthetic trade for tracking/protection
+        const syntheticTrade = this.tradeRepository.create({
+          id: uuid(),
+          symbol: exPos.symbol,
+          direction,
+          entry_price: entryPrice,
+          qty,
+          initial_sl: slPrice || entryPrice * (direction === 'LONG' ? 0.98 : 1.02),
+          current_sl: slPrice || entryPrice * (direction === 'LONG' ? 0.98 : 1.02),
+          status: 'OPEN' as any,
+          sessionId: this.currentSessionId,
+          entry_ts: new Date(),
+          is_reconciliation: true,
+          strategy_label: 'Exchange Reconciliation',
+          close_attempts: 0,
+          close_blocked: false,
+          binance_order_id: 'RECON-' + uuid().substring(0, 8),
+          binance_stop_order_id: slId,
+          binance_stop_order_type: slType as any,
+          pnl: 0,
+          risk_usdt: Math.abs(entryPrice - (slPrice || entryPrice * 0.98)) * qty,
+          updated_at: new Date(),
+        });
+
+        await this.tradeRepository.save(syntheticTrade);
+        imported.push(syntheticTrade);
+      } catch (innerErr) {
+        this.logger.error(`[Reconciliation] Failed to adopt position for ${exPos.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
+      }
+    }
+    return imported;
   }
 
   private updateSessionPromiseChains: Map<string, Promise<any>> = new Map();
@@ -961,6 +1060,11 @@ export class SessionService implements OnModuleInit {
   async stopSession(ip?: string, userAgent?: string) {
     if (!this.sessionRunning || !this.currentSessionId) {
       throw new ConflictException('No session running');
+    }
+
+    if (this.reconcileIntervalId) {
+      clearInterval(this.reconcileIntervalId);
+      this.reconcileIntervalId = null;
     }
 
     const sessionId = this.currentSessionId;

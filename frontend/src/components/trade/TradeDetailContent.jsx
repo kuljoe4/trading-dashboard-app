@@ -361,6 +361,24 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
         </div>
 
         <div className="flex flex-col gap-4 min-w-[200px]">
+          {trade.close_blocked && (
+             <div className="bg-red/10 border border-red/20 rounded-xl p-3 flex flex-col gap-1 items-center text-center animate-pulse">
+                <span className="text-[10px] font-black text-red uppercase tracking-widest flex items-center gap-1">
+                   <ShieldAlert size={12} /> Liquidation Blocked
+                </span>
+                <span className="text-[8px] text-red/60 font-bold uppercase leading-tight">
+                   Max retries exceeded. Manual intervention on Binance is required.
+                </span>
+             </div>
+          )}
+          {!trade.close_blocked && trade.close_attempts > 0 && (
+             <div className="bg-amber/10 border border-amber/20 rounded-xl p-2 flex items-center justify-center gap-2">
+                <Loader2 className="animate-spin text-amber" size={10} />
+                <span className="text-[8px] font-black text-amber uppercase tracking-widest">
+                   Closure Retry {trade.close_attempts}/5
+                </span>
+             </div>
+          )}
           <button
             onClick={() => confirmClose ? onTradeClose(trade.symbol) : setConfirmClose(true)}
             disabled={isClosing}

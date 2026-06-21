@@ -113,6 +113,8 @@ export class EngineBroadcasterService {
         sl_adjustments: trade.sl_adjustments || [],
         entry_daily_change_pct: trade.entry_daily_change_pct,
         initial_risk_usdt: trade.initial_risk_usdt,
+        close_attempts: trade.close_attempts,
+        close_blocked: trade.close_blocked,
         _delta: true,
       };
     }
@@ -122,6 +124,8 @@ export class EngineBroadcasterService {
       direction,
       entry_daily_change_pct: trade.entry_daily_change_pct,
       initial_risk_usdt: trade.initial_risk_usdt,
+      close_attempts: trade.close_attempts,
+      close_blocked: trade.close_blocked,
       current_price: roundTo(current ?? entry, 8),
       sl_price: roundTo(trade.current_sl, 8),
       tp_price: roundTo(trade.tp, 8),

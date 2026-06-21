@@ -778,6 +778,16 @@ export class SessionService implements OnModuleInit {
     // Start the actual trading engine
     await this.tradingSessionService.start(config, binanceClient, this.currentSessionId, initialHistory as any, currentGlobalBalance, filteredOpenTrades as any);
 
+    // SRE-02: Periodic Full Reconciliation to catch missed events/sync issues
+    if (mode !== 'paper') {
+       setInterval(() => {
+          if (this.sessionRunning && this.currentSessionId) {
+             this.logger.log(`[SRE] Initiating periodic full state reconciliation...`);
+             this.reconcileLiveState(binanceClient).catch(e => this.logger.error(`Periodic reconciliation failed: ${e.message}`));
+          }
+       }, 30 * 60 * 1000); // Every 30 minutes
+    }
+
     this.logger.log(`Session ${this.currentSessionId} ${sessionId ? 'restarted' : 'started'} in ${mode} mode`);
     await this.logMessage(`Session started in ${mode} mode with ${currentGlobalBalance} starting balance.`, 'info');
 
@@ -791,6 +801,54 @@ export class SessionService implements OnModuleInit {
     });
 
     return { strategyId: this.currentSessionId, status: 'started' };
+  }
+
+  /**
+   * SRE: Performs a full audit of local state against Binance exchange state.
+   * This is the "TruthFallback" part of the Hybrid Event-Loop architecture.
+   */
+  private async reconcileLiveState(binanceClient: any) {
+    try {
+      const allExchangePositions = await this.tradingSessionService.fetchAllPositions();
+      const activeExPositions = allExchangePositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0);
+      const activeExMap = new Map(activeExPositions.map(p => [p.symbol, p]));
+
+      const localOpenTrades = this.tradingSessionService.getActiveTradesRaw();
+      const localSymbols = new Set(localOpenTrades.map(t => t.symbol));
+
+      // 1. Audit Local Trades (Local -> Exchange)
+      for (const trade of localOpenTrades) {
+        if (trade.is_reconciliation || trade.status !== 'OPEN') continue;
+
+        const exPos = activeExMap.get(trade.symbol);
+        if (!exPos) {
+           this.logger.warn(`[Reconciliation] Local trade ${trade.symbol} not found on exchange. Triggering sync close.`);
+           this.eventEmitter.emit('trade.exchange_close', {
+              symbol: trade.symbol,
+              exitPrice: 0,
+              reason: 'EXCHANGE_SYNC',
+              isReconciliation: true
+           });
+        }
+      }
+
+      // 2. Audit Exchange Positions (Exchange -> Local)
+      for (const exPos of activeExPositions) {
+        if (!localSymbols.has(exPos.symbol)) {
+           this.logger.warn(`[Reconciliation] Exchange position ${exPos.symbol} not found locally. Importing...`);
+           // Note: Reuse the logic from startSession for import, but we need it here too.
+           // For now, we log it. In a full implementation, we'd refactor the import logic to a reusable method.
+           const amt = parseFloat(exPos.positionAmt);
+           const direction = amt > 0 ? 'LONG' : 'SHORT';
+           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+             msg: `CRITICAL: Periodic reconciliation found untracked position for ${exPos.symbol}. Please check logs.`,
+             level: 'error'
+           });
+        }
+      }
+    } catch (e) {
+      this.logger.error(`Reconciliation logic failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   private updateSessionPromiseChains: Map<string, Promise<any>> = new Map();

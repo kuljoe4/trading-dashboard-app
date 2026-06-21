@@ -17,6 +17,12 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ExchangeExecutionException } from '../lib/exceptions';
 import { ExecutionResult, ExecutionStatus } from '../models/ExecutionResult';
 
+/**
+ * HYBRID EVENT-LOOP ARCHITECTURE (Industry Standard 2026):
+ * 1. Event-Driven (Primary): Listen to real-time User Data Stream (UDS) for order fills/SL hits.
+ * 2. Loop-Based (Audit): MaintenanceService Watchdog performs O(N) periodic audits to catch missed UDS events.
+ * 3. Graceful Degradation: If UDS fails, the system continues to function via fallback polling.
+ */
 @Injectable()
 export class OrderManagerService {
   private readonly logger = new Logger(OrderManagerService.name);

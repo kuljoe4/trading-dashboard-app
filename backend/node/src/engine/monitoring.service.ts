@@ -8,6 +8,8 @@ export class MonitoringService {
   private hotLoopExecutionTime = 0;
   private mainLoopExecutionTime = 0;
   private apiRequestCount = 0;
+  private lastUdsPing = 0;
+  private udsStatus: 'CONNECTED' | 'DISCONNECTED' | 'LAGGING' = 'DISCONNECTED';
 
   constructor() {
     // BOLT: System health monitoring (CPU, RAM, Event Loop Lag) removed per requirement
@@ -24,14 +26,29 @@ export class MonitoringService {
   }
 
   getMetrics() {
-    // BOLT: Returns only application-level metrics, system health metrics removed
+    // SRE: Monitor User Data Stream (UDS) health to detect event-loop degradation
+    const now = Date.now();
+    const currentUdsStatus = (this.lastUdsPing > 0 && (now - this.lastUdsPing > 60000)) ? 'LAGGING' : this.udsStatus;
+
     return {
       application: {
         hot_loop_ms: this.hotLoopExecutionTime,
         main_loop_ms: this.mainLoopExecutionTime,
         api_requests_total: this.apiRequestCount,
+        exchange_uds_status: currentUdsStatus,
+        last_uds_ping_sec: this.lastUdsPing > 0 ? Math.floor((now - this.lastUdsPing) / 1000) : null
       }
     };
+  }
+
+  recordUdsPing() {
+    this.lastUdsPing = Date.now();
+    this.udsStatus = 'CONNECTED';
+  }
+
+  setUdsStatus(status: 'CONNECTED' | 'DISCONNECTED') {
+    this.udsStatus = status;
+    if (status === 'DISCONNECTED') this.lastUdsPing = 0;
   }
 
   recordHotLoop(ms: number) {

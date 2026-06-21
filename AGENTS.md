@@ -71,13 +71,17 @@ To avoid regressions and ensure compliance with exchange (Binance) behavior and 
 - **Discoverability**: All critical metrics must have helper tooltips (`<Tooltip content="..." />`) to align with the user's mental model.
 
 ### 5. Gapless Stop-Loss Updates (Ratcheting)
-- **Standard Orders**: Use `modifyOrder` to update the stop price of an existing `STOP_MARKET` order. This avoids the protection gap inherent in cancel-then-replace.
-- **Fallback**: If `modifyOrder` fails or is unsupported for a symbol, you MUST use **Cancel-then-Replace**. Attempting to place a second `closePosition: true` order while one exists will be rejected by Binance.
-- **Rollback**: If the replacement SL fails, the system must attempt to re-place the OLD SL price to ensure the position remains protected.
+- **Market Structure**: Per Binance API, `modifyOrder` is NOT supported for `STOP_MARKET`. All SL updates MUST use **Cancel-then-Replace**.
+- **Constraint**: Attempting to place a second `closePosition: true` order while one exists will be rejected by Binance.
+- **Rollback**: If the replacement SL fails, the system must attempt to re-place the OLD SL price (or the most conservative valid SL) to ensure the position remains protected.
 - **Audit**: Verified in `OrderManagerService.updateStopLoss`.
 
-### 7. Structural Trading Resilience (2026-06-15)
-- **Algo API**: The Algo Order API is intentionally disabled/removed due to SDK incompatibilities and matching unreliability. Standard `STOP_MARKET` with `closePosition: true` is the only supported protection mechanism.
+### 7. Structural Trading Resilience (2026-06-21 Update)
+- **Algo API**: The Algo Order API is intentionally disabled/removed. Standard `STOP_MARKET` with `closePosition: true` is the only supported protection mechanism.
+- **Protection Gaps**: `closeTrade` must attempt to close the position *before* canceling stop-losses, and must implement a 're-arm SL' rollback if the close order fails (e.g., due to illiquidity/PERCENT_PRICE).
+- **Nuclear Bypass**: The Watchdog's 'Nuclear Option' must bypass the `close_blocked` attempt ceiling to ensure capital safety.
+- **Risk Integrity**: Position sizing via `auto_scale_min_notional` must not exceed 3x the intended dollar risk.
+- **SL Ratcheting**: Apply a minimum 0.01% price delta guard before replacing SL orders to minimize order-count rate limit pressure.
 - **Close Attempts**: Automated closes (e.g. for PERCENT_PRICE rejections) use exponential backoff and a hard ceiling of 5 attempts. After the ceiling, the trade is marked `close_blocked` and requires manual intervention.
 - **Stream Stability**: User Data Streams use a proactive 24-hour reconnect (at 23h 50m) to avoid silent disconnections and event loss.
 - **Fill Price**: Extract fill price primarily via `cumQuote / executedQty` as `avgPrice` is deprecated by Binance.

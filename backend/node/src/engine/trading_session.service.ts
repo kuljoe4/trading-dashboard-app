@@ -698,8 +698,9 @@ export class TradingSessionService implements OnApplicationShutdown {
     // Reasons like SL_HIT, EXCHANGE_FILL, and EXCHANGE_SYNC (ghost positions) imply the exchange is already at 0.
     // WATCHDOG_NUCLEAR_CLOSE however requires an active market close order.
     const localOnly = reason !== 'WATCHDOG_NUCLEAR_CLOSE';
+    const ignoreBlocked = reason === 'WATCHDOG_NUCLEAR_CLOSE';
 
-    const res = await this.positionTracker.closeTrade(symbol, exitPrice, reason, this.config!, this.config?.paper_mode ?? true, localOnly);
+    const res = await this.positionTracker.closeTrade(symbol, exitPrice, reason, this.config!, this.config?.paper_mode ?? true, localOnly, { ignoreBlocked });
 
     if (res.exitOccurred && res.trade) {
       if (isReconciliation) res.trade.is_reconciliation = true;

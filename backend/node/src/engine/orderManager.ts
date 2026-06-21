@@ -823,29 +823,27 @@ export class OrderManagerService {
       const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
 
       // INDUSTRY-BEST-PRACTICE (2026): Standardize on standard STOP_MARKET orders for Stop Loss.
-      // We use quantity and reduceOnly: true for maximum compatibility across all Binance environments (Testnet/Live).
-      // COMPLIANCE: Binance deprecated standard STOP_MARKET for some accounts/symbols.
-      // We use the Algo Order API (CONDITIONAL) as the primary method for Stop Loss.
+      // COMPLIANCE (AGENTS.md): We use closePosition: true for immunity to quantity drift,
+      // but still include quantity for symbol-specific compatibility.
       const slOrderParams: any = {
         symbol,
         side: closeDirection as any,
-        algoType: 'CONDITIONAL',
         type: 'STOP_MARKET',
         quantity: trade.qty.toFixed(qtyPrecision),
-        triggerPrice: slPrice.toFixed(pricePrecision), // COMPLIANCE: Algo API requires triggerPrice as string
+        stopPrice: currentSlPrice.toFixed(pricePrecision),
         workingType: 'MARK_PRICE',
         newClientOrderId: `sl-${trade.id.substring(0, 8)}`,
-        reduceOnly: true,
+        closePosition: true,
         priceProtect: true
       };
 
-      this.logger.log(`Placing Binance Algo SL order: ${JSON.stringify(slOrderParams)}`);
+      this.logger.log(`Placing Binance SL order (closePosition): ${JSON.stringify(slOrderParams)}`);
 
       let stopLossId: string | null = null;
-      let orderType: 'standard' | 'algo' = 'algo';
+      let orderType: 'standard' | 'algo' = 'standard';
 
       try {
-        const response = await this.binanceClient.restAPI.newAlgoOrder(slOrderParams as any);
+        const response = await this.binanceClient.restAPI.newOrder(slOrderParams as any);
         this.updateWeight(response?.headers);
         const orderData = await response.data() as any;
 
@@ -857,7 +855,6 @@ export class OrderManagerService {
           // Handle Duplicate Order ID specifically to recover state after timeout
           if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
             this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId on SL retry. Recovering SL state...`);
-            // Algo orders might need a different query endpoint or different parameters
             const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
             const queryData = await queryRes.data() as any;
             if (queryData && queryData.orderId) {
@@ -938,31 +935,7 @@ export class OrderManagerService {
         }
       } catch (err: any) {
         const msg = err.message || '';
-        if (msg.includes('Order type not supported') || msg.includes('-4120')) {
-          this.logger.warn(`[${symbol}] Algo Order API not supported or failed. Falling back to standard STOP_MARKET...`);
-          const standardParams = { ...slOrderParams };
-          delete standardParams.algoType;
-          standardParams.type = 'STOP_MARKET';
-          // COMPLIANCE: Standard API uses stopPrice, while Algo API used triggerPrice
-          (standardParams as any).stopPrice = standardParams.triggerPrice;
-          delete (standardParams as any).triggerPrice;
-
-          try {
-            const fallbackRes = await this.binanceClient.restAPI.newOrder(standardParams as any);
-            const fallbackData = await fallbackRes.data() as any;
-            const validation = this.validateStopLossPlacement(symbol, fallbackData);
-            if (validation.isValid) {
-              stopLossId = validation.orderId!;
-              orderType = 'standard';
-              this.logger.log(`Standard SL fallback successful: ${stopLossId}`);
-            } else {
-              throw new Error(fallbackData.msg || 'Fallback failed validation');
-            }
-          } catch (fallbackErr: any) {
-            this.logger.error(`Standard SL fallback failed: ${fallbackErr.message}`);
-            throw fallbackErr;
-          }
-        } else if (msg.includes('Order would immediately trigger') || msg.includes('-2021') || msg.includes('-2010') || msg.includes('-4115') || msg.includes('-4118')) {
+        if (msg.includes('Order would immediately trigger') || msg.includes('-2021') || msg.includes('-2010') || msg.includes('-4115') || msg.includes('-4118')) {
           // Adaptive Buffer Strategy (Exception variant)
           const feeBuffer = 0.001;
           const isProfitable = trade.direction === 'LONG'
@@ -1463,7 +1436,7 @@ export class OrderManagerService {
     }
   }
 
-  private async recoverLastExecutionPrice(symbol: string, trade: Trade, estimate: number): Promise<number> {
+  public async recoverLastExecutionPrice(symbol: string, trade: Trade, estimate: number): Promise<number> {
     if (!this.binanceClient || this.paperMode) return estimate;
     try {
       const tradesRes = await this.binanceClient.restAPI.accountTradeList({ symbol, limit: 5 });
@@ -1493,6 +1466,7 @@ export class OrderManagerService {
     exitReason: string,
     paperMode = this.paperMode,
     localOnly = false,
+    options: { ignoreBlocked?: boolean } = {}
   ): Promise<{ trade: Trade; exitOccurred: boolean; closeBlocked?: boolean }> {
     // SRE: Per-symbol concurrency lock to prevent overlapping closure attempts
     if (!paperMode && !localOnly && this.closureLocks.get(symbol)) {
@@ -1505,7 +1479,8 @@ export class OrderManagerService {
 
       // SRE-01: Only block if we are actually attempting an exchange operation.
       // localOnly syncs must always be allowed to clear "ghost" trades and blocked states.
-      if (trade.close_blocked && !localOnly) {
+      // Nuclear Option (ignoreBlocked) bypasses this to ensure forced capital safety.
+      if (trade.close_blocked && !localOnly && !options.ignoreBlocked) {
          return { trade, exitOccurred: false, closeBlocked: true };
       }
 
@@ -1547,65 +1522,31 @@ export class OrderManagerService {
         this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
 
         try {
-          // 1. Explicitly cancel the known Stop Loss order first (Algo or Standard)
-          // We wrap this in a non-blocking try-catch to ensure failures don't abort the entire closure.
-          if (trade.binance_stop_order_id) {
-            try {
-              this.logger.log(`[${symbol}] [Sync] Canceling known SL order ${trade.binance_stop_order_id} (${trade.binance_stop_order_type || 'standard'})...`);
-              const canceled = await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type as any);
-              if (canceled) {
-                this.logger.log(`[${symbol}] [Sync] SL order ${trade.binance_stop_order_id} canceled successfully.`);
-              } else {
-                this.logger.warn(`[${symbol}] [Sync] SL order cancellation returned false. Proceeding with flush.`);
-              }
-            } catch (cancelErr: any) {
-              this.logger.error(`[${symbol}] [Sync] Failed to cancel orphan SL: ${cancelErr.message}`);
-            }
-            trade.binance_stop_order_id = undefined;
-          }
-
-          // 2. Critical cleanup-on-close safety net: Flush ALL remaining open orders for this symbol.
-          // This handles any manual orders, TP orders, or orphaned SLs the engine isn't tracking.
-          try {
-            this.logger.log(`[${symbol}] [Sync] Finalizing trade closure. Flushing ALL remaining open orders to eliminate potential orphans...`);
-            const flushRes = await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol });
-            this.updateWeight(flushRes?.headers);
-            this.logger.log(`[${symbol}] [Sync] Global symbol flush complete.`);
-          } catch (flushErr: any) {
-            this.logger.warn(`[${symbol}] [Sync] Cleanup-on-close flush failed: ${flushErr.message}`);
-          }
-
-          // 3. Handle specific emergency unwinds
-          if (exitReason === 'SL_PLACEMENT_FAILURE' || exitReason === 'SLIPPAGE_ABORT') {
-            this.logger.warn(`[${symbol}] Initiating critical unwind sweep. Ensuring ALL open orders are dead...`);
-            try {
-              await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol });
-              this.logger.log(`[${symbol}] Pre-unwind target sweep complete.`);
-            } catch (sweepErr: any) {
-              this.logger.error(`[${symbol}] Pre-unwind sweep failed: ${sweepErr.message}`);
-            }
-          }
-
           const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
+          const filters = this.marketFeed.getSymbolFilters(symbol);
+          const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
+          const stepSize = parseFloat(lotSize?.stepSize || '0');
+          const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
+
+          const clientOrderId = `cls-${trade.id.replace(/-/g, '').substring(0, 20)}`;
+
+          // COMPLIANCE: Ensure price filters and ticker-informed quantities are used for emergency closes
+          // to stay within PERCENT_PRICE boundaries.
+          const ticker = this.tickerCache.getTicker(symbol);
+          const refPrice = ticker?.mark_price || ticker?.price || exitPrice;
+          const filteredExit = this.applyFilters(symbol, refPrice, trade.qty, { skipNotionalCheck: true });
+
+          if (filteredExit.qty <= 0) {
+             this.logger.error(`[${symbol}] [Sync] Filtered close quantity is 0. Falling back to raw quantity.`);
+             filteredExit.qty = trade.qty;
+          }
+
+          // HARDENING: Attempt MARKET close first WITHOUT canceling SL to eliminate protection gap.
+          // If this fails with ReduceOnly rejection, we then fall back to Cancel-then-Replace.
+          let orderData: any = null;
+          let closeSuccess = false;
+
           try {
-            const filters = this.marketFeed.getSymbolFilters(symbol);
-            const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
-            const stepSize = parseFloat(lotSize?.stepSize || '0');
-            const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
-
-            const clientOrderId = `cls-${trade.id.replace(/-/g, '').substring(0, 20)}`;
-
-            // COMPLIANCE: Ensure price filters and ticker-informed quantities are used for emergency closes
-            // to stay within PERCENT_PRICE boundaries.
-            const ticker = this.tickerCache.getTicker(symbol);
-            const refPrice = ticker?.mark_price || ticker?.price || exitPrice;
-            const filteredExit = this.applyFilters(symbol, refPrice, trade.qty, { skipNotionalCheck: true });
-
-            if (filteredExit.qty <= 0) {
-               this.logger.error(`[${symbol}] [Sync] Filtered close quantity is 0. Falling back to raw quantity.`);
-               filteredExit.qty = trade.qty;
-            }
-
             const response = await this.binanceClient.restAPI.newOrder({
               symbol,
               side: closeDirection,
@@ -1614,12 +1555,66 @@ export class OrderManagerService {
               reduceOnly: true,
               newOrderRespType: 'RESULT',
               newClientOrderId: clientOrderId,
-              selfTradePreventionMode: 'EXPIRE_MAKER', // Hardening: Prevent self-trading
+              selfTradePreventionMode: 'EXPIRE_MAKER',
             } as any);
 
             this.updateWeight(response?.headers);
-            const orderData = await response.data() as any;
+            orderData = await response.data() as any;
+            if (orderData && orderData.orderId) {
+               closeSuccess = true;
+               this.logger.log(`Close order successful without SL flush: ${orderData.orderId}`);
+            }
+          } catch (marketErr: any) {
+            const marketMsg = marketErr.message || '';
+            if (marketMsg.includes('ReduceOnly') || marketMsg.includes('conflict') || marketMsg.includes('-2022')) {
+               this.logger.warn(`[${symbol}] MARKET close conflicted with existing orders. Falling back to aggressive flush + retry.`);
 
+               // Fallback: 1. Explicitly cancel the known Stop Loss order
+               if (trade.binance_stop_order_id) {
+                 try {
+                   this.logger.log(`[${symbol}] [Sync] Canceling known SL order ${trade.binance_stop_order_id}...`);
+                   await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type as any);
+                 } catch (cancelErr: any) {
+                   this.logger.error(`[${symbol}] [Sync] Failed to cancel SL: ${cancelErr.message}`);
+                 }
+                 trade.binance_stop_order_id = undefined;
+               }
+
+               // Fallback: 2. Flush ALL remaining open orders
+               try {
+                 this.logger.log(`[${symbol}] [Sync] Finalizing trade closure. Flushing ALL remaining open orders...`);
+                 const flushRes = await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol });
+                 this.updateWeight(flushRes?.headers);
+                 this.logger.log(`[${symbol}] [Sync] Global symbol flush complete.`);
+               } catch (flushErr: any) {
+                 this.logger.warn(`[${symbol}] [Sync] Cleanup-on-close flush failed: ${flushErr.message}`);
+               }
+
+               // Fallback: 3. Retry MARKET close
+               const retryResponse = await this.binanceClient.restAPI.newOrder({
+                 symbol,
+                 side: closeDirection,
+                 type: 'MARKET',
+                 quantity: parseFloat(filteredExit.qty.toFixed(qtyPrecision)),
+                 reduceOnly: true,
+                 newOrderRespType: 'RESULT',
+                 newClientOrderId: clientOrderId,
+                 selfTradePreventionMode: 'EXPIRE_MAKER',
+               } as any);
+
+               this.updateWeight(retryResponse?.headers);
+               orderData = await retryResponse.data() as any;
+               if (orderData && orderData.orderId) {
+                  closeSuccess = true;
+                  this.logger.log(`Close order successful after flush: ${orderData.orderId}`);
+               }
+            } else {
+               // Re-throw other errors (like PERCENT_PRICE) to be handled by common logic
+               throw marketErr;
+            }
+          }
+
+          if (closeSuccess) {
             // BOLT: Proactively update zero-weight position cache on success
             const executedExitQty = parseFloat(orderData.executedQty || '0');
             const currentCached = this.sessionState.realTimePositions.get(symbol);
@@ -1631,7 +1626,6 @@ export class OrderManagerService {
             trade.binance_close_order_id = orderData.orderId;
 
             // Zero-RAM Price Tracking for exits
-            // Finding 1: Canonical fill price extraction is cumQuote / executedQty
             let absoluteExitPrice = 0;
             if (orderData.cumQuote && orderData.executedQty) {
                const cumQuote = parseFloat(orderData.cumQuote);
@@ -1652,37 +1646,24 @@ export class OrderManagerService {
                if (totalQty > 0) absoluteExitPrice = weightedSum / totalQty;
             }
 
-            // DATA-CONSISTENCY: Fallback for 0 price responses - Query exchange for authoritative fill price
+            // DATA-CONSISTENCY: Fallback for 0 price responses
             if (absoluteExitPrice === 0 && trade.binance_close_order_id) {
                try {
-                  this.logger.log(`[${symbol}] [Sync] Binance returned 0 price for exit. Fetching authoritative price via queryOrder...`);
                   const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, orderId: BigInt(trade.binance_close_order_id) });
                   const queryData = await queryRes.data() as any;
                   absoluteExitPrice = parseFloat(queryData.avgPrice || queryData.price || '0');
-                  if (absoluteExitPrice > 0) {
-                    this.logger.log(`[${symbol}] [Sync] Successfully fetched authoritative exit price: ${absoluteExitPrice}`);
-                  } else {
-                    this.logger.warn(`[${symbol}] [Sync] Exchange query returned 0 or missing price for close order ${trade.binance_close_order_id}.`);
-                  }
                } catch (queryErr) {
                   this.logger.warn(`[${symbol}] [Sync] Failed to fetch authoritative exit price: ${queryErr instanceof Error ? queryErr.message : String(queryErr)}`);
                }
             }
 
-            // FINAL FALLBACK: If still 0, try ticker cache then estimated price
+            // FINAL FALLBACK
             if (absoluteExitPrice === 0) {
                const tickerPrice = this.tickerCache.getPrice(symbol);
-               if (tickerPrice && tickerPrice > 0) {
-                  this.logger.log(`[${symbol}] [Sync] Using ticker cache fallback for exit: ${tickerPrice}`);
-                  absoluteExitPrice = tickerPrice;
-               } else {
-                  this.logger.warn(`Authoritative price query and ticker cache failed for ${symbol} exit. Using estimated price ${exitPrice}.`);
-                  absoluteExitPrice = exitPrice;
-               }
+               absoluteExitPrice = tickerPrice || exitPrice;
             }
 
             const executedExitQtyFinal = parseFloat(orderData.executedQty || '0');
-
             if (absoluteExitPrice > 0) exitPrice = roundEight(absoluteExitPrice);
 
             // Zero-Cost Math Estimation for exit fees
@@ -1699,16 +1680,27 @@ export class OrderManagerService {
               resourceId: trade.id,
               details: { symbol, qty: trade.qty, orderId: orderData.orderId, reason: exitReason }
             });
-          } catch (err: unknown) {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            const upperMsg = errMsg.toUpperCase();
-            // RISK-04: If close fails, check if it's because position is already closed (SL race)
-            // Note: Binance can return "ReduceOnly Order is rejected." or "REDUCE_ONLY"
-            if (upperMsg.includes('REDUCE_ONLY') || upperMsg.includes('REDUCEONLY') || upperMsg.includes('POSITION SIDE DOES NOT MATCH')) {
+
+            // Cleanup remaining SL if it survived the MARKET close
+            if (trade.binance_stop_order_id) {
+               try {
+                  await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type as any);
+                  trade.binance_stop_order_id = undefined;
+               } catch (e) {}
+            }
+          }
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          const upperMsg = errMsg.toUpperCase();
+          const errCode = (err as any).code || 'unknown';
+
+          // LOG RAW DATA: Ensure full exchange error is visible for diagnosis
+          this.logger.error(`[${symbol}] Binance API Error during close: [${errCode}] ${errMsg}`);
+
+          // RISK-04: If close fails, check if it's because position is already closed (SL race)
+          if (upperMsg.includes('REDUCE_ONLY') || upperMsg.includes('REDUCEONLY') || upperMsg.includes('POSITION SIDE DOES NOT MATCH')) {
                this.logger.log(`Binance close order for ${symbol} rejected (possibly already closed by exchange SL). Verifying...`);
 
-               // BOLT: Force direct exchange check for zero-position desync.
-               // We bypass the cache here because we need absolute proof to avoid desync loops.
                let positionAmt = 0;
                try {
                   const response = await this.binanceClient.restAPI.positionInformationV3({ symbol });
@@ -1719,8 +1711,6 @@ export class OrderManagerService {
                     positionAmt = activePosition ? parseFloat(activePosition.positionAmt) : 0;
                   }
                } catch (posErr) {
-                  this.logger.error(`[Sync] Failed direct position check for ${symbol}: ${posErr instanceof Error ? posErr.message : String(posErr)}`);
-                  // Fallback to fetchPosition if direct check fails
                   const position = await this.fetchPosition(symbol);
                   positionAmt = position ? parseFloat(position.positionAmt) : 0;
                }
@@ -1729,16 +1719,20 @@ export class OrderManagerService {
                   this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] Confirmed: ${symbol} position is already zero. Triggering Sync Recovery.`);
                   exitPrice = await this.recoverLastExecutionPrice(symbol, trade, exitPrice);
                   trade.exit_reason = trade.exit_reason === 'EXCHANGE_SYNC' ? 'EXCHANGE_SYNC_RECOVERY' : 'EXCHANGE_SL_OR_MANUAL';
-                  // Use actual taker fee rate for live mode recovery
                   const exitFee = roundEight(exitPrice * trade.qty * this.takerFeeRate);
                   trade.realized_fee = roundEight((trade.realized_fee || 0) + exitFee);
                } else {
                   this.logger.warn(`Binance close order failed (REDUCE_ONLY) but position still exists for ${symbol} (Amt: ${positionAmt}). Error: ${errMsg}`);
 
-                  // RISK-04: Apply universal attempt ceiling even for ReduceOnly rejections
+                  // ROLLBACK: Re-place SL if it was cancelled and close failed
+                  if (!trade.binance_stop_order_id) {
+                     this.logger.warn(`[${symbol}] Close failed but position persists. Re-arming protection SL...`);
+                     await this.placeStopLoss(trade, trade.current_sl);
+                  }
+
                   if (trade.close_attempts && trade.close_attempts >= MAX_CLOSE_ATTEMPTS) {
                     trade.close_blocked = true;
-                    const blockMsg = `CRITICAL: ${symbol} close attempt ceiling reached (REDUCE_ONLY). Automated closes are now BLOCKED. Manual intervention required. Error: ${errMsg}`;
+                    const blockMsg = `CRITICAL: ${symbol} close attempt ceiling reached (REDUCE_ONLY). Automated closes are now BLOCKED. Manual intervention required. [${errCode}] ${errMsg}`;
                     this.logger.error(blockMsg);
                     this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: blockMsg, level: 'error' });
                   }
@@ -1746,13 +1740,19 @@ export class OrderManagerService {
                   this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
                   throw err;
                }
-            } else if (upperMsg.includes('PERCENT_PRICE') || upperMsg.includes('PRICE DEVIATED') || upperMsg.includes('DEVIATION')) {
+          } else if (upperMsg.includes('PERCENT_PRICE') || upperMsg.includes('PRICE DEVIATED') || upperMsg.includes('DEVIATION')) {
                const ticker = this.tickerCache.getTicker(symbol);
                const markPrice = ticker?.mark_price || ticker?.price;
                const deviation = markPrice ? (Math.abs(exitPrice - markPrice) / markPrice * 100).toFixed(2) : 'unknown';
 
-               const tip = `The price is currently outside Binance's protection bands (${deviation}% deviation). This usually happens during extreme volatility (e.g. BSB 15% threshold). Manual intervention on Binance website is REQUIRED to close this position.`;
-               this.logger.error(`${symbol}: Close failed due to price protection/deviation (Attempt ${trade.close_attempts}/${MAX_CLOSE_ATTEMPTS}). ${tip}. Error: ${errMsg}`);
+               const tip = `The price is currently outside Binance's protection bands (${deviation}% deviation). Manual intervention on Binance website is REQUIRED to close this position.`;
+               this.logger.error(`${symbol}: Close failed due to price protection/deviation (Attempt ${trade.close_attempts}/${MAX_CLOSE_ATTEMPTS}). ${tip}. Error: [${errCode}] ${errMsg}`);
+
+               // ROLLBACK: Re-place SL if it was cancelled and close failed
+               if (!trade.binance_stop_order_id) {
+                  this.logger.warn(`[${symbol}] PERCENT_PRICE failure. Re-arming protection SL...`);
+                  await this.placeStopLoss(trade, trade.current_sl);
+               }
 
                if (trade.close_attempts && trade.close_attempts >= MAX_CLOSE_ATTEMPTS) {
                   trade.close_blocked = true;
@@ -1762,8 +1762,6 @@ export class OrderManagerService {
                } else {
                   this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `CRITICAL: ${symbol} close failed (Price Protection). Attempting aggressive LIMIT fallback.`, level: 'warn' });
 
-                  // COMPLIANCE: If MARKET close fails due to PERCENT_PRICE, attempt an aggressive LIMIT order
-                  // at Mark Price or ticker price to bypass market-order protection bands.
                   try {
                     const ticker = this.tickerCache.getTicker(symbol);
                     const limitPrice = ticker?.mark_price || ticker?.price || exitPrice;
@@ -1777,11 +1775,11 @@ export class OrderManagerService {
                     const clientOrderId = `cls-lim-${trade.id.replace(/-/g, '').substring(0, 16)}`;
                     const limitResponse = await this.binanceClient.restAPI.newOrder({
                       symbol,
-                      side: closeDirection,
+                      side: trade.direction === 'LONG' ? 'SELL' : 'BUY',
                       type: 'LIMIT',
                       quantity: filteredLimit.qty.toFixed(limitQtyPrecision),
-                      price: filteredLimit.price.toFixed(8), // applyFilters already rounds to tickSize
-                      timeInForce: 'IOC', // Immediate or Cancel: if it can't fill now at this price, cancel
+                      price: filteredLimit.price.toFixed(8),
+                      timeInForce: 'IOC',
                       reduceOnly: true,
                       newClientOrderId: clientOrderId
                     } as any);
@@ -1790,8 +1788,6 @@ export class OrderManagerService {
                     if (limitData.orderId) {
                       this.logger.log(`Aggressive LIMIT fallback for ${symbol} successful: ${limitData.orderId}`);
                       trade.binance_close_order_id = limitData.orderId;
-                      // We don't return success yet, as we need to see if UDS confirms the fill,
-                      // but we avoid immediate throw to let the loop continue or UDS handle it.
                     }
                   } catch (limitErr) {
                     this.logger.error(`Aggressive LIMIT fallback failed for ${symbol}: ${limitErr instanceof Error ? limitErr.message : String(limitErr)}`);
@@ -1800,26 +1796,25 @@ export class OrderManagerService {
 
                this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
                throw err;
-            } else {
-               this.logger.warn(`Binance close order failed for ${symbol}. Code: ${err instanceof Error ? (err as any).code : 'unknown'}. Error: ${errMsg}`);
+          } else {
+               this.logger.warn(`Binance close order failed for ${symbol}. Code: ${errCode}. Error: ${errMsg}`);
 
-               // RISK-04: Apply universal attempt ceiling for ALL types of Binance failures
+               // ROLLBACK: Re-place SL if it was cancelled and close failed
+               if (!trade.binance_stop_order_id) {
+                  this.logger.warn(`[${symbol}] Unknown failure. Re-arming protection SL...`);
+                  await this.placeStopLoss(trade, trade.current_sl);
+               }
+
                if (trade.close_attempts && trade.close_attempts >= MAX_CLOSE_ATTEMPTS) {
                  trade.close_blocked = true;
-                 const blockMsg = `CRITICAL: ${symbol} close attempt ceiling reached. Automated closes are now BLOCKED for this symbol. Please intervene manually on Binance. Error: ${errMsg}`;
+                 const blockMsg = `CRITICAL: ${symbol} close attempt ceiling reached. Automated closes are now BLOCKED. [${errCode}] ${errMsg}`;
                  this.logger.error(blockMsg);
                  this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: blockMsg, level: 'error' });
                }
 
                this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
                throw err;
-            }
           }
-        } catch (err) {
-          this.logger.warn(
-            `Binance close operation error: ${err instanceof Error ? err.message : String(err)}`,
-          );
-          throw err;
         }
       } else if (paperMode) {
         // Simulate paper exit fee (taker rate)

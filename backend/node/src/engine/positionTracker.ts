@@ -185,9 +185,12 @@ export class PositionTrackerService {
       }
 
       // Only move SL deeper into profit (stricter protection)
+      // PERFORMANCE: Apply a minimum delta guard (0.01% of entry) to reduce order-count rate limit pressure.
+      const minDelta = trade.entry_price * 0.0001;
+
       if (trade.direction === 'LONG' && newSl) {
-        // BOLT: Use epsilon comparison to avoid loops on tiny float differences
-        if (newSl > trade.current_sl + 0.00000001) {
+        // BOLT: Use epsilon + minDelta comparison to avoid loops on tiny float differences
+        if (newSl > trade.current_sl + Math.max(0.00000001, minDelta)) {
           const prevSl = trade.current_sl;
           const prevRisk = trade.risk_usdt || 0;
           trade.current_sl = newSl;
@@ -220,8 +223,8 @@ export class PositionTrackerService {
           this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
         }
       } else if (trade.direction === 'SHORT' && newSl) {
-        // BOLT: Use epsilon comparison to avoid loops on tiny float differences
-        if (newSl < trade.current_sl - 0.00000001) {
+        // BOLT: Use epsilon + minDelta comparison to avoid loops on tiny float differences
+        if (newSl < trade.current_sl - Math.max(0.00000001, minDelta)) {
           const prevSl = trade.current_sl;
           const prevRisk = trade.risk_usdt || 0;
           trade.current_sl = newSl;
@@ -363,6 +366,7 @@ export class PositionTrackerService {
     config?: SessionConfig,
     paperMode?: boolean,
     localOnly?: boolean,
+    options: { ignoreBlocked?: boolean } = {}
   ): Promise<{ trade: Trade | null; exitOccurred: boolean; closeBlocked?: boolean }> {
     const trade = this.trades.get(symbol);
     if (!trade || trade.status !== 'OPEN' || this.closingSymbols.has(symbol)) {
@@ -380,7 +384,7 @@ export class PositionTrackerService {
       trade.exit_signal_reason = 'Trading session was stopped by user';
     }
 
-    const result = await this.orderManager.closeTrade(symbol, trade, exitPrice, exitReason, paperMode, localOnly);
+    const result = await this.orderManager.closeTrade(symbol, trade, exitPrice, exitReason, paperMode, localOnly, options);
     if (!result.exitOccurred || !result.trade) {
       this.closingSymbols.delete(symbol);
       return { trade: null, exitOccurred: false, closeBlocked: result.closeBlocked };

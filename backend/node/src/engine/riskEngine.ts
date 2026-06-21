@@ -420,7 +420,8 @@ export class RiskEngineService {
     entryPrice: number,
     slPrice: number,
     direction: 'LONG' | 'SHORT',
-    config: SessionConfig
+    config: SessionConfig,
+    symbol?: string
   ): number {
     if (balance <= 0 || entryPrice <= 0) return 0;
 
@@ -443,8 +444,18 @@ export class RiskEngineService {
 
     if (autoScale) {
       if (currentNotional < MIN_NOTIONAL_SCALED) {
+         // RISK-HARDENING: Implement a 3x risk overshoot ceiling for auto-scaling.
+         // Prevents tiny accounts with tight stops from being exposed to massive unplanned drawdown.
+         const scaledQty = roundEight(MIN_NOTIONAL_SCALED / entryPrice);
+         const scaledRisk = Math.abs(entryPrice - slPrice) * scaledQty;
+
+         if (scaledRisk > riskAmount * 3.0) {
+            this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} setup rejected: Auto-scaling would cause ${ (scaledRisk/riskAmount).toFixed(1) }x risk overshoot (Max 3x).`);
+            return 0;
+         }
+
          this.logger.debug(`[RiskEngine] Scaled qty up to meet MIN_NOTIONAL (${currentNotional.toFixed(2)} -> ${MIN_NOTIONAL_SCALED})`);
-         qty = roundEight(MIN_NOTIONAL_SCALED / entryPrice);
+         qty = scaledQty;
       }
     } else if (currentNotional < MIN_NOTIONAL) {
        this.logger.warn(`[RiskEngine] Trade setup discarded: notional ${currentNotional.toFixed(2)} is below minimum ${MIN_NOTIONAL} USDT.`);

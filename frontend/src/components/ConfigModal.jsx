@@ -68,7 +68,7 @@ const flattenConfig = (config) => {
     };
   } catch (e) { return { ...config }; }
 };
-export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) => {
+export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
   const [cfg, setCfg] = useState(() => {
     const savedDraft = sessionStorage.getItem('config_draft');
     if (savedDraft) return JSON.parse(savedDraft);
@@ -84,6 +84,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
   const [presetName, setPresetName] = useState('')
   const [errors, setErrors] = useState({})
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const [symbolSearch, setSymbolSearch] = useState('')
   const [testnetConfigured, setTestnetConfigured] = useState(false)
   const [liveConfigured, setLiveConfigured] = useState(false)
@@ -195,21 +196,27 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     }))
   }
 
+  const addAlert = useTradingStore(state => state.addAlert);
+
   const savePreset = async () => {
     if (!validate(cfg)) return;
     const name = (presetName || generatedPresetName).trim();
     if (!name) return;
     const { strategy_variants, ...pc } = cfg;
+    setIsSaving(true);
     try {
       const res = await presetsAPI.save(name, { ...pc, strategy_label: name });
       const next = [...presets.filter(p => p.name !== name), res.data];
       setPresets(next);
       setPresetName('');
       setSaveSuccess(true);
+      addAlert({ level: 'success', title: 'Preset Saved', message: `Strategy "${name}" has been stored in the database.` });
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (e) {
       console.error('[ConfigModal] Error saving preset:', e);
-      alert('Failed to save preset');
+      addAlert({ level: 'error', title: 'Save Failed', message: 'Could not store strategy preset in the database.' });
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -219,6 +226,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     setSection('scan'); 
     setErrors({}); 
     setIsDirty(false);
+    addAlert({ level: 'success', title: 'Preset Loaded', message: `Active configuration set to "${p.name}".` });
   }
 
   const deletePreset = async (e, name) => {
@@ -227,9 +235,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
       await presetsAPI.delete(name);
       const next = presets.filter(p => p.name !== name);
       setPresets(next);
+      addAlert({ level: 'info', title: 'Preset Deleted', message: `"${name}" has been removed from the database.` });
     } catch (e) {
       console.error('[ConfigModal] Error deleting preset:', e);
-      alert('Failed to delete preset');
+      addAlert({ level: 'error', title: 'Delete Failed', message: `Could not remove preset "${name}".` });
     }
   }
   const toggleVariant = (e, p) => {
@@ -884,7 +893,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
               <SectionHeader icon={Save} title="Save Strategy" subtitle="Store current configuration as a preset" />
               <div className="flex gap-2">
                 <input type="text" placeholder="Preset name (e.g. Scalp High Vol)" value={presetName} onChange={(e) => setPresetName(e.target.value)} className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none" />
-                <Btn variant="primary" onClick={savePreset} className="aspect-square p-0 w-12 h-12 flex items-center justify-center">
+                <Btn variant="primary" onClick={savePreset} loading={isSaving} className="aspect-square p-0 w-12 h-12 flex items-center justify-center">
                   {saveSuccess ? <CheckCircle2 size={20} /> : <Save size={20} />}
                 </Btn>
               </div>
@@ -965,7 +974,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
            <Btn variant="ghost" onClick={onClose} className="flex-1">Cancel</Btn>
            {isDirty && <Btn variant="ghost" onClick={resetToLastSaved} className="text-red hover:bg-red/5">Reset</Btn>}
         </div>
-        <Btn variant="primary" onClick={() => { 
+        <Btn variant="primary" loading={loading} onClick={() => {
           if (validate(cfg)) {
              onSave(buildConfigToSave());
              sessionStorage.removeItem('config_draft');

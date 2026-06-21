@@ -29,13 +29,17 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
 
   const isLong = trade.direction === 'LONG'
 
+  const addAlert = useTradingStore(state => state.addAlert);
+
   const handleForceClose = async (symbol) => {
     setIsClosing(true)
     try {
       await onTradeClose(symbol)
+      addAlert({ level: 'info', title: 'Close Initiated', message: `Sending market close order for ${symbol} to Binance.` });
       onClose()
     } catch (e) {
       console.error('Failed to force close trade from modal:', e)
+      addAlert({ level: 'error', title: 'Close Failed', message: `Could not close ${symbol}. Check logs for exchange error.` });
     } finally {
       setIsClosing(false)
     }

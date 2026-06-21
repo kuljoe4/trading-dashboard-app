@@ -106,6 +106,24 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   healthEnabled: localStorage.getItem('health_enabled') !== 'false',
   streamingEnabled: localStorage.getItem('streaming_enabled') !== 'false',
   isThrottled: false, entryCount: 0, hitCount: 0,
+
+  addAlert: (alert) => {
+     const now = Date.now();
+     const id = Math.random().toString(36).substring(2, 11);
+     const newAlert = { id, ts: now, level: 'info', ...alert };
+
+     set(st => {
+       const existing = st.alerts.find(a => a.title === newAlert.title && a.message === newAlert.message && (now - a.ts < 5000));
+       if (existing) {
+          return { alerts: st.alerts.map(a => a.id === existing.id ? { ...a, ts: now, count: (a.count || 1) + 1 } : a) };
+       }
+       return { alerts: [newAlert, ...st.alerts].slice(0, 10) };
+     });
+
+     setTimeout(() => {
+       set(st => ({ alerts: st.alerts.filter(a => a.id !== id || (Date.now() - a.ts < 10000)) }));
+     }, 10000);
+  },
   
   _subscriptions: { trades: new Map(), strategies: new Map(), globalTrades: 0, scanner: 0 },
   _focusTimer: null,

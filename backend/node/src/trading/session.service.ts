@@ -992,7 +992,8 @@ export class SessionService implements OnModuleInit {
 
     if (this.currentSessionId && currentStatus.running) {
       // Reuse history already fetched in getStatus() to minimize DB load
-      trades = currentStatus.history || [];
+      // BOLT: Include active trades for higher fidelity equity curve
+      trades = [...(currentStatus.history || []), ...(currentStatus.activeTrades || [])];
       startingBalance = currentStatus.config?.paper_mode ? currentStatus.config?.paper_starting_balance : currentStatus.config?.live_starting_balance;
       currentBalance = currentStatus.balance;
     } else {

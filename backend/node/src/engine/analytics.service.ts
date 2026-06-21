@@ -41,8 +41,16 @@ export class AnalyticsService {
   calculateAnalytics(trades: TradeEntity[], startingBalance: number = 10000, currentBalance?: number): AnalyticsResult {
     // BOLT OPTIMIZATION: Combine multiple iterations into a single-pass loop
     // 1. Initial filter and sort (necessary for equity curve)
+    // BOLT: Include reconciliation trades and active trades with realized fees for curve fidelity
     const sortedTrades = [...trades]
-      .filter(t => t.status !== 'OPEN' && t.exit_ts && !t.is_reconciliation)
+      .filter(t => (t.status !== 'OPEN' || Number(t.pnl || 0) !== 0))
+      .map(t => {
+        if (t.status === 'OPEN' && !t.exit_ts) {
+          return { ...t, exit_ts: new Date() } as TradeEntity;
+        }
+        return t;
+      })
+      .filter(t => t.exit_ts) // Safety check
       .sort((a, b) => a.exit_ts!.getTime() - b.exit_ts!.getTime());
 
     const totalTrades = sortedTrades.length;
@@ -75,12 +83,13 @@ export class AnalyticsService {
     const todStats = Array.from({ length: 24 }, () => ({ pnl: 0, wins: 0, total: 0 }));
 
     // BOLT OPTIMIZATION: Single-pass calculation for ALL metrics to avoid multiple array iterations
+    let strategyTradeCount = 0;
     for (let i = 0; i < totalTrades; i++) {
       const t = sortedTrades[i];
       const pnl = Number(t.pnl || 0);
 
-      // Calculate return percentage relative to balance at time of trade
-      const tradeReturnPct = rollingBalance > 0 ? (pnl / rollingBalance) * 100 : 0;
+      // BOLT: Update rolling balance for equity curve including ALL account changes
+      const balanceBeforeTrade = rollingBalance;
       rollingBalance = Math.max(1, rollingBalance + pnl);
 
       // Equity curve & Drawdown
@@ -99,6 +108,15 @@ export class AnalyticsService {
         ts: t.exit_ts!.toISOString(),
         pnl: roundTo(currentPnL, 2),
       };
+
+      // Performance Metrics (Win Rate, Expectancy, Ratios)
+      // BOLT: Exclude reconciliation and open trades from strategy performance metrics
+      if (t.is_reconciliation || t.status === 'OPEN') continue;
+
+      strategyTradeCount++;
+
+      // Calculate return percentage relative to balance at time of trade
+      const tradeReturnPct = balanceBeforeTrade > 0 ? (pnl / balanceBeforeTrade) * 100 : 0;
 
       // Time of Day
       const hour = t.exit_ts!.getUTCHours();
@@ -133,7 +151,7 @@ export class AnalyticsService {
     const avgLoss = totalLosses > 0 ? grossLoss / totalLosses : 0;
     const avgWinPct = totalWins > 0 ? grossProfitPct / totalWins : 0;
     const avgLossPct = totalLosses > 0 ? grossLossPct / totalLosses : 0;
-    const expectancyPct = totalTrades > 0 ? sumReturnPct / totalTrades : 0;
+    const expectancyPct = strategyTradeCount > 0 ? sumReturnPct / strategyTradeCount : 0;
 
     const avgWinLossRatio = avgLoss > 0 ? avgWin / avgLoss : 0;
     const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 100 : 0);
@@ -146,14 +164,14 @@ export class AnalyticsService {
     let sharpeRatio = 0;
     let sortinoRatio = 0;
 
-    if (totalTrades > 1) {
-      const meanReturn = sumReturnPct / totalTrades;
+    if (strategyTradeCount > 1) {
+      const meanReturn = sumReturnPct / strategyTradeCount;
       // Variance = E[X^2] - (E[X])^2
-      const variance = Math.max(0, (sumSquaredReturnPct / totalTrades) - (meanReturn * meanReturn));
+      const variance = Math.max(0, (sumSquaredReturnPct / strategyTradeCount) - (meanReturn * meanReturn));
       const stdDev = Math.sqrt(variance);
 
       // Sortino: uses target return of 0
-      const downsideVariance = downsideSumSquaredReturnPct / totalTrades;
+      const downsideVariance = downsideSumSquaredReturnPct / strategyTradeCount;
       const downsideStdDev = Math.sqrt(downsideVariance);
 
       if (stdDev > 0) sharpeRatio = meanReturn / stdDev;
@@ -165,8 +183,8 @@ export class AnalyticsService {
       maxDrawdown: roundTo(maxDD, 2),
       maxDrawdownPct: roundTo(maxDDPct, 2),
       timeOfDay,
-      totalTrades,
-      overallWinRate: totalTrades > 0 ? (totalWins / totalTrades) * 100 : 0,
+      totalTrades: strategyTradeCount,
+      overallWinRate: strategyTradeCount > 0 ? (totalWins / strategyTradeCount) * 100 : 0,
       overallPnlPct: roundTo(overallPnlPct, 2),
       avgWin: roundTo(avgWin, 2),
       avgLoss: roundTo(avgLoss, 2),

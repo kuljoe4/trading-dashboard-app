@@ -173,7 +173,7 @@ export class ExecutionService {
         });
         slPrice = slFiltered.price;
 
-        const qty = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
+        const qty = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as any, symbolConfig, opp.symbol);
 
         if (qty <= 0) {
           this.logger.debug(`${opp.symbol}: Position size is 0 after SL filtering. SL: ${slPrice}, Entry: ${price}`);

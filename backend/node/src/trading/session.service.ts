@@ -574,8 +574,20 @@ export class SessionService implements OnModuleInit {
               }
             }
 
-            await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date(), is_reconciliation: true });
+            let exitPrice = 0;
+            try {
+              const tickerPrice = await this.tradingSessionService.fetchTickerPrice(trade.symbol);
+              exitPrice = await this.orderManager.recoverLastExecutionPrice(trade.symbol, trade as any, tickerPrice || Number(trade.entry_price));
+            } catch (e) {}
+
+            await this.tradeRepository.update(trade.id, {
+              status: 'CLOSED_ORPHANED',
+              exit_ts: new Date(),
+              exit_price: exitPrice,
+              is_reconciliation: true
+            });
             (trade as any).reconciled_out = true;
+            recalculationNeeded = true;
             continue;
           }
         } catch (e) {

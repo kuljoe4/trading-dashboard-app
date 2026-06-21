@@ -23,6 +23,7 @@ export class SessionLifecycleService {
   private userDataWs: any = null;
   private listenKey: string | null = null;
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
+  private udsLivenessCheck: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly sessionState: SessionStateService,
@@ -176,6 +177,7 @@ export class SessionLifecycleService {
     await this.progress('Initiating session shutdown...');
     if (this.balancePollInterval) clearInterval(this.balancePollInterval);
     if (this.listenKeyKeepAlive) clearInterval(this.listenKeyKeepAlive);
+    if (this.udsLivenessCheck) clearInterval(this.udsLivenessCheck);
     if (this.userDataWs) {
         await this.progress('Closing real-time account stream...');
         try { this.userDataWs.disconnect(); } catch (e) {
@@ -351,6 +353,17 @@ export class SessionLifecycleService {
       }
 
       if (this.listenKeyKeepAlive) clearInterval(this.listenKeyKeepAlive);
+
+      // SRE: Independent UDS liveness check (Stall Detection)
+      if (this.udsLivenessCheck) clearInterval(this.udsLivenessCheck);
+      this.udsLivenessCheck = setInterval(() => {
+        if (!this.running || !this.isUdsConnected) return;
+        const metrics = this.monitoringService.getMetrics();
+        if (metrics.application.exchange_uds_status === 'LAGGING') {
+           this.logger.warn(`[SRE] User Data Stream stall detected (>60s). Force-reconnecting...`);
+           this.startUserDataStream(bc, true).catch(() => {});
+        }
+      }, 30000);
 
       const startTime = Date.now();
       this.listenKeyKeepAlive = setInterval(async () => {

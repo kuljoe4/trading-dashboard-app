@@ -39,6 +39,9 @@ export class OrderManagerService {
   // Audit Item 13: In-flight ratchet locks to prevent Watchdog race conditions
   private ratchetLocks: Map<string, boolean> = new Map();
 
+  // BOLT: Per-symbol log throttling for backoff periods
+  private lastDeferLogTs: Map<string, number> = new Map();
+
   constructor(
     private readonly signalEngine: SignalEngineService,
     private readonly marketFeed: MarketFeedService,
@@ -1493,7 +1496,12 @@ export class OrderManagerService {
       if (!paperMode && attempts > 0) {
          const backoffMs = Math.min(300000, 5000 * Math.pow(2, attempts - 1));
          if (nowTs - lastAttempt < backoffMs) {
-            this.logger.warn(`[${symbol}] Close attempt deferred. Backoff: ${backoffMs}ms, Attempt: ${attempts}, Prev Reason: ${trade.exit_reason || 'unknown'}`);
+            // BOLT: Throttle this log to once per minute per symbol to prevent 5-second spam
+            const lastLog = this.lastDeferLogTs.get(symbol) || 0;
+            if (nowTs - lastLog > 60000) {
+               this.logger.warn(`[${symbol}] Close attempt deferred. Backoff: ${backoffMs}ms, Attempt: ${attempts}, Prev Reason: ${trade.exit_reason || 'unknown'}`);
+               this.lastDeferLogTs.set(symbol, nowTs);
+            }
             return { trade, exitOccurred: false };
          }
       }
@@ -1824,6 +1832,9 @@ export class OrderManagerService {
         else if (exitReason === 'SESSION_TERMINATED') trade.exit_signal_type = 'SESSION_TERMINATED';
         else trade.exit_signal_type = 'SIGNAL';
       }
+
+      // Clean up log throttle on successful close
+      this.lastDeferLogTs.delete(symbol);
 
       // Determine status
       if (exitReason.includes('SL')) {

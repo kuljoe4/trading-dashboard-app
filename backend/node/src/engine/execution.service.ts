@@ -48,6 +48,10 @@ export class ExecutionService {
 
     for (const trade of activeTrades) {
       try {
+        // SRE-01: Skip blocked trades in the normal exit loop to save CPU and avoid alert spam.
+        // Blocked trades require manual intervention on the exchange.
+        if (trade.close_blocked) continue;
+
         const currentPrice = this.tickerCache.getPrice(trade.symbol);
         if (!currentPrice) continue;
 

@@ -145,14 +145,23 @@ export class PositionTrackerService {
       const exitRr = exitRrSequence[currentIndex] ?? 0;
 
       // Calculate new SL based on target RR
-      let newSl: number;
+      let targetSl: number;
       if (trade.direction === 'LONG') {
         // For LONG: breakeven is entry; positive exit RR locks profit above entry.
-        newSl = trade.entry_price + risk * exitRr;
+        targetSl = trade.entry_price + risk * exitRr;
       } else {
         // For SHORT: breakeven is entry; positive exit RR locks profit below entry.
-        newSl = trade.entry_price - risk * exitRr;
+        targetSl = trade.entry_price - risk * exitRr;
       }
+
+      // DATA-07: Ensure the target SL is filtered/rounded to exchange tick size BEFORE comparison.
+      // This prevents infinite cancel-replace loops caused by precision mismatches between
+      // internal float math (e.g. 0.1886835) and exchange tick sizes (e.g. 0.1887).
+      const filtered = this.orderManager.applyFilters(symbol, targetSl, trade.qty, {
+        priceRounding: trade.direction === 'LONG' ? 'floor' : 'ceil',
+        skipNotionalCheck: true
+      });
+      let newSl = filtered.price;
 
       // Audit Item: Dynamic Trailing Boundary Guard
       // Prevents "Order would immediately trigger" rejections and instant fills by ensuring
@@ -177,7 +186,8 @@ export class PositionTrackerService {
 
       // Only move SL deeper into profit (stricter protection)
       if (trade.direction === 'LONG' && newSl) {
-        if (newSl > trade.current_sl) {
+        // BOLT: Use epsilon comparison to avoid loops on tiny float differences
+        if (newSl > trade.current_sl + 0.00000001) {
           const prevSl = trade.current_sl;
           const prevRisk = trade.risk_usdt || 0;
           trade.current_sl = newSl;
@@ -210,7 +220,8 @@ export class PositionTrackerService {
           this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
         }
       } else if (trade.direction === 'SHORT' && newSl) {
-        if (newSl < trade.current_sl) {
+        // BOLT: Use epsilon comparison to avoid loops on tiny float differences
+        if (newSl < trade.current_sl - 0.00000001) {
           const prevSl = trade.current_sl;
           const prevRisk = trade.risk_usdt || 0;
           trade.current_sl = newSl;

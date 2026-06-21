@@ -11,7 +11,7 @@ import {
   ChevronLeft, Plus, Trash2, LayoutDashboard, History,
   Settings as SettingsIcon, Activity, Zap, ShieldCheck,
   BarChart3, XCircle, Pause, Play, Edit3, RefreshCw, Leaf,
-  Briefcase, TrendingUp, ArrowRight, AlertCircle
+  Briefcase, TrendingUp, ArrowRight, AlertCircle, CheckCircle2, Info, Loader2
 } from 'lucide-react'
 import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -514,11 +514,12 @@ export function DashboardView({ initialStrategy }) {
     return () => window.removeEventListener('toggle-scanner', toggleScanner);
   }, []);
 
+  const addAlert = useTradingStore(state => state.addAlert);
+
   async function handleConfigSave(newConfig) {
     setLoading(true)
     setSyncing(true)
     useTradingStore.setState({ configSyncing: true }); // Enable global sync protection
-    setShowConfig(false)
     try {
       let finalConfig = newConfig;
       if (editingVariantIndex !== null) {
@@ -530,18 +531,21 @@ export function DashboardView({ initialStrategy }) {
       if (isEditMode && strategyId) {
         await sessionAPI.update(strategyId, finalConfig)
         updateConfig(finalConfig)
+        addAlert({ level: 'success', title: 'Config Updated', message: 'Strategy parameters synchronized with the engine.' });
       } else {
         updateConfig(finalConfig)
         const res = await sessionAPI.start(finalConfig, finalConfig.paper_mode)
         setSessionActive(true, res.data.strategyId || res.data.strategy_id)
+        addAlert({ level: 'success', title: 'Session Started', message: `Engine active with "${finalConfig.strategy_label}".` });
       }
+      setShowConfig(false)
       await fetchSessions()
     } catch (e) {
       const isNetworkError = e.message === 'Network Error' || e.code === 'ERR_NETWORK';
       const msg = isNetworkError
         ? 'Network Error: Failed to reach backend. Check your internet or CORS settings.'
         : (e?.response?.data?.detail || e?.response?.data?.message || 'Failed to save config');
-      alert(msg)
+      addAlert({ level: 'error', title: 'Action Failed', message: msg });
     } finally {
       setLoading(false)
       setSyncing(false)
@@ -554,8 +558,14 @@ export function DashboardView({ initialStrategy }) {
   async function togglePause() {
     try {
       await sessionAPI.pause(!sessionPaused)
+      addAlert({
+        level: 'info',
+        title: sessionPaused ? 'Session Resumed' : 'Session Paused',
+        message: sessionPaused ? 'Engine is now actively scanning for opportunities.' : 'Scanning and entry logic suspended.'
+      });
     } catch (e) {
       console.error('Pause toggle failed:', e)
+      addAlert({ level: 'error', title: 'Action Failed', message: 'Could not toggle session pause state.' });
     }
   }
 
@@ -567,8 +577,9 @@ export function DashboardView({ initialStrategy }) {
     try {
       const res = await sessionAPI.start(last.config, last.paperMode, last.id);
       setSessionActive(true, res.data.strategyId || res.data.strategy_id);
+      addAlert({ level: 'success', title: 'Session Resumed', message: `Restored previous session "${last.config.strategy_label}".` });
     } catch (e) {
-      alert('Failed to resume session');
+      addAlert({ level: 'error', title: 'Resume Failed', message: 'Could not restore previous session state.' });
     } finally {
       setLoading(false);
       setSyncing(false);
@@ -581,9 +592,11 @@ export function DashboardView({ initialStrategy }) {
     try {
       await sessionAPI.stop()
       setSessionActive(false, null)
+      addAlert({ level: 'info', title: 'Session Terminated', message: 'Engine stopped and all positions closed at market.' });
       await fetchSessions()
     } catch (e) {
       setSessionActive(false, null)
+      addAlert({ level: 'warn', title: 'Session Stopped', message: 'Engine halted, but some cleanup tasks might have failed.' });
       await fetchSessions()
     } finally {
       setLoading(false)
@@ -755,43 +768,58 @@ export function DashboardView({ initialStrategy }) {
                   Dismiss All
                 </motion.button>
               )}
-              {alerts && alerts.map(alert => (
-                <motion.div
-                  key={alert.id}
-                  layout
-                  initial={{ opacity: 0, x: 30, scale: 0.98 }}
-                  animate={{ opacity: 1, x: 0, scale: 1 }}
-                  exit={{ opacity: 0, x: 10, scale: 0.98 }}
-                  className={cn(
-                    "py-2.5 px-3.5 rounded-lg border shadow-lg flex flex-col gap-0.5 relative overflow-hidden pointer-events-auto",
-                    alert.level === 'error' ? "bg-red/5 border-red/20 text-red-400 backdrop-blur-2xl" :
-                    alert.level === 'warn' ? "bg-amber/5 border-amber/20 text-amber-400 backdrop-blur-2xl" :
-                    "bg-accent/5 border-accent/20 text-accent-400 backdrop-blur-2xl"
-                  )}
-                >
-                  <button
-                    onClick={() => updateStats({ alerts: alerts.filter(a => a.id !== alert.id) })}
-                    className="absolute top-2 right-2 p-0.5 hover:bg-white/10 rounded transition-colors group"
-                    aria-label="Dismiss alert"
+              {alerts && alerts.map(alert => {
+                const Icon = alert.level === 'error' ? XCircle :
+                            alert.level === 'warn' ? AlertCircle :
+                            alert.level === 'success' ? CheckCircle2 : Info;
+
+                return (
+                  <motion.div
+                    key={alert.id}
+                    layout
+                    initial={{ opacity: 0, x: 30, scale: 0.98 }}
+                    animate={{ opacity: 1, x: 0, scale: 1 }}
+                    exit={{ opacity: 0, x: 10, scale: 0.98 }}
+                    className={cn(
+                      "py-3 px-4 rounded-xl border shadow-[0_8px_32px_rgba(0,0,0,0.3)] flex flex-col gap-1 relative overflow-hidden pointer-events-auto backdrop-blur-2xl",
+                      alert.level === 'error' ? "bg-red/10 border-red/30 text-red-400" :
+                      alert.level === 'warn' ? "bg-amber/10 border-amber/30 text-amber-400" :
+                      alert.level === 'success' ? "bg-green/10 border-green/30 text-green-400" :
+                      "bg-accent/10 border-accent/30 text-accent-400"
+                    )}
                   >
-                    <XCircle size={10} className="opacity-20 group-hover:opacity-100 transition-opacity" />
-                  </button>
-                  <div className="flex items-center gap-2 pr-5">
-                    {alert.level === 'error' ? <XCircle size={12} className="shrink-0 opacity-80" /> : <AlertCircle size={12} className="shrink-0 opacity-80" />}
-                    <div className="flex flex-col min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[9px] font-black uppercase tracking-[0.1em] truncate opacity-70">{alert.title || 'System Alert'}</span>
-                        {alert.count > 1 && (
-                          <span className="bg-current/10 px-1 py-0 rounded-xs text-[7px] font-black">x{alert.count}</span>
-                        )}
+                    <button
+                      onClick={() => updateStats({ alerts: alerts.filter(a => a.id !== alert.id) })}
+                      className="absolute top-2 right-2 p-1 hover:bg-white/10 rounded-lg transition-colors group"
+                      aria-label="Dismiss alert"
+                    >
+                      <XCircle size={12} className="opacity-20 group-hover:opacity-100 transition-opacity" />
+                    </button>
+                    <div className="flex items-center gap-2.5 pr-6">
+                      <div className={cn(
+                        "p-1 rounded-lg shrink-0",
+                        alert.level === 'error' ? "bg-red/20" :
+                        alert.level === 'warn' ? "bg-amber/20" :
+                        alert.level === 'success' ? "bg-green/20" :
+                        "bg-accent/20"
+                      )}>
+                        <Icon size={14} className="shrink-0" />
                       </div>
+                      <div className="flex flex-col min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black uppercase tracking-widest truncate">{alert.title || 'System Alert'}</span>
+                          {alert.count > 1 && (
+                            <span className="bg-current/20 px-1.5 py-0.5 rounded text-[8px] font-black">x{alert.count}</span>
+                          )}
+                        </div>
+                      </div>
+                      {alert.symbol && <span className="ml-auto bg-black/20 px-1.5 py-0.5 rounded font-mono text-[9px] font-black shrink-0">{alert.symbol}</span>}
                     </div>
-                    {alert.symbol && <span className="ml-auto bg-black/15 px-1 py-0.5 rounded text-[8px] font-mono font-black shrink-0 opacity-90">{alert.symbol}</span>}
-                  </div>
-                  <p className="text-[10px] font-bold pl-5 pr-1 leading-[1.3] opacity-90 line-clamp-3">{alert.message}</p>
-                  <div className="absolute bottom-0 left-0 h-[1.5px] bg-current opacity-15 animate-shrink-width" style={{ animationDuration: '10s' }} />
-                </motion.div>
-              ))}
+                    <p className="text-[11px] font-bold pl-8 pr-1 leading-relaxed opacity-90 line-clamp-4">{alert.message}</p>
+                    <div className="absolute bottom-0 left-0 h-[2px] bg-current opacity-20 animate-shrink-width" style={{ animationDuration: '10s' }} />
+                  </motion.div>
+                );
+              })}
             </AnimatePresence>
           </div>
 
@@ -977,6 +1005,7 @@ export function DashboardView({ initialStrategy }) {
                       onSave={handleConfigSave}
                       onClose={() => setShowConfig(false)}
                       isEdit={isEditMode}
+                      loading={loading}
                     />
                   )}
                 </Suspense>

@@ -53,7 +53,9 @@ export class MomentumScannerService {
    */
   scan(config: SessionConfig): Opportunity[] {
     try {
-      const results: { opp: Opportunity; candles: Candle[] }[] = [];
+      // BOLT OPTIMIZATION: Use a single Map to collect and deduplicate results directly.
+      // This eliminates the overhead of intermediate results/singleResults arrays and re-processing.
+      const resultMap = new Map<string, { opp: Opportunity; candles: Candle[] }>();
 
       // 1. Global Scan (if enabled)
       if (config.global_scanner_enabled !== false) {
@@ -77,7 +79,7 @@ export class MomentumScannerService {
             if (res) {
               // Populate volume_rank based on absolute position in the volume-sorted list
               res.opp.volume_rank = (config.watchlist_offset || 0) + i + 1;
-              results.push(res);
+              resultMap.set(symbol, res);
             }
           } catch (error) {
             this.logger.verbose(`Global scan error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
@@ -87,7 +89,6 @@ export class MomentumScannerService {
 
       // 2. Single Symbol Monitors
       if (config.single_symbol_configs && config.single_symbol_configs.length > 0) {
-        const singleResults: { opp: Opportunity; candles: Candle[] }[] = [];
         for (const sc of config.single_symbol_configs) {
           if (!sc.enabled) continue;
           try {
@@ -96,30 +97,20 @@ export class MomentumScannerService {
               : config;
             const interval = symbolConfig.scan_interval || '1m';
             const res = this.scanSymbol(sc.symbol, interval, symbolConfig);
-            if (res) singleResults.push(res);
+            if (res) {
+              resultMap.set(sc.symbol, res);
+            }
           } catch (error) {
             this.logger.verbose(`Single symbol scan error for ${sc.symbol}: ${error instanceof Error ? error.message : String(error)}`);
           }
         }
-
-        // Use a map to prevent duplicate symbols if they are in both global and single
-        // BOLT OPTIMIZATION: Populate Map directly from results to avoid results.map() allocation
-        const resultMap = new Map<string, { opp: Opportunity; candles: Candle[] }>();
-        for (const r of results) {
-          resultMap.set(r.opp.symbol, r);
-        }
-        for (const r of singleResults) {
-          if (r) resultMap.set(r.opp.symbol, r);
-        }
-
-        results.length = 0;
-        // BOLT OPTIMIZATION: Use direct loop instead of spread results.push(...resultMap.values()) to avoid intermediate array
-        for (const r of resultMap.values()) {
-          results.push(r);
-        }
       }
-      // BOLT OPTIMIZATION: results are already guaranteed to be non-null
-      const tempResults = results;
+
+      // BOLT OPTIMIZATION: Use direct iteration to convert Map to array for sorting.
+      const tempResults: { opp: Opportunity; candles: Candle[] }[] = [];
+      for (const r of resultMap.values()) {
+        tempResults.push(r);
+      }
 
       // Sort by score descending and take top results
       tempResults.sort((a, b) => b.opp.score - a.opp.score);
@@ -192,6 +183,20 @@ export class MomentumScannerService {
     // Determine direction based on momentum
     const direction = momentumPct > 0 ? 'LONG' : 'SHORT';
 
+    // Get current price and volume
+    // BOLT OPTIMIZATION: Use O(1) ticker lookup instead of O(N) array search
+    const tickerData = this.tickerCache.getTicker(symbol);
+
+    // BOLT OPTIMIZATION: Early return if symbol does not meet session criteria
+    // before performing expensive volatility/trend calculations in calculateScore.
+    const side = config.entry_side || 'both';
+    if (side === 'long' && direction !== 'LONG') return null;
+    if (side === 'short' && direction !== 'SHORT') return null;
+
+    const volume = Number(tickerData?.volume_24h || 0);
+    const minVolume = config.scan_min_volume_usdt ?? 0;
+    if (volume < minVolume) return null;
+
     // Calculate opportunity score (0-100)
     // Based on: momentum magnitude, volume, volatility
     const score = this.calculateScore(
@@ -199,10 +204,6 @@ export class MomentumScannerService {
       momentumPct,
       config,
     );
-
-    // Get current price and volume
-    // BOLT OPTIMIZATION: Use O(1) ticker lookup instead of O(N) array search
-    const tickerData = this.tickerCache.getTicker(symbol);
 
     const displayPrice = this.isValidPrice(tickerData?.price ?? 0)
       ? tickerData!.price
@@ -213,25 +214,12 @@ export class MomentumScannerService {
         symbol,
         price: displayPrice,
         momentum: momentumPct,
-        volume_24h: Number(tickerData?.volume_24h || 0),
+        volume_24h: volume,
         score,
         direction,
       },
       candles,
     };
-  }
-
-  private passesConfig(opportunity: Opportunity, config: SessionConfig): boolean {
-    const threshold = config.scan_pct_threshold ?? 0;
-    const minVolume = config.scan_min_volume_usdt ?? 0;
-    const side = config.entry_side || 'both';
-
-    if (Math.abs(opportunity.momentum) < threshold) return false;
-    if (opportunity.volume_24h < minVolume) return false;
-    if (side === 'long' && opportunity.direction !== 'LONG') return false;
-    if (side === 'short' && opportunity.direction !== 'SHORT') return false;
-
-    return true;
   }
 
   private calculateScore(

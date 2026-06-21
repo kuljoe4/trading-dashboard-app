@@ -39,6 +39,9 @@ export class OrderManagerService {
   // Audit Item 13: In-flight ratchet locks to prevent Watchdog race conditions
   private ratchetLocks: Map<string, boolean> = new Map();
 
+  // SRE: Per-symbol closure locks to prevent concurrent execution races
+  private closureLocks: Map<string, boolean> = new Map();
+
   // BOLT: Per-symbol log throttling for backoff periods
   private lastDeferLogTs: Map<string, number> = new Map();
 
@@ -314,10 +317,25 @@ export class OrderManagerService {
       }
     }
 
-    const lotSize = filters.filters.find((f: { filterType: string; tickSize?: string; stepSize?: string; notional?: string; minNotional?: string }) => f.filterType === 'LOT_SIZE');
+    const lotSize = filters.filters.find((f: any) => f.filterType === 'LOT_SIZE');
     if (lotSize) {
       const stepSize = parseFloat(lotSize.stepSize);
       finalQty = floorStep(qty, stepSize);
+
+      // Support for MARKET_LOT_SIZE to prevent "Quantity greater than max quantity" errors
+      const marketLotSize = filters.filters.find((f: any) => f.filterType === 'MARKET_LOT_SIZE');
+      if (marketLotSize) {
+        const maxQty = parseFloat(marketLotSize.maxQty);
+        const minQty = parseFloat(marketLotSize.minQty);
+        if (finalQty > maxQty) {
+          this.logger.warn(`${symbol}: Quantity ${finalQty} exceeds MARKET_LOT_SIZE maxQty ${maxQty}. Clamping.`);
+          finalQty = maxQty;
+        }
+        if (finalQty < minQty && finalQty > 0) {
+          this.logger.warn(`${symbol}: Quantity ${finalQty} below MARKET_LOT_SIZE minQty ${minQty}.`);
+          finalQty = 0; // Block entry
+        }
+      }
     }
 
     // MIN_NOTIONAL Check
@@ -1476,7 +1494,15 @@ export class OrderManagerService {
     paperMode = this.paperMode,
     localOnly = false,
   ): Promise<{ trade: Trade; exitOccurred: boolean; closeBlocked?: boolean }> {
+    // SRE: Per-symbol concurrency lock to prevent overlapping closure attempts
+    if (!paperMode && !localOnly && this.closureLocks.get(symbol)) {
+       this.logger.debug(`[${symbol}] Closure already in progress. Skipping redundant request.`);
+       return { trade, exitOccurred: false };
+    }
+
     try {
+      if (!paperMode && !localOnly) this.closureLocks.set(symbol, true);
+
       // SRE-01: Only block if we are actually attempting an exchange operation.
       // localOnly syncs must always be allowed to clear "ghost" trades and blocked states.
       if (trade.close_blocked && !localOnly) {
@@ -1855,6 +1881,8 @@ export class OrderManagerService {
     } catch (error) {
       this.logger.error(`Close failed: ${error instanceof Error ? error.message : String(error)}`);
       return { trade, exitOccurred: false };
+    } finally {
+      if (!paperMode && !localOnly) this.closureLocks.delete(symbol);
     }
   }
 }

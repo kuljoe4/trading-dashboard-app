@@ -1105,8 +1105,11 @@ export class SessionService implements OnModuleInit {
 
     const sid = this.currentSessionId;
 
+    // SENTINEL: Truncate log messages to prevent resource exhaustion (DoS)
+    const sanitizedMsg = msg && msg.length > 2000 ? msg.substring(0, 2000) + "... [truncated]" : msg;
+
     // Broadcast to UI immediately for real-time visibility
-    this.broadcastEvent('log', { msg, level, ts: new Date().toISOString() });
+    this.broadcastEvent("log", { msg: sanitizedMsg, level, ts: new Date().toISOString() });
 
     const now = Date.now();
 
@@ -1153,7 +1156,7 @@ export class SessionService implements OnModuleInit {
       sessionId: this.currentSessionId,
       ts: new Date().toISOString(),
       level,
-      msg,
+      msg: sanitizedMsg,
     });
   }
 

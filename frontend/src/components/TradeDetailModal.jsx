@@ -4,11 +4,13 @@ import { X, Clock, ArrowUpRight, ArrowDownRight } from 'lucide-react'
 import { cn, CopyButton, VisuallyHidden } from './ui/primitives'
 import { formatDuration } from '../lib/formatters'
 import { TradeDetailContent } from './trade/TradeDetailContent'
+import { useTradingStore } from '../store/trading'
 
 export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) => {
   const [now, setNow] = useState(Date.now())
   const [isClosing, setIsClosing] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
+  const addAlert = useTradingStore(state => state.addAlert);
 
   useEffect(() => {
     if (!isOpen) return
@@ -28,8 +30,6 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
   if (!trade) return null
 
   const isLong = trade.direction === 'LONG'
-
-  const addAlert = useTradingStore(state => state.addAlert);
 
   const handleForceClose = async (symbol) => {
     setIsClosing(true)

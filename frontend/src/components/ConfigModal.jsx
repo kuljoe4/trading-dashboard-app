@@ -5,6 +5,7 @@ import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge } from './ui/primiti
 import * as Switch from '@radix-ui/react-switch'
 import { CONFIG_LIMITS } from '../constants/configLimits'
 import { settingsAPI, presetsAPI } from '../api/client'
+import { useTradingStore } from '../store/trading'
 
 const fmtUSD = (v) => `$${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -69,6 +70,8 @@ const flattenConfig = (config) => {
   } catch (e) { return { ...config }; }
 };
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
+  const addAlert = useTradingStore(state => state.addAlert);
+
   const [cfg, setCfg] = useState(() => {
     const savedDraft = sessionStorage.getItem('config_draft');
     if (savedDraft) return JSON.parse(savedDraft);
@@ -98,13 +101,19 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [cfg, loadedPresetName]);
 
   const validate = (c) => {
-    // ... (rest of the component logic)
-
     const errs = {}; if (!c.scan_interval) errs.scan_interval = 'Required'; if (c.scan_lookback < 1) errs.scan_lookback = 'Min 1';
     if (c.scan_mode === 'active_window' && (!c.scan_window_duration_sec || !c.scan_check_interval_sec)) errs.scan_mode = 'Params missing';
     
     if (c.risk_pct_per_trade > c.max_total_risk_pct) {
       errs.risk_pct_per_trade = 'Exceeds max total risk'
+    }
+
+    if (!c.max_open_trades || c.max_open_trades < 1) {
+      errs.max_open_trades = 'Min 1';
+    }
+
+    if (c.sl_distance_pct <= 0) {
+      errs.sl_distance_pct = 'Must be > 0';
     }
 
     if (c.risk_pct_per_trade > 2) {
@@ -126,14 +135,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   useEffect(() => {
     const loadPresets = async () => {
       try {
+        console.log('[ConfigModal] Loading presets...');
         const res = await presetsAPI.list();
-        setPresets(res.data);
+        if (res && res.data) {
+          setPresets(res.data);
+          console.log(`[ConfigModal] Loaded ${res.data.length} presets.`);
+        } else {
+          console.warn('[ConfigModal] No presets data returned from API.');
+        }
       } catch (e) {
         console.error('[ConfigModal] Error loading presets:', e);
+        if (addAlert) {
+          addAlert({ level: 'error', title: 'Load Failed', message: 'Failed to load strategy presets. Check network connection.' });
+        }
       }
     };
     loadPresets();
-  }, [])
+  }, [addAlert])
 
   // Check API key configuration for testnet and live modes
   useEffect(() => {
@@ -196,25 +214,36 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     }))
   }
 
-  const addAlert = useTradingStore(state => state.addAlert);
-
   const savePreset = async () => {
-    if (!validate(cfg)) return;
-    const name = (presetName || generatedPresetName).trim();
-    if (!name) return;
-    const { strategy_variants, ...pc } = cfg;
-    setIsSaving(true);
     try {
+      if (!validate(cfg)) {
+        console.warn('[ConfigModal] Save blocked: validation failed');
+        return;
+      }
+      const name = (presetName || generatedPresetName).trim();
+      if (!name) {
+        addAlert({ level: 'warn', title: 'Missing Name', message: 'Please provide a name for this strategy preset.' });
+        return;
+      }
+
+      const { strategy_variants, ...pc } = buildConfigToSave();
+      setIsSaving(true);
+      console.log(`[ConfigModal] Saving preset: ${name}`, pc);
+
       const res = await presetsAPI.save(name, { ...pc, strategy_label: name });
-      const next = [...presets.filter(p => p.name !== name), res.data];
-      setPresets(next);
-      setPresetName('');
-      setSaveSuccess(true);
-      addAlert({ level: 'success', title: 'Preset Saved', message: `Strategy "${name}" has been stored in the database.` });
-      setTimeout(() => setSaveSuccess(false), 2000);
+
+      if (res && res.data) {
+        const next = [...presets.filter(p => p.name !== name), res.data];
+        setPresets(next);
+        setPresetName('');
+        setSaveSuccess(true);
+        addAlert({ level: 'success', title: 'Preset Saved', message: `Strategy "${name}" has been stored in the database.` });
+        setTimeout(() => setSaveSuccess(false), 2000);
+      }
     } catch (e) {
       console.error('[ConfigModal] Error saving preset:', e);
-      addAlert({ level: 'error', title: 'Save Failed', message: 'Could not store strategy preset in the database.' });
+      const errMsg = e.response?.data?.message || 'Could not store strategy preset in the database.';
+      addAlert({ level: 'error', title: 'Save Failed', message: errMsg });
     } finally {
       setIsSaving(false);
     }
@@ -258,15 +287,48 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
   const buildConfigToSave = () => {
     const c = { ...cfg, strategy_label: (cfg.strategy_label || presetName || generatedPresetName || 'Momentum Strategy').trim() };
+
+    // Explicitly sanitize inputs for security and data integrity
     const sp = { ...(typeof cfg.signal_params === 'string' ? JSON.parse(cfg.signal_params || '{}') : cfg.signal_params || {}) };
-    ['ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period', 'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow'].forEach(k => { if (cfg[`signal_params_${k}`]) sp[k] = cfg[`signal_params_${k}`]; });
+    ['ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period', 'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow'].forEach(k => {
+      const val = cfg[`signal_params_${k}`];
+      if (val !== undefined && val !== null) {
+        sp[k] = Number(val);
+      }
+    });
     c.signal_params = sp;
+
+    // Ensure numeric values where expected
+    const numericFields = [
+      'risk_pct_per_trade', 'max_total_risk_pct', 'max_open_trades', 'total_sl_guard_usdt',
+      'scan_pct_threshold', 'scan_lookback', 'scan_min_volume_usdt', 'watchlist_size',
+      'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
+      'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
+      'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
+      'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
+      'main_loop_interval_ms'
+    ];
+
+    numericFields.forEach(f => {
+      if (c[f] !== undefined && c[f] !== null) {
+        c[f] = Number(c[f]);
+      }
+    });
+
     c.trailing_guard_buffer_pct = cfg.trailing_guard_buffer_pct;
     // UI Conversion: UI percentage back to backend decimal
     if (c.slippage_warning_threshold !== undefined) {
-      c.slippage_warning_threshold = c.slippage_warning_threshold / 100;
+      c.slippage_warning_threshold = Number(c.slippage_warning_threshold) / 100;
     }
     c.strategy_variants = (cfg.strategy_variants || []).map((v) => ({ ...v, strategy_label: v.strategy_label || 'Variant', strategy_variants: [] }));
+
+    // Clean up temporary UI fields
+    Object.keys(c).forEach(k => {
+      if (k.startsWith('signal_params_') && k !== 'signal_params') {
+        delete c[k];
+      }
+    });
+
     return c;
   }
 

@@ -250,7 +250,13 @@ export class SessionService implements OnModuleInit {
         ...persistenceTrade,
         exit_signal_type: trade.exit_signal_type,
         exit_signal_reason: trade.exit_signal_reason,
+        exit_signals_status: trade.exit_signals_status,
+        entry_signal_type: trade.entry_signal_type,
+        entry_signal_confidence: trade.entry_signal_confidence,
+        mark_price: trade.mark_price,
+        last_price: trade.last_price,
         close_attempts: trade.close_attempts || 0,
+        last_close_attempt_ts: trade.last_close_attempt_ts,
         close_blocked: !!trade.close_blocked,
         sessionId,
       });
@@ -310,7 +316,14 @@ export class SessionService implements OnModuleInit {
       this.logger.verbose(`Transaction committed: Saved trade ${trade.symbol} (${trade.status}) and updated session ${sessionId}`);
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      this.logger.error(`Transaction rolled back: Failed to save trade ${trade.symbol}: ${error instanceof Error ? error.message : String(error)}`);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[CRITICAL] Transaction rolled back for ${trade.symbol}: ${errorMsg}`);
+
+      // SRE: Enhance visibility into persistence failures for debugging
+      if (errorMsg.includes('column') || errorMsg.includes('relation')) {
+        this.logger.error(`[DB_SCHEMA_MISMATCH] Potential schema drift detected during trade save: ${errorMsg}`);
+      }
+
       throw error;
     } finally {
       await queryRunner.release();

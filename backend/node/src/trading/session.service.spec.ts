@@ -373,6 +373,43 @@ describe('SessionService Validation', () => {
         exit_signal_reason: 'Fast EMA crossed below slow EMA'
       }));
     });
+
+    it('should persist new debugging fields (signal confidence, prices, status)', async () => {
+      const trade = {
+        symbol: 'BTCUSDT',
+        status: 'OPEN',
+        entry_price: 50000,
+        qty: 1,
+        entry_signal_type: 'breakout',
+        entry_signal_confidence: 0.85,
+        mark_price: 50100,
+        last_price: 50050,
+        exit_signals_status: { 'EMA_CROSS': { fired: false, active: true } },
+        last_close_attempt_ts: 1624250300000
+      } as any;
+      (service as any).currentSessionId = 'session-123';
+
+      mockTradeRepository.create.mockImplementation((d: any) => d);
+
+      const mockQueryBuilder = {
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getRawOne: jest.fn().mockResolvedValue({ sum: '0' }),
+      };
+      mockQueryRunner.manager.createQueryBuilder = jest.fn().mockReturnValue(mockQueryBuilder);
+      mockQueryRunner.manager.findOne.mockResolvedValue({ id: 'session-123', paperMode: true });
+
+      await service.saveTradeAtomic(trade, 10000);
+
+      expect(mockQueryRunner.manager.save).toHaveBeenCalledWith(TradeEntity, expect.objectContaining({
+        entry_signal_type: 'breakout',
+        entry_signal_confidence: 0.85,
+        mark_price: 50100,
+        last_price: 50050,
+        exit_signals_status: { 'EMA_CROSS': { fired: false, active: true } },
+        last_close_attempt_ts: 1624250300000
+      }));
+    });
   });
 
   describe('logMessage rate limiting', () => {

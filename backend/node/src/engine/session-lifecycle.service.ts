@@ -155,7 +155,7 @@ export class SessionLifecycleService {
     }
 
     await this.progress('Initializing market feed and ticker cache...');
-    await this.marketFeed.start(config);
+    await this.marketFeed.start(config, bc);
 
     await this.progress('Warming up momentum scanner...');
     await this.momentumScanner.start(config);
@@ -333,6 +333,12 @@ export class SessionLifecycleService {
                 // ZERO-WEIGHT RECONCILIATION: If position reaches 0 and we have an active trade,
                 // it means it was closed on exchange (SL, TP, or manual).
                 if (amount === 0 && (!prevPos || prevPos.amount !== 0)) {
+                  // SRE: Race condition guard - ignore UDS zero-fills if we are already in the process of entering, ratcheting, or closing
+                  if (this.orderManager.isRatcheting(symbol) || this.positionTracker.isEntering(symbol) || this.positionTracker.isClosing(symbol)) {
+                    this.logger.debug(`[UDS] Ignoring zero-amount update for ${symbol} during lifecycle transition.`);
+                    return;
+                  }
+
                   const trade = this.sessionState.activeTrades.find(t => t.symbol === symbol);
                   if (trade) {
                     const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);

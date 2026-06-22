@@ -127,7 +127,28 @@ export class MarketFeedService {
               const isTradFi = s.underlyingType === 'COMMODITY' || s.underlyingType === 'EQUITY' || s.underlyingType === 'INDEX';
 
               if (isCrypto && !isTradFi) {
-                this.exchangeInfo.set(s.symbol, s);
+                // BOLT OPTIMIZATION: Pre-parse critical filter values to avoid O(N) find() and parseFloat() in the hot-path
+                const parsed: any = { ...s };
+                if (s.filters && Array.isArray(s.filters)) {
+                  for (const f of s.filters) {
+                    if (f.filterType === 'PRICE_FILTER') {
+                      parsed.tickSize = parseFloat(f.tickSize);
+                      parsed.pricePrecision = Math.max(0, Math.round(-Math.log10(parsed.tickSize)));
+                    } else if (f.filterType === 'LOT_SIZE') {
+                      parsed.stepSize = parseFloat(f.stepSize);
+                      parsed.qtyPrecision = Math.max(0, Math.round(-Math.log10(parsed.stepSize)));
+                    } else if (f.filterType === 'MARKET_LOT_SIZE') {
+                      parsed.marketMaxQty = parseFloat(f.maxQty);
+                      parsed.marketMinQty = parseFloat(f.minQty);
+                    } else if (f.filterType === 'PERCENT_PRICE') {
+                      parsed.multiplierUp = parseFloat(f.multiplierUp || '1.1');
+                      parsed.multiplierDown = parseFloat(f.multiplierDown || '0.9');
+                    } else if (f.filterType === 'MIN_NOTIONAL' || f.filterType === 'NOTIONAL') {
+                      parsed.minNotional = parseFloat(f.notional || f.minNotional || '0');
+                    }
+                  }
+                }
+                this.exchangeInfo.set(s.symbol, parsed);
               } else {
                 this.logger.debug(`Filtering out non-crypto symbol: ${s.symbol} (Type: ${s.underlyingType})`);
               }

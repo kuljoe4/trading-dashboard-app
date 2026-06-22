@@ -6,16 +6,16 @@ export class Settings {
   id: string;
 
   @Column({ nullable: true, select: false })
-  binance_api_key: string;
+  binance_api_key: string | null;
 
   @Column({ nullable: true, select: false })
-  binance_api_secret: string;
+  binance_api_secret: string | null;
 
   @Column({ nullable: true, select: false })
-  binance_testnet_api_key: string;
+  binance_testnet_api_key: string | null;
 
   @Column({ nullable: true, select: false })
-  binance_testnet_api_secret: string;
+  binance_testnet_api_secret: string | null;
 
   @Column('decimal', { precision: 20, scale: 8, default: 10000.0 })
   paper_balance: number;

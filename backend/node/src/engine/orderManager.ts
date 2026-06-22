@@ -369,16 +369,14 @@ export class OrderManagerService {
     tpPrice: number | null,
     metadata: Pick<Trade, 'strategy_label' | 'strategy_config' | 'entry_daily_change_pct'> = {},
   ): Promise<ExecutionResult<Trade>> {
+    const filters = this.marketFeed.getSymbolFilters(symbol);
+
     if (this.checkCircuitBreaker()) {
       return { status: ExecutionStatus.CIRCUIT_OPEN, error: 'Circuit breaker is open' };
     }
 
     if (this.sessionState.agreementRequired) {
       return { status: ExecutionStatus.ORDER_REJECTED, error: 'Exchange agreement required. Please check Binance.' };
-    }
-
-    if (this.checkCircuitBreaker()) {
-      return { status: ExecutionStatus.CIRCUIT_OPEN, error: 'Circuit breaker is open due to systemic failures' };
     }
 
     // Zero-CPU Rate Limiter Guard
@@ -405,7 +403,7 @@ export class OrderManagerService {
       tpPrice = filteredTp;
 
       // Fail early if no filters found for live mode
-      if (!this.paperMode && !this.marketFeed.getSymbolFilters(symbol)) {
+      if (!this.paperMode && !filters) {
         this.logger.error(`Live order rejected: No exchange filters found for ${symbol} in current environment.`);
         return { status: ExecutionStatus.ORDER_REJECTED, error: `Symbol ${symbol} is not tradable in the current environment.` };
       }
@@ -570,35 +568,19 @@ export class OrderManagerService {
           const executedQty = parseFloat(entryReceipt.executedQty || '0');
 
           if (absoluteEntryPrice > 0) {
-            const slippage = Math.abs(absoluteEntryPrice - entryPrice) / entryPrice;
-            const warningThreshold = metadata.strategy_config?.slippage_warning_threshold ?? 0.001;
-            const abortThreshold = Math.min(metadata.strategy_config?.slippage_abort_threshold ?? CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT, CONFIG_LIMITS.SLIPPAGE_ABORT_MAX);
+            const slippageValidation = await this.validateSlippage(
+              symbol,
+              trade,
+              entryPrice,
+              absoluteEntryPrice,
+              slPrice,
+              metadata.strategy_config
+            );
 
-            this.logger.log(`[Entry] Execution for ${symbol}: Target ${entryPrice}, Actual ${absoluteEntryPrice.toFixed(8)} (Slippage: ${(slippage * 100).toFixed(4)}%)`);
-
-            if (slippage > abortThreshold) {
-              const abortMsg = `[CRITICAL] Slippage for ${symbol} (${(slippage * 100).toFixed(2)}%) exceeded abort threshold (${(abortThreshold * 100).toFixed(2)}%). Unwinding immediately.`;
-              this.logger.error(abortMsg);
-              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: abortMsg, level: 'error' });
-
-              // Unwind logic
-              try {
-                const unwindRes = await this.closeTrade(symbol, trade, absoluteEntryPrice, 'SLIPPAGE_ABORT', false, false);
-                if (!unwindRes.exitOccurred) {
-                  this.logger.error(`[FATAL] Slippage abort unwind FAILED for ${symbol}. Position may be lingering!`);
-                  this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
-                    msg: `FATAL: Slippage abort unwind failed for ${symbol}. Please check exchange immediately.`,
-                    level: 'error'
-                  });
-                }
-                return { status: ExecutionStatus.ORDER_REJECTED, error: `Slippage abort: ${(slippage * 100).toFixed(2)}%` };
-              } catch (unwindErr) {
-                this.logger.error(`Slippage unwind exception for ${symbol}: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);
-                throw unwindErr;
-              }
-            } else if (slippage > warningThreshold) {
-              this.logger.warn(`Slippage warning for ${symbol}: Delta ${(slippage * 100).toFixed(2)}% exceeds threshold ${(warningThreshold * 100).toFixed(2)}%`);
+            if (!slippageValidation.isValid) {
+              return { status: ExecutionStatus.ORDER_REJECTED, error: slippageValidation.error };
             }
+
             trade.entry_price = roundEight(absoluteEntryPrice);
           }
           if (executedQty > 0) trade.qty = executedQty;
@@ -1521,6 +1503,88 @@ export class OrderManagerService {
       this.logger.debug(`[${(trade.id || 'N/A').substring(0, 8)}] Execution price recovery failed: ${e.message}`);
     }
     return estimate;
+  }
+
+  /**
+   * REFACTOR: Encapsulates slippage validation logic including negative slippage caps
+   * and positive slippage proximity guards for capital safety.
+   */
+  private async validateSlippage(
+    symbol: string,
+    trade: Trade,
+    targetPrice: number,
+    actualPrice: number,
+    slPrice: number,
+    config?: Partial<SessionConfig>
+  ): Promise<{ isValid: boolean; error?: string }> {
+    const direction = trade.direction;
+
+    // Signed slippage: positive value means worse price (negative slippage), negative means better price (positive slippage).
+    const slippage = direction === 'LONG'
+      ? (actualPrice - targetPrice) / targetPrice
+      : (targetPrice - actualPrice) / targetPrice;
+
+    const warningThreshold = config?.slippage_warning_threshold ?? 0.001;
+    const abortThreshold = Math.min(config?.slippage_abort_threshold ?? CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT, CONFIG_LIMITS.SLIPPAGE_ABORT_MAX);
+
+    const slippagePctStr = (slippage * 100).toFixed(4);
+    const slippageType = slippage <= 0 ? 'POSITIVE' : 'NEGATIVE';
+
+    this.logger.log(`[Entry] Execution for ${symbol}: Target ${targetPrice}, Actual ${actualPrice.toFixed(8)} (${slippageType} Slippage: ${slippagePctStr}%)`);
+
+    // SRE: Proximity and Breach Guard.
+    // Positive slippage (better price) means the price moved towards our intended Stop Loss.
+    // "Normal" small positive slippage is allowed and beneficial.
+    // Rejection only occurs if slippage consumes >10% of the intended risk-to-stop distance.
+    const intendedRiskDistance = Math.abs(targetPrice - slPrice);
+    const proximityBuffer = intendedRiskDistance * 0.1; // 10% distance-to-SL guard
+
+    const isTooCloseOrPastSl = direction === 'LONG'
+      ? actualPrice <= (slPrice + proximityBuffer)
+      : actualPrice >= (slPrice - proximityBuffer);
+
+    if (isTooCloseOrPastSl) {
+      const isPast = direction === 'LONG' ? actualPrice <= slPrice : actualPrice >= slPrice;
+      const reason = isPast ? 'AT OR PAST' : 'TOO CLOSE TO';
+      const abortMsg = `[CRITICAL] Entry for ${symbol} @ ${actualPrice.toFixed(8)} is ${reason} intended Stop Loss (${slPrice.toFixed(8)}). Aborting entry for capital safety.`;
+      this.logger.error(abortMsg);
+      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: abortMsg, level: 'error' });
+
+      try {
+        // Unwind position immediately.
+        await this.closeTrade(symbol, trade, actualPrice, isPast ? 'ENTRY_AT_OR_PAST_SL' : 'ENTRY_TOO_CLOSE_TO_SL', false, false);
+        return { isValid: false, error: `Entry ${reason.toLowerCase()} SL: ${actualPrice.toFixed(8)}` };
+      } catch (unwindErr) {
+        this.logger.error(`Failed to unwind unsafe entry for ${symbol}: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);
+        throw unwindErr;
+      }
+    }
+
+    // Abort if negative slippage (worse price) exceeds threshold
+    if (slippage > abortThreshold) {
+      const abortMsg = `[CRITICAL] Negative slippage for ${symbol} (${slippagePctStr}%) exceeded abort threshold (${(abortThreshold * 100).toFixed(2)}%). Unwinding immediately.`;
+      this.logger.error(abortMsg);
+      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: abortMsg, level: 'error' });
+
+      try {
+        const unwindRes = await this.closeTrade(symbol, trade, actualPrice, 'SLIPPAGE_ABORT', false, false);
+        if (!unwindRes.exitOccurred) {
+          this.logger.error(`[FATAL] Slippage abort unwind FAILED for ${symbol}. Position may be lingering!`);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+            msg: `FATAL: Slippage abort unwind failed for ${symbol}. Please check exchange immediately.`,
+            level: 'error'
+          });
+        }
+        return { isValid: false, error: `Slippage abort: ${slippagePctStr}%` };
+      } catch (unwindErr) {
+        this.logger.error(`Slippage unwind exception for ${symbol}: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);
+        throw unwindErr;
+      }
+    } else if (slippage > warningThreshold) {
+      this.logger.warn(`Slippage warning for ${symbol}: Delta ${slippagePctStr}% exceeds threshold ${(warningThreshold * 100).toFixed(2)}%`);
+    }
+
+    return { isValid: true };
   }
 
   async closeTrade(

@@ -22,16 +22,16 @@ export class Session {
   totalPnl: number;
 
   @Column({ nullable: true })
-  strategyLabel: string;
+  strategyLabel: string | null;
 
   @CreateDateColumn()
   startTime: Date;
 
   @Column({ nullable: true })
-  endTime: Date;
+  endTime: Date | null;
 
   @Column('jsonb', { nullable: true })
-  config: any;
+  config: any | null;
 
   @OneToMany(() => TradeEntity, (trade) => trade.session)
   trades: TradeEntity[];

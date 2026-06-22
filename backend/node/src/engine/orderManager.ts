@@ -268,6 +268,10 @@ export class OrderManagerService {
     return { isValid: true, orderId: identifier };
   }
 
+  /**
+   * BOLT OPTIMIZATION: Uses pre-parsed filter properties on the symbol object
+   * to avoid repeated O(N) array searches and string-to-float conversions in the hot path.
+   */
   public applyFilters(symbol: string, price: number, qty: number, options: { priceRounding?: 'round' | 'floor' | 'ceil', skipNotionalCheck?: boolean, clampToPercentPrice?: boolean } = {}) {
     const filters = this.marketFeed.getSymbolFilters(symbol);
     if (!filters) return { price, qty };
@@ -275,9 +279,8 @@ export class OrderManagerService {
     let finalPrice = price;
     let finalQty = qty;
 
-    const priceFilter = filters.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
-    if (priceFilter) {
-      const tickSize = parseFloat(priceFilter.tickSize);
+    const tickSize = filters.tickSize;
+    if (tickSize > 0) {
       const rounding = options.priceRounding || 'round';
       if (rounding === 'floor') finalPrice = roundEight(Math.floor(price / tickSize) * tickSize);
       else if (rounding === 'ceil') finalPrice = roundEight(Math.ceil(price / tickSize) * tickSize);
@@ -285,23 +288,19 @@ export class OrderManagerService {
     }
 
     // PERCENT_PRICE Validation & Clamping
-    const percentPriceFilter = filters.filters.find((f: any) => f.filterType === 'PERCENT_PRICE');
-    if (percentPriceFilter && !this.paperMode) {
+    if (filters.multiplierUp && !this.paperMode) {
       const ticker = this.tickerCache.getTicker(symbol);
       const markPrice = ticker?.mark_price || ticker?.price;
       if (markPrice) {
-        const multiplierUp = parseFloat(percentPriceFilter.multiplierUp || '1.1');
-        const multiplierDown = parseFloat(percentPriceFilter.multiplierDown || '0.9');
-        const maxPrice = markPrice * multiplierUp;
-        const minPrice = markPrice * multiplierDown;
+        const maxPrice = markPrice * filters.multiplierUp;
+        const minPrice = markPrice * filters.multiplierDown;
 
         if (finalPrice > maxPrice || finalPrice < minPrice) {
           if (options.clampToPercentPrice) {
              const prevPrice = finalPrice;
              finalPrice = Math.min(Math.max(finalPrice, minPrice), maxPrice);
              // Re-apply tick size rounding after clamping
-             if (priceFilter) {
-               const tickSize = parseFloat(priceFilter.tickSize);
+             if (tickSize > 0) {
                finalPrice = roundEight(Math.round(finalPrice / tickSize) * tickSize);
              }
              this.logger.log(`${symbol}: Price ${prevPrice} clamped to PERCENT_PRICE band edge ${finalPrice} (Mark: ${markPrice})`);
@@ -325,37 +324,27 @@ export class OrderManagerService {
       }
     }
 
-    const lotSize = filters.filters.find((f: any) => f.filterType === 'LOT_SIZE');
-    if (lotSize) {
-      const stepSize = parseFloat(lotSize.stepSize);
-      finalQty = floorStep(qty, stepSize);
+    if (filters.stepSize > 0) {
+      finalQty = floorStep(qty, filters.stepSize);
 
       // Support for MARKET_LOT_SIZE to prevent "Quantity greater than max quantity" errors
-      const marketLotSize = filters.filters.find((f: any) => f.filterType === 'MARKET_LOT_SIZE');
-      if (marketLotSize) {
-        const maxQty = parseFloat(marketLotSize.maxQty);
-        const minQty = parseFloat(marketLotSize.minQty);
-        if (finalQty > maxQty) {
-          this.logger.warn(`${symbol}: Quantity ${finalQty} exceeds MARKET_LOT_SIZE maxQty ${maxQty}. Clamping.`);
-          finalQty = maxQty;
+      if (filters.marketMaxQty !== undefined) {
+        if (finalQty > filters.marketMaxQty) {
+          this.logger.warn(`${symbol}: Quantity ${finalQty} exceeds MARKET_LOT_SIZE maxQty ${filters.marketMaxQty}. Clamping.`);
+          finalQty = filters.marketMaxQty;
         }
-        if (finalQty < minQty && finalQty > 0) {
-          this.logger.warn(`${symbol}: Quantity ${finalQty} below MARKET_LOT_SIZE minQty ${minQty}.`);
+        if (finalQty < filters.marketMinQty && finalQty > 0) {
+          this.logger.warn(`${symbol}: Quantity ${finalQty} below MARKET_LOT_SIZE minQty ${filters.marketMinQty}.`);
           finalQty = 0; // Block entry
         }
       }
     }
 
     // MIN_NOTIONAL Check
-    if (!options.skipNotionalCheck) {
-      const minNotionalFilter = filters.filters.find((f: { filterType: string; tickSize?: string; stepSize?: string; notional?: string; minNotional?: string }) => f.filterType === 'MIN_NOTIONAL') ||
-                               filters.filters.find((f: { filterType: string; tickSize?: string; stepSize?: string; notional?: string; minNotional?: string }) => f.filterType === 'NOTIONAL');
-      if (minNotionalFilter) {
-        const minNotional = parseFloat(minNotionalFilter.notional || minNotionalFilter.minNotional || '0');
-        if (finalQty * finalPrice < minNotional) {
-          this.logger.warn(`${symbol}: Order notional ${finalQty * finalPrice} is below minimum ${minNotional}`);
-          return { price: finalPrice, qty: 0 }; // Zero qty will block entry
-        }
+    if (!options.skipNotionalCheck && filters.minNotional !== undefined) {
+      if (finalQty * finalPrice < filters.minNotional) {
+        this.logger.warn(`${symbol}: Order notional ${finalQty * finalPrice} is below minimum ${filters.minNotional}`);
+        return { price: finalPrice, qty: 0 }; // Zero qty will block entry
       }
     }
 
@@ -474,13 +463,9 @@ export class OrderManagerService {
           const closeDirection = direction === 'LONG' ? 'SELL' : 'BUY';
           const filters = this.marketFeed.getSymbolFilters(symbol);
 
-          const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
-          const stepSize = parseFloat(lotSize?.stepSize || '0');
-          const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
-
-          const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
-          const tickSize = parseFloat(priceFilter?.tickSize || '0');
-          const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
+          // BOLT OPTIMIZATION: Use pre-parsed precisions from filters
+          const qtyPrecision = filters?.qtyPrecision ?? 8;
+          const pricePrecision = filters?.pricePrecision ?? 8;
 
           const entryOrderId = `ent-${trade.id.replace(/-/g, '').substring(0, 20)}`;
           if (entryOrderId.length > 36) {
@@ -823,13 +808,9 @@ export class OrderManagerService {
     try {
       networkAttempts++;
 
-      const priceFilter = filters?.filters.find((f: any) => f.filterType === 'PRICE_FILTER');
-      const tickSize = parseFloat(priceFilter?.tickSize || '0');
-      const pricePrecision = tickSize > 0 ? Math.max(0, Math.round(-Math.log10(tickSize))) : 8;
-
-      const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
-      const stepSize = parseFloat(lotSize?.stepSize || '0');
-      const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
+      // BOLT OPTIMIZATION: Use pre-parsed precisions from filters
+      const pricePrecision = filters?.pricePrecision ?? 8;
+      const qtyPrecision = filters?.qtyPrecision ?? 8;
 
       // INDUSTRY-BEST-PRACTICE (2026): Adaptive SL Placement Strategy.
       // We prioritize the Algo Order API (CONDITIONAL) as it is more reliable for certain accounts,
@@ -1607,9 +1588,9 @@ export class OrderManagerService {
         try {
           const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
           const filters = this.marketFeed.getSymbolFilters(symbol);
-          const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
-          const stepSize = parseFloat(lotSize?.stepSize || '0');
-          const qtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
+
+          // BOLT OPTIMIZATION: Use pre-parsed precisions from filters
+          const qtyPrecision = filters?.qtyPrecision ?? 8;
 
           const clientOrderId = `cls-${trade.id.replace(/-/g, '').substring(0, 20)}`;
 
@@ -1854,9 +1835,8 @@ export class OrderManagerService {
                     });
 
                     const filters = this.marketFeed.getSymbolFilters(symbol);
-                    const lotSize = filters?.filters.find((f: any) => f.filterType === 'LOT_SIZE');
-                    const stepSize = parseFloat(lotSize?.stepSize || '0');
-                    const limitQtyPrecision = stepSize > 0 ? Math.max(0, Math.round(-Math.log10(stepSize))) : 8;
+                    // BOLT OPTIMIZATION: Use pre-parsed precision
+                    const limitQtyPrecision = filters?.qtyPrecision ?? 8;
 
                     const clientOrderId = `cls-lim-${trade.id.replace(/-/g, '').substring(0, 16)}`;
                     const limitResponse = await this.binanceClient.restAPI.newOrder({

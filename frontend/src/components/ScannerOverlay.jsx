@@ -1,8 +1,8 @@
-import React from 'react'
+import React, { useState, useMemo } from 'react'
 import { fmtVol } from '../lib/theme'
 import { PulseDot, Sparkline, cn, CopyButton } from './ui/primitives'
 import { useTradingStore } from '../store/trading'
-import { X, Search, ShieldCheck } from 'lucide-react'
+import { X, Search, ShieldCheck, XCircle } from 'lucide-react'
 
 export const ScannerOverlay = React.memo(({ onClose }) => {
   const { scannerResults, activeWindows, config, scannerPaused, gateState } = useTradingStore(state => ({
@@ -13,27 +13,64 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
     gateState: state.gateState,
   }))
   const threshold = config.scan_pct_threshold || 2.0
+  const [search, setSearch] = useState('')
+
+  const filteredResults = useMemo(() => {
+    if (!search) return scannerResults
+    const term = search.toLowerCase().trim()
+    return scannerResults.filter(r => r.symbol.toLowerCase().includes(term))
+  }, [scannerResults, search])
+
+  const filteredWindows = useMemo(() => {
+    if (!search) return activeWindows
+    const term = search.toLowerCase().trim()
+    return activeWindows.filter(w => w.symbol.toLowerCase().includes(term))
+  }, [activeWindows, search])
 
   return (
     <div className="flex flex-col h-full bg-surface text-text overflow-hidden">
       <div className="p-4 border-b border-border flex justify-between items-center shrink-0 h-[64px]">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 min-w-0">
           <PulseDot color="bg-green" />
-          <span className="text-[14px] font-bold">Live Scanner</span>
-          <span className="text-[10px] text-dim font-medium uppercase tracking-wider">threshold ≥ {threshold}%</span>
-          {scannerPaused && <span className="text-[10px] text-red font-bold uppercase">PAUSED: {gateState}</span>}
+          <span className="text-[14px] font-bold hidden sm:inline">Live Scanner</span>
+          <span className="text-[10px] text-dim font-medium uppercase tracking-wider hidden md:inline">threshold ≥ {threshold}%</span>
+          {scannerPaused && <span className="text-[10px] text-red font-bold uppercase truncate">PAUSED: {gateState}</span>}
         </div>
-        <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full transition-colors" aria-label="Close scanner">
-          <X size={18} className="text-dim" />
-        </button>
+
+        <div className="flex items-center gap-3 flex-1 justify-end max-w-md">
+          <div className="relative group flex-1">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
+            <input
+              type="text"
+              placeholder="Search symbols... [/]"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
+              className="w-full bg-background border border-border rounded-xl pl-9 pr-8 py-1.5 text-[11px] font-bold focus:border-accent outline-none transition-all"
+              aria-label="Filter scanner symbols"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors"
+                aria-label="Clear filter"
+              >
+                <XCircle size={14} />
+              </button>
+            )}
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full transition-colors shrink-0" aria-label="Close scanner">
+            <X size={18} className="text-dim" />
+          </button>
+        </div>
       </div>
 
       <div className={cn(
         "bg-accent/5 border-b border-border overflow-x-auto no-scrollbar shrink-0 transition-all duration-300 ease-in-out",
-        activeWindows.length > 0 ? "h-[42px] p-2.5 opacity-100" : "h-0 p-0 opacity-0 border-none"
+        filteredWindows.length > 0 ? "h-[42px] p-2.5 opacity-100" : "h-0 p-0 opacity-0 border-none"
       )}>
         <div className="flex gap-4">
-          {activeWindows.map((window) => (
+          {filteredWindows.map((window) => (
             <div key={window.symbol} className="flex items-center gap-1.5 px-2 py-1 bg-surface border border-border rounded whitespace-nowrap h-[26px]">
               <strong className={cn("text-[11px] font-mono", window.direction === 'long' ? "text-green" : "text-red")}>
                 {window.symbol}
@@ -68,8 +105,22 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
       <div className="flex-1 overflow-y-auto no-scrollbar">
         {scannerResults.length === 0 ? (
           <div className="h-full flex items-center justify-center text-dim text-[13px] font-medium">Waiting for scanner data...</div>
+        ) : filteredResults.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center py-20 text-center animate-in fade-in zoom-in duration-300">
+            <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center mb-4 text-dim/20">
+              <Search size={24} />
+            </div>
+            <div className="text-[13px] text-dim font-bold uppercase tracking-widest">No matching symbols</div>
+            <p className="text-[11px] text-dim/60 mt-1">Try adjusting your filter or search for another pair.</p>
+            <button
+              onClick={() => setSearch('')}
+              className="mt-6 px-6 py-2 bg-accent/10 border border-accent/20 text-accent rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-all active:scale-95"
+            >
+              Clear Filter
+            </button>
+          </div>
         ) : (
-          scannerResults.map((opp, i) => {
+          filteredResults.map((opp, i) => {
             const passing = Math.abs(opp.pct) >= threshold
             const dir = (opp.dir || opp.direction || '').toLowerCase()
             const isLong = dir ? dir === 'long' : opp.pct >= 0

@@ -405,10 +405,10 @@ export class TradingSessionService implements OnApplicationShutdown {
         const resultsChanged = nextResultsJson !== this.lastScannerResultsJson; this.lastScannerResultsJson = nextResultsJson;
 
         const resultsPriceChanged = () => {
-           const tickData = this.engineBroadcaster.getLastTickData();
-           if (!tickData?.scannerResults) return false;
+           const prevResults = this.engineBroadcaster.getLastScannerResults();
+           if (!prevResults || prevResults.length === 0) return false;
            return this.lastScannerResults.some((o, i) => {
-              const prev = tickData.scannerResults[i];
+              const prev = prevResults[i];
               return prev && Math.abs(o.price - prev.price) / prev.price > 0.001;
            });
         };
@@ -625,6 +625,8 @@ export class TradingSessionService implements OnApplicationShutdown {
       ? roundEight(currentBalance - startingBalance)
       : roundEight(this.sessionState.stats.totalPnl || 0);
 
+    const lastRisk = this.engineBroadcaster.getLastRiskResult();
+
     return {
       running: this.running,
       paused: this.sessionState.paused,
@@ -641,11 +643,11 @@ export class TradingSessionService implements OnApplicationShutdown {
       activeWindows: this.getActiveWindows(),
       gateState: this.sessionState.gateState,
       hibernating: this.sessionState.hibernating,
-      isAdaptiveTightened: this.engineBroadcaster.getLastRiskResult()?.isAdaptiveTightened ?? false,
-      tradesInPeriod: this.engineBroadcaster.getLastRiskResult()?.tradesInPeriod,
-      maxTradesPeriod: this.engineBroadcaster.getLastRiskResult()?.maxTradesPeriod,
-      tradesIn24h: this.engineBroadcaster.getLastRiskResult()?.tradesIn24h,
-      maxTrades24h: this.engineBroadcaster.getLastRiskResult()?.maxTrades24h,
+      isAdaptiveTightened: lastRisk?.isAdaptiveTightened ?? false,
+      tradesInPeriod: lastRisk?.tradesInPeriod,
+      maxTradesPeriod: lastRisk?.maxTradesPeriod,
+      tradesIn24h: lastRisk?.tradesIn24h,
+      maxTrades24h: lastRisk?.maxTrades24h,
       scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused,
       history: this.sessionState.closedTrades.slice(0, 50).map((t) => this.engineBroadcaster.serializeTrade(t, this.config!, t.exit_price)),
     };
@@ -716,7 +718,13 @@ export class TradingSessionService implements OnApplicationShutdown {
       this.sessionState.setActiveTrades(this.positionTracker.activeList());
       this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, this.config!);
 
-      const analytics = this.engineBroadcaster.getLastAnalyticsResult();
+      // CODE-002: Prefer pre-calculated analytics from the Broadcaster cache to avoid redundant recalculation
+      let analytics = this.engineBroadcaster.getLastAnalyticsResult();
+      if (!analytics) {
+        const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
+        const startingBalance = (mode === 'paper') ? (this.config?.paper_starting_balance || 10000) : (this.config?.live_starting_balance || 0);
+        analytics = this.analyticsService.calculateAnalytics(this.sessionState.closedTrades as any, startingBalance);
+      }
 
       this.broadcast('trade_event', {
         event: 'closed',

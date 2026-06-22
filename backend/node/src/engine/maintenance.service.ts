@@ -243,13 +243,16 @@ export class MaintenanceService {
     const existing = this.reactiveAuditTimeouts.get(symbol);
     if (existing) clearTimeout(existing);
 
+    // RE-02: 15s Debounce window.
+    // This allows SL Ratchet operations (Cancel-then-Replace) to finish
+    // before the watchdog checks for protection.
     const timeout = setTimeout(async () => {
       this.reactiveAuditTimeouts.delete(symbol);
       if (this.orderManager.isRatcheting(symbol) || this.positionTracker.isEntering(symbol) || this.positionTracker.isClosing(symbol)) {
         return;
       }
       this.eventEmitter.emit('watchdog.request_symbol_audit', { symbol });
-    }, 10000);
+    }, 15000);
 
     this.reactiveAuditTimeouts.set(symbol, timeout);
   }

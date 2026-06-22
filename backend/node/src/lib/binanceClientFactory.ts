@@ -6,10 +6,13 @@ import {
   DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_PROD_URL
 } from '@binance/derivatives-trading-usds-futures';
 import { Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 @Injectable()
 export class BinanceClientFactory {
   private readonly logger = new Logger(BinanceClientFactory.name);
+
+  constructor(private readonly eventEmitter: EventEmitter2) {}
 
   createClient(apiKey: string, apiSecret: string, isTestnet: boolean): DerivativesTradingUsdsFutures {
     const restURL = isTestnet
@@ -35,7 +38,7 @@ export class BinanceClientFactory {
 
     // Wrap restAPI with a Throttled Proxy to prevent startup bursts and respect rate limits
     const originalRestApi = client.restAPI;
-    const queue = new BinanceRequestQueue(this.logger);
+    const queue = new BinanceRequestQueue(this.logger, this.eventEmitter);
 
     (client as any).restAPI = new Proxy(originalRestApi, {
       get(target, prop, receiver) {
@@ -76,7 +79,7 @@ class BinanceRequestQueue {
   // Adaptive delay for high weight usage
   private adaptiveDelayMs = 0;
 
-  constructor(private readonly logger: Logger) {}
+  constructor(private readonly logger: Logger, private readonly eventEmitter: EventEmitter2) {}
 
   async add<T>(fn: () => Promise<T>): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -132,9 +135,19 @@ class BinanceRequestQueue {
         } catch (error: any) {
           // If we hit an IP ban or rate limit error, increase delay significantly
           const msg = error.message || '';
-          if (msg.includes('banned') || msg.includes('418') || msg.includes('429')) {
-            this.logger.error(`[BinanceQueue] Critical rate limit/ban detected. Increasing cooldown...`);
+          const code = error.code || (error.data ? error.data.code : null);
+          const isBan = msg.includes('banned') || msg.includes('418') || code === -1003;
+          const isRateLimit = msg.includes('429') || code === -1015;
+
+          if (isBan || isRateLimit) {
+            this.logger.error(`[BinanceQueue] Critical rate limit/ban detected. Status: ${isBan ? 'BANNED' : 'RATE_LIMITED'}. Increasing cooldown...`);
             this.lastRequestTs = Date.now() + 60000; // Forced 1-minute pause for this queue
+
+            this.eventEmitter.emit('binance.api_limit_reached', {
+              type: isBan ? 'BAN' : 'RATE_LIMIT',
+              message: msg,
+              until: isBan ? Date.now() + 600000 : Date.now() + 60000 // Estimate 10m for ban, 1m for limit
+            });
           }
           item.reject(error);
         }

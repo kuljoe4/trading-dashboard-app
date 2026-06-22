@@ -24,6 +24,7 @@ export class SessionLifecycleService {
   private listenKey: string | null = null;
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
   private udsLivenessCheck: NodeJS.Timeout | null = null;
+  private lastModeSync = 0;
 
   constructor(
     private readonly sessionState: SessionStateService,
@@ -72,7 +73,10 @@ export class SessionLifecycleService {
       }
 
       try {
-        // Enforce One-Way Mode (Disable Hedge Mode)
+        // Enforce One-Way Mode (Disable Hedge Mode) - Cache for 7 days
+        const shouldSyncMode = Date.now() - this.lastModeSync > 7 * 24 * 60 * 60 * 1000;
+
+        if (shouldSyncMode) {
         try {
           this.monitoringService.incrementApiRequests();
           const currentModeRes = await bc.restAPI.getCurrentPositionMode();
@@ -88,6 +92,7 @@ export class SessionLifecycleService {
             this.logger.log(modeMsg);
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: modeMsg, level: 'info' });
           }
+          this.lastModeSync = Date.now();
         } catch (modeErr: any) {
           const errMsg = modeErr.message || '';
           const errCode = modeErr.data?.code || modeErr.code;
@@ -108,6 +113,9 @@ export class SessionLifecycleService {
           } else {
             this.logger.warn(`Failed to set Binance position mode to One-Way: ${errMsg}`);
           }
+        }
+        } else {
+          this.logger.debug('Skipping Binance position mode sync (already cached).');
         }
 
         await this.progress('Fetching account balance...');

@@ -262,7 +262,7 @@ export class MaintenanceService {
     const existing = this.reactiveAuditTimeouts.get(symbol);
     if (existing) clearTimeout(existing);
 
-    // RE-02: 10s Debounce window.
+    // RE-02: 15s Debounce window.
     // This allows SL Ratchet operations (Cancel-then-Replace) to finish
     // before the watchdog checks for protection.
     const timeout = setTimeout(async () => {
@@ -282,7 +282,7 @@ export class MaintenanceService {
       // For reactive triggers, we emit an internal event that TradingSessionService can catch
       // to ensure it passes the current session's 'running' and 'config' context.
       this.eventEmitter.emit('watchdog.request_symbol_audit', { symbol });
-    }, 10000);
+    }, 15000);
 
     this.reactiveAuditTimeouts.set(symbol, timeout);
   }

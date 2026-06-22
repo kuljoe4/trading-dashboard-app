@@ -54,6 +54,20 @@ export class EngineBroadcasterService {
   public getLastRiskResult(): any { return this.lastRiskResult; }
   public getLastAnalyticsResult(): any { return this.lastAnalyticsResult; }
 
+  /**
+   * DATA-07: Get the current trades list from the last broadcast tick.
+   */
+  public getLastTickTrades(): TickTradeDto[] {
+    return this.lastTickData?.trades || [];
+  }
+
+  /**
+   * DATA-07: Get the current scanner results from the last broadcast tick.
+   */
+  public getLastScannerResults(): any[] {
+    return this.lastTickData?.scannerResults || [];
+  }
+
   public serializeTrade(trade: Trade, config: SessionConfig, currentPrice?: number, minimal = false): TradeSerializationDto {
     const direction = (trade.direction || 'LONG').toString().toUpperCase() as 'LONG' | 'SHORT';
     const entry = trade.entry_price ?? 0;
@@ -61,7 +75,7 @@ export class EngineBroadcasterService {
     const current = cpv ? currentPrice : trade.exit_price ?? trade.last_price ?? entry;
 
     if (cpv) {
-      (trade as any).last_price = currentPrice;
+      trade.last_price = currentPrice;
       trade.mark_price = currentPrice;
     }
 
@@ -241,9 +255,9 @@ export class EngineBroadcasterService {
       let currentPrice = this.tickerCache.getPrice(trade.symbol);
       if (currentPrice === null && prevTrade) currentPrice = prevTrade.current_price;
 
-      const current = currentPrice ?? (trade as any).exit_price ?? (trade as any).last_price ?? trade.entry_price;
+      const current = currentPrice ?? trade.exit_price ?? trade.last_price ?? trade.entry_price;
       if (currentPrice !== null) {
-        (trade as any).last_price = currentPrice;
+        trade.last_price = currentPrice;
         trade.mark_price = currentPrice;
       }
 
@@ -297,11 +311,34 @@ export class EngineBroadcasterService {
       }
 
       if (tradeChanged) {
-        const serialized = this.serializeTrade(trade, config, current, true) as any;
-        const { strategy_config, live_rr_sequence, exit_rr_sequence, exit_signals_status, sl_adjustments, tp_mode, tp_ratio, ...thin } = serialized;
-        thin._sl_len = trade.sl_adjustments?.length || 0;
-        thin._sig_json = trade._sig_json || JSON.stringify(trade.exit_signals_status || {});
-        trades.push(thin as TickTradeDto);
+        const serialized = this.serializeTrade(trade, config, current, true);
+        const thin: TickTradeDto = {
+          id: serialized.id,
+          symbol: serialized.symbol,
+          strategy_label: serialized.strategy_label,
+          current_price: serialized.current_price,
+          sl_price: serialized.sl_price,
+          tp_price: serialized.tp_price,
+          pnl: serialized.pnl,
+          pnl_pct: serialized.pnl_pct,
+          realized_fee: serialized.realized_fee,
+          funding_fee: serialized.funding_fee,
+          rr: serialized.rr,
+          max_rr: serialized.max_rr,
+          direction: serialized.direction,
+          entry_price: serialized.entry_price,
+          qty: serialized.qty,
+          entry_daily_change_pct: serialized.entry_daily_change_pct,
+          close_attempts: serialized.close_attempts,
+          close_blocked: serialized.close_blocked,
+          initial_risk_usdt: serialized.initial_risk_usdt,
+          _thin: true,
+          _sl_len: trade.sl_adjustments?.length || 0,
+          _sig_json: trade._sig_json || JSON.stringify(trade.exit_signals_status || {}),
+          live_rr_sequence: serialized.live_rr_sequence,
+          exit_rr_sequence: serialized.exit_rr_sequence,
+        };
+        trades.push(thin);
       }
     }
 

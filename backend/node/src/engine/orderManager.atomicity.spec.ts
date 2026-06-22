@@ -18,6 +18,10 @@ describe('OrderManagerService Atomicity', () => {
       getSymbolFilters: jest.fn().mockImplementation((symbol) => {
         if (symbol === 'BTCUSDT' || symbol === 'TRADABLE') {
           return {
+            tickSize: 0.01,
+            pricePrecision: 2,
+            stepSize: 0.001,
+            qtyPrecision: 3,
             filters: [
               { filterType: 'LOT_SIZE', stepSize: '0.001' },
               { filterType: 'PRICE_FILTER', tickSize: '0.01' }
@@ -128,7 +132,7 @@ describe('OrderManagerService Atomicity', () => {
       )).rejects.toThrow(ExchangeExecutionException);
 
       expect(mockBinanceClient.restAPI.newOrder).toHaveBeenCalledTimes(2);
-      expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalledTimes(1);
+      expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalledTimes(2); // One for initial SL, one for re-arm on failure
     });
 
     it('handles successful entry and SL placement', async () => {

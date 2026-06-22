@@ -1,5 +1,5 @@
 ux_state:
-  last_review: 2026-06-15
+  last_review: 2026-06-22
 
 findings:
   - id: UX-001
@@ -31,7 +31,7 @@ findings:
     recommendation: "Implement a confirmation modal or long-press action for the Kill/Terminate button."
 
   - id: UX-004
-    status: in_progress
+    status: resolved
     severity: medium
     category: visualization
     screens:
@@ -106,7 +106,7 @@ findings:
     recommendation: "Use e.stopPropagation() more rigorously on all sub-controls in StrategyCard."
 
   - id: UX-012
-    status: resolved
+    status: open
     severity: medium
     category: accessibility
     screens:
@@ -168,6 +168,24 @@ findings:
     notes: "Mobile layout overlap risk for ActiveTradeBar in floating state."
     recommendation: "Add padding or adjust z-index/bottom offset for small screens."
 
+  - id: UX-019
+    status: open
+    severity: medium
+    category: information-architecture
+    screens:
+      - config-modal
+    notes: "RR Sequence configuration is separated from other Risk settings, causing fragmentation in the mental model of trade protection."
+    recommendation: "Cross-link or mirror RR Sequence preview in the Risk tab."
+
+  - id: UX-020
+    status: open
+    severity: low
+    category: accessibility
+    screens:
+      - active-trade-card
+    notes: "Recon badge uses low-contrast amber text which might fail accessibility checks in specific light modes."
+    recommendation: "Increase contrast ratio for status badges."
+
 design_decisions:
   - DD-001: "Operator Cockpit vision - prioritize information density and real-time awareness over marketing aesthetics."
   - DD-002: "WebSocket-first data flow with delta merging to minimize network egress while keeping UI fresh."
@@ -175,8 +193,9 @@ design_decisions:
   - DD-004: "Zustand for state management to ensure atomic updates across related components."
 
 metrics:
-  overall_score: 9.2
-  task_completion_rate: 0.95
-  accessibility_issues_open: 8
+  overall_score: 9.0
+  task_completion_rate: 0.92
+  accessibility_issues_open: 2
+  total_open_findings: 10
   performance_score_lighthouse: 98
-  ws_latency_avg_ms: 120
+  ws_latency_avg_ms: 115

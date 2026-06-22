@@ -910,7 +910,7 @@ export class SessionService implements OnModuleInit {
           binance_stop_order_id: slId,
           binance_stop_order_type: slType as any,
           pnl: 0,
-          risk_usdt: Math.abs(entryPrice - (slPrice || entryPrice * 0.98)) * qty,
+          risk_usdt: roundEight(Math.abs(entryPrice - (slPrice || entryPrice * 0.98)) * qty),
           updated_at: new Date(),
         });
 

@@ -174,7 +174,6 @@ export class TradingSessionService implements OnApplicationShutdown {
 
     const hot = config.hot_loop_interval_ms || 5000; this.hotLoopInterval = setInterval(() => this.hotLoop(), hot);
     const main = config.main_loop_interval_ms || 15000; this.mainLoopInterval = setInterval(() => this.mainLoop(), main);
-    this.fundingCheckInterval = setInterval(() => this.maintenanceService.checkFundingFees(this.running, this.config), 60000); // Check every minute
     this.watchdogInterval = setInterval(() => this.maintenanceService.protectionWatchdog(this.running, this.config), 300000); // Check protection every 5 minutes
 
     this.broadcastSnapshot('started'); return { status: 'started' };
@@ -190,7 +189,6 @@ export class TradingSessionService implements OnApplicationShutdown {
 
     if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
     if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
-    if (this.fundingCheckInterval) clearInterval(this.fundingCheckInterval);
     if (this.watchdogInterval) clearInterval(this.watchdogInterval);
 
     if (this.balanceFetchTimeout) {

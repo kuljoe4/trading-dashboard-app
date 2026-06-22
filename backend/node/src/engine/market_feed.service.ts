@@ -38,6 +38,7 @@ export class MarketFeedService {
   private watchlistUpdateTimeout: NodeJS.Timeout | null = null;
   private backfillQueue: { symbol: string, interval: string }[] = [];
   private backfillProcessing = false;
+  private binanceClient: any = null;
 
   constructor(
     private tickerCache: TickerCacheService,
@@ -51,7 +52,8 @@ export class MarketFeedService {
     this.onCandleClose = cb;
   }
 
-  async start(config: SessionConfig) {
+  async start(config: SessionConfig, bc?: any) {
+    if (bc) this.binanceClient = bc;
     if (this.running) await this.stop();
     this.running = true;
 
@@ -91,10 +93,20 @@ export class MarketFeedService {
     if (this.exchangeInfo.size > 0 && this.lastExchangeInfoBase === restBase && now - this.lastExchangeInfoFetch < 3600000) return;
     try {
       this.monitoringService.incrementApiRequests();
-      const response = await fetch(`${restBase}/fapi/v1/exchangeInfo`);
-      this.updateWeight(response.headers);
-      if (response.ok) {
-        const data: any = await response.json();
+
+      let data: any;
+      if (this.binanceClient) {
+        const response = await this.binanceClient.restAPI.exchangeInfo();
+        this.updateWeight(response.headers);
+        data = await response.data();
+      } else {
+        const response = await fetch(`${restBase}/fapi/v1/exchangeInfo`);
+        this.updateWeight(response.headers);
+        if (!response.ok) return;
+        data = await response.json();
+      }
+
+      if (data) {
 
         // Dynamic Rate Limit Detection
         if (data && Array.isArray(data.rateLimits)) {
@@ -168,14 +180,22 @@ export class MarketFeedService {
   private async fetchInitialTickers() {
     try {
       this.monitoringService.incrementApiRequests();
-      const response = await fetch(`${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/ticker/24hr`);
-      this.updateWeight(response.headers);
-      if (response.ok) {
-        const tickers = await response.json();
-        if (Array.isArray(tickers)) {
-          const usdtTickers = tickers.filter(t => t.symbol.endsWith('USDT'));
-          this.tickerCache.bulkUpdate(usdtTickers);
-        }
+      let tickers: any[];
+
+      if (this.binanceClient) {
+        const response = await this.binanceClient.restAPI.ticker24hr();
+        this.updateWeight(response.headers);
+        tickers = await response.data();
+      } else {
+        const response = await fetch(`${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/ticker/24hr`);
+        this.updateWeight(response.headers);
+        if (!response.ok) return;
+        tickers = await response.json() as any[];
+      }
+
+      if (Array.isArray(tickers)) {
+        const usdtTickers = tickers.filter(t => t.symbol.endsWith('USDT'));
+        this.tickerCache.bulkUpdate(usdtTickers);
       }
     } catch (error) {}
   }
@@ -488,15 +508,28 @@ export class MarketFeedService {
 
     await new Promise(resolve => setTimeout(resolve, Math.random() * ENGINE_CONSTANTS.BACKFILL_MAX_JITTER_MS));
     try {
-      const url = `${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${this.klineStore.getMaxCandles()}`;
       this.monitoringService.incrementApiRequests();
-      const response = await fetch(url);
-      if (response.ok) {
-        const klines = await response.json();
-        if (Array.isArray(klines)) await this.klineStore.seedFromRest(symbol, interval, klines);
+      let klines: any[];
+
+      if (this.binanceClient) {
+        const response = await this.binanceClient.restAPI.klines({
+          symbol,
+          interval: interval as any,
+          limit: this.klineStore.getMaxCandles()
+        });
+        this.updateWeight(response.headers);
+        klines = await response.data();
+      } else {
+        const url = `${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${this.klineStore.getMaxCandles()}`;
+        const response = await fetch(url);
+        this.updateWeight(response.headers);
+        if (!response.ok) return;
+        klines = await response.json() as any[];
       }
+
+      if (Array.isArray(klines)) await this.klineStore.seedFromRest(symbol, interval, klines);
     } catch (err) {
-      this.logger.error(`Watchlist update failed: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.error(`Kline backfill failed for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }

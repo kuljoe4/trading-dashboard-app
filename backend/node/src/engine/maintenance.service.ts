@@ -6,14 +6,12 @@ import { PositionTrackerService } from './positionTracker';
 import { OrderManagerService } from './orderManager';
 import { TickerCacheService } from './ticker_cache.service';
 import { ENGINE_EVENTS } from './events';
-import { ENGINE_CONSTANTS } from '../models/constants';
 import { roundEight } from '../lib/math';
 
 @Injectable()
 export class MaintenanceService {
   private readonly logger = new Logger(MaintenanceService.name);
   private isProcessingWatchdog = false;
-  private isProcessingFunding = false;
   private reactiveAuditTimeouts: Map<string, NodeJS.Timeout> = new Map();
 
   constructor(
@@ -30,67 +28,43 @@ export class MaintenanceService {
   async protectionWatchdog(running: boolean, config: SessionConfig | null, targetSymbol?: string) {
     if (!running || !config || config.paper_mode) return;
 
-    // SRE: Allow symbol-specific audits to run even if a global batch is in progress
-    // but prevent multiple global batches.
     if (!targetSymbol && this.isProcessingWatchdog) return;
     if (!targetSymbol) this.isProcessingWatchdog = true;
 
-    const activeTrades = this.positionTracker.activeList();
-    if (activeTrades.length === 0) {
-      if (!targetSymbol) this.isProcessingWatchdog = false;
-      return;
-    }
-
-    // Filter trades based on cooldown OR targetSymbol
-    const tradesToAudit = activeTrades.filter(trade => {
-      if (!trade.binance_order_id) return false;
-      if (targetSymbol && trade.symbol === targetSymbol) return true;
-
-      const lastUpdateTs = trade.updated_at ? new Date(trade.updated_at).getTime() : 0;
-      const secondsSinceUpdate = (Date.now() - lastUpdateTs) / 1000;
-      return secondsSinceUpdate >= 45;
-    });
-
-    if (tradesToAudit.length === 0) {
-      if (!targetSymbol) this.isProcessingWatchdog = false;
-      return;
-    }
-
-    const uniqueSymbols = Array.from(new Set(tradesToAudit.map(t => t.symbol)));
-    if (targetSymbol) {
-      this.logger.log(`[Watchdog] Running reactive protection audit for ${targetSymbol}...`);
-    } else {
-      this.logger.log(`[Watchdog] Running periodic protection audit for ${uniqueSymbols.length} symbols...`);
-    }
-
     try {
+      const activeTrades = this.positionTracker.activeList();
+      if (activeTrades.length === 0) return;
+
+      const tradesToAudit = activeTrades.filter(trade => {
+        if (!trade.binance_order_id) return false;
+        if (targetSymbol && trade.symbol === targetSymbol) return true;
+
+        const lastUpdateTs = trade.updated_at ? new Date(trade.updated_at).getTime() : 0;
+        const secondsSinceUpdate = (Date.now() - lastUpdateTs) / 1000;
+        return secondsSinceUpdate >= 45;
+      });
+
+      if (tradesToAudit.length === 0) return;
+
       this.logger.debug(`[Watchdog] Audit weights: used=${this.orderManager.getBinanceRateLimit().used_weight_1m}/${this.orderManager.getBinanceRateLimit().limit}`);
 
-      // SRE: Proactive Rate Limit Guard. If weights are > 85%, skip batch audit to prioritize orders/UDS.
       if (this.orderManager.getBinanceRateLimit().used_weight_1m > this.orderManager.getBinanceRateLimit().limit * 0.85) {
         this.logger.warn(`[Watchdog] High API weight detected. Skipping batch audit to preserve IP status.`);
-        if (!targetSymbol) this.isProcessingWatchdog = false;
         return;
       }
 
       const allPositions = await this.orderManager.fetchAllPositions();
       const activePositionsMap = new Map(allPositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0).map(p => [p.symbol, p]));
 
-      let slOrdersBySymbol = new Map<string, any[]>();
-
       const isSlOrder = (o: any) => {
-        // Standard STOP_MARKET orders
         const isStandardSl = (o.type === 'STOP_MARKET' || o.type === 'STOP')
-          && (o.closePosition === true || o.closePosition === 'true'
-              || o.reduceOnly === true  || o.reduceOnly === 'true');
-
-        // Conditional Algo orders (returned by currentAllAlgoOpenOrders)
-        // These use algoId/algoType, not type/reduceOnly at the top level
-        const isConditionalAlgoSl = !!o.algoId
-          && (o.algoType === 'CONDITIONAL' || o.type === 'STOP_MARKET');
-
+          && (o.closePosition === true || o.closePosition === 'true' || o.reduceOnly === true || o.reduceOnly === 'true');
+        const isConditionalAlgoSl = !!o.algoId && (o.algoType === 'CONDITIONAL' || o.type === 'STOP_MARKET');
         return isStandardSl || isConditionalAlgoSl;
       };
+
+      const uniqueSymbols = Array.from(new Set(tradesToAudit.map(t => t.symbol)));
+      let slOrdersBySymbol = new Map<string, any[]>();
 
       if (uniqueSymbols.length > 40) {
         const allOrders = await this.orderManager.fetchAllOpenOrders();
@@ -108,60 +82,32 @@ export class MaintenanceService {
 
       for (const trade of tradesToAudit) {
         try {
-          // Audit Item 13: Skip symbols undergoing lifecycle transitions to avoid desync race
           if (this.orderManager.isRatcheting(trade.symbol) || this.positionTracker.isEntering(trade.symbol) || this.positionTracker.isClosing(trade.symbol)) {
-             this.logger.debug(`[Watchdog] Skipping audit for ${trade.symbol}: Ratchet or transition in progress.`);
              continue;
           }
 
-          // SRE-01: Respect blocked closure status to avoid infinite requests/loops for positions with PERCENT_PRICE issues
-          if (trade.close_blocked) {
-            this.logger.debug(`[Watchdog] Skipping audit for ${trade.symbol}: Closure is explicitly blocked due to previous failures.`);
-            continue;
-          }
+          if (trade.close_blocked) continue;
 
           let pos = activePositionsMap.get(trade.symbol);
 
           if (!pos) {
-            // BOLT: Check real-time cache (UDS-driven) before falling back to REST.
             const cachedPos = await this.orderManager.fetchPosition(trade.symbol, { forceFresh: false });
-            const cachedAmt = cachedPos ? Math.abs(parseFloat(cachedPos.positionAmt)) : 0;
-
-            if (cachedAmt > 0) {
-               this.logger.debug(`[Watchdog] ${trade.symbol} confirmed active via UDS cache.`);
+            if (cachedPos && Math.abs(parseFloat(cachedPos.positionAmt)) > 0) {
                pos = cachedPos;
             } else {
-               // DOUBLE CHECK: Perform a fresh, non-cached position fetch before deciding it's a ghost.
-               this.logger.debug(`[Watchdog] Potential ghost for ${trade.symbol}. Performing fresh verification...`);
                const freshPos = await this.orderManager.fetchPosition(trade.symbol, { forceFresh: true });
-               const freshAmt = freshPos ? Math.abs(parseFloat(freshPos.positionAmt)) : 0;
-               if (freshAmt > 0) {
-                  this.logger.log(`[Watchdog] ${trade.symbol} ghost check recovered: Position ${freshAmt} found via fresh query.`);
+               if (freshPos && Math.abs(parseFloat(freshPos.positionAmt)) > 0) {
                   pos = freshPos;
                }
             }
           }
 
           if (!pos || Math.abs(parseFloat(pos.positionAmt)) === 0) {
-              // BOLT: Handle orphaned local positions. If bot thinks it's open but exchange says 0.
-              const metadata = {
-                id: trade.id,
-                entryPrice: trade.entry_price,
-                qty: trade.qty,
-                duration: trade.entry_ts ? (Date.now() - new Date(trade.entry_ts).getTime()) / 1000 : 0
-              };
-              this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} is active locally but NO position found on Binance after verification. Triggering Sync Closure. Meta: ${JSON.stringify(metadata)}`);
-              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Watchdog] Ghost position detected for ${trade.symbol}. Force-syncing to closed.`, level: 'error' });
-
-              this.eventEmitter.emit('trade.exchange_close', {
-                symbol: trade.symbol,
-                exitPrice: 0,
-                reason: 'EXCHANGE_SYNC'
-              });
+              this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} is active locally but NO position found on Binance. Triggering Sync Closure.`);
+              this.eventEmitter.emit('trade.exchange_close', { symbol: trade.symbol, exitPrice: 0, reason: 'EXCHANGE_SYNC' });
               continue;
           }
 
-          // INTEL: Verify position quantity matches local record. Partial fills or manual changes can cause desync.
           const exAmt = Math.abs(parseFloat(pos.positionAmt));
           if (Math.abs(exAmt - trade.qty) > 0.00000001) {
             this.logger.warn(`[Watchdog] ${trade.symbol} quantity mismatch: Local ${trade.qty} vs Exchange ${exAmt}. Syncing local state.`);
@@ -173,7 +119,6 @@ export class MaintenanceService {
             this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
           }
 
-          // Ensure we don't try to repair protection for blocked trades either
           const slOrders = slOrdersBySymbol.get(trade.symbol) || [];
           let matchingOrder = slOrders.find(o =>
             String(o.orderId) === trade.binance_stop_order_id ||
@@ -182,10 +127,8 @@ export class MaintenanceService {
           );
 
           if (!matchingOrder) {
-            this.logger.debug(`[Watchdog] ${trade.symbol} protection missing in batch. Performing fresh verification...`);
             const freshOrders = await this.orderManager.fetchOpenOrders(trade.symbol);
             const freshSlOrders = freshOrders.filter(isSlOrder);
-
             matchingOrder = freshSlOrders.find(o =>
               String(o.orderId) === trade.binance_stop_order_id ||
               String(o.algoId) === trade.binance_stop_order_id ||
@@ -195,14 +138,10 @@ export class MaintenanceService {
             if (!matchingOrder && freshSlOrders.length > 0) {
               const validSl = freshSlOrders.find(o => Math.abs(parseFloat(o.origQty || o.quantity) - trade.qty) < 0.00000001);
               if (validSl) {
-                const newId = String(validSl.algoId || validSl.orderId);
-                this.logger.warn(`[Watchdog] ${trade.symbol} found untracked SL protection. Adopting and syncing state.`);
-                trade.binance_stop_order_id = newId;
+                trade.binance_stop_order_id = String(validSl.algoId || validSl.orderId);
                 trade.binance_stop_order_type = validSl.algoType ? 'algo' : 'standard';
                 const exSlPrice = parseFloat(validSl.stopPrice || validSl.triggerPrice);
-                if (exSlPrice > 0 && Math.abs(exSlPrice - trade.current_sl) > 0.00000001) {
-                  trade.current_sl = exSlPrice;
-                }
+                if (exSlPrice > 0 && Math.abs(exSlPrice - trade.current_sl) > 0.00000001) trade.current_sl = exSlPrice;
                 trade.updated_at = new Date();
                 matchingOrder = validSl;
                 this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
@@ -211,17 +150,13 @@ export class MaintenanceService {
           }
 
           if (!matchingOrder) {
-            const secondsSinceUpdate = (Date.now() - new Date(trade.updated_at || 0).getTime()) / 1000;
+            const lastUpdate = trade.updated_at ? new Date(trade.updated_at).getTime() : 0;
+            const secondsSinceUpdate = (Date.now() - lastUpdate) / 1000;
             if (secondsSinceUpdate > 120) {
               this.logger.error(`[Watchdog] NUCLEAR OPTION: ${trade.symbol} unprotected for ${secondsSinceUpdate.toFixed(0)}s. Market closing position.`);
-              this.eventEmitter.emit('trade.exchange_close', {
-                symbol: trade.symbol,
-                exitPrice: 0,
-                reason: 'WATCHDOG_NUCLEAR_CLOSE'
-              });
+              this.eventEmitter.emit('trade.exchange_close', { symbol: trade.symbol, exitPrice: 0, reason: 'WATCHDOG_NUCLEAR_CLOSE' });
               continue;
             }
-
             this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} missing SL. Re-placing...`);
             await this.orderManager.placeStopLoss(trade, trade.current_sl);
             trade.updated_at = new Date();
@@ -255,31 +190,5 @@ export class MaintenanceService {
     }, 15000);
 
     this.reactiveAuditTimeouts.set(symbol, timeout);
-  }
-
-  async checkFundingFees(running: boolean, config: SessionConfig | null) {
-    if (!running || !config || this.isProcessingFunding) return;
-    const now = new Date();
-    const isFundingTime = now.getUTCHours() % ENGINE_CONSTANTS.FUNDING_INTERVAL_HOURS === 0 && now.getUTCMinutes() === 0;
-
-    if (isFundingTime) {
-      this.isProcessingFunding = true;
-      try {
-        const activeTrades = this.positionTracker.activeList();
-        for (const trade of activeTrades) {
-          try {
-            const isLong = trade.direction === 'LONG';
-            const notional = (trade.mark_price || trade.last_price || trade.entry_price) * trade.qty;
-            const fundingDelta = roundEight(notional * ENGINE_CONSTANTS.SIMULATED_FUNDING_RATE * (isLong ? 1 : -1));
-            trade.funding_fee = roundEight((trade.funding_fee || 0) + fundingDelta);
-            trade.pnl = roundEight(trade.pnl - fundingDelta);
-            this.eventEmitter.emit(ENGINE_EVENTS.FUNDING_APPLIED, { trade, fundingDelta });
-          } catch (innerErr) {}
-        }
-      } catch (err) {
-      } finally {
-        this.isProcessingFunding = false;
-      }
-    }
   }
 }

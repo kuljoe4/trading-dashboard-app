@@ -48,7 +48,13 @@ export class MonitoringService {
 
   setUdsStatus(status: 'CONNECTED' | 'DISCONNECTED') {
     this.udsStatus = status;
-    if (status === 'DISCONNECTED') this.lastUdsPing = 0;
+    if (status === 'DISCONNECTED') {
+      this.lastUdsPing = 0;
+    } else {
+      // Reset stale clock on fresh connection —
+      // UDS legitimately silent on idle accounts
+      this.lastUdsPing = Date.now();
+    }
   }
 
   recordHotLoop(ms: number) {

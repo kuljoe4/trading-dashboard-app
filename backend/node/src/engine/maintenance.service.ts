@@ -55,7 +55,19 @@ export class MaintenanceService {
 
       let slOrdersBySymbol = new Map<string, any[]>();
 
-      const isSlOrder = (o: any) => (o.type === 'STOP_MARKET' || o.type === 'STOP') && (o.closePosition === true || o.closePosition === 'true' || o.reduceOnly === true || o.reduceOnly === 'true');
+      const isSlOrder = (o: any) => {
+        // Standard STOP_MARKET orders
+        const isStandardSl = (o.type === 'STOP_MARKET' || o.type === 'STOP')
+          && (o.closePosition === true || o.closePosition === 'true'
+              || o.reduceOnly === true  || o.reduceOnly === 'true');
+
+        // Conditional Algo orders (returned by currentAllAlgoOpenOrders)
+        // These use algoId/algoType, not type/reduceOnly at the top level
+        const isConditionalAlgoSl = !!o.algoId
+          && (o.algoType === 'CONDITIONAL' || o.type === 'STOP_MARKET');
+
+        return isStandardSl || isConditionalAlgoSl;
+      };
 
       if (uniqueSymbols.length > 40) {
         const allOrders = await this.orderManager.fetchAllOpenOrders();

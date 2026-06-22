@@ -1868,20 +1868,26 @@ export class OrderManagerService {
 
           // RISK-04: If close fails, check if it's because position is already closed (SL race)
           if (upperMsg.includes('REDUCE_ONLY') || upperMsg.includes('REDUCEONLY') || upperMsg.includes('POSITION SIDE DOES NOT MATCH')) {
-               this.logger.log(`Binance close order for ${symbol} rejected (possibly already closed by exchange SL). Verifying...`);
+               this.logger.log(`Binance close order for ${symbol} rejected (possibly already closed by exchange SL). Verifying via UDS cache...`);
 
                let positionAmt = 0;
-               try {
-                  const response = await this.binanceClient.restAPI.positionInformationV3({ symbol });
-                  this.updateWeight(response?.headers);
-                  const data = await response.data() as any;
-                  if (Array.isArray(data)) {
-                    const activePosition = data.find(p => parseFloat(p.positionAmt) !== 0);
-                    positionAmt = activePosition ? parseFloat(activePosition.positionAmt) : 0;
+               const cachedPos = await this.fetchPosition(symbol, { forceFresh: false });
+               positionAmt = cachedPos ? Math.abs(parseFloat(cachedPos.positionAmt)) : 0;
+
+               if (positionAmt !== 0) {
+                  this.logger.log(`UDS cache says position still exists for ${symbol}. Performing fresh verification...`);
+                  try {
+                    const response = await this.binanceClient.restAPI.positionInformationV3({ symbol });
+                    this.updateWeight(response?.headers);
+                    const data = await response.data() as any;
+                    if (Array.isArray(data)) {
+                      const activePosition = data.find(p => parseFloat(p.positionAmt) !== 0);
+                      positionAmt = activePosition ? parseFloat(activePosition.positionAmt) : 0;
+                    }
+                  } catch (posErr) {
+                    const position = await this.fetchPosition(symbol, { forceFresh: true });
+                    positionAmt = position ? parseFloat(position.positionAmt) : 0;
                   }
-               } catch (posErr) {
-                  const position = await this.fetchPosition(symbol);
-                  positionAmt = position ? parseFloat(position.positionAmt) : 0;
                }
 
                if (positionAmt === 0) {

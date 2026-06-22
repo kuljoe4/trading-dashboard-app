@@ -108,10 +108,6 @@ export class MaintenanceService {
 
       for (const trade of tradesToAudit) {
         try {
-          // Cooldown check moved up to batch filter for efficiency
-          const lastUpdateTs = trade.updated_at ? new Date(trade.updated_at).getTime() : 0;
-          const secondsSinceUpdate = (Date.now() - lastUpdateTs) / 1000;
-
           // Audit Item 13: Skip symbols undergoing lifecycle transitions to avoid desync race
           if (this.orderManager.isRatcheting(trade.symbol) || this.positionTracker.isEntering(trade.symbol) || this.positionTracker.isClosing(trade.symbol)) {
              this.logger.debug(`[Watchdog] Skipping audit for ${trade.symbol}: Ratchet or transition in progress.`);
@@ -127,13 +123,26 @@ export class MaintenanceService {
           let pos = activePositionsMap.get(trade.symbol);
 
           if (!pos) {
-            // DOUBLE CHECK: Perform a fresh, non-cached position fetch before deciding it's a ghost.
-            // This prevents race conditions with User Data Stream lag.
-            this.logger.debug(`[Watchdog] Potential ghost for ${trade.symbol}. Performing fresh verification...`);
-            const freshPos = await this.orderManager.fetchPosition(trade.symbol, { forceFresh: true });
-            const freshAmt = freshPos ? Math.abs(parseFloat(freshPos.positionAmt)) : 0;
+            // BOLT: Check real-time cache (UDS-driven) before falling back to REST.
+            const cachedPos = await this.orderManager.fetchPosition(trade.symbol, { forceFresh: false });
+            const cachedAmt = cachedPos ? Math.abs(parseFloat(cachedPos.positionAmt)) : 0;
 
-            if (freshAmt === 0) {
+            if (cachedAmt > 0) {
+               this.logger.debug(`[Watchdog] ${trade.symbol} confirmed active via UDS cache.`);
+               pos = cachedPos;
+            } else {
+               // DOUBLE CHECK: Perform a fresh, non-cached position fetch before deciding it's a ghost.
+               this.logger.debug(`[Watchdog] Potential ghost for ${trade.symbol}. Performing fresh verification...`);
+               const freshPos = await this.orderManager.fetchPosition(trade.symbol, { forceFresh: true });
+               const freshAmt = freshPos ? Math.abs(parseFloat(freshPos.positionAmt)) : 0;
+               if (freshAmt > 0) {
+                  this.logger.log(`[Watchdog] ${trade.symbol} ghost check recovered: Position ${freshAmt} found via fresh query.`);
+                  pos = freshPos;
+               }
+            }
+          }
+
+          if (!pos || Math.abs(parseFloat(pos.positionAmt)) === 0) {
               // BOLT: Handle orphaned local positions. If bot thinks it's open but exchange says 0.
               const metadata = {
                 id: trade.id,
@@ -141,20 +150,15 @@ export class MaintenanceService {
                 qty: trade.qty,
                 duration: trade.entry_ts ? (Date.now() - new Date(trade.entry_ts).getTime()) / 1000 : 0
               };
-              this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} is active locally but NO position found on Binance after fresh verification. Triggering Sync Closure. Meta: ${JSON.stringify(metadata)}`);
+              this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} is active locally but NO position found on Binance after verification. Triggering Sync Closure. Meta: ${JSON.stringify(metadata)}`);
               this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Watchdog] Ghost position detected for ${trade.symbol}. Force-syncing to closed.`, level: 'error' });
 
-              // NEW: Emit event instead of direct call to ensure proper cleanup orchestration in TradingSessionService
               this.eventEmitter.emit('trade.exchange_close', {
                 symbol: trade.symbol,
                 exitPrice: 0,
                 reason: 'EXCHANGE_SYNC'
               });
               continue;
-            } else {
-              this.logger.log(`[Watchdog] ${trade.symbol} ghost check recovered: Position ${freshAmt} found via fresh query. Metadata: ${JSON.stringify(freshPos)}`);
-              pos = freshPos;
-            }
           }
 
           // INTEL: Verify position quantity matches local record. Partial fills or manual changes can cause desync.
@@ -162,12 +166,10 @@ export class MaintenanceService {
           if (Math.abs(exAmt - trade.qty) > 0.00000001) {
             this.logger.warn(`[Watchdog] ${trade.symbol} quantity mismatch: Local ${trade.qty} vs Exchange ${exAmt}. Syncing local state.`);
             trade.qty = exAmt;
-            // Update risk_usdt for accurate gating
             const risk = Math.abs(trade.entry_price - trade.current_sl);
             trade.risk_usdt = roundEight(risk * trade.qty);
             trade.updated_at = new Date();
             this.positionTracker.recalculateTotalRisk();
-            // Notify of state change to ensure DB persistence
             this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
           }
 
@@ -180,7 +182,6 @@ export class MaintenanceService {
           );
 
           if (!matchingOrder) {
-            // DOUBLE CHECK: Perform a fresh query of open orders for this symbol.
             this.logger.debug(`[Watchdog] ${trade.symbol} protection missing in batch. Performing fresh verification...`);
             const freshOrders = await this.orderManager.fetchOpenOrders(trade.symbol);
             const freshSlOrders = freshOrders.filter(isSlOrder);
@@ -191,20 +192,11 @@ export class MaintenanceService {
               o.clientOrderId === `sl-${(trade.id || '').substring(0, 8)}`
             );
 
-            // INTEL: Broaden protection detection. Any valid Reduce-Only STOP order counts.
             if (!matchingOrder && freshSlOrders.length > 0) {
-              // Check if the order quantity matches (or is close enough)
               const validSl = freshSlOrders.find(o => Math.abs(parseFloat(o.origQty || o.quantity) - trade.qty) < 0.00000001);
               if (validSl) {
                 const newId = String(validSl.algoId || validSl.orderId);
-                const metadata = {
-                  newId,
-                  oldId: trade.binance_stop_order_id,
-                  price: validSl.stopPrice || validSl.triggerPrice,
-                  qty: validSl.origQty || validSl.quantity,
-                  type: validSl.algoType ? 'algo' : 'standard'
-                };
-                this.logger.warn(`[Watchdog] ${trade.symbol} found untracked SL protection. Adopting and syncing state. Meta: ${JSON.stringify(metadata)}`);
+                this.logger.warn(`[Watchdog] ${trade.symbol} found untracked SL protection. Adopting and syncing state.`);
                 trade.binance_stop_order_id = newId;
                 trade.binance_stop_order_type = validSl.algoType ? 'algo' : 'standard';
                 const exSlPrice = parseFloat(validSl.stopPrice || validSl.triggerPrice);
@@ -219,23 +211,9 @@ export class MaintenanceService {
           }
 
           if (!matchingOrder) {
-
-            // STRATEGY B: NUCLEAR OPTION
-            // If the unprotected position is older than 2 minutes, the situation is critical.
-            // Market close the position to protect capital.
+            const secondsSinceUpdate = (Date.now() - new Date(trade.updated_at || 0).getTime()) / 1000;
             if (secondsSinceUpdate > 120) {
-              const metadata = {
-                id: trade.id,
-                symbol: trade.symbol,
-                qty: trade.qty,
-                unprotectedDuration: secondsSinceUpdate,
-                lastUpdate: trade.updated_at
-              };
-              const nuclearMsg = `[Watchdog] NUCLEAR OPTION: ${trade.symbol} unprotected for ${secondsSinceUpdate.toFixed(0)}s. Market closing position for capital safety. Meta: ${JSON.stringify(metadata)}`;
-              this.logger.error(nuclearMsg);
-              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Watchdog] Nuclear Option triggered for ${trade.symbol} due to protection gap.`, level: 'error' });
-
-              // NEW: Emit event to ensure TradingSessionService handles the full closure lifecycle
+              this.logger.error(`[Watchdog] NUCLEAR OPTION: ${trade.symbol} unprotected for ${secondsSinceUpdate.toFixed(0)}s. Market closing position.`);
               this.eventEmitter.emit('trade.exchange_close', {
                 symbol: trade.symbol,
                 exitPrice: 0,
@@ -244,9 +222,7 @@ export class MaintenanceService {
               continue;
             }
 
-            this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} position found without expected SL order on Binance. (Expected: ${trade.binance_stop_order_id}). Found: 0. Re-placing...`);
-
-            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Watchdog] Missing SL detected for ${trade.symbol}. Recovering protection...`, level: 'warn' });
+            this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} missing SL. Re-placing...`);
             await this.orderManager.placeStopLoss(trade, trade.current_sl);
             trade.updated_at = new Date();
           }
@@ -261,35 +237,17 @@ export class MaintenanceService {
     }
   }
 
-  /**
-   * HYBRID REACTIVE TRIGGER: Listens for SL order cancellations/expirations
-   * and triggers a symbol-specific audit after a debounce window.
-   */
   @OnEvent('watchdog.reactive_audit')
   handleReactiveAudit(payload: { symbol: string }) {
     const symbol = payload.symbol;
     const existing = this.reactiveAuditTimeouts.get(symbol);
     if (existing) clearTimeout(existing);
 
-    // RE-02: 10s Debounce window.
-    // This allows SL Ratchet operations (Cancel-then-Replace) to finish
-    // before the watchdog checks for protection.
     const timeout = setTimeout(async () => {
       this.reactiveAuditTimeouts.delete(symbol);
-      this.logger.debug(`[Watchdog] Executing deferred reactive audit for ${symbol} after debounce.`);
-
-      // SRE: Re-evaluate guards before executing the audit.
-      // If the engine is currently ratcheting or entering/closing, we skip the audit
-      // to avoid race conditions with standard lifecycle operations.
       if (this.orderManager.isRatcheting(symbol) || this.positionTracker.isEntering(symbol) || this.positionTracker.isClosing(symbol)) {
-        this.logger.debug(`[Watchdog] Skipping reactive audit for ${symbol}: Symbol is in transition.`);
         return;
       }
-
-      // We rely on the periodic loop's checks for running and config status.
-      // These are usually handled by the main engine loop which calls protectionWatchdog.
-      // For reactive triggers, we emit an internal event that TradingSessionService can catch
-      // to ensure it passes the current session's 'running' and 'config' context.
       this.eventEmitter.emit('watchdog.request_symbol_audit', { symbol });
     }, 10000);
 
@@ -310,21 +268,12 @@ export class MaintenanceService {
             const isLong = trade.direction === 'LONG';
             const notional = (trade.mark_price || trade.last_price || trade.entry_price) * trade.qty;
             const fundingDelta = roundEight(notional * ENGINE_CONSTANTS.SIMULATED_FUNDING_RATE * (isLong ? 1 : -1));
-
             trade.funding_fee = roundEight((trade.funding_fee || 0) + fundingDelta);
             trade.pnl = roundEight(trade.pnl - fundingDelta);
-            trade._last_funding_delta = fundingDelta;
-
-            // Emit event to update balance in TradingSessionService
             this.eventEmitter.emit(ENGINE_EVENTS.FUNDING_APPLIED, { trade, fundingDelta });
-
-            this.logger.log(`[Funding] Applied ${fundingDelta} estimated funding fee to ${trade.symbol} (${config.paper_mode ? 'Paper' : 'Live'})`);
-          } catch (innerErr) {
-            this.logger.error(`[Funding] Failed to apply fee for ${trade.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
-          }
+          } catch (innerErr) {}
         }
       } catch (err) {
-        this.logger.error(`[Funding] Batch application failed: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
         this.isProcessingFunding = false;
       }

@@ -53,8 +53,8 @@ The default configuration favors the smallest practical footprint over maximum s
 
 Existing runtime controls also help keep resource use low:
 
-- **WebSocket-First state management**: REST is used strictly once at session startup to seed balance and position state. All subsequent updates rely on User Data Stream `ACCOUNT_UPDATE` and `ORDER_TRADE_UPDATE` events.
-- **Aggressive REST Throttling**: All REST API calls pass through a centralized request queue with a mandatory 100ms delay and adaptive weight-based backoff to prevent IP bans.
+- **Hybrid Reactive Architecture (UDS-First)**: The engine prioritizes User Data Stream (UDS) events for all state tracking. REST is used strictly once at session startup to seed the baseline. Critical logic (Watchdog, Order Recovery) checks the UDS-driven cache before falling back to REST.
+- **Aggressive REST Throttling**: All REST API calls pass through a centralized request queue with a mandatory 100ms delay and adaptive weight-based backoff starting at 70% weight usage.
 - **Sequential Backfills**: Kline warming is performed symbol-by-symbol rather than in concurrent bursts.
 - **Quiet ticks and delta payloads**: unchanged tick fields are omitted; analytics are sent on heartbeat or trade events rather than every loop.
 - **Listener-aware ECO mode**: when no active client is listening and no positions are open, expensive loops are skipped/throttled.

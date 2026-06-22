@@ -78,7 +78,7 @@ export class TradeEntity {
   exit_signal_reason: string | null;
 
   @Column('jsonb', { nullable: true })
-  exit_signals_status: any;
+  exit_signals_status: any | null;
 
   @Column({ type: 'varchar', nullable: true })
   entry_signal_type: string | null;
@@ -90,10 +90,10 @@ export class TradeEntity {
   sl_adjustments: any[];
 
   @Column('decimal', { precision: 10, scale: 4, nullable: true })
-  pnl_pct: number;
+  pnl_pct: number | null;
 
   @Column('decimal', { precision: 10, scale: 4, nullable: true })
-  entry_daily_change_pct: number;
+  entry_daily_change_pct: number | null;
 
   @Column({ type: 'varchar', nullable: true })
   binance_order_id: string | null;
@@ -134,7 +134,7 @@ export class TradeEntity {
   strategy_label: string | null;
 
   @Column('jsonb', { nullable: true })
-  strategy_config: any;
+  strategy_config: any | null;
 
   @ManyToOne(() => Session)
   @JoinColumn({ name: 'sessionId' })

@@ -16,13 +16,13 @@ export class BalanceHistory {
   pnl: number;
 
   @Column({ nullable: true })
-  type: string; // e.g., 'TRADE_CLOSE', 'SESSION_STOP', 'RESET'
+  type: string | null; // e.g., 'TRADE_CLOSE', 'SESSION_STOP', 'RESET'
 
   @Column({ nullable: true })
-  sessionId: string;
+  sessionId: string | null;
 
   @Column({ nullable: true })
-  tradeId: string;
+  tradeId: string | null;
 
   @Column({ type: 'varchar', default: 'paper' })
   @Index()

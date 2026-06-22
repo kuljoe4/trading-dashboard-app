@@ -150,8 +150,21 @@ export class OrderManagerService {
       } else {
         this.logger.debug(`[UDS] Received TRADE update for ${symbol} (${side}) but no local active trade matches.`);
       }
-    } else if (status === 'EXPIRED' || status === 'CANCELED') {
-        // Handle canceled SL orders if necessary
+    } else if (status === 'EXPIRED' || status === 'CANCELED' || status === 'REJECTED') {
+      const activeTrades = this.sessionState.activeTrades;
+      const trade = activeTrades.find(t => t.symbol === symbol);
+      if (trade) {
+        const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
+        const isSlOrder =
+          trade.binance_stop_order_id === orderId ||
+          (clientOrderId && clientOrderId.startsWith(`sl-${tradeIdShort8}`));
+
+        if (isSlOrder) {
+          this.logger.warn(`[${tradeIdShort8}] [UDS] Stop Loss order ${status} for ${symbol}. Triggering reactive watchdog audit.`);
+          // RE-01: Emit event for reactive audit. MaintenanceService will handle debouncing and guards.
+          this.eventEmitter.emit('watchdog.reactive_audit', { symbol });
+        }
+      }
     }
   }
 

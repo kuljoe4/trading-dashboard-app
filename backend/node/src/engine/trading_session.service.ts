@@ -686,6 +686,12 @@ export class TradingSessionService implements OnApplicationShutdown {
     return this.sessionState.closedTrades.find(t => t.id === idOrSymbol || t.symbol === idOrSymbol);
   }
 
+  @OnEvent('watchdog.request_symbol_audit')
+  async handleWatchdogSymbolAudit(payload: { symbol: string }) {
+    if (!this.running || !this.config) return;
+    await this.maintenanceService.protectionWatchdog(this.running, this.config, payload.symbol);
+  }
+
   @OnEvent('trade.exchange_close')
   async handleExchangeClose(payload: { symbol: string, exitPrice: number, reason: string, isReconciliation?: boolean }) {
     if (!this.running) return;

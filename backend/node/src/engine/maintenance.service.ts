@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
 import { PositionTrackerService } from './positionTracker';
@@ -14,6 +14,7 @@ export class MaintenanceService {
   private readonly logger = new Logger(MaintenanceService.name);
   private isProcessingWatchdog = false;
   private isProcessingFunding = false;
+  private reactiveAuditTimeouts: Map<string, NodeJS.Timeout> = new Map();
 
   constructor(
     private readonly positionTracker: PositionTrackerService,
@@ -26,28 +27,41 @@ export class MaintenanceService {
    * PROTECTION WATCHDOG: Periodically verifies that all active Live positions
    * have a corresponding SL order on Binance. If missing, it re-places it.
    */
-  async protectionWatchdog(running: boolean, config: SessionConfig | null) {
-    if (!running || !config || config.paper_mode || this.isProcessingWatchdog) return;
-    this.isProcessingWatchdog = true;
+  async protectionWatchdog(running: boolean, config: SessionConfig | null, targetSymbol?: string) {
+    if (!running || !config || config.paper_mode) return;
+
+    // SRE: Allow symbol-specific audits to run even if a global batch is in progress
+    // but prevent multiple global batches.
+    if (!targetSymbol && this.isProcessingWatchdog) return;
+    if (!targetSymbol) this.isProcessingWatchdog = true;
 
     const activeTrades = this.positionTracker.activeList();
-    if (activeTrades.length === 0) return;
+    if (activeTrades.length === 0) {
+      if (!targetSymbol) this.isProcessingWatchdog = false;
+      return;
+    }
 
-    // Filter out trades that are still in cooldown
+    // Filter trades based on cooldown OR targetSymbol
     const tradesToAudit = activeTrades.filter(trade => {
       if (!trade.binance_order_id) return false;
+      if (targetSymbol && trade.symbol === targetSymbol) return true;
+
       const lastUpdateTs = trade.updated_at ? new Date(trade.updated_at).getTime() : 0;
       const secondsSinceUpdate = (Date.now() - lastUpdateTs) / 1000;
       return secondsSinceUpdate >= 45;
     });
 
     if (tradesToAudit.length === 0) {
-      this.isProcessingWatchdog = false;
+      if (!targetSymbol) this.isProcessingWatchdog = false;
       return;
     }
 
     const uniqueSymbols = Array.from(new Set(tradesToAudit.map(t => t.symbol)));
-    this.logger.log(`[Watchdog] Running protection audit for ${uniqueSymbols.length} unique symbols (Hybrid Strategy)...`);
+    if (targetSymbol) {
+      this.logger.log(`[Watchdog] Running reactive protection audit for ${targetSymbol}...`);
+    } else {
+      this.logger.log(`[Watchdog] Running periodic protection audit for ${uniqueSymbols.length} symbols...`);
+    }
 
     try {
       const allPositions = await this.orderManager.fetchAllPositions();
@@ -234,8 +248,43 @@ export class MaintenanceService {
     } catch (err) {
       this.logger.error(`[Watchdog] Audit failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      this.isProcessingWatchdog = false;
+      if (!targetSymbol) this.isProcessingWatchdog = false;
     }
+  }
+
+  /**
+   * HYBRID REACTIVE TRIGGER: Listens for SL order cancellations/expirations
+   * and triggers a symbol-specific audit after a debounce window.
+   */
+  @OnEvent('watchdog.reactive_audit')
+  handleReactiveAudit(payload: { symbol: string }) {
+    const symbol = payload.symbol;
+    const existing = this.reactiveAuditTimeouts.get(symbol);
+    if (existing) clearTimeout(existing);
+
+    // RE-02: 10s Debounce window.
+    // This allows SL Ratchet operations (Cancel-then-Replace) to finish
+    // before the watchdog checks for protection.
+    const timeout = setTimeout(async () => {
+      this.reactiveAuditTimeouts.delete(symbol);
+      this.logger.debug(`[Watchdog] Executing deferred reactive audit for ${symbol} after debounce.`);
+
+      // SRE: Re-evaluate guards before executing the audit.
+      // If the engine is currently ratcheting or entering/closing, we skip the audit
+      // to avoid race conditions with standard lifecycle operations.
+      if (this.orderManager.isRatcheting(symbol) || this.positionTracker.isEntering(symbol) || this.positionTracker.isClosing(symbol)) {
+        this.logger.debug(`[Watchdog] Skipping reactive audit for ${symbol}: Symbol is in transition.`);
+        return;
+      }
+
+      // We rely on the periodic loop's checks for running and config status.
+      // These are usually handled by the main engine loop which calls protectionWatchdog.
+      // For reactive triggers, we emit an internal event that TradingSessionService can catch
+      // to ensure it passes the current session's 'running' and 'config' context.
+      this.eventEmitter.emit('watchdog.request_symbol_audit', { symbol });
+    }, 10000);
+
+    this.reactiveAuditTimeouts.set(symbol, timeout);
   }
 
   async checkFundingFees(running: boolean, config: SessionConfig | null) {

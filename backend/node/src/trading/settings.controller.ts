@@ -54,7 +54,8 @@ export class SettingsController {
         const response = await fetch('https://fapi.binance.com/fapi/v1/exchangeInfo', {
           headers: {
             'X-MBX-APIKEY': body.api_key.trim()
-          }
+          },
+          signal: AbortSignal.timeout(5000)
         });
         
         if (response.ok) {
@@ -76,10 +77,13 @@ export class SettingsController {
         }
       } catch (err) {
         results.valid = false;
+        const isTimeout = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
         results.checks.push({
           type: 'live',
           status: 'error',
-          message: `Error testing live key: ${err instanceof Error ? err.message : 'Unknown error'}`
+          message: isTimeout
+            ? 'Connection timed out while testing live key'
+            : `Error testing live key: ${err instanceof Error ? err.message : 'Unknown error'}`
         });
         this.logger.error(`Live API key test error: ${err}`);
       }
@@ -91,7 +95,8 @@ export class SettingsController {
         const response = await fetch('https://testnet.binancefuture.com/fapi/v1/exchangeInfo', {
           headers: {
             'X-MBX-APIKEY': body.testnet_api_key.trim()
-          }
+          },
+          signal: AbortSignal.timeout(5000)
         });
         
         if (response.ok) {
@@ -113,10 +118,13 @@ export class SettingsController {
         }
       } catch (err) {
         results.valid = false;
+        const isTimeout = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
         results.checks.push({
           type: 'testnet',
           status: 'error',
-          message: `Error testing testnet key: ${err instanceof Error ? err.message : 'Unknown error'}`
+          message: isTimeout
+            ? 'Connection timed out while testing testnet key'
+            : `Error testing testnet key: ${err instanceof Error ? err.message : 'Unknown error'}`
         });
         this.logger.error(`Testnet API key test error: ${err}`);
       }

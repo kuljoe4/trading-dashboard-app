@@ -132,7 +132,8 @@ describe('OrderManagerService Atomicity', () => {
       )).rejects.toThrow(ExchangeExecutionException);
 
       expect(mockBinanceClient.restAPI.newOrder).toHaveBeenCalledTimes(2);
-      expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalledTimes(2); // One for initial SL, one for re-arm on failure
+      // It's called twice: once for the initial SL in enter(), and once for the safety rollback in closeTrade()
+      expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalledTimes(2);
     });
 
     it('handles successful entry and SL placement', async () => {

@@ -45,7 +45,6 @@ export class TradingSessionService implements OnApplicationShutdown {
   private onTradeUpdate: ((trade: Trade, balance: number) => Promise<void>) | null = null;
   private mainLoopInterval: NodeJS.Timeout | null = null;
   private hotLoopInterval: NodeJS.Timeout | null = null;
-  private fundingCheckInterval: NodeJS.Timeout | null = null;
   private watchdogInterval: NodeJS.Timeout | null = null;
   private balanceFetchTimeout: NodeJS.Timeout | null = null;
   private pendingDeltasDuringFetch = 0;
@@ -257,7 +256,6 @@ export class TradingSessionService implements OnApplicationShutdown {
 
     if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
     if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
-    if (this.fundingCheckInterval) clearInterval(this.fundingCheckInterval);
     if (this.watchdogInterval) clearInterval(this.watchdogInterval);
     if (this.balanceFetchTimeout) clearTimeout(this.balanceFetchTimeout);
     if (this.safetySyncTimeout) clearTimeout(this.safetySyncTimeout);
@@ -440,12 +438,6 @@ export class TradingSessionService implements OnApplicationShutdown {
   }
 
   private async onCandleClose(symbol: string) { if (!this.running || !this.config) return; if (this.config.debug_mode) this.logger.verbose(`Candle closed for ${symbol}`); }
-
-  @OnEvent(ENGINE_EVENTS.FUNDING_APPLIED)
-  async handleFundingApplied(payload: { trade: Trade, fundingDelta: number }) {
-    await this.updateBalance(payload.trade, false, true);
-    if (this.onTradeUpdate) await this.onTradeUpdate(payload.trade, this.getBalance());
-  }
 
   private updateScannerResults(opportunities: any[]) {
     this.lastScannerResults = opportunities.map((o) => ({ symbol: o.symbol, price: o.price, pct: roundTo(o.momentum, 2), momentum: roundTo(o.momentum, 2), direction: o.direction.toLowerCase(), dir: o.direction.toLowerCase(), vol: o.volume_24h, volume_usdt: o.volume_24h, score: roundTo(o.score / 10, 1), history: o.history, signalResult: o.signalResult, }));

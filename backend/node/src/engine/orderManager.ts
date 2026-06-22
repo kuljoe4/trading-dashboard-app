@@ -1142,14 +1142,28 @@ export class OrderManagerService {
   async updateStopLoss(trade: Trade, newSlPrice: number, prevSlPrice?: number): Promise<{ success: boolean, price?: number }> {
     if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return { success: true, price: newSlPrice };
 
+    // SRE: Mutex guard to prevent concurrent overlapping ratchets
+    if (this.ratchetLocks.has(trade.symbol)) {
+       this.logger.warn(`[SL Ratchet] Concurrent update blocked for ${trade.symbol}. Ratchet already in progress.`);
+       return { success: false };
+    }
+
     // LOCK: Prevent Watchdog from interfering during the cancel/replace window
     this.ratchetLocks.set(trade.symbol, true);
+
+    const oldSlPrice = prevSlPrice || trade.current_sl;
+    const oldStopOrderId = trade.binance_stop_order_id;
+    const oldStopOrderType = trade.binance_stop_order_type;
 
     try {
       // 1. Explicitly cancel existing tracked SL order if it exists
       if (trade.binance_stop_order_id) {
          this.logger.debug(`[SL] Canceling existing tracked SL ${trade.binance_stop_order_id} before replacement.`);
-         await this.cancelBinanceOrder(trade.symbol, trade.binance_stop_order_id, trade.binance_stop_order_type || 'standard');
+         const cancelSuccess = await this.cancelBinanceOrder(trade.symbol, trade.binance_stop_order_id, trade.binance_stop_order_type || 'standard');
+         if (!cancelSuccess) {
+            this.logger.error(`[SL Ratchet] Cancellation of ${oldStopOrderId} failed for ${trade.symbol}. Aborting ratchet to prevent ghost orders.`);
+            return { success: false };
+         }
          trade.binance_stop_order_id = undefined;
       }
 
@@ -1185,9 +1199,40 @@ export class OrderManagerService {
         }
       }
 
-      const result = await this.placeStopLoss(trade, newSlPrice);
-      if (result) trade.updated_at = new Date();
-      return { success: !!result, price: result?.price };
+      let result;
+      try {
+        result = await this.placeStopLoss(trade, newSlPrice);
+      } catch (placeErr: any) {
+        this.logger.error(`[SL Ratchet] Exception during placement for ${trade.symbol}: ${placeErr.message}`);
+      }
+
+      if (!result || !result.orderId || result.orderId === '') {
+         // INDUSTRY-BEST-PRACTICE: Rollback to previous SL if new placement fails to ensure position remains protected
+         this.logger.error(`[SL Ratchet] Replacement failed for ${trade.symbol}. Attempting ROLLBACK to previous SL ${oldSlPrice}...`);
+
+         try {
+           const rollbackResult = await this.placeStopLoss(trade, oldSlPrice);
+
+           if (rollbackResult && rollbackResult.orderId && rollbackResult.orderId !== '') {
+              this.logger.log(`[SL Ratchet] Rollback successful for ${trade.symbol}. Position is protected at ${rollbackResult.price}.`);
+           } else {
+              throw new Error('Rollback placement returned empty');
+           }
+         } catch (rollbackErr: any) {
+            this.logger.error(`[FATAL] SL Rollback FAILED for ${trade.symbol}. Position is UNPROTECTED on exchange! Error: ${rollbackErr.message}`);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+              msg: `FATAL: SL Ratchet failure for ${trade.symbol} and rollback also failed. Position UNPROTECTED!`,
+              level: 'error'
+            });
+         }
+         return { success: false };
+      }
+
+      trade.updated_at = new Date();
+      return { success: true, price: result.price };
+    } catch (err: any) {
+       this.logger.error(`[SL Ratchet] Unexpected exception during ratchet for ${trade.symbol}: ${err.message}`);
+       return { success: false };
     } finally {
       this.ratchetLocks.delete(trade.symbol);
     }

@@ -192,69 +192,47 @@ export class PositionTrackerService {
         // BOLT: Use epsilon + minDelta comparison to avoid loops on tiny float differences
         if (newSl > trade.current_sl + Math.max(0.00000001, minDelta)) {
           const prevSl = trade.current_sl;
-          const prevRisk = trade.risk_usdt || 0;
-          trade.current_sl = newSl;
-          trade.risk_usdt = Math.max(0, trade.entry_price - trade.current_sl) * trade.qty;
-          // Update running total risk with the delta
-          this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
-          this.logSlAdjustment(trade, prevSl, newSl, currentIndex);
-          // Update exchange-side SL in live mode
-          this.orderManager.updateStopLoss(trade, newSl, prevSl).then(res => {
-            if (!res.success) {
-               this.logger.error(`[CRITICAL] Exchange SL update FAILED for ${symbol}. Local state is ahead of exchange.`);
-            } else if (res.price && res.price !== newSl) {
-               // Sync internal state to the adaptive price used by the exchange
-               const delta = (trade.direction === 'LONG' ? trade.entry_price - res.price : res.price - trade.entry_price) * trade.qty;
-               const finalRisk = Math.max(0, delta);
-               this._totalRisk = roundEight(this._totalRisk - trade.risk_usdt + finalRisk);
-               trade.risk_usdt = finalRisk;
-               trade.current_sl = res.price;
 
-               if (trade.sl_adjustments && trade.sl_adjustments.length > 0) {
-                  const last = trade.sl_adjustments[trade.sl_adjustments.length - 1];
-                  (last as any).adaptive = true;
-                  last.new_sl = res.price;
-               }
-            }
-          }).catch(err => {
-            this.logger.error(`Failed to update exchange SL for ${symbol}: ${err.message}`);
-          });
-          // Notify of trade state change for persistence
-          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+          // Acknowledge-then-Update: Update exchange first in live mode
+          const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
+
+          if (updateRes.success) {
+             const finalSl = updateRes.price || newSl;
+             const prevRisk = trade.risk_usdt || 0;
+             trade.current_sl = finalSl;
+             trade.risk_usdt = Math.max(0, trade.entry_price - trade.current_sl) * trade.qty;
+
+             this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
+             this.logSlAdjustment(trade, prevSl, finalSl, currentIndex, !!updateRes.price && updateRes.price !== newSl);
+
+             // Notify of trade state change for persistence
+             this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+          } else {
+             this.logger.warn(`[SL Ratchet] Local state for ${symbol} LONG SL update rolled back due to exchange failure.`);
+          }
         }
       } else if (trade.direction === 'SHORT' && newSl) {
         // BOLT: Use epsilon + minDelta comparison to avoid loops on tiny float differences
         if (newSl < trade.current_sl - Math.max(0.00000001, minDelta)) {
           const prevSl = trade.current_sl;
-          const prevRisk = trade.risk_usdt || 0;
-          trade.current_sl = newSl;
-          trade.risk_usdt = Math.max(0, trade.current_sl - trade.entry_price) * trade.qty;
-          // Update running total risk with the delta
-          this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
-          this.logSlAdjustment(trade, prevSl, newSl, currentIndex);
-          // Update exchange-side SL in live mode
-          this.orderManager.updateStopLoss(trade, newSl, prevSl).then(res => {
-            if (!res.success) {
-               this.logger.error(`[CRITICAL] Exchange SL update FAILED for ${symbol}. Local state is ahead of exchange.`);
-            } else if (res.price && res.price !== newSl) {
-               // Sync internal state to the adaptive price used by the exchange
-               const delta = (trade.direction === 'SHORT' ? res.price - trade.entry_price : trade.entry_price - res.price) * trade.qty;
-               const finalRisk = Math.max(0, delta);
-               this._totalRisk = roundEight(this._totalRisk - trade.risk_usdt + finalRisk);
-               trade.risk_usdt = finalRisk;
-               trade.current_sl = res.price;
 
-               if (trade.sl_adjustments && trade.sl_adjustments.length > 0) {
-                  const last = trade.sl_adjustments[trade.sl_adjustments.length - 1];
-                  (last as any).adaptive = true;
-                  last.new_sl = res.price;
-               }
-            }
-          }).catch(err => {
-            this.logger.error(`Failed to update exchange SL for ${symbol}: ${err.message}`);
-          });
-          // Notify of trade state change for persistence
-          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+          // Acknowledge-then-Update: Update exchange first in live mode
+          const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
+
+          if (updateRes.success) {
+             const finalSl = updateRes.price || newSl;
+             const prevRisk = trade.risk_usdt || 0;
+             trade.current_sl = finalSl;
+             trade.risk_usdt = Math.max(0, trade.current_sl - trade.entry_price) * trade.qty;
+
+             this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
+             this.logSlAdjustment(trade, prevSl, finalSl, currentIndex, !!updateRes.price && updateRes.price !== newSl);
+
+             // Notify of trade state change for persistence
+             this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+          } else {
+             this.logger.warn(`[SL Ratchet] Local state for ${symbol} SHORT SL update rolled back due to exchange failure.`);
+          }
         }
       }
     }

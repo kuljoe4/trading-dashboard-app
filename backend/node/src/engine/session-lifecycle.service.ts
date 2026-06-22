@@ -52,6 +52,9 @@ export class SessionLifecycleService {
     await this.orderManager.setBinanceClient(bc, mode === 'paper');
 
     if (mode !== 'paper' && bc) {
+      // PROACTIVE RATE LIMIT: Reset weights at session start to ensure clean slate
+      this.sessionState.updateRateLimit(0);
+
       await this.progress(`Configuring Binance ${mode.toUpperCase()} account...`);
 
       // Best Practice: Synchronize server time
@@ -133,17 +136,14 @@ export class SessionLifecycleService {
       }
 
       await this.progress('Establishing real-time account stream...');
-      this.startUserDataStream(bc).catch((err) => {
-        this.logger.error(`Failed to start user data stream: ${err instanceof Error ? err.message : String(err)}. Falling back to polling.`);
-        this.balancePollInterval = setInterval(async () => {
-          const b = await this.fetchBinanceBalance(bc);
-          if (b > 0) {
-            this.sessionState.balanceLive = b;
-            this.sessionState.balancePaper = b;
-            this.sessionState.lastExchangeBalance = b;
-          }
-        }, ENGINE_CONSTANTS.USER_DATA_POLL_INTERVAL_MS);
-      });
+      try {
+        await this.startUserDataStream(bc);
+      } catch (err) {
+        const errMsg = `CRITICAL: Failed to establish real-time account stream: ${err instanceof Error ? err.message : String(err)}. Polling fallback is disabled for safety.`;
+        this.logger.error(errMsg);
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: errMsg, level: 'error' });
+        throw new ConfigValidationException(errMsg);
+      }
     }
 
     await this.progress('Initializing market feed and ticker cache...');
@@ -242,6 +242,14 @@ export class SessionLifecycleService {
 
   private async startUserDataStream(bc: any, isReconnect = false) {
     if (!bc) return;
+    // SRE: Critical guard - if IP is banned, do not even attempt UDS start to prevent chain reaction
+    const currentWeight = this.sessionState.binanceRateLimit.used_1m;
+    if (currentWeight >= this.sessionState.binanceRateLimit.limit) {
+      this.logger.error(`[UDS] Cannot start stream: IP Rate limit exceeded (${currentWeight}/${this.sessionState.binanceRateLimit.limit}).`);
+      if (!isReconnect) throw new Error('IP Rate limit exceeded');
+      return;
+    }
+
     try {
       this.monitoringService.incrementApiRequests();
       const res = await bc.restAPI.startUserDataStream();

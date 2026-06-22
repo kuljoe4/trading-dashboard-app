@@ -22,7 +22,7 @@ export class BinanceClientFactory {
 
     this.logger.log(`Initializing Binance USDS-M Futures Client | mode=${isTestnet ? 'TESTNET' : 'PROD'} | rest=${restURL} | ws=${wsURL}`);
 
-    return new DerivativesTradingUsdsFutures({
+    const client = new DerivativesTradingUsdsFutures({
       configurationRestAPI: {
         apiKey,
         apiSecret,
@@ -32,5 +32,115 @@ export class BinanceClientFactory {
         wsURL
       }
     });
+
+    // Wrap restAPI with a Throttled Proxy to prevent startup bursts and respect rate limits
+    const originalRestApi = client.restAPI;
+    const queue = new BinanceRequestQueue(this.logger);
+
+    (client as any).restAPI = new Proxy(originalRestApi, {
+      get(target, prop, receiver) {
+        const value = Reflect.get(target, prop, receiver);
+        if (typeof value === 'function') {
+          return (...args: any[]) => {
+            return queue.add(async () => {
+              const response = await value.apply(target, args);
+              // Proactively extract weight from headers if available
+              if (response && response.headers) {
+                queue.updateWeightFromHeaders(response.headers);
+              }
+              return response;
+            });
+          };
+        }
+        return value;
+      }
+    });
+
+    return client;
+  }
+}
+
+/**
+ * Centralized Request Queue for Binance USDS-M Futures API
+ * Ensures a mandatory delay between requests and monitors usage weight.
+ */
+class BinanceRequestQueue {
+  private queue: { fn: () => Promise<any>, resolve: (v: any) => void, reject: (e: any) => void }[] = [];
+  private processing = false;
+  private lastRequestTs = 0;
+  private currentWeight1m = 0;
+  private weightLimit1m = 2400;
+
+  // Mandatory delay between requests to prevent "Burst" penalties (50-100ms)
+  private readonly MIN_DELAY_MS = 100;
+  // Adaptive delay for high weight usage
+  private adaptiveDelayMs = 0;
+
+  constructor(private readonly logger: Logger) {}
+
+  async add<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      this.queue.push({ fn, resolve, reject });
+      this.process();
+    });
+  }
+
+  public updateWeightFromHeaders(headers: any) {
+    const getHeader = (name: string) => {
+      return typeof headers.get === 'function'
+        ? headers.get(name)
+        : (headers[name.toLowerCase()] || headers[name]);
+    };
+
+    const weight = getHeader('X-MBX-USED-WEIGHT-1M');
+    if (weight) {
+      this.currentWeight1m = parseInt(weight, 10);
+
+      // If we are using > 70% of the weight, start introducing adaptive delays
+      const usageRatio = this.currentWeight1m / this.weightLimit1m;
+      if (usageRatio > 0.9) {
+        this.adaptiveDelayMs = 1000; // Severe throttling
+      } else if (usageRatio > 0.8) {
+        this.adaptiveDelayMs = 500;
+      } else if (usageRatio > 0.7) {
+        this.adaptiveDelayMs = 200;
+      } else {
+        this.adaptiveDelayMs = 0;
+      }
+    }
+  }
+
+  private async process() {
+    if (this.processing) return;
+    this.processing = true;
+
+    while (this.queue.length > 0) {
+      const now = Date.now();
+      const delay = Math.max(this.MIN_DELAY_MS, this.adaptiveDelayMs);
+      const elapsed = now - this.lastRequestTs;
+
+      if (elapsed < delay) {
+        await new Promise(resolve => setTimeout(resolve, delay - elapsed));
+      }
+
+      const item = this.queue.shift();
+      if (item) {
+        this.lastRequestTs = Date.now();
+        try {
+          const result = await item.fn();
+          item.resolve(result);
+        } catch (error: any) {
+          // If we hit an IP ban or rate limit error, increase delay significantly
+          const msg = error.message || '';
+          if (msg.includes('banned') || msg.includes('418') || msg.includes('429')) {
+            this.logger.error(`[BinanceQueue] Critical rate limit/ban detected. Increasing cooldown...`);
+            this.lastRequestTs = Date.now() + 60000; // Forced 1-minute pause for this queue
+          }
+          item.reject(error);
+        }
+      }
+    }
+
+    this.processing = false;
   }
 }

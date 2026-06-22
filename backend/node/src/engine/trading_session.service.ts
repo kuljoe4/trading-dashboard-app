@@ -47,7 +47,6 @@ export class TradingSessionService implements OnApplicationShutdown {
   private hotLoopInterval: NodeJS.Timeout | null = null;
   private fundingCheckInterval: NodeJS.Timeout | null = null;
   private watchdogInterval: NodeJS.Timeout | null = null;
-  private balancePollInterval: NodeJS.Timeout | null = null;
   private balanceFetchTimeout: NodeJS.Timeout | null = null;
   private pendingDeltasDuringFetch = 0;
   private safetySyncTimeout: NodeJS.Timeout | null = null;
@@ -482,6 +481,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       activeTrades: this.positionTracker.activeList().map((t) => this.engineBroadcaster.serializeTrade(t, this.config!)),
       scannerResults: this.lastScannerResults,
       activeWindows: this.getActiveWindows(),
+      apiStatus: this.sessionState.apiStatus,
     });
   }
 
@@ -648,6 +648,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       maxTradesPeriod: lastRisk?.maxTradesPeriod,
       tradesIn24h: lastRisk?.tradesIn24h,
       maxTrades24h: lastRisk?.maxTrades24h,
+      apiStatus: this.sessionState.apiStatus,
       scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused,
       history: this.sessionState.closedTrades.slice(0, 50).map((t) => this.engineBroadcaster.serializeTrade(t, this.config!, t.exit_price)),
     };
@@ -675,6 +676,10 @@ export class TradingSessionService implements OnApplicationShutdown {
   async fetchTickerPrice(symbol: string): Promise<number | null> { return this.tickerCache.getPrice(symbol); }
   async fetchPosition(symbol: string): Promise<any | null> { return this.orderManager.fetchPosition(symbol); }
   async fetchAllPositions(): Promise<any[]> { return this.orderManager.fetchAllPositions(); }
+  seedRealTimePosition(symbol: string, amount: number, entryPrice: number) {
+    this.sessionState.realTimePositions.set(symbol, { amount, entryPrice });
+  }
+
   updateRateLimit(used1m: number) { this.sessionState.updateRateLimit(used1m); }
   isRateLimited(): boolean { return this.sessionState.isRateLimited(); }
   getBinanceRateLimit() { return this.sessionState.getBinanceRateLimit(); }
@@ -690,6 +695,20 @@ export class TradingSessionService implements OnApplicationShutdown {
   async handleWatchdogSymbolAudit(payload: { symbol: string }) {
     if (!this.running || !this.config) return;
     await this.maintenanceService.protectionWatchdog(this.running, this.config, payload.symbol);
+  }
+
+  @OnEvent('binance.api_limit_reached')
+  async handleApiLimitReached(payload: { type: 'BAN' | 'RATE_LIMIT', message: string, until: number }) {
+    this.sessionState.apiStatus.isBanned = payload.type === 'BAN';
+    this.sessionState.apiStatus.isRateLimited = payload.type === 'RATE_LIMIT';
+    this.sessionState.apiStatus.banUntil = payload.until;
+    this.sessionState.apiStatus.lastErrorMessage = payload.message;
+
+    const level = payload.type === 'BAN' ? 'error' : 'warn';
+    const msg = `[API] ${payload.type} DETECTED: ${payload.message}. Cooldown until ${new Date(payload.until).toLocaleTimeString()}`;
+    this.logger.log(msg);
+    this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level });
+    this.broadcast('api_status', this.sessionState.apiStatus);
   }
 
   @OnEvent('trade.exchange_close')

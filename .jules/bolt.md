@@ -124,3 +124,7 @@
 ## 2026-06-11 - [Security/Reliability] Elimination of SL Protection Gaps
 **Learning:** The "Cancel-then-Replace" pattern for Stop-Loss updates creates a window of time where a trade is unprotected. In volatile markets, a price spike during this gap can lead to catastrophic losses.
 **Action:** Transition to `modifyOrder` for atomic updates or the "New-then-Cancel" pattern to ensure a trade always has an active Stop-Loss on the exchange.
+
+## 2026-06-22 - [Optimization] Centralized REST Throttling & WebSocket-First State
+**Learning:** Startup bursts and aggressive polling fallbacks are the primary drivers of immediate IP bans from Binance. Sequential backfills and a centralized request queue are more effective than high-concurrency workers for maintaining IP reputation. Transitioning to a 'Seed-then-Stream' model (single REST call to establish baseline) eliminates redundant API weight consumption.
+**Action:** Implement a Proxy-based request queue in `BinanceClientFactory` to enforce global rate limits and replace REST polling fallbacks with 'Fail-Fast' logic to preserve IP status.

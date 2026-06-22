@@ -439,48 +439,35 @@ export class MarketFeedService {
     if (this.backfillProcessing || this.backfillQueue.length === 0) return;
     this.backfillProcessing = true;
     const initialDepth = this.backfillQueue.length;
-    this.logger.log(`Starting concurrent kline backfill queue. Depth: ${initialDepth}`);
+    this.logger.log(`Starting sequential kline backfill queue. Depth: ${initialDepth}`);
 
-    const CONCURRENCY = 5;
-    const processTask = async () => {
-      while (this.backfillQueue.length > 0 && this.running) {
-        // Stricter rate limit for background tasks (80% of limit threshold)
-        const rateLimit = this.sessionState.getBinanceRateLimit();
-        const usedWeight = rateLimit.used_weight_1m;
-        const limit = rateLimit.weight_limit || ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT;
-        const pauseThreshold = Math.floor(limit * 0.8);
+    // STRATEGY: Sequential backfill to avoid rate-limit bursts
+    while (this.backfillQueue.length > 0 && this.running) {
+      // Stricter rate limit for background tasks (70% of limit threshold)
+      const rateLimit = this.sessionState.getBinanceRateLimit();
+      const usedWeight = rateLimit.used_weight_1m;
+      const limit = rateLimit.weight_limit || ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT;
+      const pauseThreshold = Math.floor(limit * 0.7);
 
-        if (usedWeight > pauseThreshold) {
-          this.logger.debug(`Backfill worker pausing (Weight: ${usedWeight}/${limit})...`);
-          await new Promise(resolve => setTimeout(resolve, 5000));
-          continue;
-        }
-
-        const task = this.backfillQueue.shift();
-        if (task) {
-          try {
-            await this.backfillKlines(task.symbol, task.interval);
-          } catch (err) {
-            this.logger.error(`Backfill failed for ${task.symbol} ${task.interval}: ${err instanceof Error ? err.message : String(err)}`);
-          }
-          // Small delay between requests to smooth out weight consumption
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
+      if (usedWeight > pauseThreshold) {
+        this.logger.warn(`Backfill queue pausing (Weight: ${usedWeight}/${limit})...`);
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        continue;
       }
-    };
 
-    const workers = [];
-    for (let i = 0; i < Math.min(CONCURRENCY, initialDepth); i++) {
-      // PERFORMANCE: Stagger worker start times to avoid instant peak load
-      workers.push((async () => {
-        await new Promise(r => setTimeout(r, i * 200));
-        return processTask();
-      })());
+      const task = this.backfillQueue.shift();
+      if (task) {
+        try {
+          await this.backfillKlines(task.symbol, task.interval);
+        } catch (err) {
+          this.logger.error(`Backfill failed for ${task.symbol} ${task.interval}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        // Mandatory gap between sequential requests (150ms-300ms) to smooth out startup weight consumption
+        await new Promise(resolve => setTimeout(resolve, 150 + Math.random() * 150));
+      }
     }
-
-    await Promise.all(workers);
     this.backfillProcessing = false;
-    this.logger.log(`Concurrent kline backfill complete.`);
+    this.logger.log(`Sequential kline backfill complete.`);
   }
 
   private async backfillKlines(symbol: string, interval: string) {

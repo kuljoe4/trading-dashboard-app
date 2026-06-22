@@ -24,6 +24,17 @@ export class SessionStateService {
     used_1m: 0,
     limit_1m: 1200
   };
+  public apiStatus: {
+    isBanned: boolean;
+    isRateLimited: boolean;
+    banUntil: number | null;
+    lastErrorMessage: string | null;
+  } = {
+    isBanned: false,
+    isRateLimited: false,
+    banUntil: null,
+    lastErrorMessage: null
+  };
   public stats = {
     entryCount: 0,
     hitCount: 0,
@@ -64,6 +75,7 @@ export class SessionStateService {
     this.isAdaptiveTightened = false;
     this.paused = false;
     this.binanceRateLimit = { used_1m: 0, limit: 2400 };
+    this.apiStatus = { isBanned: false, isRateLimited: false, banUntil: null, lastErrorMessage: null };
     this.cachedClosedTradesStats = {};
     this.realTimePositions.clear();
 

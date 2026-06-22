@@ -121,6 +121,54 @@ const LoadingFallback = () => (
   </div>
 )
 
+const BanBanner = ({ apiStatus }) => {
+  if (!apiStatus?.isBanned && !apiStatus?.isRateLimited) return null;
+
+  const isBan = apiStatus.isBanned;
+  const cooldownEnd = apiStatus.banUntil ? new Date(apiStatus.banUntil).toLocaleTimeString() : 'unknown';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={cn(
+        "p-5 rounded-2xl mb-6 flex flex-col md:flex-row items-center gap-4 shadow-xl border",
+        isBan ? "bg-red/20 border-red/40" : "bg-amber/20 border-amber/40"
+      )}
+    >
+      <div className={cn(
+        "w-12 h-12 rounded-full flex items-center justify-center shrink-0 animate-pulse",
+        isBan ? "bg-red/20 text-red" : "bg-amber/20 text-amber"
+      )}>
+        <AlertCircle size={24} />
+      </div>
+      <div className="flex-1 text-center md:text-left">
+        <h3 className={cn(
+          "text-sm font-black uppercase tracking-tight mb-1",
+          isBan ? "text-red" : "text-amber"
+        )}>
+          {isBan ? 'Binance IP Ban Detected' : 'Binance Rate Limit Active'}
+        </h3>
+        <p className={cn(
+          "text-xs font-bold",
+          isBan ? "text-red/80" : "text-amber/80"
+        )}>
+          {apiStatus.lastErrorMessage || `Your IP has been flagged by Binance. Automatic requests are paused until ${cooldownEnd}.`}
+        </p>
+      </div>
+      <div className="flex flex-col items-center md:items-end gap-1 shrink-0">
+        <div className={cn(
+          "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border",
+          isBan ? "bg-red/20 border-red/30 text-red" : "bg-amber/20 border-amber/30 text-amber"
+        )}>
+          Cooldown active
+        </div>
+        <span className="text-[9px] font-bold opacity-60 uppercase tracking-tighter">Resumes at {cooldownEnd}</span>
+      </div>
+    </motion.div>
+  );
+};
+
 // --- Strategy Card ---
 const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner, className }) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -414,7 +462,7 @@ export function DashboardView({ initialStrategy }) {
     scannerPaused, sessionList, fetchSessions, wsStatus,
     updateStats,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
-    healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened
+    healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -450,7 +498,8 @@ export function DashboardView({ initialStrategy }) {
     isSyncing: state.isSyncing,
     setSyncing: state.setSyncing,
     configSyncing: state.configSyncing,
-    isAdaptiveTightened: state.isAdaptiveTightened
+    isAdaptiveTightened: state.isAdaptiveTightened,
+    apiStatus: state.apiStatus
   }), shallow)
 
   useEffect(() => {
@@ -732,6 +781,7 @@ export function DashboardView({ initialStrategy }) {
         </ViewHeader>
 
         <div aria-live="polite">
+          <BanBanner apiStatus={apiStatus} />
           {agreementRequired && (
             <motion.div
               initial={{ opacity: 0, y: -20 }}

@@ -658,6 +658,11 @@ export class SessionService implements OnModuleInit {
         // PERF: Use Map for O(1) lookup during cross-reconciliation
         const activeExMap = new Map(activeExPositions.map(p => [p.symbol, p]));
 
+        // WebSocket-First Baseline: Seed the real-time position cache with established exchange state
+        for (const p of activeExPositions) {
+          this.tradingSessionService.seedRealTimePosition(p.symbol, parseFloat(p.positionAmt), parseFloat(p.entryPrice));
+        }
+
         for (const trade of sessionOpenTrades) {
           try {
             const position = activeExMap.get(trade.symbol);

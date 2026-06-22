@@ -272,8 +272,22 @@ export class OrderManagerService {
    * BOLT OPTIMIZATION: Uses pre-parsed filter properties on the symbol object
    * to avoid repeated O(N) array searches and string-to-float conversions in the hot path.
    */
-  public applyFilters(symbol: string, price: number, qty: number, options: { priceRounding?: 'round' | 'floor' | 'ceil', skipNotionalCheck?: boolean, clampToPercentPrice?: boolean } = {}) {
-    const filters = this.marketFeed.getSymbolFilters(symbol);
+  /**
+   * Applies exchange filters (LOT_SIZE, PRICE_FILTER, etc.) to price and quantity.
+   * PERFORMANCE: Supports passing pre-fetched filters to avoid Map lookups in hot-paths.
+   */
+  public applyFilters(
+    symbol: string,
+    price: number,
+    qty: number,
+    options: {
+      priceRounding?: 'round' | 'floor' | 'ceil',
+      skipNotionalCheck?: boolean,
+      clampToPercentPrice?: boolean,
+      cachedFilters?: any
+    } = {}
+  ) {
+    const filters = options.cachedFilters || this.marketFeed.getSymbolFilters(symbol);
     if (!filters) return { price, qty };
 
     let finalPrice = price;
@@ -393,9 +407,10 @@ export class OrderManagerService {
     }
     
     try {
-      const filtered = this.applyFilters(symbol, entryPrice, qty);
-      const filteredSl = this.applyFilters(symbol, slPrice, qty, { skipNotionalCheck: true }).price;
-      const filteredTp = tpPrice ? this.applyFilters(symbol, tpPrice, qty, { skipNotionalCheck: true }).price : null;
+      // PERF: Fetch filters once and reuse across all filter operations
+      const filtered = this.applyFilters(symbol, entryPrice, qty, { cachedFilters: filters });
+      const filteredSl = this.applyFilters(symbol, slPrice, qty, { skipNotionalCheck: true, cachedFilters: filters }).price;
+      const filteredTp = tpPrice ? this.applyFilters(symbol, tpPrice, qty, { skipNotionalCheck: true, cachedFilters: filters }).price : null;
 
       entryPrice = filtered.price;
       qty = filtered.qty;
@@ -1527,10 +1542,14 @@ export class OrderManagerService {
     const warningThreshold = config?.slippage_warning_threshold ?? 0.001;
     const abortThreshold = Math.min(config?.slippage_abort_threshold ?? CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT, CONFIG_LIMITS.SLIPPAGE_ABORT_MAX);
 
-    const slippagePctStr = (slippage * 100).toFixed(4);
-    const slippageType = slippage <= 0 ? 'POSITIVE' : 'NEGATIVE';
+    const slippagePctNum = slippage * 100;
+    const slippagePctStr = slippagePctNum.toFixed(4);
 
-    this.logger.log(`[Entry] Execution for ${symbol}: Target ${targetPrice}, Actual ${actualPrice.toFixed(8)} (${slippageType} Slippage: ${slippagePctStr}%)`);
+    if (slippage <= 0) {
+      this.logger.log(`[Execution] PRICE IMPROVEMENT for ${symbol}: Target ${targetPrice}, Actual ${actualPrice.toFixed(8)} (Slippage: ${slippagePctStr}%)`);
+    } else {
+      this.logger.log(`[Execution] Negative slippage for ${symbol}: Target ${targetPrice}, Actual ${actualPrice.toFixed(8)} (Slippage: ${slippagePctStr}%)`);
+    }
 
     // SRE: Proximity and Breach Guard.
     // Positive slippage (better price) means the price moved towards our intended Stop Loss.

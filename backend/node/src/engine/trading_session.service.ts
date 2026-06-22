@@ -47,7 +47,6 @@ export class TradingSessionService implements OnApplicationShutdown {
   private hotLoopInterval: NodeJS.Timeout | null = null;
   private fundingCheckInterval: NodeJS.Timeout | null = null;
   private watchdogInterval: NodeJS.Timeout | null = null;
-  private balancePollInterval: NodeJS.Timeout | null = null;
   private balanceFetchTimeout: NodeJS.Timeout | null = null;
   private pendingDeltasDuringFetch = 0;
   private safetySyncTimeout: NodeJS.Timeout | null = null;
@@ -675,6 +674,10 @@ export class TradingSessionService implements OnApplicationShutdown {
   async fetchTickerPrice(symbol: string): Promise<number | null> { return this.tickerCache.getPrice(symbol); }
   async fetchPosition(symbol: string): Promise<any | null> { return this.orderManager.fetchPosition(symbol); }
   async fetchAllPositions(): Promise<any[]> { return this.orderManager.fetchAllPositions(); }
+  seedRealTimePosition(symbol: string, amount: number, entryPrice: number) {
+    this.sessionState.realTimePositions.set(symbol, { amount, entryPrice });
+  }
+
   updateRateLimit(used1m: number) { this.sessionState.updateRateLimit(used1m); }
   isRateLimited(): boolean { return this.sessionState.isRateLimited(); }
   getBinanceRateLimit() { return this.sessionState.getBinanceRateLimit(); }

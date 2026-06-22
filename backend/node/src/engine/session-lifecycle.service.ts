@@ -249,6 +249,14 @@ export class SessionLifecycleService {
 
       const resData = await res.data() as any;
       const newListenKey = resData.listenKey;
+
+      // If we got the same listenKey back, the old stream is still valid
+      if (isReconnect && newListenKey === this.listenKey && this.isUdsConnected) {
+        this.logger.debug('[UDS] Same listenKey returned — stream still valid, skipping reconnect');
+        this.monitoringService.setUdsStatus('CONNECTED'); // resets stale clock
+        return;
+      }
+
       const oldWs = this.userDataWs;
       const oldListenKey = this.listenKey;
 

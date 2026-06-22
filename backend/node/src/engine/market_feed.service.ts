@@ -312,7 +312,12 @@ export class MarketFeedService {
         else {
           const top = await this.tickerCache.topByVolume((config.watchlist_size || 50) + (config.watchlist_offset || 0), config.excluded_symbols || []);
           const slicedTop = top.slice(config.watchlist_offset || 0);
-          symbols = slicedTop.map((t: any) => t.symbol);
+
+          // COMPLIANCE: Filter by getSymbolFilters() to exclude non-crypto symbols (Gold, Equities)
+          // that appear in miniTicker stream but are not tradable by the bot.
+          symbols = slicedTop
+            .map((t: any) => t.symbol)
+            .filter(s => this.getSymbolFilters(s) !== undefined);
         }
         const globalInterval = config.scan_interval || '1m';
         for (const s of symbols) {

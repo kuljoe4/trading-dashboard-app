@@ -138,6 +138,7 @@ const App = () => {
           activeWindows: res.data.activeWindows || [],
           tradeHistory: res.data.history || [],
           config: res.data.config ? { ...currentState.config, ...res.data.config } : currentState.config,
+          apiStatus: res.data.apiStatus || currentState.apiStatus,
         });
       } catch (e) {
         if (!controller.signal.aborted && e.name !== 'CanceledError' && e.code !== 'ERR_CANCELED') {

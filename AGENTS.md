@@ -86,3 +86,10 @@ To avoid regressions and ensure compliance with exchange (Binance) behavior and 
 - **Stream Stability**: User Data Streams use a proactive 24-hour reconnect (at 23h 50m) to avoid silent disconnections and event loss.
 - **Fill Price**: Extract fill price primarily via `cumQuote / executedQty` as `avgPrice` is deprecated by Binance.
 - **Rate Limits**: The system tracks `X-MBX-ORDER-COUNT-10S/1M` headers. Entries and low-priority SL ratchets are throttled/blocked when approaching limits (80%/90%), while emergency closes always proceed.
+
+### 8. Rate Limit & IP Reputation Compliance (2026-06-22 Update)
+- **Centralized Throttling**: ALL Binance SDK `restAPI` calls must pass through the `BinanceRequestQueue` (Proxy-based). This enforces a mandatory 100ms inter-request delay and adaptive backoff starting at 70% weight usage.
+- **Fail-Fast Lifecycle**: REST polling fallbacks for account state (balance/positions) are FORBIDDEN. If the User Data Stream (UDS) fails to initialize, the session must halt immediately to preserve IP reputation and prevent cascading bans.
+- **WebSocket-First State**: Establish the account baseline (balance, active positions) EXACTLY ONCE via REST at session startup. All subsequent state tracking must rely on UDS `ACCOUNT_UPDATE` and `ORDER_TRADE_UPDATE` events.
+- **Sequential Warmup**: Kline backfills must be performed sequentially (concurrency=1) with jittered delays (150-300ms) to avoid startup bursts that trigger immediate IP bans.
+- **Ban Visibility**: Any IP ban (418) or severe rate limit (429) must be broadcast to the UI via `api_status` event and displayed with a high-visibility alert.

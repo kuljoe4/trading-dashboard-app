@@ -439,7 +439,7 @@ export class MarketFeedService {
     if (this.backfillProcessing || this.backfillQueue.length === 0) return;
     this.backfillProcessing = true;
     const initialDepth = this.backfillQueue.length;
-    this.logger.log(`Starting concurrent kline backfill queue. Depth: ${initialDepth}`);
+    this.logger.log(`Starting sequential kline backfill queue. Depth: ${initialDepth}`);
 
     // STRATEGY: Sequential backfill to avoid rate-limit bursts
     while (this.backfillQueue.length > 0 && this.running) {
@@ -467,7 +467,7 @@ export class MarketFeedService {
       }
     }
     this.backfillProcessing = false;
-    this.logger.log(`Concurrent kline backfill complete.`);
+    this.logger.log(`Sequential kline backfill complete.`);
   }
 
   private async backfillKlines(symbol: string, interval: string) {

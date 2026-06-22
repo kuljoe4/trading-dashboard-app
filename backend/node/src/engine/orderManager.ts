@@ -30,6 +30,7 @@ export class OrderManagerService {
   private binanceClient: DerivativesTradingUsdsFutures | null = null;
   private paperMode = true;
   private takerFeeRate = 0.0004; // Default taker fee (0.04%)
+  private lastFeeFetch = 0;
 
   private consecutiveFailures = 0;
   private readonly MAX_CONSECUTIVE_FAILURES = 3;
@@ -207,6 +208,10 @@ export class OrderManagerService {
     return this.takerFeeRate;
   }
 
+  public getBinanceRateLimit() {
+    return this.sessionState.getBinanceRateLimit();
+  }
+
   async setBinanceClient(client: DerivativesTradingUsdsFutures | null, paperMode = true) {
     const isNewClient = this.binanceClient !== client;
     const isModeChange = this.paperMode !== paperMode;
@@ -214,14 +219,18 @@ export class OrderManagerService {
     this.binanceClient = client;
     this.paperMode = paperMode;
 
-    // Idempotency check: Only fetch commission rate if client or mode has changed
-    if (this.binanceClient && !this.paperMode && (isNewClient || isModeChange)) {
+    // Idempotency check: Cache commission rate for 7 days
+    const shouldFetchFee = this.binanceClient && !this.paperMode &&
+      (isNewClient || isModeChange || (Date.now() - this.lastFeeFetch > 7 * 24 * 60 * 60 * 1000));
+
+    if (shouldFetchFee && this.binanceClient) {
       try {
         // v31.0.0+: Methods are directly on restAPI
         const response = await this.binanceClient.restAPI.userCommissionRate({ symbol: 'BTCUSDT' });
         const data = await response.data();
         if (data && data.takerCommissionRate) {
           this.takerFeeRate = parseFloat(data.takerCommissionRate);
+          this.lastFeeFetch = Date.now();
           this.logger.log(`Taker fee rate cached: ${(this.takerFeeRate * 100).toFixed(4)}%`);
         }
       } catch (err) {

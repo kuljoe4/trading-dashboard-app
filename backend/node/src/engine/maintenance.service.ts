@@ -64,6 +64,15 @@ export class MaintenanceService {
     }
 
     try {
+      this.logger.debug(`[Watchdog] Audit weights: used=${this.orderManager.getBinanceRateLimit().used_weight_1m}/${this.orderManager.getBinanceRateLimit().limit}`);
+
+      // SRE: Proactive Rate Limit Guard. If weights are > 85%, skip batch audit to prioritize orders/UDS.
+      if (this.orderManager.getBinanceRateLimit().used_weight_1m > this.orderManager.getBinanceRateLimit().limit * 0.85) {
+        this.logger.warn(`[Watchdog] High API weight detected. Skipping batch audit to preserve IP status.`);
+        if (!targetSymbol) this.isProcessingWatchdog = false;
+        return;
+      }
+
       const allPositions = await this.orderManager.fetchAllPositions();
       const activePositionsMap = new Map(allPositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0).map(p => [p.symbol, p]));
 

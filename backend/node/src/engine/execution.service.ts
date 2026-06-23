@@ -150,6 +150,10 @@ export class ExecutionService {
         const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk(), enteringCount);
 
         if (!riskResult.canEnter) {
+          if (riskResult.reason.includes('Max open trades')) {
+             this.logger.debug(`${opp.symbol}: Entry skipped - ${riskResult.reason}`);
+          }
+
           if (!riskResult.reason.includes('Max open trades for')) {
             this.sessionState.gateState = this.gatingService.mapGateState(riskResult.reason);
             this.broadcastService.broadcast('gate', {

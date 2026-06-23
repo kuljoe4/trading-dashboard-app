@@ -137,6 +137,8 @@ export class KlineStoreService {
     let minLow = Infinity;
     let maxHigh = -Infinity;
 
+    this.logger.debug(`[KlineStore] ${symbol} Lookback scan: window=${period}, candlesAvailable=${candles.length}, startIdx=${startIdx}`);
+
     for (let i = startIdx; i < candles.length; i++) {
       const candle = candles[i];
       if (candle.low < minLow) minLow = candle.low;

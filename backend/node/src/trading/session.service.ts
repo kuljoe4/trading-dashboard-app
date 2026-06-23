@@ -617,12 +617,11 @@ export class SessionService implements OnModuleInit {
     if (mode !== 'paper' && binanceClient) {
       try {
         // BOLT: Coordinated Snapshot Pattern - use a single fetchAllPositions call instead of per-symbol REST calls
-        this.logger.log(`[Reconciliation] Performing bulk exchange position audit (Weight 5)...`);
+        this.logger.log(`[Reconciliation] Performing bulk exchange audit (Positions=5, Orders=40)...`);
         const allExchangePositions = await this.tradingSessionService.fetchAllPositions();
         const activeExPositions = allExchangePositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0);
 
         // BOLT: Coordinated Snapshot for Orders (Weight 40) - fetch ALL open orders once to avoid per-symbol bursts
-        this.logger.log(`[Reconciliation] Performing bulk open order audit (Weight 40)...`);
         const allOpenOrders = await this.orderManager.fetchAllOpenOrders();
         const ordersBySymbol = new Map<string, any[]>();
         for (const o of allOpenOrders) {
@@ -641,12 +640,13 @@ export class SessionService implements OnModuleInit {
 
         for (const trade of sessionOpenTrades) {
           try {
-            // SRE: Use cached orders to check for existence without per-trade REST calls
-            const symbolOrders = ordersBySymbol.get(trade.symbol) || [];
-            const hasOrder = symbolOrders.some(o => (o as any).orderId == trade.binance_order_id || (o as any).orderId == trade.binance_stop_order_id);
+            // SRE: Critical Check - Does the position actually exist on exchange?
+            const position = activeExMap.get(trade.symbol);
+            const posAmt = position ? parseFloat(position.positionAmt) : 0;
+            const hasPosition = Math.abs(posAmt) > 0;
 
-            if (!hasOrder) {
-              this.logger.log(`Trade ${trade.symbol} not found on exchange orders. Marking as closed (orphaned).`);
+            if (!hasPosition) {
+              this.logger.warn(`[Reconciliation] Local trade ${trade.symbol} has no corresponding exchange position. Marking as closed.`);
               await this.logMessage(`Live position for ${trade.symbol} was not found on exchange during reconciliation. Marking as orphaned.`, 'warn');
               await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date(), is_reconciliation: true });
               (trade as any).reconciled_out = true;
@@ -654,18 +654,19 @@ export class SessionService implements OnModuleInit {
               continue;
             }
 
-            const position = activeExMap.get(trade.symbol);
-            const posAmt = position ? parseFloat(position.positionAmt) : 0;
-            const hasPosition = Math.abs(posAmt) > 0;
+            // SRE: Secondary Check - Is there any order (Entry or SL) active for this trade?
+            const symbolOrders = ordersBySymbol.get(trade.symbol) || [];
+            const hasOrder = symbolOrders.some(o =>
+              (o as any).orderId == trade.binance_order_id ||
+              (o as any).orderId == trade.binance_stop_order_id ||
+              (o as any).clientOrderId === `sl-${trade.id.substring(0, 8)}`
+            );
 
-            if (!hasPosition) {
-              this.logger.error(`[Reconciliation] [CRITICAL] Live position for ${trade.symbol} not found on exchange during bulk audit. Marking as closed.`);
-              await this.logMessage(`Live position for ${trade.symbol} was not found on exchange during reconciliation. Marking as orphaned.`, 'warn');
-              await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date(), is_reconciliation: true });
-              (trade as any).reconciled_out = true;
-              recalculationNeeded = true;
-            } else {
-              // BOLT: Sync local trade state with actual exchange position to ensure entry price and qty accuracy
+            if (!hasOrder) {
+               this.logger.warn(`[Reconciliation] Trade ${trade.symbol} exists on exchange but has NO protection SL orders. Adoption will proceed, Watchdog will re-arm.`);
+            }
+
+            // Sync local trade state with actual exchange position to ensure entry price and qty accuracy
               const exEntryPrice = parseFloat(position!.entryPrice);
 
               if (exEntryPrice > 0 && Math.abs(exEntryPrice - Number(trade.entry_price)) > (exEntryPrice * 0.0001)) {
@@ -859,6 +860,14 @@ export class SessionService implements OnModuleInit {
         const entryPrice = parseFloat(exPos.entryPrice);
         const direction = amt > 0 ? 'LONG' : 'SHORT';
         const qty = Math.abs(amt);
+        const positionSide = exPos.positionSide || 'BOTH';
+
+        // SRE: Resilience against Hedge Mode leftovers.
+        // We only support One-Way mode (BOTH).
+        if (positionSide !== 'BOTH') {
+           this.logger.warn(`[Reconciliation] Skipping adoption for ${exPos.symbol}: Position side is ${positionSide} (Expected BOTH). Engine only supports One-Way mode.`);
+           continue;
+        }
 
         // RESEARCH: Attempt to discover existing SL protection on exchange for this position
         let slPrice = 0;

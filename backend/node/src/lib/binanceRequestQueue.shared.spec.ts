@@ -48,11 +48,8 @@ describe('BinanceRequestQueue Shared State', () => {
     await queue.add(successFn, 'test-success');
 
     expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('Dispatching: test-success'));
-    // SRE: High-Fidelity Structured Telemetry Logging uses objects
-    expect(logger.log).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.stringContaining('Outbound execution succeeded: test-success'),
-      telemetry: expect.objectContaining({ method: 'test-success' })
-    }));
+    // SRE: High-Fidelity Structured Telemetry Logging uses standardized [Telemetry] format
+    expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('[Telemetry] test-success executed'));
   });
 
   it('should shed load (reject) non-critical calls when weight is > 75%', async () => {

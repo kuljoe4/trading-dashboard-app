@@ -141,16 +141,34 @@ export class BinanceRequestQueue {
       if (item) {
         const usageRatio = BinanceRequestQueue.currentWeight1m / BinanceRequestQueue.weightLimit1m;
 
-        // SRE LOAD SHEDDING: Reject non-critical calls when weight exceeds 75%
-        // We reserve weight strictly for infrastructure health (UDS) and emergency risk mitigation.
-        const isInfrastructure = ['startUserDataStream', 'keepaliveUserDataStream', 'closeUserDataStream', 'exchangeInformation'].includes(item.label);
-        const isRiskMitigation = ['newOrder', 'cancelOrder', 'newAlgoOrder', 'cancelAlgoOrder', 'cancelAllOpenOrders', 'queryOrder', 'accountTradeList', 'positionInformationV3'].includes(item.label);
+        // SRE LOAD SHEDDING: Multi-tier priority management
+        // Level 1: Immune (Infrastructure & Keepalives) - Proceed even if > 100% to prevent blindness
+        const isImmune = ['startUserDataStream', 'keepaliveUserDataStream', 'closeUserDataStream'].includes(item.label);
+        // Level 2: Critical (Orders & Structural Info) - Shed at 95%
+        const isCritical = ['newOrder', 'cancelOrder', 'newAlgoOrder', 'cancelAlgoOrder', 'cancelAllOpenOrders', 'exchangeInformation'].includes(item.label);
+        // Level 3: Operational (State Audits) - Shed at 85%
+        const isOperational = ['queryOrder', 'accountTradeList', 'positionInformationV3', 'futuresAccountBalanceV2'].includes(item.label);
 
-        const isCritical = isInfrastructure || isRiskMitigation;
+        let shed = false;
+        let shedReason = '';
 
-        if (usageRatio > 0.75 && !isCritical) {
-           this.logger.warn(`[BinanceQueue] SRE LOAD SHEDDING: Rejecting non-critical call [${item.label}] (Weight usage: ${(usageRatio * 100).toFixed(1)}%)`);
-           item.reject(new Error(`Load shedding active: ${item.label} rejected to preserve IP reputation.`));
+        if (!isImmune) {
+           if (usageRatio > 1.0) { shed = true; shedReason = 'Weight limit exceeded (100%+)'; }
+           else if (usageRatio > 0.95 && !isCritical) { shed = true; shedReason = 'SRE Load Shedding (Critical Zone 95%+)'; }
+           else if (usageRatio > 0.85 && !isCritical && !isOperational) { shed = true; shedReason = 'SRE Load Shedding (Operational Zone 85%+)'; }
+           else if (usageRatio > 0.70 && !isCritical && !isOperational && !['ticker24hrPriceChangeStatistics', 'klineCandlestickData'].includes(item.label)) {
+              // Catch-all for non-categorized calls
+              shed = usageRatio > 0.75;
+              shedReason = 'SRE Load Shedding (General 75%+)';
+           } else if (usageRatio > 0.70 && ['ticker24hrPriceChangeStatistics', 'klineCandlestickData'].includes(item.label)) {
+              shed = true;
+              shedReason = 'SRE Load Shedding (Market Data Zone 70%+)';
+           }
+        }
+
+        if (shed) {
+           this.logger.warn(`[BinanceQueue] SHEDDING: [${item.label}] rejected. Reason: ${shedReason} | Usage: ${(usageRatio * 100).toFixed(1)}%`);
+           item.reject(new Error(`Load shedding active: ${item.label} rejected to preserve IP reputation. (${shedReason})`));
            continue;
         }
 
@@ -161,16 +179,9 @@ export class BinanceRequestQueue {
           const result = await item.fn();
           const duration = Date.now() - startTs;
 
-          // SRE: High-Fidelity Structured Telemetry Logging
-          this.logger.log({
-            message: `Outbound execution succeeded: ${item.label}`,
-            telemetry: {
-              method: item.label,
-              weight: `${BinanceRequestQueue.currentWeight1m}/${BinanceRequestQueue.weightLimit1m}`,
-              queueDepth: this.queue.length,
-              durationMs: duration
-            }
-          });
+          // SRE: High-Fidelity Structured Telemetry Logging (Standardized Format)
+          const telemetryLog = `[Telemetry] ${item.label} executed | Weight: ${BinanceRequestQueue.currentWeight1m}/${BinanceRequestQueue.weightLimit1m} | Depth: ${this.queue.length} | Latency: ${duration}ms`;
+          this.logger.log(telemetryLog);
 
           item.resolve(result);
         } catch (error: any) {

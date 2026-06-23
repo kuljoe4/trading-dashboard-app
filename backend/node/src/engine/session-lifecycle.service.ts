@@ -260,11 +260,10 @@ export class SessionLifecycleService {
   private async startUserDataStream(bc: any, isReconnect = false) {
     if (!bc) return;
     // SRE: Critical guard - if IP is banned, do not even attempt UDS start to prevent chain reaction
+    // SRE Overwatch: startUserDataStream is whitelisted as IMMUNE in the gateway, but we still log warning if over limit.
     const currentWeight = this.sessionState.binanceRateLimit.used_1m;
     if (currentWeight >= this.sessionState.binanceRateLimit.limit) {
-      this.logger.error(`[UDS] Cannot start stream: IP Rate limit exceeded (${currentWeight}/${this.sessionState.binanceRateLimit.limit}).`);
-      if (!isReconnect) throw new Error('IP Rate limit exceeded');
-      return;
+      this.logger.warn(`[UDS] IP Rate limit exceeded (${currentWeight}/${this.sessionState.binanceRateLimit.limit}). Proceeding with IMMUNE infrastructure call.`);
     }
 
     try {
@@ -398,12 +397,14 @@ export class SessionLifecycleService {
       this.udsLivenessCheck = setInterval(() => {
         if (!this.running || !this.isUdsConnected) return;
         const metrics = this.monitoringService.getMetrics();
-        if (metrics.application.exchange_uds_status === 'LAGGING') {
-           this.logger.warn(`[SRE] User Data Stream stall detected (>60s). Force-reconnecting...`);
+        // SRE Optimization: Threshold increased to 120s to avoid false-reconnects on idle accounts.
+        const lastPing = metrics.application.last_uds_ping_sec || 0;
+        if (metrics.application.exchange_uds_status === 'LAGGING' && lastPing > 120) {
+           this.logger.warn(`[SRE] User Data Stream stall detected (>120s). Force-reconnecting...`);
            this.startUserDataStream(bc, true).catch(() => {});
         }
         // HEARTBEAT: Explicit debug log for UDS health observability
-        this.logger.debug(`[SRE] UDS Heartbeat: Status=${this.isUdsConnected ? 'CONNECTED' : 'DISCONNECTED'}, LastPing=${metrics.application.last_uds_ping_sec}s`);
+        this.logger.debug(`[SRE] UDS Heartbeat: Status=${this.isUdsConnected ? 'CONNECTED' : 'DISCONNECTED'}, LastPing=${lastPing}s`);
       }, 60000);
 
       const startTime = Date.now();

@@ -1903,6 +1903,12 @@ export class OrderManagerService {
                } else {
                   this.logger.warn(`Binance close order failed (REDUCE_ONLY) but position still exists for ${symbol} (Amt: ${positionAmt}). Error: ${errMsg}`);
 
+                  // SRE: Aggressive symbol flush on REDUCE_ONLY failure to clear any untracked or conflicting SLs
+                  try {
+                    this.logger.warn(`[${symbol}] [Sync] Executing aggressive symbol flush to resolve REDUCE_ONLY conflict...`);
+                    await this.binanceClient!.restAPI.cancelAllOpenOrders({ symbol });
+                  } catch (flushErr) {}
+
                   // ROLLBACK: Re-place SL if it was cancelled and close failed
                   if (!trade.binance_stop_order_id) {
                      this.logger.warn(`[${symbol}] Close failed but position persists. Re-arming protection SL...`);

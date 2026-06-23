@@ -23,7 +23,7 @@ export class BinanceClientFactory {
       ? DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_TESTNET_URL
       : DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_PROD_URL;
 
-    this.logger.log(`Initializing Binance USDS-M Futures Client | mode=${isTestnet ? 'TESTNET' : 'PROD'} | rest=${restURL} | ws=${wsURL}`);
+    this.logger.log('Initializing Binance USDS-M Futures Client | mode=' + (isTestnet ? 'TESTNET' : 'PROD') + ' | rest=' + restURL + ' | ws=' + wsURL);
 
     const client = new DerivativesTradingUsdsFutures({
       configurationRestAPI: {
@@ -100,14 +100,16 @@ export class BinanceRequestQueue {
     if (weight) {
       BinanceRequestQueue.currentWeight1m = parseInt(weight, 10);
 
-      // If we are using > 70% of the weight, start introducing adaptive delays
-      const usageRatio = BinanceRequestQueue.currentWeight1m / this.weightLimit1m;
+      // PROACTIVE RATE LIMIT: Stricter adaptive delays to prevent hitting the 2400 limit.
+      const usageRatio = this.currentWeight1m / this.weightLimit1m;
       if (usageRatio > 0.9) {
-        BinanceRequestQueue.adaptiveDelayMs = 1000; // Severe throttling
+        this.adaptiveDelayMs = 2000; // Heavy backoff near limits
       } else if (usageRatio > 0.8) {
-        BinanceRequestQueue.adaptiveDelayMs = 500;
+        this.adaptiveDelayMs = 1000;
       } else if (usageRatio > 0.7) {
-        BinanceRequestQueue.adaptiveDelayMs = 200;
+        this.adaptiveDelayMs = 500;
+      } else if (usageRatio > 0.5) {
+        this.adaptiveDelayMs = 200; // Proactive smoothing starting at 50%
       } else {
         BinanceRequestQueue.adaptiveDelayMs = 0;
       }
@@ -141,8 +143,8 @@ export class BinanceRequestQueue {
           const isRateLimit = msg.includes('429') || code === -1015;
 
           if (isBan || isRateLimit) {
-            this.logger.error(`[BinanceQueue] Critical rate limit/ban detected. Status: ${isBan ? 'BANNED' : 'RATE_LIMITED'}. Increasing cooldown...`);
-            BinanceRequestQueue.lastRequestTs = Date.now() + 60000; // Forced 1-minute pause for this queue
+            this.logger.error('[BinanceQueue] Critical rate limit/ban detected. Status: ' + (isBan ? 'BANNED' : 'RATE_LIMITED') + '. Increasing cooldown...');
+            this.lastRequestTs = Date.now() + 60000; // Forced 1-minute pause for this queue
 
             this.eventEmitter.emit('binance.api_limit_reached', {
               type: isBan ? 'BAN' : 'RATE_LIMIT',

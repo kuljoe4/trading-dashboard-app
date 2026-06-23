@@ -126,7 +126,7 @@ export class EngineBroadcasterService {
         exit_signals_status: trade.exit_signals_status || {},
         sl_adjustments: trade.sl_adjustments || [],
         entry_daily_change_pct: trade.entry_daily_change_pct,
-        initial_risk_usdt: trade.initial_risk_usdt,
+        initial_risk_usdt: trade.initial_risk_usdt ?? undefined,
         close_attempts: trade.close_attempts,
         close_blocked: trade.close_blocked,
         _delta: true,
@@ -137,7 +137,7 @@ export class EngineBroadcasterService {
       ...trade,
       direction,
       entry_daily_change_pct: trade.entry_daily_change_pct,
-      initial_risk_usdt: trade.initial_risk_usdt,
+      initial_risk_usdt: trade.initial_risk_usdt ?? undefined,
       close_attempts: trade.close_attempts,
       close_blocked: trade.close_blocked,
       current_price: roundTo(current ?? entry, 8),
@@ -348,10 +348,14 @@ export class EngineBroadcasterService {
     const realizedPnl = roundEight(balance - (startingBalance ?? balance));
     const totalPnl = roundEight(realizedPnl + activePnl);
 
-    if (!this.lastAnalyticsResult || this.sessionState.closedTrades.length !== this.lastAnalyticsTradeCount || startingBalance !== this.lastAnalyticsStartingBalance) {
+    const analyticsCondition = !this.lastAnalyticsResult ||
+      this.sessionState.closedTrades.length !== this.lastAnalyticsTradeCount ||
+      (startingBalance !== undefined && startingBalance !== null && startingBalance !== this.lastAnalyticsStartingBalance);
+
+    if (analyticsCondition) {
       this.lastAnalyticsResult = this.analyticsService.calculateAnalytics(this.sessionState.closedTrades as any, startingBalance);
       this.lastAnalyticsTradeCount = this.sessionState.closedTrades.length;
-      this.lastAnalyticsStartingBalance = startingBalance || 0;
+      this.lastAnalyticsStartingBalance = startingBalance ?? 0;
     }
 
     const monitoringInterval = 15000;

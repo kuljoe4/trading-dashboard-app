@@ -37,3 +37,18 @@
 **Vulnerability:** Application repeatedly hammered the Binance API with REST polling when the User Data Stream failed to initialize, leading to extended IP bans and complete account lockout.
 **Learning:** Security and availability are linked to exchange reputation. Polling fallbacks are 'Deadly Loops' if the IP is already flagged. Failing fast is a protective security measure for the application's infrastructure.
 **Prevention:** Disable automatic polling fallbacks for critical exchange state. Implement mandatory inter-request delays (throttling) at the client level and ensure IP ban status (418/429) triggers an immediate system-wide cooldown.
+
+## 2026-06-23 - [Shared IP Reputation Coordination in Multi-Client Environments]
+**Vulnerability:** Rate-limiting and throttling state in `BinanceRequestQueue` was instance-scoped, allowing multiple trading session clients to collectively exceed the IP-wide rate limits of the Binance API.
+**Learning:** Security and reliability mechanisms that protect external IP reputation must be coordinated process-wide. In Node.js, this is most effectively achieved by using static class members for state that represents the shared reality of the server's public IP.
+**Prevention:** Always use static members for rate-limit and IP-reputation tracking when multiple service instances share the same upstream identity.
+
+## 2026-06-23 - [Fatal-Log Propagation for Critical IP Bans]
+**Vulnerability:** Detection of an HTTP 418 (IP Ban) only logged a warning and triggered a temporary cooldown, potentially allowing other parts of the system or manual retries to worsen the reputation damage.
+**Learning:** Critical security and reputation events like IP bans must be treated as fatal system states. Implementing an immediate but clean exit (`process.exit(1)`) satisfies the 'Fail Fast' directive and protects the infrastructure from compounding penalties.
+**Prevention:** Ensure that catastrophic infrastructure rejections (like permanent bans) trigger a deliberate system halt rather than just a transient error.
+
+## 2026-06-23 - [Insufficient Entropy in Admin Authentication Secrets]
+**Vulnerability:** `ADMIN_API_KEY` had no minimum length requirement, allowing users to configure weak, easily guessable secrets for dashboard and monitoring protection.
+**Learning:** Security guards are only as strong as the secrets they protect. Enforcing minimum entropy (e.g., 16+ characters) at the guard level prevents "security theater" where an endpoint is technically protected but practically vulnerable to brute-force.
+**Prevention:** Implement strict length and complexity validation for all authentication secrets in guards and configuration services.

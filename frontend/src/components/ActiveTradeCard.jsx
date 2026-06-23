@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { cn, Tooltip } from './ui/primitives'
+import { cn, Tooltip, CopyButton } from './ui/primitives'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { sessionAPI } from '../api/client'
 import { ShieldCheck } from 'lucide-react'
@@ -46,17 +46,19 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
     <motion.div
       layout
       whileHover={{ scale: 1.01 }}
+      whileFocus={{ scale: 1.01 }}
       onClick={onClick}
       onKeyDown={handleKeyDown}
       role="button"
       tabIndex={0}
-      className="bg-surface border border-border/40 rounded-2xl p-4 md:p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.98]"
+      className="bg-surface border border-border/40 rounded-2xl p-4 md:p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.98] group"
       aria-label={`View details for ${trade.symbol} ${trade.direction} trade, ${fmtUSD(trade.pnl)} P&L, ${Number(trade.rr || 0).toFixed(2)} RR`}
     >
       <div className="flex items-center justify-between gap-3 min-w-0">
         <div className="flex flex-col gap-1 min-w-0 flex-1">
           <div className="flex items-center gap-2 whitespace-nowrap overflow-hidden">
             <span className="text-sm md:text-base font-black font-mono tracking-tight shrink-0">{trade.symbol || '---'}</span>
+            <CopyButton value={trade.symbol} tooltip="Copy Symbol" className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 -ml-1 scale-75" />
             <span className={cn("text-[9px] md:text-xs font-black px-1.5 py-0.5 rounded border uppercase shrink-0", isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5')}>
               {isLong ? '▲' : '▼'} {trade.direction || '---'}
             </span>
@@ -69,10 +71,12 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
             )}
           </div>
           {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
-            <div className="flex items-center gap-1 whitespace-nowrap overflow-hidden">
-              <ShieldCheck size={10} className="text-accent shrink-0" />
-              <span className="text-[9px] font-black text-accent uppercase tracking-widest opacity-80 truncate">Monitored</span>
-            </div>
+            <Tooltip content="Manual Monitor: This symbol is being explicitly tracked based on your strategy configuration.">
+              <div className="flex items-center gap-1 whitespace-nowrap overflow-hidden cursor-help">
+                <ShieldCheck size={10} className="text-accent shrink-0" />
+                <span className="text-[9px] font-black text-accent uppercase tracking-widest opacity-80 truncate">Monitored</span>
+              </div>
+            </Tooltip>
           )}
         </div>
 
@@ -84,9 +88,11 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
             {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] md:text-[11px] font-black font-mono text-dim/60 uppercase tracking-widest">
-              {Number(trade.rr || 0).toFixed(2)}R
-            </span>
+            <Tooltip content="Reward-to-Risk Ratio: Current realized profit relative to the initial amount risked.">
+              <span className="text-[10px] md:text-[11px] font-black font-mono text-dim/60 uppercase tracking-widest border-b border-dotted border-dim/30 cursor-help">
+                {Number(trade.rr || 0).toFixed(2)}R
+              </span>
+            </Tooltip>
             {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
               <Tooltip content={`Commission: -${fmtUSD(trade.realized_fee || 0)} | Funding: ${trade.funding_fee > 0 ? '-' : '+'}${fmtUSD(Math.abs(trade.funding_fee || 0))}`}>
                 <div className="text-[8px] md:text-[9px] font-black font-mono text-red/40 uppercase tracking-tighter cursor-help border-b border-dotted border-red/10">

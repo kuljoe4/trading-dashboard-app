@@ -38,7 +38,7 @@ export class MomentumScannerService {
   }
 
   async start(config: SessionConfig) {
-    this.logger.verbose(
+    this.logger.log(
       `MomentumScanner started with watchlist_size=${config.watchlist_size}`,
     );
   }
@@ -54,6 +54,7 @@ export class MomentumScannerService {
   scan(config: SessionConfig): Opportunity[] {
     try {
       const results: { opp: Opportunity; candles: Candle[] }[] = [];
+      const debugMode = config.debug_mode === true;
 
       // 1. Global Scan (if enabled)
       if (config.global_scanner_enabled !== false) {
@@ -78,6 +79,8 @@ export class MomentumScannerService {
               // Populate volume_rank based on absolute position in the volume-sorted list
               res.opp.volume_rank = (config.watchlist_offset || 0) + i + 1;
               results.push(res);
+            } else if (debugMode) {
+              this.logger.debug(`Global scanner: Symbol ${symbol} did not pass criteria.`);
             }
           } catch (error) {
             this.logger.verbose(`Global scan error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
@@ -125,6 +128,12 @@ export class MomentumScannerService {
       tempResults.sort((a, b) => b.opp.score - a.opp.score);
 
       const topResults = tempResults.slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS);
+
+      if (topResults.length > 0 && debugMode) {
+        this.logger.log(`Scanner found ${topResults.length} opportunities. Top: ${topResults[0].opp.symbol} (${topResults[0].opp.score.toFixed(1)})`);
+      } else if (debugMode) {
+        this.logger.debug('Scanner found 0 opportunities passing criteria.');
+      }
 
       // BOLT OPTIMIZATION: Only map history for the final top results
       return topResults.map(({ opp, candles }) => {

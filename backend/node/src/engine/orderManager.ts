@@ -58,8 +58,8 @@ export class OrderManagerService {
 
   @OnEvent('binance.order_update')
   async handleBinanceOrderUpdate(payload: any) {
-    // DEBUG: Expose raw UDS payload for traceability
-    this.logger.debug(`[UDS INBOUND] Order update: ${JSON.stringify(payload)}`);
+    // SRE: Expose raw UDS payload for traceability at LOG level to ensure visibility in decision audits
+    this.logger.log(`[UDS INBOUND] Order update: ${JSON.stringify(payload)}`);
 
     const order = payload.o;
     const symbol = order.s;

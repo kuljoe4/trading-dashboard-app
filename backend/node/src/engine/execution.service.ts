@@ -140,7 +140,7 @@ export class ExecutionService {
         const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry', false);
         if (!signalResult.allFired) {
           if (signalResult.reason.includes('warm-up')) {
-            this.logger.debug(`${opp.symbol}: Entry blocked - ${signalResult.reason}`);
+            this.logger.log(`${opp.symbol}: Entry blocked - ${signalResult.reason}`);
           }
           continue;
         }
@@ -150,6 +150,7 @@ export class ExecutionService {
         const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk(), enteringCount);
 
         if (!riskResult.canEnter) {
+          this.logger.log(`${opp.symbol}: Risk Engine entry blocked. Reason: ${riskResult.reason}`);
           if (!riskResult.reason.includes('Max open trades for')) {
             this.sessionState.gateState = this.gatingService.mapGateState(riskResult.reason);
             this.broadcastService.broadcast('gate', {

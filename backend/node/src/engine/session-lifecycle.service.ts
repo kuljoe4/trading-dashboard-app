@@ -399,12 +399,17 @@ export class SessionLifecycleService {
         const metrics = this.monitoringService.getMetrics();
         // SRE Optimization: Threshold increased to 120s to avoid false-reconnects on idle accounts.
         const lastPing = metrics.application.last_uds_ping_sec || 0;
-        if (metrics.application.exchange_uds_status === 'LAGGING' && lastPing > 120) {
-           this.logger.warn(`[SRE] User Data Stream stall detected (>120s). Force-reconnecting...`);
+
+        // SRE: Liveness check is only valid if we HAVE active positions.
+        // Idle accounts may legitimately receive zero UDS updates for hours.
+        const hasActiveTrades = this.sessionState.activeTrades.length > 0;
+
+        if (hasActiveTrades && metrics.application.exchange_uds_status === 'LAGGING' && lastPing > 120) {
+           this.logger.warn(`[SRE] User Data Stream stall detected (>120s) with ${this.sessionState.activeTrades.length} active trades. Force-reconnecting...`);
            this.startUserDataStream(bc, true).catch(() => {});
         }
         // HEARTBEAT: Explicit debug log for UDS health observability
-        this.logger.debug(`[SRE] UDS Heartbeat: Status=${this.isUdsConnected ? 'CONNECTED' : 'DISCONNECTED'}, LastPing=${lastPing}s`);
+        this.logger.debug(`[SRE] UDS Heartbeat: Status=${this.isUdsConnected ? 'CONNECTED' : 'DISCONNECTED'}, LastPing=${lastPing}s, ActiveTrades=${this.sessionState.activeTrades.length}`);
       }, 60000);
 
       const startTime = Date.now();

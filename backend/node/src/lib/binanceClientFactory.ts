@@ -152,7 +152,11 @@ export class BinanceRequestQueue {
         let shed = false;
         let shedReason = '';
 
-        if (!isImmune) {
+        // SRE LOAD SHEDDING: Multi-tier priority management
+        // Level 1: Immune (Infrastructure & Keepalives) - NEVER shed to prevent stream stalls
+        if (isImmune) {
+          shed = false;
+        } else {
            if (usageRatio > 1.0) { shed = true; shedReason = 'Weight limit exceeded (100%+)'; }
            else if (usageRatio > 0.95 && !isCritical) { shed = true; shedReason = 'SRE Load Shedding (Critical Zone 95%+)'; }
            else if (usageRatio > 0.85 && !isCritical && !isOperational) { shed = true; shedReason = 'SRE Load Shedding (Operational Zone 85%+)'; }
@@ -167,7 +171,7 @@ export class BinanceRequestQueue {
         }
 
         if (shed) {
-           this.logger.warn(`[BinanceQueue] SHEDDING: [${item.label}] rejected. Reason: ${shedReason} | Usage: ${(usageRatio * 100).toFixed(1)}%`);
+           this.logger.warn(`[BinanceQueue] SRE LOAD SHEDDING: Rejecting non-critical call [${item.label}] (Weight usage: ${(usageRatio * 100).toFixed(1)}%). Reason: ${shedReason}`);
            item.reject(new Error(`Load shedding active: ${item.label} rejected to preserve IP reputation. (${shedReason})`));
            continue;
         }

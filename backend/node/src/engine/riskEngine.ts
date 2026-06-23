@@ -423,7 +423,10 @@ export class RiskEngineService {
     config: SessionConfig,
     symbol?: string
   ): number {
-    if (balance <= 0 || entryPrice <= 0) return 0;
+    if (balance <= 0 || entryPrice <= 0) {
+      if (balance <= 0) this.logger.log(`[RiskEngine] ${symbol || 'Trade'} setup discarded: Balance is ${balance}.`);
+      return 0;
+    }
 
     const riskAmount = balance * ((config.risk_pct_per_trade ?? 1.0) / 100);
     const slDistance = Math.abs(entryPrice - slPrice);
@@ -450,15 +453,15 @@ export class RiskEngineService {
          const scaledRisk = Math.abs(entryPrice - slPrice) * scaledQty;
 
          if (scaledRisk > riskAmount * 3.0) {
-            this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} setup rejected: Auto-scaling would cause ${ (scaledRisk/riskAmount).toFixed(1) }x risk overshoot (Max 3x).`);
+            this.logger.log(`[RiskEngine] ${symbol || 'Trade'} setup rejected: Auto-scaling from ${currentNotional.toFixed(2)} USDT to ${MIN_NOTIONAL_SCALED} USDT would cause ${(scaledRisk/riskAmount).toFixed(1)}x risk overshoot (Max 3.0x). Balance: ${balance.toFixed(2)} USDT, Risk: ${riskAmount.toFixed(4)} USDT.`);
             return 0;
          }
 
-         this.logger.debug(`[RiskEngine] Scaled qty up to meet MIN_NOTIONAL (${currentNotional.toFixed(2)} -> ${MIN_NOTIONAL_SCALED})`);
+         this.logger.log(`[RiskEngine] Scaled qty up to meet MIN_NOTIONAL for ${symbol}: ${currentNotional.toFixed(2)} USDT -> ${MIN_NOTIONAL_SCALED} USDT (Risk Overshoot: ${(scaledRisk/riskAmount).toFixed(1)}x)`);
          qty = scaledQty;
       }
     } else if (currentNotional < MIN_NOTIONAL) {
-       this.logger.warn(`[RiskEngine] Trade setup discarded: notional ${currentNotional.toFixed(2)} is below minimum ${MIN_NOTIONAL} USDT.`);
+       this.logger.log(`[RiskEngine] ${symbol || 'Trade'} setup discarded: Notional ${currentNotional.toFixed(2)} USDT is below minimum ${MIN_NOTIONAL} USDT required by exchange.`);
        return 0;
     }
 

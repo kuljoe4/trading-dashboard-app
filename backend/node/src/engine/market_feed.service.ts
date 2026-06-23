@@ -9,6 +9,7 @@ import { SessionStateService } from './session_state.service';
 import { SignalEngineService } from './signalEngine';
 import { MonitoringService } from './monitoring.service';
 import { ENGINE_EVENTS } from './events';
+import { BinanceRequestQueue } from '../lib/binanceClientFactory';
 
 interface BinanceKline {
   stream?: string;
@@ -125,8 +126,11 @@ export class MarketFeedService {
         if (data && Array.isArray(data.rateLimits)) {
            const requestWeightLimit = data.rateLimits.find((l: any) => l.rateLimitType === 'REQUEST_WEIGHT' && l.interval === 'MINUTE');
            if (requestWeightLimit) {
-              this.sessionState.updateRateLimit(this.sessionState.binanceRateLimit.used_1m, parseInt(requestWeightLimit.limit, 10));
-              this.logger.log(`Dynamic Binance Rate Limit detected: ${requestWeightLimit.limit}/min`);
+              const limit = parseInt(requestWeightLimit.limit, 10);
+              this.sessionState.updateRateLimit(this.sessionState.binanceRateLimit.used_1m, limit);
+              // SRE Overwatch: Synchronize dynamic limit to the centralized gateway queue
+              BinanceRequestQueue.setWeightLimit(limit);
+              this.logger.log(`Dynamic Binance Rate Limit detected: ${limit}/min`);
            }
 
            const orderLimit10s = data.rateLimits.find((l: any) => l.rateLimitType === 'ORDERS' && l.interval === 'SECOND' && l.intervalNum === 10);

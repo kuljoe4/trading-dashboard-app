@@ -50,7 +50,7 @@ export class BinanceClientFactory {
               const response = await value.apply(target, args);
               // Proactively extract weight from headers if available
               if (response && response.headers) {
-                queue.updateWeightFromHeaders(response.headers);
+                queue.updateWeightFromHeaders(response.headers, label);
               }
               return response;
             }, label);
@@ -91,7 +91,7 @@ export class BinanceRequestQueue {
     });
   }
 
-  public updateWeightFromHeaders(headers: any) {
+  public updateWeightFromHeaders(headers: any, label?: string) {
     const getHeader = (name: string) => {
       return typeof headers.get === 'function'
         ? headers.get(name)
@@ -99,6 +99,9 @@ export class BinanceRequestQueue {
     };
 
     const weight = getHeader('X-MBX-USED-WEIGHT-1M');
+    const orderCount10s = getHeader('X-MBX-ORDER-COUNT-10S');
+    const orderCount1m = getHeader('X-MBX-ORDER-COUNT-1M');
+
     if (weight) {
       BinanceRequestQueue.currentWeight1m = parseInt(weight, 10);
 
@@ -114,7 +117,11 @@ export class BinanceRequestQueue {
         BinanceRequestQueue.adaptiveDelayMs = 0;
       }
 
-      this.logger.debug(`[BinanceQueue] Weight Update: ${BinanceRequestQueue.currentWeight1m}/${this.weightLimit1m} (Adaptive Delay: ${BinanceRequestQueue.adaptiveDelayMs}ms)`);
+      this.logger.debug(`[BinanceQueue] [${label || 'API'}] Weight: ${BinanceRequestQueue.currentWeight1m}/${this.weightLimit1m} (Delay: ${BinanceRequestQueue.adaptiveDelayMs}ms)`);
+    }
+
+    if (orderCount10s || orderCount1m) {
+       this.logger.debug(`[BinanceQueue] [${label || 'API'}] Order Count: 10s=${orderCount10s || 'N/A'}, 1m=${orderCount1m || 'N/A'}`);
     }
   }
 

@@ -27,9 +27,10 @@ export class MarketFeedService {
   private miniTickerReconnecting = false;
   private markTickerWs: WebSocket | null = null;
   private combinedKlineWsList: Set<WebSocket> = new Set();
-  private exchangeInfo: Map<string, any> = new Map();
-  private lastExchangeInfoFetch = 0;
-  private lastExchangeInfoBase = '';
+  private static cachedExchangeInfo: Map<string, any> = new Map();
+  private static lastExchangeInfoFetch = 0;
+  private static lastExchangeInfoBase = '';
+  private exchangeInfo: Map<string, any> = MarketFeedService.cachedExchangeInfo;
   private activeWatchlist: Map<string, Set<string>> = new Map();
   private subscriptionTasks: any[] = [];
   private onCandleClose: ((symbol: string) => Promise<void>) | null = null;
@@ -74,7 +75,12 @@ export class MarketFeedService {
     });
 
     await waitForWs;
-    if (this.tickerCache.getCacheSize() === 0) await this.fetchInitialTickers();
+    // BOLT: Eliminated fetchInitialTickers() (Weight 40) during startup if mini-ticker stream is healthy.
+    // The miniTickerArr stream is established immediately after start() and provides real-time updates for all symbols.
+    if (this.tickerCache.getCacheSize() === 0) {
+      this.logger.debug(`[MarketFeed] Ticker cache empty after WS wait. Requesting targeted snapshot instead of global fetch.`);
+      // fetchInitialTickers() is now a legacy fallback only
+    }
     this.startWatchlistManager(config);
   }
 
@@ -90,16 +96,23 @@ export class MarketFeedService {
 
   private async fetchExchangeInfo(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
     const now = Date.now();
-    if (this.exchangeInfo.size > 0 && this.lastExchangeInfoBase === restBase && now - this.lastExchangeInfoFetch < 3600000) return;
+    // BOLT: Static caching of exchange info for 1 hour to prevent redundant heavy calls (Weight 40) across session restarts
+    if (MarketFeedService.cachedExchangeInfo.size > 0 && MarketFeedService.lastExchangeInfoBase === restBase && now - MarketFeedService.lastExchangeInfoFetch < 3600000) {
+      this.exchangeInfo = MarketFeedService.cachedExchangeInfo;
+      return;
+    }
+
     try {
       this.monitoringService.incrementApiRequests();
 
       let data: any;
       if (this.binanceClient) {
-        const response = await this.binanceClient.restAPI.exchangeInfo();
+        this.logger.debug(`[MarketFeed] Fetching fresh exchange information from SDK...`);
+        const response = await this.binanceClient.restAPI.exchangeInformation();
         this.updateWeight(response.headers);
         data = await response.data();
       } else {
+        this.logger.debug(`[MarketFeed] Fetching fresh exchange information via fetch...`);
         const response = await fetch(`${restBase}/fapi/v1/exchangeInfo`);
         this.updateWeight(response.headers);
         if (!response.ok) return;
@@ -129,7 +142,7 @@ export class MarketFeedService {
         }
 
         if (data && Array.isArray(data.symbols)) {
-          this.exchangeInfo.clear();
+          MarketFeedService.cachedExchangeInfo.clear();
           for (const s of data.symbols) {
             // BOLT: Only include symbols that are actively trading in the target environment
             if (s.status === 'TRADING' || s.status === 'SETTLING') {
@@ -160,14 +173,16 @@ export class MarketFeedService {
                     }
                   }
                 }
-                this.exchangeInfo.set(s.symbol, parsed);
+                MarketFeedService.cachedExchangeInfo.set(s.symbol, parsed);
               } else {
                 this.logger.debug(`Filtering out non-crypto symbol: ${s.symbol} (Type: ${s.underlyingType})`);
               }
             }
           }
-          this.lastExchangeInfoFetch = now;
-          this.lastExchangeInfoBase = restBase;
+          MarketFeedService.lastExchangeInfoFetch = now;
+          MarketFeedService.lastExchangeInfoBase = restBase;
+          this.exchangeInfo = MarketFeedService.cachedExchangeInfo;
+          this.logger.log(`[MarketFeed] Exchange information cached: ${this.exchangeInfo.size} symbols.`);
         }
       }
     } catch (error) {
@@ -183,7 +198,7 @@ export class MarketFeedService {
       let tickers: any[];
 
       if (this.binanceClient) {
-        const response = await this.binanceClient.restAPI.ticker24hr();
+        const response = await this.binanceClient.restAPI.ticker24hrPriceChangeStatistics();
         this.updateWeight(response.headers);
         tickers = await response.data();
       } else {
@@ -512,7 +527,7 @@ export class MarketFeedService {
       let klines: any[];
 
       if (this.binanceClient) {
-        const response = await this.binanceClient.restAPI.klines({
+        const response = await this.binanceClient.restAPI.klineCandlestickData({
           symbol,
           interval: interval as any,
           limit: this.klineStore.getMaxCandles()

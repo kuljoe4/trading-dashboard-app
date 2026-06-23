@@ -555,44 +555,9 @@ export class SessionService implements OnModuleInit {
 
       // Check if trade exists on exchange for live/testnet
       if (mode !== 'paper' && binanceClient) {
-        try {
-          // Fix: SDK v31.0.0 methods are directly on restAPI
-          const res = await binanceClient.restAPI.currentAllOpenOrders({ symbol: trade.symbol });
-          const orders = await res.data();
-          const hasOrder = Array.isArray(orders) && orders.some(o => (o as any).orderId == trade.binance_order_id || (o as any).orderId == trade.binance_stop_order_id);
-          if (!hasOrder) {
-            this.logger.log(`Trade ${trade.symbol} not found on exchange. Marking as closed (orphaned).`);
-            await this.logMessage(`Live position for ${trade.symbol} was not found on exchange during reconciliation. Marking as orphaned.`, 'warn');
-
-            // SECURITY: Cleanup any potential orphaned SL orders for this trade specifically
-            if (trade.binance_stop_order_id) {
-              try {
-                this.logger.log(`[Reconciliation] Attempting cleanup of orphaned SL ${trade.binance_stop_order_id} for ${trade.symbol}`);
-                await this.orderManager.cancelBinanceOrder(trade.symbol, trade.binance_stop_order_id, trade.binance_stop_order_type as any);
-              } catch (cancelErr: any) {
-                this.logger.debug(`[Reconciliation] Orphan SL cleanup failed (expected if already gone): ${cancelErr.message || String(cancelErr)}`);
-              }
-            }
-
-            let exitPrice = 0;
-            try {
-              const tickerPrice = await this.tradingSessionService.fetchTickerPrice(trade.symbol);
-              exitPrice = await this.orderManager.recoverLastExecutionPrice(trade.symbol, trade as any, tickerPrice || Number(trade.entry_price));
-            } catch (e) {}
-
-            await this.tradeRepository.update(trade.id, {
-              status: 'CLOSED_ORPHANED',
-              exit_ts: new Date(),
-              exit_price: exitPrice,
-              is_reconciliation: true
-            });
-            (trade as any).reconciled_out = true;
-            recalculationNeeded = true;
-            continue;
-          }
-        } catch (e) {
-          this.logger.warn(`Failed to reconcile live trade ${trade.symbol}: ${e instanceof Error ? e.message : String(e)}`);
-        }
+        // BOLT: Avoid per-symbol REST calls during startup reconciliation loop.
+        // This logic is redundant because the global reconciliation below already handles this correctly with bulk calls.
+        // We skip this check and let the bulk audit handle it.
       }
 
       // Offline Breach Detection for paper trades in the current session
@@ -651,9 +616,20 @@ export class SessionService implements OnModuleInit {
     // Reconcile open trades with actual exchange positions
     if (mode !== 'paper' && binanceClient) {
       try {
-        // GLOBAL RECONCILIATION: Fetch ALL active positions from exchange
+        // BOLT: Coordinated Snapshot Pattern - use a single fetchAllPositions call instead of per-symbol REST calls
+        this.logger.log(`[Reconciliation] Performing bulk exchange position audit (Weight 5)...`);
         const allExchangePositions = await this.tradingSessionService.fetchAllPositions();
         const activeExPositions = allExchangePositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0);
+
+        // BOLT: Coordinated Snapshot for Orders (Weight 40) - fetch ALL open orders once to avoid per-symbol bursts
+        this.logger.log(`[Reconciliation] Performing bulk open order audit (Weight 40)...`);
+        const allOpenOrders = await this.orderManager.fetchAllOpenOrders();
+        const ordersBySymbol = new Map<string, any[]>();
+        for (const o of allOpenOrders) {
+          const list = ordersBySymbol.get(o.symbol) || [];
+          list.push(o);
+          ordersBySymbol.set(o.symbol, list);
+        }
 
         // PERF: Use Map for O(1) lookup during cross-reconciliation
         const activeExMap = new Map(activeExPositions.map(p => [p.symbol, p]));
@@ -665,6 +641,19 @@ export class SessionService implements OnModuleInit {
 
         for (const trade of sessionOpenTrades) {
           try {
+            // SRE: Use cached orders to check for existence without per-trade REST calls
+            const symbolOrders = ordersBySymbol.get(trade.symbol) || [];
+            const hasOrder = symbolOrders.some(o => (o as any).orderId == trade.binance_order_id || (o as any).orderId == trade.binance_stop_order_id);
+
+            if (!hasOrder) {
+              this.logger.log(`Trade ${trade.symbol} not found on exchange orders. Marking as closed (orphaned).`);
+              await this.logMessage(`Live position for ${trade.symbol} was not found on exchange during reconciliation. Marking as orphaned.`, 'warn');
+              await this.tradeRepository.update(trade.id, { status: 'CLOSED_ORPHANED', exit_ts: new Date(), is_reconciliation: true });
+              (trade as any).reconciled_out = true;
+              recalculationNeeded = true;
+              continue;
+            }
+
             const position = activeExMap.get(trade.symbol);
             const posAmt = position ? parseFloat(position.positionAmt) : 0;
             const hasPosition = Math.abs(posAmt) > 0;

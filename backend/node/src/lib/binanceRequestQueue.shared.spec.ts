@@ -40,6 +40,16 @@ describe('BinanceRequestQueue Shared State', () => {
     expect((BinanceRequestQueue as any).adaptiveDelayMs).toBe(500); // 2000/2400 > 0.8
   });
 
+  it('should log dispatch and completion', async () => {
+    const queue = new BinanceRequestQueue(logger, eventEmitter);
+    const successFn = jest.fn().mockResolvedValue('ok');
+
+    await queue.add(successFn, 'test-success');
+
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('Dispatching: test-success'));
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('Completed: test-success'));
+  });
+
   it('should call process.exit(1) on IP ban (418)', async () => {
     const queue = new BinanceRequestQueue(logger, eventEmitter);
     let exitCalledWith: any = null;
@@ -55,7 +65,7 @@ describe('BinanceRequestQueue Shared State', () => {
     };
 
     try {
-      await queue.add(failingFn);
+      await queue.add(failingFn, 'test-ban');
     } catch (e) {
       // expected error from failingFn
     }

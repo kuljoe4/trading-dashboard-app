@@ -56,7 +56,7 @@ describe('OrderManagerService Atomicity', () => {
       restAPI: {
         newOrder: jest.fn(),
         cancelOrder: jest.fn(),
-        userCommissionRate: jest.fn().mockResolvedValue({ data: { takerCommissionRate: '0.0004' } }),
+        userCommissionRate: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ takerCommissionRate: '0.0004' }) }),
         queryOrder: jest.fn(),
         modifyOrder: jest.fn(),
         currentAllOpenOrders: jest.fn(),
@@ -73,11 +73,11 @@ describe('OrderManagerService Atomicity', () => {
       service.setBinanceClient(mockBinanceClient, false); // Live mode
 
       // First call (Entry) succeeds
-      mockBinanceClient.restAPI.newOrder.mockResolvedValueOnce({ data: { orderId: 'entry_id', avgPrice: '50000', executedQty: '0.1' }, headers: {} });
+      mockBinanceClient.restAPI.newOrder.mockResolvedValueOnce({ data: () => Promise.resolve({ orderId: 'entry_id', avgPrice: '50000', executedQty: '0.1' }), headers: {} });
       // Second call (SL via newAlgoOrder) fails
       mockBinanceClient.restAPI.newAlgoOrder.mockRejectedValueOnce(new Error('Binance SL failure'));
       // Third call (Unwind via newOrder) succeeds
-      mockBinanceClient.restAPI.newOrder.mockResolvedValueOnce({ data: { orderId: 'unwind_id', executedQty: '0.1' }, headers: {} });
+      mockBinanceClient.restAPI.newOrder.mockResolvedValueOnce({ data: () => Promise.resolve({ orderId: 'unwind_id', executedQty: '0.1' }), headers: {} });
 
       const result = await service.enter(
         'session_1',
@@ -103,11 +103,11 @@ describe('OrderManagerService Atomicity', () => {
       );
       // 2. SL via newAlgoOrder
       expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalledWith(
-        expect.objectContaining({ symbol: 'BTCUSDT', type: 'STOP_MARKET', reduceOnly: 'true' })
+        expect.objectContaining({ symbol: 'BTCUSDT', type: 'STOP_MARKET', reduceOnly: true })
       );
       // 3. Unwind via newOrder
       expect(mockBinanceClient.restAPI.newOrder).toHaveBeenNthCalledWith(
-        2, expect.objectContaining({ symbol: 'BTCUSDT', side: 'SELL', type: 'MARKET', reduceOnly: 'true' })
+        2, expect.objectContaining({ symbol: 'BTCUSDT', side: 'SELL', type: 'MARKET', reduceOnly: true })
       );
     });
 
@@ -115,7 +115,7 @@ describe('OrderManagerService Atomicity', () => {
       service.setBinanceClient(mockBinanceClient, false); // Live mode
 
       // First call (Entry) succeeds
-      mockBinanceClient.restAPI.newOrder.mockResolvedValueOnce({ data: { orderId: 'entry_id', avgPrice: '50000', executedQty: '0.1' }, headers: {} });
+      mockBinanceClient.restAPI.newOrder.mockResolvedValueOnce({ data: () => Promise.resolve({ orderId: 'entry_id', avgPrice: '50000', executedQty: '0.1' }), headers: {} });
       // Second call (SL via newAlgoOrder) fails
       mockBinanceClient.restAPI.newAlgoOrder.mockRejectedValueOnce(new Error('Binance SL failure'));
       // Third call (Unwind via newOrder) fails
@@ -140,9 +140,9 @@ describe('OrderManagerService Atomicity', () => {
       service.setBinanceClient(mockBinanceClient, false); // Live mode
 
       // First call (Entry) succeeds
-      mockBinanceClient.restAPI.newOrder.mockResolvedValueOnce({ data: { orderId: 'entry_id', avgPrice: '50000', executedQty: '0.1' }, headers: {} });
+      mockBinanceClient.restAPI.newOrder.mockResolvedValueOnce({ data: () => Promise.resolve({ orderId: 'entry_id', avgPrice: '50000', executedQty: '0.1' }), headers: {} });
       // Second call (SL via newAlgoOrder) succeeds
-      mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValueOnce({ data: { algoId: 'sl_id', algoStatus: 'NEW' }, headers: {} });
+      mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValueOnce({ data: () => Promise.resolve({ algoId: 'sl_id', algoStatus: 'NEW' }), headers: {} });
 
       const result = await service.enter(
         'session_1',

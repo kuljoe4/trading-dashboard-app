@@ -80,14 +80,14 @@ export class SessionLifecycleService {
         try {
           this.monitoringService.incrementApiRequests();
           const currentModeRes = await bc.restAPI.getCurrentPositionMode();
-          const currentModeData = currentModeRes.data;
+          const currentModeData = await currentModeRes.data();
 
           if (currentModeData && currentModeData.dualSidePosition === false) {
             this.logger.debug('Binance position mode is already One-Way.');
           } else {
             this.monitoringService.incrementApiRequests();
-            const modeRes = await bc.restAPI.changePositionMode({ dualSidePosition: 'false' } as any);
-            const modeData = modeRes.data;
+            const modeRes = await bc.restAPI.changePositionMode({ dualSidePosition: false } as any);
+            const modeData = await modeRes.data();
             const modeMsg = `Binance position mode set to One-Way: ${JSON.stringify(modeData)}`;
             this.logger.log(modeMsg);
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: modeMsg, level: 'info' });
@@ -222,7 +222,7 @@ export class SessionLifecycleService {
       const res = await bc.restAPI.futuresAccountBalanceV2();
       if (!res) return 0;
 
-      const data = res.data as any;
+      const data = await res.data() as any;
       const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
 
       if (usdt) {
@@ -232,7 +232,7 @@ export class SessionLifecycleService {
       // Fallback: try accountInformationV2 (full account details)
       this.logger.debug(`futuresAccountBalanceV2 did not return USDT. Trying accountInformationV2 fallback...`);
       const accRes = await bc.restAPI.accountInformationV2();
-      const accData = accRes.data as any;
+      const accData = await accRes.data() as any;
       if (accData && Array.isArray(accData.assets)) {
         const accUsdt = accData.assets.find((a: any) => a.asset === 'USDT');
         if (accUsdt) {
@@ -263,7 +263,7 @@ export class SessionLifecycleService {
       const res = await bc.restAPI.startUserDataStream();
       if (!res || !res.data) throw new Error('Failed to start user data stream: No response from Binance');
 
-      const resData = res.data as any;
+      const resData = await res.data() as any;
       const newListenKey = resData.listenKey;
 
       // If we got the same listenKey back, the old stream is still valid
@@ -286,14 +286,6 @@ export class SessionLifecycleService {
         this.isUdsConnected = false;
         this.monitoringService.setUdsStatus('DISCONNECTED');
         this.logger.error(`User Data Stream error: ${err.message || String(err)}`);
-      });
-
-      this.userDataWs.on('ping', () => {
-        this.logger.debug('[UDS] Received PING from server');
-      });
-
-      this.userDataWs.on('pong', () => {
-        this.logger.debug('[UDS] Received PONG from server');
       });
 
       this.userDataWs.on('close', () => {
@@ -420,11 +412,6 @@ export class SessionLifecycleService {
         try {
           this.monitoringService.incrementApiRequests();
           await bc.restAPI.keepaliveUserDataStream();
-          // Proactively ping the server via WS to keep the line hot and detect stalls early
-          if (this.userDataWs && typeof this.userDataWs.pingServer === 'function') {
-            this.logger.debug('[UDS] Sending proactive WS PING to Binance...');
-            this.userDataWs.pingServer();
-          }
         } catch (err) {
             this.logger.debug(`Error keeping alive user data stream: ${err instanceof Error ? err.message : String(err)}`);
         }

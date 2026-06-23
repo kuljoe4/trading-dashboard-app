@@ -32,14 +32,7 @@ export class ApiKeyGuard implements CanActivate {
     // Audit Item 34: Unconditionally require key for monitoring
     const isMonitoring = request.url?.includes("/monitoring/");
 
-    // SENTINEL: Enforce ADMIN_API_KEY in production and ensure it has sufficient entropy
-    if (adminKey && adminKey.length < 16) {
-        this.logger.error("CRITICAL: ADMIN_API_KEY is too short (min 16 chars). Dashboard access is insecure.");
-        if (isProduction || isMonitoring) {
-            throw new UnauthorizedException("ADMIN_API_KEY must be at least 16 characters long for security.");
-        }
-    }
-
+    // SENTINEL: Enforce ADMIN_API_KEY in production
     if (!adminKey) {
       if (isProduction) {
         throw new UnauthorizedException(

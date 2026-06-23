@@ -58,9 +58,6 @@ export class OrderManagerService {
 
   @OnEvent('binance.order_update')
   async handleBinanceOrderUpdate(payload: any) {
-    // DEBUG: Expose raw UDS payload for traceability
-    this.logger.debug(`[UDS INBOUND] Order update: ${JSON.stringify(payload)}`);
-
     const order = payload.o;
     const symbol = order.s;
     const status = order.X; // Order Status
@@ -69,6 +66,15 @@ export class OrderManagerService {
     const side = order.S;
     const type = order.ot;
     const executionType = order.x; // Execution Type
+
+    // SRE: High-fidelity structured logging for all UDS updates to confirm stream health and event delivery.
+    // Throttled to LOG level for TRADE, DEBUG for others.
+    const udsMsg = `[UDS] ${executionType} ${status} for ${symbol}: Qty=${order.z}/${order.q}, Price=${order.ap || order.p}, Side=${side}, Type=${type}`;
+    if (executionType === 'TRADE') {
+      this.logger.log(udsMsg);
+    } else {
+      this.logger.debug(udsMsg);
+    }
 
     // Accuracy Improvement: Update trade entry/exit price from User Data Stream (ORDER_TRADE_UPDATE)
     if (executionType === 'TRADE') {
@@ -1902,14 +1908,15 @@ export class OrderManagerService {
                }
 
                if (positionAmt === 0) {
-                  this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] Confirmed: ${symbol} position is already zero. Triggering Sync Recovery.`);
+                  this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] Confirmed: ${symbol} position is already zero on exchange (Amt: ${positionAmt}). Triggering Sync Recovery.`);
                   exitPrice = await this.recoverLastExecutionPrice(symbol, trade, exitPrice);
                   trade.exit_reason = trade.exit_reason === 'EXCHANGE_SYNC' ? 'EXCHANGE_SYNC_RECOVERY' : 'EXCHANGE_SL_OR_MANUAL';
                   const feeRate = this.takerFeeRate || 0.0004;
                   const exitFee = roundEight(isNaN(exitPrice * trade.qty * feeRate) ? 0 : exitPrice * trade.qty * feeRate);
                   trade.realized_fee = roundEight((trade.realized_fee || 0) + exitFee);
                } else {
-                  this.logger.warn(`Binance close order failed (REDUCE_ONLY) but position still exists for ${symbol} (Amt: ${positionAmt}). Error: ${errMsg}`);
+                  const tradeMeta = { id: trade.id, direction: trade.direction, qty: trade.qty, entryPrice: trade.entry_price, sl: trade.current_sl };
+                  this.logger.warn(`[${symbol}] Close order failed (REDUCE_ONLY) but position still exists on exchange (Amt: ${positionAmt}). This typically means a side mismatch or a ghost SL order is consuming the 'reduce-only' capacity. TradeMeta: ${JSON.stringify(tradeMeta)}. Error: ${errMsg}`);
 
                   // SRE: Aggressive symbol flush on REDUCE_ONLY failure to clear any untracked or conflicting SLs
                   try {

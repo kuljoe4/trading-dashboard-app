@@ -438,7 +438,11 @@ export class MarketFeedService {
         }
         this.processBackfillQueue();
       }
-    } catch (err) {}
+
+      this.logger.log(`[MarketFeed] Watchlist updated: ${this.activeWatchlist.size} symbols monitored.`);
+    } catch (err) {
+      this.logger.error(`[MarketFeed] Watchlist update failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   private async rebuildCombinedKlineStream() {

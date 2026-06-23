@@ -396,14 +396,27 @@ export class RiskEngineService {
         rawDistance = Math.abs(structuralSl - entryPrice);
       }
 
-      const clampedDistance = Math.min(Math.max(rawDistance, minDistance), maxDistance);
+      let clampType: 'RAW' | 'MIN_CLAMP' | 'MAX_CLAMP' = 'RAW';
+      let clampedDistance = rawDistance;
+
+      if (rawDistance < minDistance) {
+        clampedDistance = minDistance;
+        clampType = 'MIN_CLAMP';
+      } else if (rawDistance > maxDistance) {
+        clampedDistance = maxDistance;
+        clampType = 'MAX_CLAMP';
+      }
+
+      // SRE: Guard against immediate breach. If structural SL is already at/past entry,
+      // we must use at least the minDistance to ensure a valid order.
       const finalSl = direction === 'LONG' ? entryPrice - clampedDistance : entryPrice + clampedDistance;
 
       this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Lookback SL Journey:
         Entry: ${entryPrice}
         Extreme (${direction === 'LONG' ? 'Low' : 'High'}): ${structuralSl}
         Raw Dist: ${rawDistance.toFixed(5)} (${((rawDistance / entryPrice) * 100).toFixed(2)}%)
-        Clamped Dist: ${clampedDistance.toFixed(5)} (${((clampedDistance / entryPrice) * 100).toFixed(2)}%) [Min: ${minPct}%, Max: ${maxPct}%]
+        Min: ${minPct}% (${minDistance.toFixed(5)}), Max: ${maxPct}% (${maxDistance.toFixed(5)})
+        Result: ${clampType} -> Dist: ${clampedDistance.toFixed(5)}
         Final SL: ${finalSl.toFixed(5)}`);
 
       return finalSl;
@@ -423,6 +436,7 @@ export class RiskEngineService {
     config: SessionConfig,
     symbol?: string
   ): number {
+    this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Size Check: Balance=${balance}, Entry=${entryPrice}, SL=${slPrice}, Dist=${Math.abs(entryPrice - slPrice).toFixed(5)}`);
     if (balance <= 0 || entryPrice <= 0) return 0;
 
     const riskAmount = balance * ((config.risk_pct_per_trade ?? 1.0) / 100);

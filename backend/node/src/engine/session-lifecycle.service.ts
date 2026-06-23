@@ -307,6 +307,7 @@ export class SessionLifecycleService {
       });
 
       this.userDataWs.on('pong', () => {
+        this.logger.debug('[UDS] WebSocket PONG received. Heartbeat confirmed.');
         this.monitoringService.recordUdsPing();
       });
 
@@ -314,7 +315,12 @@ export class SessionLifecycleService {
         this.monitoringService.recordUdsPing();
         try {
           // SDK WebsocketStreams.connect returns a connection that emits 'message' with the already parsed object or string
-          const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
+          let data = typeof payload === 'string' ? JSON.parse(payload) : payload;
+
+          // UDS HARDENING: Handle both direct and combined stream formats (unwrap .data if present)
+          if (data && data.data && data.stream) {
+            data = data.data;
+          }
 
           if (data.e === 'ACCOUNT_UPDATE' && data.a) {
             // Real-time Balance Tracking (Zero Weight)
@@ -404,6 +410,7 @@ export class SessionLifecycleService {
         // SRE: Proactive WebSocket ping to confirm liveness on idle accounts
         try {
            if (this.userDataWs && typeof this.userDataWs.pingServer === 'function') {
+              this.logger.debug('[UDS] Dispatching proactive WebSocket ping...');
               this.userDataWs.pingServer();
            }
         } catch (e) {

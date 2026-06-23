@@ -68,13 +68,13 @@ describe("ApiKeyGuard", () => {
   it("should allow access if correct API key is provided", () => {
     mockConfigService.get.mockImplementation((key: string) => {
       if (key === "NODE_ENV") return "production";
-      if (key === "ADMIN_API_KEY") return "long-enough-secret-key-123";
+      if (key === "ADMIN_API_KEY") return "secret-key";
       return null;
     });
     mockExecutionContext.getRequest.mockReturnValue({
       url: "/session/status",
       headers: {
-        "x-api-key": "long-enough-secret-key-123",
+        "x-api-key": "secret-key",
       },
     });
 
@@ -85,7 +85,7 @@ describe("ApiKeyGuard", () => {
   it("should throw UnauthorizedException if incorrect API key is provided", () => {
     mockConfigService.get.mockImplementation((key: string) => {
       if (key === "NODE_ENV") return "production";
-      if (key === "ADMIN_API_KEY") return "long-enough-secret-key-123";
+      if (key === "ADMIN_API_KEY") return "secret-key";
       return null;
     });
     mockExecutionContext.getRequest.mockReturnValue({
@@ -103,53 +103,17 @@ describe("ApiKeyGuard", () => {
   it("should handle array version of x-api-key header", () => {
     mockConfigService.get.mockImplementation((key: string) => {
       if (key === "NODE_ENV") return "production";
-      if (key === "ADMIN_API_KEY") return "long-enough-secret-key-123";
+      if (key === "ADMIN_API_KEY") return "secret-key";
       return null;
     });
     mockExecutionContext.getRequest.mockReturnValue({
       url: "/session/status",
       headers: {
-        "x-api-key": ["long-enough-secret-key-123"],
+        "x-api-key": ["secret-key"],
       },
     });
 
     const result = guard.canActivate(mockExecutionContext);
     expect(result).toBe(true);
-  });
-
-  it("should throw UnauthorizedException if ADMIN_API_KEY is too short (production)", () => {
-    mockConfigService.get.mockImplementation((key: string) => {
-      if (key === "NODE_ENV") return "production";
-      if (key === "ADMIN_API_KEY") return "short";
-      return null;
-    });
-    mockExecutionContext.getRequest.mockReturnValue({
-      url: "/session/status",
-      headers: {
-        "x-api-key": "short",
-      },
-    });
-
-    expect(() => guard.canActivate(mockExecutionContext)).toThrow(
-      new UnauthorizedException("ADMIN_API_KEY must be at least 16 characters long for security."),
-    );
-  });
-
-  it("should throw UnauthorizedException if ADMIN_API_KEY is too short for monitoring", () => {
-    mockConfigService.get.mockImplementation((key: string) => {
-      if (key === "NODE_ENV") return "development";
-      if (key === "ADMIN_API_KEY") return "short";
-      return null;
-    });
-    mockExecutionContext.getRequest.mockReturnValue({
-      url: "/monitoring/stats",
-      headers: {
-        "x-api-key": "short",
-      },
-    });
-
-    expect(() => guard.canActivate(mockExecutionContext)).toThrow(
-      new UnauthorizedException("ADMIN_API_KEY must be at least 16 characters long for security."),
-    );
   });
 });

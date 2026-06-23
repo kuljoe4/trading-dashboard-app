@@ -113,9 +113,6 @@ export class TradeEntity {
   @Column({ default: 0 })
   close_attempts: number;
 
-  @Column({ type: 'text', nullable: true })
-  _sig_json: string | null;
-
   @Column('bigint', { nullable: true, transformer: {
     to: (value: number | null) => value,
     from: (value: string | null) => value ? parseInt(value, 10) : null

@@ -487,7 +487,7 @@ export class TradingSessionService implements OnApplicationShutdown {
         : (res?.headers?.['x-mbx-used-weight-1m'] || res?.headers?.['X-MBX-USED-WEIGHT-1M']);
       if (weight) this.sessionState.updateRateLimit(parseInt(weight, 10));
 
-      const data = res.data as any;
+      const data = await res.data() as any;
       const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
       return usdt ? parseFloat(usdt.balance || 0) : 0;
     } catch (e: any) {

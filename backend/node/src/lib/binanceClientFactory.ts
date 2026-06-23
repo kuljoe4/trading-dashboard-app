@@ -23,7 +23,7 @@ export class BinanceClientFactory {
       ? DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_TESTNET_URL
       : DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_PROD_URL;
 
-    this.logger.log('Initializing Binance USDS-M Futures Client | mode=' + (isTestnet ? 'TESTNET' : 'PROD') + ' | rest=' + restURL + ' | ws=' + wsURL);
+    this.logger.log(`Initializing Binance USDS-M Futures Client | mode=${isTestnet ? 'TESTNET' : 'PROD'} | rest=${restURL} | ws=${wsURL}`);
 
     const client = new DerivativesTradingUsdsFutures({
       configurationRestAPI: {
@@ -44,6 +44,7 @@ export class BinanceClientFactory {
       get(target, prop, receiver) {
         const value = Reflect.get(target, prop, receiver);
         if (typeof value === 'function') {
+          const label = prop.toString();
           return (...args: any[]) => {
             return queue.add(async () => {
               const response = await value.apply(target, args);
@@ -52,7 +53,7 @@ export class BinanceClientFactory {
                 queue.updateWeightFromHeaders(response.headers);
               }
               return response;
-            });
+            }, label);
           };
         }
         return value;
@@ -66,10 +67,9 @@ export class BinanceClientFactory {
 /**
  * Centralized Request Queue for Binance USDS-M Futures API
  * Ensures a mandatory delay between requests and monitors usage weight.
- * Uses static members to ensure process-wide IP reputation protection across all client instances.
  */
 export class BinanceRequestQueue {
-  private queue: { fn: () => Promise<any>, resolve: (v: any) => void, reject: (e: any) => void }[] = [];
+  private queue: { fn: () => Promise<any>, label: string, resolve: (v: any) => void, reject: (e: any) => void }[] = [];
   private processing = false;
 
   // SRE: Shared state across all queue instances to ensure process-wide IP reputation protection
@@ -84,9 +84,9 @@ export class BinanceRequestQueue {
 
   constructor(private readonly logger: Logger, private readonly eventEmitter: EventEmitter2) {}
 
-  async add<T>(fn: () => Promise<T>): Promise<T> {
+  async add<T>(fn: () => Promise<T>, label: string): Promise<T> {
     return new Promise((resolve, reject) => {
-      this.queue.push({ fn, resolve, reject });
+      this.queue.push({ fn, label, resolve, reject });
       this.process();
     });
   }
@@ -102,16 +102,14 @@ export class BinanceRequestQueue {
     if (weight) {
       BinanceRequestQueue.currentWeight1m = parseInt(weight, 10);
 
-      // PROACTIVE RATE LIMIT: Stricter adaptive delays to prevent hitting the 2400 limit.
-      const usageRatio = this.currentWeight1m / this.weightLimit1m;
+      // If we are using > 70% of the weight, start introducing adaptive delays
+      const usageRatio = BinanceRequestQueue.currentWeight1m / this.weightLimit1m;
       if (usageRatio > 0.9) {
-        this.adaptiveDelayMs = 2000; // Heavy backoff near limits
+        BinanceRequestQueue.adaptiveDelayMs = 1000; // Severe throttling
       } else if (usageRatio > 0.8) {
-        this.adaptiveDelayMs = 1000;
+        BinanceRequestQueue.adaptiveDelayMs = 500;
       } else if (usageRatio > 0.7) {
-        this.adaptiveDelayMs = 500;
-      } else if (usageRatio > 0.5) {
-        this.adaptiveDelayMs = 200; // Proactive smoothing starting at 50%
+        BinanceRequestQueue.adaptiveDelayMs = 200;
       } else {
         BinanceRequestQueue.adaptiveDelayMs = 0;
       }
@@ -130,14 +128,21 @@ export class BinanceRequestQueue {
       const elapsed = now - BinanceRequestQueue.lastRequestTs;
 
       if (elapsed < delay) {
+        if (BinanceRequestQueue.adaptiveDelayMs > 200) {
+           this.logger.warn(`[BinanceQueue] Severe local throttling active (${BinanceRequestQueue.adaptiveDelayMs}ms). Pacing request...`);
+        }
         await new Promise(resolve => setTimeout(resolve, delay - elapsed));
       }
 
       const item = this.queue.shift();
       if (item) {
         BinanceRequestQueue.lastRequestTs = Date.now();
+        const startTs = Date.now();
         try {
+          this.logger.debug(`[BinanceQueue] Dispatching: ${item.label}`);
           const result = await item.fn();
+          const duration = Date.now() - startTs;
+          this.logger.debug(`[BinanceQueue] Completed: ${item.label} (${duration}ms)`);
           item.resolve(result);
         } catch (error: any) {
           // If we hit an IP ban or rate limit error, increase delay significantly
@@ -162,13 +167,6 @@ export class BinanceRequestQueue {
               message: msg,
               until: isBan ? Date.now() + 600000 : Date.now() + 60000 // Estimate 10m for ban, 1m for limit
             });
-
-            // SENTINEL: Detect HTTP 418 (IP Ban) and fatal-log/exit to satisfy Overwatch 'Fail Fast' directives
-            if (isBan) {
-               this.logger.error('CRITICAL: HTTP 418 IP Ban detected. Application must halt to prevent further reputation damage.');
-               // Allow a small window for the event to be processed/logged before exit
-               setTimeout(() => process.exit(1), 1000);
-            }
           }
           item.reject(error);
         }

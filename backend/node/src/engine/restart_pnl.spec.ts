@@ -15,6 +15,7 @@ describe('TradingSessionService Restart PnL Consistency', () => {
       balancePaper: 9999.6,
       setActiveTrades: jest.fn(),
       minimize: jest.fn(),
+      isGated: jest.fn().mockReturnValue(false),
     };
     orderManager = {
       setBinanceClient: jest.fn(),
@@ -28,7 +29,7 @@ describe('TradingSessionService Restart PnL Consistency', () => {
       { clear: jest.fn() } as any, // tickerCache
       { clear: jest.fn() } as any, // klineStore
       {} as any, // signalEngine
-      {} as any, // riskEngine
+      { canEnter: jest.fn().mockReturnValue({ canEnter: true, reason: '' }) } as any, // riskEngine
       { activeList: () => [], activeCount: () => 0, setEntering: jest.fn(), removeTrade: jest.fn(), recalculateTotalRisk: jest.fn(), totalRisk: () => 0 } as any, // positionTracker
       orderManager as any,
       { setCandleCloseCallback: jest.fn(), stop: jest.fn() } as any, // marketFeed
@@ -40,8 +41,9 @@ describe('TradingSessionService Restart PnL Consistency', () => {
       { setWsBroadcaster: jest.fn(), broadcast: jest.fn() } as any, // broadcastService
       sessionState as any,
       {} as any, // variantAnalytics
-      { minimize: jest.fn(), getLastTickData: jest.fn(), getLastRiskResult: jest.fn(), getLastAnalyticsResult: jest.fn() } as any, // engineBroadcaster
-      {} as any, // gatingService
+      { minimize: jest.fn(),
+      isGated: jest.fn().mockReturnValue(false), getLastTickData: jest.fn(), getLastRiskResult: jest.fn(), getLastAnalyticsResult: jest.fn() } as any, // engineBroadcaster
+      { isInsideTradingWindow: jest.fn().mockReturnValue(true), enterHibernation: jest.fn(), exitHibernation: jest.fn(), mapGateState: jest.fn() } as any, // gatingService
       {} as any, // maintenanceService
       {} as any, // auditLog
       { emit: jest.fn() } as any, // eventEmitter

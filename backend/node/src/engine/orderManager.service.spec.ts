@@ -31,19 +31,19 @@ describe('OrderManagerService', () => {
     
     mockBinanceClient = {
       restAPI: {
-        newOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ orderId: '99999', status: 'NEW' }), headers: {} }),
-        placeMultipleOrders: jest.fn().mockResolvedValue({ data: () => Promise.resolve([{ orderId: '99999' }, { orderId: '88888' }]), headers: {} }),
-        cancelOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
-        changeInitialLeverage: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
-        userCommissionRate: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ takerCommissionRate: '0.0004' }) }),
-        queryOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ orderId: '99999' }), headers: {} }),
-        modifyOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
-        positionInformationV3: jest.fn().mockResolvedValue({ data: () => Promise.resolve([]), headers: {} }),
-        accountTradeList: jest.fn().mockResolvedValue({ data: () => Promise.resolve([]), headers: {} }),
-        currentAllOpenOrders: jest.fn().mockResolvedValue({ data: () => Promise.resolve([]), headers: {} }),
-        cancelAllOpenOrders: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
-        newAlgoOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ algoId: '77777', algoStatus: 'NEW' }), headers: {} }),
-        cancelAlgoOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
+        newOrder: jest.fn().mockResolvedValue({ data: { orderId: '99999', status: 'NEW' }, headers: {} }),
+        placeMultipleOrders: jest.fn().mockResolvedValue({ data: [{ orderId: '99999' }, { orderId: '88888' }], headers: {} }),
+        cancelOrder: jest.fn().mockResolvedValue({ data: {}, headers: {} }),
+        changeInitialLeverage: jest.fn().mockResolvedValue({ data: {}, headers: {} }),
+        userCommissionRate: jest.fn().mockResolvedValue({ data: { takerCommissionRate: '0.0004' } }),
+        queryOrder: jest.fn().mockResolvedValue({ data: { orderId: '99999' }, headers: {} }),
+        modifyOrder: jest.fn().mockResolvedValue({ data: {}, headers: {} }),
+        positionInformationV3: jest.fn().mockResolvedValue({ data: [], headers: {} }),
+        accountTradeList: jest.fn().mockResolvedValue({ data: [], headers: {} }),
+        currentAllOpenOrders: jest.fn().mockResolvedValue({ data: [], headers: {} }),
+        cancelAllOpenOrders: jest.fn().mockResolvedValue({ data: {}, headers: {} }),
+        newAlgoOrder: jest.fn().mockResolvedValue({ data: { algoId: '77777', algoStatus: 'NEW' }, headers: {} }),
+        cancelAlgoOrder: jest.fn().mockResolvedValue({ data: {}, headers: {} }),
       },
     };
   });
@@ -69,8 +69,8 @@ describe('OrderManagerService', () => {
           symbol: 'BTCUSDT',
           algoType: 'CONDITIONAL',
           type: 'STOP_MARKET',
-          triggerPrice: '49500.00000000',
-          reduceOnly: true
+          triggerPrice: 49500,
+          reduceOnly: 'true'
         })
       );
       expect(result?.orderId).toBe('77777');
@@ -97,8 +97,8 @@ describe('OrderManagerService', () => {
       expect(mockBinanceClient.restAPI.newOrder).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'STOP_MARKET',
-          stopPrice: '49500.00000000',
-          closePosition: true
+          stopPrice: 49500,
+          closePosition: 'true'
         })
       );
       expect(result?.orderId).toBe('99999');
@@ -148,12 +148,12 @@ describe('OrderManagerService', () => {
         binance_stop_order_type: 'standard'
       } as Trade;
 
-      mockBinanceClient.restAPI.queryOrder.mockResolvedValueOnce({ data: () => Promise.resolve({ orderId: '99999', status: 'NEW' }), headers: {} });
+      mockBinanceClient.restAPI.queryOrder.mockResolvedValueOnce({ data: { orderId: '99999', status: 'NEW' }, headers: {} });
 
       await service.updateStopLoss(trade, 50500);
 
       expect(mockBinanceClient.restAPI.cancelOrder).toHaveBeenCalled();
-      expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalledWith(expect.objectContaining({ triggerPrice: '50500.00000000' }));
+      expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalledWith(expect.objectContaining({ triggerPrice: 50500 }));
     });
   });
 
@@ -180,7 +180,7 @@ describe('OrderManagerService', () => {
       } catch (e) {}
 
       // Check re-arm attempt
-      expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalledWith(expect.objectContaining({ triggerPrice: '49000.00000000' }));
+      expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalledWith(expect.objectContaining({ triggerPrice: 49000 }));
     });
   });
 
@@ -190,7 +190,7 @@ describe('OrderManagerService', () => {
       const trade = { id: 'test-imm', symbol: 'BTCUSDT', direction: 'LONG', qty: 0.1, binance_order_id: '11111' } as Trade;
 
       mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValueOnce({
-        data: () => Promise.resolve({ code: -2021, msg: 'Order would immediately trigger.' }),
+        data: { code: -2021, msg: 'Order would immediately trigger.' },
         headers: {}
       });
 
@@ -206,8 +206,8 @@ describe('OrderManagerService', () => {
       await service.setBinanceClient(mockBinanceClient, false);
       const trade = { id: 'test-ada', symbol: 'BTCUSDT', direction: 'LONG', qty: 0.1, entry_price: 40000, current_sl: 40500, binance_order_id: '11111' } as Trade;
 
-      mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValueOnce({ data: () => Promise.resolve({ code: -2021, msg: 'Order would immediately trigger.' }), headers: {} });
-      mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValueOnce({ data: () => Promise.resolve({ algoId: '88888', algoStatus: 'NEW' }), headers: {} });
+      mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValueOnce({ data: { code: -2021, msg: 'Order would immediately trigger.' }, headers: {} });
+      mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValueOnce({ data: { algoId: '88888', algoStatus: 'NEW' }, headers: {} });
 
       (service as any).tickerCache.getTicker.mockReturnValue({ mark_price: 49000 });
       (service as any).marketFeed.getSymbolFilters = jest.fn().mockReturnValue({ filters: [] });

@@ -23,7 +23,7 @@ export class BinanceClientFactory {
       ? DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_TESTNET_URL
       : DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_PROD_URL;
 
-    this.logger.log(`Initializing Binance USDS-M Futures Client | mode=${isTestnet ? 'TESTNET' : 'PROD'} | rest=${restURL} | ws=${wsURL}`);
+    this.logger.log('Initializing Binance USDS-M Futures Client | mode=' + (isTestnet ? 'TESTNET' : 'PROD') + ' | rest=' + restURL + ' | ws=' + wsURL);
 
     const client = new DerivativesTradingUsdsFutures({
       configurationRestAPI: {
@@ -99,14 +99,16 @@ class BinanceRequestQueue {
     if (weight) {
       this.currentWeight1m = parseInt(weight, 10);
 
-      // If we are using > 70% of the weight, start introducing adaptive delays
+      // PROACTIVE RATE LIMIT: Stricter adaptive delays to prevent hitting the 2400 limit.
       const usageRatio = this.currentWeight1m / this.weightLimit1m;
       if (usageRatio > 0.9) {
-        this.adaptiveDelayMs = 1000; // Severe throttling
+        this.adaptiveDelayMs = 2000; // Heavy backoff near limits
       } else if (usageRatio > 0.8) {
-        this.adaptiveDelayMs = 500;
+        this.adaptiveDelayMs = 1000;
       } else if (usageRatio > 0.7) {
-        this.adaptiveDelayMs = 200;
+        this.adaptiveDelayMs = 500;
+      } else if (usageRatio > 0.5) {
+        this.adaptiveDelayMs = 200; // Proactive smoothing starting at 50%
       } else {
         this.adaptiveDelayMs = 0;
       }
@@ -140,7 +142,7 @@ class BinanceRequestQueue {
           const isRateLimit = msg.includes('429') || code === -1015;
 
           if (isBan || isRateLimit) {
-            this.logger.error(`[BinanceQueue] Critical rate limit/ban detected. Status: ${isBan ? 'BANNED' : 'RATE_LIMITED'}. Increasing cooldown...`);
+            this.logger.error('[BinanceQueue] Critical rate limit/ban detected. Status: ' + (isBan ? 'BANNED' : 'RATE_LIMITED') + '. Increasing cooldown...');
             this.lastRequestTs = Date.now() + 60000; // Forced 1-minute pause for this queue
 
             this.eventEmitter.emit('binance.api_limit_reached', {

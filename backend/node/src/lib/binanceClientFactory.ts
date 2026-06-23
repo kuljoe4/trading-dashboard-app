@@ -67,17 +67,19 @@ export class BinanceClientFactory {
  * Centralized Request Queue for Binance USDS-M Futures API
  * Ensures a mandatory delay between requests and monitors usage weight.
  */
-class BinanceRequestQueue {
+export class BinanceRequestQueue {
   private queue: { fn: () => Promise<any>, resolve: (v: any) => void, reject: (e: any) => void }[] = [];
   private processing = false;
-  private lastRequestTs = 0;
-  private currentWeight1m = 0;
+
+  // SRE: Shared state across all queue instances to ensure process-wide IP reputation protection
+  private static lastRequestTs = 0;
+  private static currentWeight1m = 0;
+  private static adaptiveDelayMs = 0;
+
   private weightLimit1m = 2400;
 
   // Mandatory delay between requests to prevent "Burst" penalties (50-100ms)
   private readonly MIN_DELAY_MS = 100;
-  // Adaptive delay for high weight usage
-  private adaptiveDelayMs = 0;
 
   constructor(private readonly logger: Logger, private readonly eventEmitter: EventEmitter2) {}
 
@@ -97,19 +99,21 @@ class BinanceRequestQueue {
 
     const weight = getHeader('X-MBX-USED-WEIGHT-1M');
     if (weight) {
-      this.currentWeight1m = parseInt(weight, 10);
+      BinanceRequestQueue.currentWeight1m = parseInt(weight, 10);
 
       // If we are using > 70% of the weight, start introducing adaptive delays
-      const usageRatio = this.currentWeight1m / this.weightLimit1m;
+      const usageRatio = BinanceRequestQueue.currentWeight1m / this.weightLimit1m;
       if (usageRatio > 0.9) {
-        this.adaptiveDelayMs = 1000; // Severe throttling
+        BinanceRequestQueue.adaptiveDelayMs = 1000; // Severe throttling
       } else if (usageRatio > 0.8) {
-        this.adaptiveDelayMs = 500;
+        BinanceRequestQueue.adaptiveDelayMs = 500;
       } else if (usageRatio > 0.7) {
-        this.adaptiveDelayMs = 200;
+        BinanceRequestQueue.adaptiveDelayMs = 200;
       } else {
-        this.adaptiveDelayMs = 0;
+        BinanceRequestQueue.adaptiveDelayMs = 0;
       }
+
+      this.logger.debug(`[BinanceQueue] Weight Update: ${BinanceRequestQueue.currentWeight1m}/${this.weightLimit1m} (Adaptive Delay: ${BinanceRequestQueue.adaptiveDelayMs}ms)`);
     }
   }
 
@@ -119,8 +123,8 @@ class BinanceRequestQueue {
 
     while (this.queue.length > 0) {
       const now = Date.now();
-      const delay = Math.max(this.MIN_DELAY_MS, this.adaptiveDelayMs);
-      const elapsed = now - this.lastRequestTs;
+      const delay = Math.max(this.MIN_DELAY_MS, BinanceRequestQueue.adaptiveDelayMs);
+      const elapsed = now - BinanceRequestQueue.lastRequestTs;
 
       if (elapsed < delay) {
         await new Promise(resolve => setTimeout(resolve, delay - elapsed));
@@ -128,7 +132,7 @@ class BinanceRequestQueue {
 
       const item = this.queue.shift();
       if (item) {
-        this.lastRequestTs = Date.now();
+        BinanceRequestQueue.lastRequestTs = Date.now();
         try {
           const result = await item.fn();
           item.resolve(result);
@@ -141,7 +145,14 @@ class BinanceRequestQueue {
 
           if (isBan || isRateLimit) {
             this.logger.error(`[BinanceQueue] Critical rate limit/ban detected. Status: ${isBan ? 'BANNED' : 'RATE_LIMITED'}. Increasing cooldown...`);
-            this.lastRequestTs = Date.now() + 60000; // Forced 1-minute pause for this queue
+
+            // OVERWATCH: Fail Fast on IP Ban to protect reputation and prevent worsening the duration
+            if (isBan) {
+              this.logger.fatal('[BinanceQueue] IP BANNED (418). Terminating process immediately to protect infrastructure.');
+              process.exit(1);
+            }
+
+            BinanceRequestQueue.lastRequestTs = Date.now() + 60000; // Forced 1-minute pause for this queue
 
             this.eventEmitter.emit('binance.api_limit_reached', {
               type: isBan ? 'BAN' : 'RATE_LIMIT',

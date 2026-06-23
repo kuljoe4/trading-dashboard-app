@@ -28,7 +28,8 @@ export class MonitoringService {
   getMetrics() {
     // SRE: Monitor User Data Stream (UDS) health to detect event-loop degradation
     const now = Date.now();
-    const currentUdsStatus = (this.lastUdsPing > 0 && (now - this.lastUdsPing > 60000)) ? 'LAGGING' : this.udsStatus;
+    // BOLT/SRE: Increased LAGGING threshold to 180s to align with relaxed stall detection
+    const currentUdsStatus = (this.lastUdsPing > 0 && (now - this.lastUdsPing > 180000)) ? 'LAGGING' : this.udsStatus;
 
     return {
       application: {

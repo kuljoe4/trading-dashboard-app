@@ -694,7 +694,7 @@ export class SessionService implements OnModuleInit {
         const ghostPositions = activeExPositions.filter(p => !localSymbols.has(p.symbol));
 
         if (ghostPositions.length > 0) {
-          const imported = await this.adoptExchangePositions(ghostPositions, mode);
+          const imported = await this.adoptExchangePositions(ghostPositions, mode, allOpenOrders);
           if (imported.length > 0) {
             sessionOpenTrades.push(...imported);
             recalculationNeeded = true;
@@ -779,6 +779,9 @@ export class SessionService implements OnModuleInit {
       const activeExPositions = allExchangePositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0);
       const activeExMap = new Map(activeExPositions.map(p => [p.symbol, p]));
 
+      // PERF: Fetch all open orders once for the entire reconciliation to save weight
+      const allOpenOrders = await this.orderManager.fetchAllOpenOrders();
+
       const localOpenTrades = this.tradingSessionService.getActiveTradesRaw();
       const localSymbols = new Set(localOpenTrades.map(t => t.symbol));
 
@@ -807,7 +810,7 @@ export class SessionService implements OnModuleInit {
       const ghostPositions = activeExPositions.filter(p => !localSymbols.has(p.symbol));
       if (ghostPositions.length > 0) {
         this.logger.warn(`[Reconciliation] Found ${ghostPositions.length} untracked positions during periodic audit. Adopting...`);
-        const imported = await this.adoptExchangePositions(ghostPositions, mode);
+        const imported = await this.adoptExchangePositions(ghostPositions, mode, allOpenOrders);
 
         // Hot-add adopted trades to the running engine
         for (const t of imported) {
@@ -830,23 +833,24 @@ export class SessionService implements OnModuleInit {
    * SRE: Adopts exchange positions by creating local synthetic trade records.
    * Ensures that "ghost" trades are brought under system protection and UI visibility.
    */
-  private async adoptExchangePositions(ghostPositions: any[], mode: string): Promise<TradeEntity[]> {
+  private async adoptExchangePositions(ghostPositions: any[], mode: string, preFetchedOrders?: any[]): Promise<TradeEntity[]> {
     const imported: TradeEntity[] = [];
     if (ghostPositions.length === 0) return imported;
 
-    // PERF: If multiple ghost positions, fetch all orders once to save API weight
+    // PERF: If ghost positions exist, fetch all orders once to save API weight (Weight 40 vs 1 per symbol)
     let allOrdersMap = new Map<string, any[]>();
-    if (ghostPositions.length > 3) {
-      try {
-        const allExOrders = await this.orderManager.fetchAllOpenOrders();
-        for (const o of allExOrders) {
-          const list = allOrdersMap.get(o.symbol) || [];
-          list.push(o);
-          allOrdersMap.set(o.symbol, list);
-        }
-      } catch (e) {
-        this.logger.warn(`[Reconciliation] Failed to bulk fetch orders: ${e instanceof Error ? e.message : String(e)}`);
+    try {
+      const allExOrders = preFetchedOrders || await this.orderManager.fetchAllOpenOrders();
+      if (!preFetchedOrders) {
+        this.logger.log(`[Reconciliation] Performing fresh bulk open order audit for ${ghostPositions.length} ghost positions...`);
       }
+      for (const o of allExOrders) {
+        const list = allOrdersMap.get(o.symbol) || [];
+        list.push(o);
+        allOrdersMap.set(o.symbol, list);
+      }
+    } catch (e) {
+      this.logger.warn(`[Reconciliation] Failed to bulk fetch orders: ${e instanceof Error ? e.message : String(e)}`);
     }
 
     for (const exPos of ghostPositions) {
@@ -862,19 +866,23 @@ export class SessionService implements OnModuleInit {
         let slType = undefined;
 
         try {
-          const exOrders = allOrdersMap.has(exPos.symbol)
-            ? allOrdersMap.get(exPos.symbol)!
-            : await this.orderManager.fetchOpenOrders(exPos.symbol);
+          const exOrders = allOrdersMap.get(exPos.symbol) || [];
 
-          const slOrder = exOrders.find((o: any) =>
-            (o.type === 'STOP_MARKET' || o.type === 'STOP' || o.type === 'STOP_LOSS') &&
-            (o.reduceOnly === true || o.reduceOnly === 'true' || o.closePosition === true || o.closePosition === 'true')
-          );
+          // COMPLIANCE: Recognize more SL/TP order types during adoption
+          const slOrder = exOrders.find((o: any) => {
+            const type = (o.type || o.algoType || '').toUpperCase();
+            const isSlType = type.includes('STOP') || type.includes('TAKE_PROFIT');
+            const isReduce = o.reduceOnly === true || o.reduceOnly === 'true' || o.closePosition === true || o.closePosition === 'true';
+            return isSlType && isReduce;
+          });
 
           if (slOrder) {
             slPrice = parseFloat(slOrder.stopPrice || slOrder.triggerPrice || '0');
             slId = String(slOrder.algoId || slOrder.orderId);
             slType = (slOrder.algoId || slOrder.algoType) ? 'algo' : 'standard';
+            this.logger.log(`[Reconciliation] Found existing ${slOrder.type} for ${exPos.symbol}: ${slId} @ ${slPrice}`);
+          } else {
+            this.logger.debug(`[Reconciliation] No SL order found for ghost position ${exPos.symbol}. Total orders checked for symbol: ${exOrders.length}`);
           }
         } catch (orderErr) {
           this.logger.warn(`[Reconciliation] Failed to fetch existing orders for ${exPos.symbol}: ${orderErr instanceof Error ? orderErr.message : String(orderErr)}`);

@@ -227,11 +227,16 @@ export class OrderManagerService {
       try {
         // v31.0.0+: Methods are directly on restAPI
         const response = await this.binanceClient.restAPI.userCommissionRate({ symbol: 'BTCUSDT' });
-        const data = await response.data();
+        const data = await response.data() as any;
         if (data && data.takerCommissionRate) {
-          this.takerFeeRate = parseFloat(data.takerCommissionRate);
-          this.lastFeeFetch = Date.now();
-          this.logger.log(`Taker fee rate cached: ${(this.takerFeeRate * 100).toFixed(4)}%`);
+          const rate = parseFloat(data.takerCommissionRate);
+          if (!isNaN(rate)) {
+            this.takerFeeRate = rate;
+            this.lastFeeFetch = Date.now();
+            this.logger.log(`Taker fee rate cached: ${(this.takerFeeRate * 100).toFixed(4)}%`);
+          } else {
+            this.logger.warn(`Binance returned NaN for takerCommissionRate. Using default: ${this.takerFeeRate}`);
+          }
         }
       } catch (err) {
         this.logger.warn(`Failed to fetch commission rate, using default: ${this.takerFeeRate}`);
@@ -628,8 +633,9 @@ export class OrderManagerService {
           trade.current_sl = trade.initial_sl = slPrice;
 
           // Zero-Cost Math Estimation for fees
-          const notionalValue = trade.qty * trade.entry_price;
-          trade.realized_fee = roundEight(notionalValue * this.takerFeeRate);
+          const notionalValue = (trade.qty || 0) * (trade.entry_price || 0);
+          const fee = notionalValue * (this.takerFeeRate || 0.0004);
+          trade.realized_fee = roundEight(isNaN(fee) ? 0 : fee);
 
           entryPrice = trade.entry_price;
           qty = trade.qty;
@@ -1841,7 +1847,8 @@ export class OrderManagerService {
 
             // Zero-Cost Math Estimation for exit fees
             const exitNotional = (executedExitQtyFinal > 0 ? executedExitQtyFinal : trade.qty) * exitPrice;
-            const exitFee = roundEight(exitNotional * this.takerFeeRate);
+            const feeRate = this.takerFeeRate || 0.0004;
+            const exitFee = roundEight(isNaN(exitNotional * feeRate) ? 0 : exitNotional * feeRate);
             trade.realized_fee = roundEight((trade.realized_fee || 0) + exitFee);
 
             const msgClose = `Binance close order placed: ${symbol} qty=${trade.qty || 0} order_id=${orderData.orderId} est_exit_fee=${exitFee}`;
@@ -1898,7 +1905,8 @@ export class OrderManagerService {
                   this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] Confirmed: ${symbol} position is already zero. Triggering Sync Recovery.`);
                   exitPrice = await this.recoverLastExecutionPrice(symbol, trade, exitPrice);
                   trade.exit_reason = trade.exit_reason === 'EXCHANGE_SYNC' ? 'EXCHANGE_SYNC_RECOVERY' : 'EXCHANGE_SL_OR_MANUAL';
-                  const exitFee = roundEight(exitPrice * trade.qty * this.takerFeeRate);
+                  const feeRate = this.takerFeeRate || 0.0004;
+                  const exitFee = roundEight(isNaN(exitPrice * trade.qty * feeRate) ? 0 : exitPrice * trade.qty * feeRate);
                   trade.realized_fee = roundEight((trade.realized_fee || 0) + exitFee);
                } else {
                   this.logger.warn(`Binance close order failed (REDUCE_ONLY) but position still exists for ${symbol} (Amt: ${positionAmt}). Error: ${errMsg}`);
@@ -1917,7 +1925,7 @@ export class OrderManagerService {
 
                   if (trade.close_attempts && trade.close_attempts >= MAX_CLOSE_ATTEMPTS) {
                     trade.close_blocked = true;
-                    const blockMsg = `CRITICAL: ${symbol} close attempt ceiling reached (REDUCE_ONLY). Automated closes are now BLOCKED. Manual intervention required. [${errCode}] ${errMsg}`;
+            const blockMsg = `CRITICAL: ${symbol} close attempt ceiling reached (REDUCE_ONLY). Automated closes are now BLOCKED. To unblock, please manual close or sync on Binance. [${errCode}] ${errMsg}`;
                     this.logger.error(blockMsg);
                     this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: blockMsg, level: 'error' });
                   }
@@ -1941,7 +1949,7 @@ export class OrderManagerService {
 
                if (trade.close_attempts && trade.close_attempts >= MAX_CLOSE_ATTEMPTS) {
                   trade.close_blocked = true;
-                  const blockMsg = `CRITICAL: ${symbol} close attempt ceiling reached. Automated closes are now BLOCKED for this symbol. Please intervene manually on Binance.`;
+                  const blockMsg = `CRITICAL: ${symbol} close attempt ceiling reached. Automated closes are now BLOCKED for this symbol. To unblock, please manual close or sync on Binance.`;
                   this.logger.error(blockMsg);
                   this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: blockMsg, level: 'error' });
                } else {

@@ -60,27 +60,38 @@ export class MarketFeedService {
     this.running = true;
 
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
-    const restBase = mode === 'testnet'
-        ? 'https://demo-fapi.binance.com'
+    const isTestnet = mode === 'testnet';
+    const restBase = isTestnet
+        ? 'https://testnet.binancefuture.com' // Corrected Testnet URL
         : ENGINE_CONSTANTS.BINANCE_REST_BASE;
 
+    const wsBase = isTestnet
+        ? 'wss://fstream.binancefuture.com' // Testnet WS
+        : ENGINE_CONSTANTS.BINANCE_WS_BASE;
+
     await this.fetchExchangeInfo(restBase);
-    this.startMiniTickerStream();
-    this.startMarkTickerStream();
+    this.startMiniTickerStream(wsBase);
+    this.startMarkTickerStream(wsBase);
 
     const waitForWs = new Promise<void>((resolve) => {
       const check = setInterval(() => {
-        if (this.tickerCache.getCacheSize() > 0) { clearInterval(check); resolve(); }
+        if (this.tickerCache.getCacheSize() > 0) {
+          clearInterval(check);
+          this.logger.log(`[MarketFeed] WebSocket ticker data received. Cache seeded.`);
+          resolve();
+        }
       }, 100);
-      setTimeout(() => { clearInterval(check); resolve(); }, 5000);
+      setTimeout(() => {
+        clearInterval(check);
+        resolve();
+      }, 5000);
     });
 
     await waitForWs;
-    // BOLT: Eliminated fetchInitialTickers() (Weight 40) during startup if mini-ticker stream is healthy.
-    // The miniTickerArr stream is established immediately after start() and provides real-time updates for all symbols.
+
     if (this.tickerCache.getCacheSize() === 0) {
-      this.logger.debug(`[MarketFeed] Ticker cache empty after WS wait. Requesting targeted snapshot instead of global fetch.`);
-      // fetchInitialTickers() is now a legacy fallback only
+      this.logger.warn(`[MarketFeed] Ticker cache empty after 5s WS wait. Falling back to REST fetchInitialTickers (Weight 40)...`);
+      await this.fetchInitialTickers(restBase);
     }
     this.startWatchlistManager(config);
   }
@@ -196,7 +207,7 @@ export class MarketFeedService {
 
   getSymbolFilters(symbol: string) { return this.exchangeInfo.get(symbol); }
 
-  private async fetchInitialTickers() {
+  public async fetchInitialTickers(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
     try {
       this.monitoringService.incrementApiRequests();
       let tickers: any[];
@@ -262,10 +273,20 @@ export class MarketFeedService {
     this.logger.verbose('MarketFeedService: Resources cleared');
   }
 
-  private startMiniTickerStream() {
+  private startMiniTickerStream(wsBase: string = ENGINE_CONSTANTS.BINANCE_WS_BASE) {
     const connect = () => {
       if (!this.running) return;
-      const ws = new WebSocket(`${ENGINE_CONSTANTS.BINANCE_WS_BASE}/ws/!miniTicker@arr`, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+      const url = `${wsBase}/ws/!miniTicker@arr`;
+      const ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+
+      ws.on('error', (err) => {
+        this.logger.error(`Mini-ticker stream error: ${err.message}`);
+      });
+
+      ws.on('unexpected-response', (req, res) => {
+        this.logger.error(`Mini-ticker WS unexpected response: ${res.statusCode} ${res.statusMessage}`);
+      });
+
       ws.on('message', (data: Buffer) => {
         if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) return;
         try {
@@ -292,10 +313,16 @@ export class MarketFeedService {
     connect();
   }
 
-  private startMarkTickerStream() {
+  private startMarkTickerStream(wsBase: string = ENGINE_CONSTANTS.BINANCE_WS_BASE) {
     const connect = () => {
       if (!this.running) return;
-      const ws = new WebSocket(`${ENGINE_CONSTANTS.BINANCE_WS_BASE}/ws/!markTicker@arr@1s`, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+      const url = `${wsBase}/ws/!markTicker@arr@1s`;
+      const ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+
+      ws.on('error', (err) => {
+        this.logger.error(`Mark-ticker stream error: ${err.message}`);
+      });
+
       ws.on('message', (data: Buffer) => {
         if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) return;
         try {

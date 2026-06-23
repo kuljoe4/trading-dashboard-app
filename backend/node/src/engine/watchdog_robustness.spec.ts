@@ -36,6 +36,7 @@ describe('Watchdog Robustness', () => {
             cancelBinanceOrder: jest.fn(),
             closeTrade: jest.fn(),
             getBinanceRateLimit: jest.fn().mockReturnValue({ used_weight_1m: 0, limit: 2400 }),
+            fetchAllOpenOrders: jest.fn().mockResolvedValue([]),
           },
         },
         {

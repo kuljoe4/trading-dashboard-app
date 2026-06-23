@@ -72,9 +72,11 @@ export class BinanceRequestQueue {
   private queue: { fn: () => Promise<any>, resolve: (v: any) => void, reject: (e: any) => void }[] = [];
   private processing = false;
 
+  // SRE: Shared state across all queue instances to ensure process-wide IP reputation protection
   private static lastRequestTs = 0;
   private static currentWeight1m = 0;
   private static adaptiveDelayMs = 0;
+
   private weightLimit1m = 2400;
 
   // Mandatory delay between requests to prevent "Burst" penalties (50-100ms)
@@ -113,6 +115,8 @@ export class BinanceRequestQueue {
       } else {
         BinanceRequestQueue.adaptiveDelayMs = 0;
       }
+
+      this.logger.debug(`[BinanceQueue] Weight Update: ${BinanceRequestQueue.currentWeight1m}/${this.weightLimit1m} (Adaptive Delay: ${BinanceRequestQueue.adaptiveDelayMs}ms)`);
     }
   }
 
@@ -143,8 +147,15 @@ export class BinanceRequestQueue {
           const isRateLimit = msg.includes('429') || code === -1015;
 
           if (isBan || isRateLimit) {
-            this.logger.error('[BinanceQueue] Critical rate limit/ban detected. Status: ' + (isBan ? 'BANNED' : 'RATE_LIMITED') + '. Increasing cooldown...');
-            this.lastRequestTs = Date.now() + 60000; // Forced 1-minute pause for this queue
+            this.logger.error(`[BinanceQueue] Critical rate limit/ban detected. Status: ${isBan ? 'BANNED' : 'RATE_LIMITED'}. Increasing cooldown...`);
+
+            // OVERWATCH: Fail Fast on IP Ban to protect reputation and prevent worsening the duration
+            if (isBan) {
+              this.logger.fatal('[BinanceQueue] IP BANNED (418). Terminating process immediately to protect infrastructure.');
+              process.exit(1);
+            }
+
+            BinanceRequestQueue.lastRequestTs = Date.now() + 60000; // Forced 1-minute pause for this queue
 
             this.eventEmitter.emit('binance.api_limit_reached', {
               type: isBan ? 'BAN' : 'RATE_LIMIT',

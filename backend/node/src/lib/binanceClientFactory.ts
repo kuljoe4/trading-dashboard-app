@@ -66,18 +66,19 @@ export class BinanceClientFactory {
 /**
  * Centralized Request Queue for Binance USDS-M Futures API
  * Ensures a mandatory delay between requests and monitors usage weight.
+ * Uses static members to ensure process-wide IP reputation protection across all client instances.
  */
-class BinanceRequestQueue {
+export class BinanceRequestQueue {
   private queue: { fn: () => Promise<any>, resolve: (v: any) => void, reject: (e: any) => void }[] = [];
   private processing = false;
-  private lastRequestTs = 0;
-  private currentWeight1m = 0;
+
+  private static lastRequestTs = 0;
+  private static currentWeight1m = 0;
+  private static adaptiveDelayMs = 0;
   private weightLimit1m = 2400;
 
   // Mandatory delay between requests to prevent "Burst" penalties (50-100ms)
   private readonly MIN_DELAY_MS = 100;
-  // Adaptive delay for high weight usage
-  private adaptiveDelayMs = 0;
 
   constructor(private readonly logger: Logger, private readonly eventEmitter: EventEmitter2) {}
 
@@ -97,18 +98,18 @@ class BinanceRequestQueue {
 
     const weight = getHeader('X-MBX-USED-WEIGHT-1M');
     if (weight) {
-      this.currentWeight1m = parseInt(weight, 10);
+      BinanceRequestQueue.currentWeight1m = parseInt(weight, 10);
 
       // If we are using > 70% of the weight, start introducing adaptive delays
-      const usageRatio = this.currentWeight1m / this.weightLimit1m;
+      const usageRatio = BinanceRequestQueue.currentWeight1m / this.weightLimit1m;
       if (usageRatio > 0.9) {
-        this.adaptiveDelayMs = 1000; // Severe throttling
+        BinanceRequestQueue.adaptiveDelayMs = 1000; // Severe throttling
       } else if (usageRatio > 0.8) {
-        this.adaptiveDelayMs = 500;
+        BinanceRequestQueue.adaptiveDelayMs = 500;
       } else if (usageRatio > 0.7) {
-        this.adaptiveDelayMs = 200;
+        BinanceRequestQueue.adaptiveDelayMs = 200;
       } else {
-        this.adaptiveDelayMs = 0;
+        BinanceRequestQueue.adaptiveDelayMs = 0;
       }
     }
   }
@@ -119,8 +120,8 @@ class BinanceRequestQueue {
 
     while (this.queue.length > 0) {
       const now = Date.now();
-      const delay = Math.max(this.MIN_DELAY_MS, this.adaptiveDelayMs);
-      const elapsed = now - this.lastRequestTs;
+      const delay = Math.max(this.MIN_DELAY_MS, BinanceRequestQueue.adaptiveDelayMs);
+      const elapsed = now - BinanceRequestQueue.lastRequestTs;
 
       if (elapsed < delay) {
         await new Promise(resolve => setTimeout(resolve, delay - elapsed));
@@ -128,7 +129,7 @@ class BinanceRequestQueue {
 
       const item = this.queue.shift();
       if (item) {
-        this.lastRequestTs = Date.now();
+        BinanceRequestQueue.lastRequestTs = Date.now();
         try {
           const result = await item.fn();
           item.resolve(result);
@@ -141,13 +142,20 @@ class BinanceRequestQueue {
 
           if (isBan || isRateLimit) {
             this.logger.error(`[BinanceQueue] Critical rate limit/ban detected. Status: ${isBan ? 'BANNED' : 'RATE_LIMITED'}. Increasing cooldown...`);
-            this.lastRequestTs = Date.now() + 60000; // Forced 1-minute pause for this queue
+            BinanceRequestQueue.lastRequestTs = Date.now() + 60000; // Forced 1-minute pause for this queue
 
             this.eventEmitter.emit('binance.api_limit_reached', {
               type: isBan ? 'BAN' : 'RATE_LIMIT',
               message: msg,
               until: isBan ? Date.now() + 600000 : Date.now() + 60000 // Estimate 10m for ban, 1m for limit
             });
+
+            // SENTINEL: Detect HTTP 418 (IP Ban) and fatal-log/exit to satisfy Overwatch 'Fail Fast' directives
+            if (isBan) {
+               this.logger.error('CRITICAL: HTTP 418 IP Ban detected. Application must halt to prevent further reputation damage.');
+               // Allow a small window for the event to be processed/logged before exit
+               setTimeout(() => process.exit(1), 1000);
+            }
           }
           item.reject(error);
         }

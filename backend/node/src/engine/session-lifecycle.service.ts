@@ -216,11 +216,20 @@ export class SessionLifecycleService {
 
   async fetchBinanceBalance(bc: any): Promise<number> {
     if (!bc) return 0;
+    // SRE: Proactive Rate Limit Guard for balance polling (non-critical)
+    if (this.sessionState.isRateLimited(0.95)) {
+       this.logger.warn(`[Lifecycle] Skipping REST balance fetch due to high API weight. Using last known: ${this.sessionState.balanceLive}`);
+       return this.sessionState.balanceLive;
+    }
+
     try {
       this.monitoringService.incrementApiRequests();
       // Try primary endpoint: futuresAccountBalanceV2
       const res = await bc.restAPI.futuresAccountBalanceV2();
       if (!res) return 0;
+
+      // Traceability: Log successful balance fetch
+      this.logger.debug(`[Lifecycle] Successfully fetched balance via REST.`);
 
       const data = await res.data() as any;
       const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
@@ -393,7 +402,9 @@ export class SessionLifecycleService {
            this.logger.warn(`[SRE] User Data Stream stall detected (>60s). Force-reconnecting...`);
            this.startUserDataStream(bc, true).catch(() => {});
         }
-      }, 30000);
+        // HEARTBEAT: Explicit debug log for UDS health observability
+        this.logger.debug(`[SRE] UDS Heartbeat: Status=${this.isUdsConnected ? 'CONNECTED' : 'DISCONNECTED'}, LastPing=${metrics.application.last_uds_ping_sec}s`);
+      }, 60000);
 
       const startTime = Date.now();
       this.listenKeyKeepAlive = setInterval(async () => {

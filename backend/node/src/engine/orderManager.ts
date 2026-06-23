@@ -1467,6 +1467,10 @@ export class OrderManagerService {
   }
 
 
+  public seedRealTimePosition(symbol: string, amount: number, entryPrice: number) {
+    this.sessionState.realTimePositions.set(symbol, { amount, entryPrice });
+  }
+
   public async fetchPosition(symbol: string, options: { forceFresh?: boolean } = {}): Promise<any | null> {
     // Zero-Weight Path: Prefer local real-time cache from User Data Stream
     if (!options.forceFresh) {

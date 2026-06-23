@@ -53,8 +53,14 @@ export class MaintenanceService {
         return;
       }
 
+      // BOLT: Coordinated Snapshot Pattern for positions (Weight 5)
       const allPositions = await this.orderManager.fetchAllPositions();
       const activePositionsMap = new Map(allPositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0).map(p => [p.symbol, p]));
+
+      // WebSocket-First state reconciliation: Use UDS cache for active positions to avoid frequent bulk REST calls
+      for (const [symbol, pos] of activePositionsMap.entries()) {
+         this.orderManager.seedRealTimePosition(symbol, parseFloat(pos.positionAmt), parseFloat(pos.entryPrice));
+      }
 
       const isSlOrder = (o: any) => {
         const isStandardSl = (o.type === 'STOP_MARKET' || o.type === 'STOP')
@@ -63,21 +69,24 @@ export class MaintenanceService {
         return isStandardSl || isConditionalAlgoSl;
       };
 
-      const uniqueSymbols = Array.from(new Set(tradesToAudit.map(t => t.symbol)));
+      // SRE: Use Coordinated Snapshot Pattern for audits.
+      // ALWAYS perform bulk fetch if auditing multiple trades to eliminate per-symbol REST bursts.
       let slOrdersBySymbol = new Map<string, any[]>();
 
-      if (uniqueSymbols.length > 40) {
-        const allOrders = await this.orderManager.fetchAllOpenOrders();
-        allOrders.filter(isSlOrder).forEach(o => {
-          const list = slOrdersBySymbol.get(o.symbol) || [];
-          list.push(o);
-          slOrdersBySymbol.set(o.symbol, list);
-        });
+      if (tradesToAudit.length > 1 && !targetSymbol) {
+         this.logger.log(`[Watchdog] Performing bulk open order audit for ${tradesToAudit.length} trades...`);
+         const allOrders = await this.orderManager.fetchAllOpenOrders();
+         allOrders.filter(isSlOrder).forEach(o => {
+           const list = slOrdersBySymbol.get(o.symbol) || [];
+           list.push(o);
+           slOrdersBySymbol.set(o.symbol, list);
+         });
       } else {
-        for (const symbol of uniqueSymbols) {
-           const orders = await this.orderManager.fetchOpenOrders(symbol);
-           slOrdersBySymbol.set(symbol, orders.filter(isSlOrder));
-        }
+         const uniqueSymbols = Array.from(new Set(tradesToAudit.map(t => t.symbol)));
+         for (const symbol of uniqueSymbols) {
+            const orders = await this.orderManager.fetchOpenOrders(symbol);
+            slOrdersBySymbol.set(symbol, orders.filter(isSlOrder));
+         }
       }
 
       for (const trade of tradesToAudit) {

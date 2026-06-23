@@ -50,7 +50,7 @@ export class BinanceClientFactory {
               const response = await value.apply(target, args);
               // Proactively extract weight from headers if available
               if (response && response.headers) {
-                queue.updateWeightFromHeaders(response.headers);
+                queue.updateWeightFromHeaders(response.headers, label);
               }
               return response;
             }, label);
@@ -91,7 +91,7 @@ export class BinanceRequestQueue {
     });
   }
 
-  public updateWeightFromHeaders(headers: any) {
+  public updateWeightFromHeaders(headers: any, label?: string) {
     const getHeader = (name: string) => {
       return typeof headers.get === 'function'
         ? headers.get(name)
@@ -99,22 +99,21 @@ export class BinanceRequestQueue {
     };
 
     const weight = getHeader('X-MBX-USED-WEIGHT-1M');
+    const orderCount10s = getHeader('X-MBX-ORDER-COUNT-10S');
+    const orderCount1m = getHeader('X-MBX-ORDER-COUNT-1M');
+
     if (weight) {
       BinanceRequestQueue.currentWeight1m = parseInt(weight, 10);
 
-      // If we are using > 70% of the weight, start introducing adaptive delays
+      // SRE Overwatch: Dynamic Back-off Execution Strategy
       const usageRatio = BinanceRequestQueue.currentWeight1m / this.weightLimit1m;
-      if (usageRatio > 0.9) {
-        BinanceRequestQueue.adaptiveDelayMs = 1000; // Severe throttling
-      } else if (usageRatio > 0.8) {
-        BinanceRequestQueue.adaptiveDelayMs = 500;
-      } else if (usageRatio > 0.7) {
-        BinanceRequestQueue.adaptiveDelayMs = 200;
+      if (usageRatio > 0.75) {
+        BinanceRequestQueue.adaptiveDelayMs = 1000; // Load Shedding zone
+      } else if (usageRatio > 0.5) {
+        BinanceRequestQueue.adaptiveDelayMs = 500;  // Active Throttling zone
       } else {
-        BinanceRequestQueue.adaptiveDelayMs = 0;
+        BinanceRequestQueue.adaptiveDelayMs = 0;    // Normal Operation zone
       }
-
-      this.logger.debug(`[BinanceQueue] Weight Update: ${BinanceRequestQueue.currentWeight1m}/${this.weightLimit1m} (Adaptive Delay: ${BinanceRequestQueue.adaptiveDelayMs}ms)`);
     }
   }
 
@@ -124,25 +123,38 @@ export class BinanceRequestQueue {
 
     while (this.queue.length > 0) {
       const now = Date.now();
+
+      // SRE Implementation: Outbound REST requests are converted into a strict serial pipeline
       const delay = Math.max(this.MIN_DELAY_MS, BinanceRequestQueue.adaptiveDelayMs);
       const elapsed = now - BinanceRequestQueue.lastRequestTs;
 
       if (elapsed < delay) {
-        if (BinanceRequestQueue.adaptiveDelayMs > 200) {
-           this.logger.warn(`[BinanceQueue] Severe local throttling active (${BinanceRequestQueue.adaptiveDelayMs}ms). Pacing request...`);
-        }
         await new Promise(resolve => setTimeout(resolve, delay - elapsed));
       }
 
       const item = this.queue.shift();
       if (item) {
+        const usageRatio = BinanceRequestQueue.currentWeight1m / this.weightLimit1m;
+
+        // SRE LOAD SHEDDING: Reject non-critical calls when weight exceeds 75%
+        // We reserve weight strictly for emergency order routing or active risk mitigation.
+        const isCritical = ['newOrder', 'cancelOrder', 'newAlgoOrder', 'cancelAlgoOrder', 'cancelAllOpenOrders', 'queryOrder', 'accountTradeList', 'positionInformationV3'].includes(item.label);
+        if (usageRatio > 0.75 && !isCritical) {
+           this.logger.warn(`[BinanceQueue] SRE LOAD SHEDDING: Rejecting non-critical call [${item.label}] (Weight usage: ${(usageRatio * 100).toFixed(1)}%)`);
+           item.reject(new Error(`Load shedding active: ${item.label} rejected to preserve IP reputation.`));
+           continue;
+        }
+
         BinanceRequestQueue.lastRequestTs = Date.now();
         const startTs = Date.now();
         try {
           this.logger.debug(`[BinanceQueue] Dispatching: ${item.label}`);
           const result = await item.fn();
           const duration = Date.now() - startTs;
-          this.logger.debug(`[BinanceQueue] Completed: ${item.label} (${duration}ms)`);
+
+          // SRE: High-Fidelity Structured Logging Matrix
+          this.logger.log(`[Telemetry] ${item.label} executed | Weight: ${BinanceRequestQueue.currentWeight1m}/${this.weightLimit1m} | Depth: ${this.queue.length} | Latency: ${duration}ms`);
+
           item.resolve(result);
         } catch (error: any) {
           // If we hit an IP ban or rate limit error, increase delay significantly

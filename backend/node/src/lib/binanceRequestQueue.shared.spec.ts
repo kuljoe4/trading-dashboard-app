@@ -37,17 +37,19 @@ describe('BinanceRequestQueue Shared State', () => {
 
     // Expect queue2 to see the updated state through static members
     expect((BinanceRequestQueue as any).currentWeight1m).toBe(2000);
-    expect((BinanceRequestQueue as any).adaptiveDelayMs).toBe(500); // 2000/2400 > 0.8
+    // SRE Update: 2000/2400 = 0.83 (> 0.75) => 1000ms delay
+    expect((BinanceRequestQueue as any).adaptiveDelayMs).toBe(1000);
   });
 
-  it('should log dispatch and completion', async () => {
+  it('should log telemetry on execution', async () => {
     const queue = new BinanceRequestQueue(logger, eventEmitter);
     const successFn = jest.fn().mockResolvedValue('ok');
 
     await queue.add(successFn, 'test-success');
 
     expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('Dispatching: test-success'));
-    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('Completed: test-success'));
+    // High-Fidelity Structured Logging uses logger.log (info) for Telemetry
+    expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('[Telemetry] test-success executed'));
   });
 
   it('should call process.exit(1) on IP ban (418)', async () => {

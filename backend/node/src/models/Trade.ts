@@ -29,7 +29,7 @@ export class Trade {
 
   risk_usdt: number = 0;
 
-  initial_risk_usdt?: number;
+  initial_risk_usdt?: number | null;
 
   status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL' | 'CLOSED_ORPHANED' = 'OPEN';
 

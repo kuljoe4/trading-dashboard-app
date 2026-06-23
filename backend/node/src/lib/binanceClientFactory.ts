@@ -145,9 +145,9 @@ export class BinanceRequestQueue {
         // Level 1: Immune (Infrastructure & Keepalives) - Proceed even if > 100% to prevent blindness
         const isImmune = ['startUserDataStream', 'keepaliveUserDataStream', 'closeUserDataStream'].includes(item.label);
         // Level 2: Critical (Orders & Structural Info) - Shed at 95%
-        const isCritical = ['newOrder', 'cancelOrder', 'newAlgoOrder', 'cancelAlgoOrder', 'cancelAllOpenOrders', 'exchangeInformation'].includes(item.label);
+        const isCritical = ['newOrder', 'cancelOrder', 'newAlgoOrder', 'cancelAlgoOrder', 'cancelAllOpenOrders', 'exchangeInformation', 'futuresAccountBalanceV2'].includes(item.label);
         // Level 3: Operational (State Audits) - Shed at 85%
-        const isOperational = ['queryOrder', 'accountTradeList', 'positionInformationV3', 'futuresAccountBalanceV2'].includes(item.label);
+        const isOperational = ['queryOrder', 'accountTradeList', 'positionInformationV3'].includes(item.label);
 
         let shed = false;
         let shedReason = '';

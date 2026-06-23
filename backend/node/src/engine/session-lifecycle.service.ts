@@ -274,15 +274,15 @@ export class SessionLifecycleService {
       const resData = await res.data() as any;
       const newListenKey = resData.listenKey;
 
-      // If we got the same listenKey back, the old stream is still valid
-      if (isReconnect && newListenKey === this.listenKey && this.isUdsConnected) {
-        this.logger.debug('[UDS] Same listenKey returned — stream still valid, skipping reconnect');
-        this.monitoringService.setUdsStatus('CONNECTED'); // resets stale clock
-        return;
-      }
-
       const oldWs = this.userDataWs;
       const oldListenKey = this.listenKey;
+
+      // SRE FIX: Always rebuild the socket on reconnection attempt to handle silent network-level stalls,
+      // even if the listenKey string remains unchanged.
+      if (isReconnect && oldWs) {
+        this.logger.log('[UDS] Force-rebuilding User Data Stream socket to resolve potential stall.');
+        try { oldWs.disconnect(); } catch (e) {}
+      }
 
       this.listenKey = newListenKey;
       this.userDataWs = await bc.websocketStreams.connect({ stream: this.listenKey });

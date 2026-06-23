@@ -21,3 +21,7 @@
 ## 2026-06-15 - Global Search Shortcut Guarding and Interaction
 **Learning:** Global keyboard shortcuts (like `/` for search) must include strict target guards (checking against `INPUT`, `TEXTAREA`, or `isContentEditable`) to prevent hijacking the user's natural typing flow within those fields. Additionally, pairing `focus()` with `select()` on search inputs dramatically improves UX by allowing users to immediately overwrite a previous query without manual deletion.
 **Action:** Always guard global shortcuts with `e.target` checks. Use `searchInput.select()` after `focus()` for one-touch query replacement.
+
+## 2026-06-23 - Interactive Utility Discovery and Focus Parity
+**Learning:** High-density dashboards benefit from a "reveal-on-intent" pattern where utility buttons (e.g., Copy) are hidden by default but shown on card hover OR card focus. Parity between `whileHover` and `whileFocus` animations ensures keyboard users receive the same delightful feedback as mouse users. Domain-specific metrics should be discoverable via tooltips triggered by clear visual signifiers like `border-b border-dotted cursor-help`.
+**Action:** Use `group` and `group-hover:opacity-100 focus-within:opacity-100` for child utilities. Always pair `whileFocus` with `whileHover`. Signify tooltip-enabled metrics with dotted underlines.

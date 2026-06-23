@@ -96,9 +96,9 @@ export class MarketFeedService {
 
       let data: any;
       if (this.binanceClient) {
-        const response = await this.binanceClient.restAPI.exchangeInfo();
+        const response = await this.binanceClient.restAPI.exchangeInformation();
         this.updateWeight(response.headers);
-        data = await response.data();
+        data = response.data as any;
       } else {
         const response = await fetch(`${restBase}/fapi/v1/exchangeInfo`);
         this.updateWeight(response.headers);
@@ -183,9 +183,9 @@ export class MarketFeedService {
       let tickers: any[];
 
       if (this.binanceClient) {
-        const response = await this.binanceClient.restAPI.ticker24hr();
+        const response = await this.binanceClient.restAPI.ticker24hrPriceChangeStatistics();
         this.updateWeight(response.headers);
-        tickers = await response.data();
+        tickers = response.data as any;
       } else {
         const response = await fetch(`${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/ticker/24hr`);
         this.updateWeight(response.headers);
@@ -512,13 +512,13 @@ export class MarketFeedService {
       let klines: any[];
 
       if (this.binanceClient) {
-        const response = await this.binanceClient.restAPI.klines({
+        const response = await this.binanceClient.restAPI.klineCandlestickData({
           symbol,
           interval: interval as any,
           limit: this.klineStore.getMaxCandles()
         });
         this.updateWeight(response.headers);
-        klines = await response.data();
+        klines = response.data as any;
       } else {
         const url = `${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${this.klineStore.getMaxCandles()}`;
         const response = await fetch(url);

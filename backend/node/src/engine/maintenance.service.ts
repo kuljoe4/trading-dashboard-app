@@ -62,6 +62,12 @@ export class MaintenanceService {
          this.orderManager.seedRealTimePosition(symbol, parseFloat(pos.positionAmt), parseFloat(pos.entryPrice));
       }
 
+      // SRE Overwatch: Mandatory stagger delay between heavy bulk calls to flatten the weight profile
+      if (tradesToAudit.length > 5) {
+         this.logger.debug(`[Watchdog] Staggering bulk audits (3s cooldown)...`);
+         await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+
       const isSlOrder = (o: any) => {
         const isStandardSl = (o.type === 'STOP_MARKET' || o.type === 'STOP')
           && (o.closePosition === true || o.closePosition === 'true' || o.reduceOnly === true || o.reduceOnly === 'true');

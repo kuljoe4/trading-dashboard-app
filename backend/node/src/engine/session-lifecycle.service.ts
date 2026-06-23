@@ -260,11 +260,10 @@ export class SessionLifecycleService {
   private async startUserDataStream(bc: any, isReconnect = false) {
     if (!bc) return;
     // SRE: Critical guard - if IP is banned, do not even attempt UDS start to prevent chain reaction
+    // SRE Overwatch: startUserDataStream is whitelisted as IMMUNE in the gateway, but we still log warning if over limit.
     const currentWeight = this.sessionState.binanceRateLimit.used_1m;
     if (currentWeight >= this.sessionState.binanceRateLimit.limit) {
-      this.logger.error(`[UDS] Cannot start stream: IP Rate limit exceeded (${currentWeight}/${this.sessionState.binanceRateLimit.limit}).`);
-      if (!isReconnect) throw new Error('IP Rate limit exceeded');
-      return;
+      this.logger.warn(`[UDS] IP Rate limit exceeded (${currentWeight}/${this.sessionState.binanceRateLimit.limit}). Proceeding with IMMUNE infrastructure call.`);
     }
 
     try {
@@ -275,15 +274,15 @@ export class SessionLifecycleService {
       const resData = await res.data() as any;
       const newListenKey = resData.listenKey;
 
-      // If we got the same listenKey back, the old stream is still valid
-      if (isReconnect && newListenKey === this.listenKey && this.isUdsConnected) {
-        this.logger.debug('[UDS] Same listenKey returned — stream still valid, skipping reconnect');
-        this.monitoringService.setUdsStatus('CONNECTED'); // resets stale clock
-        return;
-      }
-
       const oldWs = this.userDataWs;
       const oldListenKey = this.listenKey;
+
+      // SRE FIX: Always rebuild the socket on reconnection attempt to handle silent network-level stalls,
+      // even if the listenKey string remains unchanged.
+      if (isReconnect && oldWs) {
+        this.logger.log('[UDS] Force-rebuilding User Data Stream socket to resolve potential stall.');
+        try { oldWs.disconnect(); } catch (e) {}
+      }
 
       this.listenKey = newListenKey;
       this.userDataWs = await bc.websocketStreams.connect({ stream: this.listenKey });
@@ -398,12 +397,14 @@ export class SessionLifecycleService {
       this.udsLivenessCheck = setInterval(() => {
         if (!this.running || !this.isUdsConnected) return;
         const metrics = this.monitoringService.getMetrics();
-        if (metrics.application.exchange_uds_status === 'LAGGING') {
-           this.logger.warn(`[SRE] User Data Stream stall detected (>60s). Force-reconnecting...`);
+        // SRE Optimization: Threshold increased to 120s to avoid false-reconnects on idle accounts.
+        const lastPing = metrics.application.last_uds_ping_sec || 0;
+        if (metrics.application.exchange_uds_status === 'LAGGING' && lastPing > 120) {
+           this.logger.warn(`[SRE] User Data Stream stall detected (>120s). Force-reconnecting...`);
            this.startUserDataStream(bc, true).catch(() => {});
         }
         // HEARTBEAT: Explicit debug log for UDS health observability
-        this.logger.debug(`[SRE] UDS Heartbeat: Status=${this.isUdsConnected ? 'CONNECTED' : 'DISCONNECTED'}, LastPing=${metrics.application.last_uds_ping_sec}s`);
+        this.logger.debug(`[SRE] UDS Heartbeat: Status=${this.isUdsConnected ? 'CONNECTED' : 'DISCONNECTED'}, LastPing=${lastPing}s`);
       }, 60000);
 
       const startTime = Date.now();

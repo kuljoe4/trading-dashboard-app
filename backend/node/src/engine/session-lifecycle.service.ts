@@ -306,6 +306,10 @@ export class SessionLifecycleService {
         }
       });
 
+      this.userDataWs.on('pong', () => {
+        this.monitoringService.recordUdsPing();
+      });
+
       this.userDataWs.on('message', async (payload: any) => {
         this.monitoringService.recordUdsPing();
         try {
@@ -396,15 +400,34 @@ export class SessionLifecycleService {
       if (this.udsLivenessCheck) clearInterval(this.udsLivenessCheck);
       this.udsLivenessCheck = setInterval(() => {
         if (!this.running || !this.isUdsConnected) return;
+
+        // SRE: Proactive WebSocket ping to confirm liveness on idle accounts
+        try {
+           if (this.userDataWs && typeof this.userDataWs.pingServer === 'function') {
+              this.userDataWs.pingServer();
+           }
+        } catch (e) {
+           this.logger.debug(`[SRE] Failed to dispatch WebSocket ping: ${e instanceof Error ? e.message : String(e)}`);
+        }
+
         const metrics = this.monitoringService.getMetrics();
-        // SRE Optimization: Threshold increased to 120s to avoid false-reconnects on idle accounts.
         const lastPing = metrics.application.last_uds_ping_sec || 0;
-        if (metrics.application.exchange_uds_status === 'LAGGING' && lastPing > 120) {
-           this.logger.warn(`[SRE] User Data Stream stall detected (>120s). Force-reconnecting...`);
+        const hasActiveTrades = this.positionTracker.activeList().length > 0;
+
+        // SRE Optimization: Threshold increased to 300s (5m).
+        // On idle accounts, message silence is expected. We only force-reconnect if there are active trades
+        // that require real-time monitoring, OR if the stall is excessive (>10m).
+        const STALL_THRESHOLD = 300;
+        const MAX_IDLE_SILENCE = 600;
+
+        const isStalled = (hasActiveTrades && lastPing > STALL_THRESHOLD) || lastPing > MAX_IDLE_SILENCE;
+
+        if (metrics.application.exchange_uds_status === 'LAGGING' && isStalled) {
+           this.logger.warn(`[SRE] User Data Stream stall detected (LastPing=${lastPing}s, ActiveTrades=${hasActiveTrades}). Force-reconnecting...`);
            this.startUserDataStream(bc, true).catch(() => {});
         }
         // HEARTBEAT: Explicit debug log for UDS health observability
-        this.logger.debug(`[SRE] UDS Heartbeat: Status=${this.isUdsConnected ? 'CONNECTED' : 'DISCONNECTED'}, LastPing=${lastPing}s`);
+        this.logger.debug(`[SRE] UDS Heartbeat: Status=${this.isUdsConnected ? 'CONNECTED' : 'DISCONNECTED'}, LastPing=${lastPing}s, ActiveTrades=${hasActiveTrades}`);
       }, 60000);
 
       const startTime = Date.now();

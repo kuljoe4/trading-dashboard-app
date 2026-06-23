@@ -41,15 +41,35 @@ describe('BinanceRequestQueue Shared State', () => {
     expect((BinanceRequestQueue as any).adaptiveDelayMs).toBe(1000);
   });
 
-  it('should log telemetry on execution', async () => {
+  it('should log structured telemetry on execution', async () => {
     const queue = new BinanceRequestQueue(logger, eventEmitter);
     const successFn = jest.fn().mockResolvedValue('ok');
 
     await queue.add(successFn, 'test-success');
 
     expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining('Dispatching: test-success'));
-    // High-Fidelity Structured Logging uses logger.log (info) for Telemetry
-    expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('[Telemetry] test-success executed'));
+    // SRE: High-Fidelity Structured Telemetry Logging uses objects
+    expect(logger.log).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining('Outbound execution succeeded: test-success'),
+      telemetry: expect.objectContaining({ method: 'test-success' })
+    }));
+  });
+
+  it('should shed load (reject) non-critical calls when weight is > 75%', async () => {
+    const queue = new BinanceRequestQueue(logger, eventEmitter);
+
+    // Set weight to 80% (1920/2400)
+    const headers = { get: (name: string) => (name === 'X-MBX-USED-WEIGHT-1M' ? '2000' : null) };
+    queue.updateWeightFromHeaders(headers);
+
+    const nonCriticalFn = jest.fn().mockResolvedValue('ok');
+    const criticalFn = jest.fn().mockResolvedValue('ok');
+
+    // Non-critical should be rejected
+    await expect(queue.add(nonCriticalFn, 'ticker24hrPriceChangeStatistics')).rejects.toThrow('Load shedding active');
+
+    // Critical should proceed
+    await expect(queue.add(criticalFn, 'newOrder')).resolves.toBe('ok');
   });
 
   it('should call process.exit(1) on IP ban (418)', async () => {

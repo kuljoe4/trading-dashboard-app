@@ -76,8 +76,7 @@ export class BinanceRequestQueue {
   private static lastRequestTs = 0;
   private static currentWeight1m = 0;
   private static adaptiveDelayMs = 0;
-
-  private weightLimit1m = 2400;
+  private static weightLimit1m = 2400;
 
   // Mandatory delay between requests to prevent "Burst" penalties (50-100ms)
   private readonly MIN_DELAY_MS = 100;
@@ -106,7 +105,7 @@ export class BinanceRequestQueue {
       BinanceRequestQueue.currentWeight1m = parseInt(weight, 10);
 
       // SRE Overwatch: Dynamic Back-off Execution Strategy
-      const usageRatio = BinanceRequestQueue.currentWeight1m / this.weightLimit1m;
+      const usageRatio = BinanceRequestQueue.currentWeight1m / BinanceRequestQueue.weightLimit1m;
       if (usageRatio > 0.75) {
         BinanceRequestQueue.adaptiveDelayMs = 1000; // Load Shedding zone
       } else if (usageRatio > 0.5) {
@@ -114,6 +113,12 @@ export class BinanceRequestQueue {
       } else {
         BinanceRequestQueue.adaptiveDelayMs = 0;    // Normal Operation zone
       }
+    }
+  }
+
+  public static setWeightLimit(limit: number) {
+    if (limit > 0) {
+      BinanceRequestQueue.weightLimit1m = limit;
     }
   }
 
@@ -134,11 +139,15 @@ export class BinanceRequestQueue {
 
       const item = this.queue.shift();
       if (item) {
-        const usageRatio = BinanceRequestQueue.currentWeight1m / this.weightLimit1m;
+        const usageRatio = BinanceRequestQueue.currentWeight1m / BinanceRequestQueue.weightLimit1m;
 
         // SRE LOAD SHEDDING: Reject non-critical calls when weight exceeds 75%
-        // We reserve weight strictly for emergency order routing or active risk mitigation.
-        const isCritical = ['newOrder', 'cancelOrder', 'newAlgoOrder', 'cancelAlgoOrder', 'cancelAllOpenOrders', 'queryOrder', 'accountTradeList', 'positionInformationV3'].includes(item.label);
+        // We reserve weight strictly for infrastructure health (UDS) and emergency risk mitigation.
+        const isInfrastructure = ['startUserDataStream', 'keepaliveUserDataStream', 'closeUserDataStream', 'exchangeInformation'].includes(item.label);
+        const isRiskMitigation = ['newOrder', 'cancelOrder', 'newAlgoOrder', 'cancelAlgoOrder', 'cancelAllOpenOrders', 'queryOrder', 'accountTradeList', 'positionInformationV3'].includes(item.label);
+
+        const isCritical = isInfrastructure || isRiskMitigation;
+
         if (usageRatio > 0.75 && !isCritical) {
            this.logger.warn(`[BinanceQueue] SRE LOAD SHEDDING: Rejecting non-critical call [${item.label}] (Weight usage: ${(usageRatio * 100).toFixed(1)}%)`);
            item.reject(new Error(`Load shedding active: ${item.label} rejected to preserve IP reputation.`));
@@ -152,8 +161,16 @@ export class BinanceRequestQueue {
           const result = await item.fn();
           const duration = Date.now() - startTs;
 
-          // SRE: High-Fidelity Structured Logging Matrix
-          this.logger.log(`[Telemetry] ${item.label} executed | Weight: ${BinanceRequestQueue.currentWeight1m}/${this.weightLimit1m} | Depth: ${this.queue.length} | Latency: ${duration}ms`);
+          // SRE: High-Fidelity Structured Telemetry Logging
+          this.logger.log({
+            message: `Outbound execution succeeded: ${item.label}`,
+            telemetry: {
+              method: item.label,
+              weight: `${BinanceRequestQueue.currentWeight1m}/${BinanceRequestQueue.weightLimit1m}`,
+              queueDepth: this.queue.length,
+              durationMs: duration
+            }
+          });
 
           item.resolve(result);
         } catch (error: any) {

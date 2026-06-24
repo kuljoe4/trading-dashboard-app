@@ -1,4 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { OnEvent } from '@nestjs/event-emitter';
 import WebSocket from 'ws';
 import { SessionConfig } from '../models/SessionConfig';
@@ -48,6 +51,8 @@ export class MarketFeedService {
     private sessionState: SessionStateService,
     private signalEngine: SignalEngineService,
     private monitoringService: MonitoringService,
+    @InjectRepository(SettingsEntity)
+    private readonly settingsRepository: Repository<SettingsEntity>,
   ) {}
 
   setCandleCloseCallback(cb: (symbol: string) => Promise<void>) {
@@ -109,9 +114,36 @@ export class MarketFeedService {
   private async fetchExchangeInfo(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
     const now = Date.now();
     // BOLT: Static caching of exchange info for 1 hour to prevent redundant heavy calls (Weight 40) across session restarts
-    if (MarketFeedService.cachedExchangeInfo.size > 0 && MarketFeedService.lastExchangeInfoBase === restBase && now - MarketFeedService.lastExchangeInfoFetch < 3600000) {
+    // RESEARCH-02: Increase TTL to 12 hours for metadata that rarely changes, further reducing weight usage.
+    const CACHE_TTL = 12 * 60 * 60 * 1000;
+
+    if (MarketFeedService.cachedExchangeInfo.size > 0 && MarketFeedService.lastExchangeInfoBase === restBase && now - MarketFeedService.lastExchangeInfoFetch < CACHE_TTL) {
       this.exchangeInfo = MarketFeedService.cachedExchangeInfo;
       return;
+    }
+
+    // RESEARCH-02: Try loading from DB cache on restart
+    if (MarketFeedService.cachedExchangeInfo.size === 0) {
+      try {
+        const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+        if (settings && settings.exchange_info_cache && settings.exchange_info_ts) {
+          const age = now - Number(settings.exchange_info_ts);
+          if (age < CACHE_TTL) {
+            this.logger.log(`Loading exchange info from DB cache (Age: ${Math.round(age / 3600000)}h)...`);
+            const cache = settings.exchange_info_cache;
+            MarketFeedService.cachedExchangeInfo.clear();
+            Object.keys(cache).forEach(symbol => {
+              MarketFeedService.cachedExchangeInfo.set(symbol, cache[symbol]);
+            });
+            MarketFeedService.lastExchangeInfoFetch = Number(settings.exchange_info_ts);
+            MarketFeedService.lastExchangeInfoBase = restBase; // Assumption: last fetch was same environment
+            this.exchangeInfo = MarketFeedService.cachedExchangeInfo;
+            return;
+          }
+        }
+      } catch (dbErr) {
+        this.logger.debug(`Failed to load exchange info from DB: ${dbErr}`);
+      }
     }
 
     try {
@@ -197,7 +229,15 @@ export class MarketFeedService {
           MarketFeedService.lastExchangeInfoFetch = now;
           MarketFeedService.lastExchangeInfoBase = restBase;
           this.exchangeInfo = MarketFeedService.cachedExchangeInfo;
-          this.logger.log(`[MarketFeed] Exchange information cached: ${this.exchangeInfo.size} symbols.`);
+          this.logger.log(`[MarketFeed] Exchange information cached and persisted: ${this.exchangeInfo.size} symbols.`);
+
+          // RESEARCH-02: Persist to DB
+          const cacheObj: any = {};
+          MarketFeedService.cachedExchangeInfo.forEach((val, key) => { cacheObj[key] = val; });
+          await this.settingsRepository.update('default', {
+            exchange_info_cache: cacheObj,
+            exchange_info_ts: now
+          });
         }
       }
     } catch (error) {

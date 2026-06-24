@@ -5,6 +5,7 @@ import { BinanceRequestQueue } from './binanceClientFactory';
 describe('BinanceRequestQueue Shared State', () => {
   let logger: Logger;
   let eventEmitter: EventEmitter2;
+  let settingsRepository: any;
 
   beforeEach(() => {
     logger = {
@@ -18,6 +19,9 @@ describe('BinanceRequestQueue Shared State', () => {
     eventEmitter = {
       emit: jest.fn(),
     } as any;
+    settingsRepository = {
+      update: jest.fn().mockResolvedValue({}),
+    } as any;
 
     // Reset static members via any cast if necessary or just rely on the fact they are shared
     (BinanceRequestQueue as any).lastRequestTs = 0;
@@ -26,8 +30,8 @@ describe('BinanceRequestQueue Shared State', () => {
   });
 
   it('should share state between multiple instances', async () => {
-    const queue1 = new BinanceRequestQueue(logger, eventEmitter);
-    const queue2 = new BinanceRequestQueue(logger, eventEmitter);
+    const queue1 = new BinanceRequestQueue(logger, eventEmitter, settingsRepository);
+    const queue2 = new BinanceRequestQueue(logger, eventEmitter, settingsRepository);
 
     const headers = {
       get: (name: string) => (name === 'X-MBX-USED-WEIGHT-1M' ? '2000' : null),
@@ -42,7 +46,7 @@ describe('BinanceRequestQueue Shared State', () => {
   });
 
   it('should log structured telemetry on execution', async () => {
-    const queue = new BinanceRequestQueue(logger, eventEmitter);
+    const queue = new BinanceRequestQueue(logger, eventEmitter, settingsRepository);
     const successFn = jest.fn().mockResolvedValue('ok');
 
     await queue.add(successFn, 'test-success');
@@ -53,7 +57,7 @@ describe('BinanceRequestQueue Shared State', () => {
   });
 
   it('should shed load (reject) non-critical calls when weight is > 75%', async () => {
-    const queue = new BinanceRequestQueue(logger, eventEmitter);
+    const queue = new BinanceRequestQueue(logger, eventEmitter, settingsRepository);
 
     // Set weight to 80% (1920/2400)
     const headers = { get: (name: string) => (name === 'X-MBX-USED-WEIGHT-1M' ? '2000' : null) };
@@ -69,17 +73,18 @@ describe('BinanceRequestQueue Shared State', () => {
     await expect(queue.add(criticalFn, 'newOrder')).resolves.toBe('ok');
   });
 
-  it('should call process.exit(1) on IP ban (418)', async () => {
-    const queue = new BinanceRequestQueue(logger, eventEmitter);
-    let exitCalledWith: any = null;
-    const mockExit = jest.spyOn(process, 'exit').mockImplementation((code?: string | number | null | undefined) => {
-        exitCalledWith = code;
+  it('should enter safe cooldown and emit event on IP ban (418)', async () => {
+    const queue = new BinanceRequestQueue(logger, eventEmitter, settingsRepository);
+
+    // RESEARCH: Verify that we NO LONGER call process.exit(1)
+    let exitCalled = false;
+    const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {
+        exitCalled = true;
         return undefined as never;
     });
 
     const failingFn = async () => {
-      const err = new Error('IP banned');
-      (err as any).response = { status: 418 };
+      const err = new Error('IP banned (418)');
       throw err;
     };
 
@@ -90,7 +95,15 @@ describe('BinanceRequestQueue Shared State', () => {
     }
 
     expect(logger.fatal).toHaveBeenCalledWith(expect.stringContaining('IP BANNED (418)'));
-    expect(exitCalledWith).toBe(1);
+    expect(exitCalled).toBe(false);
+    expect(eventEmitter.emit).toHaveBeenCalledWith('binance.api_limit_reached', expect.objectContaining({
+      type: 'BAN'
+    }));
+
+    // Verify cooldown is set (10 minutes = 600,000ms)
+    const lastRequest = (BinanceRequestQueue as any).lastRequestTs;
+    expect(lastRequest).toBeGreaterThan(Date.now() + 500000);
+
     mockExit.mockRestore();
   });
 });

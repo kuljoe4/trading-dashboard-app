@@ -262,8 +262,9 @@ export class OrderManagerService {
     // Idempotency check: Cache commission rate for 24 hours (RE-01: Persistent cache reduces boot weight by 20)
     // The audit recommends 24 hours to avoid redundant queries during system boots.
     const CACHE_TTL = 24 * 60 * 60 * 1000;
+    // SRE: Removed 'isNewClient' and 'isModeChange' as triggers to ensure cross-restart DB cache is respected.
     const shouldFetchFee = this.binanceClient && !this.paperMode &&
-      (isNewClient || isModeChange || (Date.now() - this.lastFeeFetch > CACHE_TTL));
+      (Date.now() - this.lastFeeFetch > CACHE_TTL);
 
     if (shouldFetchFee && this.binanceClient) {
       // SRE: Proactive Weight Gating - Defer non-critical commission fetch if weight is already high

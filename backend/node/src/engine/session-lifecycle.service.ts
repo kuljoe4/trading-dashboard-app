@@ -72,6 +72,17 @@ export class SessionLifecycleService {
           const serverTime = new Date(serverTimeHeader).getTime();
           const offset = serverTime - Date.now();
           this.logger.log(`[Lifecycle] Binance Time Sync Audit: Local offset is ${offset}ms`);
+
+          // SRE: Critical timing audit. Clock drift beyond -500ms triggers hard rejection risk.
+          if (offset < -500) {
+             const driftMsg = `CRITICAL: Technical clock drift detected (-${Math.abs(offset)}ms). Local clock is ahead of Binance. Rejection risk is HIGH. Please synchronize with NTP immediately.`;
+             this.logger.error(driftMsg);
+             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: driftMsg, level: 'error' });
+          } else if (Math.abs(offset) > 1000) {
+             const driftMsg = `WARNING: Significant clock drift detected (${offset}ms). This may cause transaction rejections. NTP synchronization recommended.`;
+             this.logger.warn(driftMsg);
+             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: driftMsg, level: 'warn' });
+          }
         }
       } catch (e) {
         this.logger.debug(`Time sync audit skipped: ${e instanceof Error ? e.message : String(e)}`);
@@ -254,12 +265,13 @@ export class SessionLifecycleService {
 
     try {
       this.monitoringService.incrementApiRequests();
-      // Try primary endpoint: futuresAccountBalanceV2
-      const res = await bc.restAPI.futuresAccountBalanceV2();
+      // OPTIMIZATION: Migrate to V3 endpoint for targeted, low-payload balance fetch.
+      // futuresAccountBalanceV3 returns only active symbols, reducing network overhead.
+      const res = await bc.restAPI.futuresAccountBalanceV3();
       if (!res) return 0;
 
       // Traceability: Log successful balance fetch
-      this.logger.debug(`[Lifecycle] Successfully fetched balance via REST.`);
+      this.logger.debug(`[Lifecycle] Successfully fetched balance via REST V3.`);
 
       const data = await res.data() as any;
       const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
@@ -268,7 +280,13 @@ export class SessionLifecycleService {
         return parseFloat(usdt.balance || 0);
       }
 
-      // Fallback: try accountInformationV2 (full account details)
+      // Fallback: try futuresAccountBalanceV2 (legacy) then accountInformationV2 (full account details)
+      this.logger.debug(`futuresAccountBalanceV3 did not return USDT. Trying V2 fallback...`);
+      const v2Res = await bc.restAPI.futuresAccountBalanceV2();
+      const v2Data = await v2Res.data() as any;
+      const v2Usdt = Array.isArray(v2Data) ? v2Data.find((b: any) => b.asset === 'USDT') : null;
+      if (v2Usdt) return parseFloat(v2Usdt.balance || 0);
+
       this.logger.debug(`futuresAccountBalanceV2 did not return USDT. Trying accountInformationV2 fallback...`);
       const accRes = await bc.restAPI.accountInformationV2();
       const accData = await accRes.data() as any;

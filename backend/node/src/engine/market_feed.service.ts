@@ -75,8 +75,13 @@ export class MarketFeedService {
         : ENGINE_CONSTANTS.BINANCE_WS_BASE;
 
     await this.fetchExchangeInfo(restBase);
+
+    // CORRECTION: Ensure ticker cache is seeded via WebSocket to eliminate 40-weight REST fallback.
     this.startMiniTickerStream(wsBase);
     this.startMarkTickerStream(wsBase);
+
+    // HF: Seed cache with @ticker streams for active watchlist if possible
+    // (Wait for Watchlist Manager to start combined streams)
 
     const waitForWs = new Promise<void>((resolve) => {
       const check = setInterval(() => {
@@ -248,16 +253,24 @@ export class MarketFeedService {
   getSymbolFilters(symbol: string) { return this.exchangeInfo.get(symbol); }
 
   public async fetchInitialTickers(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
+    // SRE: Proactive Load Shedding. Ticker statistics carry a massive weight of 40.
+    // If the WebSocket streams (!miniTicker@arr or !markTicker@arr) are healthy, we SKIP this.
+    if (this.tickerCache.getCacheSize() > 0) {
+       this.logger.debug(`[MarketFeed] Skipping 40-weight ticker fallback. Cache already seeded via WebSocket.`);
+       return;
+    }
+
     try {
       this.monitoringService.incrementApiRequests();
       let tickers: any[];
 
       if (this.binanceClient) {
+        this.logger.warn(`[MarketFeed] Dispatching 40-weight ticker fallback (GET /fapi/v1/ticker/24hr).`);
         const response = await this.binanceClient.restAPI.ticker24hrPriceChangeStatistics();
         this.updateWeight(response.headers);
         tickers = await response.data();
       } else {
-        const response = await fetch(`${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/ticker/24hr`);
+        const response = await fetch(`${restBase}/fapi/v1/ticker/24hr`);
         this.updateWeight(response.headers);
         if (!response.ok) return;
         tickers = await response.json() as any[];
@@ -267,7 +280,9 @@ export class MarketFeedService {
         const usdtTickers = tickers.filter(t => t.symbol.endsWith('USDT'));
         this.tickerCache.bulkUpdate(usdtTickers);
       }
-    } catch (error) {}
+    } catch (error) {
+       this.logger.error(`[MarketFeed] Ticker fallback failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private safeClose(ws: WebSocket | null) {
@@ -492,27 +507,52 @@ export class MarketFeedService {
     }
     this.combinedKlineWsList.clear();
     if (this.activeWatchlist.size === 0) return;
+
     const allStreams: string[] = [];
     for (const [symbol, intervals] of this.activeWatchlist) {
-      for (const interval of intervals) allStreams.push(`${symbol.toLowerCase()}@kline_${interval}`);
+      const s = symbol.toLowerCase();
+      // CORRECTION: Add @ticker stream for each watched symbol to ensure cache is seeded via WebSocket
+      // This eliminates the need for the heavy 40-weight ticker24hrPriceChangeStatistics REST fallback.
+      allStreams.push(`${s}@ticker`);
+      for (const interval of intervals) {
+        allStreams.push(`${s}@kline_${interval}`);
+      }
     }
-    const CHUNK_SIZE = 20;
+
+    const CHUNK_SIZE = ENGINE_CONSTANTS.KLINE_STREAM_CHUNK_SIZE || 20;
     const chunks = [];
     for (let i = 0; i < allStreams.length; i += CHUNK_SIZE) chunks.push(allStreams.slice(i, i + CHUNK_SIZE));
+
+    // ENVIRONMENT SYNC: Use the same wsBase as mini-ticker (Testnet vs Prod)
+    const isTestnet = this.sessionState.config?.trading_mode === 'testnet';
+    const wsBase = isTestnet
+        ? 'wss://fstream.binancefuture.com'
+        : ENGINE_CONSTANTS.BINANCE_WS_MARKET; // Use the /market gateway explicitly
+
     for (const chunk of chunks) {
       const streams = chunk.join('/');
-      const url = `${ENGINE_CONSTANTS.BINANCE_WS_BASE}/stream?streams=${streams}`;
+      const url = `${wsBase}/stream?streams=${streams}`;
       const connect = () => {
         if (!this.running) return;
+        this.logger.debug(`[MarketFeed] Connecting to combined stream: ${url.split('?')[0]}?streams=${chunk.length} items`);
+
         const ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
         ws.on('message', (data: Buffer) => {
           try {
-            const msg: BinanceKline = JSON.parse(data as any);
-            const kline = msg.data?.k;
-            if (kline) {
-              this.klineStore.upsertCandle(kline.s, kline.i, kline);
-              this.tickerCache.updateTicker(kline.s, kline.c);
-              if (kline.x && this.onCandleClose) this.onCandleClose(kline.s).catch(() => {});
+            const msg: any = JSON.parse(data as any);
+            const stream = msg.stream || '';
+            const payload = msg.data;
+
+            if (stream.includes('@kline')) {
+              const kline = payload.k;
+              if (kline) {
+                this.klineStore.upsertCandle(kline.s, kline.i, kline);
+                this.tickerCache.updateTicker(kline.s, kline.c);
+                if (kline.x && this.onCandleClose) this.onCandleClose(kline.s).catch(() => {});
+              }
+            } else if (stream.includes('@ticker')) {
+              // Seed ticker cache from symbol-specific ticker stream
+              this.tickerCache.updateTicker(payload.s, payload.c, payload.q, payload.o);
             }
           } catch (err) {
             this.logger.error(`Error processing combined kline stream: ${err instanceof Error ? err.message : String(err)}`);
@@ -582,7 +622,18 @@ export class MarketFeedService {
 
   private async backfillKlines(symbol: string, interval: string) {
     const requiredWarmup = this.sessionState.config ? this.signalEngine.getRequiredWarmup(this.sessionState.config) : 100;
-    const existingCandles = await this.klineStore.getRecentCandles(symbol, interval, requiredWarmup);
+
+    // ARCHITECTURAL OPTIMIZATION: Try loading from local DB first to eliminate redundant REST calls.
+    let existingCandles = await this.klineStore.getRecentCandles(symbol, interval, requiredWarmup);
+
+    if (existingCandles.length < requiredWarmup) {
+       this.logger.debug(`[MarketFeed] Low local memory cache for ${symbol} ${interval}. Checking database...`);
+       const loadedCount = await this.klineStore.loadFromDb(symbol, interval, requiredWarmup);
+       if (loadedCount > 0) {
+          this.logger.log(`[MarketFeed] Successfully restored ${loadedCount} candles from local DB for ${symbol} ${interval}.`);
+          existingCandles = await this.klineStore.getRecentCandles(symbol, interval, requiredWarmup);
+       }
+    }
 
     if (existingCandles.length >= requiredWarmup) {
       const lastCandle = existingCandles[0];

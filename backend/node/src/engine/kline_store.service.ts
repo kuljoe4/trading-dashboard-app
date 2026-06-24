@@ -1,4 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, MoreThanOrEqual } from 'typeorm';
+import { Kline as KlineEntity } from '../models/entities/Kline.entity';
 
 export interface Candle {
   time: number;
@@ -15,6 +18,11 @@ export class KlineStoreService {
   private klines: Map<string, Candle[]> = new Map();
   private readonly MAX_CANDLES = this.readMaxCandles();
 
+  constructor(
+    @InjectRepository(KlineEntity)
+    private readonly klineRepository: Repository<KlineEntity>,
+  ) {}
+
   private readMaxCandles(): number {
     const parsed = Number(process.env.KLINE_MAX_CANDLES || 200);
     return Number.isFinite(parsed) ? Math.min(Math.max(Math.floor(parsed), 50), 500) : 200;
@@ -25,7 +33,7 @@ export class KlineStoreService {
   }
   private static readonly EMPTY_ARRAY: Candle[] = [];
 
-  upsertCandle(symbol: string, interval: string, kline: any) {
+  async upsertCandle(symbol: string, interval: string, kline: any) {
     const key = `${symbol}_${interval}`;
     let existing = this.klines.get(key);
     if (!existing) {
@@ -72,6 +80,9 @@ export class KlineStoreService {
       } 
       
       if (time > lastCandle.time) {
+        // Persist completed candle to DB if it's new
+        this.persistCandle(symbol, interval, lastCandle).catch(() => {});
+
         // New candle arriving - allocate only once per interval
         existing.push({ time, open, high, low, close, volume });
         if (existing.length > this.MAX_CANDLES) {
@@ -163,6 +174,74 @@ export class KlineStoreService {
     const trimmed = candles.slice(-this.MAX_CANDLES);
     this.klines.set(key, trimmed);
     this.logger.verbose(`Seeded ${trimmed.length} candles for ${symbol}/${interval}`);
+
+    // Persist to DB for future boots
+    this.bulkPersist(symbol, interval, trimmed).catch(() => {});
+  }
+
+  async loadFromDb(symbol: string, interval: string, count: number): Promise<number> {
+    try {
+      const entities = await this.klineRepository.find({
+        where: { symbol, interval },
+        order: { time: 'DESC' },
+        take: count,
+      });
+
+      if (entities.length > 0) {
+        const candles: Candle[] = entities.reverse().map(e => ({
+          time: Number(e.time),
+          open: Number(e.open),
+          high: Number(e.high),
+          low: Number(e.low),
+          close: Number(e.close),
+          volume: Number(e.volume),
+        }));
+
+        this.klines.set(`${symbol}_${interval}`, candles);
+        return candles.length;
+      }
+    } catch (err: any) {
+      this.logger.error(`Failed to load klines from DB: ${err.message}`);
+    }
+    return 0;
+  }
+
+  private async persistCandle(symbol: string, interval: string, candle: Candle) {
+    try {
+      const id = `${symbol}_${interval}_${candle.time}`;
+      await this.klineRepository.upsert({
+        id,
+        symbol,
+        interval,
+        time: candle.time,
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+        volume: candle.volume,
+      }, ['id']);
+    } catch (err) {}
+  }
+
+  private async bulkPersist(symbol: string, interval: string, candles: Candle[]) {
+    try {
+      const entities = candles.map(c => ({
+        id: `${symbol}_${interval}_${c.time}`,
+        symbol,
+        interval,
+        time: c.time,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: c.volume,
+      }));
+
+      // Chunk large inserts to avoid parameter limits
+      for (let i = 0; i < entities.length; i += 100) {
+        await this.klineRepository.upsert(entities.slice(i, i + 100), ['id']);
+      }
+    } catch (err) {}
   }
 
   getStats(): { keys: string[]; counts: Record<string, number> } {

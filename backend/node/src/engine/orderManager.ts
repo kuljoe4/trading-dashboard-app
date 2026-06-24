@@ -49,6 +49,10 @@ export class OrderManagerService {
   // BOLT: Per-symbol log throttling for backoff periods
   private lastDeferLogTs: Map<string, number> = new Map();
 
+  // IDEMPOTENCY: Tracking executed order IDs to prevent double-processing between REST and WebSocket (UDS)
+  private executionCache: Map<string, number> = new Map();
+  private readonly EXECUTION_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
   constructor(
     private readonly signalEngine: SignalEngineService,
     private readonly marketFeed: MarketFeedService,
@@ -71,6 +75,17 @@ export class OrderManagerService {
     const side = order.S;
     const type = order.ot;
     const executionType = order.x; // Execution Type
+
+    // IDEMPOTENCY: Check if this execution has already been processed via REST response
+    if (executionType === 'TRADE' && status === 'FILLED') {
+      const cacheKey = `${symbol}_${orderId}_${status}`;
+      if (this.executionCache.has(cacheKey)) {
+        this.logger.debug(`[Idempotency] Dropping duplicate UDS fill report for ${symbol} (ID: ${orderId})`);
+        return;
+      }
+      this.executionCache.set(cacheKey, Date.now());
+      this.cleanupExecutionCache();
+    }
 
     // SRE: High-fidelity structured logging for all UDS updates to confirm stream health and event delivery.
     // Throttled to LOG level for TRADE, DEBUG for others.
@@ -244,9 +259,12 @@ export class OrderManagerService {
       }
     }
 
-    // Idempotency check: Cache commission rate for 7 days
+    // Idempotency check: Cache commission rate for 24 hours (RE-01: Persistent cache reduces boot weight by 20)
+    // The audit recommends 24 hours to avoid redundant queries during system boots.
+    const CACHE_TTL = 24 * 60 * 60 * 1000;
+    // SRE: Removed 'isNewClient' and 'isModeChange' as triggers to ensure cross-restart DB cache is respected.
     const shouldFetchFee = this.binanceClient && !this.paperMode &&
-      (isNewClient || isModeChange || (Date.now() - this.lastFeeFetch > 7 * 24 * 60 * 60 * 1000));
+      (Date.now() - this.lastFeeFetch > CACHE_TTL);
 
     if (shouldFetchFee && this.binanceClient) {
       // SRE: Proactive Weight Gating - Defer non-critical commission fetch if weight is already high
@@ -592,6 +610,11 @@ export class OrderManagerService {
           }
 
           trade.binance_order_id = entryReceipt.orderId;
+
+          // IDEMPOTENCY: Mark entry as executed to avoid duplicate UDS processing
+          if (entryReceipt.status === 'FILLED' || entryReceipt.executedQty === entryReceipt.origQty) {
+             this.markAsExecuted(symbol, String(entryReceipt.orderId));
+          }
 
           // Zero-RAM Price Tracking: Extract exact execution details from REST response
           // Finding 1: Canonical fill price extraction is cumQuote / executedQty
@@ -1368,9 +1391,11 @@ export class OrderManagerService {
       return { exitTriggered: false };
     }
 
-    const tradeAgeSec = trade.entry_ts
-      ? (Date.now() - new Date(trade.entry_ts).getTime()) / 1000
-      : 0;
+    // BOLT OPTIMIZATION: Use pre-existing Date instance or convert once
+    const entryTs = (trade.entry_ts instanceof Date)
+      ? trade.entry_ts.getTime()
+      : (trade.entry_ts ? new Date(trade.entry_ts).getTime() : 0);
+    const tradeAgeSec = entryTs > 0 ? (Date.now() - entryTs) / 1000 : 0;
 
     const statuses: Record<string, { fired: boolean, active: boolean, remaining_delay: number, label: string, value: number, threshold: number, unit: string, description?: string, insufficientData?: boolean }> = {};
     const delays = config.exit_signal_delays || {};
@@ -1379,6 +1404,15 @@ export class OrderManagerService {
     let firedCount = 0;
     let activeCount = 0;
 
+    // BOLT OPTIMIZATION: Call signalEngine once for all exit signals
+    const consolidatedResult = this.signalEngine.checkEntry(
+      symbol,
+      { ...config, enabled_signals: config.exit_signals },
+      interval,
+      trade.direction,
+      'exit'
+    );
+
     // Check each exit signal
     for (const exitSignal of config.exit_signals) {
       try {
@@ -1386,21 +1420,8 @@ export class OrderManagerService {
         const isActive = tradeAgeSec >= delay;
         const remaining = Math.max(0, delay - tradeAgeSec);
 
-        // Create temp config with only the exit signal enabled
-        const tempConfig = {
-          ...config,
-          enabled_signals: [exitSignal],
-        };
-
-        const result = this.signalEngine.checkEntry(
-          symbol,
-          tempConfig,
-          interval,
-          trade.direction,
-          'exit'
-        );
-        const isFired = result.allFired;
-        const detail = result.details ? result.details[exitSignal] : null;
+        const detail = consolidatedResult.details ? consolidatedResult.details[exitSignal] : null;
+        const isFired = !!(detail?.fired || (consolidatedResult.firedSignals.includes(exitSignal)));
 
         statuses[exitSignal] = {
           fired: isFired,
@@ -1422,7 +1443,7 @@ export class OrderManagerService {
         }
       } catch (err) {
         this.logger.debug(
-          `Exit signal ${exitSignal} check error: ${err instanceof Error ? err.message : String(err)}`,
+          `Exit signal ${exitSignal} processing error: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
@@ -1509,6 +1530,21 @@ export class OrderManagerService {
     }
   }
 
+
+  private cleanupExecutionCache() {
+    const now = Date.now();
+    for (const [key, timestamp] of this.executionCache.entries()) {
+      if (now - timestamp > this.EXECUTION_CACHE_TTL) {
+        this.executionCache.delete(key);
+      }
+    }
+  }
+
+  private markAsExecuted(symbol: string, orderId: string, status: string = 'FILLED') {
+    const cacheKey = `${symbol}_${orderId}_${status}`;
+    this.executionCache.set(cacheKey, Date.now());
+    this.cleanupExecutionCache();
+  }
 
   public seedRealTimePosition(symbol: string, amount: number, entryPrice: number) {
     this.sessionState.realTimePositions.set(symbol, { amount, entryPrice });
@@ -1831,6 +1867,11 @@ export class OrderManagerService {
           }
 
           if (closeSuccess) {
+            // IDEMPOTENCY: Mark close as executed to avoid duplicate UDS processing
+            if (orderData.status === 'FILLED' || orderData.executedQty === orderData.origQty) {
+               this.markAsExecuted(symbol, String(orderData.orderId));
+            }
+
             // BOLT: Proactively update zero-weight position cache on success
             const executedExitQty = parseFloat(orderData.executedQty || '0');
             const currentCached = this.sessionState.realTimePositions.get(symbol);

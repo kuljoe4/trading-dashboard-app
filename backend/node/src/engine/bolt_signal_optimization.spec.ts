@@ -5,9 +5,11 @@ import { SessionConfig } from '../models/SessionConfig';
 describe('SignalEngineService Optimization Benchmark', () => {
   let signalEngine: SignalEngineService;
   let klineStore: KlineStoreService;
+  let mockKlineRepo: any;
 
   beforeEach(() => {
-    klineStore = new KlineStoreService();
+    mockKlineRepo = { find: jest.fn(), upsert: jest.fn() };
+    klineStore = new KlineStoreService(mockKlineRepo);
     signalEngine = new SignalEngineService(klineStore);
   });
 

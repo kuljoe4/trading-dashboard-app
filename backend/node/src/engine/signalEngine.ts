@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { KlineStoreService } from './kline_store.service';
+import { KlineStoreService, Candle } from './kline_store.service';
 import { SessionConfig } from '../models/SessionConfig';
 import { roundTo } from '../lib/math';
 
@@ -26,10 +26,9 @@ export class SignalEngineService {
 
   private readonly signalHandlers: Record<
     string,
-    (symbol: string, config: any, interval: string, side?: 'LONG' | 'SHORT', purpose?: 'entry' | 'exit') => boolean | SignalDetail
+    (symbol: string, config: any, interval: string, side?: 'LONG' | 'SHORT', purpose?: 'entry' | 'exit', candles?: Candle[]) => boolean | SignalDetail
   > = {
     momentum_pct: this.momentumPctSignal.bind(this),
-    breakback_hl: this.breakoutHlSignal.bind(this), // Typo in existing code? It's breakout_hl
     breakout_hl: this.breakoutHlSignal.bind(this),
     engulfing: this.engulfingSignal.bind(this),
     ma: this.maSignal.bind(this),
@@ -111,10 +110,11 @@ export class SignalEngineService {
     const details: Record<string, SignalDetail> = {};
     const logic = config.signal_logic || 'all';
 
+    const candles = this.klineStore.getRawCandles(symbol, interval);
+
     // Warm-up check for technical indicators
     if (purpose === 'entry') {
       const requiredWarmup = this.getRequiredWarmup(config);
-      const candles = this.klineStore.getRawCandles(symbol, interval);
       if (candles.length < requiredWarmup) {
         return {
           allFired: false,
@@ -144,7 +144,7 @@ export class SignalEngineService {
       }
 
       try {
-        const result = handler(symbol, config, interval, side, purpose);
+        const result = handler(symbol, config, interval, side, purpose, candles);
         const fired = typeof result === 'boolean' ? result : result.fired;
         
         if (!minimal && typeof result !== 'boolean') {
@@ -183,9 +183,12 @@ export class SignalEngineService {
     symbol: string,
     config: SessionConfig,
     interval: string,
+    side?: 'LONG' | 'SHORT',
+    purpose?: 'entry' | 'exit',
+    passedCandles?: Candle[],
   ): SignalDetail {
     const lookback = Math.max(config.scan_lookback || 3, 1);
-    const candles = this.klineStore.getRawCandles(symbol, interval);
+    const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
     const threshold = config.scan_pct_threshold || 0;
     
     if (candles.length < lookback + 1) {
@@ -219,9 +222,12 @@ export class SignalEngineService {
     symbol: string,
     config: SessionConfig,
     interval: string,
+    side?: 'LONG' | 'SHORT',
+    purpose?: 'entry' | 'exit',
+    passedCandles?: Candle[],
   ): SignalDetail {
     const lookback = Math.max(config.scan_lookback || 3, 2);
-    const candles = this.klineStore.getRawCandles(symbol, interval);
+    const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
     
     if (candles.length < lookback + 1) {
       return {
@@ -264,9 +270,12 @@ export class SignalEngineService {
     symbol: string,
     config: any,
     interval: string,
+    side?: 'LONG' | 'SHORT',
+    purpose?: 'entry' | 'exit',
+    passedCandles?: Candle[],
   ): SignalDetail {
     try {
-      const candles = this.klineStore.getRawCandles(symbol, interval);
+      const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
       if (candles.length < 2) {
         return { fired: false, value: 0, threshold: 0, unit: 'bool', metric: 'Engulfing', description: 'Insufficient data', insufficientData: true };
       }
@@ -293,10 +302,13 @@ export class SignalEngineService {
     symbol: string,
     config: any,
     interval: string,
+    side?: 'LONG' | 'SHORT',
+    purpose?: 'entry' | 'exit',
+    passedCandles?: Candle[],
   ): SignalDetail {
     try {
       const period = parseInt(config.signal_params?.ma_period || '20', 10);
-      const candles = this.klineStore.getRawCandles(symbol, interval);
+      const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
       if (candles.length < period + 1) {
         return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'MA Cross', description: 'Insufficient data', insufficientData: true };
       }
@@ -328,6 +340,7 @@ export class SignalEngineService {
     interval: string,
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
+    passedCandles?: Candle[],
   ): SignalDetail {
     try {
       const params = config.signal_params || {};
@@ -335,7 +348,7 @@ export class SignalEngineService {
         ? parseInt(params.exit_ema_period || params.ema_period || '12', 10)
         : parseInt(params.entry_ema_period || params.ema_period || '12', 10);
 
-      const candles = this.klineStore.getRawCandles(symbol, interval);
+      const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
       if (candles.length < period + 1) {
         return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Cross', description: 'Insufficient data', insufficientData: true };
       }
@@ -377,6 +390,7 @@ export class SignalEngineService {
     interval: string,
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
+    passedCandles?: Candle[],
   ): SignalDetail {
     try {
       const params = config.signal_params || {};
@@ -388,7 +402,7 @@ export class SignalEngineService {
         : parseInt(params.entry_ema_slow || '21', 10);
 
       const maxPeriod = Math.max(fastPeriod, slowPeriod);
-      const candles = this.klineStore.getRawCandles(symbol, interval);
+      const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
       if (candles.length < maxPeriod + 1) {
         return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Dual', description: 'Insufficient data', insufficientData: true };
       }
@@ -435,6 +449,7 @@ export class SignalEngineService {
     interval: string,
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
+    passedCandles?: Candle[],
   ): SignalDetail {
     try {
       const params = config.signal_params || {};
@@ -446,7 +461,7 @@ export class SignalEngineService {
         : parseInt(params.entry_ema_slow || '21', 10);
 
       const maxPeriod = Math.max(fastPeriod, slowPeriod);
-      const candles = this.klineStore.getRawCandles(symbol, interval);
+      const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
       if (candles.length < maxPeriod + 1) {
         return {
           fired: false,
@@ -508,6 +523,7 @@ export class SignalEngineService {
     interval: string,
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
+    passedCandles?: Candle[],
   ): SignalDetail {
     try {
       const params = config.signal_params || {};
@@ -515,7 +531,7 @@ export class SignalEngineService {
         ? parseInt(params.exit_ema_period || params.ema_period || '12', 10)
         : parseInt(params.entry_ema_period || params.ema_period || '12', 10);
 
-      const candles = this.klineStore.getRawCandles(symbol, interval);
+      const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
       if (candles.length < period + 1) {
         return {
           fired: false,

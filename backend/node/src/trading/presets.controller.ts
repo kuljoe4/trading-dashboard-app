@@ -1,9 +1,12 @@
-import { Controller, Get, Post, Delete, Body, Param, UseGuards, Req, Logger, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, UseGuards, Req, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Request } from 'express';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { StrategyPreset } from '../models/entities/StrategyPreset.entity';
 import { CreateStrategyPresetDto, UpdateStrategyPresetDto } from './dto/strategy-preset.dto';
+import { SessionConfig } from '../models/SessionConfig';
 import { ApiKeyGuard } from '../lib/api-key.guard';
 import { AuditLogService } from './audit-log.service';
 import { extractIp } from '../lib/throttle';
@@ -29,6 +32,14 @@ export class PresetsController {
   @Post()
   async savePreset(@Body() body: CreateStrategyPresetDto, @Req() req: Request) {
     const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
+
+    // SEC-SENTINEL: Defense-in-depth validation of the strategy configuration
+    const configInstance = plainToInstance(SessionConfig, body.config || {});
+    const errors = await validate(configInstance);
+    if (errors.length > 0) {
+      this.logger.warn(`Preset validation failed for "${body.name}": ${JSON.stringify(errors)}`);
+      throw new BadRequestException('Invalid strategy configuration in preset');
+    }
 
     let preset = await this.presetRepository.findOne({
       where: { name: body.name }

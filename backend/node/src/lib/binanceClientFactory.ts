@@ -46,6 +46,37 @@ export class BinanceClientFactory {
       }
     });
 
+    // ARCHITECTURAL FIX: Override SDK's internal URL building to support dedicated gateways
+    // /private (for listenKey), /market (for anonymous market streams), and /public (HF data)
+    const originalConnect = client.websocketStreams.connect.bind(client.websocketStreams);
+    client.websocketStreams.connect = async (params: any) => {
+      // UDS streams use the listenKey (string without @ or !), while market streams use @ (kline, ticker) or ! (miniTicker)
+      const isPrivate = !!params.stream && !params.stream.includes('@') && !params.stream.includes('!');
+
+      let gatewayURL = wsURL;
+      const urlObj = new URL(wsURL);
+
+      if (isPrivate) {
+        // SRE: Strictly route private listenKey traffic to the /private gateway
+        urlObj.pathname = '/private';
+      } else {
+        // Market/Public data traffic routes to /market or /public
+        urlObj.pathname = '/market';
+      }
+
+      gatewayURL = urlObj.origin + urlObj.pathname;
+
+      this.logger.debug(`[BinanceClient] Routing WS connection to gateway: ${gatewayURL} | isPrivate=${isPrivate} | stream=${params.stream?.substring(0, 10)}...`);
+
+      const originalWsURL = (client.websocketStreams as any).wsURL;
+      (client.websocketStreams as any).wsURL = gatewayURL;
+      try {
+        return await originalConnect(params);
+      } finally {
+        (client.websocketStreams as any).wsURL = originalWsURL;
+      }
+    };
+
     // Wrap restAPI with a Throttled Proxy to prevent startup bursts and respect rate limits
     const originalRestApi = client.restAPI;
     const queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository);
@@ -159,7 +190,7 @@ export class BinanceRequestQueue {
         // Level 1: Immune (Infrastructure & Keepalives) - Proceed even if > 100% to prevent blindness
         const isImmune = ['startUserDataStream', 'keepaliveUserDataStream', 'closeUserDataStream'].includes(item.label);
         // Level 2: Critical (Orders & Structural Info) - Shed at 95%
-        const isCritical = ['newOrder', 'cancelOrder', 'newAlgoOrder', 'cancelAlgoOrder', 'cancelAllOpenOrders', 'exchangeInformation', 'futuresAccountBalanceV2'].includes(item.label);
+        const isCritical = ['newOrder', 'cancelOrder', 'newAlgoOrder', 'cancelAlgoOrder', 'cancelAllOpenOrders', 'exchangeInformation', 'futuresAccountBalanceV2', 'futuresAccountBalanceV3'].includes(item.label);
         // Level 3: Operational (State Audits) - Shed at 85%
         const isOperational = ['queryOrder', 'accountTradeList', 'positionInformationV3'].includes(item.label);
 

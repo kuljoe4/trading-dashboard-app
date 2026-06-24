@@ -41,7 +41,7 @@ describe('SL Ratchet Race Conditions & Protection Gaps', () => {
       { incrementApiRequests: jest.fn() } as any,
       mockSessionState,
       mockAuditLog,
-      mockEventEmitter
+      mockEventEmitter, { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any
     );
 
     mockBinanceClient = {

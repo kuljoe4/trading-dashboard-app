@@ -52,6 +52,7 @@ describe('UDS Stall Optimization', () => {
         { provide: MonitoringService, useValue: { getMetrics: jest.fn(), recordUdsPing: jest.fn(), setUdsStatus: jest.fn(), incrementApiRequests: jest.fn() } },
         { provide: AuditLogService, useValue: { log: jest.fn() } },
         { provide: EventEmitter2, useValue: { emit: jest.fn() } },
+        { provide: "SettingsRepository", useValue: { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } }
       ],
     }).compile();
 

@@ -26,7 +26,7 @@ describe('OrderManagerService', () => {
         config: {}
       } as any, // sessionState
       { log: jest.fn() } as any, // auditLog
-      { emit: jest.fn() } as any, // eventEmitter
+      { emit: jest.fn() } as any, { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any
     );
     
     mockBinanceClient = {

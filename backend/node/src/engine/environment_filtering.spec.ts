@@ -67,7 +67,7 @@ describe('MomentumScannerService Environment Filtering', () => {
           realTimePositions: new Map()
         } as any, // sessionState
         mockAuditLog as any,
-        { emit: jest.fn() } as any,
+        { emit: jest.fn() } as any, { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any
     );
     (orderManager as any).marketFeed = marketFeed;
     const mockRest = {

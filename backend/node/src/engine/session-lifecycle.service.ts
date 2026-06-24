@@ -1,4 +1,7 @@
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { SessionConfig } from '../models/SessionConfig';
 import { Trade } from '../models/Trade';
 import { SessionStateService } from './session_state.service';
@@ -37,6 +40,8 @@ export class SessionLifecycleService {
     private readonly monitoringService: MonitoringService,
     private readonly auditLog: AuditLogService,
     private readonly eventEmitter: EventEmitter2,
+    @InjectRepository(SettingsEntity)
+    private readonly settingsRepository: Repository<SettingsEntity>,
   ) {}
 
   private async progress(msg: string, level: 'info' | 'warn' = 'info') {
@@ -67,6 +72,17 @@ export class SessionLifecycleService {
           const serverTime = new Date(serverTimeHeader).getTime();
           const offset = serverTime - Date.now();
           this.logger.log(`[Lifecycle] Binance Time Sync Audit: Local offset is ${offset}ms`);
+
+          // SRE: Critical timing audit. Clock drift beyond -500ms triggers hard rejection risk.
+          if (offset < -500) {
+             const driftMsg = `CRITICAL: Technical clock drift detected (-${Math.abs(offset)}ms). Local clock is ahead of Binance. Rejection risk is HIGH. Please synchronize with NTP immediately.`;
+             this.logger.error(driftMsg);
+             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: driftMsg, level: 'error' });
+          } else if (Math.abs(offset) > 1000) {
+             const driftMsg = `WARNING: Significant clock drift detected (${offset}ms). This may cause transaction rejections. NTP synchronization recommended.`;
+             this.logger.warn(driftMsg);
+             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: driftMsg, level: 'warn' });
+          }
         }
       } catch (e) {
         this.logger.debug(`Time sync audit skipped: ${e instanceof Error ? e.message : String(e)}`);
@@ -74,7 +90,22 @@ export class SessionLifecycleService {
 
       try {
         // Enforce One-Way Mode (Disable Hedge Mode) - Cache for 7 days
-        const shouldSyncMode = Date.now() - this.lastModeSync > 7 * 24 * 60 * 60 * 1000;
+        const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+        let shouldSyncMode = Date.now() - this.lastModeSync > CACHE_TTL;
+
+        // RESEARCH-02: Load cached position mode from DB
+        if (shouldSyncMode) {
+          try {
+             const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+             if (settings && settings.last_mode_sync && (Date.now() - Number(settings.last_mode_sync)) < CACHE_TTL) {
+                this.lastModeSync = Number(settings.last_mode_sync);
+                if (settings.is_one_way_mode) {
+                   this.logger.debug('Loaded cached position mode from DB: One-Way.');
+                   shouldSyncMode = false;
+                }
+             }
+          } catch (e) {}
+        }
 
         if (shouldSyncMode) {
         try {
@@ -84,6 +115,11 @@ export class SessionLifecycleService {
 
           if (currentModeData && currentModeData.dualSidePosition === false) {
             this.logger.debug('Binance position mode is already One-Way.');
+
+            await this.settingsRepository.update('default', {
+              is_one_way_mode: true,
+              last_mode_sync: Date.now()
+            });
           } else {
             this.monitoringService.incrementApiRequests();
             const modeRes = await bc.restAPI.changePositionMode({ dualSidePosition: false } as any);
@@ -91,6 +127,11 @@ export class SessionLifecycleService {
             const modeMsg = `Binance position mode set to One-Way: ${JSON.stringify(modeData)}`;
             this.logger.log(modeMsg);
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: modeMsg, level: 'info' });
+
+            await this.settingsRepository.update('default', {
+              is_one_way_mode: true,
+              last_mode_sync: Date.now()
+            });
           }
           this.lastModeSync = Date.now();
         } catch (modeErr: any) {
@@ -224,12 +265,13 @@ export class SessionLifecycleService {
 
     try {
       this.monitoringService.incrementApiRequests();
-      // Try primary endpoint: futuresAccountBalanceV2
-      const res = await bc.restAPI.futuresAccountBalanceV2();
+      // OPTIMIZATION: Migrate to V3 endpoint for targeted, low-payload balance fetch.
+      // futuresAccountBalanceV3 returns only active symbols, reducing network overhead.
+      const res = await bc.restAPI.futuresAccountBalanceV3();
       if (!res) return 0;
 
       // Traceability: Log successful balance fetch
-      this.logger.debug(`[Lifecycle] Successfully fetched balance via REST.`);
+      this.logger.debug(`[Lifecycle] Successfully fetched balance via REST V3.`);
 
       const data = await res.data() as any;
       const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
@@ -238,7 +280,13 @@ export class SessionLifecycleService {
         return parseFloat(usdt.balance || 0);
       }
 
-      // Fallback: try accountInformationV2 (full account details)
+      // Fallback: try futuresAccountBalanceV2 (legacy) then accountInformationV2 (full account details)
+      this.logger.debug(`futuresAccountBalanceV3 did not return USDT. Trying V2 fallback...`);
+      const v2Res = await bc.restAPI.futuresAccountBalanceV2();
+      const v2Data = await v2Res.data() as any;
+      const v2Usdt = Array.isArray(v2Data) ? v2Data.find((b: any) => b.asset === 'USDT') : null;
+      if (v2Usdt) return parseFloat(v2Usdt.balance || 0);
+
       this.logger.debug(`futuresAccountBalanceV2 did not return USDT. Trying accountInformationV2 fallback...`);
       const accRes = await bc.restAPI.accountInformationV2();
       const accData = await accRes.data() as any;

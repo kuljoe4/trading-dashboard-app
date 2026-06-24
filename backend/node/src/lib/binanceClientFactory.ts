@@ -5,14 +5,24 @@ import {
   DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_TESTNET_URL,
   DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_PROD_URL
 } from '@binance/derivatives-trading-usds-futures';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
+import { SessionStateService } from '../engine/session_state.service';
 
 @Injectable()
 export class BinanceClientFactory {
   private readonly logger = new Logger(BinanceClientFactory.name);
 
-  constructor(private readonly eventEmitter: EventEmitter2) {}
+  constructor(
+    private readonly eventEmitter: EventEmitter2,
+    @Inject(forwardRef(() => SessionStateService))
+    private readonly sessionState: SessionStateService,
+    @InjectRepository(SettingsEntity)
+    private readonly settingsRepository: Repository<SettingsEntity>,
+  ) {}
 
   createClient(apiKey: string, apiSecret: string, isTestnet: boolean): DerivativesTradingUsdsFutures {
     const restURL = isTestnet
@@ -36,9 +46,40 @@ export class BinanceClientFactory {
       }
     });
 
+    // ARCHITECTURAL FIX: Override SDK's internal URL building to support dedicated gateways
+    // /private (for listenKey), /market (for anonymous market streams), and /public (HF data)
+    const originalConnect = client.websocketStreams.connect.bind(client.websocketStreams);
+    client.websocketStreams.connect = async (params: any) => {
+      // UDS streams use the listenKey (string without @ or !), while market streams use @ (kline, ticker) or ! (miniTicker)
+      const isPrivate = !!params.stream && !params.stream.includes('@') && !params.stream.includes('!');
+
+      let gatewayURL = wsURL;
+      const urlObj = new URL(wsURL);
+
+      if (isPrivate) {
+        // SRE: Strictly route private listenKey traffic to the /private gateway
+        urlObj.pathname = '/private';
+      } else {
+        // Market/Public data traffic routes to /market or /public
+        urlObj.pathname = '/market';
+      }
+
+      gatewayURL = urlObj.origin + urlObj.pathname;
+
+      this.logger.debug(`[BinanceClient] Routing WS connection to gateway: ${gatewayURL} | isPrivate=${isPrivate} | stream=${params.stream?.substring(0, 10)}...`);
+
+      const originalWsURL = (client.websocketStreams as any).wsURL;
+      (client.websocketStreams as any).wsURL = gatewayURL;
+      try {
+        return await originalConnect(params);
+      } finally {
+        (client.websocketStreams as any).wsURL = originalWsURL;
+      }
+    };
+
     // Wrap restAPI with a Throttled Proxy to prevent startup bursts and respect rate limits
     const originalRestApi = client.restAPI;
-    const queue = new BinanceRequestQueue(this.logger, this.eventEmitter);
+    const queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository);
 
     (client as any).restAPI = new Proxy(originalRestApi, {
       get(target, prop, receiver) {
@@ -81,7 +122,11 @@ export class BinanceRequestQueue {
   // Mandatory delay between requests to prevent "Burst" penalties (50-100ms)
   private readonly MIN_DELAY_MS = 100;
 
-  constructor(private readonly logger: Logger, private readonly eventEmitter: EventEmitter2) {}
+  constructor(
+    private readonly logger: Logger,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly settingsRepository: Repository<SettingsEntity>
+  ) {}
 
   async add<T>(fn: () => Promise<T>, label: string): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -145,7 +190,7 @@ export class BinanceRequestQueue {
         // Level 1: Immune (Infrastructure & Keepalives) - Proceed even if > 100% to prevent blindness
         const isImmune = ['startUserDataStream', 'keepaliveUserDataStream', 'closeUserDataStream'].includes(item.label);
         // Level 2: Critical (Orders & Structural Info) - Shed at 95%
-        const isCritical = ['newOrder', 'cancelOrder', 'newAlgoOrder', 'cancelAlgoOrder', 'cancelAllOpenOrders', 'exchangeInformation', 'futuresAccountBalanceV2'].includes(item.label);
+        const isCritical = ['newOrder', 'cancelOrder', 'newAlgoOrder', 'cancelAlgoOrder', 'cancelAllOpenOrders', 'exchangeInformation', 'futuresAccountBalanceV2', 'futuresAccountBalanceV3'].includes(item.label);
         // Level 3: Operational (State Audits) - Shed at 85%
         const isOperational = ['queryOrder', 'accountTradeList', 'positionInformationV3'].includes(item.label);
 
@@ -194,19 +239,36 @@ export class BinanceRequestQueue {
           if (isBan || isRateLimit) {
             this.logger.error(`[BinanceQueue] Critical rate limit/ban detected. Status: ${isBan ? 'BANNED' : 'RATE_LIMITED'}. Increasing cooldown...`);
 
-            // OVERWATCH: Fail Fast on IP Ban to protect reputation and prevent worsening the duration
+            // RESEARCH-01: Instead of process.exit(1), implement a long sleep to break boot loops and allow UI visibility.
+            // Exiting causes Railway to immediately restart, leading to a "hammering" effect that can prolong bans.
             if (isBan) {
-              this.logger.fatal('[BinanceQueue] IP BANNED (418). Terminating process immediately to protect infrastructure.');
-              process.exit(1);
+              const BAN_COOLDOWN_MS = 600000; // 10 minutes
+              this.logger.fatal(`[BinanceQueue] IP BANNED (418). Entering safe cooldown mode for ${BAN_COOLDOWN_MS / 60000}m to protect infrastructure.`);
+
+              const until = Date.now() + BAN_COOLDOWN_MS;
+              const reason = msg || 'IP Banned (418) by Binance';
+              this.eventEmitter.emit('binance.api_limit_reached', {
+                type: 'BAN',
+                message: reason,
+                until
+              });
+
+              // RESEARCH-02: Persist ban status to DB to survive process restarts
+              this.settingsRepository.update('default', {
+                api_ban_until: until,
+                api_ban_reason: reason
+              }).catch(e => this.logger.error(`Failed to persist API ban: ${e.message}`));
+
+              BinanceRequestQueue.lastRequestTs = until;
+            } else {
+              BinanceRequestQueue.lastRequestTs = Date.now() + 60000; // Forced 1-minute pause for rate limit
+
+              this.eventEmitter.emit('binance.api_limit_reached', {
+                type: 'RATE_LIMIT',
+                message: msg,
+                until: Date.now() + 60000
+              });
             }
-
-            BinanceRequestQueue.lastRequestTs = Date.now() + 60000; // Forced 1-minute pause for this queue
-
-            this.eventEmitter.emit('binance.api_limit_reached', {
-              type: isBan ? 'BAN' : 'RATE_LIMIT',
-              message: msg,
-              until: isBan ? Date.now() + 600000 : Date.now() + 60000 // Estimate 10m for ban, 1m for limit
-            });
           }
           item.reject(error);
         }

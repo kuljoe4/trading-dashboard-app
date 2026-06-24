@@ -49,7 +49,7 @@ describe('OrderManagerService Atomicity', () => {
       { incrementApiRequests: jest.fn() } as any, // monitoringService
       mockSessionState,
       mockAuditLog,
-      { emit: jest.fn() } as any,
+      { emit: jest.fn() } as any, { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any
     );
 
     mockBinanceClient = {

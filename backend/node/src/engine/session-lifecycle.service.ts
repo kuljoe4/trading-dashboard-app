@@ -1,4 +1,7 @@
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { SessionConfig } from '../models/SessionConfig';
 import { Trade } from '../models/Trade';
 import { SessionStateService } from './session_state.service';
@@ -37,6 +40,8 @@ export class SessionLifecycleService {
     private readonly monitoringService: MonitoringService,
     private readonly auditLog: AuditLogService,
     private readonly eventEmitter: EventEmitter2,
+    @InjectRepository(SettingsEntity)
+    private readonly settingsRepository: Repository<SettingsEntity>,
   ) {}
 
   private async progress(msg: string, level: 'info' | 'warn' = 'info') {
@@ -74,7 +79,22 @@ export class SessionLifecycleService {
 
       try {
         // Enforce One-Way Mode (Disable Hedge Mode) - Cache for 7 days
-        const shouldSyncMode = Date.now() - this.lastModeSync > 7 * 24 * 60 * 60 * 1000;
+        const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+        let shouldSyncMode = Date.now() - this.lastModeSync > CACHE_TTL;
+
+        // RESEARCH-02: Load cached position mode from DB
+        if (shouldSyncMode) {
+          try {
+             const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+             if (settings && settings.last_mode_sync && (Date.now() - Number(settings.last_mode_sync)) < CACHE_TTL) {
+                this.lastModeSync = Number(settings.last_mode_sync);
+                if (settings.is_one_way_mode) {
+                   this.logger.debug('Loaded cached position mode from DB: One-Way.');
+                   shouldSyncMode = false;
+                }
+             }
+          } catch (e) {}
+        }
 
         if (shouldSyncMode) {
         try {
@@ -84,6 +104,11 @@ export class SessionLifecycleService {
 
           if (currentModeData && currentModeData.dualSidePosition === false) {
             this.logger.debug('Binance position mode is already One-Way.');
+
+            await this.settingsRepository.update('default', {
+              is_one_way_mode: true,
+              last_mode_sync: Date.now()
+            });
           } else {
             this.monitoringService.incrementApiRequests();
             const modeRes = await bc.restAPI.changePositionMode({ dualSidePosition: false } as any);
@@ -91,6 +116,11 @@ export class SessionLifecycleService {
             const modeMsg = `Binance position mode set to One-Way: ${JSON.stringify(modeData)}`;
             this.logger.log(modeMsg);
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: modeMsg, level: 'info' });
+
+            await this.settingsRepository.update('default', {
+              is_one_way_mode: true,
+              last_mode_sync: Date.now()
+            });
           }
           this.lastModeSync = Date.now();
         } catch (modeErr: any) {

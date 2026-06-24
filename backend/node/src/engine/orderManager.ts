@@ -1,4 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { OnEvent } from '@nestjs/event-emitter';
 import { DerivativesTradingUsdsFutures } from '@binance/derivatives-trading-usds-futures';
 import { Trade } from '../models/Trade';
@@ -54,6 +57,8 @@ export class OrderManagerService {
     private readonly sessionState: SessionStateService,
     private readonly auditLog: AuditLogService,
     private readonly eventEmitter: EventEmitter2,
+    @InjectRepository(SettingsEntity)
+    private readonly settingsRepository: Repository<SettingsEntity>,
   ) {}
 
   @OnEvent('binance.order_update')
@@ -225,11 +230,31 @@ export class OrderManagerService {
     this.binanceClient = client;
     this.paperMode = paperMode;
 
+    // RESEARCH-02: Load cached commission rate from DB on client change/restart
+    if (this.binanceClient && !this.paperMode) {
+      try {
+        const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+        if (settings && settings.taker_fee_rate && settings.taker_fee_ts) {
+          this.takerFeeRate = Number(settings.taker_fee_rate);
+          this.lastFeeFetch = Number(settings.taker_fee_ts);
+          this.logger.log(`Loaded cached commission rate from DB: ${(this.takerFeeRate * 100).toFixed(4)}% (Age: ${Math.round((Date.now() - this.lastFeeFetch) / 3600000)}h)`);
+        }
+      } catch (dbErr) {
+        this.logger.debug(`Failed to load commission rate from DB: ${dbErr}`);
+      }
+    }
+
     // Idempotency check: Cache commission rate for 7 days
     const shouldFetchFee = this.binanceClient && !this.paperMode &&
       (isNewClient || isModeChange || (Date.now() - this.lastFeeFetch > 7 * 24 * 60 * 60 * 1000));
 
     if (shouldFetchFee && this.binanceClient) {
+      // SRE: Proactive Weight Gating - Defer non-critical commission fetch if weight is already high
+      if (this.sessionState.isRateLimited(0.7)) {
+        this.logger.warn(`[OrderManager] High API weight detected. Deferring commission rate fetch. Using default: ${this.takerFeeRate}`);
+        return;
+      }
+
       try {
         // v31.0.0+: Methods are directly on restAPI
         const response = await this.binanceClient.restAPI.userCommissionRate({ symbol: 'BTCUSDT' });
@@ -239,7 +264,13 @@ export class OrderManagerService {
           if (!isNaN(rate)) {
             this.takerFeeRate = rate;
             this.lastFeeFetch = Date.now();
-            this.logger.log(`Taker fee rate cached: ${(this.takerFeeRate * 100).toFixed(4)}%`);
+            this.logger.log(`Taker fee rate cached and persisted: ${(this.takerFeeRate * 100).toFixed(4)}%`);
+
+            // Persist to DB
+            await this.settingsRepository.update('default', {
+              taker_fee_rate: this.takerFeeRate,
+              taker_fee_ts: this.lastFeeFetch
+            });
           } else {
             this.logger.warn(`Binance returned NaN for takerCommissionRate. Using default: ${this.takerFeeRate}`);
           }

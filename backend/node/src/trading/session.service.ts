@@ -667,23 +667,22 @@ export class SessionService implements OnModuleInit {
             }
 
             // Sync local trade state with actual exchange position to ensure entry price and qty accuracy
-              const exEntryPrice = parseFloat(position!.entryPrice);
+            const exEntryPrice = parseFloat(position!.entryPrice);
 
-              if (exEntryPrice > 0 && Math.abs(exEntryPrice - Number(trade.entry_price)) > (exEntryPrice * 0.0001)) {
-                 this.logger.log(`Syncing entry price for ${trade.symbol}: ${trade.entry_price} -> ${exEntryPrice}`);
-                 trade.entry_price = exEntryPrice;
-              }
+            if (exEntryPrice > 0 && Math.abs(exEntryPrice - Number(trade.entry_price)) > (exEntryPrice * 0.0001)) {
+               this.logger.log(`Syncing entry price for ${trade.symbol}: ${trade.entry_price} -> ${exEntryPrice}`);
+               trade.entry_price = exEntryPrice;
+            }
 
-              if (Math.abs(posAmt) !== Math.abs(Number(trade.qty))) {
-                 this.logger.log(`Syncing quantity for ${trade.symbol}: ${trade.qty} -> ${Math.abs(posAmt)}`);
-                 trade.qty = Math.abs(posAmt);
-              }
-              // Update direction if mismatch (rare but safe)
-              const exDir = posAmt > 0 ? 'LONG' : 'SHORT';
-              if (trade.direction !== exDir) {
-                 this.logger.warn(`Syncing direction for ${trade.symbol}: ${trade.direction} -> ${exDir}`);
-                 trade.direction = exDir;
-              }
+            if (Math.abs(posAmt) !== Math.abs(Number(trade.qty))) {
+               this.logger.log(`Syncing quantity for ${trade.symbol}: ${trade.qty} -> ${Math.abs(posAmt)}`);
+               trade.qty = Math.abs(posAmt);
+            }
+            // Update direction if mismatch (rare but safe)
+            const exDir = posAmt > 0 ? 'LONG' : 'SHORT';
+            if (trade.direction !== exDir) {
+               this.logger.warn(`Syncing direction for ${trade.symbol}: ${trade.direction} -> ${exDir}`);
+               trade.direction = exDir;
             }
           } catch (innerErr) {
             this.logger.error(`Failed to reconcile ${trade.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);

@@ -259,6 +259,7 @@ export class SessionService implements OnModuleInit {
         close_attempts: trade.close_attempts || 0,
         last_close_attempt_ts: trade.last_close_attempt_ts,
         close_blocked: !!trade.close_blocked,
+        _sig_json: trade._sig_json,
         sessionId,
       });
       await queryRunner.manager.save(TradeEntity, tradeEntity);
@@ -684,7 +685,6 @@ export class SessionService implements OnModuleInit {
                  this.logger.warn(`Syncing direction for ${trade.symbol}: ${trade.direction} -> ${exDir}`);
                  trade.direction = exDir;
               }
-            }
           } catch (innerErr) {
             this.logger.error(`Failed to reconcile ${trade.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
           }

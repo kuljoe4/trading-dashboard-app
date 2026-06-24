@@ -89,6 +89,9 @@ export class TradeEntity {
   @Column('jsonb', { default: [] })
   sl_adjustments: any[];
 
+  @Column({ type: 'text', nullable: true })
+  _sig_json: string | null;
+
   @Column('decimal', { precision: 10, scale: 4, nullable: true })
   pnl_pct: number | null;
 

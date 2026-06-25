@@ -136,6 +136,9 @@ export class TradeEntity {
   @Column('jsonb', { nullable: true })
   strategy_config: any | null;
 
+  @Column({ type: 'text', nullable: true })
+  _sig_json: string | null;
+
   @ManyToOne(() => Session)
   @JoinColumn({ name: 'sessionId' })
   session: Session;

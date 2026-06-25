@@ -1391,9 +1391,11 @@ export class OrderManagerService {
       return { exitTriggered: false };
     }
 
-    const tradeAgeSec = trade.entry_ts
-      ? (Date.now() - new Date(trade.entry_ts).getTime()) / 1000
-      : 0;
+    // BOLT OPTIMIZATION: Use pre-existing Date instance or convert once
+    const entryTs = (trade.entry_ts instanceof Date)
+      ? trade.entry_ts.getTime()
+      : (trade.entry_ts ? new Date(trade.entry_ts).getTime() : 0);
+    const tradeAgeSec = entryTs > 0 ? (Date.now() - entryTs) / 1000 : 0;
 
     const statuses: Record<string, { fired: boolean, active: boolean, remaining_delay: number, label: string, value: number, threshold: number, unit: string, description?: string, insufficientData?: boolean }> = {};
     const delays = config.exit_signal_delays || {};
@@ -1402,6 +1404,15 @@ export class OrderManagerService {
     let firedCount = 0;
     let activeCount = 0;
 
+    // BOLT OPTIMIZATION: Call signalEngine once for all exit signals
+    const consolidatedResult = this.signalEngine.checkEntry(
+      symbol,
+      { ...config, enabled_signals: config.exit_signals },
+      interval,
+      trade.direction,
+      'exit'
+    );
+
     // Check each exit signal
     for (const exitSignal of config.exit_signals) {
       try {
@@ -1409,21 +1420,8 @@ export class OrderManagerService {
         const isActive = tradeAgeSec >= delay;
         const remaining = Math.max(0, delay - tradeAgeSec);
 
-        // Create temp config with only the exit signal enabled
-        const tempConfig = {
-          ...config,
-          enabled_signals: [exitSignal],
-        };
-
-        const result = this.signalEngine.checkEntry(
-          symbol,
-          tempConfig,
-          interval,
-          trade.direction,
-          'exit'
-        );
-        const isFired = result.allFired;
-        const detail = result.details ? result.details[exitSignal] : null;
+        const detail = consolidatedResult.details ? consolidatedResult.details[exitSignal] : null;
+        const isFired = !!(detail?.fired || (consolidatedResult.firedSignals.includes(exitSignal)));
 
         statuses[exitSignal] = {
           fired: isFired,
@@ -1445,7 +1443,7 @@ export class OrderManagerService {
         }
       } catch (err) {
         this.logger.debug(
-          `Exit signal ${exitSignal} check error: ${err instanceof Error ? err.message : String(err)}`,
+          `Exit signal ${exitSignal} processing error: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }

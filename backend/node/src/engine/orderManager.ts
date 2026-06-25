@@ -14,7 +14,7 @@ import { SessionStateService } from './session_state.service';
 import { AuditLogService } from '../trading/audit-log.service';
 import { v4 as uuid } from 'uuid';
 import { roundEight, floorStep, roundTo, formatSlType } from '../lib/math';
-import { ENGINE_CONSTANTS, CONFIG_LIMITS } from '../models/constants';
+import { ENGINE_CONSTANTS, CONFIG_LIMITS, EXIT_REASONS } from '../models/constants';
 import { ENGINE_EVENTS } from './events';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ExchangeExecutionException } from '../lib/exceptions';
@@ -146,7 +146,7 @@ export class OrderManagerService {
           this.eventEmitter.emit('trade.exchange_close', {
             symbol,
             exitPrice,
-            reason: ENGINE_CONSTANTS.EXIT_REASONS.SL_HIT
+            reason: EXIT_REASONS.SL_HIT
           });
         }
         else if (isEntryOrder) {
@@ -180,7 +180,7 @@ export class OrderManagerService {
            this.eventEmitter.emit('trade.exchange_close', {
              symbol,
              exitPrice,
-             reason: ENGINE_CONSTANTS.EXIT_REASONS.EXCHANGE_FILL
+             reason: EXIT_REASONS.EXCHANGE_FILL
            });
         }
       } else {
@@ -739,7 +739,7 @@ export class OrderManagerService {
             const slError = slResult?.error || 'Unknown SL placement error';
             this.logger.warn(`SL placement failed for ${symbol}: ${slError}. Performing emergency unwind...`);
             try {
-              const unwindResult = await this.closeTrade(symbol, trade, entryPrice, ENGINE_CONSTANTS.EXIT_REASONS.SL_PLACEMENT_FAILURE);
+              const unwindResult = await this.closeTrade(symbol, trade, entryPrice, EXIT_REASONS.SL_PLACEMENT_FAILURE);
               if (unwindResult.exitOccurred) {
                 return { status: ExecutionStatus.SL_FAILED, data: trade, unwindPerformed: true, error: slError };
               } else {
@@ -876,7 +876,7 @@ export class OrderManagerService {
         this.eventEmitter.emit('trade.exchange_close', {
           symbol: trade.symbol,
           exitPrice: currentMarketPrice,
-          reason: ENGINE_CONSTANTS.EXIT_REASONS.SL_HIT
+          reason: EXIT_REASONS.SL_HIT
         });
         return { orderId: 'TRIGGERED_LOCALLY', price: currentSlPrice };
       }
@@ -991,7 +991,7 @@ export class OrderManagerService {
             this.eventEmitter.emit('trade.exchange_close', {
               symbol,
               exitPrice: this.tickerCache.getPrice(symbol) || currentSlPrice,
-              reason: ENGINE_CONSTANTS.EXIT_REASONS.SL_HIT
+              reason: EXIT_REASONS.SL_HIT
             });
             return { orderId: 'TRIGGERED_LOCALLY', price: currentSlPrice };
           } else if (code === -4044 || code === -4045 || code === -1116) {
@@ -1002,7 +1002,7 @@ export class OrderManagerService {
             this.eventEmitter.emit('trade.exchange_close', {
                symbol,
                exitPrice: this.tickerCache.getPrice(symbol) || trade.entry_price,
-               reason: ENGINE_CONSTANTS.EXIT_REASONS.EXCHANGE_SYNC
+               reason: EXIT_REASONS.EXCHANGE_SYNC
             });
             return { orderId: 'TRIGGERED_LOCALLY', price: trade.entry_price };
           } else {
@@ -1089,7 +1089,7 @@ export class OrderManagerService {
           this.eventEmitter.emit('trade.exchange_close', {
             symbol,
             exitPrice: this.tickerCache.getPrice(symbol) || currentSlPrice,
-            reason: ENGINE_CONSTANTS.EXIT_REASONS.SL_HIT
+            reason: EXIT_REASONS.SL_HIT
           });
           return { orderId: 'TRIGGERED_LOCALLY', price: currentSlPrice };
         } else if (msg.includes('Account position is empty') || msg.includes('-4044') || msg.includes('-4045') || msg.includes('-4141') || msg.includes('-1116')) {
@@ -1099,7 +1099,7 @@ export class OrderManagerService {
           this.eventEmitter.emit('trade.exchange_close', {
              symbol,
              exitPrice: this.tickerCache.getPrice(symbol) || trade.entry_price,
-             reason: ENGINE_CONSTANTS.EXIT_REASONS.EXCHANGE_SYNC
+             reason: EXIT_REASONS.EXCHANGE_SYNC
           });
           return { orderId: 'TRIGGERED_LOCALLY', price: trade.entry_price };
         } else if (msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
@@ -1685,7 +1685,7 @@ export class OrderManagerService {
 
       try {
         // Unwind position immediately.
-        await this.closeTrade(symbol, trade, actualPrice, isPast ? ENGINE_CONSTANTS.EXIT_REASONS.ENTRY_AT_OR_PAST_SL : ENGINE_CONSTANTS.EXIT_REASONS.ENTRY_TOO_CLOSE_TO_SL, false, false);
+        await this.closeTrade(symbol, trade, actualPrice, isPast ? EXIT_REASONS.ENTRY_AT_OR_PAST_SL : EXIT_REASONS.ENTRY_TOO_CLOSE_TO_SL, false, false);
         return { isValid: false, error: `Entry ${reason.toLowerCase()} SL: ${actualPrice.toFixed(8)}` };
       } catch (unwindErr) {
         this.logger.error(`Failed to unwind unsafe entry for ${symbol}: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);
@@ -1700,7 +1700,7 @@ export class OrderManagerService {
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: abortMsg, level: 'error' });
 
       try {
-        const unwindRes = await this.closeTrade(symbol, trade, actualPrice, ENGINE_CONSTANTS.EXIT_REASONS.SLIPPAGE_ABORT, false, false);
+        const unwindRes = await this.closeTrade(symbol, trade, actualPrice, EXIT_REASONS.SLIPPAGE_ABORT, false, false);
         if (!unwindRes.exitOccurred) {
           this.logger.error(`[FATAL] Slippage abort unwind FAILED for ${symbol}. Position may be lingering!`);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
@@ -1768,11 +1768,11 @@ export class OrderManagerService {
          }
       }
 
-      if (!paperMode && this.binanceClient && (exitPrice === 0 || (localOnly && exitReason === ENGINE_CONSTANTS.EXIT_REASONS.EXCHANGE_SYNC))) {
+      if (!paperMode && this.binanceClient && (exitPrice === 0 || (localOnly && exitReason === EXIT_REASONS.EXCHANGE_SYNC))) {
         const tickerPrice = this.tickerCache.getPrice(symbol);
         const estimate = exitPrice || tickerPrice || trade.current_sl;
         exitPrice = await this.recoverLastExecutionPrice(symbol, trade, estimate);
-        if (exitReason === ENGINE_CONSTANTS.EXIT_REASONS.EXCHANGE_SYNC) exitReason = ENGINE_CONSTANTS.EXIT_REASONS.EXCHANGE_SYNC_RECOVERY;
+        if (exitReason === EXIT_REASONS.EXCHANGE_SYNC) exitReason = EXIT_REASONS.EXCHANGE_SYNC_RECOVERY;
       }
 
       // In live mode, place close order with reduce-only for safety
@@ -1991,7 +1991,7 @@ export class OrderManagerService {
                if (positionAmt === 0) {
                   this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] Confirmed: ${symbol} position is already zero on exchange (Amt: ${positionAmt}). Triggering Sync Recovery.`);
                   exitPrice = await this.recoverLastExecutionPrice(symbol, trade, exitPrice);
-                  trade.exit_reason = trade.exit_reason === ENGINE_CONSTANTS.EXIT_REASONS.EXCHANGE_SYNC ? ENGINE_CONSTANTS.EXIT_REASONS.EXCHANGE_SYNC_RECOVERY : 'EXCHANGE_SL_OR_MANUAL';
+                  trade.exit_reason = trade.exit_reason === EXIT_REASONS.EXCHANGE_SYNC ? EXIT_REASONS.EXCHANGE_SYNC_RECOVERY : EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
                   const feeRate = this.takerFeeRate || 0.0004;
                   const exitFee = roundEight(isNaN(exitPrice * trade.qty * feeRate) ? 0 : exitPrice * trade.qty * feeRate);
                   trade.realized_fee = roundEight((trade.realized_fee || 0) + exitFee);
@@ -2130,10 +2130,15 @@ export class OrderManagerService {
 
       // Ensure exit signal type and reason are passed through to persistence
       if (!trade.exit_signal_type) {
-        if (exitReason === ENGINE_CONSTANTS.EXIT_REASONS.SL_HIT) trade.exit_signal_type = 'STOP_LOSS';
-        else if (exitReason === ENGINE_CONSTANTS.EXIT_REASONS.TP_HIT) trade.exit_signal_type = 'TAKE_PROFIT';
-        else if (exitReason === ENGINE_CONSTANTS.EXIT_REASONS.MANUAL_CLOSE) trade.exit_signal_type = 'MANUAL';
-        else if (exitReason === ENGINE_CONSTANTS.EXIT_REASONS.SESSION_TERMINATED) trade.exit_signal_type = 'SESSION_TERMINATED';
+        if (exitReason === EXIT_REASONS.SL_HIT || exitReason === EXIT_REASONS.AUTO_RECONCILED_SL) trade.exit_signal_type = 'STOP_LOSS';
+        else if (exitReason === EXIT_REASONS.TP_HIT || exitReason === EXIT_REASONS.AUTO_RECONCILED_TP) trade.exit_signal_type = 'TAKE_PROFIT';
+        else if (exitReason === EXIT_REASONS.MANUAL_CLOSE) trade.exit_signal_type = 'MANUAL';
+        else if (exitReason === EXIT_REASONS.SESSION_TERMINATED) trade.exit_signal_type = 'SESSION_TERMINATED';
+        else if (exitReason === EXIT_REASONS.EXCHANGE_SYNC || exitReason === EXIT_REASONS.EXCHANGE_SYNC_RECOVERY || exitReason === EXIT_REASONS.AUTO_RECONCILED_EXIT) trade.exit_signal_type = 'EXCHANGE_SYNC';
+        else if (exitReason === EXIT_REASONS.SLIPPAGE_ABORT || exitReason === EXIT_REASONS.ENTRY_AT_OR_PAST_SL || exitReason === EXIT_REASONS.ENTRY_TOO_CLOSE_TO_SL || exitReason === EXIT_REASONS.SL_PLACEMENT_FAILURE) trade.exit_signal_type = 'SAFETY_ABORT';
+        else if (exitReason === EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE) trade.exit_signal_type = 'WATCHDOG_NUCLEAR_CLOSE';
+        else if (exitReason === EXIT_REASONS.EXCHANGE_FILL) trade.exit_signal_type = 'EXCHANGE_FILL';
+        else if (exitReason === EXIT_REASONS.TRAILING_STOP) trade.exit_signal_type = 'TRAILING_STOP';
         else trade.exit_signal_type = 'SIGNAL';
       }
 
@@ -2141,12 +2146,14 @@ export class OrderManagerService {
       this.lastDeferLogTs.delete(symbol);
 
       // Determine status
-      if (exitReason.includes('SL')) {
+      if (exitReason === EXIT_REASONS.SL_HIT || exitReason === EXIT_REASONS.ENTRY_AT_OR_PAST_SL || exitReason === EXIT_REASONS.ENTRY_TOO_CLOSE_TO_SL || exitReason === EXIT_REASONS.SL_PLACEMENT_FAILURE || exitReason === EXIT_REASONS.AUTO_RECONCILED_SL) {
         trade.status = 'CLOSED_SL';
-      } else if (exitReason.includes('TP')) {
+      } else if (exitReason === EXIT_REASONS.TP_HIT || exitReason === EXIT_REASONS.AUTO_RECONCILED_TP) {
         trade.status = 'CLOSED_TP';
-      } else if (exitReason.includes('SIGNAL')) {
+      } else if (exitReason === EXIT_REASONS.SIGNAL || exitReason === EXIT_REASONS.TRAILING_STOP) {
         trade.status = 'CLOSED_SIGNAL';
+      } else if (exitReason === EXIT_REASONS.EXCHANGE_SYNC || exitReason === EXIT_REASONS.EXCHANGE_SYNC_RECOVERY || exitReason === EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE || exitReason === EXIT_REASONS.AUTO_RECONCILED_EXIT || exitReason === EXIT_REASONS.EXCHANGE_FILL) {
+        trade.status = 'CLOSED_ORPHANED';
       } else {
         trade.status = 'CLOSED';
       }

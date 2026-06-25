@@ -19,7 +19,7 @@ import { SessionStateService } from './session_state.service';
 import { ENGINE_EVENTS } from './events';
 import { v4 as uuid } from 'uuid';
 import { roundEight, roundTo } from '../lib/math';
-import { ENGINE_CONSTANTS, CONFIG_LIMITS } from '../models/constants';
+import { ENGINE_CONSTANTS, CONFIG_LIMITS, EXIT_REASONS } from '../models/constants';
 import { VariantAnalyticsService } from './variant-analytics.service';
 import { EngineBroadcasterService } from './engine-broadcaster.service';
 import { GatingService } from './gating.service';
@@ -202,12 +202,14 @@ export class TradingSessionService implements OnApplicationShutdown {
     const active = this.positionTracker.activeList();
     for (const t of active) {
       const cp = await this.tickerCache.getPrice(t.symbol); const ep = cp ?? t.last_price ?? t.entry_price;
-      const res = await this.positionTracker.closeTrade(t.symbol, ep, ENGINE_CONSTANTS.EXIT_REASONS.SESSION_TERMINATED, this.config!, this.config?.paper_mode ?? true);
+      const res = await this.positionTracker.closeTrade(t.symbol, ep, EXIT_REASONS.SESSION_TERMINATED, this.config!, this.config?.paper_mode ?? true);
       if (res.exitOccurred && res.trade) {
         this.sessionState.updateStatsOnClose((res.trade.pnl || 0) > 0, res.trade.pnl || 0, res.trade.is_reconciliation); this.sessionState.addClosedTrade(res.trade);
         await this.updateBalance(res.trade); if (this.onTradeUpdate) await this.onTradeUpdate(res.trade, this.getBalance());
       } else {
-        t.status = 'CLOSED'; t.exit_ts = new Date(); t.exit_reason = ENGINE_CONSTANTS.EXIT_REASONS.SESSION_TERMINATED; t.exit_price = ep;
+        t.status = 'CLOSED'; t.exit_ts = new Date(); t.exit_reason = EXIT_REASONS.SESSION_TERMINATED;
+        t.exit_signal_type = 'SESSION_TERMINATED'; t.exit_signal_reason = 'Trading session was stopped by user';
+        t.exit_price = ep;
         const pnlp = t.direction === 'LONG' ? ep - t.entry_price : t.entry_price - ep;
 
         const isPaper = this.config?.paper_mode ?? true;
@@ -456,7 +458,7 @@ export class TradingSessionService implements OnApplicationShutdown {
 
   private broadcastSnapshot(status: 'started' | 'stopped') {
     const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
-    if (status === 'stopped') { this.broadcast('session_terminated', { reason: ENGINE_CONSTANTS.EXIT_REASONS.SESSION_TERMINATED, endedAt: new Date().toISOString() }); return; }
+    if (status === 'stopped') { this.broadcast('session_terminated', { reason: EXIT_REASONS.SESSION_TERMINATED, endedAt: new Date().toISOString() }); return; }
     this.broadcast('session', {
       status,
       running: this.running,
@@ -715,8 +717,8 @@ export class TradingSessionService implements OnApplicationShutdown {
     // Determination: Should we only update local state or attempt an exchange close?
     // Reasons like SL_HIT, EXCHANGE_FILL, and EXCHANGE_SYNC (ghost positions) imply the exchange is already at 0.
     // WATCHDOG_NUCLEAR_CLOSE however requires an active market close order.
-    const localOnly = reason !== ENGINE_CONSTANTS.EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE;
-    const ignoreBlocked = reason === ENGINE_CONSTANTS.EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE;
+    const localOnly = reason !== EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE;
+    const ignoreBlocked = reason === EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE;
 
     const res = await this.positionTracker.closeTrade(symbol, exitPrice, reason, this.config!, this.config?.paper_mode ?? true, localOnly, { ignoreBlocked });
 
@@ -763,12 +765,12 @@ export class TradingSessionService implements OnApplicationShutdown {
     const trade = this.positionTracker.activeList().find(t => t.symbol === symbol);
     if (!trade) return { success: false, error: `No open position for ${symbol}` };
     const cp = await this.tickerCache.getPrice(symbol); if (!cp) return { success: false, error: `Could not fetch price for ${symbol}` };
-    const res = await this.positionTracker.closeTrade(symbol, cp, ENGINE_CONSTANTS.EXIT_REASONS.MANUAL_CLOSE, this.config!, this.config?.paper_mode ?? true);
+    const res = await this.positionTracker.closeTrade(symbol, cp, EXIT_REASONS.MANUAL_CLOSE, this.config!, this.config?.paper_mode ?? true);
     if (res.exitOccurred && res.trade) {
       const pp = this.sessionState.balancePaper; const pl = this.sessionState.balanceLive;
       const pa = this.appliedPnL.get(res.trade.id) || 0;
       try {
-        await this.finalizeTradeClosure(res.trade, cp, ENGINE_CONSTANTS.EXIT_REASONS.MANUAL_CLOSE);
+        await this.finalizeTradeClosure(res.trade, cp, EXIT_REASONS.MANUAL_CLOSE);
         await this.auditLog.log({
           action: 'MANUAL_TRADE_CLOSE',
           resourceId: res.trade.id,

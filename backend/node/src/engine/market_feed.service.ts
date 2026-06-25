@@ -539,15 +539,21 @@ export class MarketFeedService {
 
     // STRATEGY: Sequential backfill to avoid rate-limit bursts
     while (this.backfillQueue.length > 0 && this.running) {
-      // Stricter rate limit for background tasks (70% of limit threshold)
+      // SRE: Highly aggressive rate limit for background tasks (50% of limit threshold)
+      // This preserves weight for critical entry/exit operations.
       const rateLimit = this.sessionState.getBinanceRateLimit();
-      const usedWeight = rateLimit.used_weight_1m;
-      const limit = rateLimit.weight_limit || ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT;
-      const pauseThreshold = Math.floor(limit * 0.7);
+      const usedWeight = Number(rateLimit.used_weight_1m || 0);
+      const limit = Number(rateLimit.weight_limit || ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT);
+
+      // SRE: Defensive guard against NaN to prevent 0ms delay hammers
+      const usageRatio = (limit > 0) ? (usedWeight / limit) : 0;
+      const safeUsageRatio = Number.isFinite(usageRatio) ? usageRatio : 0;
+
+      const pauseThreshold = Math.floor(limit * 0.5);
 
       if (usedWeight > pauseThreshold) {
-        this.logger.warn(`Backfill queue pausing (Weight: ${usedWeight}/${limit})...`);
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        this.logger.warn(`Backfill queue pausing to preserve IP reputation (Weight: ${usedWeight}/${limit})...`);
+        await new Promise(resolve => setTimeout(resolve, 10000)); // Increased backoff to 10s
         continue;
       }
 
@@ -558,8 +564,14 @@ export class MarketFeedService {
         } catch (err) {
           this.logger.error(`Backfill failed for ${task.symbol} ${task.interval}: ${err instanceof Error ? err.message : String(err)}`);
         }
-        // Mandatory gap between sequential requests (150ms-300ms) to smooth out startup weight consumption
-        await new Promise(resolve => setTimeout(resolve, 150 + Math.random() * 150));
+
+        // SRE: Adaptive gap between sequential requests to smooth out weight consumption.
+        // Scaled by current usage ratio to proactively slow down background load.
+        const baseDelay = 300;
+        const adaptiveDelay = baseDelay + (safeUsageRatio * 2000); // Scale up to +2s at high usage
+        const finalDelay = Number.isFinite(adaptiveDelay) ? adaptiveDelay : baseDelay;
+
+        await new Promise(resolve => setTimeout(resolve, finalDelay + Math.random() * 300));
       }
     }
     this.backfillProcessing = false;

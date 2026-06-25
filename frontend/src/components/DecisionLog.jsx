@@ -28,22 +28,30 @@ const LogEntry = React.memo(({ log }) => {
 
   return (
     <>
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => setIsOpen(true)}
-        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setIsOpen(true)}
-        className="flex gap-2.5 text-[11px] font-mono border-b border-border/40 py-1.5 min-w-fit cursor-pointer hover:bg-white/[0.02] transition-colors group/entry pr-4"
-      >
-        <span className="text-dim/60 whitespace-nowrap shrink-0">[{log.ts}]</span>
-        <span className={cn(
-          "transition-colors whitespace-nowrap min-w-fit",
-          log.level === 'warn' ? "text-amber font-black" :
-          log.level === 'error' ? "text-red font-black" :
-          "text-text/90 font-medium"
-        )}>
-          {formatMessage(log.msg)}
-        </span>
+      <div className="flex items-center gap-2.5 text-[11px] font-mono border-b border-border/40 py-1.5 min-w-fit hover:bg-white/[0.02] transition-colors group/entry pr-4">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setIsOpen(true)}
+          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setIsOpen(true)}
+          className="flex items-center gap-2.5 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-accent/50 rounded-sm"
+          aria-label="View log details"
+        >
+          <span className="text-dim/60 whitespace-nowrap shrink-0">[{log.ts}]</span>
+          <span className={cn(
+            "transition-colors whitespace-nowrap min-w-fit",
+            log.level === 'warn' ? "text-amber font-black" :
+            log.level === 'error' ? "text-red font-black" :
+            "text-text/90 font-medium"
+          )}>
+            {formatMessage(log.msg)}
+          </span>
+        </div>
+        <CopyButton
+          value={log.msg}
+          className="opacity-0 group-hover/entry:opacity-100 focus-visible:opacity-100 -my-1"
+          tooltip="Copy log message"
+        />
       </div>
 
       <Dialog.Root open={isOpen} onOpenChange={setIsOpen}>
@@ -139,6 +147,7 @@ export const DecisionLog = React.memo(() => {
           <input
             type="text"
             placeholder="Search activity logs... [/]"
+            aria-label="Search activity logs"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => e.key === 'Escape' && setSearch('')}

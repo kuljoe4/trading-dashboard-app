@@ -716,8 +716,10 @@ export class SessionService implements OnModuleInit {
       );
     }
 
-    // 1. Reconciliation: Identify trades that should be closed or resumed
-    let recalculationNeeded = false;
+    // 1. Reconciliation Prep: Identification of potential orphans.
+    // SRE: Deferring final closure of orphans until exchange state is verified.
+    let potentialOrphans: TradeEntity[] = [];
+
     for (const trade of openTrades) {
       let isOrphaned = false;
       let orphanReason = "";
@@ -745,28 +747,9 @@ export class SessionService implements OnModuleInit {
       }
 
       if (isOrphaned) {
-        this.logger.warn(
-          `[Reconciliation] Trade ${trade.symbol} (${trade.id}) is orphaned. Reason: ${orphanReason}. Marking as closed.`,
-        );
-        await this.tradeRepository.update(trade.id, {
-          status: "CLOSED_ORPHANED",
-          exit_ts: new Date(),
-          is_reconciliation: true,
-        });
-        await this.logMessage(
-          `Trade ${trade.symbol} was orphaned (${orphanReason}) and marked closed.`,
-          "warn",
-        );
-        (trade as any).reconciled_out = true;
-        recalculationNeeded = true;
+        (trade as any).orphanReason = orphanReason;
+        potentialOrphans.push(trade);
         continue;
-      }
-
-      // Check if trade exists on exchange for live/testnet
-      if (mode !== "paper" && binanceClient) {
-        // BOLT: Avoid per-symbol REST calls during startup reconciliation loop.
-        // This logic is redundant because the global reconciliation below already handles this correctly with bulk calls.
-        // We skip this check and let the bulk audit handle it.
       }
 
       // Offline Breach Detection for paper trades in the current session
@@ -874,6 +857,8 @@ export class SessionService implements OnModuleInit {
       mode === "paper",
     );
 
+    let recalculationNeeded = false;
+
     // Reconcile open trades with actual exchange positions
     if (mode !== "paper" && binanceClient) {
       try {
@@ -883,8 +868,11 @@ export class SessionService implements OnModuleInit {
         // currentAllOpenOrders (all) = 40 weight.
         // currentAllOpenOrders (symbol) = 1 weight.
 
-        const useBulkAudit = sessionOpenTrades.length > 5;
-        this.logger.log(`[Reconciliation] Starting audit for ${sessionOpenTrades.length} local trades. Mode: ${useBulkAudit ? 'BULK' : 'TARGETED'}`);
+        const tradesToVerify = [...sessionOpenTrades, ...potentialOrphans];
+        const uniqueSymbols = Array.from(new Set(tradesToVerify.map(t => t.symbol)));
+
+        const useBulkAudit = uniqueSymbols.length > 5;
+        this.logger.log(`[Reconciliation] Starting audit for ${uniqueSymbols.length} symbols. Mode: ${useBulkAudit ? 'BULK' : 'TARGETED'}`);
 
         let activeExPositions: any[] = [];
         let allOpenOrders: any[] = [];
@@ -895,10 +883,10 @@ export class SessionService implements OnModuleInit {
           allOpenOrders = await this.orderManager.fetchAllOpenOrders();
         } else {
           // Targeted Audit: Fetch only what we need to save weight in Window 1
-          for (const trade of sessionOpenTrades) {
-             const pos = await this.orderManager.fetchPosition(trade.symbol, { forceFresh: true });
+          for (const symbol of uniqueSymbols) {
+             const pos = await this.orderManager.fetchPosition(symbol, { forceFresh: true });
              if (pos && Math.abs(parseFloat(pos.positionAmt)) > 0) activeExPositions.push(pos);
-             const orders = await this.orderManager.fetchOpenOrders(trade.symbol);
+             const orders = await this.orderManager.fetchOpenOrders(symbol);
              allOpenOrders.push(...orders);
           }
         }
@@ -923,6 +911,32 @@ export class SessionService implements OnModuleInit {
           );
         }
 
+        // 1. Verify and Process Potential Orphans
+        for (const trade of potentialOrphans) {
+           const position = activeExMap.get(trade.symbol);
+           const posAmt = position ? parseFloat(position.positionAmt) : 0;
+           const hasPosition = Math.abs(posAmt) > 0;
+
+           if (hasPosition) {
+             const msg = `[Reconciliation] Potential orphan ${trade.symbol} (${trade.id}) is STILL ACTIVE on exchange (Amt: ${posAmt}). Resuming instead of closing. Reason: ${(trade as any).orphanReason}`;
+             this.logger.warn(msg);
+             await this.logMessage(msg, "warn");
+
+             // Move to sessionOpenTrades so it gets resumed
+             sessionOpenTrades.push(trade);
+           } else {
+             const msg = `[Reconciliation] Verified: Orphan ${trade.symbol} (${trade.id}) is flat on exchange. Marking closed. Reason: ${(trade as any).orphanReason}`;
+             this.logger.log(msg);
+             await this.tradeRepository.update(trade.id, {
+               status: "CLOSED_ORPHANED",
+               exit_ts: new Date(),
+               is_reconciliation: true,
+             });
+             recalculationNeeded = true;
+           }
+        }
+
+        // 2. Reconcile Active Session Trades
         for (const trade of sessionOpenTrades) {
           try {
             // SRE: Critical Check - Does the position actually exist on exchange?

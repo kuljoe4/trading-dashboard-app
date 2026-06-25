@@ -118,6 +118,13 @@ export class ExecutionService {
     // BOLT: Sequential processing of opportunities ensures that RiskEngine spacing
     // and frequency limits are correctly enforced between each entry.
     for (const opp of opportunities) {
+      // SRE: Global Entry Lock check. If an entry is already in flight, defer all other evaluations
+      // until the current one confirms and risk gating state is updated.
+      if (this.sessionState.entryInProgress) {
+        this.logger.debug(`Entry pipeline locked. Deferring evaluation for ${opp.symbol}.`);
+        break; // Exit loop to avoid rapid-fire evaluation spam while locked
+      }
+
       try {
         if (this.positionTracker.hasSymbol(opp.symbol)) {
           this.logger.debug(`${opp.symbol}: Entry skipped - already in position or entering.`);
@@ -192,6 +199,9 @@ export class ExecutionService {
         const dailyChangeAtEntry = ((price - openPrice) / openPrice) * 100 * (opp.direction.toUpperCase() === 'LONG' ? 1 : -1);
 
         this.logger.log(`[Risk Integrity] Reserving ${reservedRisk.toFixed(2)} USDT risk for ${opp.symbol} entry attempt.`);
+
+        // SRE: Lock the entry pipeline before dispatching to Binance
+        this.sessionState.entryInProgress = true;
         this.positionTracker.setEntering(opp.symbol, true, reservedRisk);
 
         try {
@@ -253,6 +263,8 @@ export class ExecutionService {
           this.entryCooldowns.set(`${mode}:${opp.symbol}`, Date.now() + cooldownMinutes * 60 * 1000);
         } finally {
           this.positionTracker.setEntering(opp.symbol, false);
+          // SRE: Release the entry pipeline lock
+          this.sessionState.entryInProgress = false;
         }
       } catch (oppErr) {
         this.logger.error(`Critical Error processing opportunity for ${opp.symbol}: ${oppErr instanceof Error ? oppErr.message : String(oppErr)}`);

@@ -193,23 +193,37 @@ export class BinanceRequestQueue {
     };
 
     const weight = getHeader('X-MBX-USED-WEIGHT-1M');
+    const orderCount10s = getHeader('X-MBX-ORDER-COUNT-10S');
+    const orderCount1m = getHeader('X-MBX-ORDER-COUNT-1M');
+
+    // SRE: Proactively sync order rate limits if headers are present
+    if (orderCount10s || orderCount1m) {
+       this.eventEmitter.emit('binance.order_limit_update', { headers });
+    }
 
     if (weight) {
-      BinanceRequestQueue.currentWeight1m = parseInt(weight, 10);
-      BinanceRequestQueue.windowStartTs = Date.now();
+      const parsedWeight = parseInt(weight, 10);
+      if (!isNaN(parsedWeight) && parsedWeight >= 0) {
+        BinanceRequestQueue.currentWeight1m = parsedWeight;
+        BinanceRequestQueue.windowStartTs = Date.now();
 
-      // SRE: Synchronize weight back to SessionStateService on every REST response
-      this.eventEmitter.emit('binance.weight_update', BinanceRequestQueue.currentWeight1m);
+        // SRE: Synchronize weight back to SessionStateService on every REST response
+        this.eventEmitter.emit('binance.weight_update', BinanceRequestQueue.currentWeight1m);
 
-      // SRE Overwatch: Dynamic Back-off Execution Strategy
-      const usageRatio = BinanceRequestQueue.currentWeight1m / BinanceRequestQueue.weightLimit1m;
-      if (usageRatio > 0.75) {
-        BinanceRequestQueue.adaptiveDelayMs = 1000; // Load Shedding zone
-      } else if (usageRatio > 0.5) {
-        BinanceRequestQueue.adaptiveDelayMs = 500;  // Active Throttling zone
-      } else {
-        BinanceRequestQueue.adaptiveDelayMs = 0;    // Normal Operation zone
+        // SRE Overwatch: Dynamic Back-off Execution Strategy
+        const usageRatio = BinanceRequestQueue.currentWeight1m / BinanceRequestQueue.weightLimit1m;
+        if (usageRatio > 0.75) {
+          BinanceRequestQueue.adaptiveDelayMs = 1000; // Load Shedding zone
+        } else if (usageRatio > 0.5) {
+          BinanceRequestQueue.adaptiveDelayMs = 500;  // Active Throttling zone
+        } else {
+          BinanceRequestQueue.adaptiveDelayMs = 0;    // Normal Operation zone
+        }
       }
+    } else {
+       // BOLT: Some POST endpoints (orders) only return weight via a different header or not at all.
+       // We log it for telemetry visibility but don't reset currentWeight1m to avoid blind spots.
+       this.logger.debug(`[BinanceQueue] Weight header (X-MBX-USED-WEIGHT-1M) missing on ${label}.`);
     }
   }
 
@@ -291,7 +305,9 @@ export class BinanceRequestQueue {
           const duration = Date.now() - startTs;
 
           // SRE: High-Fidelity Structured Telemetry Logging (Standardized Format)
-          const telemetryLog = `[Telemetry] ${item.label} executed | Weight: ${BinanceRequestQueue.currentWeight1m}/${BinanceRequestQueue.weightLimit1m} | Depth: ${this.queue.length} | Latency: ${duration}ms`;
+          // BOLT: Ensure weight is always valid in logs even if header parsing failed
+          const currentWeight = (BinanceRequestQueue.currentWeight1m === undefined || isNaN(BinanceRequestQueue.currentWeight1m)) ? 0 : BinanceRequestQueue.currentWeight1m;
+          const telemetryLog = `[Telemetry] ${item.label} executed | Weight: ${currentWeight}/${BinanceRequestQueue.weightLimit1m} | Depth: ${this.queue.length} | Latency: ${duration}ms`;
           this.logger.log(telemetryLog);
 
           item.resolve(result);

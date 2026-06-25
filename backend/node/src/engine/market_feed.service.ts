@@ -70,34 +70,20 @@ export class MarketFeedService {
         ? 'https://testnet.binancefuture.com' // Corrected Testnet URL
         : ENGINE_CONSTANTS.BINANCE_REST_BASE;
 
-    const wsBase = isTestnet
-        ? 'wss://fstream.binancefuture.com' // Testnet WS
-        : ENGINE_CONSTANTS.BINANCE_WS_BASE;
+    const wsBasePublic = isTestnet
+        ? 'wss://fstream.binancefuture.com/ws'
+        : ENGINE_CONSTANTS.BINANCE_WS_PUBLIC;
+
+    const wsBaseMarket = isTestnet
+        ? 'wss://fstream.binancefuture.com/stream'
+        : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
 
     await this.fetchExchangeInfo(restBase);
-    this.startMiniTickerStream(wsBase);
-    this.startMarkTickerStream(wsBase);
+    // CITADEL: Optimized Startup - Removed 5s wait and 40-weight REST fallback (fetchInitialTickers)
+    // Weight Saved: 40 units (W_cumulative += 0)
+    this.startMiniTickerStream(wsBasePublic);
+    this.startMarkTickerStream(wsBasePublic);
 
-    const waitForWs = new Promise<void>((resolve) => {
-      const check = setInterval(() => {
-        if (this.tickerCache.getCacheSize() > 0) {
-          clearInterval(check);
-          this.logger.log(`[MarketFeed] WebSocket ticker data received. Cache seeded.`);
-          resolve();
-        }
-      }, 100);
-      setTimeout(() => {
-        clearInterval(check);
-        resolve();
-      }, 5000);
-    });
-
-    await waitForWs;
-
-    if (this.tickerCache.getCacheSize() === 0) {
-      this.logger.warn(`[MarketFeed] Ticker cache empty after 5s WS wait. Falling back to REST fetchInitialTickers (Weight 40)...`);
-      await this.fetchInitialTickers(restBase);
-    }
     this.startWatchlistManager(config);
   }
 
@@ -247,29 +233,6 @@ export class MarketFeedService {
 
   getSymbolFilters(symbol: string) { return this.exchangeInfo.get(symbol); }
 
-  public async fetchInitialTickers(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
-    try {
-      this.monitoringService.incrementApiRequests();
-      let tickers: any[];
-
-      if (this.binanceClient) {
-        const response = await this.binanceClient.restAPI.ticker24hrPriceChangeStatistics();
-        this.updateWeight(response.headers);
-        tickers = await response.data();
-      } else {
-        const response = await fetch(`${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/ticker/24hr`);
-        this.updateWeight(response.headers);
-        if (!response.ok) return;
-        tickers = await response.json() as any[];
-      }
-
-      if (Array.isArray(tickers)) {
-        const usdtTickers = tickers.filter(t => t.symbol.endsWith('USDT'));
-        this.tickerCache.bulkUpdate(usdtTickers);
-      }
-    } catch (error) {}
-  }
-
   private safeClose(ws: WebSocket | null) {
     if (!ws) return;
     try {
@@ -313,10 +276,10 @@ export class MarketFeedService {
     this.logger.verbose('MarketFeedService: Resources cleared');
   }
 
-  private startMiniTickerStream(wsBase: string = ENGINE_CONSTANTS.BINANCE_WS_BASE) {
+  private startMiniTickerStream(wsBase: string = ENGINE_CONSTANTS.BINANCE_WS_PUBLIC) {
     const connect = () => {
       if (!this.running) return;
-      const url = `${wsBase}/ws/!miniTicker@arr`;
+      const url = `${wsBase}/!miniTicker@arr`;
       const ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
 
       ws.on('error', (err) => {
@@ -353,10 +316,10 @@ export class MarketFeedService {
     connect();
   }
 
-  private startMarkTickerStream(wsBase: string = ENGINE_CONSTANTS.BINANCE_WS_BASE) {
+  private startMarkTickerStream(wsBase: string = ENGINE_CONSTANTS.BINANCE_WS_PUBLIC) {
     const connect = () => {
       if (!this.running) return;
-      const url = `${wsBase}/ws/!markTicker@arr@1s`;
+      const url = `${wsBase}/!markTicker@arr@1s`;
       const ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
 
       ws.on('error', (err) => {
@@ -499,9 +462,14 @@ export class MarketFeedService {
     const CHUNK_SIZE = 20;
     const chunks = [];
     for (let i = 0; i < allStreams.length; i += CHUNK_SIZE) chunks.push(allStreams.slice(i, i + CHUNK_SIZE));
+    const isTestnet = this.sessionState.config?.trading_mode === 'testnet';
+    const wsBaseMarket = isTestnet
+        ? 'wss://fstream.binancefuture.com/stream'
+        : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
+
     for (const chunk of chunks) {
       const streams = chunk.join('/');
-      const url = `${ENGINE_CONSTANTS.BINANCE_WS_BASE}/stream?streams=${streams}`;
+      const url = `${wsBaseMarket}?streams=${streams}`;
       const connect = () => {
         if (!this.running) return;
         const ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });

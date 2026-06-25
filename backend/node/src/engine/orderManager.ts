@@ -146,7 +146,7 @@ export class OrderManagerService {
           this.eventEmitter.emit('trade.exchange_close', {
             symbol,
             exitPrice,
-            reason: EXIT_REASONS.SL_HIT
+            reason: `${EXIT_REASONS.SL_HIT}_${slType}`
           });
         }
         else if (isEntryOrder) {
@@ -873,10 +873,11 @@ export class OrderManagerService {
         }
 
         this.logger.warn(`[${trade.id.substring(0, 8)}] ${trade.symbol} SL ${currentSlPrice} already breached by price ${currentMarketPrice}. Adaptive limit reached or not profitable. Closing.`);
+        const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
         this.eventEmitter.emit('trade.exchange_close', {
           symbol: trade.symbol,
           exitPrice: currentMarketPrice,
-          reason: EXIT_REASONS.SL_HIT
+          reason: `${EXIT_REASONS.SL_HIT}_${slType}`
         });
         return { orderId: 'TRIGGERED_LOCALLY', price: currentSlPrice };
       }
@@ -988,10 +989,11 @@ export class OrderManagerService {
             const warnMsg = `[${symbol}] SL REJECTED: Price overran target (Code: -2021). Forcing emergency local close.`;
             this.logger.warn(warnMsg);
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: warnMsg, level: 'warn' });
+            const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
             this.eventEmitter.emit('trade.exchange_close', {
               symbol,
               exitPrice: this.tickerCache.getPrice(symbol) || currentSlPrice,
-              reason: EXIT_REASONS.SL_HIT
+              reason: `${EXIT_REASONS.SL_HIT}_${slType}`
             });
             return { orderId: 'TRIGGERED_LOCALLY', price: currentSlPrice };
           } else if (code === -4044 || code === -4045 || code === -1116) {
@@ -1086,10 +1088,11 @@ export class OrderManagerService {
           const warnMsg = `[${symbol}] SL REJECTED: Price protection or trigger breach (Code: ${msg}). Forcing emergency close.`;
           this.logger.warn(warnMsg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: warnMsg, level: 'warn' });
+          const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
           this.eventEmitter.emit('trade.exchange_close', {
             symbol,
             exitPrice: this.tickerCache.getPrice(symbol) || currentSlPrice,
-            reason: EXIT_REASONS.SL_HIT
+            reason: `${EXIT_REASONS.SL_HIT}_${slType}`
           });
           return { orderId: 'TRIGGERED_LOCALLY', price: currentSlPrice };
         } else if (msg.includes('Account position is empty') || msg.includes('-4044') || msg.includes('-4045') || msg.includes('-4141') || msg.includes('-1116')) {
@@ -2130,7 +2133,7 @@ export class OrderManagerService {
 
       // Ensure exit signal type and reason are passed through to persistence
       if (!trade.exit_signal_type) {
-        if (exitReason === EXIT_REASONS.SL_HIT || exitReason === EXIT_REASONS.AUTO_RECONCILED_SL) trade.exit_signal_type = 'STOP_LOSS';
+        if (exitReason.startsWith(EXIT_REASONS.SL_HIT) || exitReason === EXIT_REASONS.AUTO_RECONCILED_SL) trade.exit_signal_type = 'STOP_LOSS';
         else if (exitReason === EXIT_REASONS.TP_HIT || exitReason === EXIT_REASONS.AUTO_RECONCILED_TP) trade.exit_signal_type = 'TAKE_PROFIT';
         else if (exitReason === EXIT_REASONS.MANUAL_CLOSE) trade.exit_signal_type = 'MANUAL';
         else if (exitReason === EXIT_REASONS.SESSION_TERMINATED) trade.exit_signal_type = 'SESSION_TERMINATED';
@@ -2139,6 +2142,7 @@ export class OrderManagerService {
         else if (exitReason === EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE) trade.exit_signal_type = 'WATCHDOG_NUCLEAR_CLOSE';
         else if (exitReason === EXIT_REASONS.EXCHANGE_FILL) trade.exit_signal_type = 'EXCHANGE_FILL';
         else if (exitReason === EXIT_REASONS.TRAILING_STOP) trade.exit_signal_type = 'TRAILING_STOP';
+        else if (exitReason.startsWith(EXIT_REASONS.SIGNAL)) trade.exit_signal_type = 'SIGNAL';
         else trade.exit_signal_type = 'SIGNAL';
       }
 
@@ -2146,11 +2150,11 @@ export class OrderManagerService {
       this.lastDeferLogTs.delete(symbol);
 
       // Determine status
-      if (exitReason === EXIT_REASONS.SL_HIT || exitReason === EXIT_REASONS.ENTRY_AT_OR_PAST_SL || exitReason === EXIT_REASONS.ENTRY_TOO_CLOSE_TO_SL || exitReason === EXIT_REASONS.SL_PLACEMENT_FAILURE || exitReason === EXIT_REASONS.AUTO_RECONCILED_SL) {
+      if (exitReason.startsWith(EXIT_REASONS.SL_HIT) || exitReason === EXIT_REASONS.ENTRY_AT_OR_PAST_SL || exitReason === EXIT_REASONS.ENTRY_TOO_CLOSE_TO_SL || exitReason === EXIT_REASONS.SL_PLACEMENT_FAILURE || exitReason === EXIT_REASONS.AUTO_RECONCILED_SL) {
         trade.status = 'CLOSED_SL';
       } else if (exitReason === EXIT_REASONS.TP_HIT || exitReason === EXIT_REASONS.AUTO_RECONCILED_TP) {
         trade.status = 'CLOSED_TP';
-      } else if (exitReason === EXIT_REASONS.SIGNAL || exitReason === EXIT_REASONS.TRAILING_STOP) {
+      } else if (exitReason.startsWith(EXIT_REASONS.SIGNAL) || exitReason === EXIT_REASONS.TRAILING_STOP) {
         trade.status = 'CLOSED_SIGNAL';
       } else if (exitReason === EXIT_REASONS.EXCHANGE_SYNC || exitReason === EXIT_REASONS.EXCHANGE_SYNC_RECOVERY || exitReason === EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE || exitReason === EXIT_REASONS.AUTO_RECONCILED_EXIT || exitReason === EXIT_REASONS.EXCHANGE_FILL) {
         trade.status = 'CLOSED_ORPHANED';

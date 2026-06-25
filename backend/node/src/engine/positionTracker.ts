@@ -285,7 +285,7 @@ export class PositionTrackerService {
       return {
         exitOccurred: true,
         exitType: 'CLOSED_SL',
-        exitReason: EXIT_REASONS.SL_HIT,
+        exitReason: `${EXIT_REASONS.SL_HIT}_${slType}`,
       };
     }
 
@@ -330,7 +330,7 @@ export class PositionTrackerService {
       return {
         exitOccurred: true,
         exitType: 'CLOSED_SIGNAL',
-        exitReason: EXIT_REASONS.SIGNAL,
+        exitReason: `${EXIT_REASONS.SIGNAL}_${exitSignalType?.toUpperCase()}`,
       };
     }
 

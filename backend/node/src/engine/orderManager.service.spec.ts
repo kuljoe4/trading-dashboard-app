@@ -199,7 +199,7 @@ describe('OrderManagerService', () => {
 
       const result = await service.placeStopLoss(trade, 49500);
       expect(result?.orderId).toBe('TRIGGERED_LOCALLY');
-      expect(emitSpy).toHaveBeenCalledWith('trade.exchange_close', expect.objectContaining({ reason: 'SL_HIT' }));
+      expect(emitSpy).toHaveBeenCalledWith('trade.exchange_close', expect.objectContaining({ reason: expect.stringMatching(/SL_HIT/) }));
     });
 
     it('implements Adaptive Buffer Strategy on -2021 (Immediate Trigger)', async () => {

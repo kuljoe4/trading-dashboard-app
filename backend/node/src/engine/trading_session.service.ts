@@ -479,7 +479,8 @@ export class TradingSessionService implements OnApplicationShutdown {
     if (!this.binanceClient) return 0;
     try {
       this.monitoringService.incrementApiRequests();
-      const res = await this.binanceClient.restAPI.futuresAccountBalanceV2();
+      // OPTIMIZATION: Migrate to V3 endpoint for targeted, low-payload balance fetch (Weight 5).
+      const res = await this.binanceClient.restAPI.futuresAccountBalanceV3();
 
       // Update weight if headers are present
       const weight = typeof res?.headers?.get === 'function'

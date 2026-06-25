@@ -51,6 +51,7 @@ export const ENGINE_CONSTANTS = {
   BINANCE_WS_BASE: process.env.BINANCE_WS_BASE || 'wss://fstream.binance.com',
   BINANCE_WS_PUBLIC: process.env.BINANCE_WS_PUBLIC || 'wss://fstream.binance.com/ws',
   BINANCE_WS_MARKET: process.env.BINANCE_WS_MARKET || 'wss://fstream.binance.com/stream',
+  BINANCE_WS_PRIVATE: process.env.BINANCE_WS_BASE || 'wss://fstream.binance.com/private',
   BINANCE_REST_BASE: process.env.BINANCE_REST_BASE || 'https://fapi.binance.com',
   KLINE_STREAM_CHUNK_SIZE: 20,
   WATCHLIST_REFRESH_INTERVAL_MS: 120000,

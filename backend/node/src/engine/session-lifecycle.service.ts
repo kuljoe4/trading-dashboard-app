@@ -72,6 +72,17 @@ export class SessionLifecycleService {
           const serverTime = new Date(serverTimeHeader).getTime();
           const offset = serverTime - Date.now();
           this.logger.log(`[Lifecycle] Binance Time Sync Audit: Local offset is ${offset}ms`);
+
+          // SRE: Critical timing audit. Clock drift beyond -500ms triggers hard rejection risk.
+          if (offset < -500) {
+             const driftMsg = `CRITICAL: Technical clock drift detected (-${Math.abs(offset)}ms). Local clock is ahead of Binance. Rejection risk is HIGH. Please synchronize with NTP immediately.`;
+             this.logger.error(driftMsg);
+             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: driftMsg, level: 'error' });
+          } else if (Math.abs(offset) > 1000) {
+             const driftMsg = `WARNING: Significant clock drift detected (${offset}ms). This may cause transaction rejections. NTP synchronization recommended.`;
+             this.logger.warn(driftMsg);
+             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: driftMsg, level: 'warn' });
+          }
         }
       } catch (e) {
         this.logger.debug(`Time sync audit skipped: ${e instanceof Error ? e.message : String(e)}`);
@@ -254,12 +265,13 @@ export class SessionLifecycleService {
 
     try {
       this.monitoringService.incrementApiRequests();
-      // Try primary endpoint: futuresAccountBalanceV2
-      const res = await bc.restAPI.futuresAccountBalanceV2();
+      // OPTIMIZATION: Migrate to V3 endpoint for targeted, low-payload balance fetch.
+      // futuresAccountBalanceV3 returns only active symbols, reducing network overhead.
+      const res = await bc.restAPI.futuresAccountBalanceV3();
       if (!res) return 0;
 
       // Traceability: Log successful balance fetch
-      this.logger.debug(`[Lifecycle] Successfully fetched balance via REST.`);
+      this.logger.debug(`[Lifecycle] Successfully fetched balance via REST V3.`);
 
       const data = await res.data() as any;
       const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
@@ -268,7 +280,13 @@ export class SessionLifecycleService {
         return parseFloat(usdt.balance || 0);
       }
 
-      // Fallback: try accountInformationV2 (full account details)
+      // Fallback: try futuresAccountBalanceV2 (legacy) then accountInformationV2 (full account details)
+      this.logger.debug(`futuresAccountBalanceV3 did not return USDT. Trying V2 fallback...`);
+      const v2Res = await bc.restAPI.futuresAccountBalanceV2();
+      const v2Data = await v2Res.data() as any;
+      const v2Usdt = Array.isArray(v2Data) ? v2Data.find((b: any) => b.asset === 'USDT') : null;
+      if (v2Usdt) return parseFloat(v2Usdt.balance || 0);
+
       this.logger.debug(`futuresAccountBalanceV2 did not return USDT. Trying accountInformationV2 fallback...`);
       const accRes = await bc.restAPI.accountInformationV2();
       const accData = await accRes.data() as any;
@@ -284,6 +302,70 @@ export class SessionLifecycleService {
     } catch (e: unknown) {
       this.logger.error(`Balance fetch failed: ${e instanceof Error ? e.message : String(e)}`);
       return 0;
+    }
+  }
+
+  public handleAccountUpdate(data: any) {
+    // Real-time Balance Tracking (Zero Weight)
+    if (data.a.B) {
+      const usdt = data.a.B.find((b: any) => b.a === 'USDT');
+      if (usdt) {
+        const nb = parseFloat(usdt.wb);
+        const liveBalMsg = `[Lifecycle] Received real-time balance update: ${nb} USDT`;
+        this.logger.log(liveBalMsg);
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: liveBalMsg, level: 'info' });
+        this.sessionState.balanceLive = nb;
+        this.sessionState.balancePaper = nb;
+        this.sessionState.lastExchangeBalance = nb;
+      }
+    }
+    // Real-time Position Tracking (Zero Weight)
+    if (data.a.P) {
+      for (const pos of data.a.P) {
+        const symbol = pos.s;
+        const amount = parseFloat(pos.pa);
+        const entryPrice = parseFloat(pos.ep);
+
+        const prevPos = this.sessionState.realTimePositions.get(symbol);
+        this.sessionState.realTimePositions.set(symbol, { amount, entryPrice });
+
+        this.logger.debug(`[Lifecycle] Real-time position update for ${symbol}: ${amount} @ ${entryPrice}`);
+
+        const trade = this.sessionState.activeTrades.find(t => t.symbol === symbol);
+
+        // Real-time Quantity Sync: Update active trade quantity from UDS ACCOUNT_UPDATE
+        if (trade && amount !== 0) {
+          const absoluteAmount = Math.abs(amount);
+          if (Math.abs(trade.qty - absoluteAmount) > 0.00000001) {
+            const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
+            this.logger.log(`[${tradeIdShort8}] [Sync] Updating quantity from ACCOUNT_UPDATE for ${symbol}: ${trade.qty} -> ${absoluteAmount}`);
+            trade.qty = absoluteAmount;
+            this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: absoluteAmount });
+          }
+        }
+
+        // ZERO-WEIGHT RECONCILIATION: If position reaches 0 and we have an active trade,
+        // it means it was closed on exchange (SL, TP, or manual).
+        if (amount === 0 && (!prevPos || prevPos.amount !== 0)) {
+          // SRE: Race condition guard - ignore UDS zero-fills if we are already in the process of entering, ratcheting, or closing
+          if (this.orderManager.isRatcheting(symbol) || this.positionTracker.isEntering(symbol) || this.positionTracker.isClosing(symbol)) {
+            this.logger.debug(`[UDS] Ignoring zero-amount update for ${symbol} during lifecycle transition.`);
+            return;
+          }
+
+          const trade = this.sessionState.activeTrades.find(t => t.symbol === symbol);
+          if (trade) {
+            const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
+            this.logger.log(`[${tradeIdShort8}] [Lifecycle] Zero-weight reconciliation: Position for ${symbol} reached zero on exchange. Triggering local closure.`);
+            this.eventEmitter.emit('trade.exchange_close', {
+              symbol,
+              exitPrice: 0, // Will use ticker fallback
+              reason: 'EXCHANGE_SYNC',
+              isReconciliation: true
+            });
+          }
+        }
+      }
     }
   }
 
@@ -353,54 +435,7 @@ export class SessionLifecycleService {
           }
 
           if (data.e === 'ACCOUNT_UPDATE' && data.a) {
-            // Real-time Balance Tracking (Zero Weight)
-            if (data.a.B) {
-              const usdt = data.a.B.find((b: any) => b.a === 'USDT');
-              if (usdt) {
-                const nb = parseFloat(usdt.wb);
-                const liveBalMsg = `[Lifecycle] Received real-time balance update: ${nb} USDT`;
-                this.logger.log(liveBalMsg);
-                this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: liveBalMsg, level: 'info' });
-                this.sessionState.balanceLive = nb;
-                this.sessionState.balancePaper = nb;
-                this.sessionState.lastExchangeBalance = nb;
-              }
-            }
-            // Real-time Position Tracking (Zero Weight)
-            if (data.a.P) {
-              for (const pos of data.a.P) {
-                const symbol = pos.s;
-                const amount = parseFloat(pos.pa);
-                const entryPrice = parseFloat(pos.ep);
-
-                const prevPos = this.sessionState.realTimePositions.get(symbol);
-                this.sessionState.realTimePositions.set(symbol, { amount, entryPrice });
-
-                this.logger.debug(`[Lifecycle] Real-time position update for ${symbol}: ${amount} @ ${entryPrice}`);
-
-                // ZERO-WEIGHT RECONCILIATION: If position reaches 0 and we have an active trade,
-                // it means it was closed on exchange (SL, TP, or manual).
-                if (amount === 0 && (!prevPos || prevPos.amount !== 0)) {
-                  // SRE: Race condition guard - ignore UDS zero-fills if we are already in the process of entering, ratcheting, or closing
-                  if (this.orderManager.isRatcheting(symbol) || this.positionTracker.isEntering(symbol) || this.positionTracker.isClosing(symbol)) {
-                    this.logger.debug(`[UDS] Ignoring zero-amount update for ${symbol} during lifecycle transition.`);
-                    return;
-                  }
-
-                  const trade = this.sessionState.activeTrades.find(t => t.symbol === symbol);
-                  if (trade) {
-                    const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
-                    this.logger.log(`[${tradeIdShort8}] [Lifecycle] Zero-weight reconciliation: Position for ${symbol} reached zero on exchange. Triggering local closure.`);
-                    this.eventEmitter.emit('trade.exchange_close', {
-                      symbol,
-                      exitPrice: 0, // Will use ticker fallback
-                      reason: 'EXCHANGE_SYNC',
-                      isReconciliation: true
-                    });
-                  }
-                }
-              }
-            }
+            this.handleAccountUpdate(data);
           } else if (data.e === 'ORDER_TRADE_UPDATE') {
             const order = data.o;
             this.logger.log(`[Lifecycle] Order Update: ${order.s} ${order.S} ${order.X} (id=${order.i}, client_id=${order.c})`);

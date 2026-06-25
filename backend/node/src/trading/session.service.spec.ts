@@ -385,7 +385,8 @@ describe('SessionService Validation', () => {
         mark_price: 50100,
         last_price: 50050,
         exit_signals_status: { 'EMA_CROSS': { fired: false, active: true } },
-        last_close_attempt_ts: 1624250300000
+        last_close_attempt_ts: 1624250300000,
+        _sig_json: '{"EMA_CROSS":{"fired":false,"active":true}}'
       } as any;
       (service as any).currentSessionId = 'session-123';
 
@@ -407,7 +408,8 @@ describe('SessionService Validation', () => {
         mark_price: 50100,
         last_price: 50050,
         exit_signals_status: { 'EMA_CROSS': { fired: false, active: true } },
-        last_close_attempt_ts: 1624250300000
+        last_close_attempt_ts: 1624250300000,
+        _sig_json: '{"EMA_CROSS":{"fired":false,"active":true}}'
       }));
     });
   });

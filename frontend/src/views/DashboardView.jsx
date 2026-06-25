@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, lazy, Suspense } from 'react'
 import { shallow } from 'zustand/shallow'
 import { pnlColor, pnlClass, fmtUSD, C, safeNum } from '../lib/theme'
+import { formatDuration } from '../lib/formatters'
 import { useTradingStore } from '../store/trading'
 import { sessionAPI } from '../api/client'
 import { 
@@ -122,7 +123,23 @@ const LoadingFallback = () => (
 )
 
 const BanBanner = ({ apiStatus }) => {
-  if (!apiStatus?.isBanned && !apiStatus?.isRateLimited) return null;
+  const [timeLeft, setTimeLeft] = useState(0);
+
+  useEffect(() => {
+    if (!apiStatus?.banUntil) return;
+
+    const update = () => {
+      const until = new Date(apiStatus.banUntil).getTime();
+      const remaining = until - Date.now();
+      setTimeLeft(Math.max(0, remaining));
+    };
+
+    update();
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, [apiStatus?.banUntil]);
+
+  if (!apiStatus?.isBanned && !apiStatus?.isRateLimited && timeLeft <= 0) return null;
 
   const isBan = apiStatus.isBanned;
   const cooldownEnd = apiStatus.banUntil ? new Date(apiStatus.banUntil).toLocaleTimeString() : 'unknown';
@@ -131,9 +148,11 @@ const BanBanner = ({ apiStatus }) => {
     <motion.div
       initial={{ opacity: 0, y: -20 }}
       animate={{ opacity: 1, y: 0 }}
+      role="alert"
+      aria-live="polite"
       className={cn(
         "p-5 rounded-2xl mb-6 flex flex-col md:flex-row items-center gap-4 shadow-xl border",
-        isBan ? "bg-red/20 border-red/40" : "bg-amber/20 border-amber/40"
+        isBan ? "bg-red/20 border-red/40 shadow-red/5" : "bg-amber/20 border-amber/40 shadow-amber/5"
       )}
     >
       <div className={cn(
@@ -147,23 +166,27 @@ const BanBanner = ({ apiStatus }) => {
           "text-sm font-black uppercase tracking-tight mb-1",
           isBan ? "text-red" : "text-amber"
         )}>
-          {isBan ? 'Binance IP Ban Detected' : 'Binance Rate Limit Active'}
+          {isBan ? 'Binance IP Ban' : 'Rate Limit Protection'}
         </h3>
         <p className={cn(
           "text-xs font-bold",
           isBan ? "text-red/80" : "text-amber/80"
         )}>
-          {apiStatus.lastErrorMessage || `Your IP has been flagged by Binance. Automatic requests are paused until ${cooldownEnd}.`}
+          {apiStatus.lastErrorMessage || `Automatic requests are paused to protect your account standing. Normal operations will resume shortly.`}
         </p>
       </div>
-      <div className="flex flex-col items-center md:items-end gap-1 shrink-0">
+      <div className="flex flex-col items-center md:items-end gap-1.5 shrink-0">
         <div className={cn(
-          "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border",
+          "px-4 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-widest border flex items-center gap-2",
           isBan ? "bg-red/20 border-red/30 text-red" : "bg-amber/20 border-amber/30 text-amber"
         )}>
-          Cooldown active
+          <span className="w-2 h-2 rounded-full bg-current motion-safe:animate-ping" aria-hidden="true" />
+          {timeLeft > 0 ? formatDuration(timeLeft) : 'Expiring...'}
         </div>
-        <span className="text-[9px] font-bold opacity-60 uppercase tracking-tighter">Resumes at {cooldownEnd}</span>
+        <div className="flex items-center gap-1.5 opacity-60">
+          <History size={10} />
+          <span className="text-[9px] font-bold uppercase tracking-tighter">Ends at {cooldownEnd}</span>
+        </div>
       </div>
     </motion.div>
   );

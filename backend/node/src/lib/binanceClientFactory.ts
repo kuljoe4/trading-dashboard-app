@@ -168,8 +168,17 @@ export class BinanceRequestQueue {
     if (BinanceRequestQueue.currentWeight1m > 0) {
       this.logger.log(`[BinanceQueue] Window rollover detected. Resetting weight: ${BinanceRequestQueue.currentWeight1m} -> 0`);
       BinanceRequestQueue.currentWeight1m = 0;
-      BinanceRequestQueue.adaptiveDelayMs = 0; // Reset adaptive throttling on rollover
       BinanceRequestQueue.windowStartTs = now;
+
+      // BOLT: Thundering Herd Mitigation. On window rollover, we implement a phased release
+      // of the queue by keeping the adaptive delay high for the first few seconds of the new window.
+      // This prevents a synchronized burst from multiple services that could trigger an immediate re-ban.
+      BinanceRequestQueue.adaptiveDelayMs = 1000;
+      setTimeout(() => {
+         if (BinanceRequestQueue.currentWeight1m < (BinanceRequestQueue.weightLimit1m * 0.5)) {
+            BinanceRequestQueue.adaptiveDelayMs = 0;
+         }
+      }, 2000);
 
       // SRE: Proactively update the entire engine state so background tasks can resume immediately
       this.eventEmitter.emit('binance.weight_update', 0);

@@ -12,6 +12,7 @@ export class SessionStateService {
   public balancePaper = 0;
   public balanceLive = 0;
   public lastExchangeBalance = 0;
+  public lastUdsBalanceUpdate = 0;
   public paused = false;
   public binanceRateLimit: { used_1m: number; limit: number } = { used_1m: 0, limit: 2400 };
   public binanceOrderLimit: {

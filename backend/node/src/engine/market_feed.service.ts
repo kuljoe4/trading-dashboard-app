@@ -503,9 +503,16 @@ export class MarketFeedService {
     const allStreams: string[] = [];
     for (const [symbol, intervals] of this.activeWatchlist) {
       const s = symbol.toLowerCase();
-      // CORRECTION: Add @ticker stream for each watched symbol to ensure cache is seeded via WebSocket
-      // This eliminates the need for the heavy 40-weight ticker24hrPriceChangeStatistics REST fallback.
+      // BOLT: Subscription Strategy for HF Data (2026)
+      // 1. @ticker: For general momentum/scanner volume tracking.
+      // 2. @markPrice: High-frequency mark price for real-time PnL accuracy on active positions.
       allStreams.push(`${s}@ticker`);
+
+      const isActiveTrade = this.sessionState.activeTrades.some(t => t.symbol === symbol);
+      if (isActiveTrade) {
+        allStreams.push(`${s}@markPrice@1s`);
+      }
+
       for (const interval of intervals) {
         allStreams.push(`${s}@kline_${interval}`);
       }
@@ -543,6 +550,9 @@ export class MarketFeedService {
             } else if (stream.includes('@ticker')) {
               // Seed ticker cache from symbol-specific ticker stream
               this.tickerCache.updateTicker(payload.s, payload.c, payload.q, payload.o);
+            } else if (stream.includes('@markPrice')) {
+              // Authoritative real-time mark price for PnL
+              this.tickerCache.updateTicker(payload.s, undefined, undefined, undefined, payload.p);
             }
           } catch (err) {
             this.logger.error(`Error processing combined kline stream: ${err instanceof Error ? err.message : String(err)}`);

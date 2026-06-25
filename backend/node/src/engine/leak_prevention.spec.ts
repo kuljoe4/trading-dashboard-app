@@ -28,7 +28,7 @@ describe('MarketFeedService Leak Fixes', () => {
       providers: [
         MarketFeedService,
         { provide: TickerCacheService, useValue: { bulkUpdate: jest.fn(), updateTicker: jest.fn(), getCacheSize: jest.fn().mockReturnValue(1), topByVolume: jest.fn().mockReturnValue([{ symbol: 'BTCUSDT' }]), prune: jest.fn() } }, { provide: "SettingsRepository", useValue: { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } },
-        { provide: KlineStoreService, useValue: { upsertCandle: jest.fn(), getRecentCandles: jest.fn().mockReturnValue([]), getMaxCandles: jest.fn().mockReturnValue(100), seedFromRest: jest.fn(), prune: jest.fn() } },
+        { provide: KlineStoreService, useValue: { upsertCandle: jest.fn(), getRecentCandles: jest.fn().mockReturnValue([]), getMaxCandles: jest.fn().mockReturnValue(100), seedFromRest: jest.fn(), prune: jest.fn(), loadFromDb: jest.fn().mockResolvedValue(0) } },
         { provide: SessionStateService, useValue: { updateRateLimit: jest.fn(), binanceRateLimit: { used_1m: 0 }, isEcoMode: jest.fn().mockReturnValue(false), activeTrades: [], isGated: jest.fn().mockReturnValue(false), config: {}, getBinanceRateLimit: jest.fn().mockReturnValue({ used_weight_1m: 0, limit: 2400 }) } },
         { provide: SignalEngineService, useValue: { getRequiredWarmup: jest.fn().mockReturnValue(100) } },
         { provide: MonitoringService, useValue: { incrementApiRequests: jest.fn() } },

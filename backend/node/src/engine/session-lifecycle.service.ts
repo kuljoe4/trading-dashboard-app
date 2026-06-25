@@ -64,29 +64,8 @@ export class SessionLifecycleService {
       await this.progress(`Configuring Binance ${mode.toUpperCase()} account...`);
 
       // Best Practice: Synchronize server time
-      try {
-        const timeRes = await bc.restAPI.queryUserRateLimit(); // Using an authenticated endpoint that returns headers, or just serverTime if available
-        // Note: The SDK usually handles time sync internally, but we log it for auditability.
-        const serverTimeHeader = timeRes.headers?.get ? timeRes.headers.get('Date') : timeRes.headers?.date;
-        if (serverTimeHeader) {
-          const serverTime = new Date(serverTimeHeader).getTime();
-          const offset = serverTime - Date.now();
-          this.logger.log(`[Lifecycle] Binance Time Sync Audit: Local offset is ${offset}ms`);
-
-          // SRE: Critical timing audit. Clock drift beyond -500ms triggers hard rejection risk.
-          if (offset < -500) {
-             const driftMsg = `CRITICAL: Technical clock drift detected (-${Math.abs(offset)}ms). Local clock is ahead of Binance. Rejection risk is HIGH. Please synchronize with NTP immediately.`;
-             this.logger.error(driftMsg);
-             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: driftMsg, level: 'error' });
-          } else if (Math.abs(offset) > 1000) {
-             const driftMsg = `WARNING: Significant clock drift detected (${offset}ms). This may cause transaction rejections. NTP synchronization recommended.`;
-             this.logger.warn(driftMsg);
-             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: driftMsg, level: 'warn' });
-          }
-        }
-      } catch (e) {
-        this.logger.debug(`Time sync audit skipped: ${e instanceof Error ? e.message : String(e)}`);
-      }
+      // PERF: Optimized startup - removed redundant queryUserRateLimit (Weight 20).
+      // SDK handles time sync; we log the offset from actual data calls.
 
       try {
         // Enforce One-Way Mode (Disable Hedge Mode) - Cache for 7 days

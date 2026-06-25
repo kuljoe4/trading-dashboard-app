@@ -15,6 +15,7 @@ import { SessionStateService } from '../engine/session_state.service';
 @Injectable()
 export class BinanceClientFactory {
   private readonly logger = new Logger(BinanceClientFactory.name);
+  private queue: BinanceRequestQueue | null = null;
 
   constructor(
     private readonly eventEmitter: EventEmitter2,
@@ -79,7 +80,12 @@ export class BinanceClientFactory {
 
     // Wrap restAPI with a Throttled Proxy to prevent startup bursts and respect rate limits
     const originalRestApi = client.restAPI;
-    const queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository);
+
+    // SRE: Ensure a single queue instance per factory to maintain consistent weight tracking
+    if (!this.queue) {
+       this.queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository);
+    }
+    const queue = this.queue;
 
     (client as any).restAPI = new Proxy(originalRestApi, {
       get(target, prop, receiver) {
@@ -123,6 +129,7 @@ export class BinanceRequestQueue {
   private static lastRequestTs = 0;
   private static currentWeight1m = 0;
   private static windowStartTs = Date.now();
+  private static rolloverInterval: NodeJS.Timeout | null = null;
   private static adaptiveDelayMs = 0;
   private static weightLimit1m = 2400;
 
@@ -133,7 +140,43 @@ export class BinanceRequestQueue {
     private readonly logger: Logger,
     private readonly eventEmitter: EventEmitter2,
     private readonly settingsRepository: Repository<SettingsEntity>
-  ) {}
+  ) {
+    this.setupRolloverCheck();
+  }
+
+  private setupRolloverCheck() {
+    if (BinanceRequestQueue.rolloverInterval) return;
+
+    // SRE: Background rollover check to break "shedding lock"
+    // Even if no requests are being processed, we must reset the counter
+    // at minute boundaries so other services (MarketFeed) can resume.
+    BinanceRequestQueue.rolloverInterval = setInterval(() => {
+      const now = Date.now();
+      if (this.shouldRollover(now)) {
+        this.executeRollover(now);
+      }
+    }, 5000); // Check every 5s
+  }
+
+  private shouldRollover(now: number): boolean {
+    return Math.floor(now / 60000) > Math.floor(BinanceRequestQueue.windowStartTs / 60000);
+  }
+
+  private executeRollover(now: number) {
+    // SRE: Critical rollover logic. Resets counter at clock minute boundaries (00s).
+    if (BinanceRequestQueue.currentWeight1m > 0) {
+      this.logger.log(`[BinanceQueue] Window rollover detected. Resetting weight: ${BinanceRequestQueue.currentWeight1m} -> 0`);
+      BinanceRequestQueue.currentWeight1m = 0;
+      BinanceRequestQueue.adaptiveDelayMs = 0; // Reset adaptive throttling on rollover
+      BinanceRequestQueue.windowStartTs = now;
+
+      // SRE: Proactively update the entire engine state so background tasks can resume immediately
+      this.eventEmitter.emit('binance.weight_update', 0);
+    } else {
+      // Just keep the window timestamp current to prevent multiple resets in the same minute
+      BinanceRequestQueue.windowStartTs = now;
+    }
+  }
 
   async add<T>(fn: () => Promise<T>, label: string, isEmergency = false): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -183,15 +226,9 @@ export class BinanceRequestQueue {
     while (this.queue.length > 0) {
       const now = Date.now();
 
-      // SRE: Rolling Window Decay. If 1 minute has passed since the last known window start, reset weight.
-      // This prevents "shedding lock" where the counter never decays because requests are being rejected.
-      if (now - BinanceRequestQueue.windowStartTs > 60000) {
-         if (BinanceRequestQueue.currentWeight1m > 0) {
-            this.logger.log(`[BinanceQueue] Weight window expired. Resetting weight 1m: ${BinanceRequestQueue.currentWeight1m} -> 0`);
-            BinanceRequestQueue.currentWeight1m = 0;
-            BinanceRequestQueue.windowStartTs = now;
-            this.eventEmitter.emit('binance.weight_update', 0);
-         }
+      // SRE: Rolling Window Decay (In-loop check)
+      if (this.shouldRollover(now)) {
+        this.executeRollover(now);
       }
 
       // SRE Implementation: Outbound REST requests are converted into a strict serial pipeline

@@ -15,7 +15,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditLogService } from '../trading/audit-log.service';
 import { ConfigValidationException } from '../lib/exceptions';
 import { roundEight } from '../lib/math';
-import { ENGINE_CONSTANTS } from '../models/constants';
+import { ENGINE_CONSTANTS, EXIT_REASONS } from '../models/constants';
 
 @Injectable()
 export class SessionLifecycleService {
@@ -360,7 +360,7 @@ export class SessionLifecycleService {
             this.eventEmitter.emit('trade.exchange_close', {
               symbol,
               exitPrice: 0, // Will use ticker fallback
-              reason: 'EXCHANGE_SYNC',
+              reason: EXIT_REASONS.EXCHANGE_SYNC,
               isReconciliation: true
             });
           }

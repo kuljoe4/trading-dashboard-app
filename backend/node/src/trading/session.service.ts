@@ -32,7 +32,7 @@ import { BinanceClientFactory } from "../lib/binanceClientFactory";
 import { AnalyticsService } from "../engine/analytics.service";
 import { updateLogLevels } from "../lib/logger";
 import { roundEight } from "../lib/math";
-import { CONFIG_LIMITS } from "../models/constants";
+import { CONFIG_LIMITS, EXIT_REASONS } from "../models/constants";
 
 @Injectable()
 export class SessionService implements OnModuleInit {
@@ -780,23 +780,23 @@ export class SessionService implements OnModuleInit {
           const tp = Number(trade.tp || 0);
 
           let breached = false;
-          let reason = "AUTO_RECONCILED_EXIT";
+          let reason = EXIT_REASONS.AUTO_RECONCILED_EXIT;
 
           if (side === "LONG") {
             if (sl > 0 && currentPrice <= sl) {
               breached = true;
-              reason = "AUTO_RECONCILED_SL";
+              reason = EXIT_REASONS.AUTO_RECONCILED_SL;
             } else if (tp > 0 && currentPrice >= tp) {
               breached = true;
-              reason = "AUTO_RECONCILED_TP";
+              reason = EXIT_REASONS.AUTO_RECONCILED_TP;
             }
           } else {
             if (sl > 0 && currentPrice >= sl) {
               breached = true;
-              reason = "AUTO_RECONCILED_SL";
+              reason = EXIT_REASONS.AUTO_RECONCILED_SL;
             } else if (tp > 0 && currentPrice <= tp) {
               breached = true;
-              reason = "AUTO_RECONCILED_TP";
+              reason = EXIT_REASONS.AUTO_RECONCILED_TP;
             }
           }
 
@@ -817,8 +817,8 @@ export class SessionService implements OnModuleInit {
 
             // Map reason to specific terminal status
             let terminalStatus: any = "CLOSED";
-            if (reason === "AUTO_RECONCILED_SL") terminalStatus = "CLOSED_SL";
-            else if (reason === "AUTO_RECONCILED_TP")
+            if (reason === EXIT_REASONS.AUTO_RECONCILED_SL) terminalStatus = "CLOSED_SL";
+            else if (reason === EXIT_REASONS.AUTO_RECONCILED_TP)
               terminalStatus = "CLOSED_TP";
 
             const updatedTrade = {
@@ -1173,7 +1173,7 @@ export class SessionService implements OnModuleInit {
           this.eventEmitter.emit("trade.exchange_close", {
             symbol: trade.symbol,
             exitPrice: 0,
-            reason: "EXCHANGE_SYNC",
+            reason: EXIT_REASONS.EXCHANGE_SYNC,
             isReconciliation: true,
           });
         }

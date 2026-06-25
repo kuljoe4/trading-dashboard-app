@@ -347,7 +347,8 @@ export class EngineBroadcasterService {
           tradeChanged = true;
         } else {
           const pnlDelta = Math.abs(pnlValue - (prevTrade.pnl || 0));
-          if (pnlDelta > 0.05) {
+          // BOLT: Lowered threshold from 0.05 to 0.01 to ensure small PnL changes are reflected in UI
+          if (pnlDelta >= 0.01) {
             tradeChanged = true;
             anyPriceChangedSignificant = true;
           } else {
@@ -439,13 +440,16 @@ export class EngineBroadcasterService {
 
     if (variantStats) tickData.variant_stats = variantStats;
 
-    const heartbeatInterval = trades.length > 0 ? 10000 : (this.sessionState.listenerCount > 0 ? 30000 : 60000);
+    // BOLT: Heartbeat frequency should be 10s if any trades are active, regardless of "significance".
+    // This prevents the UI from appearing stuck when prices are moving slowly.
+    const heartbeatInterval = activeTrades.length > 0 ? 10000 : (this.sessionState.listenerCount > 0 ? 30000 : 60000);
     let shouldBroadcast = !this.lastTickData || (now - this.lastTickTime > heartbeatInterval);
     if (shouldBroadcast) tickData._heartbeat = true;
 
     if (!shouldBroadcast) {
       const tradesChanged = trades.length > 0 || anyPriceChangedSignificant;
-      const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) > 0.1;
+      // BOLT: Lowered threshold from 0.1 to 0.01 to ensure total PnL updates are reactive for small accounts
+      const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) >= 0.01;
       const gateChanged = tickData.gateState !== this.lastTickData?.gateState;
       const statsChanged = tickData._statsVersion !== this.lastTickData?._statsVersion;
 

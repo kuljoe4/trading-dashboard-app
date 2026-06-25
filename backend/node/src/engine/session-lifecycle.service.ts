@@ -365,14 +365,20 @@ export class SessionLifecycleService {
 
       this.monitoringService.setUdsStatus('CONNECTED');
 
-      this.userDataWs.on('error', (err: any) => {
+      const currentWs = this.userDataWs;
+
+      currentWs.on('error', (err: any) => {
+        if (this.userDataWs !== currentWs) return;
         this.isUdsConnected = false;
         this.monitoringService.setUdsStatus('DISCONNECTED');
         this.logger.error(`User Data Stream error: ${err.message || String(err)}`);
       });
 
-      this.userDataWs.on('close', () => {
-        if (this.userDataWs === oldWs) return; // Ignore close from old stream during transition
+      currentWs.on('close', () => {
+        if (this.userDataWs !== currentWs) {
+          this.logger.log('[UDS] Old stream closed gracefully.');
+          return;
+        }
         this.isUdsConnected = false;
         this.monitoringService.setUdsStatus('DISCONNECTED');
         if (this.running) {
@@ -381,12 +387,14 @@ export class SessionLifecycleService {
         }
       });
 
-      this.userDataWs.on('pong', () => {
+      currentWs.on('pong', () => {
+        if (this.userDataWs !== currentWs) return;
         this.logger.debug('[UDS] WebSocket PONG received. Heartbeat confirmed.');
         this.monitoringService.recordUdsPing();
       });
 
-      this.userDataWs.on('message', async (payload: any) => {
+      currentWs.on('message', async (payload: any) => {
+        if (this.userDataWs !== currentWs) return;
         this.monitoringService.recordUdsPing();
         try {
           // SDK WebsocketStreams.connect returns a connection that emits 'message' with the already parsed object or string
@@ -423,7 +431,11 @@ export class SessionLifecycleService {
         setTimeout(() => {
           try {
             oldWs.disconnect();
-            if (oldListenKey) bc.restAPI.closeUserDataStream().catch(() => {});
+            // BOLT: Only close if keys are different and it wasn't an expiry-triggered reconnect
+            // In case of expiry, Binance already closed it.
+            if (oldListenKey && oldListenKey !== this.listenKey) {
+              bc.restAPI.closeUserDataStream({ listenKey: oldListenKey }).catch(() => {});
+            }
           } catch (e) {}
         }, 30000);
       }

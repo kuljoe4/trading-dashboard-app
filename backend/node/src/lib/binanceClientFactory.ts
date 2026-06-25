@@ -67,6 +67,7 @@ export class BinanceClientFactory {
 
       gatewayURL = urlObj.origin + urlObj.pathname;
 
+      // BOLT: Only log once per stream to avoid noise in the console.
       this.logger.debug(`[BinanceClient] Routing WS connection to gateway: ${gatewayURL} | isPrivate=${isPrivate} | stream=${params.stream?.substring(0, 10)}...`);
 
       const originalWsURL = (client.websocketStreams as any).wsURL;

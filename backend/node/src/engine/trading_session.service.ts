@@ -667,6 +667,18 @@ export class TradingSessionService implements OnApplicationShutdown {
     this.broadcast('tick', { config: this.config });
   }
 
+  /**
+   * Proactively warms up exchange metadata (filters, limits) before session reconciliation.
+   */
+  async warmupMetadata(mode: 'paper' | 'testnet' | 'live' = 'paper') {
+    const isTestnet = mode === 'testnet';
+    const restBase = isTestnet
+      ? 'https://testnet.binancefuture.com'
+      : 'https://fapi.binance.com';
+
+    await this.marketFeed.fetchExchangeInfo(restBase);
+  }
+
   async fetchTickerPrice(symbol: string): Promise<number | null> { return this.tickerCache.getPrice(symbol); }
   async fetchPosition(symbol: string): Promise<any | null> { return this.orderManager.fetchPosition(symbol); }
   async fetchAllPositions(): Promise<any[]> { return this.orderManager.fetchAllPositions(); }

@@ -97,7 +97,7 @@ export class MarketFeedService {
     }
   }
 
-  private async fetchExchangeInfo(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
+  public async fetchExchangeInfo(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
     const now = Date.now();
     // BOLT: Static caching of exchange info for 1 hour to prevent redundant heavy calls (Weight 40) across session restarts
     // RESEARCH-02: Increase TTL to 12 hours for metadata that rarely changes, further reducing weight usage.
@@ -291,7 +291,13 @@ export class MarketFeedService {
       });
 
       ws.on('message', (data: Buffer) => {
-        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) return;
+        // BOLT: Relax Eco-Mode for tickers to ensure volume and price data is available for scanner seeding
+        // even when no one is watching and no trades are open.
+        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) {
+           const size = this.tickerCache.getCacheSize();
+           // Only skip if cache is already warm (approx 200+ symbols for Binance USDS-M)
+           if (size > 200) return;
+        }
         try {
           const msg = JSON.parse(data as any);
           let tickers: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
@@ -327,7 +333,11 @@ export class MarketFeedService {
       });
 
       ws.on('message', (data: Buffer) => {
-        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) return;
+        // BOLT: Relax Eco-Mode for mark tickers to ensure price data is available
+        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) {
+           const size = this.tickerCache.getCacheSize();
+           if (size > 200) return;
+        }
         try {
           const msg = JSON.parse(data as any);
           const updates = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);

@@ -857,6 +857,12 @@ export class SessionService implements OnModuleInit {
       mode === "paper",
     );
 
+    // BOLT: Ensure exchange metadata is loaded BEFORE reconciliation.
+    // This prevents "Symbol not found in exchangeInfo" warnings for valid symbols like DOGEUSDT
+    // when the engine verifies existing positions.
+    await this.tradingSessionService.setBinanceClient(binanceClient, mode === 'paper');
+    await this.tradingSessionService.warmupMetadata(mode as any);
+
     let recalculationNeeded = false;
 
     // Reconcile open trades with actual exchange positions

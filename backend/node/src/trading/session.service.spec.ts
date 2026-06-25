@@ -24,6 +24,7 @@ describe('SessionService Validation', () => {
     setBinanceClient: jest.fn(),
     fetchPosition: jest.fn(),
     getStatus: jest.fn().mockReturnValue({ running: false, activeTrades: [] }),
+    warmupMetadata: jest.fn().mockResolvedValue(undefined),
   } as any;
 
   const mockAnalyticsService = {

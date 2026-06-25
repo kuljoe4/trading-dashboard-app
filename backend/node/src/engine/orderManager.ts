@@ -155,6 +155,15 @@ export class OrderManagerService {
               this.logger.log(`[${tradeIdShort8}] [Sync] Updating entry price from UDS for ${symbol}: ${trade.entry_price} -> ${avgPrice}`);
               trade.entry_price = roundEight(avgPrice);
            }
+
+           // Real-time Quantity Sync: Update trade quantity from UDS (ORDER_TRADE_UPDATE)
+           // order.z is the cumulative filled quantity.
+           const filledQty = parseFloat(order.z || '0');
+           if (filledQty > 0 && Math.abs(trade.qty - filledQty) > 0.00000001) {
+              this.logger.log(`[${tradeIdShort8}] [Sync] Updating quantity from UDS for ${symbol}: ${trade.qty} -> ${filledQty}`);
+              trade.qty = filledQty;
+              this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: filledQty });
+           }
         }
         else if (status === 'FILLED' && side !== (trade.direction === 'LONG' ? 'BUY' : 'SELL')) {
            this.logger.log(`[${tradeIdShort8}] Non-entry order FILLED for ${symbol} (${side}). Closing trade locally.`);

@@ -55,6 +55,10 @@ export class MaintenanceService {
 
       // BOLT: Coordinated Snapshot Pattern for positions (Weight 5)
       const allPositions = await this.orderManager.fetchAllPositions();
+      if (!allPositions || !Array.isArray(allPositions)) {
+        this.logger.warn(`[Watchdog] Position audit failed (shed or error). Aborting to prevent false-positive closures.`);
+        return;
+      }
       const activePositionsMap = new Map(allPositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0).map(p => [p.symbol, p]));
 
       // WebSocket-First state reconciliation: Use UDS cache for active positions to avoid frequent bulk REST calls
@@ -82,6 +86,10 @@ export class MaintenanceService {
       if (tradesToAudit.length > 1 && !targetSymbol) {
          this.logger.log(`[Watchdog] Performing bulk open order audit for ${tradesToAudit.length} trades...`);
          const allOrders = await this.orderManager.fetchAllOpenOrders();
+         if (allOrders === null) {
+            this.logger.warn(`[Watchdog] Bulk order audit shed. Aborting.`);
+            return;
+         }
          allOrders.filter(isSlOrder).forEach(o => {
            const list = slOrdersBySymbol.get(o.symbol) || [];
            list.push(o);
@@ -90,7 +98,12 @@ export class MaintenanceService {
       } else {
          const uniqueSymbols = Array.from(new Set(tradesToAudit.map(t => t.symbol)));
          for (const symbol of uniqueSymbols) {
+            // SRE: Specify symbol parameter to reduce weight from 40 to 1
             const orders = await this.orderManager.fetchOpenOrders(symbol);
+            if (orders === null) {
+               this.logger.warn(`[Watchdog] Order audit for ${symbol} shed. Skipping this symbol.`);
+               continue;
+            }
             slOrdersBySymbol.set(symbol, orders.filter(isSlOrder));
          }
       }
@@ -143,6 +156,10 @@ export class MaintenanceService {
 
           if (!matchingOrder) {
             const freshOrders = await this.orderManager.fetchOpenOrders(trade.symbol);
+            if (freshOrders === null) {
+              this.logger.debug(`[Watchdog] Skipping protection audit for ${trade.symbol} due to API weight.`);
+              continue;
+            }
             const freshSlOrders = freshOrders.filter(isSlOrder);
             matchingOrder = freshSlOrders.find(o =>
               String(o.orderId) === trade.binance_stop_order_id ||

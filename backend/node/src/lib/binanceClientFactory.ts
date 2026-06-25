@@ -46,6 +46,37 @@ export class BinanceClientFactory {
       }
     });
 
+    // ARCHITECTURAL FIX: Override SDK's internal URL building to support dedicated gateways
+    // /private (for listenKey), /market (for anonymous market streams), and /public (HF data)
+    const originalConnect = client.websocketStreams.connect.bind(client.websocketStreams);
+    client.websocketStreams.connect = async (params: any) => {
+      // UDS streams use the listenKey (string without @ or !), while market streams use @ (kline, ticker) or ! (miniTicker)
+      const isPrivate = !!params.stream && !params.stream.includes('@') && !params.stream.includes('!');
+
+      let gatewayURL = wsURL;
+      const urlObj = new URL(wsURL);
+
+      if (isPrivate) {
+        // SRE: Strictly route private listenKey traffic to the /private gateway
+        urlObj.pathname = '/private';
+      } else {
+        // Market/Public data traffic routes to /market or /public
+        urlObj.pathname = '/market';
+      }
+
+      gatewayURL = urlObj.origin + urlObj.pathname;
+
+      this.logger.debug(`[BinanceClient] Routing WS connection to gateway: ${gatewayURL} | isPrivate=${isPrivate} | stream=${params.stream?.substring(0, 10)}...`);
+
+      const originalWsURL = (client.websocketStreams as any).wsURL;
+      (client.websocketStreams as any).wsURL = gatewayURL;
+      try {
+        return await originalConnect(params);
+      } finally {
+        (client.websocketStreams as any).wsURL = originalWsURL;
+      }
+    };
+
     // Wrap restAPI with a Throttled Proxy to prevent startup bursts and respect rate limits
     const originalRestApi = client.restAPI;
     const queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository);
@@ -60,7 +91,7 @@ export class BinanceClientFactory {
               const response = await value.apply(target, args);
               // Proactively extract weight from headers if available
               if (response && response.headers) {
-                queue.updateWeightFromHeaders(response.headers, label);
+                queue.updateWeightFromHeaders(response.headers, restURL);
               }
               return response;
             }, label);
@@ -91,6 +122,9 @@ export class BinanceRequestQueue {
   // Mandatory delay between requests to prevent "Burst" penalties (50-100ms)
   private readonly MIN_DELAY_MS = 100;
 
+  // Track weights per-origin to avoid mixing Testnet and Prod pools
+  private static pools: Map<string, number> = new Map();
+
   constructor(
     private readonly logger: Logger,
     private readonly eventEmitter: EventEmitter2,
@@ -104,7 +138,7 @@ export class BinanceRequestQueue {
     });
   }
 
-  public updateWeightFromHeaders(headers: any, label?: string) {
+  public updateWeightFromHeaders(headers: any, origin?: string) {
     const getHeader = (name: string) => {
       return typeof headers.get === 'function'
         ? headers.get(name)
@@ -112,11 +146,13 @@ export class BinanceRequestQueue {
     };
 
     const weight = getHeader('X-MBX-USED-WEIGHT-1M');
-    const orderCount10s = getHeader('X-MBX-ORDER-COUNT-10S');
-    const orderCount1m = getHeader('X-MBX-ORDER-COUNT-1M');
 
     if (weight) {
-      BinanceRequestQueue.currentWeight1m = parseInt(weight, 10);
+      const w = parseInt(weight, 10);
+      if (origin) {
+        BinanceRequestQueue.pools.set(origin, w);
+      }
+      BinanceRequestQueue.currentWeight1m = w;
 
       // SRE Overwatch: Dynamic Back-off Execution Strategy
       const usageRatio = BinanceRequestQueue.currentWeight1m / BinanceRequestQueue.weightLimit1m;
@@ -158,16 +194,16 @@ export class BinanceRequestQueue {
         // SRE LOAD SHEDDING: Multi-tier priority management
         // Level 1: Immune (Infrastructure & Keepalives) - Proceed even if > 100% to prevent blindness
         const isImmune = ['startUserDataStream', 'keepaliveUserDataStream', 'closeUserDataStream'].includes(item.label);
-        // Level 2: Critical (Orders & Structural Info) - Shed at 95%
-        const isCritical = ['newOrder', 'cancelOrder', 'newAlgoOrder', 'cancelAlgoOrder', 'cancelAllOpenOrders', 'exchangeInformation', 'futuresAccountBalanceV2'].includes(item.label);
+        // Level 2: Critical (Orders & Structural Info) - Shed ONLY at 100%
+        const isCritical = ['newOrder', 'cancelOrder', 'newAlgoOrder', 'cancelAlgoOrder', 'cancelAllOpenOrders', 'exchangeInformation', 'futuresAccountBalanceV2', 'futuresAccountBalanceV3'].includes(item.label);
         // Level 3: Operational (State Audits) - Shed at 85%
-        const isOperational = ['queryOrder', 'accountTradeList', 'positionInformationV3'].includes(item.label);
+        const isOperational = ['queryOrder', 'accountTradeList', 'positionInformationV3', 'currentAllOpenOrders', 'currentAllAlgoOpenOrders'].includes(item.label);
 
         let shed = false;
         let shedReason = '';
 
         if (!isImmune) {
-           if (usageRatio > 1.0) { shed = true; shedReason = 'Weight limit exceeded (100%+)'; }
+           if (usageRatio >= 1.0) { shed = true; shedReason = 'Weight limit reached (100%)'; }
            else if (usageRatio > 0.95 && !isCritical) { shed = true; shedReason = 'SRE Load Shedding (Critical Zone 95%+)'; }
            else if (usageRatio > 0.85 && !isCritical && !isOperational) { shed = true; shedReason = 'SRE Load Shedding (Operational Zone 85%+)'; }
            else if (usageRatio > 0.70 && !isCritical && !isOperational && !['ticker24hrPriceChangeStatistics', 'klineCandlestickData'].includes(item.label)) {

@@ -49,6 +49,10 @@ export class OrderManagerService {
   // BOLT: Per-symbol log throttling for backoff periods
   private lastDeferLogTs: Map<string, number> = new Map();
 
+  // IDEMPOTENCY: Tracking executed order IDs to prevent double-processing between REST and WebSocket (UDS)
+  private executionCache: Map<string, number> = new Map();
+  private readonly EXECUTION_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
   constructor(
     private readonly signalEngine: SignalEngineService,
     private readonly marketFeed: MarketFeedService,
@@ -71,6 +75,16 @@ export class OrderManagerService {
     const side = order.S;
     const type = order.ot;
     const executionType = order.x; // Execution Type
+
+    // IDEMPOTENCY: Check if this execution has already been processed via REST response or previous UDS event
+    // SRE: Tracking all statuses to prevent duplicate log/event bursts from redundant UDS streams
+    const cacheKey = `${symbol}_${orderId}_${status}`;
+    if (this.executionCache.has(cacheKey)) {
+      this.logger.debug(`[Idempotency] Dropping duplicate UDS update for ${symbol} (ID: ${orderId}, Status: ${status})`);
+      return;
+    }
+    this.executionCache.set(cacheKey, Date.now());
+    this.cleanupExecutionCache();
 
     // SRE: High-fidelity structured logging for all UDS updates to confirm stream health and event delivery.
     // Throttled to LOG level for TRADE, DEBUG for others.
@@ -244,9 +258,12 @@ export class OrderManagerService {
       }
     }
 
-    // Idempotency check: Cache commission rate for 7 days
+    // Idempotency check: Cache commission rate for 24 hours (RE-01: Persistent cache reduces boot weight by 20)
+    // The audit recommends 24 hours to avoid redundant queries during system boots.
+    const CACHE_TTL = 24 * 60 * 60 * 1000;
+    // SRE: Removed 'isNewClient' and 'isModeChange' as triggers to ensure cross-restart DB cache is respected.
     const shouldFetchFee = this.binanceClient && !this.paperMode &&
-      (isNewClient || isModeChange || (Date.now() - this.lastFeeFetch > 7 * 24 * 60 * 60 * 1000));
+      (Date.now() - this.lastFeeFetch > CACHE_TTL);
 
     if (shouldFetchFee && this.binanceClient) {
       // SRE: Proactive Weight Gating - Defer non-critical commission fetch if weight is already high
@@ -592,6 +609,11 @@ export class OrderManagerService {
           }
 
           trade.binance_order_id = entryReceipt.orderId;
+
+          // IDEMPOTENCY: Mark entry as executed to avoid duplicate UDS processing
+          if (entryReceipt.status === 'FILLED' || entryReceipt.executedQty === entryReceipt.origQty) {
+             this.markAsExecuted(symbol, String(entryReceipt.orderId));
+          }
 
           // Zero-RAM Price Tracking: Extract exact execution details from REST response
           // Finding 1: Canonical fill price extraction is cumQuote / executedQty
@@ -1324,8 +1346,8 @@ export class OrderManagerService {
     }
   }
 
-  public async fetchAllOpenOrders(): Promise<any[]> {
-    if (!this.binanceClient) return [];
+  public async fetchAllOpenOrders(): Promise<any[] | null> {
+    if (!this.binanceClient) return null;
     try {
       this.monitoringService.incrementApiRequests();
       // Use standard endpoint
@@ -1335,16 +1357,17 @@ export class OrderManagerService {
 
       // Also fetch algorithmic orders (Stop Losses)
       const algoOrders = await this.fetchAllOpenAlgoOrders();
+      if (algoOrders === null) return null; // Abort if algo fetch was shed
 
       return [...standardOrders, ...algoOrders];
     } catch (err) {
       this.logger.warn(`Failed to fetch all open orders: ${err instanceof Error ? err.message : String(err)}`);
-      return [];
+      return null;
     }
   }
 
-  public async fetchAllOpenAlgoOrders(): Promise<any[]> {
-    if (!this.binanceClient) return [];
+  public async fetchAllOpenAlgoOrders(): Promise<any[] | null> {
+    if (!this.binanceClient) return null;
     try {
       this.monitoringService.incrementApiRequests();
       const response = await this.binanceClient.restAPI.currentAllAlgoOpenOrders();
@@ -1353,7 +1376,7 @@ export class OrderManagerService {
       return Array.isArray(data) ? data : [];
     } catch (err) {
       this.logger.warn(`Failed to fetch all open algo orders: ${err instanceof Error ? err.message : String(err)}`);
-      return [];
+      return null;
     }
   }
 
@@ -1475,9 +1498,12 @@ export class OrderManagerService {
     }
   }
 
-  public async fetchOpenOrders(symbol: string): Promise<any[]> {
-    if (!this.binanceClient) return [];
-    if (!this.paperMode && this.sessionState.isRateLimited(0.95)) return [];
+  public async fetchOpenOrders(symbol: string): Promise<any[] | null> {
+    if (!this.binanceClient) return null;
+    if (!this.paperMode && this.sessionState.isRateLimited(0.95)) {
+       this.logger.debug(`Skipping fetchOpenOrders for ${symbol} due to high weight. Returning null to prevent false positive closure.`);
+       return null;
+    }
     try {
       this.monitoringService.incrementApiRequests();
       // 1. Fetch standard orders
@@ -1487,16 +1513,17 @@ export class OrderManagerService {
 
       // 2. Fetch algorithmic orders (Stop Losses)
       const algoOrders = await this.fetchOpenAlgoOrders(symbol);
+      if (algoOrders === null) return null;
 
       return [...standardOrders, ...algoOrders];
     } catch (err) {
       this.logger.debug(`[${symbol}] Failed to fetch open orders: ${err instanceof Error ? err.message : String(err)}`);
-      return [];
+      return null;
     }
   }
 
-  public async fetchOpenAlgoOrders(symbol: string): Promise<any[]> {
-    if (!this.binanceClient) return [];
+  public async fetchOpenAlgoOrders(symbol: string): Promise<any[] | null> {
+    if (!this.binanceClient) return null;
     try {
       this.monitoringService.incrementApiRequests();
       const response = await this.binanceClient.restAPI.currentAllAlgoOpenOrders({ symbol });
@@ -1505,10 +1532,25 @@ export class OrderManagerService {
       return Array.isArray(data) ? data : [];
     } catch (err) {
       this.logger.warn(`[${symbol}] Failed to fetch open algo orders: ${err instanceof Error ? err.message : String(err)}`);
-      return [];
+      return null;
     }
   }
 
+
+  private cleanupExecutionCache() {
+    const now = Date.now();
+    for (const [key, timestamp] of this.executionCache.entries()) {
+      if (now - timestamp > this.EXECUTION_CACHE_TTL) {
+        this.executionCache.delete(key);
+      }
+    }
+  }
+
+  private markAsExecuted(symbol: string, orderId: string, status: string = 'FILLED') {
+    const cacheKey = `${symbol}_${orderId}_${status}`;
+    this.executionCache.set(cacheKey, Date.now());
+    this.cleanupExecutionCache();
+  }
 
   public seedRealTimePosition(symbol: string, amount: number, entryPrice: number) {
     this.sessionState.realTimePositions.set(symbol, { amount, entryPrice });
@@ -1831,6 +1873,11 @@ export class OrderManagerService {
           }
 
           if (closeSuccess) {
+            // IDEMPOTENCY: Mark close as executed to avoid duplicate UDS processing
+            if (orderData.status === 'FILLED' || orderData.executedQty === orderData.origQty) {
+               this.markAsExecuted(symbol, String(orderData.orderId));
+            }
+
             // BOLT: Proactively update zero-weight position cache on success
             const executedExitQty = parseFloat(orderData.executedQty || '0');
             const currentCached = this.sessionState.realTimePositions.get(symbol);

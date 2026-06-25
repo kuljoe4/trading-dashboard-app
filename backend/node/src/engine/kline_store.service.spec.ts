@@ -2,9 +2,14 @@ import { KlineStoreService } from './kline_store.service';
 
 describe('KlineStoreService', () => {
   let service: KlineStoreService;
+  let mockRepository: any;
 
   beforeEach(() => {
-    service = new KlineStoreService();
+    mockRepository = {
+      find: jest.fn().mockResolvedValue([]),
+      upsert: jest.fn().mockResolvedValue({}),
+    };
+    service = new KlineStoreService(mockRepository);
   });
 
   it('standardizes candle data from WebSocket format', async () => {

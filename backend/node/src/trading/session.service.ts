@@ -642,10 +642,12 @@ export class SessionService implements OnModuleInit {
         // BOLT: Coordinated Snapshot for Orders (Weight 40) - fetch ALL open orders once to avoid per-symbol bursts
         const allOpenOrders = await this.orderManager.fetchAllOpenOrders();
         const ordersBySymbol = new Map<string, any[]>();
-        for (const o of allOpenOrders) {
-          const list = ordersBySymbol.get(o.symbol) || [];
-          list.push(o);
-          ordersBySymbol.set(o.symbol, list);
+        if (allOpenOrders !== null) {
+          for (const o of allOpenOrders) {
+            const list = ordersBySymbol.get(o.symbol) || [];
+            list.push(o);
+            ordersBySymbol.set(o.symbol, list);
+          }
         }
 
         // PERF: Use Map for O(1) lookup during cross-reconciliation
@@ -712,7 +714,7 @@ export class SessionService implements OnModuleInit {
         const ghostPositions = activeExPositions.filter(p => !localSymbols.has(p.symbol));
 
         if (ghostPositions.length > 0) {
-          const imported = await this.adoptExchangePositions(ghostPositions, mode, allOpenOrders);
+          const imported = await this.adoptExchangePositions(ghostPositions, mode, allOpenOrders || undefined);
           if (imported.length > 0) {
             sessionOpenTrades.push(...imported);
             recalculationNeeded = true;
@@ -828,7 +830,7 @@ export class SessionService implements OnModuleInit {
       const ghostPositions = activeExPositions.filter(p => !localSymbols.has(p.symbol));
       if (ghostPositions.length > 0) {
         this.logger.warn(`[Reconciliation] Found ${ghostPositions.length} untracked positions during periodic audit. Adopting...`);
-        const imported = await this.adoptExchangePositions(ghostPositions, mode, allOpenOrders);
+        const imported = await this.adoptExchangePositions(ghostPositions, mode, allOpenOrders || undefined);
 
         // Hot-add adopted trades to the running engine
         for (const t of imported) {
@@ -862,10 +864,12 @@ export class SessionService implements OnModuleInit {
       if (!preFetchedOrders) {
         this.logger.log(`[Reconciliation] Performing fresh bulk open order audit for ${ghostPositions.length} ghost positions...`);
       }
-      for (const o of allExOrders) {
-        const list = allOrdersMap.get(o.symbol) || [];
-        list.push(o);
-        allOrdersMap.set(o.symbol, list);
+      if (allExOrders !== null) {
+        for (const o of allExOrders) {
+          const list = allOrdersMap.get(o.symbol) || [];
+          list.push(o);
+          allOrdersMap.set(o.symbol, list);
+        }
       }
     } catch (e) {
       this.logger.warn(`[Reconciliation] Failed to bulk fetch orders: ${e instanceof Error ? e.message : String(e)}`);

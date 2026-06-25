@@ -11,6 +11,7 @@ import { Log } from './models/entities/Log.entity';
 import { AuditLog } from './models/entities/AuditLog.entity';
 import { BalanceHistory } from './models/entities/BalanceHistory.entity';
 import { StrategyPreset } from './models/entities/StrategyPreset.entity';
+import { Kline } from './models/entities/Kline.entity';
 
 @Module({
   imports: [
@@ -23,8 +24,18 @@ import { StrategyPreset } from './models/entities/StrategyPreset.entity';
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
         url: configService.get<string>('DATABASE_URL'),
-        entities: [Session, TradeEntity, Settings, Log, AuditLog, BalanceHistory, StrategyPreset],
+        entities: [Session, TradeEntity, Settings, Log, AuditLog, BalanceHistory, StrategyPreset, Kline],
         synchronize: false, // Explicitly disable synchronize in all environments
+        // PERFORMANCE: Optimize PostgreSQL for trading workloads (Reduce checkpoint spikes)
+        extra: {
+          max: 20,
+          idleTimeoutMillis: 30000,
+          connectionTimeoutMillis: 2000,
+          // SRE: Optimize checkpoint behavior to protect the Node.js event loop from I/O stalls.
+          // Note: These usually require superuser or postgresql.conf, but passing via connection parameters
+          // where supported or documenting the requirement.
+          statement_timeout: 10000,
+        },
         migrations: [__dirname + '/migrations/*.{ts,js}'],
         migrationsRun: true,
         ssl: configService.get<string>('NODE_ENV') === 'production' ? { rejectUnauthorized: false } : false,

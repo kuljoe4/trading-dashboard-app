@@ -561,8 +561,18 @@ export class MarketFeedService {
       const pauseThreshold = Math.floor(limit * 0.5);
 
       if (usedWeight > pauseThreshold) {
+        // SRE: Window Awareness Fallback. If we are > 50% and near the end of the minute,
+        // wait for the rollover instead of a long fixed 10s sleep.
+        const secondsInMinute = new Date().getSeconds();
+        if (secondsInMinute > 45) {
+           const waitMs = (60 - secondsInMinute + 1) * 1000;
+           this.logger.warn(`Backfill pausing: High weight (${usedWeight}/${limit}) near window end. Waiting ${waitMs}ms for rollover...`);
+           await new Promise(resolve => setTimeout(resolve, waitMs));
+           continue;
+        }
+
         this.logger.warn(`Backfill queue pausing to preserve IP reputation (Weight: ${usedWeight}/${limit})...`);
-        await new Promise(resolve => setTimeout(resolve, 10000)); // Increased backoff to 10s
+        await new Promise(resolve => setTimeout(resolve, 10000)); // Normal backoff
         continue;
       }
 

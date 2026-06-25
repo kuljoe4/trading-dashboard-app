@@ -1230,25 +1230,31 @@ export class SessionService implements OnModuleInit {
     const imported: TradeEntity[] = [];
     if (ghostPositions.length === 0) return imported;
 
-    // PERF: If ghost positions exist, fetch all orders once to save API weight (Weight 40 vs 1 per symbol)
+    // PERF: Smart Audit for ghost positions.
+    // If few ghosts, fetch orders individually (Weight 1 per sym).
+    // If many, fetch bulk (Weight 40).
     let allOrdersMap = new Map<string, any[]>();
+    const useBulkAudit = ghostPositions.length > 5 && !preFetchedOrders;
+
     try {
-      const allExOrders =
-        preFetchedOrders || (await this.orderManager.fetchAllOpenOrders());
-      if (!preFetchedOrders) {
-        this.logger.log(
-          `[Reconciliation] Performing fresh bulk open order audit for ${ghostPositions.length} ghost positions...`,
-        );
+      if (preFetchedOrders) {
+        for (const o of preFetchedOrders) {
+          const list = allOrdersMap.get(o.symbol) || [];
+          list.push(o);
+          allOrdersMap.set(o.symbol, list);
+        }
+      } else if (useBulkAudit) {
+        this.logger.log(`[Reconciliation] Performing fresh bulk open order audit for ${ghostPositions.length} ghost positions...`);
+        const allExOrders = await this.orderManager.fetchAllOpenOrders();
+        for (const o of allExOrders) {
+          const list = allOrdersMap.get(o.symbol) || [];
+          list.push(o);
+          allOrdersMap.set(o.symbol, list);
+        }
       }
-      for (const o of allExOrders) {
-        const list = allOrdersMap.get(o.symbol) || [];
-        list.push(o);
-        allOrdersMap.set(o.symbol, list);
-      }
+      // If not bulk and not prefetched, we fetch per symbol in the loop below
     } catch (e) {
-      this.logger.warn(
-        `[Reconciliation] Failed to bulk fetch orders: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      this.logger.warn(`[Reconciliation] Failed to prepare orders for adoption: ${e instanceof Error ? e.message : String(e)}`);
     }
 
     for (const exPos of ghostPositions) {
@@ -1274,7 +1280,14 @@ export class SessionService implements OnModuleInit {
         let slType = undefined;
 
         try {
-          const exOrders = allOrdersMap.get(exPos.symbol) || [];
+          // Targeted Audit for this ghost position if not already fetched
+          let exOrders = allOrdersMap.get(exPos.symbol);
+          if (!exOrders && !useBulkAudit && !preFetchedOrders) {
+             this.logger.debug(`[Reconciliation] Fetching targeted orders for ghost ${exPos.symbol}`);
+             exOrders = await this.orderManager.fetchOpenOrders(exPos.symbol);
+             allOrdersMap.set(exPos.symbol, exOrders);
+          }
+          exOrders = exOrders || [];
 
           // COMPLIANCE: Recognize more SL/TP order types during adoption
           const slOrder = exOrders.find((o: any) => {

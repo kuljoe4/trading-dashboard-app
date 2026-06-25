@@ -10,7 +10,7 @@ import { KlineStoreService } from './kline_store.service';
 import { SessionStateService } from './session_state.service';
 import { roundEight } from '../lib/math';
 import { ENGINE_EVENTS } from './events';
-import { CONFIG_LIMITS } from '../models/constants';
+import { CONFIG_LIMITS, ENGINE_CONSTANTS } from '../models/constants';
 
 @Injectable()
 export class PositionTrackerService {
@@ -285,7 +285,7 @@ export class PositionTrackerService {
       return {
         exitOccurred: true,
         exitType: 'CLOSED_SL',
-        exitReason: 'SL_HIT',
+        exitReason: ENGINE_CONSTANTS.EXIT_REASONS.SL_HIT,
       };
     }
 
@@ -296,7 +296,7 @@ export class PositionTrackerService {
       return {
         exitOccurred: true,
         exitType: 'CLOSED_TP',
-        exitReason: 'TP_HIT',
+        exitReason: ENGINE_CONSTANTS.EXIT_REASONS.TP_HIT,
       };
     }
 
@@ -306,7 +306,7 @@ export class PositionTrackerService {
       return {
         exitOccurred: true,
         exitType: 'CLOSED_TP',
-        exitReason: 'TP_HIT',
+        exitReason: ENGINE_CONSTANTS.EXIT_REASONS.TP_HIT,
       };
     }
 
@@ -354,11 +354,11 @@ export class PositionTrackerService {
     this.closingSymbols.add(symbol);
 
     try {
-    if (exitReason === 'MANUAL_CLOSE') {
+    if (exitReason === ENGINE_CONSTANTS.EXIT_REASONS.MANUAL_CLOSE) {
       trade.exit_signal_type = 'MANUAL';
       trade.exit_signal_reason = 'User manually closed position';
-    } else if (exitReason === 'SESSION_TERMINATED') {
-      trade.exit_signal_type = 'SESSION_TERMINATED';
+    } else if (exitReason === ENGINE_CONSTANTS.EXIT_REASONS.SESSION_TERMINATED) {
+      trade.exit_signal_type = ENGINE_CONSTANTS.EXIT_REASONS.SESSION_TERMINATED;
       trade.exit_signal_reason = 'Trading session was stopped by user';
     }
 

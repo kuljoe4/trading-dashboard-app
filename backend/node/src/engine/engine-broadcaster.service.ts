@@ -21,6 +21,11 @@ export class EngineBroadcasterService {
   private lastRiskResult: any = null;
   private lastAnalyticsTradeCount = -1;
   private lastAnalyticsStartingBalance = -1;
+  /**
+   * BOLT OPTIMIZATION: Track the last state successfully broadcast to clients.
+   * This ensures true delta updates even if tick data is cleared or partial.
+   */
+  private lastSentTrades = new Map<string, TickTradeDto>();
 
   constructor(
     private readonly tickerCache: TickerCacheService,
@@ -45,6 +50,7 @@ export class EngineBroadcasterService {
    */
   minimize() {
     this.lastTickData = null;
+    this.lastSentTrades.clear();
     this.lastAnalyticsResult = null;
     this.lastAnalyticsTradeCount = -1;
     this.logger.verbose('EngineBroadcasterService: Broadcast caches cleared');
@@ -162,6 +168,42 @@ export class EngineBroadcasterService {
   }
 
   /**
+   * BOLT OPTIMIZATION: High-performance serialization for the broadcast tick.
+   * Avoids double-allocations and redundant mapping by returning TickTradeDto directly.
+   */
+  public serializeTickTrade(trade: Trade, config: SessionConfig, current: number, pnlValue: number, rrValue: number): TickTradeDto {
+    const direction = (trade.direction || 'LONG').toString().toUpperCase() as 'LONG' | 'SHORT';
+    const entry = trade.entry_price ?? 0;
+
+    return {
+      id: trade.id,
+      symbol: trade.symbol,
+      strategy_label: trade.strategy_label || this.getStrategyLabel(trade.strategy_config || config),
+      current_price: roundTo(current, 8),
+      sl_price: roundTo(trade.current_sl, 8),
+      tp_price: roundTo(trade.tp, 8),
+      pnl: roundTo(pnlValue, 2),
+      pnl_pct: entry ? roundTo(((current - entry) / entry) * 100 * (direction === 'LONG' ? 1 : -1), 4) : 0,
+      realized_fee: roundTo(trade.realized_fee, 2),
+      funding_fee: roundTo(trade.funding_fee || 0, 2),
+      rr: roundTo(rrValue, 4),
+      max_rr: roundTo(trade.max_rr_achieved ?? 0, 4),
+      direction,
+      entry_price: roundTo(entry, 8),
+      qty: roundTo(trade.qty ?? 0, 8),
+      entry_daily_change_pct: trade.entry_daily_change_pct,
+      close_attempts: trade.close_attempts,
+      close_blocked: trade.close_blocked,
+      initial_risk_usdt: trade.initial_risk_usdt ?? undefined,
+      _thin: true,
+      _sl_len: trade.sl_adjustments?.length || 0,
+      _sig_json: trade._sig_json || JSON.stringify(trade.exit_signals_status || {}),
+      live_rr_sequence: trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || [],
+      exit_rr_sequence: trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || [],
+    };
+  }
+
+  /**
    * Refactor: Move tiered fidelity logic from server.ts to a dedicated method
    * to decouple business/display logic from the transport layer.
    */
@@ -172,6 +214,10 @@ export class EngineBroadcasterService {
 
     if (tick.trades && Array.isArray(tick.trades)) {
       tick.trades = tick.trades.map((trade: any) => {
+        // BOLT: If trade is already thin (from a tick delta), we can skip most stripping
+        // unless focused fidelity is requested.
+        const isThin = trade._thin === true;
+
         // 1. Full Fidelity: ONLY for a specific focused trade ID
         const isFullFidelity = client.focusMode && client.focusTradeId === trade.id;
 
@@ -182,6 +228,8 @@ export class EngineBroadcasterService {
         if (isFullFidelity) {
           return trade;
         }
+
+        if (isThin && !isMidFidelity) return trade;
 
         // Strip heavy diagnostics for everyone else
         const {
@@ -233,10 +281,6 @@ export class EngineBroadcasterService {
 
     const now = Date.now();
     const isHeartbeat = !this.lastTickData || (now - this.lastTickTime > 10000);
-    const prevTickMap = new Map<string, TickTradeDto>();
-    if (this.lastTickData?.trades) {
-      for (const t of this.lastTickData.trades) prevTickMap.set(t.id, t);
-    }
 
     const trades: TickTradeDto[] = [];
     const len = activeTrades.length;
@@ -245,14 +289,23 @@ export class EngineBroadcasterService {
     let totalRiskUsdt = 0;
     const hasVariants = !!(config?.strategy_variants?.length);
     const variantGroups: Record<string, { pnl: number, risk: number, count: number, hits: number }> = {};
+    const priceCache = new Map<string, number | null>();
 
     const riskResult = this.riskEngine.canEnter(this.positionTracker.activeList(), this.sessionState.closedTrades, this.sessionState.getBalance(config?.paper_mode ?? true), 'DUMMY', config, this.positionTracker.totalRisk());
     this.lastRiskResult = riskResult;
 
+    const currentTickSentTrades = new Map<string, TickTradeDto>();
+
     for (let i = 0; i < len; i++) {
       const trade = activeTrades[i];
-      const prevTrade = prevTickMap.get(trade.id);
-      let currentPrice = this.tickerCache.getPrice(trade.symbol);
+      const prevTrade = this.lastSentTrades.get(trade.id);
+
+      let currentPrice = priceCache.get(trade.symbol);
+      if (currentPrice === undefined) {
+        currentPrice = this.tickerCache.getPrice(trade.symbol);
+        priceCache.set(trade.symbol, currentPrice);
+      }
+
       if (currentPrice === null && prevTrade) currentPrice = prevTrade.current_price;
 
       const current = currentPrice ?? trade.exit_price ?? trade.last_price ?? trade.entry_price;
@@ -270,6 +323,9 @@ export class EngineBroadcasterService {
       const pnlValue = roundEight(grossPnl);
       activePnl += pnlValue;
       totalRiskUsdt += (trade.risk_usdt || 0);
+
+      const riskDist = Math.abs(entry - (trade.initial_sl ?? trade.current_sl ?? entry)) || 1;
+      const rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / riskDist;
 
       if (hasVariants) {
         const label = trade.strategy_label || 'Momentum Strategy';
@@ -299,8 +355,6 @@ export class EngineBroadcasterService {
             if (priceMoveRatio >= 0.0001) {
                 tradeChanged = true;
             } else {
-              const risk = Math.abs(entry - (trade.initial_sl ?? trade.current_sl ?? entry)) || 1;
-              const rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / risk;
               if (Math.abs(rrValue - (prevTrade.rr || 0)) >= 0.01) {
                 tradeChanged = true;
                 anyPriceChangedSignificant = true;
@@ -311,34 +365,11 @@ export class EngineBroadcasterService {
       }
 
       if (tradeChanged) {
-        const serialized = this.serializeTrade(trade, config, current, true);
-        const thin: TickTradeDto = {
-          id: serialized.id,
-          symbol: serialized.symbol,
-          strategy_label: serialized.strategy_label,
-          current_price: serialized.current_price,
-          sl_price: serialized.sl_price,
-          tp_price: serialized.tp_price,
-          pnl: serialized.pnl,
-          pnl_pct: serialized.pnl_pct,
-          realized_fee: serialized.realized_fee,
-          funding_fee: serialized.funding_fee,
-          rr: serialized.rr,
-          max_rr: serialized.max_rr,
-          direction: serialized.direction,
-          entry_price: serialized.entry_price,
-          qty: serialized.qty,
-          entry_daily_change_pct: serialized.entry_daily_change_pct,
-          close_attempts: serialized.close_attempts,
-          close_blocked: serialized.close_blocked,
-          initial_risk_usdt: serialized.initial_risk_usdt,
-          _thin: true,
-          _sl_len: trade.sl_adjustments?.length || 0,
-          _sig_json: trade._sig_json || JSON.stringify(trade.exit_signals_status || {}),
-          live_rr_sequence: serialized.live_rr_sequence,
-          exit_rr_sequence: serialized.exit_rr_sequence,
-        };
+        const thin = this.serializeTickTrade(trade, config, current, pnlValue, rrValue);
         trades.push(thin);
+        currentTickSentTrades.set(trade.id, thin);
+      } else if (prevTrade) {
+        currentTickSentTrades.set(trade.id, prevTrade);
       }
     }
 
@@ -413,8 +444,7 @@ export class EngineBroadcasterService {
     if (shouldBroadcast) tickData._heartbeat = true;
 
     if (!shouldBroadcast) {
-      const prevTrades = this.lastTickData?.trades || [];
-      const tradesChanged = trades.length > 0 || len !== prevTrades.length || anyPriceChangedSignificant;
+      const tradesChanged = trades.length > 0 || anyPriceChangedSignificant;
       const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) > 0.1;
       const gateChanged = tickData.gateState !== this.lastTickData?.gateState;
       const statsChanged = tickData._statsVersion !== this.lastTickData?._statsVersion;
@@ -431,6 +461,7 @@ export class EngineBroadcasterService {
       this.broadcastService.broadcast('tick', tickData);
       this.lastTickData = tickData;
       this.lastTickTime = now;
+      this.lastSentTrades = currentTickSentTrades;
     }
   }
 }

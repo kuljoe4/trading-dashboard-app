@@ -280,6 +280,7 @@ export class SessionLifecycleService {
         this.sessionState.balanceLive = nb;
         this.sessionState.balancePaper = nb;
         this.sessionState.lastExchangeBalance = nb;
+        this.sessionState.lastUdsBalanceUpdate = Date.now();
       }
     }
     // Real-time Position Tracking (Zero Weight)
@@ -296,11 +297,19 @@ export class SessionLifecycleService {
 
         const trade = this.sessionState.activeTrades.find(t => t.symbol === symbol);
 
-        // Real-time Quantity Sync: Update active trade quantity from UDS ACCOUNT_UPDATE
+        // Real-time Quantity & Price Sync: Update active trade from UDS ACCOUNT_UPDATE
         if (trade && amount !== 0) {
           const absoluteAmount = Math.abs(amount);
+          const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
+
+          // Authoritative Entry Price Sync
+          if (entryPrice > 0 && Math.abs(trade.entry_price - entryPrice) > 0.00000001) {
+            this.logger.log(`[${tradeIdShort8}] [Sync] Updating entry price from ACCOUNT_UPDATE for ${symbol}: ${trade.entry_price} -> ${entryPrice}`);
+            trade.entry_price = entryPrice;
+          }
+
+          // Authoritative Quantity Sync
           if (Math.abs(trade.qty - absoluteAmount) > 0.00000001) {
-            const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
             this.logger.log(`[${tradeIdShort8}] [Sync] Updating quantity from ACCOUNT_UPDATE for ${symbol}: ${trade.qty} -> ${absoluteAmount}`);
             trade.qty = absoluteAmount;
             this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: absoluteAmount });

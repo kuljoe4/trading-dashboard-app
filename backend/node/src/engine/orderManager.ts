@@ -660,20 +660,29 @@ export class OrderManagerService {
              if (totalQty > 0) absoluteEntryPrice = weightedSum / totalQty;
           }
 
-          // DATA-CONSISTENCY: Fallback for 0 price responses - Query exchange for authoritative fill price
+          // DATA-CONSISTENCY: Fallback for 0 price responses.
+          // BOLT: Prioritize UDS. If UDS is connected, it will provide the entry price via ACCOUNT_UPDATE.
+          // We only call queryOrder (Weight 1) if absoluteEntryPrice is still 0 after a short debounce to allow UDS arrival.
           if (absoluteEntryPrice === 0 && trade.binance_order_id) {
-             try {
-                this.logger.log(`[${symbol}] [Sync] Binance returned 0 price for entry. Fetching authoritative price via queryOrder...`);
-                const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, orderId: BigInt(trade.binance_order_id) });
-                const queryData = await queryRes.data() as any;
-                absoluteEntryPrice = parseFloat(queryData.avgPrice || queryData.price || '0');
+             if (this.sessionState.realTimePositions.has(symbol)) {
+                absoluteEntryPrice = this.sessionState.realTimePositions.get(symbol)!.entryPrice;
                 if (absoluteEntryPrice > 0) {
-                  this.logger.log(`[${symbol}] [Sync] Successfully fetched authoritative entry price: ${absoluteEntryPrice}`);
-                } else {
-                  this.logger.warn(`[${symbol}] [Sync] Exchange query returned 0 or missing price for order ${trade.binance_order_id}.`);
+                   this.logger.log(`[${symbol}] [Sync] Using UDS-cached entry price: ${absoluteEntryPrice}`);
                 }
-             } catch (queryErr) {
-                this.logger.warn(`[${symbol}] [Sync] Failed to fetch authoritative price: ${queryErr instanceof Error ? queryErr.message : String(queryErr)}`);
+             }
+
+             if (absoluteEntryPrice === 0) {
+                try {
+                   this.logger.log(`[${symbol}] [Sync] Binance returned 0 price for entry and UDS cache empty. Fetching authoritative price via queryOrder...`);
+                   const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, orderId: BigInt(trade.binance_order_id) });
+                   const queryData = await queryRes.data() as any;
+                   absoluteEntryPrice = parseFloat(queryData.avgPrice || queryData.price || '0');
+                   if (absoluteEntryPrice > 0) {
+                     this.logger.log(`[${symbol}] [Sync] Successfully fetched authoritative entry price: ${absoluteEntryPrice}`);
+                   }
+                } catch (queryErr) {
+                   this.logger.warn(`[${symbol}] [Sync] Failed to fetch authoritative price: ${queryErr instanceof Error ? queryErr.message : String(queryErr)}`);
+                }
              }
           }
 

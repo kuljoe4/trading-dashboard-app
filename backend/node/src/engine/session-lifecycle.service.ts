@@ -260,23 +260,6 @@ export class SessionLifecycleService {
         return parseFloat(usdt.balance || 0);
       }
 
-      // Fallback: try futuresAccountBalanceV2 (legacy) then accountInformationV2 (full account details)
-      this.logger.debug(`futuresAccountBalanceV3 did not return USDT. Trying V2 fallback...`);
-      const v2Res = await bc.restAPI.futuresAccountBalanceV2();
-      const v2Data = await v2Res.data() as any;
-      const v2Usdt = Array.isArray(v2Data) ? v2Data.find((b: any) => b.asset === 'USDT') : null;
-      if (v2Usdt) return parseFloat(v2Usdt.balance || 0);
-
-      this.logger.debug(`futuresAccountBalanceV2 did not return USDT. Trying accountInformationV2 fallback...`);
-      const accRes = await bc.restAPI.accountInformationV2();
-      const accData = await accRes.data() as any;
-      if (accData && Array.isArray(accData.assets)) {
-        const accUsdt = accData.assets.find((a: any) => a.asset === 'USDT');
-        if (accUsdt) {
-          return parseFloat(accUsdt.walletBalance || 0);
-        }
-      }
-
       this.logger.warn(`Could not find USDT balance in Binance response. Data received: ${JSON.stringify(data).substring(0, 200)}`);
       return 0;
     } catch (e: unknown) {

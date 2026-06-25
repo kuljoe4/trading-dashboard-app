@@ -66,8 +66,9 @@ describe('SessionService PnL Logic Consistency Fix', () => {
       { findOne: jest.fn().mockResolvedValue({ id: 'default' }) } as any, // settingsRepository
       {} as any, // balanceHistoryRepository
       mockTradingSessionService,
-      { emit: jest.fn() } as any, // eventEmitter
       {} as any, // orderManager
+      {} as any, // marketFeed
+      { emit: jest.fn() } as any, // eventEmitter
       {} as any, // analytics
       {} as any, // binanceClientFactory
       { log: jest.fn() } as any // auditLog

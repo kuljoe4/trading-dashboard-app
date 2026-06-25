@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
-import { OnEvent } from '@nestjs/event-emitter';
+import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import WebSocket from 'ws';
 import { SessionConfig } from '../models/SessionConfig';
 import { ENGINE_CONSTANTS } from '../models/constants';
@@ -51,6 +51,7 @@ export class MarketFeedService {
     private sessionState: SessionStateService,
     private signalEngine: SignalEngineService,
     private monitoringService: MonitoringService,
+    private eventEmitter: EventEmitter2,
     @InjectRepository(SettingsEntity)
     private readonly settingsRepository: Repository<SettingsEntity>,
   ) {}
@@ -79,12 +80,52 @@ export class MarketFeedService {
         : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
 
     await this.fetchExchangeInfo(restBase);
-    // CITADEL: Optimized Startup - Removed 5s wait and 40-weight REST fallback (fetchInitialTickers)
-    // Weight Saved: 40 units (W_cumulative += 0)
+
     this.startMiniTickerStream(wsBasePublic);
     this.startMarkTickerStream(wsBasePublic);
 
+    // RESEARCH: "Cold Start" mitigation. We wait for WS to populate the ticker cache.
+    // If it's still empty after a grace period, we perform a one-time REST fetch to ensure the watchlist isn't 0.
+    // BOLT: Even if not empty, we trigger a re-evaluation after 5s to ensure the UI updates from 0 monitored symbols.
+    setTimeout(async () => {
+       if (!this.running) return;
+       if (this.tickerCache.getCacheSize() === 0) {
+          this.logger.warn(`[MarketFeed] Ticker cache empty after 5s WS wait. Falling back to REST fetchInitialTickers (Weight 40)...`);
+          await this.fetchInitialTickers(restBase);
+       } else {
+          this.logger.log(`[MarketFeed] WS Seeding successful. Ticker cache size: ${this.tickerCache.getCacheSize()}. Triggering watchlist re-evaluation.`);
+          this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
+       }
+    }, 5000);
+
     this.startWatchlistManager(config);
+  }
+
+  private async fetchInitialTickers(restBase: string) {
+    try {
+      this.monitoringService.incrementApiRequests();
+      let data: any[];
+
+      if (this.binanceClient) {
+        const response = await this.binanceClient.restAPI.ticker24hrPriceChangeStatistics();
+        this.updateWeight(response.headers);
+        data = await response.data();
+      } else {
+        const response = await fetch(`${restBase}/fapi/v1/ticker/24hr`);
+        this.updateWeight(response.headers);
+        if (!response.ok) return;
+        data = await response.json() as any[];
+      }
+
+      if (Array.isArray(data)) {
+        this.tickerCache.bulkUpdate(data);
+        this.logger.log(`[MarketFeed] Ticker cache seeded via REST: ${data.length} symbols.`);
+        // Proactively trigger watchlist update now that we have data
+        this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
+      }
+    } catch (err) {
+      this.logger.error(`Failed to fetch initial tickers: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   public updateWeight(headers: any) {
@@ -97,7 +138,7 @@ export class MarketFeedService {
     }
   }
 
-  private async fetchExchangeInfo(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
+  public async fetchExchangeInfo(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
     const now = Date.now();
     // BOLT: Static caching of exchange info for 1 hour to prevent redundant heavy calls (Weight 40) across session restarts
     // RESEARCH-02: Increase TTL to 12 hours for metadata that rarely changes, further reducing weight usage.
@@ -291,7 +332,9 @@ export class MarketFeedService {
       });
 
       ws.on('message', (data: Buffer) => {
-        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) return;
+        // BOLT: Even in Eco Mode, we must populate the cache if it's currently empty to allow the first watchlist re-evaluation.
+        const cacheEmpty = this.tickerCache.getCacheSize() === 0;
+        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0 && !cacheEmpty) return;
         try {
           const msg = JSON.parse(data as any);
           let tickers: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
@@ -327,7 +370,8 @@ export class MarketFeedService {
       });
 
       ws.on('message', (data: Buffer) => {
-        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) return;
+        const cacheEmpty = this.tickerCache.getCacheSize() === 0;
+        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0 && !cacheEmpty) return;
         try {
           const msg = JSON.parse(data as any);
           const updates = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);

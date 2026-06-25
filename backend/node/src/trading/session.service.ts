@@ -30,9 +30,10 @@ import { decrypt } from "../lib/crypto";
 import { ConfigValidationException } from "../lib/exceptions";
 import { BinanceClientFactory } from "../lib/binanceClientFactory";
 import { AnalyticsService } from "../engine/analytics.service";
+import { MarketFeedService } from "../engine/market_feed.service";
 import { updateLogLevels } from "../lib/logger";
 import { roundEight } from "../lib/math";
-import { CONFIG_LIMITS, EXIT_REASONS } from "../models/constants";
+import { CONFIG_LIMITS, EXIT_REASONS, ENGINE_CONSTANTS } from "../models/constants";
 
 @Injectable()
 export class SessionService implements OnModuleInit {
@@ -63,6 +64,7 @@ export class SessionService implements OnModuleInit {
     private tradingSessionService: TradingSessionService,
     @Inject(forwardRef(() => OrderManagerService))
     private orderManager: OrderManagerService,
+    private marketFeed: MarketFeedService,
     private eventEmitter: EventEmitter2,
     private analyticsService: AnalyticsService,
     private binanceClientFactory: BinanceClientFactory,
@@ -716,9 +718,21 @@ export class SessionService implements OnModuleInit {
       );
     }
 
+    // DATA-07: Ensure exchange filters are loaded BEFORE reconciliation to avoid "Symbol not found" errors
+    try {
+      const isTestnet = mode === "testnet";
+      const restBase = isTestnet
+          ? "https://testnet.binancefuture.com"
+          : ENGINE_CONSTANTS.BINANCE_REST_BASE;
+      await this.marketFeed.fetchExchangeInfo(restBase);
+    } catch (e) {
+      this.logger.error(`Failed to pre-load exchange info: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
     // 1. Reconciliation Prep: Identification of potential orphans.
     // SRE: Deferring final closure of orphans until exchange state is verified.
     let potentialOrphans: TradeEntity[] = [];
+    let recalculationNeeded = false;
 
     for (const trade of openTrades) {
       let isOrphaned = false;
@@ -753,7 +767,8 @@ export class SessionService implements OnModuleInit {
       }
 
       // Offline Breach Detection for paper trades in the current session
-      if (mode === "paper" && trade.sessionId === this.currentSessionId) {
+      // SRE: Re-verify that the trade still belongs to this session and hasn't been reconciled out
+      if (mode === "paper" && trade.sessionId === this.currentSessionId && !(trade as any).reconciled_out) {
         const currentPrice = await this.tradingSessionService.fetchTickerPrice(
           trade.symbol,
         );
@@ -813,11 +828,17 @@ export class SessionService implements OnModuleInit {
               exit_reason: reason,
               is_reconciliation: true,
             };
+
+            // SRE: Accumulate PnL directly on the session instance during the loop
+            // to ensure multiple breaches are correctly reflected in the final balance.
+            session.balance = roundEight(Number(session.balance) + pnl);
+
             await this.saveTradeAtomic(
               updatedTrade,
-              roundEight(Number(session.balance) + pnl),
+              Number(session.balance),
             );
             (trade as any).reconciled_out = true;
+            recalculationNeeded = true;
           }
         }
       }
@@ -857,8 +878,7 @@ export class SessionService implements OnModuleInit {
       mode === "paper",
     );
 
-    let recalculationNeeded = false;
-
+    // 2. Reconciliation: Verify and Process Potential Orphans and Active Trades
     // Reconcile open trades with actual exchange positions
     if (mode !== "paper" && binanceClient) {
       try {
@@ -1062,6 +1082,23 @@ export class SessionService implements OnModuleInit {
         return tMode === mode;
       })
       .slice(0, 200);
+
+    // Paper mode orphan handling (Simplified verification as there is no exchange)
+    if (mode === "paper") {
+       for (const trade of potentialOrphans) {
+          this.logger.warn(`[Reconciliation] Trade ${trade.symbol} (${trade.id}) is orphaned. Reason: ${(trade as any).orphanReason}. Marking as closed.`);
+          await this.tradeRepository.update(trade.id, {
+            status: "CLOSED_ORPHANED",
+            exit_ts: new Date(),
+            is_reconciliation: true,
+          });
+          await this.logMessage(
+            `Trade ${trade.symbol} was orphaned (${(trade as any).orphanReason}) and marked closed.`,
+            "warn",
+          );
+          recalculationNeeded = true;
+       }
+    }
 
     if (recalculationNeeded) {
       this.logger.log(

@@ -103,7 +103,7 @@ export class OrderManagerService {
 
       if (trade) {
         const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
-        const avgPrice = parseFloat(order.ap || '0');
+        const avgPrice = parseFloat(order.ap || '0'); // 'ap' is average price in ORDER_TRADE_UPDATE
         const lastPrice = parseFloat(order.L || '0');
 
         // BOLT: Handle both REST order IDs and Client IDs for SL matching
@@ -154,6 +154,12 @@ export class OrderManagerService {
            if (avgPrice > 0 && trade.entry_price !== avgPrice) {
               this.logger.log(`[${tradeIdShort8}] [Sync] Updating entry price from UDS for ${symbol}: ${trade.entry_price} -> ${avgPrice}`);
               trade.entry_price = roundEight(avgPrice);
+
+              // SRE: Proactively update the real-time position cache to prevent queryOrder fallbacks in SL placement
+              this.sessionState.realTimePositions.set(symbol, {
+                 amount: trade.qty,
+                 entryPrice: trade.entry_price
+              });
            }
 
            // Real-time Quantity Sync: Update trade quantity from UDS (ORDER_TRADE_UPDATE)
@@ -162,6 +168,13 @@ export class OrderManagerService {
            if (filledQty > 0 && Math.abs(trade.qty - filledQty) > 0.00000001) {
               this.logger.log(`[${tradeIdShort8}] [Sync] Updating quantity from UDS for ${symbol}: ${trade.qty} -> ${filledQty}`);
               trade.qty = filledQty;
+
+              // SRE: Also update the real-time position cache
+              this.sessionState.realTimePositions.set(symbol, {
+                 amount: filledQty,
+                 entryPrice: trade.entry_price
+              });
+
               this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: filledQty });
            }
         }
@@ -730,6 +743,9 @@ export class OrderManagerService {
           });
 
           // Place SL separately. Pass actual fill price for immediate-breach guard.
+          // SRE: Proactively update real-time positions map so SL placement can use the most fresh data if UDS hasn't arrived yet
+          this.sessionState.realTimePositions.set(symbol, { amount: trade.qty, entryPrice: trade.entry_price });
+
           const slResult = await this.placeStopLoss(trade, slPrice, trade.entry_price);
           if (slResult?.orderId === 'TRIGGERED_LOCALLY') {
              this.logger.log(`[${trade.id.substring(0, 8)}] SL for ${symbol} was triggered locally during entry. Trade will be closed.`);

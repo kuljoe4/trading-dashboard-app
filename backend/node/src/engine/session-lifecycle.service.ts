@@ -246,7 +246,8 @@ export class SessionLifecycleService {
       this.monitoringService.incrementApiRequests();
       // OPTIMIZATION: Migrate to V3 endpoint for targeted, low-payload balance fetch.
       // futuresAccountBalanceV3 returns only active symbols, reducing network overhead.
-      const res = await bc.restAPI.futuresAccountBalanceV3();
+      // SRE: Explicitly filter to USDT to minimize exchange-side processing and weight.
+      const res = await bc.restAPI.futuresAccountBalanceV3({ asset: 'USDT' });
       if (!res) return 0;
 
       // Traceability: Log successful balance fetch

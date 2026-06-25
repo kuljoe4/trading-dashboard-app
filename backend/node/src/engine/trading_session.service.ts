@@ -482,7 +482,8 @@ export class TradingSessionService implements OnApplicationShutdown {
     try {
       this.monitoringService.incrementApiRequests();
       // OPTIMIZATION: Migrate to V3 endpoint for targeted, low-payload balance fetch (Weight 5).
-      const res = await this.binanceClient.restAPI.futuresAccountBalanceV3();
+      // SRE: Explicitly filter to USDT to ensure minimal weight consumption.
+      const res = await this.binanceClient.restAPI.futuresAccountBalanceV3({ asset: 'USDT' });
 
       // Update weight if headers are present
       const weight = typeof res?.headers?.get === 'function'

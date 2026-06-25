@@ -54,20 +54,11 @@ export class MaintenanceService {
         return;
       }
 
-      // BOLT: Coordinated Snapshot Pattern for positions (Weight 5)
-      const allPositions = await this.orderManager.fetchAllPositions();
-      const activePositionsMap = new Map(allPositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0).map(p => [p.symbol, p]));
-
-      // WebSocket-First state reconciliation: Use UDS cache for active positions to avoid frequent bulk REST calls
-      for (const [symbol, pos] of activePositionsMap.entries()) {
-         this.orderManager.seedRealTimePosition(symbol, parseFloat(pos.positionAmt), parseFloat(pos.entryPrice));
-      }
-
-      // SRE Overwatch: Mandatory stagger delay between heavy bulk calls to flatten the weight profile
-      if (tradesToAudit.length > 5) {
-         this.logger.debug(`[Watchdog] Staggering bulk audits (3s cooldown)...`);
-         await new Promise(resolve => setTimeout(resolve, 3000));
-      }
+      // SRE: Optimized Audit Pattern. For small sets of trades (<= 5), use targeted per-symbol calls
+      // to minimize weight (7 weight per symbol). Revert to bulk for larger sets (45+ weight).
+      const useBulkAudit = tradesToAudit.length > 5 && !targetSymbol;
+      let activePositionsMap = new Map<string, any>();
+      let slOrdersBySymbol = new Map<string, any[]>();
 
       const isSlOrder = (o: any) => {
         const isStandardSl = (o.type === 'STOP_MARKET' || o.type === 'STOP')
@@ -76,25 +67,40 @@ export class MaintenanceService {
         return isStandardSl || isConditionalAlgoSl;
       };
 
-      // SRE: Use Coordinated Snapshot Pattern for audits.
-      // ALWAYS perform bulk fetch if auditing multiple trades to eliminate per-symbol REST bursts.
-      let slOrdersBySymbol = new Map<string, any[]>();
+      if (useBulkAudit) {
+        this.logger.log(`[Watchdog] Performing bulk audit for ${tradesToAudit.length} trades...`);
+        // BOLT: Coordinated Snapshot Pattern for positions (Weight 5)
+        const allPositions = await this.orderManager.fetchAllPositions();
+        allPositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0).forEach(p => activePositionsMap.set(p.symbol, p));
 
-      if (tradesToAudit.length > 1 && !targetSymbol) {
-         this.logger.log(`[Watchdog] Performing bulk open order audit for ${tradesToAudit.length} trades...`);
-         const allOrders = await this.orderManager.fetchAllOpenOrders();
-         allOrders.filter(isSlOrder).forEach(o => {
-           const list = slOrdersBySymbol.get(o.symbol) || [];
-           list.push(o);
-           slOrdersBySymbol.set(o.symbol, list);
-         });
+        // SRE Overwatch: Mandatory stagger delay between heavy bulk calls to flatten the weight profile
+        this.logger.debug(`[Watchdog] Staggering bulk order audit (2s cooldown)...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        const allOrders = await this.orderManager.fetchAllOpenOrders();
+        allOrders.filter(isSlOrder).forEach(o => {
+          const list = slOrdersBySymbol.get(o.symbol) || [];
+          list.push(o);
+          slOrdersBySymbol.set(o.symbol, list);
+        });
       } else {
-         const uniqueSymbols = Array.from(new Set(tradesToAudit.map(t => t.symbol)));
-         for (const symbol of uniqueSymbols) {
-            // SRE: Specify symbol parameter to reduce weight from 40 to 1
-            const orders = await this.orderManager.fetchOpenOrders(symbol);
-            slOrdersBySymbol.set(symbol, orders.filter(isSlOrder));
-         }
+        const uniqueSymbols = Array.from(new Set(tradesToAudit.map(t => t.symbol)));
+        this.logger.log(`[Watchdog] Performing targeted audit for ${uniqueSymbols.length} symbols...`);
+        for (const symbol of uniqueSymbols) {
+           // Targeted position (Weight 5) and orders (Weight 1+1)
+           const pos = await this.orderManager.fetchPosition(symbol, { forceFresh: true });
+           if (pos && Math.abs(parseFloat(pos.positionAmt)) > 0) {
+             activePositionsMap.set(symbol, pos);
+           }
+
+           const orders = await this.orderManager.fetchOpenOrders(symbol);
+           slOrdersBySymbol.set(symbol, orders.filter(isSlOrder));
+        }
+      }
+
+      // WebSocket-First state reconciliation: Use UDS cache for active positions to avoid frequent bulk REST calls
+      for (const [symbol, pos] of activePositionsMap.entries()) {
+         this.orderManager.seedRealTimePosition(symbol, parseFloat(pos.positionAmt), parseFloat(pos.entryPrice));
       }
 
       for (const trade of tradesToAudit) {

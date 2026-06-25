@@ -56,6 +56,9 @@ export class SessionStateService {
   public listenerCount = 0;
   public dashboardCount = 0;
 
+  // SRE: Entry Pipeline Lock to prevent concurrent entry evaluations and dispatches
+  public entryInProgress = false;
+
   reset(config: SessionConfig, initialHistory: Trade[] = [], currentBalance?: number, sessionId?: string) {
     this.config = config;
 
@@ -129,6 +132,11 @@ export class SessionStateService {
     if (limit) {
       this.binanceRateLimit.limit = limit;
     }
+  }
+
+  @OnEvent('binance.order_limit_update')
+  handleOrderLimitUpdate(payload: { headers: any }) {
+    this.updateOrderRateLimits(payload.headers);
   }
 
   updateOrderRateLimits(headers: any | null, limits?: { limit10s?: number, limit1m?: number }) {

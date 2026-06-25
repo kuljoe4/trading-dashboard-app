@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
 import { RiskEngineService } from './riskEngine';
@@ -404,6 +404,27 @@ export class PositionTrackerService {
   /**
    * DATA-07: Manual recalculation of total risk to ensure state consistency
    */
+  @OnEvent(ENGINE_EVENTS.QUANTITY_SYNC)
+  handleQuantitySync(payload: { symbol: string, qty: number }) {
+    const trade = this.trades.get(payload.symbol);
+    if (trade && trade.status === 'OPEN') {
+      const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
+      this.logger.log(`[${tradeIdShort8}] [Sync] Synchronizing risk for ${payload.symbol} after quantity update to ${payload.qty}`);
+
+      // Update quantity before risk calculation for consistency
+      trade.qty = payload.qty;
+      const slDistance = Math.abs(trade.entry_price - trade.current_sl);
+      trade.risk_usdt = roundEight(slDistance * trade.qty);
+      trade.updated_at = new Date();
+
+      this.recalculateTotalRisk();
+      this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+
+      // Reactive Watchdog Audit to ensure SL order matches new quantity
+      this.eventEmitter.emit('watchdog.reactive_audit', { symbol: payload.symbol });
+    }
+  }
+
   recalculateTotalRisk(): void {
     let activeRisk = 0;
     for (const t of this.trades.values()) {

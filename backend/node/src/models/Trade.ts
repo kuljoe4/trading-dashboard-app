@@ -77,8 +77,6 @@ export class Trade {
 
   entry_daily_change_pct?: number;
 
-  quantity?: number;
-
   binance_order_id?: string;
 
   binance_close_order_id?: string;
@@ -102,8 +100,6 @@ export class Trade {
   is_reconciliation?: boolean;
 
   _sig_json?: string;
-
-  _last_funding_delta?: number;
 
   updated_at?: Date;
 }

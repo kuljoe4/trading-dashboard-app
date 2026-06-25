@@ -1,3 +1,7 @@
 ## 2026-06-22 - Non-Atomic SL Ratcheting Race & Protection Gaps
 **Learning:** The engine's hot-loop can trigger multiple SL milestones for the same trade within milliseconds. Without a per-symbol mutex, these calls race to cancel and replace the exchange-side Stop Loss. Because Binance does not support `modifyOrder` for `STOP_MARKET`, a failed replacement after cancellation leaves the position completely unprotected. Assumed-success local state updates (updating SL price before exchange confirmation) further exacerbate this by creating a "ghost" protection level that doesn't exist.
 **Action:** Always implement a per-symbol mutex for exchange-side mutations. Apply the "Acknowledge-then-Update" pattern where local state is only committed after the exchange confirms success. Mandatory "Rollback-on-Failure" must be implemented for all cancel-replace patterns to ensure capital safety.
+
+## 2026-06-25 - Real-time Quantity Synchronization Gap
+**Learning:** The engine assumed entry quantities were atomic and static. In reality, Binance FAPI User Data Stream (UDS) events often report cumulative fills (order.z) or account-level net position changes (pos.pa) that diverge from the locally tracked trade.qty during partial fills or manual reductions.
+**Action:** Implemented event-driven quantity synchronization. Both ORDER_TRADE_UPDATE and ACCOUNT_UPDATE now emit a trade.quantity_sync event, triggering immediate risk recalculation and reactive watchdog audits to ensure SL protection matches the real exchange quantity.

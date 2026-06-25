@@ -90,6 +90,7 @@ export class MaintenanceService {
       } else {
          const uniqueSymbols = Array.from(new Set(tradesToAudit.map(t => t.symbol)));
          for (const symbol of uniqueSymbols) {
+            // SRE: Specify symbol parameter to reduce weight from 40 to 1
             const orders = await this.orderManager.fetchOpenOrders(symbol);
             slOrdersBySymbol.set(symbol, orders.filter(isSlOrder));
          }

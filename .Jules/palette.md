@@ -21,3 +21,7 @@
 ## 2026-06-15 - Global Search Shortcut Guarding and Interaction
 **Learning:** Global keyboard shortcuts (like `/` for search) must include strict target guards (checking against `INPUT`, `TEXTAREA`, or `isContentEditable`) to prevent hijacking the user's natural typing flow within those fields. Additionally, pairing `focus()` with `select()` on search inputs dramatically improves UX by allowing users to immediately overwrite a previous query without manual deletion.
 **Action:** Always guard global shortcuts with `e.target` checks. Use `searchInput.select()` after `focus()` for one-touch query replacement.
+
+## 2026-06-23 - Destructive Modal Safety and Accessibility
+**Learning:** Destructive confirmation modals must implement a "safe-by-default" focus strategy by auto-focusing the non-destructive action (e.g., 'Cancel'). This prevents accidental data loss from rapid 'Enter' key presses. Proper ARIA wiring (`role="alertdialog"`, `aria-labelledby`, `aria-describedby`) and `Escape` key listeners are essential for screen readers and keyboard power users. Additionally, exit animations in conditional React components require `AnimatePresence` to be situated around the condition to ensure the 'Exit' state transitions correctly before the component is unmounted.
+**Action:** Use `useRef` and `useEffect` with a small debounce to focus the 'Cancel' button. Always wrap modal conditions in `AnimatePresence`. Link titles and descriptions to ARIA IDs.

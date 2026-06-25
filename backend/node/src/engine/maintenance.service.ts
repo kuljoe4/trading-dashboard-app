@@ -7,6 +7,7 @@ import { OrderManagerService } from './orderManager';
 import { TickerCacheService } from './ticker_cache.service';
 import { ENGINE_EVENTS } from './events';
 import { roundEight } from '../lib/math';
+import { EXIT_REASONS } from '../models/constants';
 
 @Injectable()
 export class MaintenanceService {
@@ -120,7 +121,7 @@ export class MaintenanceService {
 
           if (!pos || Math.abs(parseFloat(pos.positionAmt)) === 0) {
               this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} is active locally but NO position found on Binance. Triggering Sync Closure.`);
-              this.eventEmitter.emit('trade.exchange_close', { symbol: trade.symbol, exitPrice: 0, reason: 'EXCHANGE_SYNC' });
+              this.eventEmitter.emit('trade.exchange_close', { symbol: trade.symbol, exitPrice: 0, reason: EXIT_REASONS.EXCHANGE_SYNC });
               continue;
           }
 
@@ -170,7 +171,7 @@ export class MaintenanceService {
             const secondsSinceUpdate = (Date.now() - lastUpdate) / 1000;
             if (secondsSinceUpdate > 120) {
               this.logger.error(`[Watchdog] NUCLEAR OPTION: ${trade.symbol} unprotected for ${secondsSinceUpdate.toFixed(0)}s. Market closing position.`);
-              this.eventEmitter.emit('trade.exchange_close', { symbol: trade.symbol, exitPrice: 0, reason: 'WATCHDOG_NUCLEAR_CLOSE' });
+              this.eventEmitter.emit('trade.exchange_close', { symbol: trade.symbol, exitPrice: 0, reason: EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE });
               continue;
             }
             this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} missing SL. Re-placing...`);

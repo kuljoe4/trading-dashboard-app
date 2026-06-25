@@ -90,12 +90,14 @@ export class SessionController {
   }
 
   @Post('trade/:symbol/close')
-  async closeTradeManually(@Param('symbol') symbol: string) {
+  async closeTradeManually(@Param('symbol') symbol: string, @Req() req: Request) {
     // Basic input hardening: ensure symbol matches expected Binance format
     if (!/^[A-Z0-9]{3,20}$/.test(symbol)) {
       throw new BadRequestException('Invalid symbol format');
     }
-    return this.sessionService.closeTradeManually(symbol);
+    const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
+    const userAgent = req.headers['user-agent'];
+    return this.sessionService.closeTradeManually(symbol, clientIp, userAgent);
   }
 
   @Get('analytics')

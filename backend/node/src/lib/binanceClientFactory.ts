@@ -87,6 +87,12 @@ export class BinanceClientFactory {
         if (typeof value === 'function') {
           const label = prop.toString();
           return (...args: any[]) => {
+            // SRE: Detect emergency close orders to provide high-priority execution path
+            let isEmergency = false;
+            if (['newOrder', 'newAlgoOrder'].includes(label) && args[0]) {
+               isEmergency = args[0].reduceOnly === true || args[0].closePosition === true;
+            }
+
             return queue.add(async () => {
               const response = await value.apply(target, args);
               // Proactively extract weight from headers if available
@@ -94,7 +100,7 @@ export class BinanceClientFactory {
                 queue.updateWeightFromHeaders(response.headers, label);
               }
               return response;
-            }, label);
+            }, label, isEmergency);
           };
         }
         return value;
@@ -110,7 +116,7 @@ export class BinanceClientFactory {
  * Ensures a mandatory delay between requests and monitors usage weight.
  */
 export class BinanceRequestQueue {
-  private queue: { fn: () => Promise<any>, label: string, resolve: (v: any) => void, reject: (e: any) => void }[] = [];
+  private queue: { fn: () => Promise<any>, label: string, isEmergency: boolean, resolve: (v: any) => void, reject: (e: any) => void }[] = [];
   private processing = false;
 
   // SRE: Shared state across all queue instances to ensure process-wide IP reputation protection
@@ -128,9 +134,9 @@ export class BinanceRequestQueue {
     private readonly settingsRepository: Repository<SettingsEntity>
   ) {}
 
-  async add<T>(fn: () => Promise<T>, label: string): Promise<T> {
+  async add<T>(fn: () => Promise<T>, label: string, isEmergency = false): Promise<T> {
     return new Promise((resolve, reject) => {
-      this.queue.push({ fn, label, resolve, reject });
+      this.queue.push({ fn, label, isEmergency, resolve, reject });
       this.process();
     });
   }
@@ -148,6 +154,9 @@ export class BinanceRequestQueue {
 
     if (weight) {
       BinanceRequestQueue.currentWeight1m = parseInt(weight, 10);
+
+      // SRE: Synchronize weight back to SessionStateService on every REST response
+      this.eventEmitter.emit('binance.weight_update', BinanceRequestQueue.currentWeight1m);
 
       // SRE Overwatch: Dynamic Back-off Execution Strategy
       const usageRatio = BinanceRequestQueue.currentWeight1m / BinanceRequestQueue.weightLimit1m;
@@ -188,7 +197,7 @@ export class BinanceRequestQueue {
 
         // SRE LOAD SHEDDING: Multi-tier priority management
         // Level 1: Immune (Infrastructure & Keepalives) - Proceed even if > 100% to prevent blindness
-        const isImmune = ['startUserDataStream', 'keepaliveUserDataStream', 'closeUserDataStream'].includes(item.label);
+        const isImmune = ['startUserDataStream', 'keepaliveUserDataStream', 'closeUserDataStream'].includes(item.label) || item.isEmergency;
         // Level 2: Critical (Orders & Structural Info) - Shed at 95%
         const isCritical = ['newOrder', 'cancelOrder', 'newAlgoOrder', 'cancelAlgoOrder', 'cancelAllOpenOrders', 'exchangeInformation', 'futuresAccountBalanceV2', 'futuresAccountBalanceV3'].includes(item.label);
         // Level 3: Operational (State Audits) - Shed at 85%

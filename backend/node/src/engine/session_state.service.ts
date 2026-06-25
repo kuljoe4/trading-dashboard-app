@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
 import { roundEight } from '../lib/math';
@@ -122,6 +123,7 @@ export class SessionStateService {
       ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(this.gateState || '');
   }
 
+  @OnEvent('binance.weight_update')
   updateRateLimit(used1m: number, limit?: number) {
     this.binanceRateLimit.used_1m = used1m;
     if (limit) {

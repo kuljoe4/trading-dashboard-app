@@ -101,7 +101,8 @@ const App = () => {
       if (e.key.toLowerCase() === 's') window.dispatchEvent(new Event('toggle-scanner'));
       if (e.key === '/') {
         e.preventDefault();
-        const searchInput = document.querySelector('input[placeholder*="Search"]');
+        const searchInputs = Array.from(document.querySelectorAll('input[placeholder*="Search"]'));
+        const searchInput = searchInputs.pop();
         if (searchInput) {
           searchInput.focus();
           searchInput.select();

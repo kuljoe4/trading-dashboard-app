@@ -877,18 +877,31 @@ export class SessionService implements OnModuleInit {
     // Reconcile open trades with actual exchange positions
     if (mode !== "paper" && binanceClient) {
       try {
-        // BOLT: Coordinated Snapshot Pattern - use a single fetchAllPositions call instead of per-symbol REST calls
-        this.logger.log(
-          `[Reconciliation] Performing bulk exchange audit (Positions=5, Orders=40)...`,
-        );
-        const allExchangePositions =
-          await this.tradingSessionService.fetchAllPositions();
-        const activeExPositions = allExchangePositions.filter(
-          (p) => Math.abs(parseFloat(p.positionAmt)) > 0,
-        );
+        // PERF: Optimization - If we have a very small number of session trades, fetch them individually to save weight.
+        // positionInformationV3 (all) = 5 weight, but fetches ALL symbols.
+        // positionInformationV3 (symbol) = 5 weight, but only returns 1.
+        // currentAllOpenOrders (all) = 40 weight.
+        // currentAllOpenOrders (symbol) = 1 weight.
 
-        // BOLT: Coordinated Snapshot for Orders (Weight 40) - fetch ALL open orders once to avoid per-symbol bursts
-        const allOpenOrders = await this.orderManager.fetchAllOpenOrders();
+        const useBulkAudit = sessionOpenTrades.length > 5;
+        this.logger.log(`[Reconciliation] Starting audit for ${sessionOpenTrades.length} local trades. Mode: ${useBulkAudit ? 'BULK' : 'TARGETED'}`);
+
+        let activeExPositions: any[] = [];
+        let allOpenOrders: any[] = [];
+
+        if (useBulkAudit) {
+          const allExchangePositions = await this.tradingSessionService.fetchAllPositions();
+          activeExPositions = allExchangePositions.filter((p) => Math.abs(parseFloat(p.positionAmt)) > 0);
+          allOpenOrders = await this.orderManager.fetchAllOpenOrders();
+        } else {
+          // Targeted Audit: Fetch only what we need to save weight in Window 1
+          for (const trade of sessionOpenTrades) {
+             const pos = await this.orderManager.fetchPosition(trade.symbol, { forceFresh: true });
+             if (pos && Math.abs(parseFloat(pos.positionAmt)) > 0) activeExPositions.push(pos);
+             const orders = await this.orderManager.fetchOpenOrders(trade.symbol);
+             allOpenOrders.push(...orders);
+          }
+        }
         const ordersBySymbol = new Map<string, any[]>();
         for (const o of allOpenOrders) {
           const list = ordersBySymbol.get(o.symbol) || [];

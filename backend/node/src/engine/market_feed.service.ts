@@ -534,8 +534,17 @@ export class MarketFeedService {
   private async processBackfillQueue() {
     if (this.backfillProcessing || this.backfillQueue.length === 0) return;
     this.backfillProcessing = true;
+
+    // SRE: Prioritize symbols with active positions in the backfill queue
+    const activeSymbols = new Set(this.sessionState.activeTrades.map(t => t.symbol));
+    this.backfillQueue.sort((a, b) => {
+      const aActive = activeSymbols.has(a.symbol) ? 1 : 0;
+      const bActive = activeSymbols.has(b.symbol) ? 1 : 0;
+      return bActive - aActive; // Active positions first
+    });
+
     const initialDepth = this.backfillQueue.length;
-    this.logger.log(`Starting sequential kline backfill queue. Depth: ${initialDepth}`);
+    this.logger.log(`Starting prioritized sequential kline backfill queue. Depth: ${initialDepth}`);
 
     // STRATEGY: Sequential backfill to avoid rate-limit bursts
     while (this.backfillQueue.length > 0 && this.running) {

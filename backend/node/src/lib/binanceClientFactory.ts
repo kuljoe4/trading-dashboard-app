@@ -122,6 +122,7 @@ export class BinanceRequestQueue {
   // SRE: Shared state across all queue instances to ensure process-wide IP reputation protection
   private static lastRequestTs = 0;
   private static currentWeight1m = 0;
+  private static windowStartTs = Date.now();
   private static adaptiveDelayMs = 0;
   private static weightLimit1m = 2400;
 
@@ -149,11 +150,10 @@ export class BinanceRequestQueue {
     };
 
     const weight = getHeader('X-MBX-USED-WEIGHT-1M');
-    const orderCount10s = getHeader('X-MBX-ORDER-COUNT-10S');
-    const orderCount1m = getHeader('X-MBX-ORDER-COUNT-1M');
 
     if (weight) {
       BinanceRequestQueue.currentWeight1m = parseInt(weight, 10);
+      BinanceRequestQueue.windowStartTs = Date.now();
 
       // SRE: Synchronize weight back to SessionStateService on every REST response
       this.eventEmitter.emit('binance.weight_update', BinanceRequestQueue.currentWeight1m);
@@ -183,6 +183,17 @@ export class BinanceRequestQueue {
     while (this.queue.length > 0) {
       const now = Date.now();
 
+      // SRE: Rolling Window Decay. If 1 minute has passed since the last known window start, reset weight.
+      // This prevents "shedding lock" where the counter never decays because requests are being rejected.
+      if (now - BinanceRequestQueue.windowStartTs > 60000) {
+         if (BinanceRequestQueue.currentWeight1m > 0) {
+            this.logger.log(`[BinanceQueue] Weight window expired. Resetting weight 1m: ${BinanceRequestQueue.currentWeight1m} -> 0`);
+            BinanceRequestQueue.currentWeight1m = 0;
+            BinanceRequestQueue.windowStartTs = now;
+            this.eventEmitter.emit('binance.weight_update', 0);
+         }
+      }
+
       // SRE Implementation: Outbound REST requests are converted into a strict serial pipeline
       const delay = Math.max(this.MIN_DELAY_MS, BinanceRequestQueue.adaptiveDelayMs);
       const elapsed = now - BinanceRequestQueue.lastRequestTs;
@@ -195,29 +206,38 @@ export class BinanceRequestQueue {
       if (item) {
         const usageRatio = BinanceRequestQueue.currentWeight1m / BinanceRequestQueue.weightLimit1m;
 
-        // SRE LOAD SHEDDING: Multi-tier priority management
-        // Level 1: Immune (Infrastructure & Keepalives) - Proceed even if > 100% to prevent blindness
-        const isImmune = ['startUserDataStream', 'keepaliveUserDataStream', 'closeUserDataStream'].includes(item.label) || item.isEmergency;
-        // Level 2: Critical (Orders & Structural Info) - Shed at 95%
+        // SRE LOAD SHEDDING: Multi-tier priority management (Citadel Protocol 2026)
+
+        // Tier 1: EMERGENCY (Bypass) - Infrastructure & Reduce-only orders
+        const isEmergency = ['startUserDataStream', 'keepaliveUserDataStream', 'closeUserDataStream'].includes(item.label) || item.isEmergency;
+
+        // Tier 2: CRITICAL (95%) - Strategy entries and cancellations
         const isCritical = ['newOrder', 'cancelOrder', 'newAlgoOrder', 'cancelAlgoOrder', 'cancelAllOpenOrders', 'exchangeInformation', 'futuresAccountBalanceV2', 'futuresAccountBalanceV3'].includes(item.label);
-        // Level 3: Operational (State Audits) - Shed at 85%
+
+        // Tier 3: OPERATIONAL (80%) - State audits and trade history
         const isOperational = ['queryOrder', 'accountTradeList', 'positionInformationV3'].includes(item.label);
+
+        // Tier 4: BACKGROUND (50%) - Non-essential backfills and deep-scans
+        const isBackground = ['ticker24hrPriceChangeStatistics', 'klineCandlestickData'].includes(item.label);
 
         let shed = false;
         let shedReason = '';
 
-        if (!isImmune) {
-           if (usageRatio > 1.0) { shed = true; shedReason = 'Weight limit exceeded (100%+)'; }
-           else if (usageRatio > 0.95 && !isCritical) { shed = true; shedReason = 'SRE Load Shedding (Critical Zone 95%+)'; }
-           else if (usageRatio > 0.85 && !isCritical && !isOperational) { shed = true; shedReason = 'SRE Load Shedding (Operational Zone 85%+)'; }
-           else if (usageRatio > 0.70 && !isCritical && !isOperational && !['ticker24hrPriceChangeStatistics', 'klineCandlestickData'].includes(item.label)) {
-              // Catch-all for non-categorized calls
-              shed = usageRatio > 0.75;
-              shedReason = 'SRE Load Shedding (General 75%+)';
-           } else if (usageRatio > 0.70 && ['ticker24hrPriceChangeStatistics', 'klineCandlestickData'].includes(item.label)) {
+        if (!isEmergency) {
+           if (usageRatio > 1.0) {
+              shed = true; shedReason = 'Weight limit exceeded (100%+)';
+           } else if (usageRatio > 0.95 && !isCritical) {
+              shed = true; shedReason = 'SRE Tiered Budget (Critical Zone 95%+)';
+           } else if (usageRatio > 0.80 && !isCritical && !isOperational) {
+              shed = true; shedReason = 'SRE Tiered Budget (Operational Zone 80%+)';
+           } else if (usageRatio > 0.50 && isBackground) {
               shed = true;
-              shedReason = 'SRE Load Shedding (Market Data Zone 70%+)';
+              shedReason = 'SRE Tiered Budget (Background Zone 50%+)';
            }
+        } else if (usageRatio > 1.1) {
+           // Hard ceiling for even emergency orders to protect IP reputation from permanent ban
+           shed = true;
+           shedReason = 'Emergency limit exceeded (110%+)';
         }
 
         if (shed) {

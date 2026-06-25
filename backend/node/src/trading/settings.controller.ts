@@ -22,10 +22,21 @@ export class SettingsController {
   ) {}
 
   @Get('keys')
-  async getKeys() {
+  async getKeys(@Req() req: Request) {
     const settings = await this.settingsRepository.findOne({
       where: { id: 'default' },
       select: ['id', 'binance_api_key', 'binance_testnet_api_key']
+    });
+
+    const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
+    const userAgent = req.headers['user-agent'];
+
+    await this.auditLog.log({
+      action: 'VIEW_EXCHANGE_KEYS',
+      actor: clientIp,
+      ip: clientIp,
+      userAgent,
+      level: 'INFO'
     });
 
     const apiKey = decrypt(settings?.binance_api_key);

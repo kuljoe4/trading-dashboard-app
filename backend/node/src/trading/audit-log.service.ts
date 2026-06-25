@@ -32,4 +32,27 @@ export class AuditLogService {
       this.logger.error(`Failed to save audit log: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+
+  /**
+   * SENTINEL: Remove old audit logs to prevent storage exhaustion.
+   * Defaults to 90 days of retention.
+   */
+  async cleanup(days = 90) {
+    try {
+      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      const result = await this.auditLogRepository
+        .createQueryBuilder()
+        .delete()
+        .where("timestamp < :cutoff", { cutoff })
+        .execute();
+
+      if (result.affected && result.affected > 0) {
+        this.logger.log(`Audit log cleanup: removed ${result.affected} entries older than ${days} days.`);
+      }
+      return result.affected || 0;
+    } catch (err) {
+      this.logger.error(`Failed to cleanup audit logs: ${err instanceof Error ? err.message : String(err)}`);
+      return 0;
+    }
+  }
 }

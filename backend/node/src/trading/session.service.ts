@@ -1768,7 +1768,7 @@ export class SessionService implements OnModuleInit {
   }
 
   // Manually close a trade
-  async closeTradeManually(symbol: string) {
+  async closeTradeManually(symbol: string, actor?: string, userAgent?: string) {
     if (!this.sessionRunning) {
       throw new ConflictException("No session running");
     }
@@ -1777,6 +1777,15 @@ export class SessionService implements OnModuleInit {
 
     if (result.success && result.trade) {
       this.logger.log(`Manually closed trade ${symbol}`);
+
+      await this.auditLog.log({
+        action: 'MANUAL_TRADE_CLOSE',
+        resourceId: result.trade.id,
+        actor,
+        ip: actor,
+        userAgent,
+        details: { symbol, tradeId: result.trade.id }
+      });
     }
 
     return result;
@@ -1813,9 +1822,11 @@ export class SessionService implements OnModuleInit {
         .andWhere("status IN (:...statuses)", { statuses: TERMINAL_STATUSES })
         .execute();
 
-      this.logger.log(
-        `Cleanup completed: ${deletedLogs.affected || 0} logs and ${deletedTrades.affected || 0} old trades removed.`,
-      );
+      // SENTINEL: Also cleanup audit logs periodically
+      const auditRetentionDays = (settings as any)?.audit_retention_days || 90;
+      const deletedAudit = await this.auditLog.cleanup(auditRetentionDays);
+
+      this.logger.log(`Cleanup completed: ${deletedLogs.affected || 0} logs, ${deletedTrades.affected || 0} trades, and ${deletedAudit || 0} audit entries removed.`);
     } catch (e: any) {
       this.logger.error(`Data cleanup failed: ${e.message}`);
     }

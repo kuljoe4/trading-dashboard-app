@@ -103,7 +103,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const validate = (c) => {
     const errs = {}; if (!c.scan_interval) errs.scan_interval = 'Required'; if (c.scan_lookback < 1) errs.scan_lookback = 'Min 1';
     if (c.scan_mode === 'active_window' && (!c.scan_window_duration_sec || !c.scan_check_interval_sec)) errs.scan_mode = 'Params missing';
-    
+
+    // DEPLOY-05: Harden validation against missing API keys for chosen trading mode
+    const mode = c.trading_mode || (c.paper_mode ? 'paper' : 'live');
+    if (mode === 'testnet' && !testnetConfigured) {
+      errs.trading_mode = 'Testnet API keys required';
+    } else if (mode === 'live' && !liveConfigured) {
+      errs.trading_mode = 'Live API keys required';
+    }
+
     if (c.risk_pct_per_trade > c.max_total_risk_pct) {
       errs.risk_pct_per_trade = 'Exceeds max total risk'
     }
@@ -207,11 +215,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       return
     }
     console.log('[ConfigModal] Proceeding with mode selection:', mode)
-    setCfg(prev => ({
-      ...prev,
-      trading_mode: mode,
-      paper_mode: mode === 'paper'
-    }))
+    setCfg(prev => {
+      const next = {
+        ...prev,
+        trading_mode: mode,
+        paper_mode: mode === 'paper'
+      }
+      validate(next)
+      return next
+    })
   }
 
   const savePreset = async () => {
@@ -249,11 +261,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     }
   }
 
-  const loadPreset = (p) => { 
-    setCfg({ ...p.config }); 
+  const loadPreset = (p) => {
+    const next = { ...p.config }
+    setCfg(next);
     setLoadedPresetName(p.name);
-    setSection('scan'); 
-    setErrors({}); 
+    setSection('scan');
+    validate(next);
     setIsDirty(false);
     addAlert({ level: 'success', title: 'Preset Loaded', message: `Active configuration set to "${p.name}".` });
   }

@@ -269,7 +269,8 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   connectWS: () => {
     if (get().ws) return;
     set({ wsStatus: 'connecting' });
-    let u = normalizeUrl(import.meta.env.VITE_WS_URL) || `${window.location.protocol === 'https:' ? 'wss://' : 'ws://'}${window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '')}/session/ws`;
+    // DEPLOY-04: Force wss:// protocol for WebSockets if VITE_WS_URL is provided with incorrect protocol
+    let u = normalizeUrl(import.meta.env.VITE_WS_URL, 'wss') || `${window.location.protocol === 'https:' ? 'wss://' : 'ws://'}${window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '')}/session/ws`;
     if (u && !u.includes('/session/ws')) u = u.replace(/\/$/, '') + '/session/ws';
     const ak = localStorage.getItem('MOMENTUM_ADMIN_API_KEY') || import.meta.env.VITE_ADMIN_API_KEY;
     if (ak) u += (u.includes('?') ? '&' : '?') + `token=${encodeURIComponent(ak)}`;

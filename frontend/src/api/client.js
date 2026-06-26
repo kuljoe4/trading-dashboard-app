@@ -1,21 +1,20 @@
 import axios from 'axios'
 
-export const normalizeUrl = (url) => {
+export const normalizeUrl = (url, forceProtocol = null) => {
   if (!url) return url;
-  // DEPLOY-04: Robust URL normalization to handle common environment variable misconfigurations
-  // Fix cases like 'https://https://' or 'https//'
   let normalized = url.trim();
 
-  // Replace 'https://https://' or 'https://https//' with 'https://'
-  normalized = normalized.replace(/^(https?):\/\/+https?[:/]+/i, '$1://');
+  // DEPLOY-04: Aggressive URL normalization to handle common environment variable misconfigurations
+  // Strip all protocol-like prefixes repeatedly (handles 'https://https//', 'https//', etc.)
+  while (/^(https?|wss?)[:/]+/i.test(normalized)) {
+    normalized = normalized.replace(/^(https?|wss?)[:/]+/i, '');
+  }
 
-  // Fix missing colon in 'https//' or 'http//' at the start
-  normalized = normalized.replace(/^(https?)\/+/i, '$1://');
+  // Determine which protocol to use: forced, existing (if it was valid), or fallback to https
+  const proto = forceProtocol || (url.match(/^(https?|wss?)[:/]+/i)?.[1]?.toLowerCase() || 'https');
 
-  // Remove trailing slashes
-  normalized = normalized.replace(/\/+$/, '');
-
-  return normalized;
+  // Re-assemble with exactly one protocol and no trailing slashes
+  return `${proto}://${normalized.replace(/\/+$/, '')}`;
 }
 
 const baseUrlEnv = typeof import.meta !== 'undefined' && typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_API_URL : undefined

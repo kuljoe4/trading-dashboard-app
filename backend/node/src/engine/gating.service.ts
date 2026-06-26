@@ -62,7 +62,10 @@ export class GatingService {
     } else {
       await this.marketFeed.stop();
       await this.momentumScanner.stop();
-      this.klineStore.clear();
+      // BOLT: Do not clear klineStore here.
+      // MarketFeedService.stop() already cleared activeWatchlist.
+      // Keeping klineStore allows faster resumption if the same symbols are monitored again.
+      // this.klineStore.clear();
       this.tickerCache.clear();
     }
 

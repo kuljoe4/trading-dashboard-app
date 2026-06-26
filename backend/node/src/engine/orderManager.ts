@@ -87,6 +87,37 @@ export class OrderManagerService {
       this.cleanupExecutionCache();
     }
 
+    // Update real-time orders cache from UDS
+    let currentOrders = this.sessionState.realTimeOrders.get(symbol) || [];
+    if (status === 'FILLED' || status === 'CANCELED' || status === 'EXPIRED' || status === 'REJECTED') {
+      // Remove the order from cache if it's in a terminal state
+      currentOrders = currentOrders.filter(o => String(o.orderId) !== orderId && o.clientOrderId !== clientOrderId);
+    } else {
+      // Add or update the order in cache
+      const existingIdx = currentOrders.findIndex(o => String(o.orderId) === orderId || o.clientOrderId === clientOrderId);
+      const orderEntry = {
+        symbol,
+        orderId: parseFloat(orderId),
+        clientOrderId,
+        price: parseFloat(order.p || '0'),
+        avgPrice: parseFloat(order.ap || '0'),
+        origQty: parseFloat(order.q || '0'),
+        executedQty: parseFloat(order.z || '0'),
+        status,
+        type: order.ot,
+        side: order.S,
+        stopPrice: parseFloat(order.sp || '0'),
+        triggerPrice: parseFloat(order.sp || '0'), // Some fields might differ between standard and algo
+        workingType: order.wt,
+        reduceOnly: order.R,
+        closePosition: order.cp,
+        updateTime: order.T
+      };
+      if (existingIdx >= 0) currentOrders[existingIdx] = orderEntry;
+      else currentOrders.push(orderEntry);
+    }
+    this.sessionState.realTimeOrders.set(symbol, currentOrders);
+
     // SRE: High-fidelity structured logging for all UDS updates to confirm stream health and event delivery.
     // Throttled to LOG level for TRADE, DEBUG for others.
     const udsMsg = `[UDS] ${executionType} ${status} for ${symbol}: Qty=${order.z}/${order.q}, Price=${order.ap || order.p}, Side=${side}, Type=${type}`;
@@ -261,14 +292,14 @@ export class OrderManagerService {
   }
 
   async setBinanceClient(client: DerivativesTradingUsdsFutures | null, paperMode = true) {
-    const isNewClient = this.binanceClient !== client;
-    const isModeChange = this.paperMode !== paperMode;
+    const isFirstCall = this.binanceClient === null;
+    const isNewClient = !isFirstCall && this.binanceClient !== client;
 
     this.binanceClient = client;
     this.paperMode = paperMode;
 
     // RESEARCH-02: Load cached commission rate from DB on client change/restart
-    if (this.binanceClient && !this.paperMode) {
+    if (this.binanceClient && !this.paperMode && this.lastFeeFetch === 0) {
       try {
         const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
         if (settings && settings.taker_fee_rate && settings.taker_fee_ts) {
@@ -281,12 +312,11 @@ export class OrderManagerService {
       }
     }
 
-    // Idempotency check: Cache commission rate for 24 hours (RE-01: Persistent cache reduces boot weight by 20)
-    // The audit recommends 24 hours to avoid redundant queries during system boots.
-    const CACHE_TTL = 24 * 60 * 60 * 1000;
-    // SRE: Removed 'isNewClient' and 'isModeChange' as triggers to ensure cross-restart DB cache is respected.
+    // SRE: Commission rate is treated as permanent once fetched to eliminate REST weight.
+    // It only refetches if the API key itself changes (detected by isNewClient during a hot-swap)
+    // or if the DB cache is completely empty.
     const shouldFetchFee = this.binanceClient && !this.paperMode &&
-      (Date.now() - this.lastFeeFetch > CACHE_TTL);
+      (this.lastFeeFetch === 0 || isNewClient);
 
     if (shouldFetchFee && this.binanceClient) {
       // SRE: Proactive Weight Gating - Defer non-critical commission fetch if weight is already high
@@ -1396,7 +1426,20 @@ export class OrderManagerService {
       // Also fetch algorithmic orders (Stop Losses)
       const algoOrders = await this.fetchAllOpenAlgoOrders();
 
-      return [...standardOrders, ...algoOrders];
+      const allOrders = [...standardOrders, ...algoOrders];
+
+      // Proactively seed the real-time order cache to eliminate subsequent REST weight
+      const ordersBySymbol = new Map<string, any[]>();
+      for (const o of allOrders) {
+        const list = ordersBySymbol.get(o.symbol) || [];
+        list.push(o);
+        ordersBySymbol.set(o.symbol, list);
+      }
+      for (const [symbol, list] of ordersBySymbol.entries()) {
+        this.sessionState.realTimeOrders.set(symbol, list);
+      }
+
+      return allOrders;
     } catch (err) {
       this.logger.warn(`Failed to fetch all open orders: ${err instanceof Error ? err.message : String(err)}`);
       return [];
@@ -1533,7 +1576,12 @@ export class OrderManagerService {
     }
   }
 
-  public async fetchOpenOrders(symbol: string): Promise<any[]> {
+  public async fetchOpenOrders(symbol: string, options: { forceFresh?: boolean } = {}): Promise<any[]> {
+    if (!options.forceFresh) {
+      const cached = this.sessionState.realTimeOrders.get(symbol);
+      if (cached) return cached;
+    }
+
     if (!this.binanceClient) return [];
     if (!this.paperMode && this.sessionState.isRateLimited(0.95)) return [];
     try {
@@ -1544,16 +1592,18 @@ export class OrderManagerService {
       const standardOrders = (await res.data() as any[]) || [];
 
       // 2. Fetch algorithmic orders (Stop Losses)
-      const algoOrders = await this.fetchOpenAlgoOrders(symbol);
+      const algoOrders = await this.fetchOpenAlgoOrders(symbol, { forceFresh: true });
 
-      return [...standardOrders, ...algoOrders];
+      const allOrders = [...standardOrders, ...algoOrders];
+      this.sessionState.realTimeOrders.set(symbol, allOrders);
+      return allOrders;
     } catch (err) {
       this.logger.debug(`[${symbol}] Failed to fetch open orders: ${err instanceof Error ? err.message : String(err)}`);
       return [];
     }
   }
 
-  public async fetchOpenAlgoOrders(symbol: string): Promise<any[]> {
+  public async fetchOpenAlgoOrders(symbol: string, options: { forceFresh?: boolean } = {}): Promise<any[]> {
     if (!this.binanceClient) return [];
     try {
       this.monitoringService.incrementApiRequests();

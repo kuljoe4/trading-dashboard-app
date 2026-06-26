@@ -49,6 +49,7 @@ export class SessionStateService {
   public agreementRequired = false;
   public isAdaptiveTightened = false;
   public realTimePositions: Map<string, { amount: number; entryPrice: number }> = new Map();
+  public realTimeOrders: Map<string, any[]> = new Map();
   public config: SessionConfig | null = null;
   public closedTrades: Trade[] = [];
   public activeTrades: Trade[] = []; // BOLT: Track active trades here for circular dependency removal
@@ -83,6 +84,7 @@ export class SessionStateService {
     this.apiStatus = { isBanned: false, isRateLimited: false, banUntil: null, lastErrorMessage: null };
     this.cachedClosedTradesStats = {};
     this.realTimePositions.clear();
+    this.realTimeOrders.clear();
 
     for (const trade of initialHistory) {
       const label = trade.strategy_label || config.strategy_label || 'Momentum Strategy';
@@ -275,6 +277,7 @@ export class SessionStateService {
     this.activeTrades = [];
     this.binanceRateLimit = { used_1m: 0, limit: 2400 };
     this.realTimePositions.clear();
+    this.realTimeOrders.clear();
     // DATA-07: Preserve stats during hibernation so dashboard remains accurate
     this.statsVersion++;
 

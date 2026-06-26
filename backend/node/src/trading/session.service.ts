@@ -878,6 +878,7 @@ export class SessionService implements OnModuleInit {
       mode === "paper",
     );
 
+
     // 2. Reconciliation: Verify and Process Potential Orphans and Active Trades
     // Reconcile open trades with actual exchange positions
     if (mode !== "paper" && binanceClient) {
@@ -891,6 +892,8 @@ export class SessionService implements OnModuleInit {
         const tradesToVerify = [...sessionOpenTrades, ...potentialOrphans];
         const uniqueSymbols = Array.from(new Set(tradesToVerify.map(t => t.symbol)));
 
+        // Smart Tiered Audit: For sessions with <= 5 trades, use targeted per-symbol audits (Weight 5+1).
+        // For larger sets, revert to bulk audits (Weight 5+40).
         const useBulkAudit = uniqueSymbols.length > 5;
         this.logger.log(`[Reconciliation] Starting audit for ${uniqueSymbols.length} symbols. Mode: ${useBulkAudit ? 'BULK' : 'TARGETED'}`);
 

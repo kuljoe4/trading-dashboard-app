@@ -134,6 +134,18 @@ export class SessionStateService {
     this.binanceRateLimit.used_1m = used1m;
     if (limit) {
       this.binanceRateLimit.limit = limit;
+
+      // SRE: Proactively sync with static gateway queue
+      // Since BinanceClientFactory might not be available yet due to circular dep,
+      // we use a dynamic check if needed, but BinanceRequestQueue is static.
+      try {
+        const { BinanceRequestQueue } = require('../lib/binanceClientFactory');
+        if (BinanceRequestQueue && typeof BinanceRequestQueue.setWeightLimit === 'function') {
+          BinanceRequestQueue.setWeightLimit(limit);
+        }
+      } catch (e) {
+        // Fallback or ignore if module not loaded
+      }
     }
   }
 

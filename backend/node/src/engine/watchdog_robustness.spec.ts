@@ -75,14 +75,14 @@ describe('Watchdog Robustness', () => {
   });
 
   it('should perform audit after cooldown window', async () => {
-    const trade = {
-      symbol: 'BTCUSDT',
-      binance_order_id: '123',
-      updated_at: new Date(Date.now() - 60000), // 60s ago
-    } as Trade;
+    const trades = Array(6).fill(null).map((_, i) => ({
+      symbol: `BTCUSDT_${i}`,
+      binance_order_id: `123_${i}`,
+      updated_at: new Date(Date.now() - 60000),
+    })) as Trade[];
 
-    (positionTracker.activeList as jest.Mock).mockReturnValue([trade]);
-    (orderManager.fetchAllPositions as jest.Mock).mockResolvedValue([{ symbol: 'BTCUSDT', positionAmt: '1.0' }]);
+    (positionTracker.activeList as jest.Mock).mockReturnValue(trades);
+    (orderManager.fetchAllPositions as jest.Mock).mockResolvedValue(trades.map(t => ({ symbol: t.symbol, positionAmt: '1.0' })));
     (orderManager.fetchOpenOrders as jest.Mock).mockResolvedValue([]); // No SL found
 
     await service.protectionWatchdog(true, { paper_mode: false } as any);
@@ -93,26 +93,26 @@ describe('Watchdog Robustness', () => {
 
   it('should trigger NUCLEAR OPTION if unprotected for > 2 minutes', async () => {
     const eventEmitter = module.get<EventEmitter2>(EventEmitter2);
-    const trade = {
-      id: 'test-uuid',
-      symbol: 'BTCUSDT',
-      binance_order_id: '123',
+    const trades = Array(6).fill(null).map((_, i) => ({
+      id: `test-uuid-${i}`,
+      symbol: `BTCUSDT_${i}`,
+      binance_order_id: `123_${i}`,
       qty: 1.0,
       updated_at: new Date(Date.now() - 150000), // 150s ago (> 120s)
-    } as Trade;
+    })) as Trade[];
 
-    (positionTracker.activeList as jest.Mock).mockReturnValue([trade]);
-    (orderManager.fetchAllPositions as jest.Mock).mockResolvedValue([{ symbol: 'BTCUSDT', positionAmt: '1.0' }]);
+    (positionTracker.activeList as jest.Mock).mockReturnValue(trades);
+    (orderManager.fetchAllPositions as jest.Mock).mockResolvedValue(trades.map(t => ({ symbol: t.symbol, positionAmt: '1.0' })));
     (orderManager.fetchOpenOrders as jest.Mock).mockResolvedValue([]); // No SL found in batch or fresh
 
     await service.protectionWatchdog(true, { paper_mode: false } as any);
 
     // Should emit closure event instead of calling orderManager directly
-    expect(eventEmitter.emit).toHaveBeenCalledWith('trade.exchange_close', {
-      symbol: 'BTCUSDT',
+    expect(eventEmitter.emit).toHaveBeenCalledWith('trade.exchange_close', expect.objectContaining({
+      symbol: 'BTCUSDT_0',
       exitPrice: 0,
       reason: 'WATCHDOG_NUCLEAR_CLOSE'
-    });
+    }));
     expect(orderManager.placeStopLoss).not.toHaveBeenCalled(); // Close instead of repair
   });
 });

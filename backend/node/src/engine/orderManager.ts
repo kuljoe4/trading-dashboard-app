@@ -1830,76 +1830,86 @@ export class OrderManagerService {
              filteredExit.qty = trade.qty;
           }
 
-          // HARDENING: Attempt MARKET close first WITHOUT canceling SL to eliminate protection gap.
-          // If this fails with ReduceOnly rejection, we then fall back to Cancel-then-Replace.
+          // HARDENING: Idempotent Closure Loop. Handles network timeouts and Duplicate clientOrderId
+          // by querying exchange state to verify if the close order was accepted.
           let orderData: any = null;
           let closeSuccess = false;
+          let attempts = 0;
+          const MAX_CLOSE_ATTEMPTS = 3;
 
-          try {
-            const response = await this.binanceClient.restAPI.newOrder({
-              symbol,
-              side: closeDirection,
-              type: 'MARKET',
-              quantity: parseFloat(filteredExit.qty.toFixed(qtyPrecision)),
-              reduceOnly: true,
-              newOrderRespType: 'RESULT',
-              newClientOrderId: clientOrderId,
-              selfTradePreventionMode: 'EXPIRE_MAKER',
-            } as any);
+          while (attempts < MAX_CLOSE_ATTEMPTS) {
+            attempts++;
+            try {
+              const response = await this.binanceClient.restAPI.newOrder({
+                symbol,
+                side: closeDirection,
+                type: 'MARKET',
+                quantity: parseFloat(filteredExit.qty.toFixed(qtyPrecision)),
+                reduceOnly: true,
+                newOrderRespType: 'RESULT',
+                newClientOrderId: clientOrderId,
+                selfTradePreventionMode: 'EXPIRE_MAKER',
+              } as any);
 
-            this.updateWeight(response?.headers);
-            orderData = await response.data() as any;
-            if (orderData && orderData.orderId) {
-               closeSuccess = true;
-               this.logger.log(`Close order successful without SL flush: ${orderData.orderId}`);
-            }
-          } catch (marketErr: any) {
-            const marketMsg = marketErr.message || '';
-            if (marketMsg.includes('ReduceOnly') || marketMsg.includes('conflict') || marketMsg.includes('-2022')) {
-               this.logger.warn(`[${symbol}] MARKET close conflicted with existing orders. Falling back to aggressive flush + retry.`);
+              this.updateWeight(response?.headers);
+              orderData = await response.data() as any;
 
-               // Fallback: 1. Explicitly cancel the known Stop Loss order
-               if (trade.binance_stop_order_id) {
-                 try {
-                   this.logger.log(`[${symbol}] [Sync] Canceling known SL order ${trade.binance_stop_order_id}...`);
-                   await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type as any);
-                 } catch (cancelErr: any) {
-                   this.logger.error(`[${symbol}] [Sync] Failed to cancel SL: ${cancelErr.message}`);
-                 }
-                 trade.binance_stop_order_id = undefined;
-               }
+              if (orderData && orderData.code && orderData.code !== 0) {
+                const code = orderData.code;
+                const msg = orderData.msg || '';
 
-               // Fallback: 2. Flush ALL remaining open orders
-               try {
-                 this.logger.log(`[${symbol}] [Sync] Finalizing trade closure. Flushing ALL remaining open orders...`);
-                 const flushRes = await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol });
-                 this.updateWeight(flushRes?.headers);
-                 this.logger.log(`[${symbol}] [Sync] Global symbol flush complete.`);
-               } catch (flushErr: any) {
-                 this.logger.warn(`[${symbol}] [Sync] Cleanup-on-close flush failed: ${flushErr.message}`);
-               }
+                if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
+                  this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId on close retry. Recovering close state...`);
+                  const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: clientOrderId });
+                  this.updateWeight(queryRes?.headers);
+                  orderData = await queryRes.data() as any;
+                  if (orderData && orderData.orderId) {
+                    this.logger.log(`[${symbol}] [Sync] Successfully recovered existing close order: ${orderData.orderId} (Status: ${orderData.status})`);
+                    closeSuccess = true;
+                    break;
+                  }
+                }
 
-               // Fallback: 3. Retry MARKET close
-               const retryResponse = await this.binanceClient.restAPI.newOrder({
-                 symbol,
-                 side: closeDirection,
-                 type: 'MARKET',
-                 quantity: parseFloat(filteredExit.qty.toFixed(qtyPrecision)),
-                 reduceOnly: true,
-                 newOrderRespType: 'RESULT',
-                 newClientOrderId: clientOrderId,
-                 selfTradePreventionMode: 'EXPIRE_MAKER',
-               } as any);
+                if (msg.includes('ReduceOnly') || msg.includes('conflict') || msg.includes('-2022')) {
+                   this.logger.warn(`[${symbol}] MARKET close conflicted. Flushing orders and retrying (Attempt ${attempts})...`);
+                   if (trade.binance_stop_order_id) {
+                     await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type as any);
+                     trade.binance_stop_order_id = undefined;
+                   }
+                   await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol });
+                   continue;
+                }
 
-               this.updateWeight(retryResponse?.headers);
-               orderData = await retryResponse.data() as any;
-               if (orderData && orderData.orderId) {
+                throw new Error(msg);
+              }
+
+              if (orderData && orderData.orderId) {
+                closeSuccess = true;
+                break;
+              }
+            } catch (err: any) {
+              const errMsg = err.message || '';
+              const isNetworkError = errMsg.includes('Network error') || errMsg.includes('timeout') || errMsg.includes('ECONNRESET') || errMsg.includes('ETIMEDOUT');
+
+              if (isNetworkError && attempts < MAX_CLOSE_ATTEMPTS) {
+                this.logger.warn(`[${symbol}] Network error during close. Retrying (Attempt ${attempts + 1})...`);
+                await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
+                continue;
+              }
+
+              // Handle Duplicate ID via exception (some SDK variants throw instead of returning code)
+              if (errMsg.includes('Duplicate orderSent') || errMsg.includes('Duplicate clientOrderId')) {
+                this.logger.log(`[${symbol}] [Sync] Duplicate ID exception on close. Recovering...`);
+                const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: clientOrderId });
+                this.updateWeight(queryRes?.headers);
+                orderData = await queryRes.data() as any;
+                if (orderData && orderData.orderId) {
                   closeSuccess = true;
-                  this.logger.log(`Close order successful after flush: ${orderData.orderId}`);
-               }
-            } else {
-               // Re-throw other errors (like PERCENT_PRICE) to be handled by common logic
-               throw marketErr;
+                  break;
+                }
+              }
+
+              throw err;
             }
           }
 

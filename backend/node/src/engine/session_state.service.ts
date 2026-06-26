@@ -185,9 +185,21 @@ export class SessionStateService {
   }
 
   isRateLimited(threshold = 0.8): boolean {
+    if (this.isBanned()) return true;
     const used = this.binanceRateLimit.used_1m;
     const limit = this.binanceRateLimit.limit;
     return (used / limit) > threshold;
+  }
+
+  isBanned(): boolean {
+    // SRE: Proactive ban expiration. If the ban time has passed, treat it as cleared
+    // regardless of the isBanned status bit.
+    if (this.apiStatus.isBanned) {
+      if (this.apiStatus.banUntil && Date.now() < this.apiStatus.banUntil) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

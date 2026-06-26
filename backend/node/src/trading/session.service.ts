@@ -931,11 +931,15 @@ export class SessionService implements OnModuleInit {
           allOpenOrders = await this.orderManager.fetchAllOpenOrders();
         } else {
           // Targeted Audit: Fetch only what we need to save weight in Window 1
+          // BOLT: Added small delay between symbol audits to avoid IP-ban burst penalties on boot
           for (const symbol of uniqueSymbols) {
              const pos = await this.orderManager.fetchPosition(symbol, { forceFresh: true });
              if (pos && Math.abs(parseFloat(pos.positionAmt)) > 0) activeExPositions.push(pos);
              const orders = await this.orderManager.fetchOpenOrders(symbol);
              allOpenOrders.push(...orders);
+             if (uniqueSymbols.length > 1) {
+               await new Promise(resolve => setTimeout(resolve, 300));
+             }
           }
         }
         const ordersBySymbol = new Map<string, any[]>();

@@ -53,6 +53,14 @@ export class SessionLifecycleService {
     this.running = true;
     await this.progress('Starting session initialization...');
 
+    // Load lastModeSync from DB on startup
+    try {
+      const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+      if (settings && settings.last_mode_sync) {
+        this.lastModeSync = Number(settings.last_mode_sync);
+      }
+    } catch (e) {}
+
     this.sessionState.reset(config, hist, curBal, sid);
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
     await this.orderManager.setBinanceClient(bc, mode === 'paper');
@@ -163,14 +171,16 @@ export class SessionLifecycleService {
         this.logger.debug(`Initial account configuration failed: ${e instanceof Error ? e.message : String(e)}`);
       }
 
-      await this.progress('Establishing real-time account stream...');
-      try {
-        await this.startUserDataStream(bc);
-      } catch (err) {
-        const errMsg = `CRITICAL: Failed to establish real-time account stream: ${err instanceof Error ? err.message : String(err)}. Polling fallback is disabled for safety.`;
-        this.logger.error(errMsg);
-        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: errMsg, level: 'error' });
-        throw new ConfigValidationException(errMsg);
+      if (!this.isUdsConnected) {
+        await this.progress('Establishing real-time account stream...');
+        try {
+          await this.startUserDataStream(bc);
+        } catch (err) {
+          const errMsg = `CRITICAL: Failed to establish real-time account stream: ${err instanceof Error ? err.message : String(err)}. Polling fallback is disabled for safety.`;
+          this.logger.error(errMsg);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: errMsg, level: 'error' });
+          throw new ConfigValidationException(errMsg);
+        }
       }
     }
 
@@ -341,7 +351,7 @@ export class SessionLifecycleService {
     }
   }
 
-  private async startUserDataStream(bc: any, isReconnect = false) {
+  public async startUserDataStream(bc: any, isReconnect = false) {
     if (!bc) return;
     // SRE: Critical guard - if IP is banned, do not even attempt UDS start to prevent chain reaction
     // SRE Overwatch: startUserDataStream is whitelisted as IMMUNE in the gateway, but we still log warning if over limit.

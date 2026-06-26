@@ -67,6 +67,8 @@ export class MaintenanceService {
         return isStandardSl || isConditionalAlgoSl;
       };
 
+      const uniqueSymbols = Array.from(new Set(tradesToAudit.map(t => t.symbol)));
+
       if (useBulkAudit) {
         this.logger.log(`[Watchdog] Performing bulk audit for ${tradesToAudit.length} trades...`);
         // BOLT: Coordinated Snapshot Pattern for positions (Weight 5)
@@ -84,16 +86,15 @@ export class MaintenanceService {
           slOrdersBySymbol.set(o.symbol, list);
         });
       } else {
-        const uniqueSymbols = Array.from(new Set(tradesToAudit.map(t => t.symbol)));
         this.logger.log(`[Watchdog] Performing targeted audit for ${uniqueSymbols.length} symbols...`);
         for (const symbol of uniqueSymbols) {
-           // Targeted position (Weight 5) and orders (Weight 1+1)
-           const pos = await this.orderManager.fetchPosition(symbol, { forceFresh: true });
+           // Zero-Weight Path: Try cache first
+           const pos = await this.orderManager.fetchPosition(symbol, { forceFresh: false });
            if (pos && Math.abs(parseFloat(pos.positionAmt)) > 0) {
              activePositionsMap.set(symbol, pos);
            }
 
-           const orders = await this.orderManager.fetchOpenOrders(symbol);
+           const orders = await this.orderManager.fetchOpenOrders(symbol, { forceFresh: false });
            slOrdersBySymbol.set(symbol, orders.filter(isSlOrder));
         }
       }

@@ -533,10 +533,10 @@ export class TradingSessionService implements OnApplicationShutdown {
            if (this.safetySyncTimeout) clearTimeout(this.safetySyncTimeout);
            this.safetySyncTimeout = setTimeout(async () => {
               this.safetySyncTimeout = null;
-              // BOLT: Only perform REST safety sync if UDS hasn't provided a balance update in the last 20s.
+              // BOLT: Only perform REST safety sync if UDS hasn't provided a balance update in the last 60s.
               // Most closures trigger an ACCOUNT_UPDATE immediately, making the REST poll redundant.
               const udsAge = Date.now() - this.sessionState.lastUdsBalanceUpdate;
-              if (udsAge < 20000) {
+              if (udsAge < 60000) {
                  this.logger.debug(`Skipping redundant REST safety sync. UDS balance update is fresh (${udsAge}ms ago).`);
                  return;
               }
@@ -597,6 +597,10 @@ export class TradingSessionService implements OnApplicationShutdown {
   getActiveTradeCount(): number { return this.positionTracker.activeCount(); }
   getActiveTradeSymbols(): string[] { return this.positionTracker.activeList().map(t => t.symbol); }
   getActiveTradesRaw(): Trade[] { return this.positionTracker.activeList(); }
+
+  async startUds(client: any) {
+    await this.sessionLifecycle.startUserDataStream(client);
+  }
 
   /**
    * BOLT OPTIMIZATION: Clears transient caches and state to minimize RAM footprint

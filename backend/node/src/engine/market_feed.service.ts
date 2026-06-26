@@ -25,6 +25,13 @@ interface BinanceKline {
 
 @Injectable()
 export class MarketFeedService {
+  async onModuleInit() {
+    // Proactively load from DB on module init to seed the static cache
+    // SRE: On boot, we don't have a session config yet. We load BOTH Prod and Testnet metadata
+    // from the DB into the static cache if available, ensuring zero-latency startup for either.
+    await this.fetchExchangeInfo(ENGINE_CONSTANTS.BINANCE_REST_BASE);
+    await this.fetchExchangeInfo('https://testnet.binancefuture.com');
+  }
   private readonly logger = new Logger(MarketFeedService.name);
   private running = false;
   private miniTickerWs: WebSocket | null = null;
@@ -79,6 +86,8 @@ export class MarketFeedService {
         ? 'wss://fstream.binancefuture.com/stream'
         : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
 
+    // RESEARCH-02: Optimized Startup. loadFromDb() called via fetchExchangeInfo()
+    // will now be called before any session start.
     await this.fetchExchangeInfo(restBase);
 
     this.startMiniTickerStream(wsBasePublic);
@@ -86,17 +95,17 @@ export class MarketFeedService {
 
     // RESEARCH: "Cold Start" mitigation. We wait for WS to populate the ticker cache.
     // If it's still empty after a grace period, we perform a one-time REST fetch to ensure the watchlist isn't 0.
-    // BOLT: Even if not empty, we trigger a re-evaluation after 5s to ensure the UI updates from 0 monitored symbols.
+    // BOLT: Even if not empty, we trigger a re-evaluation after 15s to ensure the UI updates from 0 monitored symbols.
     setTimeout(async () => {
        if (!this.running) return;
        if (this.tickerCache.getCacheSize() === 0) {
-          this.logger.warn(`[MarketFeed] Ticker cache empty after 5s WS wait. Falling back to REST fetchInitialTickers (Weight 40)...`);
+          this.logger.warn(`[MarketFeed] Ticker cache empty after 15s WS wait. Falling back to REST fetchInitialTickers (Weight 40)...`);
           await this.fetchInitialTickers(restBase);
        } else {
           this.logger.log(`[MarketFeed] WS Seeding successful. Ticker cache size: ${this.tickerCache.getCacheSize()}. Triggering watchlist re-evaluation.`);
           this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
        }
-    }, 5000);
+    }, 15000);
 
     this.startWatchlistManager(config);
   }
@@ -144,12 +153,7 @@ export class MarketFeedService {
     // RESEARCH-02: Increase TTL to 12 hours for metadata that rarely changes, further reducing weight usage.
     const CACHE_TTL = 12 * 60 * 60 * 1000;
 
-    if (MarketFeedService.cachedExchangeInfo.size > 0 && MarketFeedService.lastExchangeInfoBase === restBase && now - MarketFeedService.lastExchangeInfoFetch < CACHE_TTL) {
-      this.exchangeInfo = MarketFeedService.cachedExchangeInfo;
-      return;
-    }
-
-    // RESEARCH-02: Try loading from DB cache on restart
+    // RESEARCH-02: DB-First Metadata Loading
     if (MarketFeedService.cachedExchangeInfo.size === 0) {
       try {
         const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
@@ -163,14 +167,18 @@ export class MarketFeedService {
               MarketFeedService.cachedExchangeInfo.set(symbol, cache[symbol]);
             });
             MarketFeedService.lastExchangeInfoFetch = Number(settings.exchange_info_ts);
-            MarketFeedService.lastExchangeInfoBase = restBase; // Assumption: last fetch was same environment
+            MarketFeedService.lastExchangeInfoBase = restBase;
             this.exchangeInfo = MarketFeedService.cachedExchangeInfo;
-            return;
           }
         }
       } catch (dbErr) {
         this.logger.debug(`Failed to load exchange info from DB: ${dbErr}`);
       }
+    }
+
+    if (MarketFeedService.cachedExchangeInfo.size > 0 && MarketFeedService.lastExchangeInfoBase === restBase && now - MarketFeedService.lastExchangeInfoFetch < CACHE_TTL) {
+      this.exchangeInfo = MarketFeedService.cachedExchangeInfo;
+      return;
     }
 
     try {

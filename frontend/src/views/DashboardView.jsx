@@ -470,6 +470,7 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
 
 export function DashboardView({ initialStrategy }) {
   const [selected, setSelected] = useState(initialStrategy || null)
+  const [showTemporalRisk, setShowTemporalRisk] = useState(false)
   const [showConfig, setShowConfig] = useState(false)
   const [modalConfig, setModalConfig] = useState(null)
   const [showScanner, setShowScanner] = useState(false)
@@ -945,11 +946,44 @@ export function DashboardView({ initialStrategy }) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.3 }}
+            className="flex flex-col"
           >
-            <SectionLabel className="mb-4">
-              <ShieldCheck size={14} className="text-accent" /> Temporal Risk & Limits
-            </SectionLabel>
-            <TemporalRiskGrid />
+            <button
+              onClick={() => setShowTemporalRisk(!showTemporalRisk)}
+              className="group flex items-center justify-between w-full mb-4 text-left outline-none"
+              aria-expanded={showTemporalRisk}
+              aria-controls="temporal-risk-grid"
+            >
+              <SectionLabel className="mb-0 flex-1">
+                <ShieldCheck size={14} className="text-accent" /> Temporal Risk & Limits
+              </SectionLabel>
+              <div className={cn(
+                "p-1.5 rounded-lg border border-border/40 bg-surface/50 text-dim group-hover:text-accent group-hover:border-accent/40 transition-all",
+                showTemporalRisk && "text-accent border-accent/40 bg-accent/5 rotate-180"
+              )}>
+                <ChevronLeft size={14} className="-rotate-90" />
+              </div>
+            </button>
+            <AnimatePresence>
+              {showTemporalRisk && (
+                <motion.div
+                  id="temporal-risk-grid"
+                  initial={{ height: 0, opacity: 0, marginTop: 0 }}
+                  animate={{ height: 'auto', opacity: 1, marginTop: 0 }}
+                  exit={{ height: 0, opacity: 0, marginTop: 0 }}
+                  transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+                  className="overflow-hidden"
+                >
+                  <TemporalRiskGrid />
+                </motion.div>
+              )}
+            </AnimatePresence>
+            {!showTemporalRisk && (
+              <div className="flex gap-2 -mt-2 mb-4 animate-in fade-in slide-in-from-left-2 duration-500">
+                 {config.frequency_shaping_enabled && <div className="px-2 py-0.5 rounded bg-accent/5 border border-accent/10 text-[8px] font-black uppercase tracking-widest text-accent/60">Frequency Guard Active</div>}
+                 <div className="px-2 py-0.5 rounded bg-surface border border-border/40 text-[8px] font-black uppercase tracking-widest text-dim/60">{config.max_open_trades} Max Trades</div>
+              </div>
+            )}
           </motion.div>
         </div>
 

@@ -27,6 +27,11 @@ describe('normalizeUrl', () => {
   it('handles user provided case from logs', () => {
     assert.equal(normalizeUrl('https://https//backend-staging2-7ec5.up.railway.app'), 'https://backend-staging2-7ec5.up.railway.app')
   })
+
+  it('enforces protocol if requested', () => {
+    assert.equal(normalizeUrl('http://api.example.com', 'https'), 'https://api.example.com')
+    assert.equal(normalizeUrl('https://https//api.example.com', 'wss'), 'wss://api.example.com')
+  })
 })
 
 describe('sanitizeSessionConfig', () => {

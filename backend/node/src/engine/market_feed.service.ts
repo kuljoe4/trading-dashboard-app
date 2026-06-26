@@ -27,10 +27,10 @@ interface BinanceKline {
 export class MarketFeedService {
   async onModuleInit() {
     // Proactively load from DB on module init to seed the static cache
-    // SRE: On boot, we don't have a session config yet. We load BOTH Prod and Testnet metadata
-    // from the DB into the static cache if available, ensuring zero-latency startup for either.
+    // SRE: On boot, we don't have a session config yet. We load Production metadata
+    // from the DB into the static cache if available. Testnet will be loaded on-demand
+    // when a session starts to avoid dual-burst on boot.
     await this.fetchExchangeInfo(ENGINE_CONSTANTS.BINANCE_REST_BASE);
-    await this.fetchExchangeInfo('https://testnet.binancefuture.com');
   }
   private readonly logger = new Logger(MarketFeedService.name);
   private running = false;
@@ -648,11 +648,12 @@ export class MarketFeedService {
 
         // SRE: Adaptive gap between sequential requests to smooth out weight consumption.
         // Scaled by current usage ratio to proactively slow down background load.
-        const baseDelay = 300;
-        const adaptiveDelay = baseDelay + (safeUsageRatio * 2000); // Scale up to +2s at high usage
+        // BOLT: Increased base delay to 500ms and max scale to +3s for safer IP reputation.
+        const baseDelay = 500;
+        const adaptiveDelay = baseDelay + (safeUsageRatio * 3000);
         const finalDelay = Number.isFinite(adaptiveDelay) ? adaptiveDelay : baseDelay;
 
-        await new Promise(resolve => setTimeout(resolve, finalDelay + Math.random() * 300));
+        await new Promise(resolve => setTimeout(resolve, finalDelay + Math.random() * 500));
       }
     }
     this.backfillProcessing = false;

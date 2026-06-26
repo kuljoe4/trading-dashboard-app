@@ -165,6 +165,12 @@ export class BinanceRequestQueue {
 
   private executeRollover(now: number) {
     // SRE: Critical rollover logic. Resets counter at clock minute boundaries (00s).
+    // BOLT: Also ensure ban cooldown has elapsed before allowing weight to reset and requests to resume.
+    if (now < BinanceRequestQueue.lastRequestTs) {
+      this.logger.debug(`[BinanceQueue] Rollover skipped: Still in mandatory cooldown for ${Math.ceil((BinanceRequestQueue.lastRequestTs - now) / 1000)}s`);
+      return;
+    }
+
     if (BinanceRequestQueue.currentWeight1m > 0) {
       this.logger.log(`[BinanceQueue] Window rollover detected. Resetting weight: ${BinanceRequestQueue.currentWeight1m} -> 0`);
       BinanceRequestQueue.currentWeight1m = 0;

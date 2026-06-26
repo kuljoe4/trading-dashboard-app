@@ -381,6 +381,9 @@ export class TradingSessionService implements OnApplicationShutdown {
       await this.refreshRiskGating();
 
       if (this.isGated() || this.sessionState.hibernating) {
+        // CODE-04: Ensure active windows are refreshed even when gated to clear expired opportunities
+        this.refreshActiveWindows([]);
+
         if (this.sessionState.listenerCount > 0) {
           const now = Date.now(); const isFull = now - this.lastScannerFullBroadcast > 30000; if (isFull) this.lastScannerFullBroadcast = now;
           this.broadcast('scanner', { count: this.lastScannerResults.length, hibernating: this.sessionState.hibernating, opportunities: this.lastScannerResults.slice(0, 5).map(o => { if (isFull) return o; const { history, ...rest } = o; return rest; }), variant_opportunities: this.lastVariantScannerResults.map(v => ({ ...v, opportunities: v.opportunities.slice(0, 5).map((o: any) => { if (isFull) return o; const { history, ...rest } = o; return rest; }) })), activeWindows: this.getActiveWindows() });

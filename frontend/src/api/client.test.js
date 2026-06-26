@@ -1,6 +1,33 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { sanitizeSessionConfig, createSessionAPI } from './client.js'
+import { sanitizeSessionConfig, createSessionAPI, normalizeUrl } from './client.js'
+
+describe('normalizeUrl', () => {
+  it('passes through null/undefined', () => {
+    assert.strictEqual(normalizeUrl(null), null)
+    assert.strictEqual(normalizeUrl(undefined), undefined)
+  })
+
+  it('removes trailing slashes', () => {
+    assert.equal(normalizeUrl('https://api.example.com/'), 'https://api.example.com')
+    assert.equal(normalizeUrl('https://api.example.com///'), 'https://api.example.com')
+  })
+
+  it('fixes double protocols', () => {
+    assert.equal(normalizeUrl('https://https://api.example.com'), 'https://api.example.com')
+    assert.equal(normalizeUrl('http://http://api.example.com'), 'http://api.example.com')
+    assert.equal(normalizeUrl('https://https//api.example.com'), 'https://api.example.com')
+  })
+
+  it('fixes missing colons', () => {
+    assert.equal(normalizeUrl('https//api.example.com'), 'https://api.example.com')
+    assert.equal(normalizeUrl('http//api.example.com'), 'http://api.example.com')
+  })
+
+  it('handles user provided case from logs', () => {
+    assert.equal(normalizeUrl('https://https//backend-staging2-7ec5.up.railway.app'), 'https://backend-staging2-7ec5.up.railway.app')
+  })
+})
 
 describe('sanitizeSessionConfig', () => {
   it('keeps only allowed session config keys', () => {

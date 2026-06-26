@@ -1,7 +1,25 @@
 import axios from 'axios'
 
+export const normalizeUrl = (url) => {
+  if (!url) return url;
+  // DEPLOY-04: Robust URL normalization to handle common environment variable misconfigurations
+  // Fix cases like 'https://https://' or 'https//'
+  let normalized = url.trim();
+
+  // Replace 'https://https://' or 'https://https//' with 'https://'
+  normalized = normalized.replace(/^(https?):\/\/+https?[:/]+/i, '$1://');
+
+  // Fix missing colon in 'https//' or 'http//' at the start
+  normalized = normalized.replace(/^(https?)\/+/i, '$1://');
+
+  // Remove trailing slashes
+  normalized = normalized.replace(/\/+$/, '');
+
+  return normalized;
+}
+
 const baseUrlEnv = typeof import.meta !== 'undefined' && typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_API_URL : undefined
-const baseURL = baseUrlEnv || (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:3000' : '')
+const baseURL = normalizeUrl(baseUrlEnv) || (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:3000' : '')
 const api = axios.create({
   baseURL,
 })

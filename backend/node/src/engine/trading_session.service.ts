@@ -200,9 +200,12 @@ export class TradingSessionService implements OnApplicationShutdown {
     }
 
     const active = this.positionTracker.activeList();
+    const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
+    const isPaper = mode === 'paper';
+
     for (const t of active) {
       const cp = await this.tickerCache.getPrice(t.symbol); const ep = cp ?? t.last_price ?? t.entry_price;
-      const res = await this.positionTracker.closeTrade(t.symbol, ep, EXIT_REASONS.SESSION_TERMINATED, this.config!, this.config?.paper_mode ?? true);
+      const res = await this.positionTracker.closeTrade(t.symbol, ep, EXIT_REASONS.SESSION_TERMINATED, this.config!, isPaper);
       if (res.exitOccurred && res.trade) {
         this.sessionState.updateStatsOnClose((res.trade.pnl || 0) > 0, res.trade.pnl || 0, res.trade.is_reconciliation); this.sessionState.addClosedTrade(res.trade);
         await this.updateBalance(res.trade); if (this.onTradeUpdate) await this.onTradeUpdate(res.trade, this.getBalance());
@@ -212,7 +215,6 @@ export class TradingSessionService implements OnApplicationShutdown {
         t.exit_price = ep;
         const pnlp = t.direction === 'LONG' ? ep - t.entry_price : t.entry_price - ep;
 
-        const isPaper = this.config?.paper_mode ?? true;
         const feeRate = isPaper ? ENGINE_CONSTANTS.SIMULATED_FEE_RATE : this.orderManager.getTakerFeeRate();
 
         // Simulate exit fee (taker rate) for forced closure

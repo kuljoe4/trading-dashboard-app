@@ -583,6 +583,15 @@ export class SessionService implements OnModuleInit {
       throw new ConflictException("Session already running");
     }
 
+    // Force mode consistency: testnet/live must have paper_mode disabled
+    if (mode === 'testnet' || mode === 'live') {
+      config.paper_mode = false;
+      paperMode = false;
+    } else {
+      config.paper_mode = true;
+      paperMode = true;
+    }
+
     // Deep validation of dependent fields
     this.validateConfig(config);
 
@@ -1412,6 +1421,7 @@ export class SessionService implements OnModuleInit {
           entry_ts: new Date(),
           is_reconciliation: true,
           strategy_label: "Exchange Reconciliation",
+          strategy_config: { trading_mode: mode, paper_mode: mode === 'paper' },
           close_attempts: 0,
           close_blocked: false,
           binance_order_id: "RECON-" + uuid().substring(0, 8),
@@ -1496,6 +1506,13 @@ export class SessionService implements OnModuleInit {
         trading_mode: session.tradingMode,
         paper_mode: session.paperMode,
       };
+
+      // Force consistency on update
+      if (mergedConfig.trading_mode === 'testnet' || mergedConfig.trading_mode === 'live') {
+        mergedConfig.paper_mode = false;
+      } else {
+        mergedConfig.paper_mode = true;
+      }
 
       // 2. Deep validation of full merged config
       // SEC-01: Re-apply DTO-level validation on the merged object to ensure data integrity

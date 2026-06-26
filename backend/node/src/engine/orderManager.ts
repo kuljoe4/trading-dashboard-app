@@ -1858,7 +1858,9 @@ export class OrderManagerService {
       }
 
       // In live mode, place close order with reduce-only for safety
-      if (!paperMode && !localOnly && this.binanceClient && trade.binance_order_id) {
+      // BOLT: Support both standard binance_order_id and RECON- prefixed IDs for imported trades
+      const hasOrderId = trade.binance_order_id && trade.binance_order_id !== '';
+      if (!paperMode && !localOnly && this.binanceClient && hasOrderId) {
         trade.close_attempts = (trade.close_attempts || 0) + 1;
         trade.last_close_attempt_ts = nowTs;
         // Persistence trigger for every attempt increment

@@ -20,7 +20,7 @@ const SIGNALS = [
   ['engulfing', 'Engulfing', 'Entry on bullish or bearish engulfing pattern.'],
 ]
 
-const SectionHeader = ({ icon: Icon, title, subtitle }) => (
+const SectionHeader = React.memo(({ icon: Icon, title, subtitle }) => (
   <div className="flex items-center gap-3 mb-4">
     <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
       <Icon size={18} />
@@ -30,21 +30,288 @@ const SectionHeader = ({ icon: Icon, title, subtitle }) => (
       {subtitle && <p className="text-[10px] text-dim font-medium uppercase">{subtitle}</p>}
     </div>
   </div>
-)
+))
+SectionHeader.displayName = 'SectionHeader'
 
-const Toggle = ({ value, onChange, label, color = "bg-accent" }) => (
+const Toggle = React.memo(({ value, onChange, label, color = "bg-accent" }) => (
   <label className="flex items-center gap-3 cursor-pointer group">
     <Switch.Root checked={value} onCheckedChange={onChange} className={cn("relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:border-accent", value ? color : "bg-border")}>
       <Switch.Thumb className={cn("pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform", value ? "translate-x-5" : "translate-x-0")} />
     </Switch.Root>
     {label && <span className={cn("text-sm font-bold transition-colors", value ? "text-text" : "text-dim group-hover:text-dim/80")}>{label}</span>}
   </label>
-)
-
-const Chip = React.forwardRef(({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10", ...props }, ref) => (
-  <button ref={ref} type="button" onClick={onClick} aria-pressed={active} className={cn("px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all", active ? activeClass : "border-border text-dim hover:border-dim/50")} {...props}>{children}</button>
 ))
+Toggle.displayName = 'Toggle'
+
+const Chip = React.memo(React.forwardRef(({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10", ...props }, ref) => (
+  <button ref={ref} type="button" onClick={onClick} aria-pressed={active} className={cn("px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all", active ? activeClass : "border-border text-dim hover:border-dim/50")} {...props}>{children}</button>
+)))
 Chip.displayName = 'Chip'
+
+const ConfigField = React.memo(({ label, id, name, type, value, onChange, error, warning, opts, attrs }) => {
+  const handleChange = (e) => {
+    const val = type === 'number' ? Number(e.target.value) : e.target.value;
+    onChange(name, val);
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5 group/field">
+      <div className="flex justify-between items-center">
+        <label htmlFor={id} className="text-[10px] text-dim group-hover/field:text-accent font-black tracking-widest uppercase transition-colors">{label}</label>
+        {error && <span role="alert" className="text-[9px] text-red font-bold uppercase">{error}</span>}
+        {warning && !error && <span role="alert" className="text-[9px] text-amber font-bold uppercase">{warning}</span>}
+      </div>
+      {opts ? (
+        <select id={id} value={value ?? ''} onChange={handleChange} className="bg-surface border border-border rounded-xl px-4 py-2.5 text-sm font-bold text-text focus:border-accent outline-none appearance-none transition-all cursor-pointer hover:border-border-hover">
+          {opts.map((o) => {
+            const val = typeof o === 'string' ? o : o.value;
+            const lbl = typeof o === 'string' ? o : o.label;
+            return <option key={val} value={val}>{lbl}</option>;
+          })}
+        </select>
+      ) : (
+        <input id={id} type={type} value={value ?? ''} {...attrs} onChange={handleChange} className="bg-surface border border-border rounded-xl px-4 py-2.5 text-sm font-mono font-bold text-text focus:border-accent outline-none transition-all hover:border-border-hover" />
+      )}
+    </div>
+  );
+})
+ConfigField.displayName = 'ConfigField'
+
+const SignalChip = React.memo(({ signal, active, onClick }) => {
+  const [key, label, desc] = signal;
+  return (
+    <Tooltip content={desc} side="bottom">
+      <Chip active={active} onClick={() => onClick(key, active)}>{label}</Chip>
+    </Tooltip>
+  );
+})
+SignalChip.displayName = 'SignalChip'
+
+const ExitSignalCard = React.memo(({ signal, active, delayValue, onToggle, onDelayChange }) => {
+  const [key, label, desc] = signal;
+  return (
+    <div className="flex flex-col gap-2">
+      <Tooltip content={desc}>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => onToggle(key, active)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(key, active); } }}
+          className={cn("w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all text-left cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-red/50", active ? "border-red/40 bg-red/5" : "border-border hover:border-border-hover bg-surface/50")}
+        >
+          <span className={cn("text-xs font-bold", active ? "text-red" : "text-text")}>{label}</span>
+          <Switch.Root checked={active} className={cn("h-5 w-9 rounded-full transition-colors relative pointer-events-none", active ? "bg-red" : "bg-border")}>
+            <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
+          </Switch.Root>
+        </div>
+      </Tooltip>
+      {active && (
+        <div className="px-1 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
+          <label className="text-[9px] font-bold text-dim uppercase tracking-wider">Delay Trigger (s)</label>
+          <input
+            type="number"
+            min="0"
+            placeholder="0s"
+            value={delayValue || ''}
+            onChange={(e) => {
+              const val = Math.max(0, parseInt(e.target.value) || 0);
+              onDelayChange(key, val);
+            }}
+            className="w-20 bg-background border border-border rounded-lg px-2 py-1 text-[10px] font-mono font-bold text-right focus:border-red outline-none"
+          />
+        </div>
+      )}
+    </div>
+  );
+})
+ExitSignalCard.displayName = 'ExitSignalCard'
+
+const ManualMonitorInput = React.memo(({ onAdd }) => {
+  const [value, setValue] = useState('');
+  return (
+    <div className="flex gap-2">
+      <div className="relative flex-1">
+        <input
+          type="text"
+          placeholder="BTCUSDT"
+          value={value}
+          onChange={(e) => setValue(e.target.value.toUpperCase())}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              if (value) { onAdd(value); setValue(''); }
+            }
+            if (e.key === 'Escape') setValue('');
+          }}
+          className="w-full bg-surface border border-border rounded-xl pl-4 pr-10 py-3 text-sm font-mono focus:border-accent outline-none hover:border-border-hover transition-colors"
+        />
+        {value && <button type="button" onClick={() => setValue('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear input"><X size={16} /></button>}
+      </div>
+      <Btn variant="primary" onClick={() => { if (value) { onAdd(value); setValue(''); } }} className="aspect-square p-0 w-12 h-12 flex items-center justify-center"><Plus size={20} /></Btn>
+    </div>
+  );
+})
+ManualMonitorInput.displayName = 'ManualMonitorInput'
+
+const SavePresetInput = React.memo(({ onSave, isSaving, success }) => {
+  const [name, setName] = useState('');
+  return (
+    <div className="flex gap-2">
+      <input
+        type="text"
+        placeholder="Preset name (e.g. Scalp High Vol)"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none"
+      />
+      <Btn variant="primary" onClick={() => { if (name.trim()) { onSave(name); setName(''); } }} loading={isSaving} className="aspect-square p-0 w-12 h-12 flex items-center justify-center">
+        {success ? <CheckCircle2 size={20} /> : <Save size={20} />}
+      </Btn>
+    </div>
+  );
+})
+SavePresetInput.displayName = 'SavePresetInput'
+
+const ListInput = React.memo(({ value, onChange, placeholder }) => {
+  const [localValue, setLocalValue] = useState(() => value?.join(', ') || '');
+
+  // Update local value when external value changes (e.g. on preset load)
+  useEffect(() => {
+    setLocalValue(value?.join(', ') || '');
+  }, [value]);
+
+  const handleBlur = () => {
+    const list = localValue.split(',').map(s => s.trim()).filter(Boolean);
+    onChange(list);
+  };
+
+  return (
+    <input
+      type="text"
+      placeholder={placeholder}
+      value={localValue}
+      onChange={(e) => setLocalValue(e.target.value)}
+      onBlur={handleBlur}
+      onKeyDown={(e) => { if (e.key === 'Enter') handleBlur(); }}
+      className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none hover:border-border-hover transition-colors"
+    />
+  );
+})
+ListInput.displayName = 'ListInput'
+
+const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick }) => (
+  <Chip
+    active={active}
+    onClick={() => onClick(id)}
+    className="flex items-center gap-2"
+    role="tab"
+    aria-selected={active}
+    aria-controls={`config-panel-${id}`}
+    id={`config-tab-${id}`}
+    tabIndex={0}
+  >
+    <Icon size={12} className={cn(active ? "text-accent" : "text-dim")} />
+    {label}
+  </Chip>
+))
+SectionTab.displayName = 'SectionTab'
+
+const SectionTabs = React.memo(({ section, onSectionChange }) => {
+  const tabs = useMemo(() => [
+    { id: 'scan', label: 'Scanner', icon: Search },
+    { id: 'strategy', label: 'Strategy', icon: Zap },
+    { id: 'risk', label: 'Risk', icon: ShieldCheck },
+    { id: 'advanced', label: 'Advanced', icon: Settings2 },
+    { id: 'presets', label: 'Presets', icon: FolderOpen }
+  ], []);
+
+  return (
+    <div
+      className="flex gap-2 p-4 overflow-x-auto no-scrollbar touch-pan-x"
+      data-vaul-no-drag
+      role="tablist"
+      aria-label="Configuration sections"
+    >
+      {tabs.map((tab) => (
+        <SectionTab
+          key={tab.id}
+          {...tab}
+          active={section === tab.id}
+          onClick={onSectionChange}
+        />
+      ))}
+    </div>
+  );
+})
+SectionTabs.displayName = 'SectionTabs'
+
+const EnvironmentButton = React.memo(({ mode, isSelected, onClick }) => (
+  <button
+    type="button"
+    onClick={() => onClick(mode)}
+    className={cn("p-4 rounded-xl border-2 text-left transition-all relative group", isSelected ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover")}
+  >
+    <div className="flex items-center justify-between mb-1">
+      <span className="text-xs font-black uppercase tracking-tighter capitalize">{mode}</span>
+      {isSelected && <CheckCircle2 size={16} className="text-accent" />}
+    </div>
+    <p className="text-[9px] text-dim font-bold uppercase tracking-widest">
+      {mode === 'paper' ? 'Simulated' : mode === 'testnet' ? 'Demo API' : 'Real Capital'}
+    </p>
+  </button>
+))
+EnvironmentButton.displayName = 'EnvironmentButton'
+
+const PresetItem = React.memo(({ preset, isLoaded, isDirty, onLoad, onToggleVariant, onDelete, isVariant }) => {
+  const pMode = preset.config.trading_mode || (preset.config.paper_mode ? 'paper' : 'live');
+  return (
+    <div className="flex items-center justify-between p-4 bg-background border border-border rounded-2xl transition-all group/preset">
+      <button type="button" onClick={() => onLoad(preset)} className="flex-1 flex items-center gap-4 text-left">
+      <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center border transition-colors", isVariant ? "bg-accent border-accent text-white" : "bg-surface border-border text-dim group-hover/preset:border-accent/20")}>
+        {isVariant ? <ShieldCheck size={20} /> : <Zap size={20} />}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-bold group-hover/preset:text-accent transition-colors flex items-center gap-2 flex-wrap">
+           <span className="truncate">{preset.name}</span>
+           <div className="flex items-center gap-1 scale-[0.7] origin-left shrink-0">
+             {pMode === 'paper' && <PaperBadge />}
+             {pMode === 'testnet' && <DemoBadge />}
+             {pMode === 'live' && <LiveBadge />}
+           </div>
+           {isLoaded && (
+             <span className={cn("text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase", isDirty ? "bg-amber/10 text-amber" : "bg-accent/10 text-accent")}>
+               {isDirty ? "Modified" : "Current"}
+             </span>
+           )}
+        </div>
+        <div className="text-[10px] text-dim font-bold uppercase tracking-tight">{preset.config.scan_interval} · {preset.config.scan_pct_threshold}% · {preset.config.risk_pct_per_trade}% Risk</div>
+      </div>
+      </button>
+
+      <div className="flex items-center gap-2">
+        <Tooltip content={isVariant ? "Remove from variants" : "Add as strategy variant"}>
+          <button
+            type="button"
+            onClick={(e) => onToggleVariant(e, preset)}
+            aria-label={isVariant ? `Remove ${preset.name} from variants` : `Add ${preset.name} as variant`}
+            className={cn("p-2 rounded-lg transition-all active:scale-95", isVariant ? "bg-accent/10 text-accent border border-accent/20" : "bg-surface border border-border text-dim hover:text-accent hover:border-accent/20")}
+          >
+            {isVariant ? <XCircle size={16} /> : <Plus size={16} />}
+          </button>
+        </Tooltip>
+        <button
+          type="button"
+          onClick={(e) => onDelete(e, preset.name)}
+          aria-label={`Delete preset ${preset.name}`}
+          className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"
+        >
+          <Trash2 size={16} />
+        </button>
+      </div>
+    </div>
+  );
+})
+PresetItem.displayName = 'PresetItem'
 
 const flattenConfig = (config) => {
   if (!config) return {};
@@ -74,7 +341,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
   const [cfg, setCfg] = useState(() => {
     const savedDraft = sessionStorage.getItem('config_draft');
-    if (savedDraft) return JSON.parse(savedDraft);
+    if (savedDraft) {
+      try {
+        return JSON.parse(savedDraft);
+      } catch (e) {
+        console.error('[ConfigModal] Failed to parse draft:', e);
+      }
+    }
     return flattenConfig(initialConfig);
   });
   const [isDirty, setIsDirty] = useState(() => {
@@ -94,13 +367,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [modeWarning, setModeWarning] = useState(null)
   const [loadedPresetName, setLoadedPresetName] = useState(() => sessionStorage.getItem('loaded_preset_name'));
 
+  // Use a debounced effect for sessionStorage to avoid heavy stringify on every keystroke
   useEffect(() => {
-    sessionStorage.setItem('config_draft', JSON.stringify(cfg));
-    if (loadedPresetName) sessionStorage.setItem('loaded_preset_name', loadedPresetName);
-    else sessionStorage.removeItem('loaded_preset_name');
+    const timer = setTimeout(() => {
+      sessionStorage.setItem('config_draft', JSON.stringify(cfg));
+      if (loadedPresetName) sessionStorage.setItem('loaded_preset_name', loadedPresetName);
+      else sessionStorage.removeItem('loaded_preset_name');
+    }, 1000);
+    return () => clearTimeout(timer);
   }, [cfg, loadedPresetName]);
 
-  const validate = (c) => {
+  const validate = React.useCallback((c) => {
     const errs = {}; if (!c.scan_interval) errs.scan_interval = 'Required'; if (c.scan_lookback < 1) errs.scan_lookback = 'Min 1';
     if (c.scan_mode === 'active_window' && (!c.scan_window_duration_sec || !c.scan_check_interval_sec)) errs.scan_mode = 'Params missing';
 
@@ -133,7 +410,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     }
 
     setErrors(errs); return Object.keys(errs).length === 0;
-  }
+  }, [testnetConfigured, liveConfigured]);
 
   const generatedPresetName = useMemo(() => {
     const i = cfg.scan_interval || 'Custom'; const r = cfg.risk_pct_per_trade ? `${cfg.risk_pct_per_trade}% risk` : '';
@@ -166,16 +443,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     const checkConfig = async () => {
       try {
         const res = await settingsAPI.getKeys()
-        console.log('[ConfigModal] API keys response:', res)
-        console.log('[ConfigModal] Keys data:', res.data)
         const tn = !!res.data.testnet_api_key
         const ln = !!res.data.api_key
-        console.log('[ConfigModal] Testnet configured:', tn, 'Live configured:', ln)
         setTestnetConfigured(tn)
         setLiveConfigured(ln)
       } catch (e) {
         console.log('[ConfigModal] Error checking keys:', e.message)
-        // If we can't check, assume not configured
         setTestnetConfigured(false)
         setLiveConfigured(false)
       }
@@ -183,38 +456,31 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     checkConfig()
   }, [])
 
-  const setField = (key, value) => { 
-    console.log('[ConfigModal] setField called:', key, '=', value)
-    setIsDirty(true); // Mark as dirty on any change
+  const setField = React.useCallback((key, value) => {
+    setIsDirty(true);
     setCfg(prev => {
       const next = { ...prev, [key]: value };
-      console.log('[ConfigModal] New config state:', next)
-      if (Object.keys(errors).length > 0) validate(next);
       return next;
     });
-  }
+  }, []);
   
-  const resetToLastSaved = () => {
+  const resetToLastSaved = React.useCallback(() => {
     sessionStorage.removeItem('config_draft');
     setCfg(flattenConfig(initialConfig));
     setIsDirty(false);
     setErrors({});
-  };
+  }, [initialConfig]);
   
-  const handleModeSelect = (mode) => {
-    console.log('[ConfigModal] Mode selected:', mode, 'testnetConfigured:', testnetConfigured, 'liveConfigured:', liveConfigured)
+  const handleModeSelect = React.useCallback((mode) => {
     setModeWarning(null)
     if (mode === 'testnet' && !testnetConfigured) {
-      console.log('[ConfigModal] Blocking testnet - not configured')
       setModeWarning('Testnet API keys not configured. Please add them in Settings first.')
       return
     }
     if (mode === 'live' && !liveConfigured) {
-      console.log('[ConfigModal] Blocking live - not configured')
       setModeWarning('Live API keys not configured. Please add them in Settings first.')
       return
     }
-    console.log('[ConfigModal] Proceeding with mode selection:', mode)
     setCfg(prev => {
       const next = {
         ...prev,
@@ -224,81 +490,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       validate(next)
       return next
     })
-  }
+  }, [testnetConfigured, liveConfigured, validate]);
 
-  const savePreset = async () => {
-    try {
-      if (!validate(cfg)) {
-        console.warn('[ConfigModal] Save blocked: validation failed');
-        return;
-      }
-      const name = (presetName || generatedPresetName).trim();
-      if (!name) {
-        addAlert({ level: 'warn', title: 'Missing Name', message: 'Please provide a name for this strategy preset.' });
-        return;
-      }
-
-      const { strategy_variants, ...pc } = buildConfigToSave();
-      setIsSaving(true);
-      console.log(`[ConfigModal] Saving preset: ${name}`, pc);
-
-      const res = await presetsAPI.save(name, { ...pc, strategy_label: name });
-
-      if (res && res.data) {
-        const next = [...presets.filter(p => p.name !== name), res.data];
-        setPresets(next);
-        setPresetName('');
-        setSaveSuccess(true);
-        addAlert({ level: 'success', title: 'Preset Saved', message: `Strategy "${name}" has been stored in the database.` });
-        setTimeout(() => setSaveSuccess(false), 2000);
-      }
-    } catch (e) {
-      console.error('[ConfigModal] Error saving preset:', e);
-      const errMsg = e.response?.data?.message || 'Could not store strategy preset in the database.';
-      addAlert({ level: 'error', title: 'Save Failed', message: errMsg });
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  const loadPreset = (p) => {
-    const next = { ...p.config }
-    setCfg(next);
-    setLoadedPresetName(p.name);
-    setSection('scan');
-    validate(next);
-    setIsDirty(false);
-    addAlert({ level: 'success', title: 'Preset Loaded', message: `Active configuration set to "${p.name}".` });
-  }
-
-  const deletePreset = async (e, name) => {
-    e.stopPropagation();
-    try {
-      await presetsAPI.delete(name);
-      const next = presets.filter(p => p.name !== name);
-      setPresets(next);
-      addAlert({ level: 'info', title: 'Preset Deleted', message: `"${name}" has been removed from the database.` });
-    } catch (e) {
-      console.error('[ConfigModal] Error deleting preset:', e);
-      addAlert({ level: 'error', title: 'Delete Failed', message: `Could not remove preset "${name}".` });
-    }
-  }
-  const toggleVariant = (e, p) => {
-    e.stopPropagation()
-    const variants = cfg.strategy_variants || []
-    const exists = variants.some((v) => v.strategy_label === p.name)
-
-    if (!exists && variants.length >= CONFIG_LIMITS.MAX_VARIANTS) {
-      alert(`Maximum of ${CONFIG_LIMITS.MAX_VARIANTS} strategy variants allowed.`);
-      return;
-    }
-
-    setField('strategy_variants', exists
-      ? variants.filter((v) => v.strategy_label !== p.name)
-      : [...variants, { ...p.config, strategy_label: p.name }])
-  }
-
-  const buildConfigToSave = () => {
+  const buildConfigToSave = React.useCallback(() => {
     const c = { ...cfg, strategy_label: (cfg.strategy_label || presetName || generatedPresetName || 'Momentum Strategy').trim() };
 
     // Explicitly sanitize inputs for security and data integrity
@@ -343,7 +537,74 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     });
 
     return c;
-  }
+  }, [cfg, presetName, generatedPresetName]);
+
+  const savePreset = React.useCallback(async (explicitName) => {
+    try {
+      if (!validate(cfg)) return;
+      const name = (explicitName || presetName || generatedPresetName).trim();
+      if (!name) {
+        addAlert({ level: 'warn', title: 'Missing Name', message: 'Please provide a name for this strategy preset.' });
+        return;
+      }
+
+      const { strategy_variants, ...pc } = buildConfigToSave();
+      setIsSaving(true);
+
+      const res = await presetsAPI.save(name, { ...pc, strategy_label: name });
+
+      if (res && res.data) {
+        setPresets(prev => [...prev.filter(p => p.name !== name), res.data]);
+        setPresetName('');
+        setSaveSuccess(true);
+        addAlert({ level: 'success', title: 'Preset Saved', message: `Strategy "${name}" has been stored in the database.` });
+        setTimeout(() => setSaveSuccess(false), 2000);
+      }
+    } catch (e) {
+      console.error('[ConfigModal] Error saving preset:', e);
+      const errMsg = e.response?.data?.message || 'Could not store strategy preset in the database.';
+      addAlert({ level: 'error', title: 'Save Failed', message: errMsg });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [validate, cfg, presetName, generatedPresetName, buildConfigToSave, addAlert]);
+
+  const loadPreset = React.useCallback((p) => {
+    const next = { ...p.config }
+    setCfg(next);
+    setLoadedPresetName(p.name);
+    setSection('scan');
+    validate(next);
+    setIsDirty(false);
+    addAlert({ level: 'success', title: 'Preset Loaded', message: `Active configuration set to "${p.name}".` });
+  }, [validate, addAlert]);
+
+  const deletePreset = React.useCallback(async (e, name) => {
+    e.stopPropagation();
+    try {
+      await presetsAPI.delete(name);
+      setPresets(prev => prev.filter(p => p.name !== name));
+      addAlert({ level: 'info', title: 'Preset Deleted', message: `"${name}" has been removed from the database.` });
+    } catch (e) {
+      console.error('[ConfigModal] Error deleting preset:', e);
+      addAlert({ level: 'error', title: 'Delete Failed', message: `Could not remove preset "${name}".` });
+    }
+  }, [addAlert]);
+
+  const toggleVariant = React.useCallback((e, p) => {
+    e.stopPropagation()
+    const variants = cfg.strategy_variants || []
+    const exists = variants.some((v) => v.strategy_label === p.name)
+
+    if (!exists && variants.length >= CONFIG_LIMITS.MAX_VARIANTS) {
+      alert(`Maximum of ${CONFIG_LIMITS.MAX_VARIANTS} strategy variants allowed.`);
+      return;
+    }
+
+    setField('strategy_variants', exists
+      ? variants.filter((v) => v.strategy_label !== p.name)
+      : [...variants, { ...p.config, strategy_label: p.name }])
+  }, [cfg.strategy_variants, setField]);
 
   const currentModeBalance = cfg.trading_mode === 'paper' ? (cfg.paper_starting_balance || 10000) : cfg.trading_mode === 'testnet' ? (cfg.testnet_starting_balance || 0) : (cfg.live_starting_balance || 0);
   const riskAmount = (currentModeBalance * ((cfg.risk_pct_per_trade || 0) / 100))
@@ -353,29 +614,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     return l.map((t, i) => [t, ex[i] ?? 0]);
   }, [cfg.live_rr_sequence, cfg.exit_rr_sequence])
 
-  function field(label, key, type = 'number', opts = null, attrs = {}, cp = null) {
-    const id = `config-${key}`; const v = cp ? cp[key] : cfg[key]; const err = errors[key]; const warn = errors[`${key}_warn`];
-    const onChange = (val) => { if (cp) attrs.onCustomChange(key, val); else setField(key, val); }
-    return (
-      <div className="flex flex-col gap-1.5 group/field">
-        <div className="flex justify-between items-center"><label htmlFor={id} className="text-[10px] text-dim group-hover/field:text-accent font-black tracking-widest uppercase transition-colors">{label}</label>
-          {err && <span role="alert" className="text-[9px] text-red font-bold uppercase">{err}</span>}
-          {warn && !err && <span role="alert" className="text-[9px] text-amber font-bold uppercase">{warn}</span>}
-        </div>
-        {opts ? (
-          <select id={id} value={v ?? ''} onChange={(e) => onChange(e.target.value)} className="bg-surface border border-border rounded-xl px-4 py-2.5 text-sm font-bold text-text focus:border-accent outline-none appearance-none transition-all cursor-pointer hover:border-border-hover">
-            {opts.map((o) => {
-              const val = typeof o === 'string' ? o : o.value;
-              const lbl = typeof o === 'string' ? o : o.label;
-              return <option key={val} value={val}>{lbl}</option>;
-            })}
-          </select>
-        ) : (
-          <input id={id} type={type} value={v ?? ''} {...attrs} onChange={(e) => onChange(type === 'number' ? Number(e.target.value) : e.target.value)} className="bg-surface border border-border rounded-xl px-4 py-2.5 text-sm font-mono font-bold text-text focus:border-accent outline-none transition-all hover:border-border-hover" />
-        )}
-      </div>
-    )
-  }
+  const renderField = React.useCallback((label, key, type = 'number', opts = null, attrs = {}) => (
+    <ConfigField
+      label={label}
+      id={`config-${key}`}
+      name={key}
+      key={key}
+      type={type}
+      value={cfg[key]}
+      onChange={setField}
+      error={errors[key]}
+      warning={errors[`${key}_warn`]}
+      opts={opts}
+      attrs={attrs}
+    />
+  ), [cfg, errors, setField]);
 
   return (
     <div className="flex flex-col h-full bg-surface text-text overflow-hidden relative">
@@ -402,28 +655,20 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
           </div>
           <button type="button" onClick={onClose} aria-label="Close configuration" className="p-2 hover:bg-white/5 rounded-full transition-colors shrink-0"><X size={18} className="text-dim" /></button>
         </div>
-        <div className="flex gap-2 p-4 overflow-x-auto no-scrollbar touch-pan-x" data-vaul-no-drag>
-          {[
-            ['scan', 'Scanner', Search],
-            ['strategy', 'Strategy', Zap],
-            ['risk', 'Risk', ShieldCheck],
-            ['advanced', 'Advanced', Settings2],
-            ['presets', 'Presets', FolderOpen]
-          ].map(([id, label, Icon]) => (
-            <Chip key={id} active={section === id} onClick={() => setSection(id)} className="flex items-center gap-2">
-              <Icon size={12} className={cn(section === id ? "text-accent" : "text-dim")} />
-              {label}
-            </Chip>
-          ))}
-        </div>
+        <SectionTabs section={section} onSectionChange={setSection} />
       </div>
 
       <div className="flex-1 overflow-y-auto no-scrollbar p-4 md:p-6 pb-32 overscroll-contain" data-vaul-no-drag>
         {section === 'scan' && (
-          <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-300">
+          <div
+            id="config-panel-scan"
+            role="tabpanel"
+            aria-labelledby="config-tab-scan"
+            className="space-y-6 lg:space-y-8 animate-in fade-in duration-300"
+          >
             <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
               <SectionHeader icon={Settings2} title="General" subtitle="Basic strategy identification" />
-              {field('Strategy label', 'strategy_label', 'text', null, { placeholder: 'Momentum Strategy' })}
+              {renderField('Strategy label', 'strategy_label', 'text', null, { placeholder: 'Momentum Strategy' })}
             </section>
 
             <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
@@ -433,21 +678,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
 
               <div className={cn("grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6", cfg.global_scanner_enabled === false && "opacity-40 pointer-events-none")}>
-                {field('Timeframe', 'scan_interval', 'text', ['1m', '5m', '15m', '1h'])}
-                {field('% Threshold', 'scan_pct_threshold', 'number', null, { min: CONFIG_LIMITS.SCAN_PCT_THRESHOLD_MIN, step: 0.1 })}
-                {field('Watchlist size', 'watchlist_size', 'number', null, { min: CONFIG_LIMITS.WATCHLIST_MIN, max: CONFIG_LIMITS.WATCHLIST_MAX })}
-                {field('Watchlist Offset', 'watchlist_offset', 'number', null, { min: 0, max: 100 })}
-                {field('Entry side', 'entry_side', 'text', ['both', 'long', 'short'])}
-                {field('Lookback (Candles)', 'scan_lookback', 'number', null, { min: 1 })}
-                {field('Min Volume (USDT)', 'scan_min_volume_usdt', 'number', null, { min: 0, step: 100000 })}
-                {field('Scan Mode', 'scan_mode', 'text', [
+                {renderField('Timeframe', 'scan_interval', 'text', ['1m', '5m', '15m', '1h'])}
+                {renderField('% Threshold', 'scan_pct_threshold', 'number', null, { min: CONFIG_LIMITS.SCAN_PCT_THRESHOLD_MIN, step: 0.1 })}
+                {renderField('Watchlist size', 'watchlist_size', 'number', null, { min: CONFIG_LIMITS.WATCHLIST_MIN, max: CONFIG_LIMITS.WATCHLIST_MAX })}
+                {renderField('Watchlist Offset', 'watchlist_offset', 'number', null, { min: 0, max: 100 })}
+                {renderField('Entry side', 'entry_side', 'text', ['both', 'long', 'short'])}
+                {renderField('Lookback (Candles)', 'scan_lookback', 'number', null, { min: 1 })}
+                {renderField('Min Volume (USDT)', 'scan_min_volume_usdt', 'number', null, { min: 0, step: 100000 })}
+                {renderField('Scan Mode', 'scan_mode', 'text', [
                   { value: 'interval', label: 'Fixed Interval' },
                   { value: 'active_window', label: 'Momentum Window' }
                 ])}
                 {cfg.scan_mode === 'active_window' && (
                   <>
-                    {field('Window Duration (s)', 'scan_window_duration_sec', 'number', null, { min: 1 })}
-                    {field('Check Interval (s)', 'scan_check_interval_sec', 'number', null, { min: 1 })}
+                    {renderField('Window Duration (s)', 'scan_window_duration_sec', 'number', null, { min: 1 })}
+                    {renderField('Check Interval (s)', 'scan_check_interval_sec', 'number', null, { min: 1 })}
                   </>
                 )}
               </div>
@@ -455,12 +700,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
             <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
               <SectionHeader icon={Plus} title="Static Watchlist" subtitle="Rank only these symbols (comma separated)" />
-              <input type="text" placeholder="BTCUSDT, ETHUSDT, SOLUSDT..." value={cfg.symbols?.join(', ') || ''} onChange={(e) => setField('symbols', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none hover:border-border-hover transition-colors" />
+              <ListInput placeholder="BTCUSDT, ETHUSDT, SOLUSDT..." value={cfg.symbols} onChange={(val) => setField('symbols', val)} />
             </section>
 
             <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
               <SectionHeader icon={XCircle} title="Exclusion List" subtitle="Symbols to never trade" />
-              <input type="text" placeholder="BTCUSDT, ETHUSDT..." value={cfg.excluded_symbols?.join(', ') || ''} onChange={(e) => setField('excluded_symbols', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none hover:border-border-hover transition-colors" />
+              <ListInput placeholder="BTCUSDT, ETHUSDT..." value={cfg.excluded_symbols} onChange={(val) => setField('excluded_symbols', val)} />
             </section>
 
             <section className="pt-6 border-t border-border/40">
@@ -468,13 +713,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                  <SectionHeader icon={ShieldCheck} title="Manual Monitors" subtitle="Specific symbols to track" />
                  {(cfg.single_symbol_configs || []).length > 0 && <button type="button" onClick={() => setField('single_symbol_configs', [])} className="text-[10px] font-black uppercase tracking-widest text-red/60 hover:text-red transition-colors flex items-center gap-1.5"><Trash2 size={12} /> Clear All</button>}
                </div>
-               <div className="flex gap-2">
-                 <div className="relative flex-1">
-                   <input type="text" placeholder="BTCUSDT" value={symbolSearch} onChange={(e) => setSymbolSearch(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (symbolSearch) { setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), { symbol: symbolSearch, enabled: true, follow_schedule: true }]); setSymbolSearch(''); } } if (e.key === 'Escape') setSymbolSearch(''); }} className="w-full bg-surface border border-border rounded-xl pl-4 pr-10 py-3 text-sm font-mono focus:border-accent outline-none hover:border-border-hover transition-colors" />
-                   {symbolSearch && <button type="button" onClick={() => setSymbolSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear input"><X size={16} /></button>}
-                 </div>
-                 <Btn variant="primary" onClick={() => { if (symbolSearch) { setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), { symbol: symbolSearch, enabled: true, follow_schedule: true }]); setSymbolSearch(''); } }} className="aspect-square p-0 w-12 h-12 flex items-center justify-center"><Plus size={20} /></Btn>
-               </div>
+               <ManualMonitorInput onAdd={(val) => setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), { symbol: val, enabled: true, follow_schedule: true }])} />
                <div className="flex flex-wrap gap-2 mt-4">
                  {(cfg.single_symbol_configs || []).length === 0 ? (
                    <p className="text-[10px] text-dim/40 font-bold uppercase tracking-widest p-4 border border-dashed border-border/40 rounded-xl w-full text-center">No symbols tracked manually</p>
@@ -487,7 +726,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         )}
 
         {section === 'strategy' && (
-          <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-300">
+          <div
+            id="config-panel-strategy"
+            role="tabpanel"
+            aria-labelledby="config-tab-strategy"
+            className="space-y-6 lg:space-y-8 animate-in fade-in duration-300"
+          >
             <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
               <div className="flex justify-between items-center mb-4">
                 <SectionHeader icon={Zap} title="Entry Signals" subtitle="Triggers for opening positions" />
@@ -497,14 +741,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                  </div>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                {SIGNALS.map(([key, label, desc]) => {
-                  const active = (cfg.enabled_signals || []).includes(key);
-                  return (
-                    <Tooltip key={key} content={desc} side="bottom">
-                      <Chip active={active} onClick={() => setField('enabled_signals', active ? cfg.enabled_signals.filter(s => s !== key) : [...(cfg.enabled_signals || []), key])}>{label}</Chip>
-                    </Tooltip>
-                  )
-                })}
+                {SIGNALS.map((signal) => (
+                  <SignalChip
+                    key={signal[0]}
+                    signal={signal}
+                    active={(cfg.enabled_signals || []).includes(signal[0])}
+                    onClick={(key, active) => setField('enabled_signals', active ? cfg.enabled_signals.filter(s => s !== key) : [...(cfg.enabled_signals || []), key])}
+                  />
+                ))}
               </div>
             </section>
 
@@ -512,9 +756,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               <SectionHeader icon={Activity} title="Signal Parameters" subtitle="Technical indicator periods" />
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
-                {field('MA Period', 'signal_params_ma_period', 'number', null, { min: 1 })}
+                {renderField('MA Period', 'signal_params_ma_period', 'number', null, { min: 1 })}
                 <Tooltip content="Global fallback period used if specific Entry/Exit EMA is not set">
-                  {field('EMA (Global Fallback)', 'signal_params_ema_period', 'number', null, { min: 1 })}
+                  {renderField('EMA (Global Fallback)', 'signal_params_ema_period', 'number', null, { min: 1 })}
                 </Tooltip>
               </div>
 
@@ -522,18 +766,18 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 <div className="bg-background/20 p-4 rounded-2xl border border-border/50">
                   <div className="text-[9px] font-black text-dim uppercase tracking-[0.2em] mb-4">Entry Specific EMAs</div>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                    {field('Entry Period', 'signal_params_entry_ema_period', 'number', null, { min: 1 })}
-                    {field('Entry Fast', 'signal_params_entry_ema_fast', 'number', null, { min: 1 })}
-                    {field('Entry Slow', 'signal_params_entry_ema_slow', 'number', null, { min: 1 })}
+                    {renderField('Entry Period', 'signal_params_entry_ema_period', 'number', null, { min: 1 })}
+                    {renderField('Entry Fast', 'signal_params_entry_ema_fast', 'number', null, { min: 1 })}
+                    {renderField('Entry Slow', 'signal_params_entry_ema_slow', 'number', null, { min: 1 })}
                   </div>
                 </div>
 
                 <div className="bg-background/20 p-4 rounded-2xl border border-border/50">
                   <div className="text-[9px] font-black text-dim uppercase tracking-[0.2em] mb-4">Exit Specific EMAs</div>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                    {field('Exit Period', 'signal_params_exit_ema_period', 'number', null, { min: 1 })}
-                    {field('Exit Fast', 'signal_params_exit_ema_fast', 'number', null, { min: 1 })}
-                    {field('Exit Slow', 'signal_params_exit_ema_slow', 'number', null, { min: 1 })}
+                    {renderField('Exit Period', 'signal_params_exit_ema_period', 'number', null, { min: 1 })}
+                    {renderField('Exit Fast', 'signal_params_exit_ema_fast', 'number', null, { min: 1 })}
+                    {renderField('Exit Slow', 'signal_params_exit_ema_slow', 'number', null, { min: 1 })}
                   </div>
                 </div>
               </div>
@@ -577,57 +821,35 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                  </div>
                </div>
                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                 {SIGNALS.map(([key, label, desc]) => {
-                   const active = (cfg.exit_signals || []).includes(key);
-                   return (
-                    <div key={key} className="flex flex-col gap-2">
-                      <Tooltip content={desc}>
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => setField('exit_signals', active ? cfg.exit_signals.filter(s => s !== key) : [...(cfg.exit_signals || []), key])}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setField('exit_signals', active ? cfg.exit_signals.filter(s => s !== key) : [...(cfg.exit_signals || []), key]); } }}
-                          className={cn("w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all text-left cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-red/50", active ? "border-red/40 bg-red/5" : "border-border hover:border-border-hover bg-surface/50")}
-                        >
-                          <span className={cn("text-xs font-bold", active ? "text-red" : "text-text")}>{label}</span>
-                          <Switch.Root checked={active} className={cn("h-5 w-9 rounded-full transition-colors relative pointer-events-none", active ? "bg-red" : "bg-border")}>
-                            <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
-                          </Switch.Root>
-                        </div>
-                      </Tooltip>
-                      {active && (
-                        <div className="px-1 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
-                          <label className="text-[9px] font-bold text-dim uppercase tracking-wider">Delay Trigger (s)</label>
-                          <input
-                            type="number"
-                            min="0"
-                            placeholder="0s"
-                            value={(cfg.exit_signal_delays || {})[key] || ''}
-                            onChange={(e) => {
-                              const val = Math.max(0, parseInt(e.target.value) || 0);
-                              setField('exit_signal_delays', { ...(cfg.exit_signal_delays || {}), [key]: val });
-                            }}
-                            className="w-20 bg-background border border-border rounded-lg px-2 py-1 text-[10px] font-mono font-bold text-right focus:border-red outline-none"
-                          />
-                        </div>
-                      )}
-                    </div>
-                   )
-                 })}
+                 {SIGNALS.map((signal) => (
+                   <ExitSignalCard
+                    key={signal[0]}
+                    signal={signal}
+                    active={(cfg.exit_signals || []).includes(signal[0])}
+                    delayValue={(cfg.exit_signal_delays || {})[signal[0]]}
+                    onToggle={(key, active) => setField('exit_signals', active ? cfg.exit_signals.filter(s => s !== key) : [...(cfg.exit_signals || []), key])}
+                    onDelayChange={(key, val) => setField('exit_signal_delays', { ...(cfg.exit_signal_delays || {}), [key]: val })}
+                   />
+                 ))}
                </div>
             </section>
           </div>
         )}
 
         {section === 'risk' && (
-          <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-300">
+          <div
+            id="config-panel-risk"
+            role="tabpanel"
+            aria-labelledby="config-tab-risk"
+            className="space-y-6 lg:space-y-8 animate-in fade-in duration-300"
+          >
             <section>
               <SectionHeader icon={ShieldCheck} title="Capital Guards" subtitle="Global safety limits" />
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                {field('Risk % Per Trade', 'risk_pct_per_trade', 'number', null, { min: CONFIG_LIMITS.RISK_PER_TRADE_MIN, max: CONFIG_LIMITS.RISK_PER_TRADE_MAX, step: 0.1 })}
-                {field('Max Total Risk %', 'max_total_risk_pct', 'number', null, { min: CONFIG_LIMITS.MAX_TOTAL_RISK_MIN, max: CONFIG_LIMITS.MAX_TOTAL_RISK_MAX })}
-                {field('Max Open Trades', 'max_open_trades', 'number', null, { min: CONFIG_LIMITS.MAX_OPEN_TRADES_MIN })}
-                {field('SL Guard (USDT)', 'total_sl_guard_usdt', 'number', null, { min: 0 })}
+                {renderField('Risk % Per Trade', 'risk_pct_per_trade', 'number', null, { min: CONFIG_LIMITS.RISK_PER_TRADE_MIN, max: CONFIG_LIMITS.RISK_PER_TRADE_MAX, step: 0.1 })}
+                {renderField('Max Total Risk %', 'max_total_risk_pct', 'number', null, { min: CONFIG_LIMITS.MAX_TOTAL_RISK_MIN, max: CONFIG_LIMITS.MAX_TOTAL_RISK_MAX })}
+                {renderField('Max Open Trades', 'max_open_trades', 'number', null, { min: CONFIG_LIMITS.MAX_OPEN_TRADES_MIN })}
+                {renderField('SL Guard (USDT)', 'total_sl_guard_usdt', 'number', null, { min: 0 })}
               </div>
 
               <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -719,26 +941,26 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             <section className="pt-6 border-t border-border/40">
               <SectionHeader icon={ShieldCheck} title="Stop Loss Strategy" subtitle="Risk truncation parameters" />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                {field('Strategy Type', 'sl_type', 'text', [
+                {renderField('Strategy Type', 'sl_type', 'text', [
                   { value: 'pct', label: 'Fixed Percentage' },
                   {value: 'lookback_low/high', label: 'High/Low Stop' }
                 ])}
                 {cfg.sl_type === 'pct' ? (
-                  field('Distance %', 'sl_distance_pct', 'number', null, { min: CONFIG_LIMITS.SL_DISTANCE_MIN, max: CONFIG_LIMITS.SL_DISTANCE_MAX, step: 0.1 })
+                  renderField('Distance %', 'sl_distance_pct', 'number', null, { min: CONFIG_LIMITS.SL_DISTANCE_MIN, max: CONFIG_LIMITS.SL_DISTANCE_MAX, step: 0.1 })
                 ) : (
                   <div className="grid grid-cols-2 gap-4">
-                    {field('Lookback Period', 'sl_lookback_period', 'number', null, { min: 1 })}
-                    {field('Lookback TF', 'sl_lookback_timeframe', 'text', ['1m', '5m', '15m', '1h'])}
+                    {renderField('Lookback Period', 'sl_lookback_period', 'number', null, { min: 1 })}
+                    {renderField('Lookback TF', 'sl_lookback_timeframe', 'text', ['1m', '5m', '15m', '1h'])}
                   </div>
                 )}
-                {cfg.sl_type !== 'pct' && field('Max Allowed SL %', 'sl_pct_limit', 'number', null, { min: 0.1, step: 0.1 })}
+                {cfg.sl_type !== 'pct' && renderField('Max Allowed SL %', 'sl_pct_limit', 'number', null, { min: 0.1, step: 0.1 })}
                 <div className="grid grid-cols-2 gap-4">
-                  {field('Floor Min %', 'sl_min_pct', 'number', null, { min: 0.1, step: 0.1 })}
-                  {field('Ceiling Max %', 'sl_max_pct', 'number', null, { min: 0.1, step: 0.1 })}
+                  {renderField('Floor Min %', 'sl_min_pct', 'number', null, { min: 0.1, step: 0.1 })}
+                  {renderField('Ceiling Max %', 'sl_max_pct', 'number', null, { min: 0.1, step: 0.1 })}
                 </div>
                 <div className="md:col-span-2">
                   <Tooltip content="Safety buffer that prevents trailing stops from being placed too close to the market price. This avoids 'Order would immediately trigger' errors and instant fills during high volatility. Recommended: 0.03% to 0.05%.">
-                    {field('Trailing Guard (%)', 'trailing_guard_buffer_pct', 'number', null, { min: CONFIG_LIMITS.TRAILING_GUARD_MIN, max: CONFIG_LIMITS.TRAILING_GUARD_MAX, step: 0.01 })}
+                    {renderField('Trailing Guard (%)', 'trailing_guard_buffer_pct', 'number', null, { min: CONFIG_LIMITS.TRAILING_GUARD_MIN, max: CONFIG_LIMITS.TRAILING_GUARD_MAX, step: 0.01 })}
                   </Tooltip>
                 </div>
               </div>
@@ -781,11 +1003,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             <section className="pt-6 border-t border-border/40">
               <SectionHeader icon={Target} title="Profit Realization" subtitle="Locking gains and scaling exits" />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                {field('Exit Strategy', 'tp_mode', 'text', [
+                {renderField('Exit Strategy', 'tp_mode', 'text', [
                   { value: 'fixed', label: 'Fixed Ratio (TP)' },
                   { value: 'exp_rr_seq', label: 'Dynamic RR Milestone' }
                 ])}
-                {cfg.tp_mode === 'fixed' ? field('Fixed Ratio (R)', 'tp_ratio', 'number', null, { min: 0.1, step: 0.1 }) : <div />}
+                {cfg.tp_mode === 'fixed' ? renderField('Fixed Ratio (R)', 'tp_ratio', 'number', null, { min: 0.1, step: 0.1 }) : <div />}
               </div>
               {cfg.tp_mode === 'exp_rr_seq' && (
                 <div className="space-y-2 mt-6 bg-background/50 p-5 rounded-2xl border border-border/40 shadow-inner">
@@ -846,15 +1068,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-6 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
-                  {field('Period Limit', 'max_trades_per_period', 'number', null, { min: 0 })}
-                  {field('Period (min)', 'trades_period_min', 'number', null, { min: 1 })}
-                  {field('Max 24h', 'max_trades_24h', 'number', null, { min: 0 })}
+                  {renderField('Period Limit', 'max_trades_per_period', 'number', null, { min: 0 })}
+                  {renderField('Period (min)', 'trades_period_min', 'number', null, { min: 1 })}
+                  {renderField('Max 24h', 'max_trades_24h', 'number', null, { min: 0 })}
                 </div>
 
                 {cfg.frequency_shaping_enabled && (
                   <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 md:grid-cols-2 gap-6 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
-                    {field('Min Interval (m)', 'min_trade_interval_min', 'number', null, { min: 0 })}
-                    {field('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
+                    {renderField('Min Interval (m)', 'min_trade_interval_min', 'number', null, { min: 0 })}
+                    {renderField('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
                   </motion.div>
                 )}
 
@@ -871,7 +1093,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
                 {cfg.risk_use_tod_stats && (
                   <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-5 bg-surface/30 rounded-2xl border border-border/40 space-y-4">
-                    {field('Minimum Required TOD Winrate %', 'tod_min_winrate', 'number', null, { min: 0, max: 100 })}
+                    {renderField('Minimum Required TOD Winrate %', 'tod_min_winrate', 'number', null, { min: 0, max: 100 })}
 
                     {cfg.frequency_shaping_enabled && (
                       <div className="flex items-center justify-between pt-4 border-t border-border/40">
@@ -886,7 +1108,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 )}
 
                 <div className="grid grid-cols-2 gap-6 pt-4">
-                  {field('Max Per Sym', 'max_open_trades_per_symbol', 'number', null, { min: 1 })}
+                  {renderField('Max Per Sym', 'max_open_trades_per_symbol', 'number', null, { min: 1 })}
                 </div>
               </div>
 
@@ -909,21 +1131,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         )}
 
         {section === 'advanced' && (
-          <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-300">
+          <div
+            id="config-panel-advanced"
+            role="tabpanel"
+            aria-labelledby="config-tab-advanced"
+            className="space-y-6 lg:space-y-8 animate-in fade-in duration-300"
+          >
             <section>
               <SectionHeader icon={Briefcase} title="Execution Environment" subtitle="Target exchange and mode" />
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {console.log('[ConfigModal] Rendering mode buttons, cfg.trading_mode:', cfg.trading_mode, 'cfg.paper_mode:', cfg.paper_mode)}
-                {['paper', 'testnet', 'live'].map(m => {
-                  const isSelected = cfg.trading_mode === m || (m === 'paper' && cfg.paper_mode && !cfg.trading_mode)
-                  console.log(`[ConfigModal] Button ${m}: isSelected=${isSelected}, trading_mode=${cfg.trading_mode}`)
-                  return (
-                    <button key={m} type="button" onClick={() => handleModeSelect(m)} className={cn("p-4 rounded-xl border-2 text-left transition-all relative group", isSelected ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover")}>
-                      <div className="flex items-center justify-between mb-1"><span className="text-xs font-black uppercase tracking-tighter capitalize">{m}</span>{isSelected && <CheckCircle2 size={16} className="text-accent" />}</div>
-                      <p className="text-[9px] text-dim font-bold uppercase tracking-widest">{m === 'paper' ? 'Simulated' : m === 'testnet' ? 'Demo API' : 'Real Capital'}</p>
-                    </button>
-                  )
-                })}
+                {['paper', 'testnet', 'live'].map(m => (
+                  <EnvironmentButton
+                    key={m}
+                    mode={m}
+                    isSelected={cfg.trading_mode === m || (m === 'paper' && cfg.paper_mode && !cfg.trading_mode)}
+                    onClick={handleModeSelect}
+                  />
+                ))}
               </div>
               {modeWarning && (
                 <div className="mt-4 p-3 bg-orange/10 border border-orange/30 rounded-lg flex items-start gap-3 animate-in slide-in-from-top">
@@ -936,18 +1160,18 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             <section className="pt-6 border-t border-border/40">
               <SectionHeader icon={TrendingUp} title="Initial Capital" subtitle="Starting balance for sessions" />
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                {field('Paper Balance ($)', 'paper_starting_balance', 'number', null, { min: 0 })}
-                {field('Demo Balance ($)', 'testnet_starting_balance', 'number', null, { min: 0, placeholder: '10000' })}
-                {field('Live Balance ($)', 'live_starting_balance', 'number', null, { min: 0 })}
+                {renderField('Paper Balance ($)', 'paper_starting_balance', 'number', null, { min: 0 })}
+                {renderField('Demo Balance ($)', 'testnet_starting_balance', 'number', null, { min: 0, placeholder: '10000' })}
+                {renderField('Live Balance ($)', 'live_starting_balance', 'number', null, { min: 0 })}
               </div>
             </section>
 
             <section className="pt-6 border-t border-border/40">
               <SectionHeader icon={Activity} title="Engine Performance" subtitle="Hot and main loop cadences" />
               <div className="grid grid-cols-2 gap-6 mb-6">
-                {field('Hot Loop (ms)', 'hot_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.HOT_LOOP_MIN })}
-                {field('Main Loop (ms)', 'main_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.MAIN_LOOP_MIN })}
-                {field('Slippage Limit (%)', 'slippage_warning_threshold', 'number', null, { min: 0, step: 0.1 })}
+                {renderField('Hot Loop (ms)', 'hot_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.HOT_LOOP_MIN })}
+                {renderField('Main Loop (ms)', 'main_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.MAIN_LOOP_MIN })}
+                {renderField('Slippage Limit (%)', 'slippage_warning_threshold', 'number', null, { min: 0, step: 0.1 })}
               </div>
 
               <div className="space-y-3">
@@ -965,15 +1189,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         )}
 
         {section === 'presets' && (
-          <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-300">
+          <div
+            id="config-panel-presets"
+            role="tabpanel"
+            aria-labelledby="config-tab-presets"
+            className="space-y-6 lg:space-y-8 animate-in fade-in duration-300"
+          >
             <section>
               <SectionHeader icon={Save} title="Save Strategy" subtitle="Store current configuration as a preset" />
-              <div className="flex gap-2">
-                <input type="text" placeholder="Preset name (e.g. Scalp High Vol)" value={presetName} onChange={(e) => setPresetName(e.target.value)} className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none" />
-                <Btn variant="primary" onClick={savePreset} loading={isSaving} className="aspect-square p-0 w-12 h-12 flex items-center justify-center">
-                  {saveSuccess ? <CheckCircle2 size={20} /> : <Save size={20} />}
-                </Btn>
-              </div>
+              <SavePresetInput onSave={(name) => { setPresetName(name); savePreset(name); }} isSaving={isSaving} success={saveSuccess} />
             </section>
 
             <section className="pt-6 border-t border-border/40">
@@ -990,56 +1214,18 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     <FolderOpen size={32} className="mx-auto mb-4 text-dim/20" />
                     <div className="text-xs font-bold text-dim uppercase">No saved presets</div>
                   </div>
-                ) : presets.map(p => {
-                  const isVariant = (cfg.strategy_variants || []).some(v => v.strategy_label === p.name);
-                  const pMode = p.config.trading_mode || (p.config.paper_mode ? 'paper' : 'live');
-                  return (
-                    <div key={p.name} className="flex items-center justify-between p-4 bg-background border border-border rounded-2xl transition-all group/preset">
-                      <button type="button" onClick={() => loadPreset(p)} className="flex-1 flex items-center gap-4 text-left">
-                      <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center border transition-colors", isVariant ? "bg-accent border-accent text-white" : "bg-surface border-border text-dim group-hover/preset:border-accent/20")}>
-                        {isVariant ? <ShieldCheck size={20} /> : <Zap size={20} />}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-bold group-hover/preset:text-accent transition-colors flex items-center gap-2 flex-wrap">
-                           <span className="truncate">{p.name}</span>
-                           <div className="flex items-center gap-1 scale-[0.7] origin-left shrink-0">
-                             {pMode === 'paper' && <PaperBadge />}
-                             {pMode === 'testnet' && <DemoBadge />}
-                             {pMode === 'live' && <LiveBadge />}
-                           </div>
-                           {loadedPresetName === p.name && (
-                             <span className={cn("text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase", isDirty ? "bg-amber/10 text-amber" : "bg-accent/10 text-accent")}>
-                               {isDirty ? "Modified" : "Current"}
-                             </span>
-                           )}
-                        </div>
-                        <div className="text-[10px] text-dim font-bold uppercase tracking-tight">{p.config.scan_interval} · {p.config.scan_pct_threshold}% · {p.config.risk_pct_per_trade}% Risk</div>
-                      </div>
-                      </button>
-
-                      <div className="flex items-center gap-2">
-                        <Tooltip content={isVariant ? "Remove from variants" : "Add as strategy variant"}>
-                          <button
-                            type="button"
-                            onClick={(e) => toggleVariant(e, p)}
-                            aria-label={isVariant ? `Remove ${p.name} from variants` : `Add ${p.name} as variant`}
-                            className={cn("p-2 rounded-lg transition-all active:scale-95", isVariant ? "bg-accent/10 text-accent border border-accent/20" : "bg-surface border border-border text-dim hover:text-accent hover:border-accent/20")}
-                          >
-                            {isVariant ? <XCircle size={16} /> : <Plus size={16} />}
-                          </button>
-                        </Tooltip>
-                        <button
-                          type="button"
-                          onClick={(e) => deletePreset(e, p.name)}
-                          aria-label={`Delete preset ${p.name}`}
-                          className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
+                ) : presets.map(p => (
+                  <PresetItem
+                    key={p.name}
+                    preset={p}
+                    isLoaded={loadedPresetName === p.name}
+                    isDirty={isDirty}
+                    onLoad={loadPreset}
+                    onToggleVariant={toggleVariant}
+                    onDelete={deletePreset}
+                    isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
+                  />
+                ))}
               </div>
             </section>
           </div>

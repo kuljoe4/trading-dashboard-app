@@ -126,8 +126,11 @@ export class ExecutionService {
       }
 
       try {
-        if (this.positionTracker.hasSymbol(opp.symbol)) {
-          this.logger.debug(`${opp.symbol}: Entry skipped - already in position or entering.`);
+        const rtPos = this.sessionState.realTimePositions.get(opp.symbol);
+        const hasExchangePos = rtPos && Math.abs(rtPos.amount) > 0;
+
+        if (this.positionTracker.hasSymbol(opp.symbol) || hasExchangePos) {
+          this.logger.debug(`${opp.symbol}: Entry skipped - already in position (Local: ${this.positionTracker.hasSymbol(opp.symbol)}, Exchange: ${!!hasExchangePos}) or entering.`);
           continue;
         }
 

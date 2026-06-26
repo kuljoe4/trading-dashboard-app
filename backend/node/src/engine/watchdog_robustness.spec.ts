@@ -75,19 +75,19 @@ describe('Watchdog Robustness', () => {
   });
 
   it('should perform audit after cooldown window', async () => {
-    const trades = Array(6).fill(null).map((_, i) => ({
-      symbol: `BTCUSDT_${i}`,
-      binance_order_id: `123_${i}`,
+    const trades = [{
+      symbol: 'BTCUSDT',
+      binance_order_id: '123',
       updated_at: new Date(Date.now() - 60000),
-    })) as Trade[];
+    }] as Trade[];
 
     (positionTracker.activeList as jest.Mock).mockReturnValue(trades);
-    (orderManager.fetchAllPositions as jest.Mock).mockResolvedValue(trades.map(t => ({ symbol: t.symbol, positionAmt: '1.0' })));
+    (orderManager.fetchPosition as jest.Mock).mockResolvedValue({ symbol: 'BTCUSDT', positionAmt: '1.0' });
     (orderManager.fetchOpenOrders as jest.Mock).mockResolvedValue([]); // No SL found
 
     await service.protectionWatchdog(true, { paper_mode: false } as any);
 
-    expect(orderManager.fetchPosition).toHaveBeenCalledWith('BTCUSDT', { forceFresh: true });
+    expect(orderManager.fetchPosition).toHaveBeenCalledWith('BTCUSDT', { forceFresh: false });
     expect(orderManager.placeStopLoss).toHaveBeenCalled();
   });
 

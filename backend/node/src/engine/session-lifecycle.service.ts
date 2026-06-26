@@ -28,6 +28,7 @@ export class SessionLifecycleService {
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
   private udsLivenessCheck: NodeJS.Timeout | null = null;
   private lastModeSync = 0;
+  private isUdsStarting = false;
 
   constructor(
     private readonly sessionState: SessionStateService,
@@ -351,8 +352,15 @@ export class SessionLifecycleService {
     }
   }
 
-  public async startUserDataStream(bc: any, isReconnect = false) {
-    if (!bc) return;
+  public async startUserDataStream(bc: any, isReconnect = false, isTransition = false) {
+    if (!bc || !this.running) return;
+
+    if (this.isUdsStarting) {
+      this.logger.debug('[UDS] Connection attempt already in progress. Skipping.');
+      return;
+    }
+    this.isUdsStarting = true;
+
     // SRE: Critical guard - if IP is banned, do not even attempt UDS start to prevent chain reaction
     // SRE Overwatch: startUserDataStream is whitelisted as IMMUNE in the gateway, but we still log warning if over limit.
     const currentWeight = this.sessionState.binanceRateLimit.used_1m;
@@ -373,7 +381,8 @@ export class SessionLifecycleService {
 
       // SRE FIX: Always rebuild the socket on reconnection attempt to handle silent network-level stalls,
       // even if the listenKey string remains unchanged.
-      if (isReconnect && oldWs) {
+      // BOLT: Only disconnect immediately if NOT a transition. Transitions keep old one alive for 30s.
+      if (isReconnect && oldWs && !isTransition) {
         this.logger.log('[UDS] Force-rebuilding User Data Stream socket to resolve potential stall.');
         try { oldWs.disconnect(); } catch (e) {}
       }
@@ -402,7 +411,12 @@ export class SessionLifecycleService {
         this.monitoringService.setUdsStatus('DISCONNECTED');
         if (this.running) {
           this.logger.warn('User Data Stream closed unexpectedly. Reconnecting...');
-          setTimeout(() => this.startUserDataStream(bc, true).catch(() => {}), 5000);
+          // BOLT: Use exponential backoff for reconnect attempts to avoid hammering during outages
+          setTimeout(() => {
+            if (this.running && !this.isUdsConnected) {
+              this.startUserDataStream(bc, true).catch(() => {});
+            }
+          }, 5000);
         }
       });
 
@@ -444,15 +458,16 @@ export class SessionLifecycleService {
       // Not needed for new SDK as connect({ stream: listenKey }) already handles the subscription
       // this.userDataWs.userData(this.listenKey);
 
-      // Transition handling for proactive 24h reconnect
-      if (isReconnect && oldWs) {
+      // Transition handling for proactive 24h reconnect or planned swaps
+      if (isTransition && oldWs) {
         this.logger.log('[Lifecycle] Transitioning to new User Data Stream. Closing old stream in 30s...');
         setTimeout(() => {
           try {
+            // Close the old socket if it hasn't been closed yet
             oldWs.disconnect();
-            // BOLT: Only close if keys are different and it wasn't an expiry-triggered reconnect
-            // In case of expiry, Binance already closed it.
+            // BOLT: Only close key if different. In case of expiry, Binance already closed it.
             if (oldListenKey && oldListenKey !== this.listenKey) {
+              this.logger.debug(`[UDS] Closing old listenKey: ${oldListenKey.substring(0, 10)}...`);
               bc.restAPI.closeUserDataStream({ listenKey: oldListenKey }).catch(() => {});
             }
           } catch (e) {}
@@ -504,7 +519,7 @@ export class SessionLifecycleService {
         // Finding 9: Proactive 24h reconnect at 23h 50m
         if (ageMs > 23 * 60 * 60 * 1000 + 50 * 60 * 1000) {
            this.logger.log('[Lifecycle] Proactive 24h User Data Stream refresh initiated...');
-           this.startUserDataStream(bc, true).catch(err => {
+           this.startUserDataStream(bc, true, true).catch(err => {
               this.logger.error(`Proactive UDS refresh failed: ${err.message}`);
            });
            return;
@@ -518,8 +533,10 @@ export class SessionLifecycleService {
         }
       }, ENGINE_CONSTANTS.USER_DATA_KEEPALIVE_MS);
     } catch (e) {
-      if (!isReconnect) throw e;
+      if (!isReconnect && !isTransition) throw e;
       this.logger.error(`Failed to refresh user data stream: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      this.isUdsStarting = false;
     }
   }
 }

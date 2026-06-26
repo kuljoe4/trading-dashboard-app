@@ -219,12 +219,31 @@ export class OrderManagerService {
               exitPrice = tickerPrice || trade.entry_price;
            }
 
-           trade.exit_signal_reason = `EXCHANGE_FILL: ${side} at ${exitPrice}`;
+           // Distinguish between app-initiated manual close and external exchange events
+           const isAppManualClose = clientOrderId && clientOrderId.startsWith('cls-');
+           let reason = EXIT_REASONS.EXCHANGE_FILL;
+
+           if (isAppManualClose) {
+             reason = EXIT_REASONS.MANUAL_CLOSE;
+             trade.exit_signal_reason = `Manual close confirmed by exchange at ${exitPrice}`;
+           } else {
+             // External event (Manual close on Binance, or external TP/SL)
+             if (type === 'TAKE_PROFIT' || type === 'TAKE_PROFIT_MARKET') {
+               reason = EXIT_REASONS.TP_HIT;
+               trade.exit_signal_reason = `External Take Profit hit on exchange at ${exitPrice}`;
+             } else if (type === 'STOP' || type === 'STOP_MARKET') {
+               reason = EXIT_REASONS.SL_HIT;
+               trade.exit_signal_reason = `External Stop Loss hit on exchange at ${exitPrice}`;
+             } else {
+               reason = EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
+               trade.exit_signal_reason = `External close on exchange at ${exitPrice} (Type: ${type})`;
+             }
+           }
 
            this.eventEmitter.emit('trade.exchange_close', {
              symbol,
              exitPrice,
-             reason: EXIT_REASONS.EXCHANGE_FILL
+             reason
            });
         }
       } else {
@@ -1990,7 +2009,7 @@ export class OrderManagerService {
             if (orderData.cumQuote && orderData.executedQty) {
                const cumQuote = parseFloat(orderData.cumQuote);
                const executedQty = parseFloat(orderData.executedQty);
-               if (executedQty > 0) {
+               if (executedQty > 0 && !isNaN(cumQuote) && !isNaN(executedQty)) {
                   absoluteExitPrice = cumQuote / executedQty;
                   this.logger.log(`Derived ${symbol} exit price from cumQuote: ${absoluteExitPrice}`);
                }
@@ -2029,8 +2048,10 @@ export class OrderManagerService {
             // Zero-Cost Math Estimation for exit fees
             const exitNotional = (executedExitQtyFinal > 0 ? executedExitQtyFinal : trade.qty) * exitPrice;
             const feeRate = this.takerFeeRate || 0.0004;
-            const exitFee = roundEight(isNaN(exitNotional * feeRate) ? 0 : exitNotional * feeRate);
-            trade.realized_fee = roundEight((trade.realized_fee || 0) + exitFee);
+            let exitFee = exitNotional * feeRate;
+            if (isNaN(exitFee)) exitFee = 0;
+
+            trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + exitFee);
 
             const msgClose = `Binance close order placed: ${symbol} qty=${trade.qty || 0} order_id=${orderData.orderId} est_exit_fee=${exitFee}`;
             this.logger.log(msgClose);
@@ -2087,8 +2108,9 @@ export class OrderManagerService {
                   exitPrice = await this.recoverLastExecutionPrice(symbol, trade, exitPrice);
                   trade.exit_reason = trade.exit_reason === EXIT_REASONS.EXCHANGE_SYNC ? EXIT_REASONS.EXCHANGE_SYNC_RECOVERY : EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
                   const feeRate = this.takerFeeRate || 0.0004;
-                  const exitFee = roundEight(isNaN(exitPrice * trade.qty * feeRate) ? 0 : exitPrice * trade.qty * feeRate);
-                  trade.realized_fee = roundEight((trade.realized_fee || 0) + exitFee);
+                  let exitFee = exitPrice * trade.qty * feeRate;
+                  if (isNaN(exitFee)) exitFee = 0;
+                  trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + exitFee);
                } else {
                   const tradeMeta = { id: trade.id, direction: trade.direction, qty: trade.qty, entryPrice: trade.entry_price, sl: trade.current_sl };
                   this.logger.warn(`[${symbol}] Close order failed (REDUCE_ONLY) but position still exists on exchange (Amt: ${positionAmt}). This typically means a side mismatch or a ghost SL order is consuming the 'reduce-only' capacity. TradeMeta: ${JSON.stringify(tradeMeta)}. Error: ${errMsg}`);
@@ -2227,6 +2249,7 @@ export class OrderManagerService {
         if (exitReason.startsWith(EXIT_REASONS.SL_HIT) || exitReason === EXIT_REASONS.AUTO_RECONCILED_SL) trade.exit_signal_type = 'STOP_LOSS';
         else if (exitReason === EXIT_REASONS.TP_HIT || exitReason === EXIT_REASONS.AUTO_RECONCILED_TP) trade.exit_signal_type = 'TAKE_PROFIT';
         else if (exitReason === EXIT_REASONS.MANUAL_CLOSE) trade.exit_signal_type = 'MANUAL';
+        else if (exitReason === EXIT_REASONS.EXCHANGE_SL_OR_MANUAL) trade.exit_signal_type = 'EXCHANGE_MANUAL';
         else if (exitReason === EXIT_REASONS.SESSION_TERMINATED) trade.exit_signal_type = 'SESSION_TERMINATED';
         else if (exitReason === EXIT_REASONS.EXCHANGE_SYNC || exitReason === EXIT_REASONS.EXCHANGE_SYNC_RECOVERY || exitReason === EXIT_REASONS.AUTO_RECONCILED_EXIT) trade.exit_signal_type = 'EXCHANGE_SYNC';
         else if (exitReason === EXIT_REASONS.SLIPPAGE_ABORT || exitReason === EXIT_REASONS.ENTRY_AT_OR_PAST_SL || exitReason === EXIT_REASONS.ENTRY_TOO_CLOSE_TO_SL || exitReason === EXIT_REASONS.SL_PLACEMENT_FAILURE) trade.exit_signal_type = 'SAFETY_ABORT';
@@ -2249,6 +2272,8 @@ export class OrderManagerService {
         trade.status = 'CLOSED_SIGNAL';
       } else if (exitReason === EXIT_REASONS.EXCHANGE_SYNC || exitReason === EXIT_REASONS.EXCHANGE_SYNC_RECOVERY || exitReason === EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE || exitReason === EXIT_REASONS.AUTO_RECONCILED_EXIT || exitReason === EXIT_REASONS.EXCHANGE_FILL) {
         trade.status = 'CLOSED_ORPHANED';
+      } else if (exitReason === EXIT_REASONS.EXCHANGE_SL_OR_MANUAL) {
+        trade.status = 'CLOSED';
       } else {
         trade.status = 'CLOSED';
       }

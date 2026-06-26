@@ -61,6 +61,7 @@ export class TradingSessionService implements OnApplicationShutdown {
   private listenKey: string | null = null;
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
   private _lastGateBroadcastTs = 0;
+  private hibernateGraceTimeout: NodeJS.Timeout | null = null;
 
   private cachedStrategyConfigs: SessionConfig[] | null = null;
   private cachedScanSignatures: Map<SessionConfig, string> = new Map();
@@ -335,15 +336,39 @@ export class TradingSessionService implements OnApplicationShutdown {
     const shouldHibernate = this.isGated() && activeTrades.length === 0;
 
     // Transition to Hibernation
-    if (shouldHibernate && !this.sessionState.hibernating) {
-      this.logger.log(`[Gating] Transitioning to Deep Sleep. Reason: ${riskResult.reason || 'Session gated and idle'}`);
-      await this.gatingService.enterHibernation(riskResult.reason || 'Session gated and idle', this.config!, activeTrades);
-      this.minimizeMemoryUsage();
+    if (shouldHibernate && !this.sessionState.hibernating && !this.hibernateGraceTimeout) {
+      // BOLT: Adaptive Hibernation. Implement a 30s grace period ("Light Sleep") before full cache purge.
+      // This prevents the expensive "Resumption Burst" if gating is brief (e.g., cooling down after a hit).
+      this.logger.log(`[Gating] Entering Light Sleep. Deep Sleep scheduled in 30s if conditions persist.`);
+      this.hibernateGraceTimeout = setTimeout(async () => {
+        this.hibernateGraceTimeout = null;
+        try {
+          if (this.isGated() && this.positionTracker.activeCount() === 0 && !this.sessionState.hibernating) {
+            this.logger.log(`[Gating] Transitioning to Deep Sleep. Reason: ${riskResult.reason || 'Session gated and idle'}`);
+            await this.gatingService.enterHibernation(riskResult.reason || 'Session gated and idle', this.config!, this.positionTracker.activeList());
+            this.minimizeMemoryUsage();
+          }
+        } catch (error) {
+          this.logger.error(`Failed to transition to Deep Sleep: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }, 30000);
     }
     // Transition out of Hibernation
-    else if (!shouldHibernate && this.sessionState.hibernating) {
-      this.logger.log(`[Gating] Exiting Deep Sleep. Reason: Gating conditions cleared.`);
-      await this.gatingService.exitHibernation(this.config!);
+    else if (!shouldHibernate) {
+      if (this.hibernateGraceTimeout) {
+        this.logger.log(`[Gating] Light Sleep cancelled. Gating cleared before Deep Sleep transition.`);
+        clearTimeout(this.hibernateGraceTimeout);
+        this.hibernateGraceTimeout = null;
+      }
+
+      if (this.sessionState.hibernating) {
+        this.logger.log(`[Gating] Exiting Deep Sleep. Reason: Gating conditions cleared.`);
+        const exitStart = Date.now();
+        // SRE: Pre-emptive metadata refresh check before exiting hibernation
+        await this.marketFeed.fetchExchangeInfo();
+        await this.gatingService.exitHibernation(this.config!);
+        this.logger.log(`[Gating] Deep Sleep exit completed in ${Date.now() - exitStart}ms`);
+      }
     }
 
     const prevReason = this.sessionState.gateReason;
@@ -381,6 +406,9 @@ export class TradingSessionService implements OnApplicationShutdown {
       await this.refreshRiskGating();
 
       if (this.isGated() || this.sessionState.hibernating) {
+        // CODE-04: Ensure active windows are refreshed even when gated to clear expired opportunities
+        this.refreshActiveWindows([]);
+
         if (this.sessionState.listenerCount > 0) {
           const now = Date.now(); const isFull = now - this.lastScannerFullBroadcast > 30000; if (isFull) this.lastScannerFullBroadcast = now;
           this.broadcast('scanner', { count: this.lastScannerResults.length, hibernating: this.sessionState.hibernating, opportunities: this.lastScannerResults.slice(0, 5).map(o => { if (isFull) return o; const { history, ...rest } = o; return rest; }), variant_opportunities: this.lastVariantScannerResults.map(v => ({ ...v, opportunities: v.opportunities.slice(0, 5).map((o: any) => { if (isFull) return o; const { history, ...rest } = o; return rest; }) })), activeWindows: this.getActiveWindows() });

@@ -505,6 +505,8 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                           }
                           return 'Stop Loss';
                         }
+                        if (type === 'EXCHANGE MANUAL') return 'Exchange Manual';
+                        if (type === 'EXCHANGE FILL') return 'Exchange Fill';
                         return type;
                      })(),
                      tooltip: trade.exit_signal_reason || trade.exit_reason || 'No detailed reason provided',

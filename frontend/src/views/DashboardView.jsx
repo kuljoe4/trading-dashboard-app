@@ -140,7 +140,10 @@ const BanBanner = ({ apiStatus }) => {
     return () => clearInterval(timer);
   }, [apiStatus?.banUntil]);
 
-  if (!apiStatus?.isBanned && !apiStatus?.isRateLimited && timeLeft <= 0) return null;
+  // BOLT: The local timer (timeLeft) is the source of truth for the cooldown.
+  // We hide the banner if the time has passed, even if the backend hasn't updated its status bit yet.
+  if (timeLeft <= 0) return null;
+  if (!apiStatus?.isBanned && !apiStatus?.isRateLimited) return null;
 
   const isBan = apiStatus.isBanned;
   const cooldownEnd = apiStatus.banUntil ? new Date(apiStatus.banUntil).toLocaleTimeString() : 'unknown';

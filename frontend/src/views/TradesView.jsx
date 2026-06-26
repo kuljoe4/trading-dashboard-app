@@ -8,8 +8,9 @@ import { Briefcase, Zap } from 'lucide-react'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { sessionAPI } from '../api/client'
 import { Sidebar, BottomNav } from '../components/Navigation'
+import { lazyWithRetry } from '../lib/lazy'
 
-const TradeDetailModal = lazy(() => import('../components/TradeDetailModal').then(m => ({ default: m.TradeDetailModal })))
+const TradeDetailModal = lazyWithRetry(() => import('../components/TradeDetailModal').then(m => ({ default: m.TradeDetailModal })))
 
 const TradesView = () => {
   const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled } = useTradingStore()

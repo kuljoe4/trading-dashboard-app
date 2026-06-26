@@ -17,6 +17,7 @@ import {
 import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sidebar, BottomNav } from '../components/Navigation'
+import { lazyWithRetry } from '../lib/lazy'
 
 const TemporalRiskGrid = React.memo(() => {
   const { config, gateState, gateReason, isAdaptiveTightened, configSyncing, patchConfig, tradesInPeriod, maxTradesPeriod, tradesIn24h, maxTrades24h } = useTradingStore(state => ({
@@ -110,11 +111,11 @@ const TemporalRiskGrid = React.memo(() => {
 });
 
 // Lazy Load heavy components
-const DecisionLog = lazy(() => import('../components/DecisionLog').then(module => ({ default: module.DecisionLog })))
-const ConfigModal = lazy(() => import('../components/ConfigModal').then(module => ({ default: module.ConfigModal })))
-const ScannerOverlay = lazy(() => import('../components/ScannerOverlay').then(module => ({ default: module.ScannerOverlay })))
+const DecisionLog = lazyWithRetry(() => import('../components/DecisionLog').then(module => ({ default: module.DecisionLog })))
+const ConfigModal = lazyWithRetry(() => import('../components/ConfigModal').then(module => ({ default: module.ConfigModal })))
+const ScannerOverlay = lazyWithRetry(() => import('../components/ScannerOverlay').then(module => ({ default: module.ScannerOverlay })))
 import { ConfirmationModal } from '../components/ConfirmationModal'
-const StrategyDetailView = lazy(() => import('./StrategyDetailView'))
+const StrategyDetailView = lazyWithRetry(() => import('./StrategyDetailView'))
 
 const LoadingFallback = () => (
   <div className="flex items-center justify-center p-20">

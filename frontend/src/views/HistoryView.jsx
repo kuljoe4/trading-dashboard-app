@@ -10,9 +10,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap, BarChart3, LineChart, Target, Trash2, Search, XCircle, Info } from 'lucide-react'
 
 import { Sidebar, BottomNav } from '../components/Navigation'
+import { lazyWithRetry } from '../lib/lazy'
 // Lazy load heavy analytics components
-const EquityCurve = React.lazy(() => import('../components/Analytics').then(m => ({ default: m.EquityCurve })))
-const TODPerformance = React.lazy(() => import('../components/Analytics').then(m => ({ default: m.TODPerformance })))
+const EquityCurve = lazyWithRetry(() => import('../components/Analytics').then(m => ({ default: m.EquityCurve })))
+const TODPerformance = lazyWithRetry(() => import('../components/Analytics').then(m => ({ default: m.TODPerformance })))
 
 const price = (value) => {
   if (value == null) return 'None'

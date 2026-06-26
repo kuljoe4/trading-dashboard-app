@@ -6,13 +6,14 @@ import { useTradingStore } from './store/trading';
 import api, { sessionAPI, setAdminApiKey, initializeAuth } from './api/client';
 import { useVisibility } from './hooks/useVisibility';
 import { AuthOverlay } from './components/AuthOverlay';
+import { lazyWithRetry } from './lib/lazy';
 import './index.css';
 
-const DashboardView = lazy(() => import('./views/DashboardView').then(m => ({ default: m.DashboardView })));
-const SettingsView = lazy(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })));
-const HistoryView = lazy(() => import('./views/HistoryView').then(m => ({ default: m.HistoryView })));
-const TradesView = lazy(() => import('./views/TradesView'));
-const TradeDetailView = lazy(() => import('./views/TradeDetailView'));
+const DashboardView = lazyWithRetry(() => import('./views/DashboardView').then(m => ({ default: m.DashboardView })));
+const SettingsView = lazyWithRetry(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })));
+const HistoryView = lazyWithRetry(() => import('./views/HistoryView').then(m => ({ default: m.HistoryView })));
+const TradesView = lazyWithRetry(() => import('./views/TradesView'));
+const TradeDetailView = lazyWithRetry(() => import('./views/TradeDetailView'));
 
 const LoadingView = () => (
   <div className="min-h-screen bg-background flex items-center justify-center">
@@ -29,6 +30,28 @@ const App = () => {
   } = useTradingStore();
 
   const isHidden = useVisibility();
+
+  // Global unhandled rejection handler for chunk load failures
+  useEffect(() => {
+    const handleRejection = (event) => {
+      const error = event.reason;
+      const isChunkError = error?.name === 'ChunkLoadError' ||
+                          /failed to fetch dynamically imported module/i.test(error?.message) ||
+                          /error loading dynamically imported module/i.test(error?.message);
+
+      if (isChunkError) {
+        console.error('Global chunk load error detected:', error);
+        const lastReload = Number(sessionStorage.getItem('last-chunk-error-reload') || 0);
+        if (Date.now() - lastReload > 10000) {
+          sessionStorage.setItem('last-chunk-error-reload', String(Date.now()));
+          window.location.reload();
+        }
+      }
+    };
+
+    window.addEventListener('unhandledrejection', handleRejection);
+    return () => window.removeEventListener('unhandledrejection', handleRejection);
+  }, []);
 
   // Initialize Auth
   useEffect(() => {

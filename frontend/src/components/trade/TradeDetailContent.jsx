@@ -275,7 +275,10 @@ const ExitMonitor = ({ status, logic, trade }) => {
 
 export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClosing, confirmClose, setConfirmClose, layout = "grid" }) => {
   const { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qtyFormatted, riskFormatted, slDistPct = 0, slInitialDistPct = 0, enhancedExitSignals } = useMemo(() => {
-    if (!trade) return {}
+    if (!trade) return {
+      isLong: true, pnlPct: 0, progress: 50, entry: 0, mark: 0, sl: 0, initialSl: 0, tp: 0,
+      qtyFormatted: '0.0000', riskFormatted: '$0.00', slDistPct: 0, slInitialDistPct: 0, enhancedExitSignals: {}
+    }
     const isLong = trade.direction === 'LONG'
     const entry = Number(trade.entry_price || 0)
     const mark = Number(trade.current_price || trade.mark_price || 0)

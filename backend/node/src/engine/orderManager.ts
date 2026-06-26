@@ -336,11 +336,15 @@ export class OrderManagerService {
             this.lastFeeFetch = Date.now();
             this.logger.log(`Taker fee rate cached and persisted: ${(this.takerFeeRate * 100).toFixed(4)}%`);
 
-            // Persist to DB
-            await this.settingsRepository.update('default', {
-              taker_fee_rate: this.takerFeeRate,
-              taker_fee_ts: this.lastFeeFetch
-            });
+            // RESEARCH-02: Ensure Commission Rate persistence in settings table
+            try {
+              await this.settingsRepository.update('default', {
+                taker_fee_rate: this.takerFeeRate,
+                taker_fee_ts: this.lastFeeFetch
+              });
+            } catch (dbErr) {
+               this.logger.error(`Failed to persist commission rate to DB: ${dbErr}`);
+            }
           } else {
             this.logger.warn(`Binance returned NaN for takerCommissionRate. Using default: ${this.takerFeeRate}`);
           }

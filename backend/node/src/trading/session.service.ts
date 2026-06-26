@@ -1983,6 +1983,13 @@ export class SessionService implements OnModuleInit {
     this.tradingSessionService.setBinanceClient(client, paperMode);
   }
 
+  /**
+   * Proactively starts the user data stream to begin buffering events during reconciliation.
+   */
+  async startUds(client: any) {
+    await this.tradingSessionService.startUds(client);
+  }
+
   async resetPaperBalance(actor?: string, userAgent?: string) {
     const defaultBalance = 10000.0;
 

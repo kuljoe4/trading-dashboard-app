@@ -598,6 +598,10 @@ export class TradingSessionService implements OnApplicationShutdown {
   getActiveTradeSymbols(): string[] { return this.positionTracker.activeList().map(t => t.symbol); }
   getActiveTradesRaw(): Trade[] { return this.positionTracker.activeList(); }
 
+  async startUds(client: any) {
+    await this.sessionLifecycle.startUserDataStream(client);
+  }
+
   /**
    * BOLT OPTIMIZATION: Clears transient caches and state to minimize RAM footprint
    * during Deep Sleep or after session termination.

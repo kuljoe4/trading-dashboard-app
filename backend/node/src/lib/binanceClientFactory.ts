@@ -350,8 +350,19 @@ export class BinanceRequestQueue {
             // RESEARCH-01: Instead of process.exit(1), implement a long sleep to break boot loops and allow UI visibility.
             // Exiting causes Railway to immediately restart, leading to a "hammering" effect that can prolong bans.
             if (isBan) {
-              const BAN_COOLDOWN_MS = 600000; // 10 minutes
-              this.logger.fatal(`[BinanceQueue] IP BANNED (418). Entering safe cooldown mode for ${BAN_COOLDOWN_MS / 60000}m to protect infrastructure.`);
+              // SRE: Attempt to extract actual ban duration from Retry-After header or error message
+              let retryAfterSec = 600; // 10m Default
+              if (error.headers && error.headers['retry-after']) {
+                retryAfterSec = parseInt(error.headers['retry-after'], 10);
+              } else {
+                const match = msg.match(/retry in (\d+) (seconds|ms)/i);
+                if (match) {
+                  retryAfterSec = match[2].toLowerCase() === 'ms' ? Math.ceil(parseInt(match[1], 10) / 1000) : parseInt(match[1], 10);
+                }
+              }
+
+              const BAN_COOLDOWN_MS = Math.max(60000, retryAfterSec * 1000); // Minimum 1 minute
+              this.logger.fatal(`[BinanceQueue] IP BANNED (418). Entering safe cooldown mode for ${Math.ceil(BAN_COOLDOWN_MS / 60000)}m to protect infrastructure.`);
 
               // SRE: Purge non-emergency queue items to prevent burst on wakeup
               const itemsToKeep = this.queue.filter(i => i.isEmergency);

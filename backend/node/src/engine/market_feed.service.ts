@@ -320,9 +320,10 @@ export class MarketFeedService {
 
     for (const task of this.subscriptionTasks) clearTimeout(task);
     this.subscriptionTasks = [];
-    this.exchangeInfo.clear();
+    // BOLT: Do not clear the static exchangeInfo cache on stop.
+    // It should persist for resumption or other sessions.
     this.activeWatchlist.clear();
-    this.logger.verbose('MarketFeedService: Resources cleared');
+    this.logger.verbose('MarketFeedService: Resources cleared (Static exchangeInfo preserved)');
   }
 
   private startMiniTickerStream(wsBase: string = ENGINE_CONSTANTS.BINANCE_WS_PUBLIC) {
@@ -606,7 +607,9 @@ export class MarketFeedService {
     });
 
     const initialDepth = this.backfillQueue.length;
-    this.logger.log(`Starting prioritized sequential kline backfill queue. Depth: ${initialDepth}`);
+    const startWeight = this.sessionState.binanceRateLimit.used_1m;
+    const startTime = Date.now();
+    this.logger.log(`Starting prioritized sequential kline backfill queue. Depth: ${initialDepth} | Current Weight: ${startWeight}`);
 
     // STRATEGY: Sequential backfill to avoid rate-limit bursts
     while (this.backfillQueue.length > 0 && this.running) {
@@ -657,7 +660,9 @@ export class MarketFeedService {
       }
     }
     this.backfillProcessing = false;
-    this.logger.log(`Sequential kline backfill complete.`);
+    const endWeight = this.sessionState.binanceRateLimit.used_1m;
+    const duration = (Date.now() - startTime) / 1000;
+    this.logger.log(`Sequential kline backfill complete. Duration: ${duration.toFixed(1)}s | Weight Used: ${endWeight - startWeight} (Total: ${endWeight})`);
   }
 
   private async backfillKlines(symbol: string, interval: string) {

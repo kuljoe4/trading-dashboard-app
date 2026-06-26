@@ -9,6 +9,12 @@ export class Trade {
 
   qty: number = 0;
 
+  /** @deprecated Use qty */
+  quantity?: number;
+
+  /** @deprecated Legacy funding tracking */
+  _last_funding_delta?: number;
+
   initial_sl: number = 0;
 
   current_sl: number = 0;

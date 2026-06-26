@@ -82,12 +82,13 @@ describe('Watchdog Robustness', () => {
     } as Trade;
 
     (positionTracker.activeList as jest.Mock).mockReturnValue([trade]);
-    (orderManager.fetchAllPositions as jest.Mock).mockResolvedValue([{ symbol: 'BTCUSDT', positionAmt: '1.0' }]);
+    // Small trade set (<= 5) uses targeted audit (fetchPosition) instead of bulk (fetchAllPositions)
+    (orderManager.fetchPosition as jest.Mock).mockResolvedValue({ symbol: 'BTCUSDT', positionAmt: '1.0', entryPrice: '50000' });
     (orderManager.fetchOpenOrders as jest.Mock).mockResolvedValue([]); // No SL found
 
     await service.protectionWatchdog(true, { paper_mode: false } as any);
 
-    expect(orderManager.fetchAllPositions).toHaveBeenCalled();
+    expect(orderManager.fetchPosition).toHaveBeenCalledWith('BTCUSDT', { forceFresh: true });
     expect(orderManager.placeStopLoss).toHaveBeenCalled();
   });
 
@@ -102,8 +103,9 @@ describe('Watchdog Robustness', () => {
     } as Trade;
 
     (positionTracker.activeList as jest.Mock).mockReturnValue([trade]);
-    (orderManager.fetchAllPositions as jest.Mock).mockResolvedValue([{ symbol: 'BTCUSDT', positionAmt: '1.0' }]);
-    (orderManager.fetchOpenOrders as jest.Mock).mockResolvedValue([]); // No SL found in batch or fresh
+    // Small trade set (<= 5) uses targeted audit (fetchPosition) instead of bulk (fetchAllPositions)
+    (orderManager.fetchPosition as jest.Mock).mockResolvedValue({ symbol: 'BTCUSDT', positionAmt: '1.0', entryPrice: '50000' });
+    (orderManager.fetchOpenOrders as jest.Mock).mockResolvedValue([]); // No SL found in targeted or fresh audit
 
     await service.protectionWatchdog(true, { paper_mode: false } as any);
 

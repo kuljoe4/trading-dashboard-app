@@ -71,7 +71,8 @@ describe('SessionService PnL Logic Consistency Fix', () => {
       { emit: jest.fn() } as any, // eventEmitter
       {} as any, // analytics
       {} as any, // binanceClientFactory
-      { log: jest.fn() } as any // auditLog
+      { log: jest.fn() } as any, // auditLog
+      { get: jest.fn().mockReturnValue('postgres://user:pass@localhost:5432/db') } as any // configService
     );
   });
 

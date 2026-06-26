@@ -1,5 +1,5 @@
 import { createWithEqualityFn } from 'zustand/traditional'
-import { sessionAPI } from '../api/client'
+import { sessionAPI, normalizeUrl } from '../api/client'
 import { CONFIG_LIMITS, ENGINE_CONSTANTS } from '../constants/configLimits'
 
 const toNumber = (v, f = 0) => { const p = Number(v); return Number.isFinite(p) ? p : f; }
@@ -269,7 +269,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   connectWS: () => {
     if (get().ws) return;
     set({ wsStatus: 'connecting' });
-    let u = import.meta.env.VITE_WS_URL || `${window.location.protocol === 'https:' ? 'wss://' : 'ws://'}${window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '')}/session/ws`;
+    let u = normalizeUrl(import.meta.env.VITE_WS_URL) || `${window.location.protocol === 'https:' ? 'wss://' : 'ws://'}${window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '')}/session/ws`;
     if (u && !u.includes('/session/ws')) u = u.replace(/\/$/, '') + '/session/ws';
     const ak = localStorage.getItem('MOMENTUM_ADMIN_API_KEY') || import.meta.env.VITE_ADMIN_API_KEY;
     if (ak) u += (u.includes('?') ? '&' : '?') + `token=${encodeURIComponent(ak)}`;

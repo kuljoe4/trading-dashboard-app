@@ -8,6 +8,7 @@ import {
   Inject,
   forwardRef,
 } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, In } from "typeorm";
 import { plainToInstance } from "class-transformer";
@@ -69,10 +70,25 @@ export class SessionService implements OnModuleInit {
     private analyticsService: AnalyticsService,
     private binanceClientFactory: BinanceClientFactory,
     private readonly auditLog: AuditLogService,
+    private configService: ConfigService,
   ) {}
 
   async onModuleInit() {
     this.logger.log('SessionService initializing...');
+
+    // DEPLOY-03: Log truncated DB host to help verify environment isolation
+    try {
+      const dbUrl = this.configService.get<string>('DATABASE_URL');
+      if (dbUrl) {
+        // Robust parsing using URL constructor to handle special characters in passwords
+        const url = new URL(dbUrl);
+        const dbHost = url.hostname || 'unknown';
+        const truncatedHost = dbHost.length > 8 ? `***${dbHost.substring(dbHost.length - 8)}` : dbHost;
+        this.logger.log(`[Diagnostic] Connected to Database Host: ${truncatedHost}`);
+      }
+    } catch (e) {
+      this.logger.warn(`[Diagnostic] Could not identify DB host: ${e instanceof Error ? e.message : String(e)}`);
+    }
 
     // RESEARCH: Load persistent API ban status on startup to prevent immediate retry cycles
     try {

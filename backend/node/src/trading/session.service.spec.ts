@@ -71,7 +71,8 @@ describe('SessionService Validation', () => {
       { emit: jest.fn() } as any, // EventEmitter2
       mockAnalyticsService,
       mockBinanceClientFactory,
-      mockAuditLogService
+      mockAuditLogService,
+      { get: jest.fn().mockReturnValue('postgres://user:pass@localhost:5432/db') } as any // ConfigService
     );
   });
 
@@ -217,7 +218,8 @@ describe('SessionService Validation', () => {
         { emit: jest.fn() } as any, // EventEmitter2
         mockAnalyticsService,
         mockBinanceClientFactory,
-        mockAuditLogService
+        mockAuditLogService,
+        { get: jest.fn().mockReturnValue('postgres://user:pass@localhost:5432/db') } as any // ConfigService
       );
       
       (service as any).currentSessionId = 'test-id';

@@ -110,8 +110,10 @@ export class RiskEngineService {
         if (ts > mostRecentTradeTs) mostRecentTradeTs = ts;
       }
     }
-    // BOLT: Find most recent organic trade in closed trades (ignoring reconciliations)
-    for (let i = 0; i < closedTrades.length; i++) {
+    // BOLT: Find absolute most recent organic trade across ALL closed trades (Issue 3)
+    // We scan the top slice of closed trades to ensure we don't miss a recent one
+    // if the list isn't perfectly sorted by entry time.
+    for (let i = 0; i < Math.min(closedTrades.length, 20); i++) {
       const t = closedTrades[i];
       if (t.is_reconciliation) continue;
       const entryRaw = t.entry_ts;
@@ -119,7 +121,6 @@ export class RiskEngineService {
         const ts = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
         if (ts > mostRecentTradeTs) mostRecentTradeTs = ts;
       }
-      break; // Only need the first (most recent) organic one
     }
 
     // Apply stable jitter to the period window to prevent "stampeding"
@@ -180,8 +181,9 @@ export class RiskEngineService {
       processTrade(activeTrades[i], false);
     }
 
-    // BOLT OPTIMIZATION: Use cached closed trade stats if available for the current window
-    const cacheKey = `${closedTrades.length}_${closedTrades[0]?.id || 'none'}_${currentHour}_${Math.floor(dayAgo / 1000)}_${Math.floor(periodStartMs / 1000)}`;
+    // BOLT OPTIMIZATION: Use cached closed trade stats if available for the current window.
+    // SRE: Use 5s bucketing for the timestamps in the cache key to stabilize hits during high frequency loops.
+    const cacheKey = `${closedTrades.length}_${closedTrades[0]?.id || 'none'}_${currentHour}_${Math.floor(dayAgo / 5000)}_${Math.floor(periodStartMs / 5000)}`;
 
     if (this._closedStatsCache && this._closedStatsCache.key === cacheKey) {
       const s = this._closedStatsCache.stats;

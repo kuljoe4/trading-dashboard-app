@@ -80,7 +80,9 @@ export class SessionStateService {
     this.agreementRequired = false;
     this.isAdaptiveTightened = false;
     this.paused = false;
-    this.binanceRateLimit = { used_1m: 0, limit: 2400 };
+    // SRE: Preserve the existing weight limit during reset to ensure persistent dynamic limits (Issue 5)
+    const currentLimit = this.binanceRateLimit.limit || 2400;
+    this.binanceRateLimit = { used_1m: 0, limit: currentLimit };
     this.apiStatus = { isBanned: false, isRateLimited: false, banUntil: null, lastErrorMessage: null };
     this.cachedClosedTradesStats = {};
     this.realTimePositions.clear();

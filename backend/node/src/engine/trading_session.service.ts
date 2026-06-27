@@ -514,6 +514,10 @@ export class TradingSessionService implements OnApplicationShutdown {
       scannerResults: this.lastScannerResults,
       activeWindows: this.getActiveWindows(),
       apiStatus: this.sessionState.apiStatus,
+      tradesInPeriod: this.engineBroadcaster.getLastRiskResult()?.tradesInPeriod,
+      maxTradesPeriod: this.engineBroadcaster.getLastRiskResult()?.maxTradesPeriod,
+      tradesIn24h: this.engineBroadcaster.getLastRiskResult()?.tradesIn24h,
+      maxTrades24h: this.engineBroadcaster.getLastRiskResult()?.maxTrades24h,
     });
   }
 

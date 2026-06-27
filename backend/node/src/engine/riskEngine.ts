@@ -110,6 +110,7 @@ export class RiskEngineService {
         if (ts > mostRecentTradeTs) mostRecentTradeTs = ts;
       }
     }
+
     // BOLT: Find absolute most recent organic trade across ALL closed trades (Issue 3)
     // We scan the top slice of closed trades to ensure we don't miss a recent one
     // if the list isn't perfectly sorted by entry time.
@@ -123,9 +124,13 @@ export class RiskEngineService {
       }
     }
 
+    // BOLT: Stability Guard for Jitter. If mostRecentTradeTs is 0 (first trade),
+    // use a stable anchor to prevent sin(0) from always resulting in 0 jitter.
+    const effectiveMostRecentTs = mostRecentTradeTs || 1717171717171;
+
     // Apply stable jitter to the period window to prevent "stampeding".
-    // SRE: Floor mostRecentTradeTs to 10s to ensure jitter is stable across high-frequency loop iterations (Issue 3)
-    const jitterSeed = Math.floor((mostRecentTradeTs || 0) / 10000) * 10000;
+    // SRE: Floor effectiveMostRecentTs to 10s to ensure jitter is stable across high-frequency loop iterations (Issue 3)
+    const jitterSeed = Math.floor(effectiveMostRecentTs / 10000) * 10000;
     const jitterFactor = jitterPct > 0
       ? 1 + ((Math.abs(Math.sin(jitterSeed)) * jitterPct) / 100)
       : 1;

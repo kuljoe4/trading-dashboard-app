@@ -64,7 +64,8 @@ describe('MomentumScannerService Environment Filtering', () => {
           binanceRateLimit: { used_1m: 0, limit: 2400 },
           updateRateLimit: jest.fn(),
           updateOrderRateLimits: jest.fn(),
-          realTimePositions: new Map()
+          realTimePositions: new Map(),
+          realTimeOrders: new Map()
         } as any, // sessionState
         mockAuditLog as any,
         { emit: jest.fn() } as any, { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any

@@ -27,7 +27,7 @@ export class TradeEntity {
   @Column('decimal', { precision: 20, scale: 8, default: 0 })
   max_rr_achieved: number;
 
-  @Column({ default: 0 })
+  @Column({ default: -1 })
   rr_sequence_index: number;
 
   @CreateDateColumn()

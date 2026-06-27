@@ -24,6 +24,10 @@ describe('Watchdog Robustness', () => {
             isClosing: jest.fn().mockReturnValue(false),
             recalculateTotalRisk: jest.fn(),
             addTrade: jest.fn(),
+            reconcileMilestoneFromSl: jest.fn((trade, slPrice, config) => {
+              if (Number(slPrice) === 50000) trade.rr_sequence_index = 0;
+              return trade.rr_sequence_index;
+            }),
           },
         },
         {

@@ -443,4 +443,55 @@ export class PositionTrackerService {
     }
     this._pendingRiskTotal = roundEight(pendingRiskSum);
   }
+
+  /**
+   * SRE: State reconciliation for SL ratcheting.
+   * If we adopt an untracked SL, we derive the most likely milestone index
+   * to ensure the local 'rr_sequence_index' state is consistent for future ratchets.
+   * Uses a "Ladder Discovery" approach: finds the highest milestone already passed by the exchange SL.
+   */
+  public reconcileMilestoneFromSl(trade: Trade, slPrice: number, config: SessionConfig): number {
+    const risk = Math.abs(trade.entry_price - trade.initial_sl);
+    if (risk <= 0) return trade.rr_sequence_index ?? -1;
+
+    const exitRrSequence = config.exit_rr_sequence || [];
+    let bestIndex = -1; // Default to pre-milestone
+
+    for (let i = 0; i < exitRrSequence.length; i++) {
+      const exitRr = exitRrSequence[i];
+      let milestoneSl: number;
+
+      if (trade.direction === 'LONG') {
+        milestoneSl = trade.entry_price + risk * exitRr;
+        // If exchange SL is at or beyond this milestone (with tiny epsilon for float precision)
+        if (slPrice >= milestoneSl - Math.max(0.00000001, milestoneSl * 0.0001)) {
+          bestIndex = i;
+        }
+      } else {
+        milestoneSl = trade.entry_price - risk * exitRr;
+        // If exchange SL is at or beyond this milestone
+        if (slPrice <= milestoneSl + Math.max(0.00000001, milestoneSl * 0.0001)) {
+          bestIndex = i;
+        }
+      }
+    }
+
+    if (bestIndex !== trade.rr_sequence_index) {
+      this.logger.log(`[Reconciliation] ${trade.symbol} reconciling milestone index from SL price: ${trade.rr_sequence_index} -> ${bestIndex}`);
+      trade.rr_sequence_index = bestIndex;
+
+      // DATA-07: Also reconcile max_rr_achieved to match the discovered milestone
+      // to ensure the ladder continues from the correct peak.
+      if (bestIndex !== -1 && config.live_rr_sequence?.[bestIndex] !== undefined) {
+        trade.max_rr_achieved = Math.max(trade.max_rr_achieved || 0, config.live_rr_sequence[bestIndex]);
+      }
+
+      // BOLT: Only update the internal map if this trade is already tracked
+      if (this.trades.has(trade.symbol)) {
+        this.rrSequenceIndex.set(trade.symbol, bestIndex);
+      }
+    }
+
+    return bestIndex;
+  }
 }

@@ -206,8 +206,13 @@ const ManualMonitorInput = React.memo(({ onAdd }) => {
 })
 ManualMonitorInput.displayName = 'ManualMonitorInput'
 
-const SavePresetInput = React.memo(({ onSave, isSaving, success }) => {
-  const [name, setName] = useState('');
+const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) => {
+  const [name, setName] = useState(defaultName || '');
+
+  useEffect(() => {
+    if (defaultName) setName(defaultName);
+  }, [defaultName]);
+
   return (
     <div className="flex gap-2">
       <input
@@ -217,7 +222,7 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success }) => {
         onChange={(e) => setName(e.target.value)}
         className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none"
       />
-      <Btn variant="primary" onClick={() => { if (name.trim()) { onSave(name); setName(''); } }} loading={isSaving} className="aspect-square p-0 w-12 h-12 flex items-center justify-center">
+      <Btn variant="primary" onClick={() => { if (name.trim()) { onSave(name); } }} loading={isSaving} className="aspect-square p-0 w-12 h-12 flex items-center justify-center">
         {success ? <CheckCircle2 size={20} /> : <Save size={20} />}
       </Btn>
     </div>
@@ -605,7 +610,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [cfg, presetName, generatedPresetName]);
 
   const savePreset = React.useCallback(async (explicitName) => {
-    const name = (explicitName || presetName || generatedPresetName || '').trim();
+    const name = (explicitName || presetName || (explicitName === undefined ? loadedPresetName : '') || generatedPresetName || '').trim();
     console.log(`[ConfigModal] Attempting to save preset: "${name}"`);
 
     try {
@@ -642,32 +647,51 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
       if (res && res.data) {
         console.log(`[ConfigModal] Preset "${name}" saved successfully.`);
-        setPresets(prev => [...prev.filter(p => p.name !== name), res.data]);
+        setPresets(prev => {
+          const nextPresets = [...prev.filter(p => p.name !== name), res.data];
+          return nextPresets.sort((a, b) => a.name.localeCompare(b.name));
+        });
         setPresetName('');
+        setLoadedPresetName(name);
+        sessionStorage.removeItem('config_draft');
+        setIsDirty(false);
         setSaveSuccess(true);
         addAlert({ level: 'success', title: 'Preset Saved', message: `Strategy "${name}" has been stored in the database.` });
         setTimeout(() => setSaveSuccess(false), 2000);
       }
     } catch (e) {
       console.error('[ConfigModal] Error saving preset:', e);
-      const backendMsg = e.response?.data?.message;
-      const backendDetail = e.response?.data?.detail;
-      const errMsg = backendMsg || backendDetail || 'Could not store strategy preset in the database.';
+
+      let errMsg = 'Could not store strategy preset in the database.';
+      if (e.response?.data?.detail && Array.isArray(e.response.data.detail)) {
+        // Format class-validator errors for better readability
+        const extractConstraints = (errs) => {
+          return errs.flatMap(err => {
+            const current = err.constraints ? [`${err.property}: ${Object.values(err.constraints).join(', ')}`] : [];
+            const nested = err.children ? extractConstraints(err.children) : [];
+            return [...current, ...nested];
+          });
+        };
+        errMsg = extractConstraints(e.response.data.detail).join('; ');
+      } else {
+        errMsg = e.response?.data?.message || e.message || errMsg;
+      }
 
       addAlert({
         level: 'error',
         title: 'Save Failed',
-        message: typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg
+        message: errMsg
       });
     } finally {
       setIsSaving(false);
     }
-  }, [validate, cfg, presetName, generatedPresetName, buildConfigToSave, addAlert]);
+  }, [validate, cfg, presetName, loadedPresetName, generatedPresetName, buildConfigToSave, addAlert]);
 
   const loadPreset = React.useCallback((p) => {
-    const next = { ...p.config }
+    const next = flattenConfig(p.config);
     setCfg(next);
     setLoadedPresetName(p.name);
+    setPresetName(p.name);
     setSection('scan');
     validate(next);
     setIsDirty(false);
@@ -1340,7 +1364,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
           >
             <section>
               <SectionHeader icon={Save} title="Save Strategy" subtitle="Store current configuration as a preset" />
-              <SavePresetInput onSave={(name) => { setPresetName(name); savePreset(name); }} isSaving={isSaving} success={saveSuccess} />
+              <SavePresetInput defaultName={loadedPresetName} onSave={(name) => { savePreset(name); }} isSaving={isSaving} success={saveSuccess} />
             </section>
 
             <section className="pt-6 border-t border-border/40">

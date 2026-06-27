@@ -97,6 +97,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   activeTrades: [], logs: [], logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
   gateState: null, gateReason: null, hibernating: false, isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
   apiStatus: { isBanned: false, isRateLimited: false, banUntil: null, lastErrorMessage: null },
+  tradesInPeriod: undefined, maxTradesPeriod: undefined, tradesIn24h: undefined, maxTrades24h: undefined,
   alerts: [],
   isSyncing: false, configSyncing: false,
   debugToolsEnabled: localStorage.getItem('debug_tools_enabled') === 'true',

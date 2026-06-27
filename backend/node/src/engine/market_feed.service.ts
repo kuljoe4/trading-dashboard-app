@@ -34,10 +34,10 @@ export class MarketFeedService {
   }
   private readonly logger = new Logger(MarketFeedService.name);
   private running = false;
-  private miniTickerWs: WebSocket | null = null;
+  private miniTickerWs: any = null;
   private miniTickerReconnecting = false;
-  private markTickerWs: WebSocket | null = null;
-  private combinedKlineWsList: Set<WebSocket> = new Set();
+  private markTickerWs: any = null;
+  private combinedKlineWsList: Set<any> = new Set();
   private static cachedExchangeInfo: Map<string, any> = new Map();
   private static cachedRateLimit = 0;
   private static lastExchangeInfoFetch = 0;
@@ -302,11 +302,16 @@ export class MarketFeedService {
 
   getSymbolFilters(symbol: string) { return this.exchangeInfo.get(symbol); }
 
-  private safeClose(ws: WebSocket | null) {
+  private safeClose(ws: any) {
     if (!ws) return;
     try {
-      // Only terminate if it's OPEN or CLOSING. 
-      // If it's CONNECTING, 'close()' is safer to avoid "WebSocket closed before connection established" error.
+      // Support for SDK connection objects
+      if (typeof ws.disconnect === 'function') {
+        ws.disconnect();
+        return;
+      }
+
+      // Support for raw WebSockets
       if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CLOSING) {
         ws.terminate();
       } else if (ws.readyState === WebSocket.CONNECTING) {
@@ -348,21 +353,25 @@ export class MarketFeedService {
 
   private startMiniTickerStream(wsBase: string = ENGINE_CONSTANTS.BINANCE_WS_PUBLIC) {
     let retryCount = 0;
-    const connect = () => {
+    const connect = async () => {
       if (!this.running) return;
-      const url = `${wsBase}/!miniTicker@arr`;
-      this.logger.log(`[MarketFeed] Connecting to mini-ticker stream: ${url}`);
-      const ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
 
-      ws.on('error', (err) => {
-        this.logger.error(`Mini-ticker stream error: ${err.message}`);
+      const stream = '!miniTicker@arr';
+      this.logger.log(`[MarketFeed] Connecting to mini-ticker stream: ${stream}`);
+
+      let ws: any;
+      if (this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
+        ws = await this.binanceClient.websocketStreams.connect({ stream });
+      } else {
+        const url = `${wsBase}/${stream}`;
+        ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+      }
+
+      ws.on('error', (err: any) => {
+        this.logger.error(`Mini-ticker stream error: ${err.message || String(err)}`);
       });
 
-      ws.on('unexpected-response', (req, res) => {
-        this.logger.error(`Mini-ticker WS unexpected response: ${res.statusCode} ${res.statusMessage}`);
-      });
-
-      ws.on('message', (data: Buffer) => {
+      ws.on('message', (data: any) => {
         // BOLT: Even in Eco Mode, we must populate the cache if it's currently empty to allow the first watchlist re-evaluation.
         const cacheEmpty = this.tickerCache.getCacheSize() === 0;
         if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0 && !cacheEmpty) return;
@@ -397,17 +406,25 @@ export class MarketFeedService {
 
   private startMarkTickerStream(wsBase: string = ENGINE_CONSTANTS.BINANCE_WS_PUBLIC) {
     let retryCount = 0;
-    const connect = () => {
+    const connect = async () => {
       if (!this.running) return;
-      const url = `${wsBase}/!markPrice@arr@1s`;
-      this.logger.log(`[MarketFeed] Connecting to mark-ticker stream: ${url}`);
-      const ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
 
-      ws.on('error', (err) => {
-        this.logger.error(`Mark-ticker stream error: ${err.message}`);
+      const stream = '!markPrice@arr@1s';
+      this.logger.log(`[MarketFeed] Connecting to mark-ticker stream: ${stream}`);
+
+      let ws: any;
+      if (this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
+        ws = await this.binanceClient.websocketStreams.connect({ stream });
+      } else {
+        const url = `${wsBase}/${stream}`;
+        ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+      }
+
+      ws.on('error', (err: any) => {
+        this.logger.error(`Mark-ticker stream error: ${err.message || String(err)}`);
       });
 
-      ws.on('message', (data: Buffer) => {
+      ws.on('message', (data: any) => {
         const cacheEmpty = this.tickerCache.getCacheSize() === 0;
         if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0 && !cacheEmpty) return;
         try {
@@ -584,14 +601,21 @@ export class MarketFeedService {
 
     for (const chunk of chunks) {
       const streams = chunk.join('/');
-      const url = `${wsBaseMarket}?streams=${streams}`;
       let retryCount = 0;
-      const connect = () => {
+      const connect = async () => {
         if (!this.running) return;
-        this.logger.debug(`[MarketFeed] Connecting to combined stream: ${url.split('?')[0]}?streams=${chunk.length} items`);
 
-        const ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
-        ws.on('message', (data: Buffer) => {
+        let ws: any;
+        if (this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
+           this.logger.debug(`[MarketFeed] Connecting to combined stream via SDK: ${chunk.length} items`);
+           ws = await this.binanceClient.websocketStreams.connect({ stream: streams });
+        } else {
+           const url = `${wsBaseMarket}?streams=${streams}`;
+           this.logger.debug(`[MarketFeed] Connecting to combined stream: ${url.split('?')[0]}?streams=${chunk.length} items`);
+           ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+        }
+
+        ws.on('message', (data: any) => {
           try {
             const msg: any = JSON.parse(data as any);
             const stream = msg.stream || '';

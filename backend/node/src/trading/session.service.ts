@@ -1290,6 +1290,9 @@ export class SessionService implements OnModuleInit {
         }
 
         if (imported.length > 0) {
+          // BOLT: Synchronize active trades state and trigger watchlist update for newly adopted trades
+          this.tradingSessionService.seedActiveTrades(this.tradingSessionService.getActiveTradesRaw());
+          this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
           this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
         }
       }

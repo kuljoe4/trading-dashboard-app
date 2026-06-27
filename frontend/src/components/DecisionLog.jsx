@@ -1,9 +1,8 @@
 import React, { useState } from 'react'
-import { Activity, XCircle, Search, Filter, Copy, CheckCircle2, Info, X } from 'lucide-react'
+import { Activity, XCircle, Search, Copy, CheckCircle2, Info, X } from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { motion, AnimatePresence } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
-import { cn, CopyButton, VisuallyHidden } from './ui/primitives'
+import { cn, CopyButton } from './ui/primitives'
 
 const HIGHLIGHTS = {
   positive: ['BUY', 'PROFIT', 'TP', 'HIT', 'SUCCESS', 'STARTED', 'ENTER'],
@@ -215,49 +214,35 @@ export const DecisionLog = React.memo(() => {
             </button>
           </div>
         )}
-        <AnimatePresence mode="popLayout">
-          {visibleLogs.length === 0 ? (
-            <motion.div
-              key="empty"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="flex flex-col items-center justify-center py-10 text-center"
-            >
-              <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center mb-4 text-dim/20">
-                {logs.length === 0 ? <Activity size={24} /> : <XCircle size={24} />}
-              </div>
-              <div className="text-[13px] text-dim font-bold uppercase tracking-widest">
-                {logs.length === 0 ? 'No logs yet...' : 'No matching results'}
-              </div>
-              <p className="text-[11px] text-dim/60 mt-1 max-w-[200px]">
-                {logs.length === 0
-                  ? 'System activity will appear here once the engine starts.'
-                  : 'Try adjusting your filters to see more activity.'}
-              </p>
-              {search && (
-                <button
-                  onClick={() => setSearch('')}
-                  className="mt-4 px-4 py-1.5 bg-accent/10 border border-accent/20 text-accent rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-all active:scale-95"
-                >
-                  Clear Search
-                </button>
-              )}
-            </motion.div>
-          ) : (
-            visibleLogs.map((log) => (
-              <motion.div
-                key={log.id}
-                layout
-                initial={{ opacity: 0, x: -5 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="min-w-fit"
+        {visibleLogs.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 text-center animate-in fade-in duration-500">
+            <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center mb-4 text-dim/20">
+              {logs.length === 0 ? <Activity size={24} /> : <XCircle size={24} />}
+            </div>
+            <div className="text-[13px] text-dim font-bold uppercase tracking-widest">
+              {logs.length === 0 ? 'No logs yet...' : 'No matching results'}
+            </div>
+            <p className="text-[11px] text-dim/60 mt-1 max-w-[200px]">
+              {logs.length === 0
+                ? 'System activity will appear here once the engine starts.'
+                : 'Try adjusting your filters to see more activity.'}
+            </p>
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                className="mt-4 px-4 py-1.5 bg-accent/10 border border-accent/20 text-accent rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-all active:scale-95"
               >
-                <LogEntry log={log} />
-              </motion.div>
-            ))
-          )}
-        </AnimatePresence>
+                Clear Search
+              </button>
+            )}
+          </div>
+        ) : (
+          visibleLogs.map((log) => (
+            <div key={log.id} className="min-w-fit">
+              <LogEntry log={log} />
+            </div>
+          ))
+        )}
       </div>
     </div>
   )

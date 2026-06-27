@@ -686,6 +686,24 @@ export class OrderManagerService {
 
           trade.binance_order_id = entryReceipt.orderId;
 
+          // BOLT: Proactively seed real-time order cache to reduce subsequent REST weight
+          const entryOrderEntry = {
+            symbol,
+            orderId: parseFloat(String(entryReceipt.orderId)),
+            clientOrderId: entryReceipt.clientOrderId || entryOrderId,
+            price: parseFloat(entryReceipt.price || '0'),
+            avgPrice: parseFloat(entryReceipt.avgPrice || '0'),
+            origQty: parseFloat(entryReceipt.origQty || trade.qty.toString()),
+            executedQty: parseFloat(entryReceipt.executedQty || '0'),
+            status: entryReceipt.status,
+            type: entryReceipt.type || 'MARKET',
+            side: entryReceipt.side || (direction === 'LONG' ? 'BUY' : 'SELL'),
+            reduceOnly: false,
+            updateTime: entryReceipt.updateTime || Date.now()
+          };
+          const currentOrders = this.sessionState.realTimeOrders.get(symbol) || [];
+          this.sessionState.realTimeOrders.set(symbol, [...currentOrders.filter(o => String(o.orderId) !== String(entryReceipt.orderId)), entryOrderEntry]);
+
           // IDEMPOTENCY: Mark entry as executed to avoid duplicate UDS processing
           if (entryReceipt.status === 'FILLED' || entryReceipt.executedQty === entryReceipt.origQty) {
              this.markAsExecuted(symbol, String(entryReceipt.orderId));
@@ -1204,6 +1222,27 @@ export class OrderManagerService {
       }
       trade.binance_stop_order_id = stopLossId;
       trade.binance_stop_order_type = orderType;
+
+      // BOLT: Proactively seed real-time order cache for SL to ensure watchdog awareness
+      const slOrderEntry = {
+        symbol,
+        orderId: orderType === 'algo' ? 0 : parseFloat(stopLossId),
+        algoId: orderType === 'algo' ? parseFloat(stopLossId) : undefined,
+        algoType: orderType === 'algo' ? 'CONDITIONAL' : undefined,
+        clientOrderId: slOrderParams.newClientOrderId,
+        triggerPrice: currentSlPrice,
+        stopPrice: currentSlPrice,
+        origQty: trade.qty,
+        quantity: trade.qty,
+        status: 'NEW',
+        type: 'STOP_MARKET',
+        side: closeDirection,
+        reduceOnly: true,
+        closePosition: orderType === 'standard',
+        updateTime: Date.now()
+      };
+      const currentSlOrders = this.sessionState.realTimeOrders.get(symbol) || [];
+      this.sessionState.realTimeOrders.set(symbol, [...currentSlOrders.filter(o => String(o.orderId || o.algoId) !== stopLossId), slOrderEntry]);
 
       // Accuracy: Ensure local tracking reflects the final price used for placement
       if (trade.current_sl !== currentSlPrice) {

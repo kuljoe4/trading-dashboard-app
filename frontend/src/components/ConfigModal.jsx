@@ -395,9 +395,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const addAlert = useTradingStore(state => state.addAlert);
   // UX-MOBILE: Ensure inputs scroll into view when keyboard is active
   const handleInputFocus = React.useCallback((e) => {
-    setTimeout(() => {
+    requestAnimationFrame(() => {
       e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 100);
+    });
   }, []);
 
   const [cfg, setCfg] = useState(() => {

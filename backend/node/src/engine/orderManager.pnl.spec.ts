@@ -95,6 +95,48 @@ describe('OrderManagerService - PnL Consistency', () => {
     expect(trade.pnl).toBe(-53.98);
   });
 
+  it('recovers specific exit reason from exchange history during sync', async () => {
+    service.setBinanceClient(mockBinanceClient, false);
+
+    const trade = {
+      id: 'test-id-recon-1',
+      symbol: 'BTCUSDT',
+      direction: 'LONG',
+      qty: 0.1,
+      entry_price: 50000,
+      initial_sl: 49000,
+      current_sl: 49000,
+      realized_fee: 1.0,
+      binance_order_id: 'entry_id',
+      status: 'OPEN'
+    } as Trade;
+
+    // 1. Mock trade history showing a sell at 49200
+    mockBinanceClient.restAPI.accountTradeList.mockResolvedValue({
+       data: () => Promise.resolve([
+         { symbol: 'BTCUSDT', side: 'SELL', price: '49200', orderId: '112233', time: Date.now() }
+       ])
+    });
+
+    // 2. Mock order query showing it was a STOP_MARKET order (SL)
+    mockBinanceClient.restAPI.queryOrder.mockResolvedValue({
+       data: () => Promise.resolve({
+          symbol: 'BTCUSDT',
+          orderId: '112233',
+          type: 'STOP_MARKET',
+          status: 'FILLED'
+       })
+    });
+
+    const result = await service.closeTrade('BTCUSDT', trade, 0, 'EXCHANGE_SYNC', false, true);
+
+    expect(result.exitOccurred).toBe(true);
+    // Should recover the specific SL_HIT reason instead of generic EXCHANGE_SYNC
+    expect(trade.exit_reason).toBe('SL_HIT_INITIAL_SL');
+    expect(trade.exit_price).toBe(49200);
+    expect(trade.status).toBe('CLOSED_SL');
+  });
+
   it('uses paperMode parameter for fee simulation in catch block', async () => {
     // Set service to LIVE mode globally
     service.setBinanceClient(mockBinanceClient, false);

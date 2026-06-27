@@ -394,22 +394,18 @@ const flattenConfig = (config) => {
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
   const addAlert = useTradingStore(state => state.addAlert);
 
-  // UX-MOBILE: Ensure visual viewport resets correctly on keyboard dismissal
+  // UX-MOBILE: Ensure inputs scroll into view when keyboard is active
   useEffect(() => {
     if (!window.visualViewport) return;
     const handleResize = () => {
-      if (document.activeElement?.tagName !== 'INPUT') {
-        window.scrollTo(0, 0);
-        document.body.style.height = `${window.visualViewport.height}px`;
+      if (document.activeElement?.tagName === 'INPUT') {
+        setTimeout(() => {
+          document.activeElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 100);
       }
     };
     window.visualViewport.addEventListener('resize', handleResize);
-    window.visualViewport.addEventListener('scroll', handleResize);
-    return () => {
-      window.visualViewport.removeEventListener('resize', handleResize);
-      window.visualViewport.removeEventListener('scroll', handleResize);
-      document.body.style.height = '';
-    };
+    return () => window.visualViewport.removeEventListener('resize', handleResize);
   }, []);
 
   const [cfg, setCfg] = useState(() => {

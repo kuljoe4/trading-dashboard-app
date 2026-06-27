@@ -43,9 +43,9 @@ const Toggle = React.memo(({ value, onChange, label, color = "bg-accent" }) => (
 ))
 Toggle.displayName = 'Toggle'
 
-const Chip = React.memo(React.forwardRef(({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10", ...props }, ref) => (
+const Chip = React.forwardRef(({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10", ...props }, ref) => (
   <button ref={ref} type="button" onClick={onClick} aria-pressed={active} className={cn("px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all", active ? activeClass : "border-border text-dim hover:border-dim/50")} {...props}>{children}</button>
-)))
+))
 Chip.displayName = 'Chip'
 
 const ConfigField = React.memo(({ label, id, name, type, value, onChange, error, warning, opts, attrs }) => {

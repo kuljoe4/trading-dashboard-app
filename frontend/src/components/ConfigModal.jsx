@@ -394,16 +394,37 @@ const flattenConfig = (config) => {
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
   const addAlert = useTradingStore(state => state.addAlert);
 
-  // UX-MOBILE: Ensure inputs scroll into view when keyboard is active
+  // UX-MOBILE: Ensure inputs scroll into view when keyboard is active and reset on dismissal
   useEffect(() => {
     if (!window.visualViewport) return;
+    let lastHeight = window.visualViewport.height;
+
     const handleResize = () => {
+      const currentHeight = window.visualViewport.height;
+      const keyboardDismissed = currentHeight > lastHeight && currentHeight >= window.innerHeight * 0.9;
+
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'SELECT') {
-        setTimeout(() => {
-          document.activeElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 100);
+        if (!keyboardDismissed) {
+          setTimeout(() => {
+            document.activeElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }, 100);
+        }
       }
+
+      if (keyboardDismissed) {
+        // Keyboard was just dismissed - force comprehensive scroll reset
+        const reset = () => {
+          window.scrollTo(0, 0);
+          document.body.scrollTo(0, 0);
+          document.documentElement.scrollTo(0, 0);
+        };
+        reset();
+        setTimeout(reset, 150); // SRE: Double-reset to catch OS lag
+      }
+
+      lastHeight = currentHeight;
     };
+
     window.visualViewport.addEventListener('resize', handleResize);
     return () => window.visualViewport.removeEventListener('resize', handleResize);
   }, []);
@@ -721,9 +742,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     // UX-MOBILE: Safe scroll correction for iOS/Chrome mobile keyboard dismissal
     setTimeout(() => {
       if (document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'SELECT') {
-        window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+        window.scrollTo(0, 0);
+        document.body.scrollTo(0, 0);
+        document.documentElement.scrollTo(0, 0);
       }
-    }, 100);
+    }, 200);
   }, []);
 
   const renderField = React.useCallback((label, key, type = 'number', opts = null, attrs = {}) => (

@@ -56,11 +56,15 @@ export class TickerCacheService {
       if (p !== undefined && !Number.isNaN(p) && p > 0) existing.price = p;
       if (v !== undefined && !Number.isNaN(v)) existing.volume_24h = v;
       if (o !== undefined && !Number.isNaN(o) && o > 0) existing.open_24h = o;
-      if (mp !== undefined && !Number.isNaN(mp) && mp > 0) existing.mark_price = mp;
+      if (mp !== undefined && !Number.isNaN(mp) && mp > 0) {
+        existing.mark_price = mp;
+        // BOLT: Ensure price is initialized if we only have mark_price
+        if (existing.price === 0) existing.price = mp;
+      }
     } else {
       this.tickers.set(symbol, {
         symbol,
-        price: (p !== undefined && !Number.isNaN(p) && p > 0) ? p : 0,
+        price: (p !== undefined && !Number.isNaN(p) && p > 0) ? p : (mp || 0),
         mark_price: (mp !== undefined && !Number.isNaN(mp) && mp > 0) ? mp : undefined,
         volume_24h: (v !== undefined && !Number.isNaN(v)) ? v : 0,
         open_24h: (o !== undefined && !Number.isNaN(o) && o > 0) ? o : undefined,
@@ -70,7 +74,9 @@ export class TickerCacheService {
 
   getPrice(symbol: string): number | null {
     const ticker = this.tickers.get(symbol);
-    return ticker ? ticker.price : null;
+    // BOLT: For Futures PnL, mark_price is more relevant and usually higher frequency (1s).
+    // Prioritize mark_price if available, falling back to last price.
+    return ticker ? (ticker.mark_price ?? ticker.price) : null;
   }
 
   /**

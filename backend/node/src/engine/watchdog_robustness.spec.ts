@@ -23,6 +23,7 @@ describe('Watchdog Robustness', () => {
             isEntering: jest.fn().mockReturnValue(false),
             isClosing: jest.fn().mockReturnValue(false),
             recalculateTotalRisk: jest.fn(),
+            addTrade: jest.fn(),
           },
         },
         {
@@ -114,5 +115,39 @@ describe('Watchdog Robustness', () => {
       reason: 'WATCHDOG_NUCLEAR_CLOSE'
     }));
     expect(orderManager.placeStopLoss).not.toHaveBeenCalled(); // Close instead of repair
+  });
+
+  it('should reconcile rr_sequence_index when adopting untracked SL', async () => {
+    const trade = {
+      symbol: 'BTCUSDT',
+      direction: 'LONG',
+      qty: 1.0,
+      entry_price: 50000,
+      initial_sl: 49000,
+      current_sl: 49000,
+      rr_sequence_index: -1,
+      binance_order_id: 'entry_123',
+      updated_at: new Date(Date.now() - 60000),
+    } as Trade;
+
+    const config = {
+      paper_mode: false,
+      exit_rr_sequence: [0, 1.0, 2.0], // 0 = Breakeven
+    };
+
+    (positionTracker.activeList as jest.Mock).mockReturnValue([trade]);
+    (orderManager.fetchPosition as jest.Mock).mockResolvedValue({ symbol: 'BTCUSDT', positionAmt: '1.0' });
+
+    // Exchange has SL at 50000 (Breakeven, index 0)
+    (orderManager.fetchOpenOrders as jest.Mock).mockResolvedValue([
+      { symbol: 'BTCUSDT', orderId: 'sl_999', type: 'STOP_MARKET', stopPrice: '50000', quantity: '1.0', reduceOnly: true }
+    ]);
+
+    await service.protectionWatchdog(true, config as any);
+
+    expect(trade.binance_stop_order_id).toBe('sl_999');
+    expect(trade.current_sl).toBe(50000);
+    expect(trade.rr_sequence_index).toBe(0); // Successfully reconciled index 0
+    expect(positionTracker.addTrade).toHaveBeenCalledWith(trade);
   });
 });

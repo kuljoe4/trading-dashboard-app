@@ -107,7 +107,9 @@ export class OrderManagerService {
         type: order.ot,
         side: order.S,
         stopPrice: parseFloat(order.sp || '0'),
-        triggerPrice: parseFloat(order.sp || '0'), // Some fields might differ between standard and algo
+        triggerPrice: parseFloat(order.sp || '0'),
+        algoId: order.i, // SRE: Explicitly map algoId from UDS for watchdog consistency
+        algoType: order.ot === 'STOP_MARKET' || order.ot === 'STOP' ? 'CONDITIONAL' : undefined,
         workingType: order.wt,
         reduceOnly: order.R,
         closePosition: order.cp,
@@ -645,7 +647,7 @@ export class OrderManagerService {
             symbol,
             side: binanceDirection as any,
             type: 'MARKET',
-            quantity: qty.toFixed(qtyPrecision),
+            quantity: Number(qty).toFixed(qtyPrecision),
             newOrderRespType: 'RESULT',
             newClientOrderId: entryOrderId,
             selfTradePreventionMode: 'EXPIRE_MAKER', // Hardening: Prevent self-trading
@@ -1011,7 +1013,7 @@ export class OrderManagerService {
         side: closeDirection as any,
         algoType: 'CONDITIONAL',
         type: 'STOP_MARKET',
-        quantity: trade.qty.toFixed(qtyPrecision),
+        quantity: Number(trade.qty).toFixed(qtyPrecision),
         triggerPrice: currentSlPrice.toFixed(pricePrecision),
         workingType: 'MARK_PRICE',
         newClientOrderId: `sl-${trade.id.substring(0, 8)}`,
@@ -1515,7 +1517,9 @@ export class OrderManagerService {
       const response = await this.binanceClient.restAPI.currentAllAlgoOpenOrders();
       this.updateWeight(response?.headers);
       const data = await response.data() as any;
-      return Array.isArray(data) ? data : [];
+      if (Array.isArray(data)) return data;
+      if (data && Array.isArray(data.orders)) return data.orders;
+      return [];
     } catch (err) {
       this.logger.warn(`Failed to fetch all open algo orders: ${err instanceof Error ? err.message : String(err)}`);
       return [];
@@ -1672,7 +1676,9 @@ export class OrderManagerService {
       const response = await this.binanceClient.restAPI.currentAllAlgoOpenOrders({ symbol });
       this.updateWeight(response?.headers);
       const data = await response.data() as any;
-      return Array.isArray(data) ? data : [];
+      if (Array.isArray(data)) return data;
+      if (data && Array.isArray(data.orders)) return data.orders;
+      return [];
     } catch (err) {
       this.logger.warn(`[${symbol}] Failed to fetch open algo orders: ${err instanceof Error ? err.message : String(err)}`);
       return [];
@@ -1751,27 +1757,67 @@ export class OrderManagerService {
     }
   }
 
-  public async recoverLastExecutionPrice(symbol: string, trade: Trade, estimate: number): Promise<number> {
-    if (!this.binanceClient || this.paperMode) return estimate;
+  public async recoverClosingContext(symbol: string, trade: Trade, estimate: number): Promise<{ price: number, reason?: string }> {
+    if (!this.binanceClient || this.paperMode) return { price: estimate };
     try {
-      const tradesRes = await this.binanceClient.restAPI.accountTradeList({ symbol, limit: 5 });
+      const tradesRes = await this.binanceClient.restAPI.accountTradeList({ symbol, limit: 10 });
       const trades = await tradesRes.data() as any;
       if (Array.isArray(trades) && trades.length > 0) {
         const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
-        const closingTrades = trades.filter(t => t.side === closeDirection);
+        // Sort by time descending to get the most recent fills
+        const closingTrades = trades.filter(t => t.side === closeDirection).sort((a, b) => b.time - a.time);
+
         if (closingTrades.length > 0) {
-          const lastFill = closingTrades.sort((a, b) => b.time - a.time)[0];
+          const lastFill = closingTrades[0];
           const fillPrice = parseFloat(lastFill.price);
+          const orderId = lastFill.orderId;
+
+          let reason = undefined;
+          if (orderId) {
+             try {
+                this.logger.log(`[Sync] Recovering order context for ID ${orderId}...`);
+                const orderRes = await this.binanceClient.restAPI.queryOrder({ symbol, orderId: BigInt(orderId) });
+                const orderData = await orderRes.data() as any;
+
+                if (orderData && orderData.type) {
+                   const type = orderData.type;
+                   const clientOrderId = orderData.clientOrderId;
+
+                   // SRE: Map exchange order type to engine-specific EXIT_REASONS
+                   if (type === 'TAKE_PROFIT' || type === 'TAKE_PROFIT_MARKET') {
+                      reason = EXIT_REASONS.TP_HIT;
+                   } else if (type === 'STOP' || type === 'STOP_MARKET') {
+                      // Distinguish between initial SL and ratchet milestones if possible
+                      const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
+                      reason = `${EXIT_REASONS.SL_HIT}_${slType}`;
+                   } else if (clientOrderId && clientOrderId.startsWith('cls-')) {
+                      reason = EXIT_REASONS.MANUAL_CLOSE;
+                   } else {
+                      reason = EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
+                   }
+                   this.logger.log(`[Sync] Successfully recovered exit reason for ${symbol}: ${reason} (Order Type: ${type})`);
+                }
+             } catch (orderErr) {
+                this.logger.debug(`[Sync] Order context recovery failed for ID ${orderId}: ${orderErr instanceof Error ? orderErr.message : String(orderErr)}`);
+             }
+          }
+
           if (fillPrice > 0) {
             this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] Sync Recovery: Found fill price ${fillPrice} (Estimate: ${estimate})`);
-            return fillPrice;
+            return { price: fillPrice, reason };
           }
         }
       }
     } catch (e: any) {
-      this.logger.debug(`[${(trade.id || 'N/A').substring(0, 8)}] Execution price recovery failed: ${e.message}`);
+      this.logger.debug(`[${(trade.id || 'N/A').substring(0, 8)}] Execution context recovery failed: ${e.message}`);
     }
-    return estimate;
+    return { price: estimate };
+  }
+
+  /** @deprecated Use recoverClosingContext */
+  public async recoverLastExecutionPrice(symbol: string, trade: Trade, estimate: number): Promise<number> {
+     const ctx = await this.recoverClosingContext(symbol, trade, estimate);
+     return ctx.price;
   }
 
   /**
@@ -1911,8 +1957,25 @@ export class OrderManagerService {
       if (!paperMode && this.binanceClient && (exitPrice === 0 || (localOnly && exitReason === EXIT_REASONS.EXCHANGE_SYNC))) {
         const tickerPrice = this.tickerCache.getPrice(symbol);
         const estimate = exitPrice || tickerPrice || trade.current_sl;
-        exitPrice = await this.recoverLastExecutionPrice(symbol, trade, estimate);
-        if (exitReason === EXIT_REASONS.EXCHANGE_SYNC) exitReason = EXIT_REASONS.EXCHANGE_SYNC_RECOVERY;
+
+        // BOLT: Recover full context (price + reason) for exchange-side closures
+        const context = await this.recoverClosingContext(symbol, trade, estimate);
+        exitPrice = context.price;
+
+        if (exitReason === EXIT_REASONS.EXCHANGE_SYNC) {
+          exitReason = context.reason || EXIT_REASONS.EXCHANGE_SYNC_RECOVERY;
+        }
+      }
+
+      // DATA-CONSISTENCY: For localOnly syncs in live mode, we must still estimate the exit fee
+      // since the exchange actually collected it during the external SL/TP/Manual hit.
+      if (!paperMode && localOnly) {
+         const feeRate = this.takerFeeRate || 0.0004;
+         const exitFee = roundEight(exitPrice * trade.qty * feeRate);
+         if (!isNaN(exitFee) && exitFee > 0) {
+            this.logger.debug(`[${symbol}] [Sync] Estimating exit fee for local-only closure: ${exitFee}`);
+            trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + exitFee);
+         }
       }
 
       // In live mode, place close order with reduce-only for safety
@@ -1958,7 +2021,7 @@ export class OrderManagerService {
                 symbol,
                 side: closeDirection,
                 type: 'MARKET',
-                quantity: parseFloat(filteredExit.qty.toFixed(qtyPrecision)),
+                quantity: parseFloat(Number(filteredExit.qty).toFixed(qtyPrecision)),
                 reduceOnly: true,
                 newOrderRespType: 'RESULT',
                 newClientOrderId: clientOrderId,
@@ -1972,7 +2035,7 @@ export class OrderManagerService {
                 const code = orderData.code;
                 const msg = orderData.msg || '';
 
-                if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
+                if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId') || msg.includes('Duplicate order')) {
                   this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId on close retry. Recovering close state...`);
                   const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: clientOrderId });
                   this.updateWeight(queryRes?.headers);
@@ -2215,8 +2278,8 @@ export class OrderManagerService {
                       symbol,
                       side: trade.direction === 'LONG' ? 'SELL' : 'BUY',
                       type: 'LIMIT',
-                      quantity: filteredLimit.qty.toFixed(limitQtyPrecision),
-                      price: filteredLimit.price.toFixed(8),
+                      quantity: Number(filteredLimit.qty).toFixed(limitQtyPrecision),
+                      price: Number(filteredLimit.price).toFixed(8),
                       timeInForce: 'IOC',
                       reduceOnly: true,
                       newClientOrderId: clientOrderId

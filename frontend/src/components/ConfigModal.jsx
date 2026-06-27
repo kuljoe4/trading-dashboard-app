@@ -43,9 +43,9 @@ const Toggle = React.memo(({ value, onChange, label, color = "bg-accent" }) => (
 ))
 Toggle.displayName = 'Toggle'
 
-const Chip = React.memo(React.forwardRef(({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10", ...props }, ref) => (
+const Chip = React.forwardRef(({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10", ...props }, ref) => (
   <button ref={ref} type="button" onClick={onClick} aria-pressed={active} className={cn("px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all", active ? activeClass : "border-border text-dim hover:border-dim/50")} {...props}>{children}</button>
-)))
+))
 Chip.displayName = 'Chip'
 
 const ConfigField = React.memo(({ label, id, name, type, value, onChange, error, warning, opts, attrs }) => {
@@ -395,9 +395,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const addAlert = useTradingStore(state => state.addAlert);
   // UX-MOBILE: Ensure inputs scroll into view when keyboard is active
   const handleInputFocus = React.useCallback((e) => {
-    setTimeout(() => {
+    requestAnimationFrame(() => {
       e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 100);
+    });
   }, []);
 
   const [cfg, setCfg] = useState(() => {
@@ -853,7 +853,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
                 {renderField('MA Period', 'signal_params_ma_period', 'number', null, { min: 1 })}
                 <Tooltip content="Global fallback period used if specific Entry/Exit EMA is not set">
-                  {renderField('EMA (Global Fallback)', 'signal_params_ema_period', 'number', null, { min: 1 })}
+                  <span>{renderField('EMA (Global Fallback)', 'signal_params_ema_period', 'number', null, { min: 1 })}</span>
                 </Tooltip>
               </div>
 
@@ -974,7 +974,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     <div className="flex items-center gap-2">
                       <Toggle value={cfg.auto_scale_min_notional !== false} onChange={(v) => setField('auto_scale_min_notional', v)} color="bg-accent" />
                       <Tooltip content="Binance Futures requires a minimum position size of 5 USDT. When enabled, the engine automatically scales UP small positions to $5.05 to avoid exchange rejections.">
-                         <Activity size={10} className="text-dim cursor-help" />
+                         <span><Activity size={10} className="text-dim cursor-help" /></span>
                       </Tooltip>
                     </div>
                   </div>
@@ -1055,7 +1055,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
                 <div className="md:col-span-2">
                   <Tooltip content="Safety buffer that prevents trailing stops from being placed too close to the market price. This avoids 'Order would immediately trigger' errors and instant fills during high volatility. Recommended: 0.03% to 0.05%.">
-                    {renderField('Trailing Guard (%)', 'trailing_guard_buffer_pct', 'number', null, { min: CONFIG_LIMITS.TRAILING_GUARD_MIN, max: CONFIG_LIMITS.TRAILING_GUARD_MAX, step: 0.01 })}
+                    <span>{renderField('Trailing Guard (%)', 'trailing_guard_buffer_pct', 'number', null, { min: CONFIG_LIMITS.TRAILING_GUARD_MIN, max: CONFIG_LIMITS.TRAILING_GUARD_MAX, step: 0.01 })}</span>
                   </Tooltip>
                 </div>
               </div>

@@ -1099,7 +1099,7 @@ export function DashboardView({ initialStrategy }) {
         <Drawer.Root open={showConfig} onOpenChange={setShowConfig}>
           <Drawer.Portal>
             <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
-            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4dvh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[800px] lg:mx-auto h-auto">
+            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-full max-h-[96dvh] fixed bottom-0 left-0 right-0 z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[800px] lg:mx-auto">
               <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
                 <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
                 <VisuallyHidden>
@@ -1128,7 +1128,7 @@ export function DashboardView({ initialStrategy }) {
         <Drawer.Root open={showScanner} onOpenChange={setShowScanner}>
           <Drawer.Portal>
             <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
-            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4dvh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto h-auto">
+            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-full max-h-[96dvh] fixed bottom-0 left-0 right-0 z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto">
               <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
                 <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
                 <VisuallyHidden>

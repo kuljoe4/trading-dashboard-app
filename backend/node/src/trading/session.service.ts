@@ -1461,7 +1461,6 @@ export class SessionService implements OnModuleInit {
           sessionId: this.currentSessionId,
           entry_ts: new Date(),
           is_reconciliation: true,
-          rr_sequence_index: -1,
           strategy_label: "Exchange Reconciliation",
           strategy_config: {
             ...config,

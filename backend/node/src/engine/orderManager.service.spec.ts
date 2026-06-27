@@ -23,6 +23,7 @@ describe('OrderManagerService', () => {
         updateRateLimit: jest.fn(),
         updateOrderRateLimits: jest.fn(),
         realTimePositions: new Map(),
+        realTimeOrders: new Map(),
         config: {}
       } as any, // sessionState
       { log: jest.fn() } as any, // auditLog

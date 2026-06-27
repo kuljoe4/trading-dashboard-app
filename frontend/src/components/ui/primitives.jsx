@@ -258,31 +258,39 @@ export const StatusBadge = ({ status }) => {
 
 // --- Mode Badges ---
 export const PaperBadge = () => (
-  <span className="px-2.5 py-1 rounded-full border border-amber/20 bg-amber/10 text-[10px] text-amber font-bold tracking-wider flex items-center gap-1.5">
-    <Zap size={10} fill="currentColor" />
-    PAPER
-  </span>
+  <Tooltip content="Paper: Simulated trading using local balance. No real funds used.">
+    <span className="px-2.5 py-1 rounded-full border border-amber/20 bg-amber/10 text-[10px] text-amber font-bold tracking-wider flex items-center gap-1.5 cursor-help">
+      <Zap size={10} fill="currentColor" />
+      PAPER
+    </span>
+  </Tooltip>
 )
 
 export const EcoBadge = () => (
-  <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5 shadow-[0_0_10px_rgba(0,229,160,0.05)]">
-    <div className="w-1.5 h-1.5 bg-green rounded-full animate-pulse" />
-    ECO
-  </span>
+  <Tooltip content="Eco: Power-saving mode with reduced updates to save CPU and memory.">
+    <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5 shadow-[0_0_10px_rgba(0,229,160,0.05)] cursor-help">
+      <div className="w-1.5 h-1.5 bg-green rounded-full animate-pulse" />
+      ECO
+    </span>
+  </Tooltip>
 )
 
 export const DemoBadge = () => (
-  <span className="px-2.5 py-1 rounded-full border border-purple/20 bg-purple/10 text-[10px] text-purple font-bold tracking-wider flex items-center gap-1.5">
-    <Zap size={10} fill="currentColor" />
-    DEMO
-  </span>
+  <Tooltip content="Demo: Trading on Binance Testnet with virtual funds. Use for strategy testing.">
+    <span className="px-2.5 py-1 rounded-full border border-purple/20 bg-purple/10 text-[10px] text-purple font-bold tracking-wider flex items-center gap-1.5 cursor-help">
+      <Zap size={10} fill="currentColor" />
+      DEMO
+    </span>
+  </Tooltip>
 )
 
 export const LiveBadge = () => (
-  <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5">
-    <Zap size={10} fill="currentColor" />
-    LIVE
-  </span>
+  <Tooltip content="Live: Real capital trading on Binance Production. Proceed with caution.">
+    <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5 cursor-help">
+      <Zap size={10} fill="currentColor" />
+      LIVE
+    </span>
+  </Tooltip>
 )
 
 // --- Condition Widget ---

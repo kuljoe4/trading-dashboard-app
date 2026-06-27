@@ -280,6 +280,14 @@ export class SessionStateService {
         if ((trade.pnl || 0) > 0) this.cachedClosedTradesStats[label].hits--;
       }
     }
+
+    // DATA-07: Rollback global stats for consistency
+    this.stats.totalPnl = roundEight(this.stats.totalPnl - (trade.pnl || 0));
+    if (!trade.is_reconciliation && (trade.pnl || 0) > 0) {
+      this.stats.hitCount--;
+    }
+    this.statsVersion++;
+
     if (this.closedTrades[0] && this.closedTrades[0].id === trade.id) {
       this.closedTrades.shift();
     }

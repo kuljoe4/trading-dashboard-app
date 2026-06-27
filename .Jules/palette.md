@@ -25,3 +25,7 @@
 ## 2026-06-23 - Destructive Modal Safety and Accessibility
 **Learning:** Destructive confirmation modals must implement a "safe-by-default" focus strategy by auto-focusing the non-destructive action (e.g., 'Cancel'). This prevents accidental data loss from rapid 'Enter' key presses. Proper ARIA wiring (`role="alertdialog"`, `aria-labelledby`, `aria-describedby`) and `Escape` key listeners are essential for screen readers and keyboard power users. Additionally, exit animations in conditional React components require `AnimatePresence` to be situated around the condition to ensure the 'Exit' state transitions correctly before the component is unmounted.
 **Action:** Use `useRef` and `useEffect` with a small debounce to focus the 'Cancel' button. Always wrap modal conditions in `AnimatePresence`. Link titles and descriptions to ARIA IDs.
+
+## 2026-06-25 - Standardizing Information Discovery for Technical Jargon
+**Learning:** In technical domains like trading, acronyms and jargon (e.g., "RR", "Move", "Score") can be opaque to new users. Standardizing a discovery pattern using tooltips combined with subtle visual cues (`cursor-help` and `border-b border-dotted`) provides a non-intrusive way to educate users without cluttering the UI. This pattern is particularly effective for table headers and status badges where space is at a premium.
+**Action:** Use Radix UI `Tooltip` for all technical acronyms and status indicators. Apply `cursor-help` and `border-b border-dotted border-dim/30` to text-based triggers to signify discoverable information.

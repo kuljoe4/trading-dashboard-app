@@ -39,6 +39,7 @@ export class MarketFeedService {
   private markTickerWs: WebSocket | null = null;
   private combinedKlineWsList: Set<WebSocket> = new Set();
   private static cachedExchangeInfo: Map<string, any> = new Map();
+  private static cachedRateLimit = 0;
   private static lastExchangeInfoFetch = 0;
   private static lastExchangeInfoBase = '';
   private exchangeInfo: Map<string, any> = MarketFeedService.cachedExchangeInfo;
@@ -170,6 +171,12 @@ export class MarketFeedService {
             Object.keys(cache).forEach(symbol => {
               MarketFeedService.cachedExchangeInfo.set(symbol, cache[symbol]);
             });
+
+            const storedLimit = settings.exchange_rate_limit || ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT;
+            MarketFeedService.cachedRateLimit = storedLimit;
+            this.sessionState.updateRateLimit(this.sessionState.binanceRateLimit.used_1m, storedLimit);
+            BinanceRequestQueue.setWeightLimit(storedLimit);
+
             MarketFeedService.lastExchangeInfoFetch = Number(settings.exchange_info_ts);
             MarketFeedService.lastExchangeInfoBase = restBase;
             this.exchangeInfo = MarketFeedService.cachedExchangeInfo;
@@ -182,6 +189,10 @@ export class MarketFeedService {
 
     if (MarketFeedService.cachedExchangeInfo.size > 0 && MarketFeedService.lastExchangeInfoBase === restBase && now - MarketFeedService.lastExchangeInfoFetch < CACHE_TTL) {
       this.exchangeInfo = MarketFeedService.cachedExchangeInfo;
+      if (MarketFeedService.cachedRateLimit > 0) {
+        this.sessionState.updateRateLimit(this.sessionState.binanceRateLimit.used_1m, MarketFeedService.cachedRateLimit);
+        BinanceRequestQueue.setWeightLimit(MarketFeedService.cachedRateLimit);
+      }
       return;
     }
 
@@ -273,9 +284,14 @@ export class MarketFeedService {
           // RESEARCH-02: Persist to DB
           const cacheObj: any = {};
           MarketFeedService.cachedExchangeInfo.forEach((val, key) => { cacheObj[key] = val; });
+
+          const limit = this.sessionState.binanceRateLimit.limit;
+          MarketFeedService.cachedRateLimit = limit;
+
           await this.settingsRepository.update('default', {
             exchange_info_cache: cacheObj,
-            exchange_info_ts: now
+            exchange_info_ts: now,
+            exchange_rate_limit: limit
           });
         }
       }

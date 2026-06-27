@@ -123,9 +123,11 @@ export class RiskEngineService {
       }
     }
 
-    // Apply stable jitter to the period window to prevent "stampeding"
+    // Apply stable jitter to the period window to prevent "stampeding".
+    // SRE: Floor mostRecentTradeTs to 10s to ensure jitter is stable across high-frequency loop iterations (Issue 3)
+    const jitterSeed = Math.floor((mostRecentTradeTs || 0) / 10000) * 10000;
     const jitterFactor = jitterPct > 0
-      ? 1 + ((Math.abs(Math.sin(mostRecentTradeTs || 0)) * jitterPct) / 100)
+      ? 1 + ((Math.abs(Math.sin(jitterSeed)) * jitterPct) / 100)
       : 1;
 
     const effectivePeriodMs = periodMinBase * 60 * 1000 * jitterFactor;
@@ -142,8 +144,9 @@ export class RiskEngineService {
     // BOLT: Manual iteration for O(1) memory overhead.
     // Assuming closedTrades are sorted descending (most recent first).
     const processTrade = (t: Trade, isClosed: boolean): boolean => {
-      // GATING: Skip reconciliation trades to prevent accidental hibernation loops on boot
-      if (t.is_reconciliation) return true;
+      // GATING: Reconciliation trades should still count towards rolling windows if they
+      // represent an organic entry (Issue 3). We only skip if no entry_ts is present.
+      if (t.is_reconciliation && !t.entry_ts) return true;
 
       const entryRaw = t.entry_ts;
       if (!entryRaw) return true;
@@ -206,8 +209,9 @@ export class RiskEngineService {
 
       // Create a temporary processing function for closed trades to populate closedBase
       const processClosed = (t: Trade): boolean => {
-        // GATING: Skip reconciliation trades to prevent accidental hibernation loops on boot
-        if (t.is_reconciliation) return true;
+        // GATING: Reconciliation trades should still count towards rolling windows if they
+        // represent an organic entry (Issue 3).
+        if (t.is_reconciliation && !t.entry_ts) return true;
 
         const entryRaw = t.entry_ts;
         if (!entryRaw) return true;

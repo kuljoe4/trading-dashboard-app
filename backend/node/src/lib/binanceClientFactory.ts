@@ -63,11 +63,8 @@ export class BinanceClientFactory {
         if (!isTestnet) urlObj.pathname = '/private';
         else urlObj.pathname = '/ws';
       } else {
-        // Market/Public data traffic routes to /market or /public.
-        // BOLT: Recognize high-frequency global streams (starting with !) and route to /public.
-        const isHF = !!params.stream && params.stream.startsWith('!');
-        if (!isTestnet) urlObj.pathname = isHF ? '/public' : '/market';
-        else urlObj.pathname = params.stream?.includes('/') ? '/stream' : '/ws';
+        // SRE: Standard paths for market data to ensure universal connectivity.
+        urlObj.pathname = params.stream?.includes('/') ? '/stream' : '/ws';
       }
 
       gatewayURL = urlObj.origin + urlObj.pathname;

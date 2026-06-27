@@ -195,6 +195,14 @@ export class BinanceRequestQueue {
   }
 
   async add<T>(fn: () => Promise<T>, label: string, isEmergency = false): Promise<T> {
+    // SRE: Critical guard - immediately reject non-emergency requests if currently in a hard ban cooldown.
+    // This prevents building up a massive queue that bursts immediately after the cooldown expires.
+    const now = Date.now();
+    if (now < BinanceRequestQueue.lastRequestTs && !isEmergency) {
+       const remaining = Math.ceil((BinanceRequestQueue.lastRequestTs - now) / 1000);
+       return Promise.reject(new Error(`IP banned: Too many requests. Resuming in ${remaining}s.`));
+    }
+
     return new Promise((resolve, reject) => {
       this.queue.push({ fn, label, isEmergency, resolve, reject });
       this.process();
@@ -262,11 +270,13 @@ export class BinanceRequestQueue {
       }
 
       // SRE Implementation: Outbound REST requests are converted into a strict serial pipeline
-      const delay = Math.max(this.MIN_DELAY_MS, BinanceRequestQueue.adaptiveDelayMs);
-      const elapsed = now - BinanceRequestQueue.lastRequestTs;
+        // BOLT: Ensure we never resume until the ban cooldown has fully passed.
+        const baseDelay = Math.max(this.MIN_DELAY_MS, BinanceRequestQueue.adaptiveDelayMs);
+        const cooldownRemaining = BinanceRequestQueue.lastRequestTs - now;
+        const finalDelay = Math.max(baseDelay, cooldownRemaining);
 
-      if (elapsed < delay) {
-        await new Promise(resolve => setTimeout(resolve, delay - elapsed));
+        if (finalDelay > 0) {
+          await new Promise(resolve => setTimeout(resolve, finalDelay));
       }
 
       const item = this.queue.shift();
@@ -340,8 +350,26 @@ export class BinanceRequestQueue {
             // RESEARCH-01: Instead of process.exit(1), implement a long sleep to break boot loops and allow UI visibility.
             // Exiting causes Railway to immediately restart, leading to a "hammering" effect that can prolong bans.
             if (isBan) {
-              const BAN_COOLDOWN_MS = 600000; // 10 minutes
-              this.logger.fatal(`[BinanceQueue] IP BANNED (418). Entering safe cooldown mode for ${BAN_COOLDOWN_MS / 60000}m to protect infrastructure.`);
+              // SRE: Attempt to extract actual ban duration from Retry-After header or error message
+              let retryAfterSec = 600; // 10m Default
+              if (error.headers && error.headers['retry-after']) {
+                retryAfterSec = parseInt(error.headers['retry-after'], 10);
+              } else {
+                const match = msg.match(/retry in (\d+) (seconds|ms)/i);
+                if (match) {
+                  retryAfterSec = match[2].toLowerCase() === 'ms' ? Math.ceil(parseInt(match[1], 10) / 1000) : parseInt(match[1], 10);
+                }
+              }
+
+              const BAN_COOLDOWN_MS = Math.max(60000, retryAfterSec * 1000); // Minimum 1 minute
+              this.logger.fatal(`[BinanceQueue] IP BANNED (418). Entering safe cooldown mode for ${Math.ceil(BAN_COOLDOWN_MS / 60000)}m to protect infrastructure.`);
+
+              // SRE: Purge non-emergency queue items to prevent burst on wakeup
+              const itemsToKeep = this.queue.filter(i => i.isEmergency);
+              const itemsToPurge = this.queue.filter(i => !i.isEmergency);
+              this.queue = itemsToKeep;
+
+              itemsToPurge.forEach(i => i.reject(new Error('Queue purged due to IP ban.')));
 
               const until = Date.now() + BAN_COOLDOWN_MS;
               const reason = msg || 'IP Banned (418) by Binance';

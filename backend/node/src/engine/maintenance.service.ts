@@ -206,11 +206,15 @@ export class MaintenanceService {
     // This allows SL Ratchet operations (Cancel-then-Replace) to finish
     // before the watchdog checks for protection.
     const timeout = setTimeout(async () => {
-      this.reactiveAuditTimeouts.delete(symbol);
-      if (this.orderManager.isRatcheting(symbol) || this.positionTracker.isEntering(symbol) || this.positionTracker.isClosing(symbol)) {
-        return;
+      try {
+        this.reactiveAuditTimeouts.delete(symbol);
+        if (this.orderManager.isRatcheting(symbol) || this.positionTracker.isEntering(symbol) || this.positionTracker.isClosing(symbol)) {
+          return;
+        }
+        this.eventEmitter.emit('watchdog.request_symbol_audit', { symbol });
+      } catch (err) {
+        this.logger.error(`Reactive audit failed for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
       }
-      this.eventEmitter.emit('watchdog.request_symbol_audit', { symbol });
     }, 15000);
 
     this.reactiveAuditTimeouts.set(symbol, timeout);

@@ -132,6 +132,8 @@ const sessionConfigAllowedKeys = [
   'hot_loop_interval_ms',
   'main_loop_interval_ms',
   'debug_mode',
+  'hibernation_mode',
+  'hibernation_grace_period_sec',
 ]
 
 const sanitizeSessionConfig = (config) => {

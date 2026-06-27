@@ -5,3 +5,7 @@
 ## 2026-06-25 - Real-time Quantity Synchronization Gap
 **Learning:** The engine assumed entry quantities were atomic and static. In reality, Binance FAPI User Data Stream (UDS) events often report cumulative fills (order.z) or account-level net position changes (pos.pa) that diverge from the locally tracked trade.qty during partial fills or manual reductions.
 **Action:** Implemented event-driven quantity synchronization. Both ORDER_TRADE_UPDATE and ACCOUNT_UPDATE now emit a trade.quantity_sync event, triggering immediate risk recalculation and reactive watchdog audits to ensure SL protection matches the real exchange quantity.
+
+## 2026-06-27 - Watchdog Quantity Parity Gap
+**Learning:** The protection watchdog previously only verified the *existence* of a Stop Loss order, but ignored its *quantity*. Manual position adjustments on the exchange (outside the engine) or previous partial fill artifacts could leave a position significantly under-protected or over-protected (creating reverse position risk). Synchronizing the local trade quantity with the exchange position is insufficient if the associated SL order is not also synchronized.
+**Action:** The watchdog must perform a "Quantity Parity Audit" on matching SL orders. Any mismatch between the order quantity and the current position quantity (excluding quantity-agnostic 'Close Position' orders) must trigger a Cancel-Replace cycle to ensure safety.

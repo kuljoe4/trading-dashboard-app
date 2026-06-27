@@ -347,17 +347,17 @@ export class EngineBroadcasterService {
           tradeChanged = true;
         } else {
           const pnlDelta = Math.abs(pnlValue - (prevTrade.pnl || 0));
-          // BOLT: Extremely sensitive thresholds for Live mode visibility.
-          // Lowered PnL threshold to $0.001 (any change) and price ratio to 0.001% (any movement).
-          if (pnlDelta >= 0.001) {
+          // SRE: Conservative thresholds for broadcast to minimize network noise.
+          // Reverted from aggressive 0.001 to standard operational defaults.
+          if (pnlDelta >= 0.05) {
             tradeChanged = true;
             anyPriceChangedSignificant = true;
           } else {
             const priceMoveRatio = Math.abs(current - (prevTrade.current_price || 0)) / (prevTrade.current_price || 1);
-            if (priceMoveRatio >= 0.00001) {
+            if (priceMoveRatio >= 0.0005) {
                 tradeChanged = true;
             } else {
-              if (Math.abs(rrValue - (prevTrade.rr || 0)) >= 0.001) {
+              if (Math.abs(rrValue - (prevTrade.rr || 0)) >= 0.05) {
                 tradeChanged = true;
                 anyPriceChangedSignificant = true;
               }
@@ -449,8 +449,8 @@ export class EngineBroadcasterService {
 
     if (!shouldBroadcast) {
       const tradesChanged = trades.length > 0 || anyPriceChangedSignificant;
-      // BOLT: Lowered threshold to $0.001 to ensure total PnL updates are reactive even for tiny account movements.
-      const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) >= 0.001;
+      // SRE: Conservative threshold for total PnL change (0.10 USDT)
+      const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) >= 0.10;
       const gateChanged = tickData.gateState !== this.lastTickData?.gateState;
       const statsChanged = tickData._statsVersion !== this.lastTickData?._statsVersion;
 

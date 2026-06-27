@@ -184,6 +184,29 @@ export class MaintenanceService {
             this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} missing SL. Re-placing...`);
             await this.orderManager.placeStopLoss(trade, trade.current_sl);
             trade.updated_at = new Date();
+          } else {
+            // SRE: Quantity Parity Audit. Ensure the exchange SL matches the real position quantity.
+            // Skip check for 'Close Position' orders which are quantity-agnostic.
+            const isClosePosition = matchingOrder.closePosition === true || matchingOrder.closePosition === 'true';
+
+            if (!isClosePosition) {
+              const orderQty = parseFloat(matchingOrder.origQty || matchingOrder.quantity || '0');
+              if (Math.abs(orderQty - trade.qty) > 0.00000001) {
+                this.logger.warn(`[Watchdog] ${trade.symbol} SL quantity mismatch: Order ${orderQty} vs Position ${trade.qty}. Triggering cancel-replace.`);
+
+                const cancelSuccess = await this.orderManager.cancelBinanceOrder(
+                  trade.symbol,
+                  String(matchingOrder.orderId || matchingOrder.algoId),
+                  matchingOrder.algoType ? 'algo' : 'standard'
+                );
+
+                if (cancelSuccess) {
+                  await this.orderManager.placeStopLoss(trade, trade.current_sl);
+                  trade.updated_at = new Date();
+                  this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+                }
+              }
+            }
           }
         } catch (innerErr) {
           this.logger.error(`[Watchdog] Error auditing ${trade.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);

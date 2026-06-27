@@ -83,9 +83,10 @@ export class ExecutionService {
             this.sessionState.setActiveTrades(this.positionTracker.activeList());
             this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, tradeConfig);
 
-            // SRE: Immediate cooldown on exit to prevent instant re-entry races (Issue 3)
+            // SRE: Immediate cooldown on exit (Issue 3). Uses config.min_trade_interval_min || 2m.
             const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
-            this.setCooldown(trade.symbol, mode, 2); // 2 minute default cooldown on exit
+            const cooldownMin = config.min_trade_interval_min || 2;
+            this.setCooldown(trade.symbol, mode, cooldownMin);
 
             const analytics = this.analyticsService.calculateAnalytics(
               this.sessionState.closedTrades as any,

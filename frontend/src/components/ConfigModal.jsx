@@ -49,7 +49,26 @@ const Chip = React.memo(React.forwardRef(({ active, onClick, children, activeCla
 Chip.displayName = 'Chip'
 
 const ConfigField = React.memo(({ label, id, name, type, value, onChange, error, warning, opts, attrs }) => {
+  // BOLT-PERF: Local-Sync pattern. Maintains local state for rapid typing to avoid
+  // expensive full-modal re-renders on every keystroke. Syncs to parent on blur or enter.
+  const [localValue, setLocalValue] = useState(value ?? '');
+
+  useEffect(() => {
+    setLocalValue(value ?? '');
+  }, [value]);
+
+  const commit = () => {
+    const val = type === 'number' ? Number(localValue) : localValue;
+    if (val !== value) {
+      onChange(name, val);
+    }
+  };
+
   const handleChange = (e) => {
+    setLocalValue(e.target.value);
+  };
+
+  const handleSelectChange = (e) => {
     const val = type === 'number' ? Number(e.target.value) : e.target.value;
     onChange(name, val);
   };
@@ -62,7 +81,12 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
         {warning && !error && <span role="alert" className="text-[9px] text-amber font-bold uppercase">{warning}</span>}
       </div>
       {opts ? (
-        <select id={id} value={value ?? ''} onChange={handleChange} className="bg-surface border border-border rounded-xl px-4 py-2.5 text-sm font-bold text-text focus:border-accent outline-none appearance-none transition-all cursor-pointer hover:border-border-hover">
+        <select
+          id={id}
+          value={localValue ?? ''}
+          onChange={handleSelectChange}
+          className="bg-surface border border-border rounded-xl px-4 py-2.5 text-sm font-bold text-text focus:border-accent outline-none appearance-none transition-all cursor-pointer hover:border-border-hover"
+        >
           {opts.map((o) => {
             const val = typeof o === 'string' ? o : o.value;
             const lbl = typeof o === 'string' ? o : o.label;
@@ -70,7 +94,16 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
           })}
         </select>
       ) : (
-        <input id={id} type={type} value={value ?? ''} {...attrs} onChange={handleChange} className="bg-surface border border-border rounded-xl px-4 py-2.5 text-sm font-mono font-bold text-text focus:border-accent outline-none transition-all hover:border-border-hover" />
+        <input
+          id={id}
+          type={type}
+          value={localValue ?? ''}
+          {...attrs}
+          onChange={handleChange}
+          onBlur={(e) => { commit(); attrs.onBlur?.(e); }}
+          onKeyDown={(e) => { if (e.key === 'Enter') commit(); }}
+          className="bg-surface border border-border rounded-xl px-4 py-2.5 text-sm font-mono font-bold text-text focus:border-accent outline-none transition-all hover:border-border-hover"
+        />
       )}
     </div>
   );
@@ -89,6 +122,19 @@ SignalChip.displayName = 'SignalChip'
 
 const ExitSignalCard = React.memo(({ signal, active, delayValue, onToggle, onDelayChange }) => {
   const [key, label, desc] = signal;
+  const [localDelay, setLocalDelay] = useState(delayValue || '');
+
+  useEffect(() => {
+    setLocalDelay(delayValue || '');
+  }, [delayValue]);
+
+  const commit = () => {
+    const val = Math.max(0, parseInt(localDelay) || 0);
+    if (val !== delayValue) {
+      onDelayChange(key, val);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-2">
       <Tooltip content={desc}>
@@ -112,11 +158,10 @@ const ExitSignalCard = React.memo(({ signal, active, delayValue, onToggle, onDel
             type="number"
             min="0"
             placeholder="0s"
-            value={delayValue || ''}
-            onChange={(e) => {
-              const val = Math.max(0, parseInt(e.target.value) || 0);
-              onDelayChange(key, val);
-            }}
+            value={localDelay}
+            onChange={(e) => setLocalDelay(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => { if (e.key === 'Enter') commit(); }}
             className="w-20 bg-background border border-border rounded-lg px-2 py-1 text-[10px] font-mono font-bold text-right focus:border-red outline-none"
           />
         </div>
@@ -128,6 +173,14 @@ ExitSignalCard.displayName = 'ExitSignalCard'
 
 const ManualMonitorInput = React.memo(({ onAdd }) => {
   const [value, setValue] = useState('');
+
+  const handleAdd = () => {
+    if (value.trim()) {
+      onAdd(value.trim());
+      setValue('');
+    }
+  };
+
   return (
     <div className="flex gap-2">
       <div className="relative flex-1">
@@ -139,7 +192,7 @@ const ManualMonitorInput = React.memo(({ onAdd }) => {
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
-              if (value) { onAdd(value); setValue(''); }
+              handleAdd();
             }
             if (e.key === 'Escape') setValue('');
           }}
@@ -147,7 +200,7 @@ const ManualMonitorInput = React.memo(({ onAdd }) => {
         />
         {value && <button type="button" onClick={() => setValue('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear input"><X size={16} /></button>}
       </div>
-      <Btn variant="primary" onClick={() => { if (value) { onAdd(value); setValue(''); } }} className="aspect-square p-0 w-12 h-12 flex items-center justify-center"><Plus size={20} /></Btn>
+      <Btn variant="primary" onClick={handleAdd} className="aspect-square p-0 w-12 h-12 flex items-center justify-center"><Plus size={20} /></Btn>
     </div>
   );
 })
@@ -340,6 +393,12 @@ const flattenConfig = (config) => {
 };
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
   const addAlert = useTradingStore(state => state.addAlert);
+  // UX-MOBILE: Ensure inputs scroll into view when keyboard is active
+  const handleInputFocus = React.useCallback((e) => {
+    setTimeout(() => {
+      e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 100);
+  }, []);
 
   const [cfg, setCfg] = useState(() => {
     const savedDraft = sessionStorage.getItem('config_draft');
@@ -662,9 +721,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       error={errors[key]}
       warning={errors[`${key}_warn`]}
       opts={opts}
-      attrs={attrs}
+      attrs={{ ...attrs, onFocus: handleInputFocus }}
     />
-  ), [cfg, errors, setField]);
+  ), [cfg, errors, setField, handleInputFocus]);
 
   return (
     <div className="flex flex-col h-full bg-surface text-text overflow-hidden relative">

@@ -98,7 +98,8 @@ export class PositionTrackerService {
     }
 
     this.trades.set(trade.symbol, trade);
-    this.rrSequenceIndex.set(trade.symbol, -1);
+    // DATA-07: Initialize milestone tracker from trade state for persistent state recovery
+    this.rrSequenceIndex.set(trade.symbol, trade.rr_sequence_index ?? -1);
     this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt || 0));
     this._activeListCache = null;
     this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
@@ -137,9 +138,10 @@ export class PositionTrackerService {
     }
 
     // If we crossed a new milestone, update SL
-    const prevIndex = this.rrSequenceIndex.get(symbol) || -1;
+    const prevIndex = this.rrSequenceIndex.get(symbol) ?? -1;
     if (currentIndex > prevIndex && currentIndex >= 0) {
       this.rrSequenceIndex.set(symbol, currentIndex);
+      trade.rr_sequence_index = currentIndex;
       trade.updated_at = new Date();
 
       // Get target RR for this milestone

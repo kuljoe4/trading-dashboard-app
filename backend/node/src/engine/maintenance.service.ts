@@ -162,10 +162,19 @@ export class MaintenanceService {
             if (!matchingOrder && freshSlOrders.length > 0) {
               const validSl = freshSlOrders.find(o => Math.abs(parseFloat(o.origQty || o.quantity) - trade.qty) < 0.00000001);
               if (validSl) {
+                this.logger.log(`[Watchdog] ${trade.symbol} adopting untracked exchange SL: ${validSl.algoId || validSl.orderId}`);
                 trade.binance_stop_order_id = String(validSl.algoId || validSl.orderId);
                 trade.binance_stop_order_type = validSl.algoType ? 'algo' : 'standard';
                 const exSlPrice = parseFloat(validSl.stopPrice || validSl.triggerPrice);
-                if (exSlPrice > 0 && Math.abs(exSlPrice - trade.current_sl) > 0.00000001) trade.current_sl = exSlPrice;
+
+                if (exSlPrice > 0 && Math.abs(exSlPrice - trade.current_sl) > 0.00000001) {
+                  this.logger.log(`[Watchdog] ${trade.symbol} syncing SL price from exchange: ${trade.current_sl} -> ${exSlPrice}`);
+                  trade.current_sl = exSlPrice;
+
+                  // SRE: Reconcile rr_sequence_index based on adopted SL price
+                  this.reconcileMilestoneFromSl(trade, exSlPrice, config);
+                }
+
                 trade.updated_at = new Date();
                 matchingOrder = validSl;
                 this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
@@ -216,6 +225,41 @@ export class MaintenanceService {
       this.logger.error(`[Watchdog] Audit failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       if (!targetSymbol) this.isProcessingWatchdog = false;
+    }
+  }
+
+  /**
+   * SRE: State reconciliation for SL ratcheting.
+   * If we adopt an untracked SL, we derive the most likely milestone index
+   * to ensure the local 'rr_sequence_index' state is consistent for future ratchets.
+   */
+  private reconcileMilestoneFromSl(trade: Trade, slPrice: number, config: SessionConfig) {
+    const risk = Math.abs(trade.entry_price - trade.initial_sl);
+    if (risk <= 0) return;
+
+    const exitRrSequence = config.exit_rr_sequence || [];
+    let bestIndex = trade.rr_sequence_index ?? -1;
+
+    for (let i = 0; i < exitRrSequence.length; i++) {
+      const exitRr = exitRrSequence[i];
+      let milestoneSl: number;
+
+      if (trade.direction === 'LONG') {
+        milestoneSl = trade.entry_price + risk * exitRr;
+      } else {
+        milestoneSl = trade.entry_price - risk * exitRr;
+      }
+
+      // If exchange SL matches (or is very close to) this milestone price
+      if (Math.abs(milestoneSl - slPrice) / slPrice < 0.0001) {
+        bestIndex = i;
+      }
+    }
+
+    if (bestIndex !== trade.rr_sequence_index) {
+      this.logger.log(`[Watchdog] ${trade.symbol} reconciling milestone index from SL price: ${trade.rr_sequence_index} -> ${bestIndex}`);
+      trade.rr_sequence_index = bestIndex;
+      this.positionTracker.addTrade(trade); // Re-seeds rrSequenceIndex map
     }
   }
 

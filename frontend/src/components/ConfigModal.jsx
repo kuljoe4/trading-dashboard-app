@@ -394,7 +394,7 @@ const flattenConfig = (config) => {
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
   const addAlert = useTradingStore(state => state.addAlert);
 
-  // UX-MOBILE: Ensure inputs scroll into view when keyboard is active
+  // UX-MOBILE: Ensure inputs scroll into view when keyboard is active and reset scroll on dismissal
   useEffect(() => {
     if (!window.visualViewport) return;
     const handleResize = () => {
@@ -402,6 +402,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         setTimeout(() => {
           document.activeElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }, 100);
+      } else if (window.visualViewport.height >= window.innerHeight * 0.9) {
+        // Keyboard dismissed (viewport returned to nearly full height)
+        // Force a comprehensive scroll reset on all possible scroll containers
+        const reset = () => {
+          window.scrollTo(0, 0);
+          document.body.scrollTo(0, 0);
+          document.documentElement.scrollTo(0, 0);
+        };
+        reset();
+        // SRE: Double-tap reset for stubborn mobile browsers
+        setTimeout(reset, 100);
       }
     };
     window.visualViewport.addEventListener('resize', handleResize);

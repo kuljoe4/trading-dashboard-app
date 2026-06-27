@@ -13,6 +13,7 @@ import { SessionService } from "./trading/session.service";
 import { MonitoringService } from "./engine/monitoring.service";
 import { TradingSessionService } from "./engine/trading_session.service";
 import { EngineBroadcasterService } from "./engine/engine-broadcaster.service";
+import { AuditLogService } from "./trading/audit-log.service";
 import { checkOrigin } from "./lib/origin";
 
 async function bootstrap() {
@@ -150,6 +151,7 @@ async function bootstrap() {
   const sessionService = app.get(SessionService);
   const monitoringService = app.get(MonitoringService);
   const engineBroadcaster = app.get(EngineBroadcasterService);
+  const auditLog = app.get(AuditLogService);
 
   const wss = new WebSocketServer({
     server: httpServer,
@@ -174,10 +176,23 @@ async function bootstrap() {
       const isOriginAllowed = !origin || checkOrigin(info.origin, allowedOrigins);
       const isDevFallback = !isOriginAllowed && nodeEnv !== "production";
       const clientIp = extractIp(info.req.headers, info.req.socket.remoteAddress || "unknown");
+      const userAgent = (Array.isArray(info.req.headers["user-agent"]) ? info.req.headers["user-agent"][0] : info.req.headers["user-agent"]) || "unknown";
+
+      const logAuthFailure = (action: string, details: any) => {
+        auditLog.log({
+          action,
+          actor: clientIp,
+          ip: clientIp,
+          userAgent,
+          details,
+          level: 'WARN'
+        }).catch((err: Error) => serverLogger.error(`Failed to log WS auth failure: ${err.message}`));
+      };
 
       // SENTINEL: Check WS IP throttle
       if (isThrottled(clientIp)) {
         serverLogger.warn(`WS Auth throttle triggered for IP: ${clientIp}`);
+        logAuthFailure('AUTH_THROTTLE_WS', { origin });
         return done(false, 429, "Too many failed attempts");
       }
 
@@ -185,7 +200,8 @@ async function bootstrap() {
         serverLogger.warn(
           `Blocked WebSocket connection from unauthorized origin: ${info.origin} (IP: ${clientIp})`,
         );
-        recordFailure(clientIp);
+        const count = recordFailure(clientIp);
+        logAuthFailure('AUTH_REJECT_WS_ORIGIN', { origin, count });
         return done(false);
       } else if (isDevFallback) {
         serverLogger.warn(
@@ -197,9 +213,11 @@ async function bootstrap() {
       const adminKey = configService.get<string>("ADMIN_API_KEY");
       if (adminKey) {
         try {
+          const hostHeader = info.req.headers.host;
+          const host = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
           const url = new URL(
             info.req.url || "",
-            `http://${info.req.headers.host}`,
+            `http://${host || 'localhost'}`,
           );
           const token = url.searchParams.get("token");
 
@@ -208,7 +226,8 @@ async function bootstrap() {
              serverLogger.warn(
                `Blocked WebSocket connection: Invalid API Key format/length from ${info.origin} (IP: ${clientIp})`,
              );
-             recordFailure(clientIp);
+             const count = recordFailure(clientIp);
+             logAuthFailure('AUTH_FAILURE_WS', { reason: 'invalid_format', count });
              return done(false);
           }
 
@@ -216,13 +235,15 @@ async function bootstrap() {
             serverLogger.warn(
               `Blocked WebSocket connection: Invalid API Key from ${info.origin} (IP: ${clientIp})`,
             );
-            recordFailure(clientIp);
+            const count = recordFailure(clientIp);
+            logAuthFailure('AUTH_FAILURE_WS', { reason: 'invalid_token', count });
             return done(false);
           }
           clearFailures(clientIp);
         } catch (err) {
           serverLogger.error(`WebSocket handshake URL parsing failed for ${info.origin} (IP: ${clientIp})`);
-          recordFailure(clientIp);
+          const count = recordFailure(clientIp);
+          logAuthFailure('AUTH_FAILURE_WS', { reason: 'parse_error', error: err instanceof Error ? err.message : String(err), count });
           return done(false);
         }
       } else if (nodeEnv === "production") {

@@ -372,8 +372,9 @@ export class SessionLifecycleService {
     // SRE: Critical guard - if IP is banned, do not even attempt UDS start to prevent chain reaction
     // SRE Overwatch: startUserDataStream is whitelisted as IMMUNE in the gateway, but we still log warning if over limit.
     const currentWeight = this.sessionState.binanceRateLimit.used_1m;
-    if (currentWeight >= this.sessionState.binanceRateLimit.limit) {
-      this.logger.warn(`[UDS] IP Rate limit exceeded (${currentWeight}/${this.sessionState.binanceRateLimit.limit}). Proceeding with IMMUNE infrastructure call.`);
+    const limit = this.sessionState.binanceRateLimit.limit || ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT;
+    if (currentWeight >= limit) {
+      this.logger.warn(`[UDS] IP Rate limit exceeded (${currentWeight}/${limit}). Proceeding with IMMUNE infrastructure call.`);
     }
 
     try {

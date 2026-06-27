@@ -107,7 +107,9 @@ export class OrderManagerService {
         type: order.ot,
         side: order.S,
         stopPrice: parseFloat(order.sp || '0'),
-        triggerPrice: parseFloat(order.sp || '0'), // Some fields might differ between standard and algo
+        triggerPrice: parseFloat(order.sp || '0'),
+        algoId: order.i, // SRE: Explicitly map algoId from UDS for watchdog consistency
+        algoType: order.ot === 'STOP_MARKET' || order.ot === 'STOP' ? 'CONDITIONAL' : undefined,
         workingType: order.wt,
         reduceOnly: order.R,
         closePosition: order.cp,
@@ -1515,7 +1517,9 @@ export class OrderManagerService {
       const response = await this.binanceClient.restAPI.currentAllAlgoOpenOrders();
       this.updateWeight(response?.headers);
       const data = await response.data() as any;
-      return Array.isArray(data) ? data : [];
+      if (Array.isArray(data)) return data;
+      if (data && Array.isArray(data.orders)) return data.orders;
+      return [];
     } catch (err) {
       this.logger.warn(`Failed to fetch all open algo orders: ${err instanceof Error ? err.message : String(err)}`);
       return [];
@@ -1672,7 +1676,9 @@ export class OrderManagerService {
       const response = await this.binanceClient.restAPI.currentAllAlgoOpenOrders({ symbol });
       this.updateWeight(response?.headers);
       const data = await response.data() as any;
-      return Array.isArray(data) ? data : [];
+      if (Array.isArray(data)) return data;
+      if (data && Array.isArray(data.orders)) return data.orders;
+      return [];
     } catch (err) {
       this.logger.warn(`[${symbol}] Failed to fetch open algo orders: ${err instanceof Error ? err.message : String(err)}`);
       return [];

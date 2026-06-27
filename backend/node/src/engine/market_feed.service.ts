@@ -361,7 +361,8 @@ export class MarketFeedService {
 
       let ws: any;
       if (this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
-        ws = await this.binanceClient.websocketStreams.connect({ stream });
+        // SRE: Use combined stream format for global streams to ensure correct gateway routing (resolves 404)
+        ws = await this.binanceClient.websocketStreams.connect({ stream: `stream?streams=${stream}` });
       } else {
         const url = `${wsBase}/${stream}`;
         ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
@@ -414,7 +415,8 @@ export class MarketFeedService {
 
       let ws: any;
       if (this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
-        ws = await this.binanceClient.websocketStreams.connect({ stream });
+        // SRE: Use combined stream format for global streams to ensure correct gateway routing (resolves 404)
+        ws = await this.binanceClient.websocketStreams.connect({ stream: `stream?streams=${stream}` });
       } else {
         const url = `${wsBase}/${stream}`;
         ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });

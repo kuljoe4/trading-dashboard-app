@@ -131,9 +131,12 @@ const sessionConfigAllowedKeys = [
   'tod_min_winrate',
   'hot_loop_interval_ms',
   'main_loop_interval_ms',
+  'slippage_warning_threshold',
+  'slippage_abort_threshold',
   'debug_mode',
   'hibernation_mode',
   'hibernation_grace_period_sec',
+  'trailing_guard_buffer_pct',
 ]
 
 const sanitizeSessionConfig = (config) => {

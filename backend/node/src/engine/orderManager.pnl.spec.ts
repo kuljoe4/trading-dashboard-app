@@ -137,6 +137,45 @@ describe('OrderManagerService - PnL Consistency', () => {
     expect(trade.status).toBe('CLOSED_SL');
   });
 
+  it('recovers SIGNAL exit reason from descriptive clientOrderId prefix', async () => {
+    service.setBinanceClient(mockBinanceClient, false);
+
+    const trade = {
+      id: 'test-id-recon-2',
+      symbol: 'BTCUSDT',
+      direction: 'LONG',
+      qty: 0.1,
+      entry_price: 50000,
+      binance_order_id: 'entry_id',
+      status: 'OPEN'
+    } as Trade;
+
+    // Mock trade history showing a sell
+    mockBinanceClient.restAPI.accountTradeList.mockResolvedValue({
+       data: () => Promise.resolve([
+         { symbol: 'BTCUSDT', side: 'SELL', price: '50500', orderId: '998877', time: Date.now() }
+       ])
+    });
+
+    // Mock order query showing it was a MARKET order with 'sig-' prefix
+    mockBinanceClient.restAPI.queryOrder.mockResolvedValue({
+       data: () => Promise.resolve({
+          symbol: 'BTCUSDT',
+          orderId: '998877',
+          type: 'MARKET',
+          clientOrderId: 'sig-test-id-recon-2',
+          status: 'FILLED'
+       })
+    });
+
+    const result = await service.closeTrade('BTCUSDT', trade, 0, 'EXCHANGE_SYNC', false, true);
+
+    expect(result.exitOccurred).toBe(true);
+    expect(trade.exit_reason).toBe('SIGNAL');
+    expect(trade.exit_price).toBe(50500);
+    expect(trade.status).toBe('CLOSED_SIGNAL');
+  });
+
   it('uses paperMode parameter for fee simulation in catch block', async () => {
     // Set service to LIVE mode globally
     service.setBinanceClient(mockBinanceClient, false);

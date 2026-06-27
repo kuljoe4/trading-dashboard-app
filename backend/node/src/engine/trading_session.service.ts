@@ -514,6 +514,10 @@ export class TradingSessionService implements OnApplicationShutdown {
       scannerResults: this.lastScannerResults,
       activeWindows: this.getActiveWindows(),
       apiStatus: this.sessionState.apiStatus,
+      tradesInPeriod: this.engineBroadcaster.getLastRiskResult()?.tradesInPeriod,
+      maxTradesPeriod: this.engineBroadcaster.getLastRiskResult()?.maxTradesPeriod,
+      tradesIn24h: this.engineBroadcaster.getLastRiskResult()?.tradesIn24h,
+      maxTrades24h: this.engineBroadcaster.getLastRiskResult()?.maxTrades24h,
     });
   }
 
@@ -645,6 +649,7 @@ export class TradingSessionService implements OnApplicationShutdown {
   getActiveTradeCount(): number { return this.positionTracker.activeCount(); }
   getActiveTradeSymbols(): string[] { return this.positionTracker.activeList().map(t => t.symbol); }
   getActiveTradesRaw(): Trade[] { return this.positionTracker.activeList(); }
+  addTrade(trade: Trade) { this.positionTracker.addTrade(trade); }
 
   async startUds(client: any) {
     await this.sessionLifecycle.startUserDataStream(client);
@@ -736,6 +741,10 @@ export class TradingSessionService implements OnApplicationShutdown {
 
   updateRateLimit(used1m: number) { this.sessionState.updateRateLimit(used1m); }
   isRateLimited(): boolean { return this.sessionState.isRateLimited(); }
+
+  reconcileMilestoneFromSl(trade: Trade, slPrice: number, config: SessionConfig): number {
+    return this.positionTracker.reconcileMilestoneFromSl(trade, slPrice, config);
+  }
   getBinanceRateLimit() { return this.sessionState.getBinanceRateLimit(); }
   getClosedTrades(): Trade[] { return this.sessionState.closedTrades; }
 
@@ -785,7 +794,9 @@ export class TradingSessionService implements OnApplicationShutdown {
 
     if (res.exitOccurred && res.trade) {
       if (isReconciliation) res.trade.is_reconciliation = true;
-      await this.finalizeTradeClosure(res.trade, exitPrice, reason);
+      // BOLT: Prioritize the more specific reason recovered from the exchange (e.g. SL_HIT vs EXCHANGE_SYNC)
+      const finalizedReason = res.trade.exit_reason || reason;
+      await this.finalizeTradeClosure(res.trade, exitPrice, finalizedReason);
     }
   }
 

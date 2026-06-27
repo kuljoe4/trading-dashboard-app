@@ -37,11 +37,14 @@ export class PresetsController {
     const configInstance = plainToInstance(SessionConfig, body.config || {});
     const errors = await validate(configInstance);
     if (errors.length > 0) {
-      const detailedErrors = errors.map(err => ({
-        property: err.property,
-        constraints: err.constraints,
-        children: err.children?.length ? err.children.map(c => ({ property: c.property, constraints: c.constraints })) : undefined
-      }));
+      const formatErrors = (errs: any[]): any[] => {
+        return errs.map(err => ({
+          property: err.property,
+          constraints: err.constraints,
+          children: err.children?.length ? formatErrors(err.children) : undefined
+        }));
+      };
+      const detailedErrors = formatErrors(errors);
       this.logger.warn(`Preset validation failed for "${body.name}": ${JSON.stringify(detailedErrors)}`);
       throw new BadRequestException({
         message: 'Invalid strategy configuration in preset',

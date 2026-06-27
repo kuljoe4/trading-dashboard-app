@@ -391,6 +391,8 @@ const flattenConfig = (config) => {
       trailing_guard_buffer_pct: config.trailing_guard_buffer_pct !== undefined ? config.trailing_guard_buffer_pct : CONFIG_LIMITS.TRAILING_GUARD_DEFAULT,
       // UI Conversion: backend decimal to UI percentage
       slippage_warning_threshold: config.slippage_warning_threshold !== undefined ? config.slippage_warning_threshold * 100 : (CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT * 100 || 0.1),
+      leverage: config.leverage !== undefined ? Number(config.leverage) : CONFIG_LIMITS.LEVERAGE_DEFAULT,
+      slippage_abort_threshold: config.slippage_abort_threshold !== undefined ? Number(config.slippage_abort_threshold) : (CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT || 0.05),
       hibernation_mode: config.hibernation_mode || 'adaptive',
       hibernation_grace_period_sec: config.hibernation_grace_period_sec || 30,
     };
@@ -579,7 +581,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
       'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
-      'main_loop_interval_ms'
+      'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
+      'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
+      'slippage_abort_threshold'
     ];
 
     numericFields.forEach(f => {
@@ -592,7 +596,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       c.hibernation_grace_period_sec = Number(c.hibernation_grace_period_sec);
     }
 
-    c.trailing_guard_buffer_pct = cfg.trailing_guard_buffer_pct;
     // UI Conversion: UI percentage back to backend decimal
     if (c.slippage_warning_threshold !== undefined) {
       c.slippage_warning_threshold = Number(c.slippage_warning_threshold) / 100;
@@ -640,10 +643,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         return;
       }
 
-      const { strategy_variants, ...params } = pc;
       console.log(`[ConfigModal] Sending save request to API for "${name}"...`);
 
-      const res = await presetsAPI.save(name, { ...params, strategy_label: name });
+      const res = await presetsAPI.save(name, { ...pc, strategy_label: name });
 
       if (res && res.data) {
         console.log(`[ConfigModal] Preset "${name}" saved successfully.`);

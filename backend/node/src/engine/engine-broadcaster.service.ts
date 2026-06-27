@@ -347,17 +347,17 @@ export class EngineBroadcasterService {
           tradeChanged = true;
         } else {
           const pnlDelta = Math.abs(pnlValue - (prevTrade.pnl || 0));
-          // SRE: Extremely conservative thresholds for broadcast to minimize network noise and satisfy "very conservative" requirement.
-          // Increased thresholds to $1.00 PnL, 0.5% price movement, and 0.50 RR delta.
-          if (pnlDelta >= 1.00) {
+          // SRE: Refined conservative thresholds for broadcast to minimize network noise.
+          // Thresholds: $0.50 PnL, 0.1% price movement, 0.10 RR delta.
+          if (pnlDelta >= 0.50) {
             tradeChanged = true;
             anyPriceChangedSignificant = true;
           } else {
             const priceMoveRatio = Math.abs(current - (prevTrade.current_price || 0)) / (prevTrade.current_price || 1);
-            if (priceMoveRatio >= 0.005) {
+            if (priceMoveRatio >= 0.001) {
                 tradeChanged = true;
             } else {
-              if (Math.abs(rrValue - (prevTrade.rr || 0)) >= 0.50) {
+              if (Math.abs(rrValue - (prevTrade.rr || 0)) >= 0.10) {
                 tradeChanged = true;
                 anyPriceChangedSignificant = true;
               }
@@ -449,8 +449,8 @@ export class EngineBroadcasterService {
 
     if (!shouldBroadcast) {
       const tradesChanged = trades.length > 0 || anyPriceChangedSignificant;
-      // SRE: Extremely conservative threshold for total session PnL change ($2.00 USDT)
-      const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) >= 2.00;
+      // SRE: Refined conservative threshold for total session PnL change ($1.00 USDT)
+      const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) >= 1.00;
       const gateChanged = tickData.gateState !== this.lastTickData?.gateState;
       const statsChanged = tickData._statsVersion !== this.lastTickData?._statsVersion;
 

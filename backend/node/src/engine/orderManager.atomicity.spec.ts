@@ -37,7 +37,8 @@ describe('OrderManagerService Atomicity', () => {
       binanceRateLimit: { used_1m: 0, limit: 2400 },
       updateRateLimit: jest.fn(),
       updateOrderRateLimits: jest.fn(),
-      realTimePositions: new Map()
+      realTimePositions: new Map(),
+      realTimeOrders: new Map()
     };
     mockAuditLog = {
       log: jest.fn(),

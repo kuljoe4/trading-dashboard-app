@@ -377,25 +377,31 @@ export class OrderManagerService {
   }
 
   private updateWeight(headers: any) {
-    if (headers) {
+    if (headers && this.sessionState) {
       // Handle both native Headers and plain objects
-      const weight = typeof headers.get === 'function'
+      const weight = (headers && typeof headers.get === 'function')
         ? headers.get('X-MBX-USED-WEIGHT-1M')
-        : (headers['x-mbx-used-weight-1m'] || headers['X-MBX-USED-WEIGHT-1M']);
+        : (headers ? (headers['x-mbx-used-weight-1m'] || headers['X-MBX-USED-WEIGHT-1M']) : null);
 
       if (weight) {
         const currentWeight = parseInt(weight, 10);
-        if (isNaN(currentWeight) || currentWeight < 0) return;
-        this.logger.debug(`Binance Weight Update: ${currentWeight}`);
-        this.sessionState.updateRateLimit(currentWeight);
+        if (!isNaN(currentWeight) && currentWeight >= 0) {
+           this.logger.debug(`Binance Weight Update: ${currentWeight}`);
+           if (typeof this.sessionState.updateRateLimit === 'function') {
+              this.sessionState.updateRateLimit(currentWeight);
+           }
 
-        if (this.sessionState.isRateLimited(0.85)) {
-           this.logger.warn(`Binance Rate Limit Warning: ${currentWeight}/${this.sessionState.binanceRateLimit.limit}`);
+           if (typeof this.sessionState.isRateLimited === 'function' && this.sessionState.isRateLimited(0.85)) {
+              const limit = this.sessionState.binanceRateLimit?.limit || 2400;
+              this.logger.warn(`Binance Rate Limit Warning: ${currentWeight}/${limit}`);
+           }
         }
       }
 
       // Also update order rate limits (X-MBX-ORDER-COUNT)
-      this.sessionState.updateOrderRateLimits(headers);
+      if (typeof this.sessionState.updateOrderRateLimits === 'function') {
+         this.sessionState.updateOrderRateLimits(headers);
+      }
     }
   }
 

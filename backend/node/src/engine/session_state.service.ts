@@ -164,9 +164,9 @@ export class SessionStateService {
     if (!headers) return;
 
     const getHeader = (name: string) => {
-      return typeof headers.get === 'function'
+      return (headers && typeof headers.get === 'function')
         ? headers.get(name)
-        : (headers[name.toLowerCase()] || headers[name]);
+        : (headers ? (headers[name.toLowerCase()] || headers[name]) : null);
     };
 
     const used10s = getHeader('X-MBX-ORDER-COUNT-10S');

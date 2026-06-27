@@ -6,6 +6,7 @@ import {
   DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_PROD_URL
 } from '@binance/derivatives-trading-usds-futures';
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import WebSocket from 'ws';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -81,6 +82,10 @@ export class BinanceClientFactory {
           this.logger.debug(`[BinanceClient] Connecting to gateway (Manual): ${finalUrl.substring(0, 100)}... | isHF=${isHF}`);
 
           const ws = new WebSocket(finalUrl);
+          // BOLT: Add error handler to prevent unhandled 'error' events from crashing the process (e.g. 400 Bad Request)
+          ws.on('error', (err) => {
+            this.logger.error(`[BinanceClient] WebSocket error for ${params.stream}: ${err.message}`);
+          });
           // SDK expected interface: disconnect() method
           (ws as any).disconnect = () => (ws as any).terminate();
           return ws as any;
@@ -230,9 +235,9 @@ export class BinanceRequestQueue {
 
   public updateWeightFromHeaders(headers: any, label?: string) {
     const getHeader = (name: string) => {
-      return typeof headers.get === 'function'
+      return (headers && typeof headers.get === 'function')
         ? headers.get(name)
-        : (headers[name.toLowerCase()] || headers[name]);
+        : (headers ? (headers[name.toLowerCase()] || headers[name]) : null);
     };
 
     const weight = getHeader('X-MBX-USED-WEIGHT-1M');

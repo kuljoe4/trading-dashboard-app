@@ -416,8 +416,9 @@ export class MarketFeedService {
 
       let ws: any;
       if (this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
-        // SRE: Use combined stream format for global streams to ensure correct gateway routing (resolves 404)
-        ws = await this.binanceClient.websocketStreams.connect({ stream: `stream?streams=${stream}` });
+        // SRE: Global streams should use the 'stream' parameter without prefixing.
+        // The SDK proxy in binanceClientFactory.ts will correctly route to /public and add the prefix.
+        ws = await this.binanceClient.websocketStreams.connect({ stream });
       } else {
         const url = `${wsBase}/${stream}`;
         ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });

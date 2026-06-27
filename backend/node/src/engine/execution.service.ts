@@ -41,6 +41,10 @@ export class ExecutionService {
     private readonly analyticsService: AnalyticsService,
   ) {}
 
+  public setCooldown(symbol: string, mode: string, minutes: number) {
+    this.entryCooldowns.set(`${mode}:${symbol}`, Date.now() + minutes * 60 * 1000);
+  }
+
   async checkExits(config: SessionConfig, onTradeUpdate?: (t: Trade, b: number) => Promise<void>) {
     if (this.positionTracker.activeCount() === 0) return;
     const activeTrades = this.positionTracker.activeList();
@@ -78,6 +82,10 @@ export class ExecutionService {
             this.sessionState.addClosedTrade(closedTrade);
             this.sessionState.setActiveTrades(this.positionTracker.activeList());
             this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, tradeConfig);
+
+            // SRE: Immediate cooldown on exit to prevent instant re-entry races (Issue 3)
+            const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
+            this.setCooldown(trade.symbol, mode, 2); // 2 minute default cooldown on exit
 
             const analytics = this.analyticsService.calculateAnalytics(
               this.sessionState.closedTrades as any,

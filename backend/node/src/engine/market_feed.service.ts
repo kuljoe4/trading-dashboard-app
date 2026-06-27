@@ -347,9 +347,11 @@ export class MarketFeedService {
   }
 
   private startMiniTickerStream(wsBase: string = ENGINE_CONSTANTS.BINANCE_WS_PUBLIC) {
+    let retryCount = 0;
     const connect = () => {
       if (!this.running) return;
       const url = `${wsBase}/!miniTicker@arr`;
+      this.logger.log(`[MarketFeed] Connecting to mini-ticker stream: ${url}`);
       const ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
 
       ws.on('error', (err) => {
@@ -372,14 +374,19 @@ export class MarketFeedService {
           this.logger.error(`Error processing mini-ticker stream: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
+      ws.on('open', () => {
+        retryCount = 0;
+      });
       ws.on('close', () => {
         this.miniTickerWs = null;
         if (this.running && !this.miniTickerReconnecting) {
-          this.logger.debug('Mini-ticker stream closed. Reconnecting...');
+          retryCount++;
+          const delay = Math.min(30000, ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS * Math.pow(2, Math.max(0, retryCount - 1)));
+          this.logger.debug(`Mini-ticker stream closed. Reconnecting in ${delay}ms... (Attempt ${retryCount})`);
           const timeout = setTimeout(() => {
             this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== timeout);
             connect();
-          }, ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS);
+          }, delay);
           this.subscriptionTasks.push(timeout);
         }
       });
@@ -389,9 +396,11 @@ export class MarketFeedService {
   }
 
   private startMarkTickerStream(wsBase: string = ENGINE_CONSTANTS.BINANCE_WS_PUBLIC) {
+    let retryCount = 0;
     const connect = () => {
       if (!this.running) return;
-      const url = `${wsBase}/!markTicker@arr@1s`;
+      const url = `${wsBase}/!markPrice@arr@1s`;
+      this.logger.log(`[MarketFeed] Connecting to mark-ticker stream: ${url}`);
       const ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
 
       ws.on('error', (err) => {
@@ -412,9 +421,17 @@ export class MarketFeedService {
           this.logger.error(`Error processing mark-ticker stream: ${err instanceof Error ? err.message : String(err)}`);
         }
       });
+      ws.on('open', () => {
+        retryCount = 0;
+      });
       ws.on('close', () => {
         this.markTickerWs = null;
-        if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS));
+        if (this.running) {
+          retryCount++;
+          const delay = Math.min(30000, ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS * Math.pow(2, Math.max(0, retryCount - 1)));
+          this.logger.debug(`Mark-ticker stream closed. Reconnecting in ${delay}ms... (Attempt ${retryCount})`);
+          this.subscriptionTasks.push(setTimeout(() => connect(), delay));
+        }
       });
       this.markTickerWs = ws;
     };
@@ -568,6 +585,7 @@ export class MarketFeedService {
     for (const chunk of chunks) {
       const streams = chunk.join('/');
       const url = `${wsBaseMarket}?streams=${streams}`;
+      let retryCount = 0;
       const connect = () => {
         if (!this.running) return;
         this.logger.debug(`[MarketFeed] Connecting to combined stream: ${url.split('?')[0]}?streams=${chunk.length} items`);
@@ -597,13 +615,18 @@ export class MarketFeedService {
             this.logger.error(`Error processing combined kline stream: ${err instanceof Error ? err.message : String(err)}`);
           }
         });
+        ws.on('open', () => {
+          retryCount = 0;
+        });
         ws.on('close', () => {
           if (this.running && !(ws as any)._isExplicitClose) {
-            this.logger.debug('Combined kline stream closed. Reconnecting...');
+            retryCount++;
+            const delay = Math.min(30000, ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS * Math.pow(2, Math.max(0, retryCount - 1)));
+            this.logger.debug(`Combined kline stream closed. Reconnecting in ${delay}ms... (Attempt ${retryCount})`);
             const timeout = setTimeout(() => {
               this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== timeout);
               connect();
-            }, ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS);
+            }, delay);
             this.subscriptionTasks.push(timeout);
           }
         });

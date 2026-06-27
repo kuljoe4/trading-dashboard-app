@@ -1096,7 +1096,7 @@ export function DashboardView({ initialStrategy }) {
         </div>
 
       {/* Modals & Drawers */}
-        <Drawer.Root open={showConfig} onOpenChange={setShowConfig}>
+        <Drawer.Root open={showConfig} onOpenChange={setShowConfig} repositionInputs={false}>
           <Drawer.Portal>
             <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
             <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4dvh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[800px] lg:mx-auto h-auto">

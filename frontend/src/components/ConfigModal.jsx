@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useLayoutEffect } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge } from './ui/primitives'
@@ -393,16 +393,6 @@ const flattenConfig = (config) => {
 };
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
   const addAlert = useTradingStore(state => state.addAlert);
-  const [viewportKey, setViewportKey] = useState(0);
-
-  // UX-MOBILE: Force layout update on viewport change
-  useLayoutEffect(() => {
-    if (!window.visualViewport) return;
-    const handleResize = () => setViewportKey(Date.now());
-    window.visualViewport.addEventListener('resize', handleResize);
-    return () => window.visualViewport.removeEventListener('resize', handleResize);
-  }, []);
-
   // UX-MOBILE: Ensure inputs scroll into view when keyboard is active
   const handleInputFocus = React.useCallback((e) => {
     setTimeout(() => {
@@ -736,7 +726,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   ), [cfg, errors, setField, handleInputFocus]);
 
   return (
-    <div key={viewportKey} className="flex flex-col h-full bg-surface text-text overflow-hidden relative">
+    <div className="flex flex-col h-full bg-surface text-text overflow-hidden relative">
       <div className="sticky top-0 z-30 bg-surface/80 backdrop-blur-md border-b border-border">
         <div className="p-5 flex justify-between items-center">
           <div className="min-w-0 flex-1 mr-4">

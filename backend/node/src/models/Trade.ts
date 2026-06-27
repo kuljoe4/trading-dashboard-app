@@ -21,7 +21,7 @@ export class Trade {
 
   max_rr_achieved: number = 0;
 
-  rr_sequence_index: number = 0;
+  rr_sequence_index: number = -1;
 
   entry_ts?: Date;
 

@@ -1751,27 +1751,67 @@ export class OrderManagerService {
     }
   }
 
-  public async recoverLastExecutionPrice(symbol: string, trade: Trade, estimate: number): Promise<number> {
-    if (!this.binanceClient || this.paperMode) return estimate;
+  public async recoverClosingContext(symbol: string, trade: Trade, estimate: number): Promise<{ price: number, reason?: string }> {
+    if (!this.binanceClient || this.paperMode) return { price: estimate };
     try {
-      const tradesRes = await this.binanceClient.restAPI.accountTradeList({ symbol, limit: 5 });
+      const tradesRes = await this.binanceClient.restAPI.accountTradeList({ symbol, limit: 10 });
       const trades = await tradesRes.data() as any;
       if (Array.isArray(trades) && trades.length > 0) {
         const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
-        const closingTrades = trades.filter(t => t.side === closeDirection);
+        // Sort by time descending to get the most recent fills
+        const closingTrades = trades.filter(t => t.side === closeDirection).sort((a, b) => b.time - a.time);
+
         if (closingTrades.length > 0) {
-          const lastFill = closingTrades.sort((a, b) => b.time - a.time)[0];
+          const lastFill = closingTrades[0];
           const fillPrice = parseFloat(lastFill.price);
+          const orderId = lastFill.orderId;
+
+          let reason = undefined;
+          if (orderId) {
+             try {
+                this.logger.log(`[Sync] Recovering order context for ID ${orderId}...`);
+                const orderRes = await this.binanceClient.restAPI.queryOrder({ symbol, orderId: BigInt(orderId) });
+                const orderData = await orderRes.data() as any;
+
+                if (orderData && orderData.type) {
+                   const type = orderData.type;
+                   const clientOrderId = orderData.clientOrderId;
+
+                   // SRE: Map exchange order type to engine-specific EXIT_REASONS
+                   if (type === 'TAKE_PROFIT' || type === 'TAKE_PROFIT_MARKET') {
+                      reason = EXIT_REASONS.TP_HIT;
+                   } else if (type === 'STOP' || type === 'STOP_MARKET') {
+                      // Distinguish between initial SL and ratchet milestones if possible
+                      const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
+                      reason = `${EXIT_REASONS.SL_HIT}_${slType}`;
+                   } else if (clientOrderId && clientOrderId.startsWith('cls-')) {
+                      reason = EXIT_REASONS.MANUAL_CLOSE;
+                   } else {
+                      reason = EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
+                   }
+                   this.logger.log(`[Sync] Successfully recovered exit reason for ${symbol}: ${reason} (Order Type: ${type})`);
+                }
+             } catch (orderErr) {
+                this.logger.debug(`[Sync] Order context recovery failed for ID ${orderId}: ${orderErr instanceof Error ? orderErr.message : String(orderErr)}`);
+             }
+          }
+
           if (fillPrice > 0) {
             this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] Sync Recovery: Found fill price ${fillPrice} (Estimate: ${estimate})`);
-            return fillPrice;
+            return { price: fillPrice, reason };
           }
         }
       }
     } catch (e: any) {
-      this.logger.debug(`[${(trade.id || 'N/A').substring(0, 8)}] Execution price recovery failed: ${e.message}`);
+      this.logger.debug(`[${(trade.id || 'N/A').substring(0, 8)}] Execution context recovery failed: ${e.message}`);
     }
-    return estimate;
+    return { price: estimate };
+  }
+
+  /** @deprecated Use recoverClosingContext */
+  public async recoverLastExecutionPrice(symbol: string, trade: Trade, estimate: number): Promise<number> {
+     const ctx = await this.recoverClosingContext(symbol, trade, estimate);
+     return ctx.price;
   }
 
   /**
@@ -1911,8 +1951,14 @@ export class OrderManagerService {
       if (!paperMode && this.binanceClient && (exitPrice === 0 || (localOnly && exitReason === EXIT_REASONS.EXCHANGE_SYNC))) {
         const tickerPrice = this.tickerCache.getPrice(symbol);
         const estimate = exitPrice || tickerPrice || trade.current_sl;
-        exitPrice = await this.recoverLastExecutionPrice(symbol, trade, estimate);
-        if (exitReason === EXIT_REASONS.EXCHANGE_SYNC) exitReason = EXIT_REASONS.EXCHANGE_SYNC_RECOVERY;
+
+        // BOLT: Recover full context (price + reason) for exchange-side closures
+        const context = await this.recoverClosingContext(symbol, trade, estimate);
+        exitPrice = context.price;
+
+        if (exitReason === EXIT_REASONS.EXCHANGE_SYNC) {
+          exitReason = context.reason || EXIT_REASONS.EXCHANGE_SYNC_RECOVERY;
+        }
       }
 
       // DATA-CONSISTENCY: For localOnly syncs in live mode, we must still estimate the exit fee

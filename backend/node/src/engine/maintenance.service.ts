@@ -112,6 +112,9 @@ export class MaintenanceService {
 
           if (trade.close_blocked) continue;
 
+          // Merge trade-specific config for accurate reconciliation
+          const tradeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
+
           let pos = activePositionsMap.get(trade.symbol);
 
           if (!pos) {
@@ -172,7 +175,7 @@ export class MaintenanceService {
                   trade.current_sl = exSlPrice;
 
                   // SRE: Reconcile rr_sequence_index based on adopted SL price
-                  this.reconcileMilestoneFromSl(trade, exSlPrice, config);
+                  this.reconcileMilestoneFromSl(trade, exSlPrice, tradeConfig);
                 }
 
                 trade.updated_at = new Date();

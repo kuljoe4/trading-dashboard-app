@@ -48,7 +48,9 @@ export class GatingService {
   }
 
   public async enterHibernation(reason: string, config: SessionConfig, activeTrades: any[]) {
-    const msg = `Entering DEEP SLEEP (Hibernation) - Reason: ${reason}`;
+    const mode = config.hibernation_mode || 'adaptive';
+    const isLight = mode === 'light';
+    const msg = `Entering ${isLight ? 'LIGHT' : 'DEEP'} SLEEP (Hibernation) - Reason: ${reason}`;
     this.logger.log(msg);
     this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
     this.sessionState.hibernating = true;
@@ -60,7 +62,11 @@ export class GatingService {
     if (needsKlines) {
         await this.momentumScanner.stop();
     } else {
-      await this.marketFeed.stop();
+      // In LIGHT sleep, we keep MarketFeed running to maintain WS connections and kline trickle.
+      // We only stop the heavy MomentumScanner.
+      if (!isLight) {
+        await this.marketFeed.stop();
+      }
       await this.momentumScanner.stop();
       // BOLT: Do not clear klineStore here.
       // MarketFeedService.stop() already cleared activeWatchlist.
@@ -77,11 +83,17 @@ export class GatingService {
   }
 
   public async exitHibernation(config: SessionConfig) {
-    const msg = 'Exiting DEEP SLEEP (Hibernation)';
+    const mode = config.hibernation_mode || 'adaptive';
+    const isLight = mode === 'light';
+    const msg = `Exiting ${isLight ? 'LIGHT' : 'DEEP'} SLEEP (Hibernation)`;
     this.logger.log(msg);
     this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
     this.sessionState.hibernating = false;
-    await this.marketFeed.start(config);
+
+    // In LIGHT sleep, MarketFeed was never stopped.
+    if (!isLight) {
+      await this.marketFeed.start(config);
+    }
     await this.momentumScanner.start(config);
 
     this.broadcastService.broadcast('gate', {

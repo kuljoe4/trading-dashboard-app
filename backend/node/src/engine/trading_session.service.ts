@@ -337,21 +337,31 @@ export class TradingSessionService implements OnApplicationShutdown {
 
     // Transition to Hibernation
     if (shouldHibernate && !this.sessionState.hibernating && !this.hibernateGraceTimeout) {
-      // BOLT: Adaptive Hibernation. Implement a 30s grace period ("Light Sleep") before full cache purge.
-      // This prevents the expensive "Resumption Burst" if gating is brief (e.g., cooling down after a hit).
-      this.logger.log(`[Gating] Entering Light Sleep. Deep Sleep scheduled in 30s if conditions persist.`);
-      this.hibernateGraceTimeout = setTimeout(async () => {
-        this.hibernateGraceTimeout = null;
-        try {
-          if (this.isGated() && this.positionTracker.activeCount() === 0 && !this.sessionState.hibernating) {
-            this.logger.log(`[Gating] Transitioning to Deep Sleep. Reason: ${riskResult.reason || 'Session gated and idle'}`);
-            await this.gatingService.enterHibernation(riskResult.reason || 'Session gated and idle', this.config!, this.positionTracker.activeList());
-            this.minimizeMemoryUsage();
+      const mode = this.config.hibernation_mode || 'adaptive';
+
+      if (mode === 'adaptive') {
+        const graceSec = this.config.hibernation_grace_period_sec || 30;
+        // BOLT: Adaptive Hibernation. Implement a configurable grace period ("Light Sleep") before full cache purge.
+        // This prevents the expensive "Resumption Burst" if gating is brief (e.g., cooling down after a hit).
+        this.logger.log(`[Gating] Entering Light Sleep. Deep Sleep scheduled in ${graceSec}s if conditions persist.`);
+        this.hibernateGraceTimeout = setTimeout(async () => {
+          this.hibernateGraceTimeout = null;
+          try {
+            if (this.isGated() && this.positionTracker.activeCount() === 0 && !this.sessionState.hibernating) {
+              this.logger.log(`[Gating] Transitioning to Deep Sleep. Reason: ${riskResult.reason || 'Session gated and idle'}`);
+              await this.gatingService.enterHibernation(riskResult.reason || 'Session gated and idle', this.config!, this.positionTracker.activeList());
+              this.minimizeMemoryUsage();
+            }
+          } catch (error) {
+            this.logger.error(`Failed to transition to Deep Sleep: ${error instanceof Error ? error.message : String(error)}`);
           }
-        } catch (error) {
-          this.logger.error(`Failed to transition to Deep Sleep: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }, 30000);
+        }, graceSec * 1000);
+      } else {
+        // Immediate entry for 'light' or 'deep' modes
+        this.logger.log(`[Gating] Entering ${mode.toUpperCase()} hibernation immediately.`);
+        await this.gatingService.enterHibernation(riskResult.reason || 'Session gated and idle', this.config!, activeTrades);
+        if (mode === 'deep') this.minimizeMemoryUsage();
+      }
     }
     // Transition out of Hibernation
     else if (!shouldHibernate) {
@@ -562,22 +572,26 @@ export class TradingSessionService implements OnApplicationShutdown {
          if (!isEntry) {
            if (this.safetySyncTimeout) clearTimeout(this.safetySyncTimeout);
            this.safetySyncTimeout = setTimeout(async () => {
-              this.safetySyncTimeout = null;
-              // BOLT: Only perform REST safety sync if UDS hasn't provided a balance update in the last 60s.
-              // Most closures trigger an ACCOUNT_UPDATE immediately, making the REST poll redundant.
-              const udsAge = Date.now() - this.sessionState.lastUdsBalanceUpdate;
-              if (udsAge < 60000) {
-                 this.logger.debug(`Skipping redundant REST safety sync. UDS balance update is fresh (${udsAge}ms ago).`);
-                 return;
-              }
+              try {
+                this.safetySyncTimeout = null;
+                // BOLT: Only perform REST safety sync if UDS hasn't provided a balance update in the last 60s.
+                // Most closures trigger an ACCOUNT_UPDATE immediately, making the REST poll redundant.
+                const udsAge = Date.now() - this.sessionState.lastUdsBalanceUpdate;
+                if (udsAge < 60000) {
+                   this.logger.debug(`Skipping redundant REST safety sync. UDS balance update is fresh (${udsAge}ms ago).`);
+                   return;
+                }
 
-              this.logger.log(`Performing scheduled safety balance sync after trade closures (UDS age: ${udsAge}ms).`);
-              const b = await this.fetchBinanceBalance();
-              if (b > 0) {
-                 this.sessionState.balanceLive = b;
-                 this.sessionState.balancePaper = b;
-                 this.sessionState.lastExchangeBalance = b;
-                 if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), 0);
+                this.logger.log(`Performing scheduled safety balance sync after trade closures (UDS age: ${udsAge}ms).`);
+                const b = await this.fetchBinanceBalance();
+                if (b > 0) {
+                   this.sessionState.balanceLive = b;
+                   this.sessionState.balancePaper = b;
+                   this.sessionState.lastExchangeBalance = b;
+                   if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), 0);
+                }
+              } catch (err) {
+                this.logger.error(`Safety sync failed: ${err instanceof Error ? err.message : String(err)}`);
               }
            }, 15000); // 15s after LAST closure in a burst
          }
@@ -590,22 +604,26 @@ export class TradingSessionService implements OnApplicationShutdown {
       if (this.balanceFetchTimeout) return;
 
       this.balanceFetchTimeout = setTimeout(async () => {
-        const b = await this.fetchBinanceBalance();
-        const capturedDeltas = this.pendingDeltasDuringFetch;
-        this.balanceFetchTimeout = null;
-        this.pendingDeltasDuringFetch = 0;
+        try {
+          const b = await this.fetchBinanceBalance();
+          const capturedDeltas = this.pendingDeltasDuringFetch;
+          this.balanceFetchTimeout = null;
+          this.pendingDeltasDuringFetch = 0;
 
-        if (b > 0) {
-          // REST is authoritative; it already includes all deltas.
-          this.sessionState.balanceLive = b;
-          this.sessionState.balancePaper = b;
-          this.sessionState.lastExchangeBalance = b;
-        } else {
-          // Fallback: apply all accumulated deltas from the window.
-          this.sessionState.balanceLive = roundEight(this.sessionState.balanceLive + capturedDeltas);
-          this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + capturedDeltas);
+          if (b > 0) {
+            // REST is authoritative; it already includes all deltas.
+            this.sessionState.balanceLive = b;
+            this.sessionState.balancePaper = b;
+            this.sessionState.lastExchangeBalance = b;
+          } else {
+            // Fallback: apply all accumulated deltas from the window.
+            this.sessionState.balanceLive = roundEight(this.sessionState.balanceLive + capturedDeltas);
+            this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + capturedDeltas);
+          }
+          if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), t.pnl || 0);
+        } catch (err) {
+          this.logger.error(`Deferred balance fetch failed: ${err instanceof Error ? err.message : String(err)}`);
         }
-        if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), t.pnl || 0);
       }, 1500); // 1.5s debounce covers most batch closures
       return; // Skip immediate callback as it will fire after debounce
     }

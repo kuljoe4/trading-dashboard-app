@@ -97,13 +97,17 @@ export class MarketFeedService {
     // If it's still empty after a grace period, we perform a one-time REST fetch to ensure the watchlist isn't 0.
     // BOLT: Even if not empty, we trigger a re-evaluation after 15s to ensure the UI updates from 0 monitored symbols.
     setTimeout(async () => {
-       if (!this.running) return;
-       if (this.tickerCache.getCacheSize() === 0) {
-          this.logger.warn(`[MarketFeed] Ticker cache empty after 15s WS wait. Falling back to REST fetchInitialTickers (Weight 40)...`);
-          await this.fetchInitialTickers(restBase);
-       } else {
-          this.logger.log(`[MarketFeed] WS Seeding successful. Ticker cache size: ${this.tickerCache.getCacheSize()}. Triggering watchlist re-evaluation.`);
-          this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
+       try {
+         if (!this.running) return;
+         if (this.tickerCache.getCacheSize() === 0) {
+            this.logger.warn(`[MarketFeed] Ticker cache empty after 15s WS wait. Falling back to REST fetchInitialTickers (Weight 40)...`);
+            await this.fetchInitialTickers(restBase);
+         } else {
+            this.logger.log(`[MarketFeed] WS Seeding successful. Ticker cache size: ${this.tickerCache.getCacheSize()}. Triggering watchlist re-evaluation.`);
+            this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
+         }
+       } catch (err) {
+         this.logger.error(`Failed during market feed bootstrap: ${err instanceof Error ? err.message : String(err)}`);
        }
     }, 15000);
 
@@ -414,8 +418,12 @@ export class MarketFeedService {
     if (this.watchlistUpdatePending) return;
     if (this.watchlistUpdateTimeout) clearTimeout(this.watchlistUpdateTimeout);
     this.watchlistUpdateTimeout = setTimeout(async () => {
-      this.watchlistUpdatePending = true;
-      try { await this.executeWatchlistUpdate(config); } finally {
+      try {
+        this.watchlistUpdatePending = true;
+        await this.executeWatchlistUpdate(config);
+      } catch (err) {
+        this.logger.error(`Watchlist update failed: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
         this.watchlistUpdatePending = false;
         this.watchlistUpdateTimeout = null;
       }
@@ -428,7 +436,13 @@ export class MarketFeedService {
       const isGated = this.sessionState.isGated();
       const activeTrades = this.sessionState.activeTrades;
 
-      if (config.global_scanner_enabled !== false && !(isGated && activeTrades.length === 0)) {
+      // SRE: Optimization. In 'light' hibernation mode, we keep monitoring symbols even when gated
+      // to avoid the 250+ weight REST backfill burst on resumption.
+      const isHibernating = this.sessionState.hibernating;
+      const hibMode = config.hibernation_mode || 'adaptive';
+      const suppressScanner = isGated && activeTrades.length === 0 && (hibMode !== 'light' || !isHibernating);
+
+      if (config.global_scanner_enabled !== false && !suppressScanner) {
         let symbols: string[];
         if (config.symbols && config.symbols.length > 0) symbols = config.symbols;
         else {
@@ -662,7 +676,9 @@ export class MarketFeedService {
     this.backfillProcessing = false;
     const endWeight = this.sessionState.binanceRateLimit.used_1m;
     const duration = (Date.now() - startTime) / 1000;
-    this.logger.log(`Sequential kline backfill complete. Duration: ${duration.toFixed(1)}s | Weight Used: ${endWeight - startWeight} (Total: ${endWeight})`);
+    // SRE: Weight Used is an approximation. If duration > 60s, the used_1m window has rolled over.
+    const weightUsed = duration > 60 ? 'Window Rolled' : (endWeight - startWeight);
+    this.logger.log(`Sequential kline backfill complete. Duration: ${duration.toFixed(1)}s | Weight Used: ${weightUsed} (Total: ${endWeight})`);
   }
 
   private async backfillKlines(symbol: string, interval: string) {

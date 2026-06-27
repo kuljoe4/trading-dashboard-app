@@ -347,6 +347,16 @@ export class SessionConfig {
   @IsOptional()
   debug_mode?: boolean = false;
 
+  @IsEnum(['deep', 'light', 'adaptive'])
+  @IsOptional()
+  hibernation_mode?: 'deep' | 'light' | 'adaptive' = 'adaptive';
+
+  @IsNumber()
+  @Min(5)
+  @Max(3600)
+  @IsOptional()
+  hibernation_grace_period_sec?: number = 30;
+
   @IsNumber()
   @IsOptional()
   @Min(CONFIG_LIMITS.TRAILING_GUARD_MIN)

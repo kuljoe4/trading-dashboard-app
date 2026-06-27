@@ -55,11 +55,11 @@ export class RiskEngineService {
 
     const totalRiskPct = (totalSlUsed / balance) * 100;
     if (totalRiskPct >= maxTotalRiskPct) {
-      return { canEnter: false, reason: `Total risk ${totalRiskPct.toFixed(2)}% >= max ${maxTotalRiskPct}%` };
+      return { canEnter: false, reason: `Total risk ${Number(totalRiskPct || 0).toFixed(2)}% >= max ${maxTotalRiskPct}%` };
     }
 
     if (totalSlUsed >= totalSlGuardUsdt) {
-      return { canEnter: false, reason: `Total SL ${totalSlUsed.toFixed(2)} USDT >= guard ${totalSlGuardUsdt} USDT` };
+      return { canEnter: false, reason: `Total SL ${Number(totalSlUsed || 0).toFixed(2)} USDT >= guard ${totalSlGuardUsdt} USDT` };
     }
 
     // 2. Frequency, Spacing & Performance Check (ULTRA-OPTIMIZED SINGLE PASS)
@@ -261,7 +261,7 @@ export class RiskEngineService {
         } else {
           return {
             canEnter: false,
-            reason: `Historical performance for hour ${currentHour} is low (${winRate.toFixed(1)}% WR)`,
+            reason: `Historical performance for hour ${currentHour} is low (${Number(winRate || 0).toFixed(1)}% WR)`,
             isAdaptiveTightened,
             tradesInPeriod,
             maxTradesPeriod: Math.max(1, Math.floor(maxTradesPeriod * (isAdaptiveTightened ? 0.5 : 1.0))),
@@ -323,7 +323,7 @@ export class RiskEngineService {
     // 3. Rolling 24h Limit
     if (maxTrades24h > 0 && tradesIn24h >= maxTrades24h) {
       const nextSlotMs = oldestTradeIn24hTs + (24 * 60 * 60 * 1000) - now;
-      const nextSlotHours = (nextSlotMs / (60 * 60 * 1000)).toFixed(1);
+      const nextSlotHours = Number(nextSlotMs / (60 * 60 * 1000)).toFixed(1);
       return {
         canEnter: false,
         reason: `Rolling 24h limit reached (${tradesIn24h}/${maxTrades24h}). Next slot in ~${nextSlotHours}h.`,
@@ -368,7 +368,7 @@ export class RiskEngineService {
       // Simple percentage-based SL
       const distance = entryPrice * ((config.sl_distance_pct ?? 0.8) / 100);
       const sl = direction === 'LONG' ? entryPrice - distance : entryPrice + distance;
-      this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Pct SL: ${sl.toFixed(5)} (dist: ${config.sl_distance_pct}%)`);
+      this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Pct SL: ${Number(sl || 0).toFixed(5)} (dist: ${config.sl_distance_pct}%)`);
       return sl;
     }
 
@@ -414,10 +414,10 @@ export class RiskEngineService {
       this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Lookback SL Journey:
         Entry: ${entryPrice}
         Extreme (${direction === 'LONG' ? 'Low' : 'High'}): ${structuralSl}
-        Raw Dist: ${rawDistance.toFixed(5)} (${((rawDistance / entryPrice) * 100).toFixed(2)}%)
-        Min: ${minPct}% (${minDistance.toFixed(5)}), Max: ${maxPct}% (${maxDistance.toFixed(5)})
-        Result: ${clampType} -> Dist: ${clampedDistance.toFixed(5)}
-        Final SL: ${finalSl.toFixed(5)}`);
+        Raw Dist: ${Number(rawDistance || 0).toFixed(5)} (${Number((rawDistance / entryPrice) * 100).toFixed(2)}%)
+        Min: ${minPct}% (${Number(minDistance || 0).toFixed(5)}), Max: ${maxPct}% (${Number(maxDistance || 0).toFixed(5)})
+        Result: ${clampType} -> Dist: ${Number(clampedDistance || 0).toFixed(5)}
+        Final SL: ${Number(finalSl || 0).toFixed(5)}`);
 
       return finalSl;
     }
@@ -436,7 +436,7 @@ export class RiskEngineService {
     config: SessionConfig,
     symbol?: string
   ): number {
-    this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Size Check: Balance=${balance}, Entry=${entryPrice}, SL=${slPrice}, Dist=${Math.abs(entryPrice - slPrice).toFixed(5)}`);
+    this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Size Check: Balance=${balance}, Entry=${entryPrice}, SL=${slPrice}, Dist=${Number(Math.abs(entryPrice - slPrice) || 0).toFixed(5)}`);
     if (balance <= 0 || entryPrice <= 0) return 0;
 
     const riskAmount = balance * ((config.risk_pct_per_trade ?? 1.0) / 100);
@@ -464,15 +464,15 @@ export class RiskEngineService {
          const scaledRisk = Math.abs(entryPrice - slPrice) * scaledQty;
 
          if (scaledRisk > riskAmount * 3.0) {
-            this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} setup rejected: Auto-scaling would cause ${ (scaledRisk/riskAmount).toFixed(1) }x risk overshoot (Max 3x).`);
+            this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} setup rejected: Auto-scaling would cause ${ Number(scaledRisk/riskAmount).toFixed(1) }x risk overshoot (Max 3x).`);
             return 0;
          }
 
-         this.logger.debug(`[RiskEngine] Scaled qty up to meet MIN_NOTIONAL (${currentNotional.toFixed(2)} -> ${MIN_NOTIONAL_SCALED})`);
+         this.logger.debug(`[RiskEngine] Scaled qty up to meet MIN_NOTIONAL (${Number(currentNotional || 0).toFixed(2)} -> ${MIN_NOTIONAL_SCALED})`);
          qty = scaledQty;
       }
     } else if (currentNotional < MIN_NOTIONAL) {
-       this.logger.warn(`[RiskEngine] Trade setup discarded: notional ${currentNotional.toFixed(2)} is below minimum ${MIN_NOTIONAL} USDT.`);
+       this.logger.warn(`[RiskEngine] Trade setup discarded: notional ${Number(currentNotional || 0).toFixed(2)} is below minimum ${MIN_NOTIONAL} USDT.`);
        return 0;
     }
 

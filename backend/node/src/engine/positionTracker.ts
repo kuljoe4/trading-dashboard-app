@@ -173,14 +173,14 @@ export class PositionTrackerService {
       const buffer = currentPrice * (bufferPct / 100);
       if (trade.direction === 'LONG') {
         if (newSl >= currentPrice - buffer) {
-          const msg = `[Trailing Guard] Long SL ${newSl.toFixed(5)} capped at ${ (currentPrice - buffer).toFixed(5)} (Market: ${currentPrice.toFixed(5)})`;
+          const msg = `[Trailing Guard] Long SL ${Number(newSl || 0).toFixed(5)} capped at ${ Number(currentPrice - buffer).toFixed(5)} (Market: ${Number(currentPrice || 0).toFixed(5)})`;
           this.logger.warn(msg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'warn' });
           newSl = currentPrice - buffer;
         }
       } else {
         if (newSl <= currentPrice + buffer) {
-          const msg = `[Trailing Guard] Short SL ${newSl.toFixed(5)} capped at ${ (currentPrice + buffer).toFixed(5)} (Market: ${currentPrice.toFixed(5)})`;
+          const msg = `[Trailing Guard] Short SL ${Number(newSl || 0).toFixed(5)} capped at ${ Number(currentPrice + buffer).toFixed(5)} (Market: ${Number(currentPrice || 0).toFixed(5)})`;
           this.logger.warn(msg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'warn' });
           newSl = currentPrice + buffer;
@@ -383,7 +383,7 @@ export class PositionTrackerService {
     this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
 
     const finalizedExitPrice = result.trade.exit_price || exitPrice;
-    const msg = `Trade closed: ${symbol} Exit=${finalizedExitPrice} P&L=${result.trade.pnl.toFixed(2)} (${(result.trade.pnl_pct ?? 0).toFixed(2)}%) Reason=${exitReason}`;
+    const msg = `Trade closed: ${symbol} Exit=${finalizedExitPrice} P&L=${Number(result.trade.pnl || 0).toFixed(2)} (${Number(result.trade.pnl_pct || 0).toFixed(2)}%) Reason=${exitReason}`;
     this.logger.log(msg);
     this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
 

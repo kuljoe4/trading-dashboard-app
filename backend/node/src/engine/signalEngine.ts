@@ -443,6 +443,11 @@ export class SignalEngineService {
     }
   }
 
+  /**
+   * DATA-07: EMA Dual Close Signal.
+   * "Close" variant means it strictly uses the LAST COMPLETED candle's close
+   * rather than real-time price crossing. This prevents whipsaws from mid-candle fluctuations.
+   */
   private emaDualCloseSignal(
     symbol: string,
     config: any,
@@ -462,7 +467,9 @@ export class SignalEngineService {
 
       const maxPeriod = Math.max(fastPeriod, slowPeriod);
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
-      if (candles.length < maxPeriod + 1) {
+
+      // We need at least one completed candle after warmup
+      if (candles.length < maxPeriod + 2) {
         return {
           fired: false,
           value: 0,
@@ -474,35 +481,38 @@ export class SignalEngineService {
         };
       }
 
-      const fastRes = this.calculateEMA(candles, fastPeriod, interval, symbol, `EMA Dual Close Fast(${fastPeriod})`);
-      const slowRes = this.calculateEMA(candles, slowPeriod, interval, symbol, `EMA Dual Close Slow(${slowPeriod})`);
+      // Use the last COMPLETED candle (index len - 2)
+      const completedCandleIdx = candles.length - 2;
+      const completedClose = candles[completedCandleIdx].close;
+
+      const fastRes = this.calculateEMAAt(candles, completedCandleIdx, fastPeriod, interval, symbol);
+      const slowRes = this.calculateEMAAt(candles, completedCandleIdx, slowPeriod, interval, symbol);
 
       const fastEma = fastRes.value;
       const slowEma = slowRes.value;
-      const currClose = candles[candles.length - 1].close;
 
       let fired = false;
       const threshold = side === 'SHORT' ? Math.min(fastEma, slowEma) : Math.max(fastEma, slowEma);
 
       if (purpose === 'entry') {
-        if (side === 'LONG') fired = currClose > fastEma && currClose > slowEma;
-        else if (side === 'SHORT') fired = currClose < fastEma && currClose < slowEma;
+        if (side === 'LONG') fired = completedClose > fastEma && completedClose > slowEma;
+        else if (side === 'SHORT') fired = completedClose < fastEma && completedClose < slowEma;
         else fired = true;
       } else {
-        // Exit: price crosses opposite of entry trend
-        if (side === 'LONG') fired = currClose < fastEma || currClose < slowEma;
-        else if (side === 'SHORT') fired = currClose > fastEma || currClose > slowEma;
+        // Exit: price closed opposite of entry trend
+        if (side === 'LONG') fired = completedClose < fastEma || completedClose < slowEma;
+        else if (side === 'SHORT') fired = completedClose > fastEma || completedClose > slowEma;
         else fired = false;
       }
 
       return {
         fired,
-        value: roundTo(currClose, 2),
+        value: roundTo(completedClose, 2),
         threshold: roundTo(threshold, 2),
         insufficientData: fastRes.insufficientData || slowRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual Close' : 'Entry EMA Dual Close',
-        description: `Price ${fired ? 'is' : 'not'} favorably aligned with EMA(${fastPeriod}) and EMA(${slowPeriod})`,
+        description: `Last closed candle (${completedClose.toFixed(2)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${fastPeriod}) and EMA(${slowPeriod})`,
       };
     } catch (error) {
       this.logger.debug(`EMA Dual Close signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -517,6 +527,10 @@ export class SignalEngineService {
     }
   }
 
+  /**
+   * DATA-07: EMA Close Signal.
+   * Strictly uses the LAST COMPLETED candle's close for comparison.
+   */
   private emaCloseSignal(
     symbol: string,
     config: any,
@@ -532,7 +546,7 @@ export class SignalEngineService {
         : parseInt(params.entry_ema_period || params.ema_period || '12', 10);
 
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
-      if (candles.length < period + 1) {
+      if (candles.length < period + 2) {
         return {
           fired: false,
           value: 0,
@@ -544,29 +558,31 @@ export class SignalEngineService {
         };
       }
 
-      const emaRes = this.calculateEMA(candles, period, interval, symbol, `EMA Close(${period})`);
+      const completedCandleIdx = candles.length - 2;
+      const completedClose = candles[completedCandleIdx].close;
+
+      const emaRes = this.calculateEMAAt(candles, completedCandleIdx, period, interval, symbol);
       const ema = emaRes.value;
-      const currClose = candles[candles.length - 1].close;
 
       let fired = false;
       if (purpose === 'entry') {
-        if (side === 'LONG') fired = currClose > ema;
-        else if (side === 'SHORT') fired = currClose < ema;
+        if (side === 'LONG') fired = completedClose > ema;
+        else if (side === 'SHORT') fired = completedClose < ema;
         else fired = true;
       } else {
-        if (side === 'LONG') fired = currClose < ema;
-        else if (side === 'SHORT') fired = currClose > ema;
+        if (side === 'LONG') fired = completedClose < ema;
+        else if (side === 'SHORT') fired = completedClose > ema;
         else fired = false;
       }
 
       return {
         fired,
-        value: roundTo(currClose, 2),
+        value: roundTo(completedClose, 2),
         threshold: roundTo(ema, 2),
         insufficientData: emaRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Close' : 'Entry EMA Close',
-        description: `Price ${fired ? 'crossed' : 'is outside'} EMA(${period})`,
+        description: `Last closed candle (${completedClose.toFixed(2)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${period})`,
       };
     } catch (error) {
       this.logger.debug(`EMA Close signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -582,76 +598,83 @@ export class SignalEngineService {
   }
 
   /**
-   * BOLT OPTIMIZATION: Returns only the last two EMA values [previous, current]
-   * to avoid large array allocations in the hot scanner path.
-   * Uses the full available candle history for maximum convergence.
-   * Refactored to use stable cache for O(1) incremental updates.
+   * DATA-07: Returns EMA values at [index-1, index].
+   * Optimized for both live and historical lookups.
    */
-  private calculateEMALastTwo(candles: any[], period: number, interval: string, symbol?: string): { values: [number, number]; insufficientData: boolean } | null {
-    const len = candles.length;
-    const minNeeded = period + 1;
-    if (len < minNeeded) return null;
+  private calculateEMALastTwoAt(
+    candles: any[],
+    index: number,
+    period: number,
+    interval: string,
+    symbol?: string
+  ): { values: [number, number]; insufficientData: boolean } | null {
+    const len = index + 1;
+    if (len < period + 1) return null;
 
-    const lastCandle = candles[len - 1];
-    const cacheKey = symbol ? `${symbol}:${interval}:${period}:${lastCandle.time}:${lastCandle.close}:${len}` : null;
+    const targetCandle = candles[index];
+    const cacheKey = symbol ? `${symbol}:${interval}:${period}:${targetCandle.time}:${targetCandle.close}:${len}:dual` : null;
     if (cacheKey) {
       const cached = this.emaDualCache.get(cacheKey);
       if (cached) return cached;
     }
 
     const insufficientData = len < period * 2;
-    if (insufficientData && symbol) {
-      const warningKey = `${symbol}:EMA:${period}`;
-      if (!this.warningCache.has(warningKey)) {
-        this.logger.warn(`[Convergence] ${symbol}: Sub-optimal data for EMA(${period}). Available: ${len}, Recommended: ${period * 2}.`);
-        this.warningCache.add(warningKey);
-      }
-    }
-
     const multiplier = 2 / (period + 1);
     let prevEma = 0;
     let ema = 0;
 
-    // BOLT OPTIMIZATION: Try O(1) incremental path using stable prefix
+    const isLiveUpdate = index === candles.length - 1;
+    const isCompletedUpdate = index === candles.length - 2;
     const stableKey = symbol ? `${symbol}:${interval}:${period}` : null;
-    const prevCandle = candles[len - 2];
-    const stable = stableKey ? this.emaStableCache.get(stableKey) : null;
+    const stable = (stableKey && (isLiveUpdate || isCompletedUpdate)) ? this.emaStableCache.get(stableKey) : null;
 
-    if (stable && stable.time === prevCandle.time && stable.count === len - 1) {
+    if (isLiveUpdate && stable && stable.time === candles[index - 1].time && stable.count === index) {
       prevEma = stable.value;
-      ema = prevEma + multiplier * (lastCandle.close - prevEma);
-    } else {
+      ema = prevEma + multiplier * (targetCandle.close - prevEma);
+    }
+    else if (isCompletedUpdate && stable && stable.time === targetCandle.time && stable.count === len) {
+      // For completed candle, we need the one BEFORE it as well
+      // We look for a stable cache of index-1
+      const stablePrev = this.calculateEMAAt(candles, index - 1, period, interval, symbol);
+      prevEma = stablePrev.value;
+      ema = stable.value;
+    }
+    else {
       // Full Scan (O(N))
       ema = this.calculateSMA(candles, 0, period);
-      for (let i = period; i < len - 1; i++) {
+      for (let i = period; i < len; i++) {
         prevEma = ema;
         ema += multiplier * (candles[i].close - ema);
       }
 
-      // Update stable cache for the completed candles
-      if (stableKey) {
+      // Maintain stable cache if we just scanned up to the last completed candle
+      if (stableKey && index === candles.length - 2) {
         this.emaStableCache.set(stableKey, {
-          time: prevCandle.time,
+          time: targetCandle.time,
           value: ema,
-          count: len - 1,
+          count: len,
         });
       }
-
-      // One more step for the live candle
-      prevEma = ema;
-      ema += multiplier * (lastCandle.close - ema);
     }
 
     if (Number.isNaN(prevEma)) return null;
     const result: { values: [number, number]; insufficientData: boolean } = { values: [prevEma, ema], insufficientData };
     if (cacheKey) {
       this.emaDualCache.set(cacheKey, result);
-      if (this.emaDualCache.size > 500) {
-        const firstKey = this.emaDualCache.keys().next().value;
-        if (firstKey) this.emaDualCache.delete(firstKey);
+      if (this.emaDualCache.size > 1000) {
+        const keys = Array.from(this.emaDualCache.keys());
+        for (let i = 0; i < 100; i++) this.emaDualCache.delete(keys[i]);
       }
     }
     return result;
+  }
+
+  /**
+   * BOLT OPTIMIZATION: Returns only the last two EMA values [previous, current]
+   * to avoid large array allocations in the hot scanner path.
+   */
+  private calculateEMALastTwo(candles: any[], period: number, interval: string, symbol?: string): { values: [number, number]; insufficientData: boolean } | null {
+    return this.calculateEMALastTwoAt(candles, candles.length - 1, period, interval, symbol);
   }
 
   private calculateSMA(candles: any[], start: number, end: number): number {
@@ -666,31 +689,31 @@ export class SignalEngineService {
   }
 
   /**
-   * Calculates EMA using the full available candle history for maximum convergence.
-   * BOLT OPTIMIZATION: Uses stable cache to provide O(1) incremental updates for the live candle.
+   * DATA-07: Calculates EMA at a specific index in the candle array.
+   * Efficiently handles both historical lookups and incremental updates.
    */
-  private calculateEMA(candles: any[], period: number, interval: string, symbol?: string, metric?: string): { value: number; insufficientData: boolean } {
-    const len = candles.length;
-    if (len === 0) return { value: 0, insufficientData: true };
+  private calculateEMAAt(
+    candles: any[],
+    index: number,
+    period: number,
+    interval: string,
+    symbol?: string,
+    metric?: string
+  ): { value: number; insufficientData: boolean } {
+    const len = index + 1;
+    if (len <= 0) return { value: 0, insufficientData: true };
 
-    const minNeeded = period + 1;
-    const lastCandle = candles[len - 1];
-    const cacheKey = symbol ? `${symbol}:${interval}:${period}:${lastCandle.time}:${lastCandle.close}:${len}` : null;
+    const targetCandle = candles[index];
+    const cacheKey = symbol ? `${symbol}:${interval}:${period}:${targetCandle.time}:${targetCandle.close}:${len}` : null;
     if (cacheKey) {
       const cached = this.emaCache.get(cacheKey);
       if (cached) return cached;
     }
 
     const insufficientData = len < period * 2;
-    if (insufficientData && symbol) {
-      const warningKey = `${symbol}:${metric || 'EMA'}:${period}`;
-      if (!this.warningCache.has(warningKey)) {
-        this.logger.warn(`[Convergence] ${symbol}: Sub-optimal data for ${metric || 'EMA'}(${period}). Available: ${len}, Recommended: ${period * 2}.`);
-        this.warningCache.add(warningKey);
-      }
-    }
+    const minNeeded = period + 1;
 
-    // For absolute minimum histories (less than period + 1), just use SMA
+    // For absolute minimum histories, just use SMA
     if (len < minNeeded) {
       const res = { value: this.calculateSMA(candles, 0, len), insufficientData: true };
       if (cacheKey) this.emaCache.set(cacheKey, res);
@@ -700,42 +723,54 @@ export class SignalEngineService {
     const multiplier = 2 / (period + 1);
     let ema = 0;
 
-    // BOLT OPTIMIZATION: Try O(1) incremental path using stable prefix from last closed candle
+    // BOLT OPTIMIZATION: Try incremental path for the most common case (last or second-to-last candle)
+    const isLiveUpdate = index === candles.length - 1;
+    const isCompletedUpdate = index === candles.length - 2;
     const stableKey = symbol ? `${symbol}:${interval}:${period}` : null;
-    const prevCandle = candles[len - 2];
-    const stable = stableKey ? this.emaStableCache.get(stableKey) : null;
+    const stable = (stableKey && (isLiveUpdate || isCompletedUpdate)) ? this.emaStableCache.get(stableKey) : null;
 
-    if (stable && stable.time === prevCandle.time && stable.count === len - 1) {
-      // Incremental Update (O(1))
-      ema = stable.value + multiplier * (lastCandle.close - stable.value);
-    } else {
+    // Case 1: Calculating for the live candle using the stable prefix
+    if (isLiveUpdate && stable && stable.time === candles[index - 1].time && stable.count === index) {
+      ema = stable.value + multiplier * (targetCandle.close - stable.value);
+    }
+    // Case 2: Calculating for the last completed candle (it IS the stable prefix)
+    else if (isCompletedUpdate && stable && stable.time === targetCandle.time && stable.count === len) {
+      ema = stable.value;
+    }
+    else {
       // Full Scan (O(N))
       ema = this.calculateSMA(candles, 0, period);
-      for (let i = period; i < len - 1; i++) {
+      for (let i = period; i < len; i++) {
         ema += multiplier * (candles[i].close - ema);
       }
 
-      // Populate stable cache with the EMA of all COMPLETED candles (up to len - 1)
-      if (stableKey) {
+      // Maintain stable cache if we just scanned up to the last completed candle
+      if (stableKey && index === candles.length - 2) {
         this.emaStableCache.set(stableKey, {
-          time: prevCandle.time,
+          time: targetCandle.time,
           value: ema,
-          count: len - 1,
+          count: len,
         });
       }
-
-      // Final step: Include the current live candle
-      ema += multiplier * (lastCandle.close - ema);
     }
 
     const result = { value: ema, insufficientData };
     if (cacheKey) {
       this.emaCache.set(cacheKey, result);
-      if (this.emaCache.size > 500) {
-        const firstKey = this.emaCache.keys().next().value;
-        if (firstKey) this.emaCache.delete(firstKey);
+      if (this.emaCache.size > 1000) {
+        // Simple LRU: remove oldest entries if cache grows too large
+        const keys = Array.from(this.emaCache.keys());
+        for (let i = 0; i < 100; i++) this.emaCache.delete(keys[i]);
       }
     }
     return result;
+  }
+
+  /**
+   * Calculates EMA using the full available candle history for maximum convergence.
+   * BOLT OPTIMIZATION: Uses stable cache to provide O(1) incremental updates for the live candle.
+   */
+  private calculateEMA(candles: any[], period: number, interval: string, symbol?: string, metric?: string): { value: number; insufficientData: boolean } {
+    return this.calculateEMAAt(candles, candles.length - 1, period, interval, symbol, metric);
   }
 }

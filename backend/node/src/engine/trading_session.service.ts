@@ -649,6 +649,7 @@ export class TradingSessionService implements OnApplicationShutdown {
   getActiveTradeCount(): number { return this.positionTracker.activeCount(); }
   getActiveTradeSymbols(): string[] { return this.positionTracker.activeList().map(t => t.symbol); }
   getActiveTradesRaw(): Trade[] { return this.positionTracker.activeList(); }
+  addTrade(trade: Trade) { this.positionTracker.addTrade(trade); }
 
   async startUds(client: any) {
     await this.sessionLifecycle.startUserDataStream(client);
@@ -740,6 +741,10 @@ export class TradingSessionService implements OnApplicationShutdown {
 
   updateRateLimit(used1m: number) { this.sessionState.updateRateLimit(used1m); }
   isRateLimited(): boolean { return this.sessionState.isRateLimited(); }
+
+  reconcileMilestoneFromSl(trade: Trade, slPrice: number, config: SessionConfig): number {
+    return this.positionTracker.reconcileMilestoneFromSl(trade, slPrice, config);
+  }
   getBinanceRateLimit() { return this.sessionState.getBinanceRateLimit(); }
   getClosedTrades(): Trade[] { return this.sessionState.closedTrades; }
 

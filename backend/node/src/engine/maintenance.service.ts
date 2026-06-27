@@ -174,8 +174,14 @@ export class MaintenanceService {
                   this.logger.log(`[Watchdog] ${trade.symbol} syncing SL price from exchange: ${trade.current_sl} -> ${exSlPrice}`);
                   trade.current_sl = exSlPrice;
 
+                  const risk = Math.abs(trade.entry_price - trade.current_sl);
+                  trade.risk_usdt = roundEight(risk * trade.qty);
+
                   // SRE: Reconcile rr_sequence_index based on adopted SL price
-                  this.reconcileMilestoneFromSl(trade, exSlPrice, tradeConfig);
+                  this.positionTracker.reconcileMilestoneFromSl(trade, exSlPrice, tradeConfig);
+
+                  // Re-seed to ensure all internal maps and risk totals are in sync
+                  this.positionTracker.addTrade(trade);
                 }
 
                 trade.updated_at = new Date();
@@ -228,41 +234,6 @@ export class MaintenanceService {
       this.logger.error(`[Watchdog] Audit failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       if (!targetSymbol) this.isProcessingWatchdog = false;
-    }
-  }
-
-  /**
-   * SRE: State reconciliation for SL ratcheting.
-   * If we adopt an untracked SL, we derive the most likely milestone index
-   * to ensure the local 'rr_sequence_index' state is consistent for future ratchets.
-   */
-  private reconcileMilestoneFromSl(trade: Trade, slPrice: number, config: SessionConfig) {
-    const risk = Math.abs(trade.entry_price - trade.initial_sl);
-    if (risk <= 0) return;
-
-    const exitRrSequence = config.exit_rr_sequence || [];
-    let bestIndex = trade.rr_sequence_index ?? -1;
-
-    for (let i = 0; i < exitRrSequence.length; i++) {
-      const exitRr = exitRrSequence[i];
-      let milestoneSl: number;
-
-      if (trade.direction === 'LONG') {
-        milestoneSl = trade.entry_price + risk * exitRr;
-      } else {
-        milestoneSl = trade.entry_price - risk * exitRr;
-      }
-
-      // If exchange SL matches (or is very close to) this milestone price
-      if (Math.abs(milestoneSl - slPrice) / slPrice < 0.0001) {
-        bestIndex = i;
-      }
-    }
-
-    if (bestIndex !== trade.rr_sequence_index) {
-      this.logger.log(`[Watchdog] ${trade.symbol} reconciling milestone index from SL price: ${trade.rr_sequence_index} -> ${bestIndex}`);
-      trade.rr_sequence_index = bestIndex;
-      this.positionTracker.addTrade(trade); // Re-seeds rrSequenceIndex map
     }
   }
 

@@ -90,10 +90,10 @@ describe('SignalEngineService - ema_dual_close', () => {
     expect(result.details?.ema_dual_close.fired).toBe(true);
   });
 
-  it('should fire LONG exit if price crosses below either EMA', () => {
-    // Price 100 for a long time, then we drop to 90.
-    // Both EMAs will be > 90.
-    const prices = [...Array(40).fill(100), 90];
+  it('should fire LONG exit if price crosses below either EMA in the last COMPLETED candle', () => {
+    // Price 100 for a long time, then we drop to 90 (completed), then 90 again (live).
+    // Both EMAs will be > 90 for the completed candle.
+    const prices = [...Array(40).fill(100), 90, 90];
     const candles = mockCandles(prices);
     (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 
@@ -106,5 +106,23 @@ describe('SignalEngineService - ema_dual_close', () => {
 
     const result = service.checkEntry('BTCUSDT', config, '1m', 'LONG', 'exit');
     expect(result.allFired).toBe(true);
+  });
+
+  it('should NOT fire exit based on mid-candle (live) crossing', () => {
+    // Price 100 (completed), then 90 (live).
+    // The completed candle (100) is still above EMAs, so no exit should fire.
+    const prices = [...Array(41).fill(100), 90];
+    const candles = mockCandles(prices);
+    (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
+
+    const config = new SessionConfig();
+    config.enabled_signals = ['ema_dual_close'];
+    config.signal_params = {
+      exit_ema_fast: 5,
+      exit_ema_slow: 10,
+    };
+
+    const result = service.checkEntry('BTCUSDT', config, '1m', 'LONG', 'exit');
+    expect(result.allFired).toBe(false);
   });
 });

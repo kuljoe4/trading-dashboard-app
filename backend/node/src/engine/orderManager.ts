@@ -944,7 +944,9 @@ export class OrderManagerService {
            ? currentSlPrice >= trade.entry_price * (1 + feeBuffer)
            : currentSlPrice <= trade.entry_price * (1 - feeBuffer);
 
-        const canAdapt = adaptiveAttempts < MAX_ADAPTIVE_ATTEMPTS && isProfitable;
+        // DATA-07: For reconciliation trades, we allow adaptation even if not strictly "profitable"
+        // to give the system a chance to protect the position without immediate closure.
+        const canAdapt = adaptiveAttempts < MAX_ADAPTIVE_ATTEMPTS && (isProfitable || trade.is_reconciliation);
 
         if (canAdapt) {
            adaptiveAttempts++;
@@ -1056,7 +1058,7 @@ export class OrderManagerService {
                ? currentSlPrice >= trade.entry_price * (1 + feeBuffer)
                : currentSlPrice <= trade.entry_price * (1 - feeBuffer);
 
-            const canAdapt = adaptiveAttempts < MAX_ADAPTIVE_ATTEMPTS && isProfitable;
+            const canAdapt = adaptiveAttempts < MAX_ADAPTIVE_ATTEMPTS && (isProfitable || trade.is_reconciliation);
 
             if (canAdapt) {
                adaptiveAttempts++;
@@ -1155,7 +1157,7 @@ export class OrderManagerService {
              ? currentSlPrice >= trade.entry_price * (1 + feeBuffer)
              : currentSlPrice <= trade.entry_price * (1 - feeBuffer);
 
-          const canAdapt = adaptiveAttempts < MAX_ADAPTIVE_ATTEMPTS && isProfitable;
+          const canAdapt = adaptiveAttempts < MAX_ADAPTIVE_ATTEMPTS && (isProfitable || trade.is_reconciliation);
 
           if (canAdapt) {
              adaptiveAttempts++;

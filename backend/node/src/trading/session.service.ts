@@ -1078,6 +1078,7 @@ export class SessionService implements OnModuleInit {
           const imported = await this.adoptExchangePositions(
             ghostPositions,
             mode,
+            config,
             allOpenOrders,
           );
           if (imported.length > 0) {
@@ -1273,15 +1274,16 @@ export class SessionService implements OnModuleInit {
         const imported = await this.adoptExchangePositions(
           ghostPositions,
           mode,
+          session?.config || null,
           allOpenOrders,
         );
 
         // Hot-add adopted trades to the running engine
         for (const t of imported) {
           const tradeModel = plainToInstance(Trade, t);
-          this.tradingSessionService
-            .getActiveTradesRaw()
-            .push(tradeModel as any);
+          // BOLT: Use addTrade to ensure PositionTracker correctly initializes milestone state
+          this.tradingSessionService.addTrade(tradeModel as any);
+
           this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, {
             trade: tradeModel,
           });
@@ -1308,6 +1310,7 @@ export class SessionService implements OnModuleInit {
   private async adoptExchangePositions(
     ghostPositions: any[],
     mode: string,
+    config: SessionConfig | null,
     preFetchedOrders?: any[],
   ): Promise<TradeEntity[]> {
     const imported: TradeEntity[] = [];
@@ -1357,10 +1360,11 @@ export class SessionService implements OnModuleInit {
           continue;
         }
 
-        // RESEARCH: Attempt to discover existing SL protection on exchange for this position
+        // RESEARCH: Attempt to discover existing SL/TP protection on exchange for this position
         let slPrice = 0;
         let slId = undefined;
         let slType = undefined;
+        let tpPrice = 0;
 
         try {
           // Targeted Audit for this ghost position if not already fetched
@@ -1373,41 +1377,73 @@ export class SessionService implements OnModuleInit {
           exOrders = exOrders || [];
 
           // COMPLIANCE: Recognize more SL/TP order types during adoption
-          const slOrder = exOrders.find((o: any) => {
+          const isSl = (o: any) => {
             const type = (o.type || o.algoType || "").toUpperCase();
-            const isSlType =
-              type.includes("STOP") || type.includes("TAKE_PROFIT");
-            const isReduce =
-              o.reduceOnly === true ||
-              o.reduceOnly === "true" ||
-              o.closePosition === true ||
-              o.closePosition === "true";
-            return isSlType && isReduce;
-          });
+            return type.includes("STOP");
+          };
+          const isTp = (o: any) => {
+            const type = (o.type || o.algoType || "").toUpperCase();
+            return type.includes("TAKE_PROFIT");
+          };
+          const isReduce = (o: any) =>
+            o.reduceOnly === true ||
+            o.reduceOnly === "true" ||
+            o.closePosition === true ||
+            o.closePosition === "true";
+
+          const slOrder = exOrders.find((o) => isSl(o) && isReduce(o));
+          const tpOrder = exOrders.find((o) => isTp(o) && isReduce(o));
 
           if (slOrder) {
-            slPrice = parseFloat(
-              slOrder.stopPrice || slOrder.triggerPrice || "0",
-            );
+            slPrice = parseFloat(slOrder.stopPrice || slOrder.triggerPrice || "0");
             slId = String(slOrder.algoId || slOrder.orderId);
             slType = slOrder.algoId || slOrder.algoType ? "algo" : "standard";
-            this.logger.log(
-              `[Reconciliation] Found existing ${slOrder.type} for ${exPos.symbol}: ${slId} @ ${slPrice}`,
-            );
-          } else {
-            this.logger.debug(
-              `[Reconciliation] No SL order found for ghost position ${exPos.symbol}. Total orders checked for symbol: ${exOrders.length}`,
-            );
+            this.logger.log(`[Reconciliation] Found existing SL for ${exPos.symbol}: ${slId} @ ${slPrice}`);
+          }
+          if (tpOrder) {
+            tpPrice = parseFloat(tpOrder.stopPrice || tpOrder.triggerPrice || "0");
+            this.logger.log(`[Reconciliation] Found existing TP for ${exPos.symbol} @ ${tpPrice}`);
+          }
+
+          if (!slOrder) {
+            this.logger.debug(`[Reconciliation] No SL order found for ghost position ${exPos.symbol}. Total orders checked for symbol: ${exOrders.length}`);
           }
         } catch (orderErr) {
-          this.logger.warn(
-            `[Reconciliation] Failed to fetch existing orders for ${exPos.symbol}: ${orderErr instanceof Error ? orderErr.message : String(orderErr)}`,
-          );
+          this.logger.warn(`[Reconciliation] Failed to fetch existing orders for ${exPos.symbol}: ${orderErr instanceof Error ? orderErr.message : String(orderErr)}`);
         }
 
         const msg = `CRITICAL: Found exchange-only position for ${exPos.symbol} (${direction} ${qty} @ ${entryPrice}). ${slId ? "Discovered existing SL at " + slPrice : "No SL found"}. Importing as synthetic trade. Mode: ${mode.toUpperCase()}`;
         this.logger.error(msg);
         await this.logMessage(msg, "error");
+
+        // DATA-07: Restore full state of the trade including exit strategy baseline.
+        // Use session's sl_distance_pct to estimate a more realistic initial_sl if none exists,
+        // providing a better baseline for ratcheting RR calculations.
+        const slDistPct = config?.sl_distance_pct || 2.0;
+        const estimatedInitialSl = entryPrice * (direction === "LONG" ? (1 - slDistPct / 100) : (1 + slDistPct / 100));
+
+        // Intelligence: If the exchange SL is further away than our estimate, it's likely the true initial SL.
+        let initialSl = estimatedInitialSl;
+        if (slPrice > 0) {
+          const isFurther = direction === 'LONG' ? slPrice < estimatedInitialSl : slPrice > estimatedInitialSl;
+          if (isFurther) initialSl = slPrice;
+        }
+
+        let rrSequenceIndex = -1;
+        let maxRrAchieved = 0;
+        if (slPrice > 0 && config) {
+          const tempTrade = {
+            symbol: exPos.symbol,
+            direction,
+            entry_price: entryPrice,
+            initial_sl: initialSl,
+            rr_sequence_index: -1,
+            max_rr_achieved: 0,
+          } as any;
+          rrSequenceIndex = this.tradingSessionService.reconcileMilestoneFromSl(tempTrade, slPrice, config as any);
+          maxRrAchieved = tempTrade.max_rr_achieved;
+          this.logger.log(`[Reconciliation] Adopted ${exPos.symbol} reconciled milestone index: ${rrSequenceIndex}, peak RR: ${maxRrAchieved}`);
+        }
 
         // Create synthetic trade for tracking/protection
         const syntheticTrade = this.tradeRepository.create({
@@ -1416,30 +1452,41 @@ export class SessionService implements OnModuleInit {
           direction,
           entry_price: entryPrice,
           qty,
-          initial_sl:
-            slPrice || entryPrice * (direction === "LONG" ? 0.98 : 1.02),
-          current_sl:
-            slPrice || entryPrice * (direction === "LONG" ? 0.98 : 1.02),
+          initial_sl: initialSl,
+          current_sl: slPrice || initialSl,
+          tp: tpPrice || null,
+          rr_sequence_index: rrSequenceIndex,
+          max_rr_achieved: maxRrAchieved,
           status: "OPEN" as any,
           sessionId: this.currentSessionId,
           entry_ts: new Date(),
           is_reconciliation: true,
           rr_sequence_index: -1,
           strategy_label: "Exchange Reconciliation",
-          strategy_config: { trading_mode: mode, paper_mode: mode === 'paper' },
+          strategy_config: {
+            ...config,
+            trading_mode: mode,
+            paper_mode: mode === 'paper',
+            strategy_label: "Exchange Reconciliation"
+          },
           close_attempts: 0,
           close_blocked: false,
           binance_order_id: "RECON-" + uuid().substring(0, 8),
           binance_stop_order_id: slId,
           binance_stop_order_type: slType as any,
           pnl: 0,
-          risk_usdt: roundEight(
-            Math.abs(entryPrice - (slPrice || entryPrice * 0.98)) * qty,
-          ),
+          risk_usdt: roundEight(Math.abs(entryPrice - (slPrice || initialSl)) * qty),
+          initial_risk_usdt: roundEight(Math.abs(entryPrice - initialSl) * qty),
+          mark_price: parseFloat(exPos.markPrice || "0") || entryPrice,
+          last_price: entryPrice,
           updated_at: new Date(),
         });
 
         await this.tradeRepository.save(syntheticTrade);
+        // BOLT: Add to PositionTracker immediately so it's initialized correctly for the engine
+        const tradeModel = plainToInstance(Trade, syntheticTrade);
+        this.tradingSessionService.addTrade(tradeModel as any);
+
         imported.push(syntheticTrade);
       } catch (innerErr) {
         this.logger.error(

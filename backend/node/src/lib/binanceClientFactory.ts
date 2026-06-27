@@ -50,30 +50,44 @@ export class BinanceClientFactory {
     // ARCHITECTURAL FIX: Override SDK's internal URL building to support dedicated gateways
     // /private (for listenKey), /market (for anonymous market streams), and /public (HF data)
     const originalConnect = client.websocketStreams.connect.bind(client.websocketStreams);
-    client.websocketStreams.connect = async (params: any) => {
+    client.websocketStreams.connect = (async (params: any): Promise<any> => {
       // UDS streams use the listenKey (string without @ or !), while market streams use @ (kline, ticker) or ! (miniTicker)
       const isPrivate = !!params.stream && !params.stream.includes('@') && !params.stream.includes('!');
+      const isHF = !!params.stream && params.stream.includes('!');
 
       let gatewayURL = wsURL;
       const urlObj = new URL(wsURL);
 
       if (isPrivate) {
         // SRE: Strictly route private listenKey traffic to the /private gateway for PROD.
-        // Testnet doesn't support dedicated gateways, so we keep it standard.
         if (!isTestnet) urlObj.pathname = '/private';
         else urlObj.pathname = '/ws';
       } else {
         // Market/Public data traffic routes to /market or /public for PROD.
-        // BOLT: Recognize high-frequency global streams (starting with !) and route to /public.
-        const isHF = !!params.stream && params.stream.startsWith('!');
+        // BOLT: Recognize high-frequency global streams (containing !) and route to /public.
         if (!isTestnet) urlObj.pathname = isHF ? '/public' : '/market';
         else urlObj.pathname = params.stream?.includes('/') ? '/stream' : '/ws';
       }
 
-      gatewayURL = urlObj.origin + urlObj.pathname;
+      // SRE: Correct construction of the final WebSocket URL for the SDK.
+      // Our gateway ALWAYS expects /stream?streams= format for anonymous market/public streams.
+      const useCombinedFormat = !isPrivate;
+      if (!isTestnet && useCombinedFormat) {
+          urlObj.pathname = urlObj.pathname.replace(/\/$/, '') + '/stream';
+          gatewayURL = urlObj.origin + urlObj.pathname;
 
-      // BOLT: Only log once per stream to avoid noise in the console.
-      this.logger.debug(`[BinanceClient] Routing WS connection to gateway: ${gatewayURL} | isPrivate=${isPrivate} | stream=${params.stream?.substring(0, 10)}...`);
+          // BOLT: Manual construction to bypass SDK logic and ensure /stream?streams= is used.
+          const finalUrl = `${gatewayURL}?streams=${params.stream}`;
+          this.logger.debug(`[BinanceClient] Connecting to gateway (Manual): ${finalUrl.substring(0, 100)}... | isHF=${isHF}`);
+
+          const ws = new WebSocket(finalUrl);
+          // SDK expected interface: disconnect() method
+          (ws as any).disconnect = () => (ws as any).terminate();
+          return ws as any;
+      }
+
+      gatewayURL = urlObj.origin + urlObj.pathname;
+      this.logger.debug(`[BinanceClient] Routing WS connection to gateway: ${gatewayURL} | isPrivate=${isPrivate} | isHF=${isHF} | stream=${params.stream?.substring(0, 30)}...`);
 
       const originalWsURL = (client.websocketStreams as any).wsURL;
       (client.websocketStreams as any).wsURL = gatewayURL;
@@ -82,7 +96,7 @@ export class BinanceClientFactory {
       } finally {
         (client.websocketStreams as any).wsURL = originalWsURL;
       }
-    };
+    }) as any;
 
     // Wrap restAPI with a Throttled Proxy to prevent startup bursts and respect rate limits
     const originalRestApi = client.restAPI;

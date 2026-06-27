@@ -645,7 +645,7 @@ export class OrderManagerService {
             symbol,
             side: binanceDirection as any,
             type: 'MARKET',
-            quantity: qty.toFixed(qtyPrecision),
+            quantity: Number(qty).toFixed(qtyPrecision),
             newOrderRespType: 'RESULT',
             newClientOrderId: entryOrderId,
             selfTradePreventionMode: 'EXPIRE_MAKER', // Hardening: Prevent self-trading
@@ -1011,7 +1011,7 @@ export class OrderManagerService {
         side: closeDirection as any,
         algoType: 'CONDITIONAL',
         type: 'STOP_MARKET',
-        quantity: trade.qty.toFixed(qtyPrecision),
+        quantity: Number(trade.qty).toFixed(qtyPrecision),
         triggerPrice: currentSlPrice.toFixed(pricePrecision),
         workingType: 'MARK_PRICE',
         newClientOrderId: `sl-${trade.id.substring(0, 8)}`,
@@ -1915,6 +1915,17 @@ export class OrderManagerService {
         if (exitReason === EXIT_REASONS.EXCHANGE_SYNC) exitReason = EXIT_REASONS.EXCHANGE_SYNC_RECOVERY;
       }
 
+      // DATA-CONSISTENCY: For localOnly syncs in live mode, we must still estimate the exit fee
+      // since the exchange actually collected it during the external SL/TP/Manual hit.
+      if (!paperMode && localOnly) {
+         const feeRate = this.takerFeeRate || 0.0004;
+         const exitFee = roundEight(exitPrice * trade.qty * feeRate);
+         if (!isNaN(exitFee) && exitFee > 0) {
+            this.logger.debug(`[${symbol}] [Sync] Estimating exit fee for local-only closure: ${exitFee}`);
+            trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + exitFee);
+         }
+      }
+
       // In live mode, place close order with reduce-only for safety
       // BOLT: Support both standard binance_order_id and RECON- prefixed IDs for imported trades
       const hasOrderId = trade.binance_order_id && trade.binance_order_id !== '';
@@ -1958,7 +1969,7 @@ export class OrderManagerService {
                 symbol,
                 side: closeDirection,
                 type: 'MARKET',
-                quantity: parseFloat(filteredExit.qty.toFixed(qtyPrecision)),
+                quantity: parseFloat(Number(filteredExit.qty).toFixed(qtyPrecision)),
                 reduceOnly: true,
                 newOrderRespType: 'RESULT',
                 newClientOrderId: clientOrderId,
@@ -1972,7 +1983,7 @@ export class OrderManagerService {
                 const code = orderData.code;
                 const msg = orderData.msg || '';
 
-                if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
+                if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId') || msg.includes('Duplicate order')) {
                   this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId on close retry. Recovering close state...`);
                   const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: clientOrderId });
                   this.updateWeight(queryRes?.headers);
@@ -2215,8 +2226,8 @@ export class OrderManagerService {
                       symbol,
                       side: trade.direction === 'LONG' ? 'SELL' : 'BUY',
                       type: 'LIMIT',
-                      quantity: filteredLimit.qty.toFixed(limitQtyPrecision),
-                      price: filteredLimit.price.toFixed(8),
+                      quantity: Number(filteredLimit.qty).toFixed(limitQtyPrecision),
+                      price: Number(filteredLimit.price).toFixed(8),
                       timeInForce: 'IOC',
                       reduceOnly: true,
                       newClientOrderId: clientOrderId

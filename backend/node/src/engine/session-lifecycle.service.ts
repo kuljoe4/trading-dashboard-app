@@ -321,9 +321,17 @@ export class SessionLifecycleService {
 
           // Authoritative Quantity Sync
           if (Math.abs(trade.qty - absoluteAmount) > 0.00000001) {
-            this.logger.log(`[${tradeIdShort8}] [Sync] Updating quantity from ACCOUNT_UPDATE for ${symbol}: ${trade.qty} -> ${absoluteAmount}`);
-            trade.qty = absoluteAmount;
-            this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: absoluteAmount });
+            // SRE: Race condition guard - ignore quantity decreases if we are likely in an external SL fill sequence
+            // A quantity decrease without a local 'closing' flag usually means an exchange-side order (like SL) is filling.
+            // We must wait for the authoritative ORDER_TRADE_UPDATE (FILLED) event to close the trade with the correct qty.
+            const isDecrease = absoluteAmount < trade.qty;
+            if (isDecrease && !this.positionTracker.isClosing(symbol) && !this.orderManager.isRatcheting(symbol)) {
+               this.logger.debug(`[${tradeIdShort8}] [Sync] Ignoring quantity decrease for ${symbol} (${trade.qty} -> ${absoluteAmount}) - likely external SL fill.`);
+            } else {
+               this.logger.log(`[${tradeIdShort8}] [Sync] Updating quantity from ACCOUNT_UPDATE for ${symbol}: ${trade.qty} -> ${absoluteAmount}`);
+               trade.qty = absoluteAmount;
+               this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: absoluteAmount });
+            }
           }
         }
 

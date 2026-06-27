@@ -62,6 +62,7 @@ export class TradingSessionService implements OnApplicationShutdown {
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
   private _lastGateBroadcastTs = 0;
   private hibernateGraceTimeout: NodeJS.Timeout | null = null;
+  private inFlightExchangeCloses: Set<string> = new Set();
 
   private cachedStrategyConfigs: SessionConfig[] | null = null;
   private cachedScanSignatures: Map<SessionConfig, string> = new Map();
@@ -780,13 +781,18 @@ export class TradingSessionService implements OnApplicationShutdown {
     if (!this.running) return;
     const { symbol, exitPrice, reason, isReconciliation } = payload;
 
-    // SRE: Idempotency guard - check if we are already closing this symbol in the position tracker
-    if (this.positionTracker.isClosing(symbol)) {
-       this.logger.debug(`[Idempotency] Dropping redundant exchange_close event for ${symbol} (Reason: ${reason}). Already closing.`);
+    // SRE: Idempotency guard - check if we are already closing this symbol
+    if (this.inFlightExchangeCloses.has(symbol) || this.positionTracker.isClosing(symbol)) {
+       this.logger.debug(`[Idempotency] Dropping redundant exchange_close event for ${symbol} (Reason: ${reason}). Already in-flight or closing.`);
        return;
     }
 
     const trade = this.positionTracker.activeList().find(t => t.symbol === symbol);
+    if (!trade) return;
+
+    this.inFlightExchangeCloses.add(symbol);
+
+    try {
     if (!trade) return;
 
     this.logger.log(`Handling exchange-triggered close for ${symbol} @ ${exitPrice} (${reason})`);
@@ -805,12 +811,16 @@ export class TradingSessionService implements OnApplicationShutdown {
       const finalizedReason = res.trade.exit_reason || reason;
       await this.finalizeTradeClosure(res.trade, exitPrice, finalizedReason);
     }
+    } finally {
+      this.inFlightExchangeCloses.delete(symbol);
+    }
   }
 
   private async finalizeTradeClosure(trade: Trade, exitPrice: number, reason: string) {
-      // SRE: Immediate cooldown on exit (Issue 3)
+      // SRE: Immediate cooldown on exit (Issue 3). Defaults to 2m if min_trade_interval_min is 0/undefined.
       const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
-      this.executionService.setCooldown(trade.symbol, mode, 2);
+      const cooldownMin = this.config?.min_trade_interval_min || 2;
+      this.executionService.setCooldown(trade.symbol, mode, cooldownMin);
 
       this.sessionState.updateStatsOnClose((trade.pnl || 0) > 0, trade.pnl || 0, trade.is_reconciliation);
       await this.updateBalance(trade);

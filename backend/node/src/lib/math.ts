@@ -11,8 +11,10 @@ const POWERS_OF_10 = [1, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10];
  * Replaced string-based exponential rounding with O(1) math ops.
  * Approximately 40x faster than previous implementation.
  */
-export function roundEight(value: number): number {
-  return Math.round(value * 1e8) / 1e8;
+export function roundEight(value: number | string): number {
+  const n = Number(value);
+  if (isNaN(n)) return 0;
+  return Math.round(n * 1e8) / 1e8;
 }
 
 /**
@@ -20,25 +22,28 @@ export function roundEight(value: number): number {
  * Replaced toFixed() + Number() with math-based rounding to avoid string allocations and parsing.
  * Approximately 8-10x faster than toFixed().
  */
-export function roundTo(value: number | undefined | null, decimals: number): number {
-  if (value === undefined || value === null || value === 0 || !Number.isFinite(value)) return 0;
+export function roundTo(value: number | string | undefined | null, decimals: number): number {
+  const n = Number(value);
+  if (value === undefined || value === null || isNaN(n) || n === 0 || !Number.isFinite(n)) return 0;
   const p = decimals < POWERS_OF_10.length ? POWERS_OF_10[decimals] : Math.pow(10, decimals);
   // Add Number.EPSILON to handle floating point precision errors (e.g. 1.005 rounding correctly to 1.01)
-  return Math.round((value + Number.EPSILON) * p) / p;
+  return Math.round((n + Number.EPSILON) * p) / p;
 }
 
 /**
  * BOLT OPTIMIZATION: Rounds down to a step size (e.g. for Binance LOT_SIZE)
  * Refactored to use roundTo instead of toFixed() to eliminate string overhead in the hot path.
  */
-export function floorStep(value: number, step: number): number {
-  if (!step || step === 0) return value;
+export function floorStep(value: number | string, step: number | string): number {
+  const n = Number(value);
+  const s = Number(step);
+  if (!s || s === 0 || isNaN(n)) return isNaN(n) ? 0 : n;
 
   // Perform the raw floor operation
-  const floored = Math.floor(value / step) * step;
+  const floored = Math.floor(n / s) * s;
 
   // Calculate precision from step size (e.g. 0.01 -> 2)
-  const precision = Math.log10(1 / step);
+  const precision = Math.log10(1 / s);
   if (precision <= 0) return floored;
 
   // Use roundTo to clean up any floating point artifacts from the multiplication

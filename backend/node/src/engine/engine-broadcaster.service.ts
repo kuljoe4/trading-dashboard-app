@@ -347,8 +347,8 @@ export class EngineBroadcasterService {
           tradeChanged = true;
         } else {
           const pnlDelta = Math.abs(pnlValue - (prevTrade.pnl || 0));
-          // BOLT: Lowered threshold from 0.05 to 0.01 to ensure small PnL changes are reflected in UI
-          if (pnlDelta >= 0.01) {
+          // BOLT: Standard operational thresholds for broadcast balance.
+          if (pnlDelta >= 0.05) {
             tradeChanged = true;
             anyPriceChangedSignificant = true;
           } else {
@@ -448,8 +448,8 @@ export class EngineBroadcasterService {
 
     if (!shouldBroadcast) {
       const tradesChanged = trades.length > 0 || anyPriceChangedSignificant;
-      // BOLT: Lowered threshold from 0.1 to 0.01 to ensure total PnL updates are reactive for small accounts
-      const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) >= 0.01;
+      // BOLT: Standard threshold for total session PnL change (0.10 USDT)
+      const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) >= 0.10;
       const gateChanged = tickData.gateState !== this.lastTickData?.gateState;
       const statsChanged = tickData._statsVersion !== this.lastTickData?._statsVersion;
 

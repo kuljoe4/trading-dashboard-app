@@ -203,7 +203,7 @@ export class ExecutionService {
         const openPrice = ticker?.open_24h || price;
         const dailyChangeAtEntry = ((price - openPrice) / openPrice) * 100 * (opp.direction.toUpperCase() === 'LONG' ? 1 : -1);
 
-        this.logger.log(`[Risk Integrity] Reserving ${reservedRisk.toFixed(2)} USDT risk for ${opp.symbol} entry attempt.`);
+        this.logger.log(`[Risk Integrity] Reserving ${Number(reservedRisk || 0).toFixed(2)} USDT risk for ${opp.symbol} entry attempt.`);
 
         // SRE: Lock the entry pipeline before dispatching to Binance
         this.sessionState.entryInProgress = true;

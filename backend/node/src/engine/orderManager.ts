@@ -647,7 +647,7 @@ export class OrderManagerService {
             symbol,
             side: binanceDirection as any,
             type: 'MARKET',
-            quantity: Number(qty).toFixed(qtyPrecision),
+            quantity: Number(qty || 0).toFixed(qtyPrecision),
             newOrderRespType: 'RESULT',
             newClientOrderId: entryOrderId,
             selfTradePreventionMode: 'EXPIRE_MAKER', // Hardening: Prevent self-trading
@@ -1015,8 +1015,8 @@ export class OrderManagerService {
         side: closeDirection as any,
         algoType: 'CONDITIONAL',
         type: 'STOP_MARKET',
-        quantity: Number(trade.qty).toFixed(qtyPrecision),
-        triggerPrice: currentSlPrice.toFixed(pricePrecision),
+        quantity: Number(trade.qty || 0).toFixed(qtyPrecision),
+        triggerPrice: Number(currentSlPrice || 0).toFixed(pricePrecision),
         workingType: 'MARK_PRICE',
         newClientOrderId: `sl-${trade.id.substring(0, 8)}`,
         reduceOnly: true,
@@ -2032,7 +2032,7 @@ export class OrderManagerService {
                 symbol,
                 side: closeDirection,
                 type: 'MARKET',
-                quantity: parseFloat(Number(filteredExit.qty).toFixed(qtyPrecision)),
+                quantity: parseFloat(Number(filteredExit.qty || 0).toFixed(qtyPrecision)),
                 reduceOnly: true,
                 newOrderRespType: 'RESULT',
                 newClientOrderId: clientOrderId,
@@ -2255,7 +2255,7 @@ export class OrderManagerService {
                const markPrice = ticker?.mark_price || ticker?.price;
                const deviation = markPrice ? (Math.abs(exitPrice - markPrice) / markPrice * 100).toFixed(2) : 'unknown';
 
-               const tip = `The price is currently outside Binance's protection bands (${deviation}% deviation). Manual intervention on Binance website is REQUIRED to close this position.`;
+               const tip = `The price is currently outside Binance's protection bands (${typeof deviation === 'number' ? Number(deviation).toFixed(2) : deviation}% deviation). Manual intervention on Binance website is REQUIRED to close this position.`;
                this.logger.error(`${symbol}: Close failed due to price protection/deviation (Attempt ${trade.close_attempts}/${MAX_CLOSE_ATTEMPTS}). ${tip}. Error: [${errCode}] ${errMsg}`);
 
                // ROLLBACK: Re-place SL if it was cancelled and close failed
@@ -2289,8 +2289,8 @@ export class OrderManagerService {
                       symbol,
                       side: trade.direction === 'LONG' ? 'SELL' : 'BUY',
                       type: 'LIMIT',
-                      quantity: Number(filteredLimit.qty).toFixed(limitQtyPrecision),
-                      price: Number(filteredLimit.price).toFixed(8),
+                      quantity: Number(filteredLimit.qty || 0).toFixed(limitQtyPrecision),
+                      price: Number(filteredLimit.price || 0).toFixed(8),
                       timeInForce: 'IOC',
                       reduceOnly: true,
                       newClientOrderId: clientOrderId
@@ -2351,7 +2351,7 @@ export class OrderManagerService {
       const finalPnlPct = (notional !== 0) ? (finalNetPnl / notional) * 100 : 0;
       trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
 
-      this.logger.log(`[PnL Calculation] ${symbol}: ${trade.direction} Exit=${exitPrice}, Entry=${trade.entry_price}, Qty=${trade.qty}, Gross=${finalGrossPnl.toFixed(4)}, Fee=${trade.realized_fee?.toFixed(4)}, Net=${finalNetPnl.toFixed(4)}`);
+      this.logger.log(`[PnL Calculation] ${symbol}: ${trade.direction} Exit=${exitPrice}, Entry=${trade.entry_price}, Qty=${trade.qty}, Gross=${Number(finalGrossPnl || 0).toFixed(4)}, Fee=${Number(trade.realized_fee || 0).toFixed(4)}, Net=${Number(finalNetPnl || 0).toFixed(4)}`);
 
       trade.pnl = roundEight(Number.isFinite(finalNetPnl) ? finalNetPnl : 0);
 
@@ -2391,7 +2391,7 @@ export class OrderManagerService {
         trade.status = 'CLOSED';
       }
 
-      const msgCloseFinal = `Close: ${symbol} @ ${exitPrice} P&L=${trade.pnl.toFixed(2)} (${trade.pnl_pct.toFixed(2)}%) Fee=${trade.realized_fee} Reason=${exitReason}`;
+      const msgCloseFinal = `Close: ${symbol} @ ${exitPrice} P&L=${Number(trade.pnl || 0).toFixed(2)} (${Number(trade.pnl_pct || 0).toFixed(2)}%) Fee=${trade.realized_fee} Reason=${exitReason}`;
       this.logger.log(msgCloseFinal);
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgCloseFinal, level: 'info' });
 

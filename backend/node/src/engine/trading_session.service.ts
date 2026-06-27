@@ -650,6 +650,7 @@ export class TradingSessionService implements OnApplicationShutdown {
   getActiveTradeSymbols(): string[] { return this.positionTracker.activeList().map(t => t.symbol); }
   getActiveTradesRaw(): Trade[] { return this.positionTracker.activeList(); }
   addTrade(trade: Trade) { this.positionTracker.addTrade(trade); }
+  seedActiveTrades(trades: Trade[]) { this.sessionState.setActiveTrades(trades); }
 
   async startUds(client: any) {
     await this.sessionLifecycle.startUserDataStream(client);

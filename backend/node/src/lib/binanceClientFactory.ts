@@ -58,11 +58,16 @@ export class BinanceClientFactory {
       const urlObj = new URL(wsURL);
 
       if (isPrivate) {
-        // SRE: Strictly route private listenKey traffic to the /private gateway
-        urlObj.pathname = '/private';
+        // SRE: Strictly route private listenKey traffic to the /private gateway for PROD.
+        // Testnet doesn't support dedicated gateways, so we keep it standard.
+        if (!isTestnet) urlObj.pathname = '/private';
+        else urlObj.pathname = '/ws';
       } else {
-        // Market/Public data traffic routes to /market or /public
-        urlObj.pathname = '/market';
+        // Market/Public data traffic routes to /market or /public for PROD.
+        // BOLT: Recognize high-frequency global streams (starting with !) and route to /public.
+        const isHF = !!params.stream && params.stream.startsWith('!');
+        if (!isTestnet) urlObj.pathname = isHF ? '/public' : '/market';
+        else urlObj.pathname = params.stream?.includes('/') ? '/stream' : '/ws';
       }
 
       gatewayURL = urlObj.origin + urlObj.pathname;

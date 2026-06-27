@@ -81,11 +81,11 @@ export class MarketFeedService {
 
     const wsBasePublic = isTestnet
         ? 'wss://fstream.binancefuture.com/ws'
-        : ENGINE_CONSTANTS.BINANCE_WS_PUBLIC;
+        : (ENGINE_CONSTANTS.BINANCE_WS_PUBLIC.includes('/public') ? ENGINE_CONSTANTS.BINANCE_WS_PUBLIC : `${ENGINE_CONSTANTS.BINANCE_WS_BASE}/public`);
 
     const wsBaseMarket = isTestnet
         ? 'wss://fstream.binancefuture.com/stream'
-        : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
+        : (ENGINE_CONSTANTS.BINANCE_WS_MARKET.includes('/market') ? ENGINE_CONSTANTS.BINANCE_WS_MARKET : `${ENGINE_CONSTANTS.BINANCE_WS_BASE}/market`);
 
     // RESEARCH-02: Optimized Startup. loadFromDb() called via fetchExchangeInfo()
     // will now be called before any session start.

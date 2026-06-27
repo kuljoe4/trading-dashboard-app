@@ -100,7 +100,7 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
           value={localValue ?? ''}
           {...attrs}
           onChange={handleChange}
-          onBlur={commit}
+          onBlur={(e) => { commit(); attrs.onBlur?.(e); }}
           onKeyDown={(e) => { if (e.key === 'Enter') commit(); }}
           className="bg-surface border border-border rounded-xl px-4 py-2.5 text-sm font-mono font-bold text-text focus:border-accent outline-none transition-all hover:border-border-hover"
         />
@@ -394,25 +394,14 @@ const flattenConfig = (config) => {
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
   const addAlert = useTradingStore(state => state.addAlert);
 
-  // UX-MOBILE: Ensure inputs scroll into view when keyboard is active and reset scroll on dismissal
+  // UX-MOBILE: Ensure inputs scroll into view when keyboard is active
   useEffect(() => {
     if (!window.visualViewport) return;
     const handleResize = () => {
-      if (document.activeElement?.tagName === 'INPUT') {
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'SELECT') {
         setTimeout(() => {
           document.activeElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }, 100);
-      } else if (window.visualViewport.height >= window.innerHeight * 0.9) {
-        // Keyboard dismissed (viewport returned to nearly full height)
-        // Force a comprehensive scroll reset on all possible scroll containers
-        const reset = () => {
-          window.scrollTo(0, 0);
-          document.body.scrollTo(0, 0);
-          document.documentElement.scrollTo(0, 0);
-        };
-        reset();
-        // SRE: Double-tap reset for stubborn mobile browsers
-        setTimeout(reset, 100);
       }
     };
     window.visualViewport.addEventListener('resize', handleResize);
@@ -728,6 +717,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     return l.map((t, i) => [t, ex[i] ?? 0]);
   }, [cfg.live_rr_sequence, cfg.exit_rr_sequence])
 
+  const handleInputBlur = React.useCallback(() => {
+    // UX-MOBILE: Safe scroll correction for iOS/Chrome mobile keyboard dismissal
+    setTimeout(() => {
+      if (document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'SELECT') {
+        window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      }
+    }, 100);
+  }, []);
+
   const renderField = React.useCallback((label, key, type = 'number', opts = null, attrs = {}) => (
     <ConfigField
       label={label}
@@ -740,9 +738,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       error={errors[key]}
       warning={errors[`${key}_warn`]}
       opts={opts}
-      attrs={attrs}
+      attrs={{ ...attrs, onBlur: handleInputBlur }}
     />
-  ), [cfg, errors, setField]);
+  ), [cfg, errors, setField, handleInputBlur]);
 
   return (
     <div className="flex flex-col h-full bg-surface text-text overflow-hidden relative">

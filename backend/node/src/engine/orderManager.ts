@@ -735,8 +735,10 @@ export class OrderManagerService {
 
           // DATA-CONSISTENCY: Fallback for 0 price responses.
           // BOLT: Prioritize UDS. If UDS is connected, it will provide the entry price via ACCOUNT_UPDATE.
-          // We only call queryOrder (Weight 1) if absoluteEntryPrice is still 0 after a short debounce to allow UDS arrival.
+          // We only call queryOrder (Weight 1) if absoluteEntryPrice is still 0 after a 500ms debounce to allow UDS arrival.
           if (absoluteEntryPrice === 0 && trade.binance_order_id) {
+             await new Promise(resolve => setTimeout(resolve, 500));
+
              if (this.sessionState.realTimePositions.has(symbol)) {
                 absoluteEntryPrice = this.sessionState.realTimePositions.get(symbol)!.entryPrice;
                 if (absoluteEntryPrice > 0) {
@@ -1922,13 +1924,14 @@ export class OrderManagerService {
     options: { ignoreBlocked?: boolean } = {}
   ): Promise<{ trade: Trade; exitOccurred: boolean; closeBlocked?: boolean, error?: string }> {
     // SRE: Per-symbol concurrency lock to prevent overlapping closure attempts
-    if (!paperMode && !localOnly && this.closureLocks.get(symbol)) {
+    // BOLT: Lock is now universal to prevent race conditions during localOnly syncs (Issue 2)
+    if (this.closureLocks.get(symbol)) {
        this.logger.debug(`[${symbol}] Closure already in progress. Skipping redundant request.`);
        return { trade, exitOccurred: false };
     }
 
     try {
-      if (!paperMode && !localOnly) this.closureLocks.set(symbol, true);
+      this.closureLocks.set(symbol, true);
 
       // SRE-01: Only block if we are actually attempting an exchange operation.
       // localOnly syncs must always be allowed to clear "ghost" trades and blocked states.
@@ -2401,7 +2404,7 @@ export class OrderManagerService {
       this.logger.error(`Close failed: ${errMsg}`);
       return { trade, exitOccurred: false, error: errMsg };
     } finally {
-      if (!paperMode && !localOnly) this.closureLocks.delete(symbol);
+      this.closureLocks.delete(symbol);
     }
   }
 }

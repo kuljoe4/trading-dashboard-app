@@ -780,6 +780,12 @@ export class TradingSessionService implements OnApplicationShutdown {
     if (!this.running) return;
     const { symbol, exitPrice, reason, isReconciliation } = payload;
 
+    // SRE: Idempotency guard - check if we are already closing this symbol in the position tracker
+    if (this.positionTracker.isClosing(symbol)) {
+       this.logger.debug(`[Idempotency] Dropping redundant exchange_close event for ${symbol} (Reason: ${reason}). Already closing.`);
+       return;
+    }
+
     const trade = this.positionTracker.activeList().find(t => t.symbol === symbol);
     if (!trade) return;
 
@@ -802,6 +808,10 @@ export class TradingSessionService implements OnApplicationShutdown {
   }
 
   private async finalizeTradeClosure(trade: Trade, exitPrice: number, reason: string) {
+      // SRE: Immediate cooldown on exit (Issue 3)
+      const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
+      this.executionService.setCooldown(trade.symbol, mode, 2);
+
       this.sessionState.updateStatsOnClose((trade.pnl || 0) > 0, trade.pnl || 0, trade.is_reconciliation);
       await this.updateBalance(trade);
       this.sessionState.addClosedTrade(trade);

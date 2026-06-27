@@ -151,7 +151,7 @@ export class MaintenanceService {
           );
 
           if (!matchingOrder) {
-            const freshOrders = await this.orderManager.fetchOpenOrders(trade.symbol);
+            const freshOrders = await this.orderManager.fetchOpenOrders(trade.symbol, { forceFresh: true });
             const freshSlOrders = freshOrders.filter(isSlOrder);
             matchingOrder = freshSlOrders.find(o =>
               String(o.orderId) === trade.binance_stop_order_id ||

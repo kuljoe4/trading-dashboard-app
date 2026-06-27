@@ -49,4 +49,7 @@ export class Settings {
 
   @Column({ type: 'bigint', nullable: true })
   last_mode_sync: number;
+
+  @Column({ type: 'integer', nullable: true })
+  exchange_rate_limit: number;
 }

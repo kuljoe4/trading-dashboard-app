@@ -546,20 +546,43 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [cfg, presetName, generatedPresetName]);
 
   const savePreset = React.useCallback(async (explicitName) => {
+    const name = (explicitName || presetName || generatedPresetName || '').trim();
+    console.log(`[ConfigModal] Attempting to save preset: "${name}"`);
+
     try {
-      if (!validate(cfg)) return;
-      const name = (explicitName || presetName || generatedPresetName).trim();
+      if (!validate(cfg)) {
+        console.warn('[ConfigModal] Validation failed for preset save. Check other tabs for errors.');
+        addAlert({
+          level: 'error',
+          title: 'Validation Failed',
+          message: 'The strategy configuration has errors. Please check the Scanner, Strategy, and Risk tabs before saving.'
+        });
+        return;
+      }
+
       if (!name) {
         addAlert({ level: 'warn', title: 'Missing Name', message: 'Please provide a name for this strategy preset.' });
         return;
       }
 
-      const { strategy_variants, ...pc } = buildConfigToSave();
       setIsSaving(true);
+      let pc;
+      try {
+        pc = buildConfigToSave();
+      } catch (buildErr) {
+        console.error('[ConfigModal] Critical error building config:', buildErr);
+        addAlert({ level: 'error', title: 'Internal Error', message: 'Failed to construct configuration object. Check console for details.' });
+        setIsSaving(false);
+        return;
+      }
 
-      const res = await presetsAPI.save(name, { ...pc, strategy_label: name });
+      const { strategy_variants, ...params } = pc;
+      console.log(`[ConfigModal] Sending save request to API for "${name}"...`);
+
+      const res = await presetsAPI.save(name, { ...params, strategy_label: name });
 
       if (res && res.data) {
+        console.log(`[ConfigModal] Preset "${name}" saved successfully.`);
         setPresets(prev => [...prev.filter(p => p.name !== name), res.data]);
         setPresetName('');
         setSaveSuccess(true);
@@ -568,8 +591,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       }
     } catch (e) {
       console.error('[ConfigModal] Error saving preset:', e);
-      const errMsg = e.response?.data?.message || 'Could not store strategy preset in the database.';
-      addAlert({ level: 'error', title: 'Save Failed', message: errMsg });
+      const backendMsg = e.response?.data?.message;
+      const backendDetail = e.response?.data?.detail;
+      const errMsg = backendMsg || backendDetail || 'Could not store strategy preset in the database.';
+
+      addAlert({
+        level: 'error',
+        title: 'Save Failed',
+        message: typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg
+      });
     } finally {
       setIsSaving(false);
     }

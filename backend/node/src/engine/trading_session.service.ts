@@ -785,7 +785,9 @@ export class TradingSessionService implements OnApplicationShutdown {
 
     if (res.exitOccurred && res.trade) {
       if (isReconciliation) res.trade.is_reconciliation = true;
-      await this.finalizeTradeClosure(res.trade, exitPrice, reason);
+      // BOLT: Prioritize the more specific reason recovered from the exchange (e.g. SL_HIT vs EXCHANGE_SYNC)
+      const finalizedReason = res.trade.exit_reason || reason;
+      await this.finalizeTradeClosure(res.trade, exitPrice, finalizedReason);
     }
   }
 

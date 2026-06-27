@@ -1786,6 +1786,10 @@ export class OrderManagerService {
                       reason = `${EXIT_REASONS.SL_HIT}_${slType}`;
                    } else if (clientOrderId && clientOrderId.startsWith('cls-')) {
                       reason = EXIT_REASONS.MANUAL_CLOSE;
+                   } else if (clientOrderId && clientOrderId.startsWith('tp-')) {
+                      reason = EXIT_REASONS.TP_HIT;
+                   } else if (clientOrderId && clientOrderId.startsWith('sig-')) {
+                      reason = EXIT_REASONS.SIGNAL;
                    } else {
                       reason = EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
                    }
@@ -1988,7 +1992,12 @@ export class OrderManagerService {
           // BOLT OPTIMIZATION: Use pre-parsed precisions from filters
           const qtyPrecision = filters?.qtyPrecision ?? 8;
 
-          const clientOrderId = `cls-${trade.id.replace(/-/g, '').substring(0, 20)}`;
+          // BOLT: Use descriptive prefixes for exit context recovery
+          let prefix = 'cls'; // Default manual close
+          if (exitReason === EXIT_REASONS.TP_HIT) prefix = 'tp';
+          else if (exitReason.startsWith(EXIT_REASONS.SIGNAL) || exitReason === EXIT_REASONS.TRAILING_STOP) prefix = 'sig';
+
+          const clientOrderId = `${prefix}-${trade.id.replace(/-/g, '').substring(0, 20)}`;
 
           // COMPLIANCE: Ensure price filters and ticker-informed quantities are used for emergency closes
           // to stay within PERCENT_PRICE boundaries.

@@ -13,7 +13,7 @@ const Metric = memo(({ label, value, tooltip }) => (
     <div className="flex items-center gap-1">
       <span className="text-[9px] font-black text-dim uppercase tracking-[0.2em]">{label}</span>
       {tooltip && (
-        <Tooltip content={tooltip} side="top" align="center" className="z-[102]">
+        <Tooltip content={tooltip} side="top" align="center" className="z-[10030]">
           <div className="p-1 -m-1 cursor-help">
             <Info size={12} className="text-dim/40 md:size-[10px]" />
           </div>
@@ -51,11 +51,11 @@ const RRLadder = ({ trade }) => {
           <SectionLabel className="mb-0">
              <Zap size={14} className="text-accent" fill="currentColor" /> Guard Ladder
           </SectionLabel>
-          <Tooltip content="Incremental profit milestones that automatically adjust your stop loss to lock in gains." className="z-[102]">
+          <Tooltip content="Incremental profit milestones that automatically adjust your stop loss to lock in gains." className="z-[10030]">
             <Info size={12} className="text-dim/40 cursor-help" />
           </Tooltip>
         </div>
-        <Tooltip content="Live Ratchet: The engine proactively trails your stop loss as these milestones are hit." className="z-[102]">
+        <Tooltip content="Live Ratchet: The engine proactively trails your stop loss as these milestones are hit." className="z-[10030]">
           <div className="text-[10px] text-accent font-mono bg-accent/10 px-2 py-0.5 rounded border border-accent/20 cursor-help">Live Ratchet</div>
         </Tooltip>
       </div>
@@ -210,7 +210,7 @@ const ExitMonitor = ({ status, logic, trade }) => {
                   <div className="flex justify-between items-center px-0.5">
                     <div className="flex items-center gap-1">
                       <span className="text-[7px] font-black text-dim uppercase tracking-widest">Activation</span>
-                      <Tooltip content="Proximity to technical trigger threshold. 100% means the signal is fully active." className="z-[102]">
+                      <Tooltip content="Proximity to technical trigger threshold. 100% means the signal is fully active." className="z-[10030]">
                         <div className="p-1 -m-1 cursor-help">
                           <Info size={10} className="text-dim/40 md:size-[8px]" />
                         </div>
@@ -236,7 +236,7 @@ const ExitMonitor = ({ status, logic, trade }) => {
                 <div className="space-y-1">
                   <div className="flex justify-between items-center px-0.5">
                     <div className="flex items-center gap-1 w-full justify-end">
-                      <Tooltip content="Price Proximity: Visual indicator of how close the price is to the target RR (Take Profit)." className="z-[102]">
+                      <Tooltip content="Price Proximity: Visual indicator of how close the price is to the target RR (Take Profit)." className="z-[10030]">
                         <div className="p-1 -m-1 cursor-help">
                           <Info size={10} className="text-dim/40 md:size-[8px]" />
                         </div>
@@ -517,7 +517,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                       <div className="flex items-center gap-1.5">
                         <span className="text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
                         {item.tooltip && (
-                          <Tooltip content={item.tooltip} className="z-[102]">
+                          <Tooltip content={item.tooltip} className="z-[10030]">
                             <div className="p-1 -m-1 cursor-help">
                               <Info size={12} className="text-dim/40 md:size-[10px]" />
                             </div>

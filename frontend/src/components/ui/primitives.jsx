@@ -77,12 +77,16 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
       <div className="flex flex-col gap-0.5 w-full relative z-10">
         <div className="flex items-start w-full min-h-[2rem] md:min-h-[2.25rem]">
           <div className="flex items-center gap-2 flex-grow overflow-hidden mr-1">
-            <div className={cn(
-              "text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] transition-colors",
-              tooltip && "border-b border-dotted border-dim/30 cursor-help"
-            )} title={tooltip}>{label}</div>
+            <Tooltip content={tooltip}>
+              <div className={cn(
+                "text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] cursor-help hover:text-dim/80 transition-colors",
+                tooltip && "border-b border-dotted border-dim/30"
+              )}>{label}</div>
+            </Tooltip>
             {indicator === 'amber' && (
-              <div className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse shrink-0 cursor-help" title="Adaptive tightening active" />
+              <Tooltip content="Adaptive tightening active">
+                <div className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse cursor-help shrink-0" />
+              </Tooltip>
             )}
           </div>
           <button
@@ -177,7 +181,7 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
       <div className="flex flex-col gap-0.5 w-full">
         <div className="flex items-start gap-1.5 min-h-[2rem] md:min-h-[2.25rem]">
             <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] flex-1" aria-hidden="true">{label}</div>
-            {tooltipText && <Info size={10} className="text-dim hover:text-accent cursor-help shrink-0 mt-0.5" title={tooltipText} />}
+            {tooltipText && <Tooltip content={tooltipText}><Info size={10} className="text-dim hover:text-accent cursor-help shrink-0 mt-0.5" /></Tooltip>}
         </div>
         <div className="flex flex-col">
           <div className={cn(
@@ -254,31 +258,39 @@ export const StatusBadge = ({ status }) => {
 
 // --- Mode Badges ---
 export const PaperBadge = () => (
-  <span className="px-2.5 py-1 rounded-full border border-amber/20 bg-amber/10 text-[10px] text-amber font-bold tracking-wider flex items-center gap-1.5" title="Paper: Simulated trading using local balance. No real funds used.">
-    <Zap size={10} fill="currentColor" />
-    PAPER
-  </span>
+  <Tooltip content="Paper: Simulated trading using local balance. No real funds used.">
+    <span className="px-2.5 py-1 rounded-full border border-amber/20 bg-amber/10 text-[10px] text-amber font-bold tracking-wider flex items-center gap-1.5 cursor-help">
+      <Zap size={10} fill="currentColor" />
+      PAPER
+    </span>
+  </Tooltip>
 )
 
 export const EcoBadge = () => (
-  <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5 shadow-[0_0_10px_rgba(0,229,160,0.05)]" title="Eco: Power-saving mode with reduced updates to save CPU and memory.">
-    <div className="w-1.5 h-1.5 bg-green rounded-full animate-pulse" />
-    ECO
-  </span>
+  <Tooltip content="Eco: Power-saving mode with reduced updates to save CPU and memory.">
+    <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5 shadow-[0_0_10px_rgba(0,229,160,0.05)] cursor-help">
+      <div className="w-1.5 h-1.5 bg-green rounded-full animate-pulse" />
+      ECO
+    </span>
+  </Tooltip>
 )
 
 export const DemoBadge = () => (
-  <span className="px-2.5 py-1 rounded-full border border-purple/20 bg-purple/10 text-[10px] text-purple font-bold tracking-wider flex items-center gap-1.5" title="Demo: Trading on Binance Testnet with virtual funds. Use for strategy testing.">
-    <Zap size={10} fill="currentColor" />
-    DEMO
-  </span>
+  <Tooltip content="Demo: Trading on Binance Testnet with virtual funds. Use for strategy testing.">
+    <span className="px-2.5 py-1 rounded-full border border-purple/20 bg-purple/10 text-[10px] text-purple font-bold tracking-wider flex items-center gap-1.5 cursor-help">
+      <Zap size={10} fill="currentColor" />
+      DEMO
+    </span>
+  </Tooltip>
 )
 
 export const LiveBadge = () => (
-  <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5" title="Live: Real capital trading on Binance Production. Proceed with caution.">
-    <Zap size={10} fill="currentColor" />
-    LIVE
-  </span>
+  <Tooltip content="Live: Real capital trading on Binance Production. Proceed with caution.">
+    <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5 cursor-help">
+      <Zap size={10} fill="currentColor" />
+      LIVE
+    </span>
+  </Tooltip>
 )
 
 // --- Condition Widget ---
@@ -371,9 +383,8 @@ export const PnLBars = React.memo(({ trades }) => {
         const h = absPnl === 0 ? 0 : Math.max(3, scaleFactor * 28); // Max half-height is ~30px
 
         return (
-          <div
-              key={t.id || `${t.symbol}-${i}`}
-              title={`${t.symbol}: ${Number(pnl).toFixed(2)}`}
+          <Tooltip key={t.id || `${t.symbol}-${i}`} content={`${t.symbol}: ${Number(pnl).toFixed(2)}`}>
+            <div
               className={cn(
                 "flex-1 transition-all duration-300 hover:opacity-100 opacity-80 z-10",
                 isPos
@@ -386,6 +397,7 @@ export const PnLBars = React.memo(({ trades }) => {
                 alignSelf: 'center'
               }}
             />
+          </Tooltip>
         );
       })}
     </div>
@@ -486,18 +498,19 @@ export const CopyButton = ({ value, className, tooltip = "Copy", successTooltip 
   }
 
   return (
-    <button
-      onClick={handleCopy}
-      className={cn(
-        "p-1.5 rounded-md transition-all active:scale-90",
-        copied ? "text-green bg-green/10" : "text-dim hover:text-text hover:bg-white/5",
-        className
-      )}
-      aria-label={copied ? successTooltip : tooltip}
-      title={copied ? successTooltip : tooltip}
-    >
-      {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
-    </button>
+    <Tooltip content={copied ? successTooltip : tooltip}>
+      <button
+        onClick={handleCopy}
+        className={cn(
+          "p-1.5 rounded-md transition-all active:scale-90",
+          copied ? "text-green bg-green/10" : "text-dim hover:text-text hover:bg-white/5",
+          className
+        )}
+        aria-label={copied ? successTooltip : tooltip}
+      >
+        {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+      </button>
+    </Tooltip>
   )
 }
 

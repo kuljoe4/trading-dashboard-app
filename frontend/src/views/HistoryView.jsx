@@ -372,9 +372,8 @@ export const HistoryView = () => {
       ])
       updateStats({ tradeHistory: historyRes.data.trades || [] })
       setShowDeleteConfirm(false)
-      updateStats({ alerts: [{ id: Date.now(), level: 'success', title: 'Records Cleared', message: 'All standalone trade records have been deleted.' }] });
     } catch (e) {
-      updateStats({ alerts: [{ id: Date.now(), level: 'error', title: 'Clear Failed', message: 'Could not delete standalone records from the database.' }] });
+      alert('Failed to delete standalone records')
     } finally {
       setDeletingOrphans(false)
       updateStats({ isSyncing: false })
@@ -732,16 +731,6 @@ export const HistoryView = () => {
                         Clear All
                       </button>
                     </div>
-
-                    <ConfirmationModal
-                      isOpen={showDeleteConfirm}
-                      onClose={() => setShowDeleteConfirm(false)}
-                      onConfirm={handleDeleteOrphans}
-                      title="Clear Standalone Records?"
-                      message="This will permanently delete all trade records that are not associated with an active session. This cannot be undone."
-                      confirmText="Delete All"
-                      loading={deletingOrphans}
-                    />
 
                     <AnimatePresence>
                       {orphansExpanded && (

@@ -106,19 +106,29 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
           <span className="text-[8px] text-dim/60 normal-case tracking-normal">Top 15 results</span>
         </div>
         <div className="flex justify-end">
-          <span className="border-b border-dotted border-dim/30" title="Price change % since the last scan interval.">Move</span>
+          <Tooltip content="Price change % since the last scan interval.">
+            <span className="cursor-help border-b border-dotted border-dim/30">Move</span>
+          </Tooltip>
         </div>
         <div className="flex justify-center">
-          <span className="border-b border-dotted border-dim/30" title="Recent price action history (Sparkline).">Trend</span>
+          <Tooltip content="Recent price action history (Sparkline).">
+            <span className="cursor-help border-b border-dotted border-dim/30">Trend</span>
+          </Tooltip>
         </div>
         <div className="flex justify-end">
-          <span className="border-b border-dotted border-dim/30" title="24-hour trading volume in USDT.">Volume</span>
+          <Tooltip content="24-hour trading volume in USDT.">
+            <span className="cursor-help border-b border-dotted border-dim/30">Volume</span>
+          </Tooltip>
         </div>
         <div className="flex justify-end px-2">
-          <span className="border-b border-dotted border-dim/30" title="Internal engine ranking based on volatility, trend, and volume.">Score</span>
+          <Tooltip content="Internal engine ranking based on volatility, trend, and volume.">
+            <span className="cursor-help border-b border-dotted border-dim/30">Score</span>
+          </Tooltip>
         </div>
         <div className="flex justify-center">
-          <span className="border-b border-dotted border-dim/30" title="Gating status: PASS if the symbol meets the minimum momentum threshold.">Pass</span>
+          <Tooltip content="Gating status: PASS if the symbol meets the minimum momentum threshold.">
+            <span className="cursor-help border-b border-dotted border-dim/30">Pass</span>
+          </Tooltip>
         </div>
       </div>
 
@@ -127,10 +137,14 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
         <span>#</span>
         <span>Symbol</span>
         <div className="flex justify-end">
-          <span className="border-b border-dotted border-dim/30" title="Price change % since the last scan interval.">Move</span>
+          <Tooltip content="Price change % since the last scan interval.">
+            <span className="cursor-help border-b border-dotted border-dim/30">Move</span>
+          </Tooltip>
         </div>
         <div className="flex justify-center">
-          <span className="border-b border-dotted border-dim/30" title="Gating status: PASS if the symbol meets the minimum momentum threshold.">Pass</span>
+          <Tooltip content="Gating status: PASS if the symbol meets the minimum momentum threshold.">
+            <span className="cursor-help border-b border-dotted border-dim/30">Pass</span>
+          </Tooltip>
         </div>
       </div>
 
@@ -213,9 +227,11 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                   <span className="text-[10px] text-dim font-mono whitespace-nowrap">{Number(opp.score || 0).toFixed(1)}</span>
                 </div>
                 <div className="flex justify-center">
-                  {passing
-                    ? <span className="px-2 py-0.5 rounded bg-green/10 text-green text-[9px] font-black uppercase tracking-tighter border border-green/20" title="Meets momentum criteria for automated entry.">PASS</span>
-                    : <span className="px-2 py-0.5 rounded bg-surface text-dim text-[9px] font-black uppercase tracking-tighter border border-border" title="Below momentum threshold. Awaiting stronger price action.">WAIT</span>}
+                  <Tooltip content={passing ? "Meets momentum criteria for automated entry." : "Below momentum threshold. Awaiting stronger price action."}>
+                    {passing
+                      ? <span className="px-2 py-0.5 rounded bg-green/10 text-green text-[9px] font-black uppercase tracking-tighter border border-green/20 cursor-help">PASS</span>
+                      : <span className="px-2 py-0.5 rounded bg-surface text-dim text-[9px] font-black uppercase tracking-tighter border border-border cursor-help">WAIT</span>}
+                  </Tooltip>
                 </div>
               </div>
             )

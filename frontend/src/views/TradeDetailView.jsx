@@ -8,7 +8,6 @@ import { sessionAPI } from '../api/client'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { TradeDetailContent } from '../components/trade/TradeDetailContent'
 import { formatDuration } from '../lib/formatters'
-import { ConfirmationModal } from '../components/ConfirmationModal'
 
 const TradeDetailView = ({ tradeId }) => {
   const { activeTrades, wsStatus, updateStats } = useTradingStore()
@@ -76,7 +75,7 @@ const TradeDetailView = ({ tradeId }) => {
       await sessionAPI.closeTrade(symbol)
       window.location.hash = '#/trades'
     } catch (e) {
-      updateStats({ alerts: [{ id: Date.now(), level: 'error', title: 'Close Failed', message: 'Could not send liquidation order to the exchange.' }] });
+      alert('Failed to close trade')
     } finally {
       setIsClosing(false)
     }
@@ -110,16 +109,6 @@ const TradeDetailView = ({ tradeId }) => {
         confirmClose={confirmClose}
         setConfirmClose={setConfirmClose}
         layout="grid"
-      />
-
-      <ConfirmationModal
-        isOpen={confirmClose}
-        onClose={() => setConfirmClose(false)}
-        onConfirm={() => handleClose(trade.symbol)}
-        title={`Liquidate ${trade.symbol}?`}
-        message="This will immediately close the position at market price. This action is irreversible."
-        confirmText="Confirm Liquidation"
-        loading={isClosing}
       />
     </div>
   )

@@ -61,6 +61,7 @@ export class TradingSessionService implements OnApplicationShutdown {
   private listenKey: string | null = null;
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
   private _lastGateBroadcastTs = 0;
+  private _lastGatedScanTs = 0;
   private hibernateGraceTimeout: NodeJS.Timeout | null = null;
   private inFlightExchangeCloses: Set<string> = new Set();
 
@@ -422,6 +423,20 @@ export class TradingSessionService implements OnApplicationShutdown {
     try {
       const activeTrades = this.positionTracker.activeList();
       await this.refreshRiskGating();
+      const now = Date.now();
+
+      // PERF: Adaptive Scanning Frequency.
+      // When gated (Light Sleep), we throttle scanning to 3x the normal interval.
+      // This balances UI "freshness" with CPU/API resource conservation.
+      if (this.isGated() && !this.sessionState.hibernating) {
+        const baseInterval = this.config.main_loop_interval_ms || 15000;
+        if (now - this._lastGatedScanTs < (baseInterval * 3)) {
+          // If we recently scanned while gated, skip this iteration
+          this.mainLoopProcessing = false;
+          return;
+        }
+        this._lastGatedScanTs = now;
+      }
 
       // BOLT: Allow scanning even when gated (Light Sleep) to keep UI fresh.
       // Deep Sleep (hibernating) still pauses scanning for resource efficiency.

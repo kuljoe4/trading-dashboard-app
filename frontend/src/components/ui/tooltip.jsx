@@ -12,31 +12,20 @@ export const useTooltipContext = () => useContext(TooltipContext)
 export const TooltipProvider = ({ children, ...props }) => {
   const [activeTooltipId, setActiveTooltipId] = useState(null)
 
-  // Clear tooltip on navigation, escape, or any click outside
+  // Clear tooltip on navigation or when Escape is pressed
   React.useEffect(() => {
     const handleEvents = () => setActiveTooltipId(null);
     const handleKeydown = (e) => {
       if (e.key === 'Escape') setActiveTooltipId(null);
     };
 
-    // Global listener to clear tooltips on any interaction
-    const handleInteraction = (e) => {
-      if (activeTooltipId) {
-        // If we have an active tooltip, any click (mousedown) should clear it
-        // This ensures the UI remains interactive and tooltips are transient
-        setActiveTooltipId(null);
-      }
-    };
-
     window.addEventListener('hashchange', handleEvents);
     window.addEventListener('keydown', handleKeydown);
-    window.addEventListener('mousedown', handleInteraction, true);
     return () => {
       window.removeEventListener('hashchange', handleEvents);
       window.removeEventListener('keydown', handleKeydown);
-      window.removeEventListener('mousedown', handleInteraction, true);
     };
-  }, [activeTooltipId]);
+  }, []);
 
   const value = useMemo(() => ({ activeTooltipId, setActiveTooltipId }), [activeTooltipId])
 
@@ -44,9 +33,10 @@ export const TooltipProvider = ({ children, ...props }) => {
     <TooltipContext.Provider value={value}>
       <TooltipPrimitive.Provider {...props}>
         <div
+          onClick={() => setActiveTooltipId(null)}
           className={cn(
-            "fixed inset-0 z-[80] bg-black/60 transition-all duration-300 pointer-events-none",
-            activeTooltipId ? "opacity-100" : "opacity-0"
+            "fixed inset-0 z-[10010] bg-black/60 transition-all duration-300",
+            activeTooltipId ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
           )}
           aria-hidden="true"
         />
@@ -86,9 +76,8 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
         asChild
         onClick={(e) => {
           // On mobile/touch devices, toggle on click/tap
-          // UX-REFINEMENT: Do NOT stop propagation. This allows the primary button action
-          // to fire while the tooltip still toggles.
           if (window.matchMedia('(pointer: coarse)').matches || window.matchMedia('(max-width: 768px)').matches) {
+            e.stopPropagation();
             setOpen(!open);
           }
         }}
@@ -112,7 +101,7 @@ export const TooltipContent = React.forwardRef(({ className, sideOffset = 8, ...
       sideOffset={sideOffset}
       collisionPadding={10}
       className={cn(
-        "z-[9000] max-w-[calc(100vw-20px)] overflow-hidden break-words rounded-md bg-surface px-3 py-1.5 text-xs text-text border border-accent/20 shadow-[0_0_20px_rgba(0,0,0,0.3)] animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+        "z-[10020] max-w-[calc(100vw-20px)] overflow-hidden break-words rounded-md bg-surface px-3 py-1.5 text-xs text-text border border-accent/20 shadow-[0_0_20px_rgba(0,0,0,0.3)] animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
         className
       )}
       {...props}

@@ -26,7 +26,7 @@ const TradesView = () => {
       await sessionAPI.closeTrade(symbol)
       setSelectedTradeId(null)
     } catch (e) {
-      useTradingStore.getState().addAlert({ level: 'error', title: 'Close Failed', message: 'Could not send liquidation order to the exchange: ' + (e?.response?.data?.message || e.message) });
+      alert('Failed to close trade: ' + (e?.response?.data?.message || e.message))
     }
   }
 

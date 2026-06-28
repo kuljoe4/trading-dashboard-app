@@ -5,15 +5,11 @@ import { fmtUSD, pnlColor, pnlClass, C, safeNum } from '../lib/theme'
 import { ArrowLeftRight, ChevronRight, XCircle } from 'lucide-react'
 import { cn, Btn } from './ui/primitives'
 import { sessionAPI } from '../api/client'
-import { ConfirmationModal } from './ConfirmationModal'
 
 export const ActiveTradeBar = () => {
   const activeTrades = useTradingStore(state => state.activeTrades)
   const sessionActive = useTradingStore(state => state.sessionActive)
   const [closing, setClosing] = React.useState(null)
-  const [showConfirm, setShowConfirm] = React.useState(false)
-  const [pendingClose, setPendingClose] = React.useState(null)
-  const [isClosing, setIsClosing] = React.useState(false)
 
   if (!sessionActive || activeTrades.length === 0) return null
 
@@ -28,21 +24,23 @@ export const ActiveTradeBar = () => {
   }
 
   const handleClose = async (symbol) => {
-    setPendingClose(symbol)
-    setShowConfirm(true)
-  }
-
-  const confirmClose = async () => {
-    if (!pendingClose) return
-    setIsClosing(true)
-    try {
-      await sessionAPI.closeTrade(pendingClose)
-      setShowConfirm(false)
-      setPendingClose(null)
-    } catch (e) {
-      console.error("Failed to close trade", e)
-    } finally {
-      setIsClosing(false)
+    if (closing === symbol) {
+      try {
+        await sessionAPI.closeTrade(symbol)
+        setClosing(null)
+      } catch (e) {
+        setClosing(null)
+      }
+    } else {
+      setClosing(symbol)
+      // Audit Item 44: Feedback on cancel
+      setTimeout(() => {
+        setClosing(prev => {
+          if (prev === symbol) return 'CANCELLED';
+          return prev;
+        });
+        setTimeout(() => setClosing(null), 1000);
+      }, 3000);
     }
   }
 
@@ -99,16 +97,6 @@ export const ActiveTradeBar = () => {
           })}
         </div>
       </div>
-
-      <ConfirmationModal
-        isOpen={showConfirm}
-        onClose={() => setShowConfirm(false)}
-        onConfirm={confirmClose}
-        title={`Liquidate ${pendingClose}?`}
-        message="This will immediately close the position at market price. This action is irreversible."
-        confirmText="Confirm Liquidation"
-        loading={isClosing}
-      />
     </motion.div>
   )
 }

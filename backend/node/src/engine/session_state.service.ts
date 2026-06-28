@@ -61,19 +61,24 @@ export class SessionStateService {
   // SRE: Entry Pipeline Lock to prevent concurrent entry evaluations and dispatches
   public entryInProgress = false;
 
-  reset(config: SessionConfig, initialHistory: Trade[] = [], currentBalance?: number, sessionId?: string) {
+  reset(config: SessionConfig, initialHistory: Trade[] = [], currentBalance?: number, sessionId?: string, initialOpen: Trade[] = []) {
     this.config = config;
 
     // DATA-07: Stats should be session-specific even if we load mode-wide history for risk gating
     const sessionHistory = sessionId ? initialHistory.filter(t => t.sessionId === sessionId) : [];
+    const sessionOpen = sessionId ? initialOpen.filter(t => t.sessionId === sessionId) : [];
+
     this.stats = {
-      entryCount: sessionHistory.length,
+      entryCount: sessionHistory.length + sessionOpen.length,
       hitCount: sessionHistory.filter(t => (t.pnl || 0) > 0).length,
-      totalPnl: sessionHistory.reduce((acc, t) => acc + (t.pnl || 0), 0),
+      totalPnl: roundEight(
+        sessionHistory.reduce((acc, t) => acc + (t.pnl || 0), 0) +
+        sessionOpen.reduce((acc, t) => acc + (t.pnl || 0), 0)
+      ),
     };
     this.statsVersion = 0;
     this.closedTrades = initialHistory;
-    this.activeTrades = [];
+    this.activeTrades = initialOpen;
     this.gateState = null;
     this.gateReason = null;
     this.hibernating = false;
@@ -88,7 +93,7 @@ export class SessionStateService {
     this.realTimePositions.clear();
     this.realTimeOrders.clear();
 
-    for (const trade of initialHistory) {
+    for (const trade of [...initialHistory, ...initialOpen]) {
       const label = trade.strategy_label || config.strategy_label || 'Momentum Strategy';
       if (!trade.strategy_label) trade.strategy_label = label;
 
@@ -96,8 +101,15 @@ export class SessionStateService {
         this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
       }
       this.cachedClosedTradesStats[label].pnl = roundEight(this.cachedClosedTradesStats[label].pnl + (trade.pnl || 0));
-      this.cachedClosedTradesStats[label].count++;
-      if ((trade.pnl || 0) > 0) this.cachedClosedTradesStats[label].hits++;
+
+      // BOLT: Only closed trades count towards hitCount and count in closedStats
+      // Open trades will be added to these metrics when they close via updateStatsOnClose
+      if (trade.status !== 'OPEN') {
+        if (!trade.is_reconciliation) {
+          this.cachedClosedTradesStats[label].count++;
+          if ((trade.pnl || 0) > 0) this.cachedClosedTradesStats[label].hits++;
+        }
+      }
     }
 
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');

@@ -62,7 +62,7 @@ export class SessionLifecycleService {
       }
     } catch (e) {}
 
-    this.sessionState.reset(config, hist, curBal, sid);
+    this.sessionState.reset(config, hist, curBal, sid, open);
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
     await this.orderManager.setBinanceClient(bc, mode === 'paper');
 

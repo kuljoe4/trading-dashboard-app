@@ -12,12 +12,106 @@ import {
   ChevronLeft, Plus, Trash2, LayoutDashboard, History,
   Settings as SettingsIcon, Activity, Zap, ShieldCheck,
   BarChart3, XCircle, Pause, Play, Edit3, RefreshCw, Leaf,
-  Briefcase, TrendingUp, ArrowRight, AlertCircle, CheckCircle2, Info, Loader2
+  Briefcase, TrendingUp, ArrowRight, AlertCircle, CheckCircle2, Info, Loader2, Calendar
 } from 'lucide-react'
 import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sidebar, BottomNav } from '../components/Navigation'
 import { lazyWithRetry } from '../lib/lazy'
+
+const PerformanceInsights = React.memo(() => {
+  const analytics = useTradingStore(state => state.analytics, shallow);
+
+  if (!analytics || !analytics.periodic) return null;
+
+  const { daily, weekly, monthly } = analytics.periodic;
+  const { daily: dailyHistory, weekly: weeklyHistory } = analytics.periodicHistory || { daily: [], weekly: [] };
+
+  return (
+    <div className="flex flex-col gap-6 mb-8 lg:mb-10">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
+        <StatCard
+          label="Today's Performance"
+          value={fmtUSD(daily.pnl)}
+          color={pnlClass(daily.pnl)}
+          subValue={`${daily.pnlPct >= 0 ? '+' : ''}${daily.pnlPct}% ROI`}
+          tooltipText="Total realized P&L and ROI from trades closed since the start of the current day (UTC). Note: Performance analytics focus on trade-level P&L delta and are immune to external capital movements (deposits/transfers)."
+        />
+        <StatCard
+          label="Weekly Performance"
+          value={fmtUSD(weekly.pnl)}
+          color={pnlClass(weekly.pnl)}
+          subValue={`${weekly.pnlPct >= 0 ? '+' : ''}${weekly.pnlPct}% ROI`}
+          tooltipText="Total realized P&L and ROI since the start of the current week (Monday UTC)."
+        />
+        <StatCard
+          label="Monthly Performance"
+          value={fmtUSD(monthly.pnl)}
+          color={pnlClass(monthly.pnl)}
+          subValue={`${monthly.pnlPct >= 0 ? '+' : ''}${monthly.pnlPct}% ROI`}
+          tooltipText="Total realized P&L and ROI since the start of the current month (UTC)."
+        />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {dailyHistory.length > 0 && (
+          <div className="bg-surface/50 border border-border/40 rounded-2xl p-5 shadow-sm">
+            <SectionLabel className="mb-4 text-[9px] opacity-60">Daily ROI Trend (Last 7 Days)</SectionLabel>
+            <div className="flex flex-col gap-2">
+              {dailyHistory.map((point, i) => (
+                <div key={point.label} className="flex items-center justify-between group">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-dim group-hover:text-text transition-colors">
+                      {(() => {
+                        // BOLT: Fix UTC date parsing to prevent day-off bugs in local timezones
+                        const [y, m, d] = point.label.split('-').map(Number);
+                        const date = new Date(Date.UTC(y, m - 1, d));
+                        return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+                      })()}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <span className={cn("text-[11px] font-mono font-bold", pnlClass(point.pnl))}>{fmtUSD(point.pnl)}</span>
+                    <div className={cn(
+                      "px-2 py-0.5 rounded-lg text-[9px] font-black font-mono w-14 text-center",
+                      point.pnlPct >= 0 ? "bg-green/10 text-green" : "bg-red/10 text-red"
+                    )}>
+                      {point.pnlPct >= 0 ? '+' : ''}{point.pnlPct}%
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {weeklyHistory.length > 0 && (
+          <div className="bg-surface/50 border border-border/40 rounded-2xl p-5 shadow-sm">
+            <SectionLabel className="mb-4 text-[9px] opacity-60">Weekly ROI Trend (Last 4 Weeks)</SectionLabel>
+            <div className="flex flex-col gap-2">
+              {weeklyHistory.map((point, i) => (
+                <div key={point.label} className="flex items-center justify-between group">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-dim group-hover:text-text transition-colors">
+                    {point.label}
+                  </span>
+                  <div className="flex items-center gap-4">
+                    <span className={cn("text-[11px] font-mono font-bold", pnlClass(point.pnl))}>{fmtUSD(point.pnl)}</span>
+                    <div className={cn(
+                      "px-2 py-0.5 rounded-lg text-[9px] font-black font-mono w-14 text-center",
+                      point.pnlPct >= 0 ? "bg-green/10 text-green" : "bg-red/10 text-red"
+                    )}>
+                      {point.pnlPct >= 0 ? '+' : ''}{point.pnlPct}%
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
 
 const TemporalRiskGrid = React.memo(() => {
   const { config, gateState, gateReason, isAdaptiveTightened, configSyncing, patchConfig, tradesInPeriod, maxTradesPeriod, tradesIn24h, maxTrades24h } = useTradingStore(state => ({
@@ -474,6 +568,7 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
 export function DashboardView({ initialStrategy }) {
   const [selected, setSelected] = useState(initialStrategy || null)
   const [showTemporalRisk, setShowTemporalRisk] = useState(false)
+  const [showPerformance, setShowPerformance] = useState(false)
   const [showConfig, setShowConfig] = useState(false)
   const [modalConfig, setModalConfig] = useState(null)
   const [showScanner, setShowScanner] = useState(false)
@@ -944,6 +1039,43 @@ export function DashboardView({ initialStrategy }) {
                 tooltipText="Maximum Reward-to-Risk ratio achieved during this trading session."
               />
             </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.25 }}
+            className="flex flex-col"
+          >
+            <button
+              onClick={() => setShowPerformance(!showPerformance)}
+              className="group flex items-center justify-between w-full mb-4 text-left outline-none"
+              aria-expanded={showPerformance}
+              aria-controls="performance-insights"
+            >
+              <SectionLabel className="mb-0 flex-1">
+                <Calendar size={14} className="text-accent" /> Performance Insights
+              </SectionLabel>
+              <div className={cn(
+                "p-1.5 rounded-lg border border-border/40 bg-surface/50 text-dim group-hover:text-accent group-hover:border-accent/40 transition-all",
+                showPerformance && "text-accent border-accent/40 bg-accent/5 rotate-180"
+              )}>
+                <ChevronLeft size={14} className="-rotate-90" />
+              </div>
+            </button>
+            <AnimatePresence>
+              {showPerformance && (
+                <motion.div
+                  id="performance-insights"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden"
+                >
+                  <PerformanceInsights />
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
 
           <motion.div

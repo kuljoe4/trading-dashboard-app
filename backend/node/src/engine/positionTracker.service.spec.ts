@@ -17,6 +17,7 @@ describe('PositionTrackerService', () => {
     mockOrderManager = {
       updateStopLoss: jest.fn().mockImplementation((trade, newSl) => Promise.resolve({ success: true, price: newSl })),
       applyFilters: jest.fn().mockImplementation((symbol, price, qty) => ({ price, qty })),
+      isRatcheting: jest.fn().mockReturnValue(false),
     };
     mockTickerCache = {};
     mockKlineStore = {};

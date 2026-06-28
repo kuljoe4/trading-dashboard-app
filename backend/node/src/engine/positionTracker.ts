@@ -151,17 +151,13 @@ export class PositionTrackerService {
       : trade.entry_price - currentPrice;
     const liveRr = reward / risk;
 
-    // Update peak R:R (one-way ladder, never goes down)
-    const prevMaxRr = trade.max_rr_achieved;
-    trade.max_rr_achieved = Math.max(prevMaxRr, liveRr);
-
     // Find highest milestone crossed by max_rr
     let currentIndex = -1;
     const liveRrSequence = config.live_rr_sequence || [];
     const exitRrSequence = config.exit_rr_sequence || [];
 
     for (let i = 0; i < liveRrSequence.length; i++) {
-      if (trade.max_rr_achieved >= liveRrSequence[i]) {
+      if (Math.max(trade.max_rr_achieved, liveRr) >= liveRrSequence[i]) {
         currentIndex = i;
       }
     }
@@ -169,9 +165,11 @@ export class PositionTrackerService {
     // If we crossed a new milestone, update SL
     const prevIndex = this.rrSequenceIndex.get(symbol) ?? -1;
     if (currentIndex > prevIndex && currentIndex >= 0) {
-      this.rrSequenceIndex.set(symbol, currentIndex);
-      trade.rr_sequence_index = currentIndex;
-      trade.updated_at = new Date();
+      // SRE: Ratchet Race Guard. If an exchange-side mutation is already in flight for this symbol,
+      // skip evaluation to prevent redundant overlapping requests.
+      if (this.orderManager.isRatcheting(symbol)) {
+         return;
+      }
 
       // Get target RR for this milestone
       const exitRr = exitRrSequence[currentIndex] ?? 0;
@@ -220,51 +218,42 @@ export class PositionTrackerService {
       // PERFORMANCE: Apply a minimum delta guard (0.01% of entry) to reduce order-count rate limit pressure.
       const minDelta = trade.entry_price * 0.0001;
 
+      let shouldUpdate = false;
       if (trade.direction === 'LONG' && newSl) {
         // BOLT: Use epsilon + minDelta comparison to avoid loops on tiny float differences
-        if (newSl > trade.current_sl + Math.max(0.00000001, minDelta)) {
-          const prevSl = trade.current_sl;
-
-          // Acknowledge-then-Update: Update exchange first in live mode
-          const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
-
-          if (updateRes.success) {
-             const finalSl = updateRes.price || newSl;
-             const prevRisk = trade.risk_usdt || 0;
-             trade.current_sl = finalSl;
-             trade.risk_usdt = Math.max(0, trade.entry_price - trade.current_sl) * trade.qty;
-
-             this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
-             this.logSlAdjustment(trade, prevSl, finalSl, currentIndex, !!updateRes.price && updateRes.price !== newSl);
-
-             // Notify of trade state change for persistence
-             this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
-          } else {
-             this.logger.warn(`[SL Ratchet] Local state for ${symbol} LONG SL update rolled back due to exchange failure.`);
-          }
-        }
+        shouldUpdate = newSl > trade.current_sl + Math.max(0.00000001, minDelta);
       } else if (trade.direction === 'SHORT' && newSl) {
-        // BOLT: Use epsilon + minDelta comparison to avoid loops on tiny float differences
-        if (newSl < trade.current_sl - Math.max(0.00000001, minDelta)) {
-          const prevSl = trade.current_sl;
+        shouldUpdate = newSl < trade.current_sl - Math.max(0.00000001, minDelta);
+      }
 
-          // Acknowledge-then-Update: Update exchange first in live mode
-          const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
+      if (shouldUpdate) {
+        const prevSl = trade.current_sl;
+        const prevRisk = trade.risk_usdt || 0;
 
-          if (updateRes.success) {
-             const finalSl = updateRes.price || newSl;
-             const prevRisk = trade.risk_usdt || 0;
-             trade.current_sl = finalSl;
-             trade.risk_usdt = Math.max(0, trade.current_sl - trade.entry_price) * trade.qty;
+        // Acknowledge-then-Update: Update exchange first in live mode
+        const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
 
-             this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
-             this.logSlAdjustment(trade, prevSl, finalSl, currentIndex, !!updateRes.price && updateRes.price !== newSl);
+        if (updateRes.success) {
+           const finalSl = updateRes.price || newSl;
 
-             // Notify of trade state change for persistence
-             this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
-          } else {
-             this.logger.warn(`[SL Ratchet] Local state for ${symbol} SHORT SL update rolled back due to exchange failure.`);
-          }
+           // Acknowledge-then-Commit: Only update local state after exchange confirmation
+           this.rrSequenceIndex.set(symbol, currentIndex);
+           trade.rr_sequence_index = currentIndex;
+           trade.max_rr_achieved = Math.max(trade.max_rr_achieved, liveRr);
+           trade.updated_at = new Date();
+           trade.current_sl = finalSl;
+
+           // Recalculate risk USDT
+           const slDistance = Math.abs(trade.entry_price - trade.current_sl);
+           trade.risk_usdt = roundEight(slDistance * trade.qty);
+
+           this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
+           this.logSlAdjustment(trade, prevSl, finalSl, currentIndex, !!updateRes.price && updateRes.price !== newSl);
+
+           // Notify of trade state change for persistence
+           this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+        } else {
+           this.logger.warn(`[SL Ratchet] Local state for ${symbol} SL update rolled back due to exchange failure.`);
         }
       }
     }

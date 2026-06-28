@@ -423,15 +423,23 @@ export class TradingSessionService implements OnApplicationShutdown {
       const activeTrades = this.positionTracker.activeList();
       await this.refreshRiskGating();
 
-      if (this.isGated() || this.sessionState.hibernating) {
+      // BOLT: Allow scanning even when gated (Light Sleep) to keep UI fresh.
+      // Deep Sleep (hibernating) still pauses scanning for resource efficiency.
+      if (this.sessionState.hibernating) {
         // CODE-04: Ensure active windows are refreshed even when gated to clear expired opportunities
         this.refreshActiveWindows([]);
 
         if (this.sessionState.listenerCount > 0) {
           const now = Date.now(); const isFull = now - this.lastScannerFullBroadcast > 30000; if (isFull) this.lastScannerFullBroadcast = now;
-          this.broadcast('scanner', { count: this.lastScannerResults.length, hibernating: this.sessionState.hibernating, opportunities: this.lastScannerResults.slice(0, 5).map(o => { if (isFull) return o; const { history, ...rest } = o; return rest; }), variant_opportunities: this.lastVariantScannerResults.map(v => ({ ...v, opportunities: v.opportunities.slice(0, 5).map((o: any) => { if (isFull) return o; const { history, ...rest } = o; return rest; }) })), activeWindows: this.getActiveWindows() });
+          this.broadcast('scanner', {
+            count: this.lastScannerResults.length,
+            hibernating: true,
+            last_scan_ts: this.sessionState.last_scan_ts,
+            opportunities: this.lastScannerResults.slice(0, 5).map(o => { if (isFull) return o; const { history, ...rest } = o; return rest; }),
+            variant_opportunities: this.lastVariantScannerResults.map(v => ({ ...v, opportunities: v.opportunities.slice(0, 5).map((o: any) => { if (isFull) return o; const { history, ...rest } = o; return rest; }) })),
+            activeWindows: this.getActiveWindows()
+          });
         }
-        // DATA-07: Ensure processing flag is reset even on early return during gating
         this.mainLoopProcessing = false;
         return;
       }
@@ -460,9 +468,21 @@ export class TradingSessionService implements OnApplicationShutdown {
 
         if (isFull || resultsChanged || resultsPriceChanged()) {
           if (isFull) this.lastScannerFullBroadcast = now; this.lastScannerResultsJson = nextResultsJson;
-          this.broadcast('scanner', { count: this.lastScannerResults.length, opportunities: this.lastScannerResults.slice(0, 5).map(o => { if (isFull) return o; const { history, ...rest } = o; return rest; }), variant_opportunities: this.lastVariantScannerResults.map(v => ({ ...v, opportunities: v.opportunities.slice(0, 5).map((o: any) => { if (isFull) return o; const { history, ...rest } = o; return rest; }) })), activeWindows: this.getActiveWindows() });
+          this.sessionState.last_scan_ts = Date.now();
+          this.broadcast('scanner', {
+            count: this.lastScannerResults.length,
+            last_scan_ts: this.sessionState.last_scan_ts,
+            opportunities: this.lastScannerResults.slice(0, 5).map(o => { if (isFull) return o; const { history, ...rest } = o; return rest; }),
+            variant_opportunities: this.lastVariantScannerResults.map(v => ({ ...v, opportunities: v.opportunities.slice(0, 5).map((o: any) => { if (isFull) return o; const { history, ...rest } = o; return rest; }) })),
+            activeWindows: this.getActiveWindows()
+          });
         }
       } else this.refreshActiveWindows(primaryOpportunities);
+
+      if (this.isGated()) {
+        this.mainLoopProcessing = false;
+        return;
+      }
 
       for (const sc of strategyConfigs) {
         const opps = opportunitiesBySignature.get(this.scanSignature(sc)) || [];
@@ -490,7 +510,20 @@ export class TradingSessionService implements OnApplicationShutdown {
   private async onCandleClose(symbol: string) { if (!this.running || !this.config) return; if (this.config.debug_mode) this.logger.verbose(`Candle closed for ${symbol}`); }
 
   private updateScannerResults(opportunities: any[]) {
-    this.lastScannerResults = opportunities.map((o) => ({ symbol: o.symbol, price: o.price, pct: roundTo(o.momentum, 2), momentum: roundTo(o.momentum, 2), direction: o.direction.toLowerCase(), dir: o.direction.toLowerCase(), vol: o.volume_24h, volume_usdt: o.volume_24h, score: roundTo(o.score / 10, 1), history: o.history, signalResult: o.signalResult, }));
+    this.lastScannerResults = opportunities.map((o) => ({
+      symbol: o.symbol,
+      price: o.price,
+      pct: roundTo(o.momentum, 2),
+      momentum: roundTo(o.momentum, 2),
+      direction: o.direction.toLowerCase(),
+      dir: o.direction.toLowerCase(),
+      vol: o.volume_24h,
+      volume_usdt: o.volume_24h,
+      volume_rank: o.volume_rank,
+      score: roundTo(o.score / 10, 1),
+      history: o.history,
+      signalResult: o.signalResult,
+    }));
     this.refreshActiveWindows(this.lastScannerResults);
   }
 

@@ -5,12 +5,14 @@ import { useTradingStore } from '../store/trading'
 import { X, Search, ShieldCheck, XCircle } from 'lucide-react'
 
 export const ScannerOverlay = React.memo(({ onClose }) => {
-  const { scannerResults, activeWindows, config, scannerPaused, gateState } = useTradingStore(state => ({
+  const { scannerResults, activeWindows, config, scannerPaused, gateState, lastScanTs, hibernating } = useTradingStore(state => ({
     scannerResults: state.scannerResults,
     activeWindows: state.activeWindows,
     config: state.config,
     scannerPaused: state.scannerPaused,
     gateState: state.gateState,
+    lastScanTs: state.lastScanTs,
+    hibernating: state.hibernating,
   }))
   const threshold = config.scan_pct_threshold || 2.0
   const [search, setSearch] = useState('')
@@ -31,10 +33,25 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
     <div className="flex flex-col h-full bg-surface text-text overflow-hidden">
       <div className="p-4 border-b border-border flex justify-between items-center shrink-0 h-[64px]">
         <div className="flex items-center gap-2.5 min-w-0">
-          <PulseDot color="bg-green" />
-          <span className="text-[14px] font-bold hidden sm:inline">Live Scanner</span>
-          <span className="text-[10px] text-dim font-medium uppercase tracking-wider hidden md:inline">threshold ≥ {threshold}%</span>
-          {scannerPaused && <span className="text-[10px] text-red font-bold uppercase truncate">PAUSED: {gateState}</span>}
+          <PulseDot color={hibernating ? "bg-amber" : scannerPaused ? "bg-red" : "bg-green"} />
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2">
+              <span className="text-[14px] font-bold hidden sm:inline">Live Scanner</span>
+              {hibernating ? (
+                <span className="text-[10px] text-amber font-black uppercase tracking-tighter">Deep Sleep</span>
+              ) : scannerPaused ? (
+                <span className="text-[10px] text-red font-black uppercase tracking-tighter">Gated</span>
+              ) : (
+                <span className="text-[10px] text-green font-black uppercase tracking-tighter">Active</span>
+              )}
+            </div>
+            {lastScanTs > 0 && (
+              <span className="text-[8px] text-dim font-black uppercase tracking-[0.1em] opacity-60">
+                Last Scan: {new Date(lastScanTs).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] text-dim font-medium uppercase tracking-wider hidden md:inline ml-2">threshold ≥ {threshold}%</span>
         </div>
 
         <div className="flex items-center gap-3 flex-1 justify-end max-w-md">
@@ -152,7 +169,13 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                 <div className="flex flex-col justify-center">
                   <span className="text-[11px] text-dim font-mono leading-none">#{i + 1}</span>
                   {opp.volume_rank && (
-                    <span className="text-[8px] text-dim/60 font-bold uppercase tracking-tighter mt-1 whitespace-nowrap">VOL #{opp.volume_rank}</span>
+                    <div className="mt-1">
+                      <Tooltip content={`Volume Rank: This symbol is #${opp.volume_rank} in 24h volume among tracked assets.`}>
+                         <span className="text-[7px] md:text-[8px] bg-white/5 border border-white/10 px-1 py-0.5 rounded text-dim/60 font-black uppercase tracking-tighter cursor-help">
+                            V#{opp.volume_rank}
+                         </span>
+                      </Tooltip>
+                    </div>
                   )}
                 </div>
                 <div className="flex flex-col justify-center overflow-hidden">

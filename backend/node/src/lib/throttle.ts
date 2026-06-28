@@ -51,9 +51,12 @@ export function extractIp(headers: any, defaultIp: string): string {
     // SENTINEL: Handle both string and array of strings for multiple X-Forwarded-For headers.
     // When behind a trusted proxy, the last IP in the chain is the most reliable.
     // The leftmost IP can be spoofed by the client.
-    const rawForwarded = Array.isArray(forwarded) ? forwarded.join(',') : forwarded;
-    const ips = rawForwarded.split(',');
-    return ips[ips.length - 1].trim();
+    const rawForwarded = Array.isArray(forwarded) ? (forwarded as string[]).join(",") : (forwarded as string);
+    const ips = rawForwarded
+      .split(",")
+      .map((s: string) => s.trim())
+      .filter((s: string) => s.length > 0);
+    return ips.length > 0 ? ips[ips.length - 1] : defaultIp;
   }
   return defaultIp;
 }

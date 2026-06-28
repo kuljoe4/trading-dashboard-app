@@ -252,18 +252,20 @@ export class SignalEngineService {
       if (candles[i].low < minLow) minLow = candles[i].low;
     }
 
-    const fired = current.close > maxHigh || current.close < minLow;
-    const value = current.close > maxHigh ? current.close - maxHigh : minLow - current.close;
+    const isLong = side === 'LONG';
+    const target = isLong ? minLow : maxHigh; // Target for EXIT is the opposite side of the range
+    const fired = isLong ? current.close <= target : current.close >= target;
 
     return {
       fired,
-      value: roundTo(value, 2),
-      threshold: 0,
-      unit: 'dist',
-      metric: 'Breakout',
+      value: roundTo(current.close, 4),
+      threshold: roundTo(target, 4),
+      unit: 'price',
+      metric: 'Breakout HL',
       description: fired 
-        ? `Price broke ${current.close > maxHigh ? 'HIGH' : 'LOW'} of ${lookback} periods`
-        : `Price within ${lookback} period range (${minLow.toFixed(2)} - ${maxHigh.toFixed(2)})`,
+        ? `Price breached ${isLong ? 'LOW' : 'HIGH'} of ${lookback} periods`
+        : `Monitoring ${lookback} period ${isLong ? 'Low' : 'High'} level`,
+      threshold_is_price: true,
     };
   }
 

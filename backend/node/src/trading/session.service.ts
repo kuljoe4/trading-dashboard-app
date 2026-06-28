@@ -32,7 +32,6 @@ import { ConfigValidationException } from "../lib/exceptions";
 import { BinanceClientFactory } from "../lib/binanceClientFactory";
 import { AnalyticsService } from "../engine/analytics.service";
 import { MarketFeedService } from "../engine/market_feed.service";
-import { KlineStoreService } from "../engine/kline_store.service";
 import { updateLogLevels } from "../lib/logger";
 import { roundEight } from "../lib/math";
 import { CONFIG_LIMITS, EXIT_REASONS, ENGINE_CONSTANTS } from "../models/constants";
@@ -55,7 +54,6 @@ export class SessionService implements OnModuleInit {
   constructor(
     @InjectRepository(SessionEntity)
     private sessionRepository: Repository<SessionEntity>,
-    private klineStore: KlineStoreService,
     @InjectRepository(TradeEntity)
     private tradeRepository: Repository<TradeEntity>,
     @InjectRepository(LogEntity)
@@ -158,10 +156,7 @@ export class SessionService implements OnModuleInit {
     this.logger.log("Cleaning up stale running sessions...");
     const updateResult = await this.sessionRepository.update(
       { running: true },
-      {
-        running: false,
-        endTime: new Date()
-      },
+      { running: false },
     );
     if (updateResult.affected && updateResult.affected > 0) {
       this.logger.verbose(
@@ -612,7 +607,6 @@ export class SessionService implements OnModuleInit {
 
       // Update session to running
       session.running = true;
-      session.endTime = null;
       await this.sessionRepository.save(session);
 
       // Use existing config and balance
@@ -1712,10 +1706,7 @@ export class SessionService implements OnModuleInit {
 
     const sessionId = this.currentSessionId;
 
-    await this.sessionRepository.update(sessionId, {
-      running: false,
-      endTime: new Date()
-    });
+    await this.sessionRepository.update(sessionId, { running: false });
 
     // Stop the actual trading engine
     await this.tradingSessionService.stop();
@@ -2009,10 +2000,7 @@ export class SessionService implements OnModuleInit {
       const auditRetentionDays = (settings as any)?.audit_retention_days || 90;
       const deletedAudit = await this.auditLog.cleanup(auditRetentionDays);
 
-      // Perform Kline cleanup
-      await this.klineStore.cleanupOldKlines();
-
-      this.logger.log(`Cleanup completed: ${deletedLogs.affected || 0} logs, ${deletedTrades.affected || 0} trades, ${deletedAudit || 0} audit entries removed, and old klines purged.`);
+      this.logger.log(`Cleanup completed: ${deletedLogs.affected || 0} logs, ${deletedTrades.affected || 0} trades, and ${deletedAudit || 0} audit entries removed.`);
     } catch (e: any) {
       this.logger.error(`Data cleanup failed: ${e.message}`);
     }

@@ -83,8 +83,7 @@ export class GatingService {
     this.broadcastService.broadcast('gate', {
       gateState: this.sessionState.gateState,
       reason: reason,
-      hibernating: true,
-      hibernation_mode: mode
+      hibernating: true
     });
   }
 
@@ -104,8 +103,7 @@ export class GatingService {
 
     this.broadcastService.broadcast('gate', {
       gateState: this.sessionState.gateState,
-      hibernating: false,
-      hibernation_mode: mode
+      hibernating: false
     });
   }
 }

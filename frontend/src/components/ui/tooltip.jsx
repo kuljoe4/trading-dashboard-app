@@ -11,15 +11,32 @@ export const useTooltipContext = () => useContext(TooltipContext)
 
 export const TooltipProvider = ({ children, ...props }) => {
   const [activeTooltipId, setActiveTooltipId] = useState(null)
+
+  // Clear tooltip on navigation or when Escape is pressed
+  React.useEffect(() => {
+    const handleEvents = () => setActiveTooltipId(null);
+    const handleKeydown = (e) => {
+      if (e.key === 'Escape') setActiveTooltipId(null);
+    };
+
+    window.addEventListener('hashchange', handleEvents);
+    window.addEventListener('keydown', handleKeydown);
+    return () => {
+      window.removeEventListener('hashchange', handleEvents);
+      window.removeEventListener('keydown', handleKeydown);
+    };
+  }, []);
+
   const value = useMemo(() => ({ activeTooltipId, setActiveTooltipId }), [activeTooltipId])
 
   return (
     <TooltipContext.Provider value={value}>
       <TooltipPrimitive.Provider {...props}>
         <div
+          onClick={() => setActiveTooltipId(null)}
           className={cn(
-            "fixed inset-0 z-[90] bg-background/40 backdrop-blur-[2px] transition-all duration-300 pointer-events-none",
-            activeTooltipId ? "opacity-100" : "opacity-0"
+            "fixed inset-0 z-[10010] bg-black/60 transition-all duration-300",
+            activeTooltipId ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
           )}
           aria-hidden="true"
         />
@@ -36,11 +53,18 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
   const { activeTooltipId, setActiveTooltipId } = useTooltipContext();
 
   const open = activeTooltipId === id;
-  const setOpen = (isOpen) => {
+  const setOpen = React.useCallback((isOpen) => {
     if (isOpen) setActiveTooltipId(id);
-    else if (open) setActiveTooltipId(null);
+    else if (activeTooltipId === id) setActiveTooltipId(null);
     onOpenChange?.(isOpen);
-  };
+  }, [id, activeTooltipId, setActiveTooltipId, onOpenChange]);
+
+  // Cleanup: if the tooltip is unmounted while open, clear the active ID
+  React.useEffect(() => {
+    return () => {
+      setActiveTooltipId(prev => prev === id ? null : prev);
+    };
+  }, [id, setActiveTooltipId]);
 
   return (
     <TooltipPrimitive.Root
@@ -75,8 +99,9 @@ export const TooltipContent = React.forwardRef(({ className, sideOffset = 8, ...
     <TooltipPrimitive.Content
       ref={ref}
       sideOffset={sideOffset}
+      collisionPadding={10}
       className={cn(
-        "z-[100] overflow-hidden rounded-md bg-surface px-3 py-1.5 text-xs text-text border border-accent/20 shadow-[0_0_20px_rgba(0,0,0,0.3)] animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+        "z-[10020] max-w-[calc(100vw-20px)] overflow-hidden break-words rounded-md bg-surface px-3 py-1.5 text-xs text-text border border-accent/20 shadow-[0_0_20px_rgba(0,0,0,0.3)] animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
         className
       )}
       {...props}

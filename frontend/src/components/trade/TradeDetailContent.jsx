@@ -118,6 +118,7 @@ const ExitMonitor = ({ status, logic, trade }) => {
   const isLong = trade.direction === 'LONG'
   const entryPrice = Number(trade.entry_price || 0)
   const qty = Number(trade.qty || 0)
+  const riskUsdt = Number(trade.risk_usdt || trade.initial_risk_usdt || 0)
 
   const allFired = entries.every(([_, s]) => s.fired && s.active)
 
@@ -129,7 +130,7 @@ const ExitMonitor = ({ status, logic, trade }) => {
             <ShieldCheck size={14} className="text-red" /> Technical Exit Signals
           </SectionLabel>
           <div className="text-[8px] text-dim font-bold uppercase tracking-widest opacity-60">
-            Strategy: {logic === 'all' ? 'All-Conditions Consensus' : 'First-Condition Trigger'}
+            Logic: {logic === 'all' ? 'All-Conditions Consensus' : 'Any-Condition Trigger'}
           </div>
         </div>
         {logic === 'all' && (
@@ -137,15 +138,15 @@ const ExitMonitor = ({ status, logic, trade }) => {
               <div className="flex -space-x-1.5">
                  {entries.map(([key, s]) => (
                     <div key={key} className={cn(
-                      "w-4 h-4 rounded-full border-2 border-surface flex items-center justify-center transition-colors",
-                      s.fired && s.active ? "bg-green text-white" : "bg-dim/20 text-dim/40"
+                      "w-4 h-4 rounded-full border-2 border-surface flex items-center justify-center transition-all duration-500",
+                      s.fired && s.active ? "bg-green text-white scale-110 shadow-lg shadow-green/20" : "bg-dim/20 text-dim/40"
                     )}>
                        {s.fired && s.active ? <CheckCircle2 size={10} /> : <div className="w-1 h-1 rounded-full bg-current" />}
                     </div>
                  ))}
               </div>
               <span className={cn("text-[9px] font-black uppercase tracking-tighter", allFired ? "text-green" : "text-dim")}>
-                 {entries.filter(([_, s]) => s.fired && s.active).length}/{entries.length} Ready
+                 {entries.filter(([_, s]) => s.fired && s.active).length}/{entries.length} Satisfied
               </span>
            </div>
         )}
@@ -158,25 +159,19 @@ const ExitMonitor = ({ status, logic, trade }) => {
           const isFired = s.fired && s.active
           const isDelayed = s.remaining_delay > 0
 
-          // BOLT: Direction-Aware Proximity Logic.
-          // If Price > EMA and we want Price < EMA (Long Exit):
-          // Proximity is higher as Price gets closer to EMA.
+          // BOLT: Clarity Overhaul. "Progress" now means distance to THRESHOLD.
+          // Once THRESHOLD is met, we show "CRITERIA MET" and change color.
+          // If logic='all' and some are not hit, we show "AWAITING CONSENSUS".
           let triggerProgress = 0;
-          if (s.fired) {
-            triggerProgress = 100;
-          } else if (!s.insufficientData) {
+          if (!s.insufficientData) {
              if (s.threshold_is_price) {
-                // Calculation: Proximity within a 10% movement band of entry-to-target
-                const distToTarget = Math.abs(mark - threshold);
-                const totalRange = Math.abs(entryPrice - threshold);
-                if (totalRange > 0) {
-                   triggerProgress = Math.max(0, Math.min(99, (1 - (distToTarget / totalRange)) * 100));
-                } else {
-                   triggerProgress = Math.max(0, Math.min(99, (1 - Math.min(1, distToTarget / (threshold * 0.05))) * 100));
+                const totalDist = Math.abs(entryPrice - threshold);
+                const currentDist = Math.abs(mark - threshold);
+                if (totalDist > 0) {
+                   triggerProgress = Math.max(0, Math.min(100, (1 - (currentDist / totalDist)) * 100));
                 }
              } else {
-                // Non-price signals (e.g. percentages)
-                triggerProgress = Math.max(0, Math.min(99, (Math.abs(value) / threshold) * 100));
+                triggerProgress = Math.max(0, Math.min(100, (Math.abs(value) / threshold) * 100));
              }
           }
 
@@ -187,103 +182,103 @@ const ExitMonitor = ({ status, logic, trade }) => {
 
           return (
             <div key={key} className={cn(
-              "group relative overflow-hidden p-5 md:p-6 rounded-[1.5rem] border transition-all duration-500",
-              isFired ? "bg-red/5 border-red/40 shadow-[0_0_30px_rgba(255,68,102,0.12)]" : "bg-background/30 border-border/80 hover:border-accent/50 hover:bg-background/50",
+              "group relative overflow-hidden p-6 rounded-[2rem] border transition-all duration-700",
+              isFired ? "bg-red/5 border-red/40 shadow-[0_0_40px_rgba(255,68,102,0.15)]" : s.fired ? "bg-amber/5 border-amber/30" : "bg-background/30 border-border/80 hover:border-accent/50 hover:bg-background/50",
               isDelayed && !isFired && "opacity-80"
             )}>
               {isFired && (
-                <div className="absolute top-4 right-4">
+                <div className="absolute top-5 right-5">
                    <PulseDot color="bg-red" />
                 </div>
               )}
 
-              <div className="flex flex-col gap-5">
+              <div className="flex flex-col gap-6">
                 <div className="flex justify-between items-start gap-4">
                   <div className="flex items-center gap-4 min-w-0">
                      <div className={cn(
-                       "w-12 h-12 md:w-14 md:h-14 rounded-[1rem] flex items-center justify-center border transition-all duration-700 shrink-0",
-                       isFired ? "bg-red text-white border-red/30 shadow-xl shadow-red/20 scale-105" : "bg-surface border-border/80 text-dim group-hover:text-accent group-hover:border-accent/40 group-hover:scale-110"
+                       "w-14 h-14 rounded-[1.25rem] flex items-center justify-center border transition-all duration-700 shrink-0",
+                       isFired ? "bg-red text-white border-red/30 shadow-2xl shadow-red/20 scale-105" : s.fired ? "bg-amber text-white border-amber/20 shadow-xl shadow-amber/20" : "bg-surface border-border/80 text-dim group-hover:text-accent group-hover:border-accent/40 group-hover:scale-110"
                      )}>
-                       {isFired ? <Zap size={24} fill="currentColor" /> : <Activity size={24} />}
+                       {isFired ? <Zap size={28} fill="currentColor" /> : <Activity size={28} />}
                      </div>
                      <div className="flex flex-col min-w-0">
                        <div className="flex items-center gap-2">
-                         <span className="text-[13px] md:text-[15px] font-black uppercase tracking-tight truncate">{s.label || key}</span>
+                         <span className="text-[14px] md:text-[16px] font-black uppercase tracking-tight truncate">{s.label || key}</span>
                          {isDelayed && !isFired && (
-                           <div className="flex items-center gap-1 text-amber bg-amber/10 px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-tighter border border-amber/20">
-                              <Clock size={10} /> {Math.ceil(s.remaining_delay)}s
+                           <div className="flex items-center gap-1.5 text-amber bg-amber/10 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-tighter border border-amber/20">
+                              <Clock size={12} /> {Math.ceil(s.remaining_delay)}s
                            </div>
                          )}
                        </div>
-                       <span className="text-[10px] md:text-[11px] text-dim font-bold truncate uppercase opacity-80 tracking-tight mt-1">
-                         {isDelayed && !isFired ? 'Consolidating warm-up...' : (s.description || 'Monitoring live threshold')}
+                       <span className="text-[11px] text-dim font-bold truncate uppercase opacity-80 tracking-tight mt-1">
+                         {isFired ? 'Consolidated signal fired' : isDelayed && !isFired ? 'Waiting for warmup period...' : s.fired ? 'Threshold met - Awaiting consensus' : 'Monitoring live threshold'}
                        </span>
                      </div>
                   </div>
-                  <div className="flex flex-col items-end shrink-0 gap-2">
-                     <div className={cn("text-base md:text-xl font-mono font-black tracking-tighter leading-none", isFired ? "text-red" : "text-text")}>
+                  <div className="flex flex-col items-end shrink-0 gap-2.5">
+                     <div className={cn("text-lg md:text-2xl font-mono font-black tracking-tighter leading-none", isFired ? "text-red" : s.fired ? "text-amber" : "text-text")}>
                        {s.insufficientData ? '---' : Number(value).toFixed(value >= 100 ? 2 : 4)}
-                       <span className="text-[11px] md:text-[12px] ml-1 opacity-40 font-bold">{s.unit}</span>
+                       <span className="text-[12px] md:text-[14px] ml-1 opacity-40 font-bold">{s.unit}</span>
                      </div>
                      <div className={cn(
-                        "text-[9px] md:text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border flex items-center gap-1.5 transition-colors",
-                        isFired ? "bg-red text-white border-red/20" : s.fired ? "bg-amber/10 text-amber border-amber/20" : "bg-accent/10 text-accent border-accent/20"
+                        "text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl border flex items-center gap-2 transition-all duration-500",
+                        isFired ? "bg-red text-white border-red/20 shadow-lg shadow-red/20" : s.fired ? "bg-amber/20 text-amber border-amber/30" : "bg-accent/10 text-accent border-accent/20"
                      )}>
-                       {s.insufficientData ? 'Collecting' : isFired ? 'SIGNAL FIRED' : s.fired ? 'PENDING WARMUP' : 'AWAITING CRITERIA'}
+                       {s.insufficientData ? 'Collecting' : isFired ? 'TRIGGER FIRED' : s.fired ? 'CRITERIA MET' : 'AWAITING LEVEL'}
                      </div>
                   </div>
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-5">
                   {/* Unified Trigger Progress Gauge */}
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-end px-0.5">
-                       <span className="text-[9px] font-black text-dim uppercase tracking-[0.2em]">Exit Condition Proximity</span>
-                       <span className={cn("text-[11px] md:text-[12px] font-mono font-black", s.fired ? "text-green" : "text-text/80")}>{s.insufficientData ? '0.0' : triggerProgress.toFixed(1)}%</span>
+                  <div className="space-y-2.5">
+                    <div className="flex justify-between items-end px-1">
+                       <span className="text-[10px] font-black text-dim uppercase tracking-[0.2em]">Signal Convergence</span>
+                       <span className={cn("text-[12px] font-mono font-black", s.fired ? "text-green" : "text-text/80")}>{s.insufficientData ? '0.0' : triggerProgress.toFixed(1)}%</span>
                     </div>
-                    <div className="h-3.5 bg-background/80 rounded-full overflow-hidden relative shadow-[inset_0_2px_4px_rgba(0,0,0,0.3)] border border-white/5">
+                    <div className="h-4 bg-background/80 rounded-full overflow-hidden relative shadow-[inset_0_2px_6px_rgba(0,0,0,0.4)] border border-white/5">
                       <motion.div
                         initial={{ width: 0 }}
                         animate={{ width: `${triggerProgress}%` }}
-                        transition={{ type: "spring", stiffness: 60, damping: 25 }}
+                        transition={{ type: "spring", stiffness: 40, damping: 20 }}
                         className={cn(
                           "absolute top-0 left-0 h-full rounded-full transition-colors duration-700",
-                          isFired ? "bg-red shadow-[0_0_20px_rgba(255,68,102,0.5)]" : s.fired ? "bg-amber" : "bg-accent"
+                          isFired ? "bg-red shadow-[0_0_30px_rgba(255,68,102,0.6)]" : s.fired ? "bg-amber" : "bg-accent"
                         )}
                       >
-                         <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.15)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.15)_50%,rgba(255,255,255,0.15)_75%,transparent_75%,transparent)] bg-[length:0.75rem_0.75rem] opacity-40" />
+                         <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.2)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.2)_50%,rgba(255,255,255,0.2)_75%,transparent_75%,transparent)] bg-[length:1rem_1rem] opacity-50 animate-[move-stripe_1s_linear_infinite]" />
                       </motion.div>
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 text-[10px] md:text-[11px] font-black uppercase tracking-widest text-dim/60 border-t border-border/40 pt-4">
-                   <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-4 text-[11px] font-black uppercase tracking-widest text-dim/60 border-t border-border/40 pt-5">
+                   <div className="flex items-center gap-2.5">
                       <span className="opacity-40">Target Level:</span>
-                      <span className="text-text/80 font-mono tracking-tight">{s.threshold} {s.unit}</span>
+                      <span className="text-text/80 font-mono tracking-tight text-[12px]">{s.threshold} {s.unit}</span>
                    </div>
 
-                   <div className="flex items-center gap-6">
+                   <div className="flex items-center gap-8">
                       {estExitPrice && mark > 0 && (
-                         <div className="flex items-center gap-2">
-                            <span className="opacity-40">Gap:</span>
-                            <span className="font-mono text-accent">
+                         <div className="flex items-center gap-2.5">
+                            <span className="opacity-40">Distance:</span>
+                            <span className="font-mono text-accent text-[12px]">
                               {Math.abs(((mark - estExitPrice) / mark) * 100).toFixed(2)}%
                             </span>
                          </div>
                       )}
                       {(estPnl !== null || s.threshold_is_price) && (
-                         <div className="flex items-center gap-2">
+                         <div className="flex items-center gap-2.5">
                             <span className="opacity-40">Est. PnL:</span>
-                            <span className={cn("font-mono", estPnl != null ? pnlClass(estPnl) : "text-dim")}>
-                               {estPnl != null ? fmtUSD(estPnl) : 'Calculating...'}
+                            <span className={cn("font-mono text-[12px]", estPnl != null ? pnlClass(estPnl) : "text-dim")}>
+                               {estPnl != null ? fmtUSD(estPnl) : '---'}
                             </span>
                          </div>
                       )}
-                      {(estPnl !== null || s.threshold_is_price) && trade.risk_usdt && (
-                         <div className="flex items-center gap-2">
+                      {(estPnl !== null || s.threshold_is_price) && riskUsdt > 0 && (
+                         <div className="flex items-center gap-2.5">
                             <span className="opacity-40">Est. RR:</span>
-                            <span className="font-mono text-text/80">
-                               {estPnl != null ? (estPnl / Number(trade.risk_usdt)).toFixed(2) : '---'}R
+                            <span className="font-mono text-text/80 text-[12px]">
+                               {estPnl != null ? (estPnl / riskUsdt).toFixed(2) : '---'}R
                             </span>
                          </div>
                       )}

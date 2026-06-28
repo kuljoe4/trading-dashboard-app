@@ -13,11 +13,9 @@ const Metric = memo(({ label, value, tooltip }) => (
     <div className="flex items-center gap-1">
       <span className="text-[9px] font-black text-dim uppercase tracking-[0.2em]">{label}</span>
       {tooltip && (
-        <Tooltip content={tooltip} side="top" align="center" className="z-[10030]">
-          <div className="p-1 -m-1 cursor-help">
-            <Info size={12} className="text-dim/40 md:size-[10px]" />
-          </div>
-        </Tooltip>
+        <div className="p-1 -m-1 cursor-help" title={tooltip}>
+          <Info size={12} className="text-dim/40 md:size-[10px]" />
+        </div>
       )}
     </div>
     <span className="font-mono text-sm font-bold text-text/90">{value}</span>
@@ -51,13 +49,14 @@ const RRLadder = ({ trade }) => {
           <SectionLabel className="mb-0">
              <Zap size={14} className="text-accent" fill="currentColor" /> Guard Ladder
           </SectionLabel>
-          <Tooltip content="Incremental profit milestones that automatically adjust your stop loss to lock in gains." className="z-[10030]">
-            <Info size={12} className="text-dim/40 cursor-help" />
-          </Tooltip>
+          <Info size={12} className="text-dim/40 cursor-help" title="Incremental profit milestones that automatically adjust your stop loss to lock in gains." />
         </div>
-        <Tooltip content="Live Ratchet: The engine proactively trails your stop loss as these milestones are hit." className="z-[10030]">
-          <div className="text-[10px] text-accent font-mono bg-accent/10 px-2 py-0.5 rounded border border-accent/20 cursor-help">Live Ratchet</div>
-        </Tooltip>
+        <div
+          className="text-[10px] text-accent font-mono bg-accent/10 px-2 py-0.5 rounded border border-accent/20 cursor-help"
+          title="Live Ratchet: The engine proactively trails your stop loss as these milestones are hit."
+        >
+          Live Ratchet
+        </div>
       </div>
 
       <div className="flex gap-4 overflow-x-auto no-scrollbar mb-8 pb-2">
@@ -210,11 +209,9 @@ const ExitMonitor = ({ status, logic, trade }) => {
                   <div className="flex justify-between items-center px-0.5">
                     <div className="flex items-center gap-1">
                       <span className="text-[7px] font-black text-dim uppercase tracking-widest">Activation</span>
-                      <Tooltip content="Proximity to technical trigger threshold. 100% means the signal is fully active." className="z-[10030]">
-                        <div className="p-1 -m-1 cursor-help">
-                          <Info size={10} className="text-dim/40 md:size-[8px]" />
-                        </div>
-                      </Tooltip>
+                      <div className="p-1 -m-1 cursor-help" title="Proximity to technical trigger threshold. 100% means the signal is fully active.">
+                        <Info size= {10} className="text-dim/40 md:size-[8px]" />
+                      </div>
                     </div>
                     <span className={cn("text-[8px] font-black font-mono", isFired ? "text-red" : "text-accent")}>
                       {s.distPct ? Math.min(100, s.distPct).toFixed(1) : '0.0'}%
@@ -236,11 +233,9 @@ const ExitMonitor = ({ status, logic, trade }) => {
                 <div className="space-y-1">
                   <div className="flex justify-between items-center px-0.5">
                     <div className="flex items-center gap-1 w-full justify-end">
-                      <Tooltip content="Price Proximity: Visual indicator of how close the price is to the target RR (Take Profit)." className="z-[10030]">
-                        <div className="p-1 -m-1 cursor-help">
-                          <Info size={10} className="text-dim/40 md:size-[8px]" />
-                        </div>
-                      </Tooltip>
+                      <div className="p-1 -m-1 cursor-help" title="Price Proximity: Visual indicator of how close the price is to the target RR (Take Profit).">
+                        <Info size={10} className="text-dim/40 md:size-[8px]" />
+                      </div>
                       <span className="text-[7px] font-black text-dim uppercase tracking-widest text-right">Price Prox.</span>
                     </div>
                   </div>
@@ -362,59 +357,17 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                 ROI: {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
               </div>
               {trade.is_reconciliation && (
-                <Tooltip content="Reconciled Trade: This position was automatically synchronized from the exchange state.">
-                  <div className="bg-amber/10 text-amber border border-amber/20 px-2 py-0.5 md:px-4 md:py-1.5 rounded-full text-[8px] md:text-xs font-black uppercase tracking-widest cursor-help shadow-sm flex items-center gap-1.5">
-                    <Activity size={12} className="md:size-3" /> Reconciled
-                  </div>
-                </Tooltip>
+                <div
+                  className="bg-amber/10 text-amber border border-amber/20 px-2 py-0.5 md:px-4 md:py-1.5 rounded-full text-[8px] md:text-xs font-black uppercase tracking-widest cursor-help shadow-sm flex items-center gap-1.5"
+                  title="Reconciled Trade: This position was automatically synchronized from the exchange state."
+                >
+                  <Activity size={12} className="md:size-3" /> Reconciled
+                </div>
               )}
             </div>
           </div>
         </div>
 
-        <div className="flex flex-col gap-4 min-w-[200px]">
-          {trade.close_blocked && (
-             <div className="bg-red/10 border border-red/20 rounded-xl p-3 flex flex-col gap-1 items-center text-center animate-pulse">
-                <span className="text-[10px] font-black text-red uppercase tracking-widest flex items-center gap-1">
-                   <ShieldAlert size={12} /> Liquidation Blocked
-                </span>
-                <span className="text-[8px] text-red/60 font-bold uppercase leading-tight">
-                   Max retries exceeded. Manual intervention on Binance is required.
-                </span>
-             </div>
-          )}
-          {!trade.close_blocked && trade.close_attempts > 0 && (
-             <div className="bg-amber/10 border border-amber/20 rounded-xl p-2 flex items-center justify-center gap-2">
-                <Loader2 className="animate-spin text-amber" size={10} />
-                <span className="text-[8px] font-black text-amber uppercase tracking-widest">
-                   Closure Retry {trade.close_attempts}/5
-                </span>
-             </div>
-          )}
-          <button
-            onClick={() => confirmClose ? onTradeClose(trade.symbol) : setConfirmClose(true)}
-            disabled={isClosing}
-            aria-label={isClosing ? "Closing position" : confirmClose ? "Confirm close position" : "Close position"}
-            className={cn(
-              "h-12 md:h-16 px-6 rounded-xl md:rounded-2xl font-bold uppercase text-[10px] md:text-[11px] tracking-[0.2em] transition-all flex items-center justify-center gap-3 relative overflow-hidden",
-              confirmClose ? "bg-red text-white animate-pulse" : "bg-red/10 text-red border border-red/20 hover:bg-red/20"
-            )}
-          >
-            <motion.div
-              initial={false}
-              animate={{
-                y: (confirmClose && !isClosing) ? -20 : 0,
-                opacity: (confirmClose && !isClosing) ? 0 : 1
-              }}
-              className="flex items-center"
-            >
-              {isClosing ? <Loader2 className="animate-spin" size={16} /> : <XCircle size={16} />}
-            </motion.div>
-            <span aria-live="polite" className="font-black">
-              {isClosing ? 'Closing...' : confirmClose ? 'Confirm Close?' : 'Force Liquidation'}
-            </span>
-          </button>
-        </div>
       </div>
 
       {/* Price Runway */}
@@ -517,11 +470,9 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                       <div className="flex items-center gap-1.5">
                         <span className="text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
                         {item.tooltip && (
-                          <Tooltip content={item.tooltip} className="z-[10030]">
-                            <div className="p-1 -m-1 cursor-help">
-                              <Info size={12} className="text-dim/40 md:size-[10px]" />
-                            </div>
-                          </Tooltip>
+                          <div className="p-1 -m-1 cursor-help" title={item.tooltip}>
+                            <Info size={12} className="text-dim/40 md:size-[10px]" />
+                          </div>
                         )}
                       </div>
                       <span className={cn("text-xs font-bold font-mono", item.color)}>{item.value}</span>
@@ -547,11 +498,12 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                         <div className="flex items-center gap-2">
                            <span className="text-dim/60 text-[9px] uppercase tracking-[0.1em]">{adj.reason}</span>
                            {adj.adaptive && (
-                              <Tooltip content="Adaptive Guard: This adjustment was automatically widened to prevent exchange rejection or instant fill due to high volatility.">
-                                 <span className="bg-amber/10 text-amber px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter flex items-center gap-1 border border-amber/20">
-                                    <Activity size={8} /> Adaptive
-                                 </span>
-                              </Tooltip>
+                              <span
+                                className="bg-amber/10 text-amber px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter flex items-center gap-1 border border-amber/20"
+                                title="Adaptive Guard: This adjustment was automatically widened to prevent exchange rejection or instant fill due to high volatility."
+                              >
+                                <Activity size={8} /> Adaptive
+                              </span>
                            )}
                         </div>
                       </div>
@@ -566,6 +518,51 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               </div>
             )}
          </div>
+      </div>
+
+      {/* Audit: Destructive Action Section (Bottom Placed) */}
+      <div className="mt-4 pt-8 border-t border-border/20 flex flex-col items-center gap-4">
+          <div className="flex flex-col items-center gap-2 max-w-md text-center">
+             <div className="w-10 h-10 rounded-full bg-red/10 flex items-center justify-center text-red">
+                <ShieldAlert size={20} />
+             </div>
+             <h4 className="text-xs font-black uppercase tracking-widest text-red/80">Emergency Management</h4>
+             <p className="text-[10px] text-dim font-medium uppercase leading-relaxed">
+                Force liquidation will immediately close the entire position at the current market price. Use only when automated exit logic fails or manual intervention is required.
+             </p>
+          </div>
+
+          <div className="w-full flex flex-col gap-4 min-w-[200px] max-w-sm">
+            {trade.close_blocked && (
+               <div className="bg-red/10 border border-red/20 rounded-xl p-3 flex flex-col gap-1 items-center text-center animate-pulse">
+                  <span className="text-[10px] font-black text-red uppercase tracking-widest flex items-center gap-1">
+                     <ShieldAlert size={12} /> Liquidation Blocked
+                  </span>
+                  <span className="text-[8px] text-red/60 font-bold uppercase leading-tight">
+                     Max retries exceeded. Manual intervention on Binance is required.
+                  </span>
+               </div>
+            )}
+            {!trade.close_blocked && trade.close_attempts > 0 && (
+               <div className="bg-amber/10 border border-amber/20 rounded-xl p-2 flex items-center justify-center gap-2">
+                  <Loader2 className="animate-spin text-amber" size={10} />
+                  <span className="text-[8px] font-black text-amber uppercase tracking-widest">
+                     Closure Retry {trade.close_attempts}/5
+                  </span>
+               </div>
+            )}
+            <button
+              onClick={() => setConfirmClose(true)}
+              disabled={isClosing}
+              aria-label="Immediately liquidate position"
+              className="h-14 px-6 rounded-2xl font-black uppercase text-[11px] tracking-[0.2em] transition-all flex items-center justify-center gap-3 bg-red/10 text-red border border-red/20 hover:bg-red/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isClosing ? <Loader2 className="animate-spin" size={16} /> : <XCircle size={16} />}
+              <span aria-live="polite">
+                {isClosing ? 'Liquidating...' : 'Force Liquidation'}
+              </span>
+            </button>
+          </div>
       </div>
     </div>
   )

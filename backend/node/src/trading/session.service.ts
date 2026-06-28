@@ -974,6 +974,14 @@ export class SessionService implements OnModuleInit {
              this.logger.warn(msg);
              await this.logMessage(msg, "warn");
 
+             // BOLT: Rehydrate strategy config for resumed orphans to ensure they keep updating
+             // with the current session's settings.
+             trade.strategy_config = {
+               ...config,
+               ...(trade.strategy_config || {}),
+               strategy_label: trade.strategy_label || config.strategy_label || "Momentum Strategy"
+             };
+
              // Move to sessionOpenTrades so it gets resumed
              sessionOpenTrades.push(trade);
            } else {
@@ -1464,12 +1472,11 @@ export class SessionService implements OnModuleInit {
           sessionId: this.currentSessionId,
           entry_ts: new Date(),
           is_reconciliation: true,
-          strategy_label: "Exchange Reconciliation",
+          strategy_label: config?.strategy_label || "Exchange Reconciliation",
           strategy_config: {
             ...config,
             trading_mode: mode,
             paper_mode: mode === 'paper',
-            strategy_label: "Exchange Reconciliation"
           },
           close_attempts: 0,
           close_blocked: false,

@@ -1798,8 +1798,15 @@ export class OrderManagerService {
                       reason = EXIT_REASONS.TP_HIT;
                    } else if (type === 'STOP' || type === 'STOP_MARKET') {
                       // Distinguish between initial SL and ratchet milestones if possible
-                      const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
-                      reason = `${EXIT_REASONS.SL_HIT}_${slType}`;
+                      const isInitial = Math.abs(parseFloat(orderData.stopPrice || orderData.triggerPrice || '0') - trade.initial_sl) < trade.initial_sl * 0.0001;
+                      const slType = isInitial ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
+
+                      // BOLT: Explicitly map milestone-based SLs to TRAILING_STOP for better UI awareness
+                      if (!isInitial && slType.includes('milestone')) {
+                        reason = EXIT_REASONS.TRAILING_STOP;
+                      } else {
+                        reason = `${EXIT_REASONS.SL_HIT}_${slType}`;
+                      }
                    } else if (clientOrderId && clientOrderId.startsWith('cls-')) {
                       reason = EXIT_REASONS.MANUAL_CLOSE;
                    } else if (clientOrderId && clientOrderId.startsWith('tp-')) {

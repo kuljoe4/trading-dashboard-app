@@ -124,6 +124,7 @@ describe('OrderManagerService - PnL Consistency', () => {
           symbol: 'BTCUSDT',
           orderId: '112233',
           type: 'STOP_MARKET',
+          stopPrice: '49000',
           status: 'FILLED'
        })
     });

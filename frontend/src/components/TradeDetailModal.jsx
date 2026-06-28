@@ -5,7 +5,6 @@ import { cn, CopyButton, VisuallyHidden } from './ui/primitives'
 import { formatDuration } from '../lib/formatters'
 import { TradeDetailContent } from './trade/TradeDetailContent'
 import { useTradingStore } from '../store/trading'
-import { ConfirmationModal } from './ConfirmationModal'
 
 export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) => {
   const [now, setNow] = useState(Date.now())
@@ -98,16 +97,6 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
           />
         </Dialog.Content>
       </Dialog.Portal>
-
-      <ConfirmationModal
-        isOpen={confirmClose}
-        onClose={() => setConfirmClose(false)}
-        onConfirm={() => handleForceClose(trade.symbol)}
-        title={`Liquidate ${trade.symbol}?`}
-        message="This will immediately close the position at market price. This action is irreversible."
-        confirmText="Confirm Liquidation"
-        loading={isClosing}
-      />
     </Dialog.Root>
   )
 })

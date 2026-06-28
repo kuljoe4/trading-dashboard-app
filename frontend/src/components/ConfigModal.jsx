@@ -6,7 +6,6 @@ import * as Switch from '@radix-ui/react-switch'
 import { CONFIG_LIMITS } from '../constants/configLimits'
 import { settingsAPI, presetsAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
-import { ConfirmationModal } from './ConfirmationModal'
 
 const fmtUSD = (v) => `$${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -114,7 +113,9 @@ ConfigField.displayName = 'ConfigField'
 const SignalChip = React.memo(({ signal, active, onClick }) => {
   const [key, label, desc] = signal;
   return (
-    <Chip active={active} onClick={() => onClick(key, active)} title={desc}>{label}</Chip>
+    <Tooltip content={desc} side="bottom">
+      <Chip active={active} onClick={() => onClick(key, active)}>{label}</Chip>
+    </Tooltip>
   );
 })
 SignalChip.displayName = 'SignalChip'
@@ -136,19 +137,20 @@ const ExitSignalCard = React.memo(({ signal, active, delayValue, onToggle, onDel
 
   return (
     <div className="flex flex-col gap-2">
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => onToggle(key, active)}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(key, active); } }}
-        className={cn("w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all text-left cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-red/50", active ? "border-red/40 bg-red/5" : "border-border hover:border-border-hover bg-surface/50")}
-        title={desc}
-      >
-        <span className={cn("text-xs font-bold", active ? "text-red" : "text-text")}>{label}</span>
-        <Switch.Root checked={active} className={cn("h-5 w-9 rounded-full transition-colors relative pointer-events-none", active ? "bg-red" : "bg-border")}>
-          <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
-        </Switch.Root>
-      </div>
+      <Tooltip content={desc}>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => onToggle(key, active)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(key, active); } }}
+          className={cn("w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all text-left cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-red/50", active ? "border-red/40 bg-red/5" : "border-border hover:border-border-hover bg-surface/50")}
+        >
+          <span className={cn("text-xs font-bold", active ? "text-red" : "text-text")}>{label}</span>
+          <Switch.Root checked={active} className={cn("h-5 w-9 rounded-full transition-colors relative pointer-events-none", active ? "bg-red" : "bg-border")}>
+            <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
+          </Switch.Root>
+        </div>
+      </Tooltip>
       {active && (
         <div className="px-1 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
           <label className="text-[9px] font-bold text-dim uppercase tracking-wider">Delay Trigger (s)</label>
@@ -345,15 +347,16 @@ const PresetItem = React.memo(({ preset, isLoaded, isDirty, onLoad, onToggleVari
       </button>
 
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={(e) => onToggleVariant(e, preset)}
-          aria-label={isVariant ? `Remove ${preset.name} from variants` : `Add ${preset.name} as variant`}
-          title={isVariant ? "Remove from variants" : "Add as strategy variant"}
-          className={cn("p-2 rounded-lg transition-all active:scale-95", isVariant ? "bg-accent/10 text-accent border border-accent/20" : "bg-surface border border-border text-dim hover:text-accent hover:border-accent/20")}
-        >
-          {isVariant ? <XCircle size={16} /> : <Plus size={16} />}
-        </button>
+        <Tooltip content={isVariant ? "Remove from variants" : "Add as strategy variant"}>
+          <button
+            type="button"
+            onClick={(e) => onToggleVariant(e, preset)}
+            aria-label={isVariant ? `Remove ${preset.name} from variants` : `Add ${preset.name} as variant`}
+            className={cn("p-2 rounded-lg transition-all active:scale-95", isVariant ? "bg-accent/10 text-accent border border-accent/20" : "bg-surface border border-border text-dim hover:text-accent hover:border-accent/20")}
+          >
+            {isVariant ? <XCircle size={16} /> : <Plus size={16} />}
+          </button>
+        </Tooltip>
         <button
           type="button"
           onClick={(e) => onDelete(e, preset.name)}
@@ -431,8 +434,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [liveConfigured, setLiveConfigured] = useState(false)
   const [modeWarning, setModeWarning] = useState(null)
   const [loadedPresetName, setLoadedPresetName] = useState(() => sessionStorage.getItem('loaded_preset_name'));
-  const [pendingDeletePreset, setPendingDeletePreset] = useState(null);
-  const [showClearMonitorsConfirm, setShowClearMonitorsConfirm] = useState(false);
 
   // Use a debounced effect for sessionStorage to avoid heavy stringify on every keystroke
   useEffect(() => {
@@ -699,19 +700,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     addAlert({ level: 'success', title: 'Preset Loaded', message: `Active configuration set to "${p.name}".` });
   }, [validate, addAlert]);
 
-  const deletePreset = React.useCallback(async () => {
-    if (!pendingDeletePreset) return;
+  const deletePreset = React.useCallback(async (e, name) => {
+    e.stopPropagation();
     try {
-      await presetsAPI.delete(pendingDeletePreset);
-      setPresets(prev => prev.filter(p => p.name !== pendingDeletePreset));
-      addAlert({ level: 'info', title: 'Preset Deleted', message: `"${pendingDeletePreset}" has been removed from the database.` });
+      await presetsAPI.delete(name);
+      setPresets(prev => prev.filter(p => p.name !== name));
+      addAlert({ level: 'info', title: 'Preset Deleted', message: `"${name}" has been removed from the database.` });
     } catch (e) {
       console.error('[ConfigModal] Error deleting preset:', e);
-      addAlert({ level: 'error', title: 'Delete Failed', message: `Could not remove preset "${pendingDeletePreset}".` });
-    } finally {
-      setPendingDeletePreset(null);
+      addAlert({ level: 'error', title: 'Delete Failed', message: `Could not remove preset "${name}".` });
     }
-  }, [pendingDeletePreset, addAlert]);
+  }, [addAlert]);
 
   const toggleVariant = React.useCallback((e, p) => {
     e.stopPropagation()
@@ -719,7 +718,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     const exists = variants.some((v) => v.strategy_label === p.name)
 
     if (!exists && variants.length >= CONFIG_LIMITS.MAX_VARIANTS) {
-      addAlert({ level: 'warn', title: 'Limit Reached', message: `Maximum of ${CONFIG_LIMITS.MAX_VARIANTS} strategy variants allowed.` });
+      alert(`Maximum of ${CONFIG_LIMITS.MAX_VARIANTS} strategy variants allowed.`);
       return;
     }
 
@@ -833,7 +832,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             <section className="pt-6 border-t border-border/40">
                <div className="flex justify-between items-center mb-4">
                  <SectionHeader icon={ShieldCheck} title="Manual Monitors" subtitle="Specific symbols to track" />
-                 {(cfg.single_symbol_configs || []).length > 0 && <button type="button" onClick={() => setShowClearMonitorsConfirm(true)} className="text-[10px] font-black uppercase tracking-widest text-red/60 hover:text-red transition-colors flex items-center gap-1.5"><Trash2 size={12} /> Clear All</button>}
+                 {(cfg.single_symbol_configs || []).length > 0 && <button type="button" onClick={() => setField('single_symbol_configs', [])} className="text-[10px] font-black uppercase tracking-widest text-red/60 hover:text-red transition-colors flex items-center gap-1.5"><Trash2 size={12} /> Clear All</button>}
                </div>
                <ManualMonitorInput onAdd={(val) => setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), { symbol: val, enabled: true, follow_schedule: true }])} />
                <div className="flex flex-wrap gap-2 mt-4">
@@ -879,9 +878,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
                 {renderField('MA Period', 'signal_params_ma_period', 'number', null, { min: 1 })}
-                <span title="Global fallback period used if specific Entry/Exit EMA is not set">
-                  {renderField('EMA (Global Fallback)', 'signal_params_ema_period', 'number', null, { min: 1 })}
-                </span>
+                <Tooltip content="Global fallback period used if specific Entry/Exit EMA is not set">
+                  <span>{renderField('EMA (Global Fallback)', 'signal_params_ema_period', 'number', null, { min: 1 })}</span>
+                </Tooltip>
               </div>
 
               <div className="space-y-6">
@@ -1000,9 +999,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     </div>
                     <div className="flex items-center gap-2">
                       <Toggle value={cfg.auto_scale_min_notional !== false} onChange={(v) => setField('auto_scale_min_notional', v)} color="bg-accent" />
-                      <span title="Binance Futures requires a minimum position size of 5 USDT. When enabled, the engine automatically scales UP small positions to $5.05 to avoid exchange rejections.">
-                        <Activity size={10} className="text-dim cursor-help" />
-                      </span>
+                      <Tooltip content="Binance Futures requires a minimum position size of 5 USDT. When enabled, the engine automatically scales UP small positions to $5.05 to avoid exchange rejections.">
+                         <span><Activity size={10} className="text-dim cursor-help" /></span>
+                      </Tooltip>
                     </div>
                   </div>
                   <div className="flex flex-col gap-1.5 mt-0.5">
@@ -1081,9 +1080,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   {renderField('Ceiling Max %', 'sl_max_pct', 'number', null, { min: 0.1, step: 0.1 })}
                 </div>
                 <div className="md:col-span-2">
-                  <span title="Safety buffer that prevents trailing stops from being placed too close to the market price. This avoids 'Order would immediately trigger' errors and instant fills during high volatility. Recommended: 0.03% to 0.05%.">
-                    {renderField('Trailing Guard (%)', 'trailing_guard_buffer_pct', 'number', null, { min: CONFIG_LIMITS.TRAILING_GUARD_MIN, max: CONFIG_LIMITS.TRAILING_GUARD_MAX, step: 0.01 })}
-                  </span>
+                  <Tooltip content="Safety buffer that prevents trailing stops from being placed too close to the market price. This avoids 'Order would immediately trigger' errors and instant fills during high volatility. Recommended: 0.03% to 0.05%.">
+                    <span>{renderField('Trailing Guard (%)', 'trailing_guard_buffer_pct', 'number', null, { min: CONFIG_LIMITS.TRAILING_GUARD_MIN, max: CONFIG_LIMITS.TRAILING_GUARD_MAX, step: 0.01 })}</span>
+                  </Tooltip>
                 </div>
               </div>
 
@@ -1392,7 +1391,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     isDirty={isDirty}
                     onLoad={loadPreset}
                     onToggleVariant={toggleVariant}
-                    onDelete={(e, name) => { e.stopPropagation(); setPendingDeletePreset(name); }}
+                    onDelete={deletePreset}
                     isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
                   />
                 ))}
@@ -1418,24 +1417,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
           {isDirty && <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />}
         </Btn>
       </div>
-
-      <ConfirmationModal
-        isOpen={!!pendingDeletePreset}
-        onClose={() => setPendingDeletePreset(null)}
-        onConfirm={deletePreset}
-        title="Delete Strategy Preset?"
-        message={`This will permanently remove the preset "${pendingDeletePreset}" from the database. This action cannot be undone.`}
-        confirmText="Delete Preset"
-      />
-
-      <ConfirmationModal
-        isOpen={showClearMonitorsConfirm}
-        onClose={() => setShowClearMonitorsConfirm(false)}
-        onConfirm={() => { setField('single_symbol_configs', []); setShowClearMonitorsConfirm(false); }}
-        title="Clear All Manual Monitors?"
-        message="This will remove all symbols from your manual monitoring list. You will need to re-add them individually."
-        confirmText="Clear All"
-      />
     </div>
   )
 }

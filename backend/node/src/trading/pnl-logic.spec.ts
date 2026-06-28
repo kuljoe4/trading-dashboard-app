@@ -61,7 +61,6 @@ describe('SessionService PnL Logic Consistency Fix', () => {
     jest.clearAllMocks();
     service = new SessionService(
       mockSessionRepository,
-      {} as any, // klineStore
       mockTradeRepository,
       mockLogRepository,
       { findOne: jest.fn().mockResolvedValue({ id: 'default' }) } as any, // settingsRepository

@@ -385,7 +385,7 @@ export class EngineBroadcasterService {
       (startingBalance !== undefined && startingBalance !== null && startingBalance !== this.lastAnalyticsStartingBalance);
 
     if (analyticsCondition) {
-      this.lastAnalyticsResult = this.analyticsService.calculateAnalytics(this.sessionState.closedTrades as any, startingBalance, balance);
+      this.lastAnalyticsResult = this.analyticsService.calculateAnalytics(this.sessionState.closedTrades as any, startingBalance);
       this.lastAnalyticsTradeCount = this.sessionState.closedTrades.length;
       this.lastAnalyticsStartingBalance = startingBalance ?? 0;
     }

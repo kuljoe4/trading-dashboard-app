@@ -237,28 +237,6 @@ export class OrderManagerService {
              } else if (type === 'STOP' || type === 'STOP_MARKET') {
                reason = EXIT_REASONS.SL_HIT;
                trade.exit_signal_reason = `External Stop Loss hit on exchange at ${exitPrice}`;
-             } else if (type === 'MARKET') {
-               // Heuristic: Check if price is near SL or TP to identify Algo triggers
-               const slDist = trade.current_sl > 0 ? Math.abs(exitPrice - trade.current_sl) / trade.current_sl : 1.0;
-               const tpDist = trade.tp ? Math.abs(exitPrice - trade.tp) / trade.tp : 1.0;
-
-               if (slDist < 0.005) { // 0.5% tolerance
-                 const isInitial = Math.abs(trade.current_sl - trade.initial_sl) / trade.initial_sl < 0.0001;
-                 const slType = isInitial ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
-
-                 if (!isInitial && slType.includes('milestone')) {
-                   reason = EXIT_REASONS.TRAILING_STOP;
-                 } else {
-                   reason = `${EXIT_REASONS.SL_HIT}_${slType}`;
-                 }
-                 trade.exit_signal_reason = `Exchange SL hit at ${exitPrice} (${formatSlType(slType)})`;
-               } else if (tpDist < 0.005) {
-                 reason = EXIT_REASONS.TP_HIT;
-                 trade.exit_signal_reason = `Exchange TP hit at ${exitPrice}`;
-               } else {
-                 reason = EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
-                 trade.exit_signal_reason = `External close on exchange at ${exitPrice} (Type: ${type})`;
-               }
              } else {
                reason = EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
                trade.exit_signal_reason = `External close on exchange at ${exitPrice} (Type: ${type})`;
@@ -1577,7 +1555,7 @@ export class OrderManagerService {
       : (trade.entry_ts ? new Date(trade.entry_ts).getTime() : 0);
     const tradeAgeSec = entryTs > 0 ? (Date.now() - entryTs) / 1000 : 0;
 
-    const statuses: Record<string, { fired: boolean, active: boolean, remaining_delay: number, label: string, value: number, threshold: number, unit: string, description?: string, insufficientData?: boolean }> = {};
+    const statuses: Record<string, { fired: boolean, active: boolean, remaining_delay: number, label: string, value: number, threshold: number, unit: string, description?: string, insufficientData?: boolean, threshold_is_price?: boolean }> = {};
     const delays = config.exit_signal_delays || {};
     const logic = config.exit_signal_logic || 'any';
 
@@ -1613,6 +1591,7 @@ export class OrderManagerService {
           unit: detail?.unit ?? '%',
           description: detail?.description || `Signal ${exitSignal} ${isFired ? 'fired' : 'not fired'}`,
           insufficientData: detail?.insufficientData,
+          threshold_is_price: detail?.threshold_is_price,
         };
 
         if (isFired && isActive) {
@@ -1848,31 +1827,6 @@ export class OrderManagerService {
                         reason = EXIT_REASONS.TRAILING_STOP;
                       } else {
                         reason = `${EXIT_REASONS.SL_HIT}_${slType}`;
-                      }
-                   } else if (type === 'MARKET') {
-                      // Heuristic for Algo SL/TP triggers which result in MARKET orders
-                      const slDist = trade.current_sl > 0 ? Math.abs(fillPrice - trade.current_sl) / trade.current_sl : 1.0;
-                      const tpDist = trade.tp ? Math.abs(fillPrice - trade.tp) / trade.tp : 1.0;
-
-                      if (slDist < 0.005) {
-                        const isInitial = Math.abs(trade.current_sl - trade.initial_sl) / trade.initial_sl < 0.0001;
-                        const slType = isInitial ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
-
-                        if (!isInitial && slType.includes('milestone')) {
-                           reason = EXIT_REASONS.TRAILING_STOP;
-                        } else {
-                           reason = `${EXIT_REASONS.SL_HIT}_${slType}`;
-                        }
-                      } else if (tpDist < 0.005) {
-                        reason = EXIT_REASONS.TP_HIT;
-                      } else if (clientOrderId && clientOrderId.startsWith('cls-')) {
-                        reason = EXIT_REASONS.MANUAL_CLOSE;
-                      } else if (clientOrderId && clientOrderId.startsWith('tp-')) {
-                        reason = EXIT_REASONS.TP_HIT;
-                      } else if (clientOrderId && clientOrderId.startsWith('sig-')) {
-                        reason = EXIT_REASONS.SIGNAL;
-                      } else {
-                        reason = EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
                       }
                    } else if (clientOrderId && clientOrderId.startsWith('cls-')) {
                       reason = EXIT_REASONS.MANUAL_CLOSE;

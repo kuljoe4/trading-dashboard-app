@@ -179,7 +179,8 @@ export class OrderManagerService {
           this.eventEmitter.emit('trade.exchange_close', {
             symbol,
             exitPrice,
-            reason: `${EXIT_REASONS.SL_HIT}_${slType}`
+            reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
+            orderId // DATA-ACCURACY: Pass orderId to allow authoritative recovery if UDS price was estimated
           });
         }
         else if (isEntryOrder) {
@@ -267,7 +268,8 @@ export class OrderManagerService {
            this.eventEmitter.emit('trade.exchange_close', {
              symbol,
              exitPrice,
-             reason
+             reason,
+             orderId // DATA-ACCURACY: Pass orderId to allow authoritative recovery
            });
         }
       } else {
@@ -1789,46 +1791,49 @@ export class OrderManagerService {
     }
   }
 
-  public async recoverClosingContext(symbol: string, trade: Trade, estimate: number): Promise<{ price: number, reason?: string }> {
+  public async recoverClosingContext(symbol: string, trade: Trade, estimate: number, targetOrderId?: string): Promise<{ price: number, reason?: string }> {
     if (!this.binanceClient || this.paperMode) return { price: estimate };
     try {
-      const tradesRes = await this.binanceClient.restAPI.accountTradeList({ symbol, limit: 10 });
-      const trades = await tradesRes.data() as any;
-      if (Array.isArray(trades) && trades.length > 0) {
-        const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
-        // Sort by time descending to get the most recent fills
-        const closingTrades = trades.filter(t => t.side === closeDirection).sort((a, b) => b.time - a.time);
+      let orderId = targetOrderId;
 
-        if (closingTrades.length > 0) {
-          const lastFill = closingTrades[0];
+      // If no orderId provided, try to find the most recent one in trade history
+      if (!orderId) {
+        const tradesRes = await this.binanceClient.restAPI.accountTradeList({ symbol, limit: 10 });
+        const trades = await tradesRes.data() as any;
+        if (Array.isArray(trades) && trades.length > 0) {
+          const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
+          // Sort by time descending to get the most recent fills
+          const closingTrades = trades.filter(t => t.side === closeDirection).sort((a, b) => b.time - a.time);
 
-          // DATA-CONSISTENCY: Ensure the fill is recent (within last 5 minutes)
-          // to avoid picking up trades from previous days or sessions.
-          if (Date.now() - Number(lastFill.time) > 300000) {
-            this.logger.warn(`[${(trade.id || 'N/A').substring(0, 8)}] Sync Recovery: Found fill for ${symbol} but it is too old (${new Date(Number(lastFill.time)).toISOString()}). Ignoring.`);
-            return { price: estimate };
+          if (closingTrades.length > 0) {
+            const lastFill = closingTrades[0];
+
+            // DATA-CONSISTENCY: Ensure the fill is recent (within last 5 minutes)
+            if (Date.now() - Number(lastFill.time) > 300000) {
+              this.logger.warn(`[${(trade.id || 'N/A').substring(0, 8)}] Sync Recovery: Found fill for ${symbol} but it is too old. Ignoring.`);
+            } else {
+              orderId = lastFill.orderId;
+            }
           }
+        }
+      }
 
-          const fillPrice = parseFloat(lastFill.price);
+      if (orderId) {
+         try {
+            this.logger.log(`[Sync] Recovering authoritative order context for ID ${orderId}...`);
+            const orderRes = await this.binanceClient.restAPI.queryOrder({ symbol, orderId: BigInt(orderId) });
+            const orderData = await orderRes.data() as any;
 
-          // SRE: Price sanity check. If the found fill is too far from our estimate (>5%), ignore it.
-          if (estimate > 0 && Math.abs(fillPrice - estimate) / estimate > 0.05) {
-             this.logger.warn(`[${(trade.id || 'N/A').substring(0, 8)}] Sync Recovery: Found fill price ${fillPrice} for ${symbol} but it is too far from estimate ${estimate}. Ignoring.`);
-             return { price: estimate };
-          }
+            if (orderData && orderData.type) {
+                const fillPrice = parseFloat(orderData.avgPrice || orderData.price || '0');
 
-          const orderId = lastFill.orderId;
-
-          let reason = undefined;
-          if (orderId) {
-             try {
-                this.logger.log(`[Sync] Recovering order context for ID ${orderId}...`);
-                const orderRes = await this.binanceClient.restAPI.queryOrder({ symbol, orderId: BigInt(orderId) });
-                const orderData = await orderRes.data() as any;
-
-                if (orderData && orderData.type) {
+                // SRE: Price sanity check against estimate
+                if (estimate > 0 && fillPrice > 0 && Math.abs(fillPrice - estimate) / estimate > 0.05) {
+                   this.logger.warn(`[Sync] Recovered price ${fillPrice} for ${symbol} deviates significantly from estimate ${estimate}. Using authoritative price anyway.`);
+                }
                    const type = orderData.type;
                    const clientOrderId = orderData.clientOrderId;
+                   let reason = undefined;
 
                    // SRE: Map exchange order type to engine-specific EXIT_REASONS
                    if (type === 'TAKE_PROFIT' || type === 'TAKE_PROFIT_MARKET') {
@@ -1879,17 +1884,15 @@ export class OrderManagerService {
                       reason = EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
                    }
                    this.logger.log(`[Sync] Successfully recovered exit reason for ${symbol}: ${reason} (Order Type: ${type})`);
+
+                   if (fillPrice > 0) {
+                      this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] Sync Recovery: Found authoritative price ${fillPrice} (Estimate: ${estimate})`);
+                      return { price: fillPrice, reason };
+                   }
                 }
              } catch (orderErr) {
                 this.logger.debug(`[Sync] Order context recovery failed for ID ${orderId}: ${orderErr instanceof Error ? orderErr.message : String(orderErr)}`);
              }
-          }
-
-          if (fillPrice > 0) {
-            this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] Sync Recovery: Found fill price ${fillPrice} (Estimate: ${estimate})`);
-            return { price: fillPrice, reason };
-          }
-        }
       }
     } catch (e: any) {
       this.logger.debug(`[${(trade.id || 'N/A').substring(0, 8)}] Execution context recovery failed: ${e.message}`);
@@ -1996,7 +1999,7 @@ export class OrderManagerService {
     exitReason: string,
     paperMode = this.paperMode,
     localOnly = false,
-    options: { ignoreBlocked?: boolean } = {}
+    options: { ignoreBlocked?: boolean, orderId?: string } = {}
   ): Promise<{ trade: Trade; exitOccurred: boolean; closeBlocked?: boolean, error?: string }> {
     // SRE: Per-symbol concurrency lock to prevent overlapping closure attempts
     // BOLT: Lock is now universal to prevent race conditions during localOnly syncs (Issue 2)
@@ -2038,16 +2041,34 @@ export class OrderManagerService {
          }
       }
 
-      if (!paperMode && this.binanceClient && (exitPrice === 0 || (localOnly && exitReason === EXIT_REASONS.EXCHANGE_SYNC))) {
+      // BOLT: Authoritative Price Recovery. If this is an external closure (localOnly) or we lack a price,
+      // we attempt to fetch the canonical avgPrice from the exchange state.
+      if (!paperMode && this.binanceClient && (exitPrice === 0 || localOnly)) {
         const tickerPrice = this.tickerCache.getPrice(symbol);
         const estimate = exitPrice || tickerPrice || trade.current_sl;
 
-        // BOLT: Recover full context (price + reason) for exchange-side closures
-        const context = await this.recoverClosingContext(symbol, trade, estimate);
-        exitPrice = context.price;
+        const context = await this.recoverClosingContext(symbol, trade, estimate, options.orderId);
 
-        if (exitReason === EXIT_REASONS.EXCHANGE_SYNC) {
-          exitReason = context.reason || EXIT_REASONS.EXCHANGE_SYNC_RECOVERY;
+        // Only update if we found a valid authoritative price
+        if (context.price > 0 && Math.abs(context.price - exitPrice) > 0.00000001) {
+           this.logger.log(`[${symbol}] [Sync] Updated exit price from exchange context: ${exitPrice} -> ${context.price}`);
+           exitPrice = context.price;
+
+           // BOLT: Field Synchronization. Update tooltip reason to match the new authoritative price.
+           if (trade.exit_signal_reason && trade.exit_signal_reason.includes('at')) {
+              trade.exit_signal_reason = trade.exit_signal_reason.replace(/at [\d.]+/, `at ${exitPrice}`);
+           } else if (trade.exit_signal_reason && trade.exit_signal_reason.includes('confirmed by exchange at')) {
+              trade.exit_signal_reason = trade.exit_signal_reason.replace(/confirmed by exchange at [\d.]+/, `confirmed by exchange at ${exitPrice}`);
+           } else if (!trade.exit_signal_reason) {
+              // If no reason set yet (e.g. EXCHANGE_SYNC), create a descriptive one with the price
+              const label = exitReason.replace(/_/g, ' ');
+              trade.exit_signal_reason = `${label} at ${exitPrice}`;
+           }
+        }
+
+        if (exitReason === EXIT_REASONS.EXCHANGE_SYNC && context.reason) {
+          exitReason = context.reason;
+          trade.exit_reason = exitReason; // Ensure entity also gets the specific reason
         }
       }
 
@@ -2296,12 +2317,28 @@ export class OrderManagerService {
 
                if (positionAmt === 0) {
                   this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] Confirmed: ${symbol} position is already zero on exchange (Amt: ${positionAmt}). Triggering Sync Recovery.`);
-                  exitPrice = await this.recoverLastExecutionPrice(symbol, trade, exitPrice);
-                  trade.exit_reason = trade.exit_reason === EXIT_REASONS.EXCHANGE_SYNC ? EXIT_REASONS.EXCHANGE_SYNC_RECOVERY : EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
+                  const context = await this.recoverClosingContext(symbol, trade, exitPrice);
+                  exitPrice = context.price;
+
+                  if (context.reason) {
+                    exitReason = context.reason;
+                    trade.exit_reason = exitReason;
+                  } else {
+                    trade.exit_reason = trade.exit_reason === EXIT_REASONS.EXCHANGE_SYNC ? EXIT_REASONS.EXCHANGE_SYNC_RECOVERY : EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
+                  }
+
                   const feeRate = this.takerFeeRate || 0.0004;
                   let exitFee = exitPrice * trade.qty * feeRate;
                   if (isNaN(exitFee)) exitFee = 0;
                   trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + exitFee);
+
+                  // BOLT: Field Synchronization. Update tooltip reason to match the new authoritative price.
+                  if (trade.exit_signal_reason && trade.exit_signal_reason.includes('at')) {
+                     trade.exit_signal_reason = trade.exit_signal_reason.replace(/at [\d.]+/, `at ${exitPrice}`);
+                  } else if (!trade.exit_signal_reason) {
+                     const label = exitReason.replace(/_/g, ' ');
+                     trade.exit_signal_reason = `${label} at ${exitPrice}`;
+                  }
                } else {
                   const tradeMeta = { id: trade.id, direction: trade.direction, qty: trade.qty, entryPrice: trade.entry_price, sl: trade.current_sl };
                   this.logger.warn(`[${symbol}] Close order failed (REDUCE_ONLY) but position still exists on exchange (Amt: ${positionAmt}). This typically means a side mismatch or a ghost SL order is consuming the 'reduce-only' capacity. TradeMeta: ${JSON.stringify(tradeMeta)}. Error: ${errMsg}`);

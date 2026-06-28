@@ -811,13 +811,14 @@ export class TradingSessionService implements OnApplicationShutdown {
     const localOnly = reason !== EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE;
     const ignoreBlocked = reason === EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE;
 
-    const res = await this.positionTracker.closeTrade(symbol, exitPrice, reason, this.config!, this.config?.paper_mode ?? true, localOnly, { ignoreBlocked });
+    const res = await this.positionTracker.closeTrade(symbol, exitPrice, reason, this.config!, this.config?.paper_mode ?? true, localOnly, { ignoreBlocked, orderId: (payload as any).orderId });
 
     if (res.exitOccurred && res.trade) {
       if (isReconciliation) res.trade.is_reconciliation = true;
-      // BOLT: Prioritize the more specific reason recovered from the exchange (e.g. SL_HIT vs EXCHANGE_SYNC)
+      // BOLT: Prioritize the more specific reason and price recovered from the exchange (e.g. SL_HIT vs EXCHANGE_SYNC)
       const finalizedReason = res.trade.exit_reason || reason;
-      await this.finalizeTradeClosure(res.trade, exitPrice, finalizedReason);
+      const finalizedPrice = res.trade.exit_price || exitPrice;
+      await this.finalizeTradeClosure(res.trade, finalizedPrice, finalizedReason);
     }
     } finally {
       this.inFlightExchangeCloses.delete(symbol);
@@ -871,7 +872,8 @@ export class TradingSessionService implements OnApplicationShutdown {
       const pp = this.sessionState.balancePaper; const pl = this.sessionState.balanceLive;
       const pa = this.appliedPnL.get(res.trade.id) || 0;
       try {
-        await this.finalizeTradeClosure(res.trade, cp, EXIT_REASONS.MANUAL_CLOSE);
+        const finalizedPrice = res.trade.exit_price || cp;
+        await this.finalizeTradeClosure(res.trade, finalizedPrice, EXIT_REASONS.MANUAL_CLOSE);
         await this.auditLog.log({
           action: 'MANUAL_TRADE_CLOSE',
           resourceId: res.trade.id,

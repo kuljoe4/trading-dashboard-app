@@ -125,6 +125,7 @@ describe('OrderManagerService - PnL Consistency', () => {
           orderId: '112233',
           type: 'STOP_MARKET',
           stopPrice: '49000',
+          avgPrice: '49200', // Canonical average price
           status: 'FILLED'
        })
     });
@@ -164,6 +165,7 @@ describe('OrderManagerService - PnL Consistency', () => {
           symbol: 'BTCUSDT',
           orderId: '998877',
           type: 'MARKET',
+          avgPrice: '50500', // Canonical average price
           clientOrderId: 'sig-test-id-recon-2',
           status: 'FILLED'
        })

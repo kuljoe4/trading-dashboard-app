@@ -11,6 +11,7 @@ interface SignalDetail {
   metric: string;
   description: string;
   insufficientData?: boolean;
+  threshold_is_price?: boolean;
 }
 
 @Injectable()
@@ -327,6 +328,7 @@ export class SignalEngineService {
         unit: 'price',
         metric: 'MA Cross',
         description: `Price crossed MA(${period})`,
+        threshold_is_price: true,
       };
     } catch (error) {
       this.logger.debug(`MA signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -377,6 +379,7 @@ export class SignalEngineService {
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Cross' : 'Entry EMA Cross',
         description: `Price crossed EMA(${period})`,
+        threshold_is_price: true,
       };
     } catch (error) {
       this.logger.debug(`EMA signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -436,6 +439,7 @@ export class SignalEngineService {
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual' : 'Entry EMA Dual',
         description: `EMA(${fastPeriod}) crossed EMA(${slowPeriod})`,
+        threshold_is_price: true,
       };
     } catch (error) {
       this.logger.debug(`EMA Dual Cross signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -513,6 +517,7 @@ export class SignalEngineService {
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual Close' : 'Entry EMA Dual Close',
         description: `Last closed candle (${completedClose.toFixed(2)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${fastPeriod}) and EMA(${slowPeriod})`,
+        threshold_is_price: true,
       };
     } catch (error) {
       this.logger.debug(`EMA Dual Close signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -583,6 +588,7 @@ export class SignalEngineService {
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Close' : 'Entry EMA Close',
         description: `Last closed candle (${completedClose.toFixed(2)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${period})`,
+        threshold_is_price: true,
       };
     } catch (error) {
       this.logger.debug(`EMA Close signal error: ${error instanceof Error ? error.message : String(error)}`);

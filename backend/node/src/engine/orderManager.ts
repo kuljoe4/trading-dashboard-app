@@ -1575,7 +1575,7 @@ export class OrderManagerService {
       : (trade.entry_ts ? new Date(trade.entry_ts).getTime() : 0);
     const tradeAgeSec = entryTs > 0 ? (Date.now() - entryTs) / 1000 : 0;
 
-    const statuses: Record<string, { fired: boolean, active: boolean, remaining_delay: number, label: string, value: number, threshold: number, unit: string, description?: string, insufficientData?: boolean }> = {};
+    const statuses: Record<string, { fired: boolean, active: boolean, remaining_delay: number, label: string, value: number, threshold: number, unit: string, description?: string, insufficientData?: boolean, threshold_is_price?: boolean }> = {};
     const delays = config.exit_signal_delays || {};
     const logic = config.exit_signal_logic || 'any';
 
@@ -1611,6 +1611,7 @@ export class OrderManagerService {
           unit: detail?.unit ?? '%',
           description: detail?.description || `Signal ${exitSignal} ${isFired ? 'fired' : 'not fired'}`,
           insufficientData: detail?.insufficientData,
+          threshold_is_price: detail?.threshold_is_price,
         };
 
         if (isFired && isActive) {

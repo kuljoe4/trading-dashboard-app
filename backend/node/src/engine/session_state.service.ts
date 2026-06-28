@@ -48,6 +48,7 @@ export class SessionStateService {
   public hibernating = false;
   public agreementRequired = false;
   public isAdaptiveTightened = false;
+  public last_scan_ts = 0;
   public realTimePositions: Map<string, { amount: number; entryPrice: number }> = new Map();
   public realTimeOrders: Map<string, any[]> = new Map();
   public config: SessionConfig | null = null;

@@ -42,6 +42,10 @@ describe('SessionService Validation', () => {
     cancelBinanceOrder: jest.fn(),
   } as any;
 
+  const mockKlineStoreService = {
+    cleanupOldKlines: jest.fn(),
+  } as any;
+
   const mockTradeRepository = {
     find: jest.fn().mockResolvedValue([]),
     create: jest.fn(),
@@ -61,6 +65,7 @@ describe('SessionService Validation', () => {
     jest.clearAllMocks();
     service = new SessionService(
       mockRepository, // Session
+      mockKlineStoreService,
       mockTradeRepository, // Trade
       mockLogRepository, // Log
       mockRepository, // Settings
@@ -208,6 +213,7 @@ describe('SessionService Validation', () => {
       
       const service = new SessionService(
         mockRepository, // Session
+        mockKlineStoreService,
         mockTradeRepository, // Trade
         mockLogRepository, // Log
         mockRepository, // Settings

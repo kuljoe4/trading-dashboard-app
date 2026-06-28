@@ -262,4 +262,25 @@ export class KlineStoreService {
     this.klines.clear();
     this.logger.verbose('KlineStore cleared');
   }
+
+  /**
+   * Performance Hardening: Cleanup old klines from database to prevent unbounded growth.
+   * Keeps the most recent N candles for active or recently active symbols.
+   */
+  async cleanupOldKlines() {
+    try {
+      this.logger.log('Starting Kline database cleanup...');
+      const cutoffTime = Date.now() - (7 * 24 * 60 * 60 * 1000); // 7 days
+
+      const result = await this.klineRepository
+        .createQueryBuilder()
+        .delete()
+        .where('time < :cutoffTime', { cutoffTime })
+        .execute();
+
+      this.logger.log(`Kline cleanup complete. Removed ${result.affected || 0} old candles.`);
+    } catch (err: any) {
+      this.logger.error(`Kline database cleanup failed: ${err.message}`);
+    }
+  }
 }

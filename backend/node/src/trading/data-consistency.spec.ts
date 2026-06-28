@@ -73,7 +73,6 @@ describe('SessionService Data Consistency Fixes', () => {
     jest.clearAllMocks();
     service = new SessionService(
       mockSessionRepository,
-      {} as any, // klineStore
       mockTradeRepository,
       mockLogRepository,
       mockSettingsRepository,

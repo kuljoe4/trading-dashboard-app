@@ -759,7 +759,6 @@ export class TradingSessionService implements OnApplicationShutdown {
       activeWindows: this.getActiveWindows(),
       gateState: this.sessionState.gateState,
       hibernating: this.sessionState.hibernating,
-      hibernation_mode: this.config?.hibernation_mode || 'adaptive',
       isAdaptiveTightened: lastRisk?.isAdaptiveTightened ?? false,
       tradesInPeriod: lastRisk?.tradesInPeriod,
       maxTradesPeriod: lastRisk?.maxTradesPeriod,

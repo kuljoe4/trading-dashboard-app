@@ -133,7 +133,7 @@ export class MarketFeedService {
         this.updateWeight(response.headers);
         data = await response.data();
       } else {
-        const response = await fetch(`${restBase}/fapi/v1/ticker/24hr`);
+        const response = await fetch(`${restBase}/fapi/v1/ticker/24hr`, { signal: AbortSignal.timeout(10000) });
         this.updateWeight(response.headers);
         if (!response.ok) return;
         data = await response.json() as any[];
@@ -215,7 +215,7 @@ export class MarketFeedService {
         data = await response.data();
       } else {
         this.logger.debug(`[MarketFeed] Fetching fresh exchange information via fetch...`);
-        const response = await fetch(`${restBase}/fapi/v1/exchangeInfo`);
+        const response = await fetch(`${restBase}/fapi/v1/exchangeInfo`, { signal: AbortSignal.timeout(10000) });
         this.updateWeight(response.headers);
         if (!response.ok) return;
         data = await response.json();
@@ -862,7 +862,7 @@ export class MarketFeedService {
         klines = await response.data();
       } else {
         const url = `${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${this.klineStore.getMaxCandles()}`;
-        const response = await fetch(url);
+        const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
         this.updateWeight(response.headers);
         if (!response.ok) return;
         klines = await response.json() as any[];

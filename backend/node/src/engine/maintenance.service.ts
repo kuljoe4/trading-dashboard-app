@@ -146,7 +146,7 @@ export class MaintenanceService {
             this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
           }
 
-          const slOrders = slOrdersBySymbol.get(trade.symbol) || [];
+          let slOrders = slOrdersBySymbol.get(trade.symbol) || [];
           let matchingOrder = slOrders.find(o =>
             String(o.orderId) === trade.binance_stop_order_id ||
             String(o.algoId) === trade.binance_stop_order_id ||
@@ -155,15 +155,15 @@ export class MaintenanceService {
 
           if (!matchingOrder) {
             const freshOrders = await this.orderManager.fetchOpenOrders(trade.symbol, { forceFresh: true });
-            const freshSlOrders = freshOrders.filter(isSlOrder);
-            matchingOrder = freshSlOrders.find(o =>
+            slOrders = freshOrders.filter(isSlOrder);
+            matchingOrder = slOrders.find(o =>
               String(o.orderId) === trade.binance_stop_order_id ||
               String(o.algoId) === trade.binance_stop_order_id ||
               o.clientOrderId === `sl-${(trade.id || '').substring(0, 8)}`
             );
 
-            if (!matchingOrder && freshSlOrders.length > 0) {
-              const validSl = freshSlOrders.find(o => Math.abs(parseFloat(o.origQty || o.quantity) - trade.qty) < 0.00000001);
+            if (!matchingOrder && slOrders.length > 0) {
+              const validSl = slOrders.find(o => Math.abs(parseFloat(o.origQty || o.quantity) - trade.qty) < 0.00000001);
               if (validSl) {
                 this.logger.log(`[Watchdog] ${trade.symbol} adopting untracked exchange SL: ${validSl.algoId || validSl.orderId}`);
                 trade.binance_stop_order_id = String(validSl.algoId || validSl.orderId);
@@ -189,6 +189,22 @@ export class MaintenanceService {
                 this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
               }
             }
+          }
+
+          // SRE: Single-Truth SL Audit. Cancel any orphan SL orders to prevent ghost fills
+          // and avoid Binance's 10-conditional-order limit (Error -2027).
+          // We run this BEFORE the missing-SL check to ensure a clean slate if re-placement is needed.
+          const orphans = slOrders.filter(o =>
+             !matchingOrder || String(o.orderId || o.algoId) !== String(matchingOrder.orderId || matchingOrder.algoId)
+          );
+
+          for (const orphan of orphans) {
+             this.logger.warn(`[Watchdog] ${trade.symbol} found orphan SL order ${orphan.orderId || orphan.algoId}. Cancelling for state integrity.`);
+             await this.orderManager.cancelBinanceOrder(
+                trade.symbol,
+                String(orphan.orderId || orphan.algoId),
+                orphan.algoType ? 'algo' : 'standard'
+             );
           }
 
           if (!matchingOrder) {

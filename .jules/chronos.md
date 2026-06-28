@@ -9,3 +9,11 @@
 ## 2026-06-27 - Watchdog Quantity Parity Gap
 **Learning:** The protection watchdog previously only verified the *existence* of a Stop Loss order, but ignored its *quantity*. Manual position adjustments on the exchange (outside the engine) or previous partial fill artifacts could leave a position significantly under-protected or over-protected (creating reverse position risk). Synchronizing the local trade quantity with the exchange position is insufficient if the associated SL order is not also synchronized.
 **Action:** The watchdog must perform a "Quantity Parity Audit" on matching SL orders. Any mismatch between the order quantity and the current position quantity (excluding quantity-agnostic 'Close Position' orders) must trigger a Cancel-Replace cycle to ensure safety.
+
+## 2026-06-29 - Non-Atomic SL Milestone Commitment
+**Learning:** `PositionTrackerService` was committing R:R milestone indices to local state *before* successful exchange confirmation. If a ratchet failed (e.g. due to Binance 429 or network timeout), the engine would assume the milestone was reached and never retry the SL update, leaving the position unprotected or at a stale price level.
+**Action:** Implemented the "Acknowledge-then-Commit" pattern for SL ratchets. Local milestone state and peak R:R are only updated after `OrderManagerService.updateStopLoss` returns a confirmed success from the exchange.
+
+## 2026-06-29 - Orphan SL Order Accumulation
+**Learning:** While the engine tracked its primary SL order, previous failed ratchets or external exchange activity could leave "orphan" SL orders active. Binance's limit of 10 conditional orders per symbol (Error -2027) meant these orphans could block critical protection updates.
+**Action:** Enhanced the `MaintenanceService` watchdog to perform a "Single-Truth SL Audit". Any stop-loss order found on the exchange that is not the tracked `binance_stop_order_id` or matching the engine's deterministic `clientOrderId` is now explicitly cancelled.

@@ -47,6 +47,21 @@ export class PositionTrackerService {
     return this.closingSymbols.has(symbol);
   }
 
+  /**
+   * BOLT: Full reset of internal tracking state to prevent leaks between sessions.
+   */
+  clear(): void {
+    this.trades.clear();
+    this.enteringSymbols.clear();
+    this.pendingRisk.clear();
+    this.closingSymbols.clear();
+    this.rrSequenceIndex.clear();
+    this._totalRisk = 0;
+    this._pendingRiskTotal = 0;
+    this._activeListCache = null;
+    this.logger.log('[PositionTracker] Internal state cleared.');
+  }
+
   activeList(): Trade[] {
     if (this._activeListCache) return this._activeListCache;
     this._activeListCache = Array.from(this.trades.values());
@@ -75,18 +90,26 @@ export class PositionTrackerService {
       if (reservedRisk > 0) {
         // If updating or re-setting, remove old reserved amount first to maintain O(1) sum
         const oldReserved = this.pendingRisk.get(symbol) || 0;
-        this._pendingRiskTotal = roundEight(this._pendingRiskTotal - oldReserved + reservedRisk);
+        const newTotal = this._pendingRiskTotal - oldReserved + reservedRisk;
+        this._pendingRiskTotal = roundEight(Number.isFinite(newTotal) ? newTotal : 0);
 
         this.pendingRisk.set(symbol, reservedRisk);
-        this.logger.debug(`[Risk Integrity] Reserved ${reservedRisk} USDT risk for ${symbol} entry.`);
+        this.logger.debug(`[Risk Integrity] Reserved ${reservedRisk} USDT risk for ${symbol} entry. Total Pending: ${this._pendingRiskTotal}`);
       }
     } else {
       this.enteringSymbols.delete(symbol);
       const oldReserved = this.pendingRisk.get(symbol) || 0;
       if (oldReserved > 0) {
-        this._pendingRiskTotal = roundEight(this._pendingRiskTotal - oldReserved);
+        const newTotal = this._pendingRiskTotal - oldReserved;
+        this._pendingRiskTotal = roundEight(Number.isFinite(newTotal) ? newTotal : 0);
         this.pendingRisk.delete(symbol);
+        this.logger.debug(`[Risk Integrity] Released ${oldReserved} USDT risk for ${symbol}. Total Pending: ${this._pendingRiskTotal}`);
       }
+    }
+
+    // SRE: Defensive catch-all to prevent drift from Map state
+    if (!entering && this.enteringSymbols.size === 0 && this._pendingRiskTotal !== 0) {
+       this.recalculateTotalRisk();
     }
   }
 
@@ -101,6 +124,12 @@ export class PositionTrackerService {
     // DATA-07: Initialize milestone tracker from trade state for persistent state recovery
     this.rrSequenceIndex.set(trade.symbol, trade.rr_sequence_index ?? -1);
     this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt || 0));
+
+    // SRE: If we just added a trade, ensure we released the entering risk for this symbol
+    if (this.enteringSymbols.has(trade.symbol)) {
+       this.setEntering(trade.symbol, false);
+    }
+
     this._activeListCache = null;
     this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
   }

@@ -240,6 +240,8 @@ export class TradingSessionService implements OnApplicationShutdown {
     await this.sessionLifecycle.stop(this.binanceClient, this.sessionId || undefined, this.config || undefined);
 
     this.sessionState.setActiveTrades([]);
+    // BOLT: Full reset of position tracker to prevent risk leaks
+    this.positionTracker.clear();
     // BOLT: Clear appliedPnL on stop as it's session-transient
     this.appliedPnL.clear();
     this.minimizeMemoryUsage();
@@ -403,7 +405,12 @@ export class TradingSessionService implements OnApplicationShutdown {
           scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused
         });
       }
-      if (!this.sessionState.hibernating) this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, this.config);
+
+    // BOLT: Allow watchlist updates during hibernation if in light sleep to prevent "drop to zero" bug
+    const hibMode = this.config.hibernation_mode || 'adaptive';
+    if (!this.sessionState.hibernating || hibMode === 'light') {
+      this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, this.config);
+    }
     }
     return riskResult;
   }

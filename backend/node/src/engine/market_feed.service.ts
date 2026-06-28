@@ -94,21 +94,29 @@ export class MarketFeedService {
     this.startMiniTickerStream(wsBasePublic);
     this.startMarkTickerStream(wsBasePublic);
 
-    // RESEARCH: "Cold Start" mitigation. We wait for WS to populate the ticker cache.
-    // If it's still empty after a grace period, we perform a one-time REST fetch to ensure the watchlist isn't 0.
-    // BOLT: Even if not empty, we trigger a re-evaluation after 15s to ensure the UI updates from 0 monitored symbols.
+    // SRE: Immediate "Cold Start" mitigation.
+    // If the ticker cache is empty (e.g. after Deep Sleep or fresh boot),
+    // we trigger an immediate REST fetch to ensure the bot can start scanning candidates
+    // without waiting for the next WS cycle or the 15s grace period.
+    if (this.tickerCache.getCacheSize() === 0) {
+       this.logger.log(`[MarketFeed] Ticker cache empty on start. Triggering immediate REST seeding...`);
+       this.fetchInitialTickers(restBase).catch(e => this.logger.error(`Initial ticker fetch failed: ${e.message}`));
+    }
+
+    // BOLT: We still keep a delayed check to verify WS is actually flowing and populate if it failed.
     setTimeout(async () => {
        try {
          if (!this.running) return;
-         if (this.tickerCache.getCacheSize() === 0) {
-            this.logger.warn(`[MarketFeed] Ticker cache empty after 15s WS wait. Falling back to REST fetchInitialTickers (Weight 40)...`);
+         const size = this.tickerCache.getCacheSize();
+         if (size === 0) {
+            this.logger.warn(`[MarketFeed] Ticker cache still empty after 15s. Retrying REST fetchInitialTickers...`);
             await this.fetchInitialTickers(restBase);
          } else {
-            this.logger.log(`[MarketFeed] WS Seeding successful. Ticker cache size: ${this.tickerCache.getCacheSize()}. Triggering watchlist re-evaluation.`);
+            this.logger.log(`[MarketFeed] Market feed operational. Ticker cache size: ${size}.`);
             this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
          }
        } catch (err) {
-         this.logger.error(`Failed during market feed bootstrap: ${err instanceof Error ? err.message : String(err)}`);
+         this.logger.error(`Failed during market feed bootstrap check: ${err instanceof Error ? err.message : String(err)}`);
        }
     }, 15000);
 
@@ -351,6 +359,11 @@ export class MarketFeedService {
     this.logger.verbose('MarketFeedService: Resources cleared (Static exchangeInfo preserved)');
   }
 
+  private lastMiniTickerMsgTs = 0;
+  private lastMarkTickerMsgTs = 0;
+  private miniTickerConnectTs = 0;
+  private markTickerConnectTs = 0;
+
   private startMiniTickerStream(wsBase: string = ENGINE_CONSTANTS.BINANCE_WS_PUBLIC) {
     let retryCount = 0;
     const connect = async () => {
@@ -374,9 +387,15 @@ export class MarketFeedService {
       });
 
       ws.on('message', (data: any) => {
+        this.lastMiniTickerMsgTs = Date.now();
         // BOLT: Even in Eco Mode, we must populate the cache if it's currently empty to allow the first watchlist re-evaluation.
+        // SRE: During hibernation, we also need fresh data to qualify for wake-up.
         const cacheEmpty = this.tickerCache.getCacheSize() === 0;
-        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0 && !cacheEmpty) return;
+        const isHibernating = this.sessionState.hibernating;
+        const hibMode = this.sessionState.config?.hibernation_mode || 'adaptive';
+        const isLightSleep = isHibernating && hibMode === 'light';
+
+        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0 && !cacheEmpty && !isLightSleep) return;
         try {
           const msg = JSON.parse(data as any);
           let tickers: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
@@ -387,6 +406,7 @@ export class MarketFeedService {
       });
       ws.on('open', () => {
         retryCount = 0;
+        this.miniTickerConnectTs = Date.now();
       });
       ws.on('close', () => {
         this.miniTickerWs = null;
@@ -429,8 +449,13 @@ export class MarketFeedService {
       });
 
       ws.on('message', (data: any) => {
+        this.lastMarkTickerMsgTs = Date.now();
         const cacheEmpty = this.tickerCache.getCacheSize() === 0;
-        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0 && !cacheEmpty) return;
+        const isHibernating = this.sessionState.hibernating;
+        const hibMode = this.sessionState.config?.hibernation_mode || 'adaptive';
+        const isLightSleep = isHibernating && hibMode === 'light';
+
+        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0 && !cacheEmpty && !isLightSleep) return;
         try {
           const msg = JSON.parse(data as any);
           const updates = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
@@ -444,6 +469,7 @@ export class MarketFeedService {
       });
       ws.on('open', () => {
         retryCount = 0;
+        this.markTickerConnectTs = Date.now();
       });
       ws.on('close', () => {
         this.markTickerWs = null;
@@ -462,13 +488,59 @@ export class MarketFeedService {
   private startWatchlistManager(config: SessionConfig) {
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
     this.updateWatchlist(config);
-    this.watchlistInterval = setInterval(() => this.updateWatchlist(config), ENGINE_CONSTANTS.WATCHLIST_REFRESH_INTERVAL_MS);
+    this.watchlistInterval = setInterval(() => {
+      this.updateWatchlist(config);
+      this.checkStreamHealth();
+    }, ENGINE_CONSTANTS.WATCHLIST_REFRESH_INTERVAL_MS);
     this.watchlistInterval.unref?.();
+  }
+
+  /**
+   * SRE: Background Stream Health Monitor.
+   * If the global ticker streams (!miniTicker or !markPrice) have not received data
+   * for an extended period, force a reconnection. This is critical for waking up
+   * from hibernation after long periods of exchange silence or silent network drops.
+   */
+  private checkStreamHealth() {
+    if (!this.running) return;
+
+    const now = Date.now();
+    const MAX_SILENCE_MS = 5 * 60 * 1000; // 5 minutes
+
+    // Check Mini-Ticker Stream
+    if (this.miniTickerWs) {
+       const lastMsg = this.lastMiniTickerMsgTs || this.miniTickerConnectTs;
+       if (lastMsg > 0) {
+         const silence = now - lastMsg;
+         if (silence > MAX_SILENCE_MS) {
+            this.logger.warn(`[MarketFeed] Mini-ticker stream silence detected (${Math.round(silence/1000)}s). Force reconnecting...`);
+            this.safeClose(this.miniTickerWs);
+         }
+       }
+    }
+
+    // Check Mark-Price Stream
+    if (this.markTickerWs) {
+       const lastMsg = this.lastMarkTickerMsgTs || this.markTickerConnectTs;
+       if (lastMsg > 0) {
+         const silence = now - lastMsg;
+         if (silence > MAX_SILENCE_MS) {
+            this.logger.warn(`[MarketFeed] Mark-price stream silence detected (${Math.round(silence/1000)}s). Force reconnecting...`);
+            this.safeClose(this.markTickerWs);
+         }
+       }
+    }
   }
 
   @OnEvent(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE)
   async updateWatchlist(config: SessionConfig = this.sessionState.config!) {
     if (!this.running || !config) return;
+
+    // BOLT: In light sleep, always allow watchlist updates to ensure scanner has candidates
+    const isHibernating = this.sessionState.hibernating;
+    const hibMode = config.hibernation_mode || 'adaptive';
+    const isLight = isHibernating && hibMode === 'light';
+
     if (this.watchlistUpdatePending) return;
     if (this.watchlistUpdateTimeout) clearTimeout(this.watchlistUpdateTimeout);
     this.watchlistUpdateTimeout = setTimeout(async () => {
@@ -494,7 +566,7 @@ export class MarketFeedService {
       // to avoid the 250+ weight REST backfill burst on resumption.
       const isHibernating = this.sessionState.hibernating;
       const hibMode = config.hibernation_mode || 'adaptive';
-      const suppressScanner = isGated && activeTrades.length === 0 && (hibMode !== 'light' || !isHibernating);
+      const suppressScanner = isGated && activeTrades.length === 0 && hibMode !== 'light';
 
       if (config.global_scanner_enabled !== false && !suppressScanner) {
         let symbols: string[];

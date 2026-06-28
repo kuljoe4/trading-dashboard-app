@@ -327,7 +327,22 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
       } else if (d.type === 'log') set(st => ({ logs: [normalizeLog(d), ...st.logs].slice(0, MAX_LOG_LINES) }));
       else if (d.type === 'scanner') {
         const now = Date.now(); if (now - lsu < 200) return; lsu = now;
-        set(st => ({ scannerResults: (d.opportunities || []).map(o => { const n = normalizeOpportunity(o); const p = st.scannerResults.find(x => x.symbol === n.symbol); return p ? { ...n, history: n.history ?? p.history, signalResult: n.signalResult ?? p.signalResult } : n; }), variantScannerResults: d.variant_opportunities ? d.variant_opportunities.reduce((acc, v) => { acc[v.strategy_label] = v.opportunities.map(normalizeOpportunity); return acc; }, {}) : st.variantScannerResults, activeWindows: d.activeWindows || st.activeWindows }));
+        set(st => {
+          // BOLT OPTIMIZATION: Use Map for O(1) lookup during normalization to achieve O(N+M) complexity.
+          const prevMap = new Map(st.scannerResults.map(r => [r.symbol, r]));
+          return {
+            scannerResults: (d.opportunities || []).map(o => {
+              const n = normalizeOpportunity(o);
+              const p = prevMap.get(n.symbol);
+              return p ? { ...n, history: n.history ?? p.history, signalResult: n.signalResult ?? p.signalResult } : n;
+            }),
+            variantScannerResults: d.variant_opportunities ? d.variant_opportunities.reduce((acc, v) => {
+              acc[v.strategy_label] = v.opportunities.map(normalizeOpportunity);
+              return acc;
+            }, {}) : st.variantScannerResults,
+            activeWindows: d.activeWindows || st.activeWindows
+          };
+        });
       } else if (d.type === 'trade_event') {
         const t = d.trade ? normalizeTrade(d.trade) : null;
         set(st => ({ activeTrades: d.event === 'closed' ? st.activeTrades.filter(x => x.symbol !== d.symbol) : (t ? [...st.activeTrades, t] : st.activeTrades), tradeHistory: d.event === 'closed' && t ? [t, ...st.tradeHistory].slice(0, 50) : st.tradeHistory, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount }));

@@ -5,6 +5,7 @@ import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCi
 import { motion } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
 import { Sidebar, BottomNav } from '../components/Navigation'
+import { ConfirmationModal } from '../components/ConfirmationModal'
 
 export function SettingsView() {
   const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, sidebarCollapsed, logFilters, toggleLogFilter, resetPaperBalance, connectWS, disconnectWS } = useTradingStore()
@@ -72,10 +73,6 @@ export function SettingsView() {
   }, [resetConfirm])
 
   async function handleResetBalance() {
-    if (!resetConfirm) {
-      setResetConfirm(true)
-      return
-    }
     setResetting(true)
     useTradingStore.getState().setSyncing(true)
     try {
@@ -540,18 +537,13 @@ export function SettingsView() {
                   </div>
                 </div>
                 <button
-                  onClick={handleResetBalance}
+                  onClick={() => setResetConfirm(true)}
                   disabled={resetting}
-                  aria-label={resetting ? "Resetting balance" : resetConfirm ? "Confirm reset balance" : "Reset balance"}
-                  className={cn(
-                    "px-6 py-3 rounded-xl text-[11px] font-bold uppercase tracking-widest transition-all",
-                    resetConfirm
-                      ? "bg-red text-white animate-pulse shadow-lg shadow-red/20"
-                      : "bg-surface border border-border text-dim hover:text-red hover:border-red"
-                  )}
+                  aria-label="Reset paper balance to $10,000"
+                  className="px-6 py-3 bg-surface border border-border text-dim hover:text-red hover:border-red rounded-xl text-[11px] font-bold uppercase tracking-widest transition-all"
                 >
                   <span aria-live="polite">
-                    {resetting ? "Resetting..." : resetConfirm ? "Confirm Reset?" : "Reset Balance"}
+                    {resetting ? "Resetting..." : "Reset Balance"}
                   </span>
                 </button>
               </div>
@@ -573,6 +565,16 @@ export function SettingsView() {
         </div>
         <BottomNav />
       </div>
+
+      <ConfirmationModal
+        isOpen={resetConfirm}
+        onClose={() => setResetConfirm(false)}
+        onConfirm={handleResetBalance}
+        title="Reset Paper Balance?"
+        message="This will reset your paper trading balance back to the default $10,000.00. This action is irreversible."
+        confirmText="Confirm Reset"
+        loading={resetting}
+      />
     </div>
   )
 }

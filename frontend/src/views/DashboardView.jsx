@@ -354,40 +354,34 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
         </div>
         <div className="text-right shrink-0">
           <div className="flex gap-2 mb-2 relative z-20">
-            <Tooltip content={isExpanded ? "Hide Details" : "Show Details"}>
-              <button
-                onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
-                aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
-                aria-expanded={isExpanded}
-                className={cn(
-                  "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                  isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
-                )}
-              >
-                <Activity size={14} />
-              </button>
-            </Tooltip>
-            <Tooltip content="Edit Config">
-              <button
-                onClick={(e) => { e.stopPropagation(); onEdit(); }}
-                className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none"
-                aria-label="Edit strategy configuration"
-              >
-                <Edit3 size={14} />
-              </button>
-            </Tooltip>
-            <Tooltip content={paused ? "Resume Session" : "Pause Session"}>
-              <button
-                onClick={(e) => { e.stopPropagation(); onPause(); }}
-                className={cn(
-                  "p-2 border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                  paused ? "bg-green/10 border-green/20 text-green hover:bg-green/20" : "bg-amber/10 border-amber/20 text-amber hover:bg-amber/20"
-                )}
-                aria-label={paused ? "Resume strategy session" : "Pause strategy session"}
-              >
-                {paused ? <Play size={14} fill="currentColor" /> : <Pause size={14} fill="currentColor" />}
-              </button>
-            </Tooltip>
+            <button
+              onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
+              aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
+              aria-expanded={isExpanded}
+              className={cn(
+                "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
+              )}
+            >
+              <Activity size={14} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onEdit(); }}
+              className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none"
+              aria-label="Edit strategy configuration"
+            >
+              <Edit3 size={14} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onPause(); }}
+              className={cn(
+                "p-2 border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                paused ? "bg-green/10 border-green/20 text-green hover:bg-green/20" : "bg-amber/10 border-amber/20 text-amber hover:bg-amber/20"
+              )}
+              aria-label={paused ? "Resume strategy session" : "Pause strategy session"}
+            >
+              {paused ? <Play size={14} fill="currentColor" /> : <Pause size={14} fill="currentColor" />}
+            </button>
           </div>
           <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter" style={{ color: pnlColor(s.activePnl) }}>
             {fmtUSD(s.activePnl)}
@@ -471,11 +465,12 @@ const GateBanner = ({ gateState, scannerPaused, reason, hibernating, hibernation
             </div>
           </Tooltip>
         ) : isGatedIdle && (
-          <Tooltip content="Resource Suppression Active: Market feed and scanner are throttled to save CPU/Memory while idle.">
-            <div className="ml-auto bg-accent/10 px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border border-accent/20">
-              <Leaf size={10} /> RESOURCE SAVER
-            </div>
-          </Tooltip>
+          <div
+            className="ml-auto bg-accent/10 px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border border-accent/20"
+            title="Resource Suppression Active: Market feed and scanner are throttled to save CPU/Memory while idle."
+          >
+            <Leaf size={10} /> RESOURCE SAVER
+          </div>
         )}
       </div>
       {reason && reason !== 'OK' && (
@@ -784,8 +779,9 @@ export function DashboardView({ initialStrategy }) {
     try {
       await sessionAPI.delete(sessionToDelete)
       await fetchSessions()
+      addAlert({ level: 'success', title: 'Session Deleted', message: 'The session record has been permanently removed.' });
     } catch (e) {
-      alert('Failed to delete session')
+      addAlert({ level: 'error', title: 'Delete Failed', message: 'Could not remove the session record from history.' });
     } finally {
       setLoading(false)
       setSyncing(false)
@@ -864,30 +860,30 @@ export function DashboardView({ initialStrategy }) {
         >
           <div className="flex gap-3">
             {config.frequency_shaping_enabled && (
-              <Tooltip content="Adaptive Frequency Shaping is ACTIVE. Limits will automatically tighten if TOD performance drops.">
-                <div className="hidden xl:flex items-center gap-2 px-3 py-1.5 bg-accent/10 border border-accent/20 rounded-xl text-[10px] font-bold text-accent uppercase tracking-widest animate-in fade-in zoom-in duration-500">
-                  <Activity size={12} />
-                  Frequency Guard
-                </div>
-              </Tooltip>
+              <div
+                className="hidden xl:flex items-center gap-2 px-3 py-1.5 bg-accent/10 border border-accent/20 rounded-xl text-[10px] font-bold text-accent uppercase tracking-widest animate-in fade-in zoom-in duration-500"
+                title="Adaptive Frequency Shaping is ACTIVE. Limits will automatically tighten if TOD performance drops."
+              >
+                <Activity size={12} />
+                Frequency Guard
+              </div>
             )}
 
-            <Tooltip content={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}>
-              <button
-                onClick={() => setThrottled(!isThrottled)}
-                className={cn(
-                  "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                  isThrottled
-                    ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
-                    : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
-                )}
-              >
-                <Leaf size={18} fill={isThrottled ? "currentColor" : "none"} />
-                <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest">
-                  {isThrottled ? "Eco Active" : "Eco Mode"}
-                </span>
-              </button>
-            </Tooltip>
+            <button
+              onClick={() => setThrottled(!isThrottled)}
+              aria-label={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}
+              className={cn(
+                "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                isThrottled
+                  ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
+                  : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
+              )}
+            >
+              <Leaf size={18} fill={isThrottled ? "currentColor" : "none"} />
+              <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest">
+                {isThrottled ? "Eco Active" : "Eco Mode"}
+              </span>
+            </button>
 
             {sessionActive && (
               <Btn
@@ -1017,26 +1013,23 @@ export function DashboardView({ initialStrategy }) {
               <Activity size={14} className="text-accent" /> Global Metrics
             </SectionLabel>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 gap-y-4">
-              <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} tooltipText="Total available funds in the trading account." />
+              <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} />
               <StatCard
                 label="Active P&L"
                 value={fmtUSD(totalActivePnl)}
                 color={pnlClass(totalActivePnl)}
                 subValue={`Total: ${fmtUSD(totalPnl)}`}
                 syncing={wsStatus !== 'live'}
-                tooltipText="Current P&L from open trades vs. total session performance."
               />
               <StatCard
                 label="Live Risk"
                 value={`${Number(totalRiskPct || 0).toFixed(1)}%`}
                 color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"}
-                tooltipText="Combined risk percentage across all open positions relative to account equity."
               />
               <StatCard
                 label="Peak RR"
                 value={`+${Number(maxRR || 0).toFixed(2)}`}
                 color="text-accent"
-                tooltipText="Maximum Reward-to-Risk ratio achieved during this trading session."
               />
             </div>
           </motion.div>
@@ -1280,17 +1273,15 @@ export function DashboardView({ initialStrategy }) {
 
         {/* Mobile Floating Controls */}
         <div className="lg:hidden fixed bottom-24 right-6 flex flex-col gap-4 z-[100]">
-          <Tooltip content="Open Market Scanner" side="left">
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              onClick={() => setShowScanner(true)}
-              aria-label="Open Market Scanner"
-              className="w-10 h-10 rounded-full bg-accent text-white shadow-2xl flex items-center justify-center animate-in fade-in zoom-in duration-500"
-            >
-              <Zap size={20} />
-            </motion.button>
-          </Tooltip>
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => setShowScanner(true)}
+            aria-label="Open Market Scanner"
+            className="w-10 h-10 rounded-full bg-accent text-white shadow-2xl flex items-center justify-center animate-in fade-in zoom-in duration-500"
+          >
+            <Zap size={20} />
+          </motion.button>
         </div>
 
         <BottomNav selected={selected} />

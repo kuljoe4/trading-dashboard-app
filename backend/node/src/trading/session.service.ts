@@ -1775,6 +1775,7 @@ export class SessionService implements OnModuleInit {
           tradingMode: mode,
           paperMode: mode === "paper",
           config: lastSession?.config || null,
+          analytics: await this.getAnalytics(),
         };
       }
     }
@@ -1837,6 +1838,7 @@ export class SessionService implements OnModuleInit {
       apiStatus: engineStatus.apiStatus,
       config: session.config,
       startTime: session.startTime,
+      analytics: await this.getAnalytics(),
     };
   }
 

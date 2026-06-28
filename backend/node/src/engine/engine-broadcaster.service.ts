@@ -435,6 +435,7 @@ export class EngineBroadcasterService {
       monitoring,
       isEcoMode: isEcoMode,
       apiStatus: this.sessionState.apiStatus,
+      analytics: this.lastAnalyticsResult,
       _statsVersion: this.sessionState.statsVersion,
     };
 

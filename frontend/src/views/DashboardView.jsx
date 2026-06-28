@@ -35,7 +35,7 @@ const PerformanceInsights = React.memo(() => {
           value={fmtUSD(daily.pnl)}
           color={pnlClass(daily.pnl)}
           subValue={`${daily.pnlPct >= 0 ? '+' : ''}${daily.pnlPct}% ROI`}
-          tooltipText="Total realized P&L and ROI from trades closed since the start of the current day (UTC). Note: Performance analytics focus on trade-level P&L delta and are immune to external capital movements (deposits/transfers)."
+          tooltipText="Total realized P&L/ROI from trades closed since start of day (UTC). Note: Performance is 'Capital Neutral'—calculated based on trade delta, not absolute wallet size. Example: If you start with $10k, make $500 profit (+5% ROI), and then deposit $10k, your ROI remains +5% even though your balance is now $20.5k."
         />
         <StatCard
           label="Weekly Performance"

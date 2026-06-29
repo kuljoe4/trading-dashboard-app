@@ -95,7 +95,7 @@ const TemporalRiskGrid = React.memo(() => {
 
       <InteractiveLimitCard
         label="Jitter"
-        subValue={config.trades_jitter_pct > 0 ? 'Randomized' : 'Fixed'}
+        subValue={config.trades_jitter_pct > 0 ? (config.trades_jitter_market_aware ? 'Market-Aware' : 'Randomized') : 'Fixed'}
         tooltip="Randomized variation added to the period window to prevent execution stampedes."
         value={config.trades_jitter_pct || 0}
         unit="%"

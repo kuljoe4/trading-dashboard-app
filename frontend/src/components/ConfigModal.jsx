@@ -601,7 +601,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'scan_pct_threshold', 'scan_lookback', 'scan_min_volume_usdt', 'watchlist_size',
       'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
-      'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
+      'min_trade_interval_min', 'trades_jitter_pct', 'trades_jitter_market_aware', 'paper_starting_balance',
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
       'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
@@ -1217,9 +1217,22 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
 
                 {cfg.frequency_shaping_enabled && (
-                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 md:grid-cols-2 gap-6 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
-                    {renderField('Min Interval (m)', 'min_trade_interval_min', 'number', null, { min: 0 })}
-                    {renderField('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
+                    <div className="grid grid-cols-2 md:grid-cols-2 gap-6">
+                      {renderField('Min Interval (m)', 'min_trade_interval_min', 'number', null, { min: 0 })}
+                      {renderField('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
+                    </div>
+                    {cfg.trades_jitter_pct > 0 && (
+                      <div className="flex items-center justify-between pt-4 border-t border-border/40 animate-in fade-in slide-in-from-top-1 duration-200">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                            <Target size={12} className="text-accent" /> Market-Aware Jitter
+                          </span>
+                          <span className="text-[9px] text-dim font-medium uppercase tracking-tight">Prioritize high-quality signals with less random delay</span>
+                        </div>
+                        <Toggle value={cfg.trades_jitter_market_aware === true} onChange={(v) => setField('trades_jitter_market_aware', v)} color="bg-accent" />
+                      </div>
+                    )}
                   </motion.div>
                 )}
 

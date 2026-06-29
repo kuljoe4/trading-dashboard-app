@@ -417,6 +417,11 @@ const flattenConfig = (config) => {
       slippage_abort_threshold: config.slippage_abort_threshold !== undefined ? Number(config.slippage_abort_threshold) : (CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT || 0.05),
       hibernation_mode: config.hibernation_mode || 'adaptive',
       hibernation_grace_period_sec: config.hibernation_grace_period_sec || 30,
+      scanner_signal_depth: config.scanner_signal_depth || 10,
+      engulfing_mode: config.engulfing_mode || 'range',
+      engulfing_timing: config.engulfing_timing || 'is_opportunity',
+      engulfing_volume_confirm: !!config.engulfing_volume_confirm,
+      engulfing_lookback: config.engulfing_lookback || 1,
     };
   } catch (e) { return { ...config }; }
 };
@@ -498,6 +503,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     if (c.sl_distance_pct > 5) {
       errs.sl_distance_pct_warn = 'Aggressive (>5%)'
     }
+
+    if (c.scanner_signal_depth < 1) errs.scanner_signal_depth = 'Min 1';
 
     setErrors(errs); return Object.keys(errs).length === 0;
   }, [testnetConfigured, liveConfigured]);
@@ -601,6 +608,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'scan_pct_threshold', 'scan_lookback', 'scan_min_volume_usdt', 'watchlist_size',
       'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
+      'scanner_signal_depth',
+      'engulfing_lookback',
       'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
@@ -827,6 +836,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 {renderField('Watchlist Offset', 'watchlist_offset', 'number', null, { min: 0, max: 100 })}
                 {renderField('Entry side', 'entry_side', 'text', ['both', 'long', 'short'])}
                 {renderField('Lookback (Candles)', 'scan_lookback', 'number', null, { min: 1 })}
+                <Tooltip content="The scanner will check signals for top candidates up to this depth. If top candidates fail signals, it moves to the next. Set higher for strict signal strategies to prevent stalling.">
+                   <span>{renderField('Signal Depth', 'scanner_signal_depth', 'number', null, { min: 1, max: 50 })}</span>
+                </Tooltip>
                 {renderField('Min Volume (USDT)', 'scan_min_volume_usdt', 'number', null, { min: 0, step: 100000 })}
                 {renderField('Scan Mode', 'scan_mode', 'text', [
                   { value: 'interval', label: 'Fixed Interval' },
@@ -906,6 +918,38 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
 
               <div className="space-y-6">
+                {(cfg.enabled_signals || []).includes('engulfing') && (
+                  <div className="bg-accent/5 p-4 rounded-2xl border border-accent/20">
+                    <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em] mb-4">Engulfing Expert Parameters</div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <Tooltip content="Body: Open/Close must engulf previous Open/Close. Range: High/Low must engulf. Strict: Both must engulf.">
+                        <span>{renderField('Engulfing Mode', 'engulfing_mode', 'text', [
+                          { value: 'range', label: 'Range (H/L)' },
+                          { value: 'body', label: 'Body (O/C)' },
+                          { value: 'strict', label: 'Strict (Both)' }
+                        ])}</span>
+                      </Tooltip>
+                      <Tooltip content="Is Opportunity: Signal fires on the momentum candle itself. After Opportunity: Signal must fire on the NEXT candle after momentum.">
+                        <span>{renderField('Timing', 'engulfing_timing', 'text', [
+                          { value: 'is_opportunity', label: 'Is Opportunity' },
+                          { value: 'after_opportunity', label: 'After Opportunity' }
+                        ])}</span>
+                      </Tooltip>
+                      <Tooltip content="Lookback: Number of previous candles to engulf. Set > 1 for 'Reverse Engulfing' where one candle swallows multiple previous opposite bars.">
+                         <span>{renderField('Engulfing Lookback', 'engulfing_lookback', 'number', null, { min: 1, max: 10 })}</span>
+                      </Tooltip>
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[10px] text-dim font-black tracking-widest uppercase">Vol Confirmation</label>
+                          <Tooltip content="When enabled, the engulfing candle MUST have higher volume than the engulfed candle.">
+                            <span><Toggle value={cfg.engulfing_volume_confirm === true} onChange={(v) => setField('engulfing_volume_confirm', v)} /></span>
+                          </Tooltip>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="bg-background/20 p-4 rounded-2xl border border-border/50">
                   <div className="text-[9px] font-black text-dim uppercase tracking-[0.2em] mb-4">Entry Specific EMAs</div>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-6">

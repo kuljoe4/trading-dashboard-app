@@ -9,6 +9,16 @@ import { useTradingStore } from '../store/trading'
 
 const fmtUSD = (v) => `$${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+const TAB_ERROR_MAP = {
+  scan_interval: 'scan',
+  scan_lookback: 'scan',
+  scan_mode: 'scan',
+  trading_mode: 'advanced',
+  risk_pct_per_trade: 'risk',
+  max_open_trades: 'risk',
+  sl_distance_pct: 'risk'
+};
+
 const SIGNALS = [
   ['momentum_pct', '% Momentum', 'Entry when momentum exceeds threshold.'],
   ['breakout_hl', 'Breakout H/L', 'Entry when price breaks highest high or lowest low.'],
@@ -257,24 +267,31 @@ const ListInput = React.memo(({ value, onChange, placeholder }) => {
 })
 ListInput.displayName = 'ListInput'
 
-const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick }) => (
+const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasError }) => (
   <Chip
     active={active}
     onClick={() => onClick(id)}
-    className="flex items-center gap-2"
+    className={cn("flex items-center gap-2 relative", hasError && !active && "border-red/40")}
     role="tab"
     aria-selected={active}
+    aria-invalid={hasError}
     aria-controls={`config-panel-${id}`}
     id={`config-tab-${id}`}
     tabIndex={0}
   >
-    <Icon size={12} className={cn(active ? "text-accent" : "text-dim")} />
+    <Icon size={12} className={cn(active ? "text-accent" : "text-dim", hasError && !active && "text-red")} />
     {label}
+    {hasError && !active && (
+      <span className="absolute -top-1 -right-1 flex h-2 w-2">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red opacity-75"></span>
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-red"></span>
+      </span>
+    )}
   </Chip>
 ))
 SectionTab.displayName = 'SectionTab'
 
-const SectionTabs = React.memo(({ section, onSectionChange }) => {
+const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
   const tabs = useMemo(() => [
     { id: 'scan', label: 'Scanner', icon: Search },
     { id: 'strategy', label: 'Strategy', icon: Zap },
@@ -282,6 +299,10 @@ const SectionTabs = React.memo(({ section, onSectionChange }) => {
     { id: 'advanced', label: 'Advanced', icon: Settings2 },
     { id: 'presets', label: 'Presets', icon: FolderOpen }
   ], []);
+
+  const tabHasError = React.useCallback((tabId) => {
+    return Object.keys(errors).some(key => TAB_ERROR_MAP[key] === tabId);
+  }, [errors]);
 
   return (
     <div
@@ -296,6 +317,7 @@ const SectionTabs = React.memo(({ section, onSectionChange }) => {
           {...tab}
           active={section === tab.id}
           onClick={onSectionChange}
+          hasError={tabHasError(tab.id)}
         />
       ))}
     </div>
@@ -776,7 +798,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
           </div>
           <button type="button" onClick={onClose} aria-label="Close configuration" className="p-2 hover:bg-white/5 rounded-full transition-colors shrink-0"><X size={18} className="text-dim" /></button>
         </div>
-        <SectionTabs section={section} onSectionChange={setSection} />
+        <SectionTabs section={section} onSectionChange={setSection} errors={errors} />
       </div>
 
       <div className="flex-1 overflow-y-auto no-scrollbar p-4 md:p-6 pb-32 overscroll-contain" data-vaul-no-drag>

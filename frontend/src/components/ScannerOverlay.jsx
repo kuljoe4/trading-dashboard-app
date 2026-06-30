@@ -175,9 +175,12 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto no-scrollbar">
+      <div className="flex-1 overflow-y-auto no-scrollbar min-h-0">
         {scannerResults.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-dim text-[13px] font-medium">Waiting for scanner data...</div>
+          <div className="h-full flex flex-col items-center justify-center text-dim gap-3 py-20">
+             <Loader2 size={24} className="animate-spin opacity-20" />
+             <div className="text-[13px] font-bold uppercase tracking-widest opacity-40 italic">Initializing scanner...</div>
+          </div>
         ) : filteredResults.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center py-20 text-center animate-in fade-in zoom-in duration-300">
             <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center mb-4 text-dim/20">
@@ -299,8 +302,9 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
         )}
       </div>
 
-      <div className="p-3 border-t border-border text-[10px] text-dim font-medium text-center shrink-0">
-        WS: !miniTicker@arr + kline · Real-time updates
+      <div className="p-4 border-t border-border bg-surface/50 text-[10px] text-dim font-bold uppercase tracking-[0.2em] text-center shrink-0 flex items-center justify-center gap-2">
+        <span className="w-1 h-1 rounded-full bg-green animate-pulse" />
+        Live Feed: !miniTicker · kline · Real-time
       </div>
     </div>
   )

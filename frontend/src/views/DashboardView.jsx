@@ -1158,7 +1158,7 @@ export function DashboardView({ initialStrategy }) {
         <Drawer.Root open={showScanner} onOpenChange={setShowScanner}>
           <Drawer.Portal>
             <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
-            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4svh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto h-auto">
+            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4svh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto h-[96svh]">
               <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
                 <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
                 <VisuallyHidden>
@@ -1166,7 +1166,7 @@ export function DashboardView({ initialStrategy }) {
                   <Drawer.Description>View live market scanner opportunities</Drawer.Description>
                 </VisuallyHidden>
               </div>
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 min-h-0">
                 <Suspense fallback={<LoadingFallback />}>
                   {showScanner && <ScannerOverlay onClose={() => setShowScanner(false)} />}
                 </Suspense>

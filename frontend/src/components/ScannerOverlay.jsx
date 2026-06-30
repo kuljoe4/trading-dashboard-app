@@ -1,11 +1,12 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { fmtVol } from '../lib/theme'
+import { formatDuration } from '../lib/formatters'
 import { PulseDot, Sparkline, cn, CopyButton, Tooltip } from './ui/primitives'
 import { useTradingStore } from '../store/trading'
-import { X, Search, ShieldCheck, XCircle } from 'lucide-react'
+import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle } from 'lucide-react'
 
 export const ScannerOverlay = React.memo(({ onClose }) => {
-  const { scannerResults, activeWindows, config, scannerPaused, gateState, lastScanTs, hibernating } = useTradingStore(state => ({
+  const { scannerResults, activeWindows, config, scannerPaused, gateState, lastScanTs, hibernating, activeTrades } = useTradingStore(state => ({
     scannerResults: state.scannerResults,
     activeWindows: state.activeWindows,
     config: state.config,
@@ -13,9 +14,21 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
     gateState: state.gateState,
     lastScanTs: state.lastScanTs,
     hibernating: state.hibernating,
+    activeTrades: state.activeTrades
   }))
   const threshold = config.scan_pct_threshold || 2.0
   const [search, setSearch] = useState('')
+  const [now, setNow] = useState(Date.now())
+  const lastUpdateRef = useRef(lastScanTs)
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  const scanAge = lastScanTs > 0 ? Math.max(0, now - lastScanTs) : null
+  const isUpdating = lastScanTs !== lastUpdateRef.current
+  if (isUpdating) lastUpdateRef.current = lastScanTs
 
   const filteredResults = useMemo(() => {
     if (!search) return scannerResults
@@ -33,7 +46,12 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
     <div className="flex flex-col h-full bg-surface text-text overflow-hidden">
       <div className="p-4 border-b border-border flex justify-between items-center shrink-0 h-[64px]">
         <div className="flex items-center gap-2.5 min-w-0">
-          <PulseDot color={hibernating ? "bg-amber" : scannerPaused ? "bg-red" : "bg-green"} />
+          <div className="relative">
+             <PulseDot color={hibernating ? "bg-amber" : scannerPaused ? "bg-red" : "bg-green"} />
+             {!hibernating && !scannerPaused && (
+               <span className="absolute inset-0 rounded-full border border-green animate-ping opacity-20 scale-150" />
+             )}
+          </div>
           <div className="flex flex-col">
             <div className="flex items-center gap-2">
               <span className="text-[14px] font-bold hidden sm:inline">Live Scanner</span>
@@ -42,13 +60,22 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
               ) : scannerPaused ? (
                 <span className="text-[10px] text-red font-black uppercase tracking-tighter">Gated</span>
               ) : (
-                <span className="text-[10px] text-green font-black uppercase tracking-tighter">Active</span>
+                <span className="text-[10px] text-green font-black uppercase tracking-tighter flex items-center gap-1">
+                  Active
+                  <span className="inline-block w-1 h-1 rounded-full bg-green animate-pulse" />
+                </span>
               )}
             </div>
             {lastScanTs > 0 && (
-              <span className="text-[8px] text-dim font-black uppercase tracking-[0.1em] opacity-60">
-                Last Scan: {new Date(lastScanTs).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-              </span>
+              <div className="flex items-center gap-1.5 opacity-60">
+                <span className={cn(
+                  "text-[8px] text-dim font-black uppercase tracking-[0.1em] transition-colors duration-500",
+                  scanAge < 5000 && "text-green"
+                )}>
+                  Last Scan: {scanAge < 2000 ? 'Just now' : `${formatDuration(scanAge)} ago`}
+                </span>
+                {isUpdating && <div className="w-1 h-1 rounded-full bg-green animate-ping" />}
+              </div>
             )}
           </div>
           <span className="text-[10px] text-dim font-medium uppercase tracking-wider hidden md:inline ml-2">threshold ≥ {threshold}%</span>
@@ -198,12 +225,22 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                      <span className="text-[9px] text-dim font-mono opacity-50">/U</span>
                      <CopyButton value={opp.symbol} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ml-1" />
                    </div>
-                   {isSingleMonitor && (
-                     <div className="flex items-center gap-1 mt-0.5">
-                        <ShieldCheck size={10} className="text-accent" />
-                        <span className="text-[8px] font-bold text-accent uppercase tracking-tighter">Monitored</span>
-                     </div>
-                   )}
+                   <div className="flex items-center gap-1.5 mt-0.5">
+                    {activeTrades.some(t => t.symbol === opp.symbol) && (
+                       <Tooltip content="Currently in Position">
+                         <div className="flex items-center gap-1">
+                            <Zap size={10} className="text-green fill-green/20" />
+                            <span className="text-[8px] font-bold text-green uppercase tracking-tighter">In Pos</span>
+                         </div>
+                       </Tooltip>
+                    )}
+                    {isSingleMonitor && (
+                      <div className="flex items-center gap-1">
+                         <ShieldCheck size={10} className="text-accent" />
+                         <span className="text-[8px] font-bold text-accent uppercase tracking-tighter">Monitored</span>
+                      </div>
+                    )}
+                   </div>
                 </div>
                 <div className="flex flex-col items-end">
                   <span className={cn(
@@ -227,11 +264,34 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                   <span className="text-[10px] text-dim font-mono whitespace-nowrap">{Number(opp.score || 0).toFixed(1)}</span>
                 </div>
                 <div className="flex justify-center">
-                  <Tooltip content={passing ? "Meets momentum criteria for automated entry." : "Below momentum threshold. Awaiting stronger price action."}>
-                    {passing
-                      ? <span className="px-2 py-0.5 rounded bg-green/10 text-green text-[9px] font-black uppercase tracking-tighter border border-green/20 cursor-help">PASS</span>
-                      : <span className="px-2 py-0.5 rounded bg-surface text-dim text-[9px] font-black uppercase tracking-tighter border border-border cursor-help">WAIT</span>}
-                  </Tooltip>
+                  {passing ? (
+                    opp.signalResult?.allFired ? (
+                      <Tooltip content="Meets momentum and signal criteria for entry.">
+                        <span className="px-2 py-0.5 rounded bg-green/10 text-green text-[9px] font-black uppercase tracking-tighter border border-green/20 cursor-help">PASS</span>
+                      </Tooltip>
+                    ) : (
+                      <Tooltip content={
+                        <div className="flex flex-col gap-1">
+                          <div className="font-bold flex items-center gap-1.5 text-red">
+                            <AlertCircle size={12} />
+                            SIGNAL REJECTED
+                          </div>
+                          <div className="text-[11px] opacity-90">{opp.signalResult?.reason || 'Authorization failed'}</div>
+                          <div className="text-[10px] opacity-60 mt-1 border-t border-white/10 pt-1">
+                            Symbol meets volume/momentum but fails pattern validation.
+                          </div>
+                        </div>
+                      }>
+                        <span className="px-2 py-0.5 rounded bg-red/10 text-red text-[9px] font-black uppercase tracking-tighter border border-red/20 cursor-help flex items-center gap-1">
+                          REJECT
+                        </span>
+                      </Tooltip>
+                    )
+                  ) : (
+                    <Tooltip content="Below momentum threshold. Awaiting stronger price action.">
+                      <span className="px-2 py-0.5 rounded bg-surface text-dim text-[9px] font-black uppercase tracking-tighter border border-border cursor-help">WAIT</span>
+                    </Tooltip>
+                  )}
                 </div>
               </div>
             )

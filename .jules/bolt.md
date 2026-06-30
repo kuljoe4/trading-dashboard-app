@@ -132,3 +132,7 @@
 ## 2026-06-22 - [Optimization] Centralized REST Throttling & WebSocket-First State
 **Learning:** Startup bursts and aggressive polling fallbacks are the primary drivers of immediate IP bans from Binance. Sequential backfills and a centralized request queue are more effective than high-concurrency workers for maintaining IP reputation. Transitioning to a 'Seed-then-Stream' model (single REST call to establish baseline) eliminates redundant API weight consumption.
 **Action:** Implement a Proxy-based request queue in `BinanceClientFactory` to enforce global rate limits and replace REST polling fallbacks with 'Fail-Fast' logic to preserve IP status.
+
+## 2026-06-30 - [Serialization] BigInt.prototype.toJSON Polyfill
+**Learning:** `JSON.stringify` throws a `TypeError: Do not know how to serialize a BigInt` when encountering large integers (e.g., Binance Order IDs). This can crash high-criticality logging or response serialization paths.
+**Action:** Implement a global polyfill `BigInt.prototype.toJSON = function() { return this.toString(); }` in a central utility (`lib/math.ts`) and ensure it's loaded early in the application lifecycle (`server.ts`) to provide safe, precision-preserving serialization across the entire process.

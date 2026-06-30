@@ -15,6 +15,7 @@ import { TradingSessionService } from "./engine/trading_session.service";
 import { EngineBroadcasterService } from "./engine/engine-broadcaster.service";
 import { AuditLogService } from "./trading/audit-log.service";
 import { checkOrigin } from "./lib/origin";
+import "./lib/math"; // BOLT: Load math utilities early to initialize BigInt polyfill
 
 async function bootstrap() {
   const isProduction = process.env.NODE_ENV === "production";

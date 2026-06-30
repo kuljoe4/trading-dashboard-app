@@ -362,4 +362,16 @@ export class SessionConfig {
   @Min(CONFIG_LIMITS.TRAILING_GUARD_MIN)
   @Max(CONFIG_LIMITS.TRAILING_GUARD_MAX)
   trailing_guard_buffer_pct?: number = CONFIG_LIMITS.TRAILING_GUARD_DEFAULT;
+
+  @IsObject()
+  @IsOptional()
+  scanner_weights?: {
+    momentum: number;
+    volatility: number;
+    trend: number;
+  } = {
+    momentum: 0.5,
+    volatility: 0.3,
+    trend: 0.2
+  };
 }

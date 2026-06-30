@@ -4,7 +4,7 @@ import { cn } from "./utils"
 import * as ProgressPrimitive from "@radix-ui/react-progress"
 import * as TooltipPrimitive from "@radix-ui/react-tooltip"
 import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock, Info } from 'lucide-react'
-import { Sparkline as SparklineChart } from '../DataCharts'
+import { Sparkline as SparklineChart, CandlestickChart as CandlestickChartBase } from '../DataCharts'
 import { useTradingStore } from '../../store/trading'
 import { useTooltipContext, Tooltip } from './tooltip'
 
@@ -514,5 +514,6 @@ export const CopyButton = ({ value, className, tooltip = "Copy", successTooltip 
   )
 }
 
-// --- Sparkline ---
+// --- Charts ---
 export const Sparkline = SparklineChart;
+export const CandlestickChart = CandlestickChartBase;

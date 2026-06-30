@@ -126,7 +126,11 @@ export class ExecutionService {
     const now = Date.now();
     // BOLT: Sequential processing of opportunities ensures that RiskEngine spacing
     // and frequency limits are correctly enforced between each entry.
+    let count = 0;
     for (const opp of opportunities) {
+      count++;
+      this.monitoringService.setLoopStage('EVALUATING', opp.symbol, (count / opportunities.length) * 100);
+
       // SRE: Global Entry Lock check. If an entry is already in flight, defer all other evaluations
       // until the current one confirms and risk gating state is updated.
       if (this.sessionState.entryInProgress) {
@@ -166,6 +170,7 @@ export class ExecutionService {
           continue;
         }
 
+        this.monitoringService.setLoopStage('RISK_CHECK', opp.symbol);
         const activeTrades = this.positionTracker.activeList();
         const enteringCount = this.positionTracker.enteringCount();
         const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk(), enteringCount);
@@ -212,6 +217,7 @@ export class ExecutionService {
         const openPrice = ticker?.open_24h || price;
         const dailyChangeAtEntry = ((price - openPrice) / openPrice) * 100 * (opp.direction.toUpperCase() === 'LONG' ? 1 : -1);
 
+        this.monitoringService.setLoopStage('EXECUTING', opp.symbol);
         this.logger.log(`[Risk Integrity] Reserving ${Number(reservedRisk || 0).toFixed(2)} USDT risk for ${opp.symbol} entry attempt.`);
 
         // SRE: Lock the entry pipeline before dispatching to Binance

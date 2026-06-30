@@ -16,7 +16,10 @@ const TAB_ERROR_MAP = {
   trading_mode: 'advanced',
   risk_pct_per_trade: 'risk',
   max_open_trades: 'risk',
-  sl_distance_pct: 'risk'
+  sl_distance_pct: 'risk',
+  scanner_weights_momentum: 'scan',
+  scanner_weights_volatility: 'scan',
+  scanner_weights_trend: 'scan',
 };
 
 const SIGNALS = [
@@ -397,6 +400,7 @@ const flattenConfig = (config) => {
   if (!config) return {};
   try {
     const params = typeof config.signal_params === 'string' ? JSON.parse(config.signal_params || '{}') : config.signal_params || {};
+    const weights = config.scanner_weights || { momentum: 0.5, volatility: 0.3, trend: 0.2 };
     return {
       ...config,
       trading_mode: config.trading_mode || (config.paper_mode ? 'paper' : 'live'),
@@ -408,6 +412,9 @@ const flattenConfig = (config) => {
       signal_params_entry_ema_slow: params.entry_ema_slow,
       signal_params_exit_ema_fast: params.exit_ema_fast,
       signal_params_exit_ema_slow: params.exit_ema_slow,
+      scanner_weights_momentum: weights.momentum * 100,
+      scanner_weights_volatility: weights.volatility * 100,
+      scanner_weights_trend: weights.trend * 100,
       live_rr_sequence: Array.isArray(config.live_rr_sequence) ? config.live_rr_sequence : [1.0, 2.0, 4.0],
       exit_rr_sequence: Array.isArray(config.exit_rr_sequence) ? config.exit_rr_sequence : [0.0, 1.0, 2.0],
       trailing_guard_buffer_pct: config.trailing_guard_buffer_pct !== undefined ? config.trailing_guard_buffer_pct : CONFIG_LIMITS.TRAILING_GUARD_DEFAULT,
@@ -497,6 +504,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
     if (c.sl_distance_pct > 5) {
       errs.sl_distance_pct_warn = 'Aggressive (>5%)'
+    }
+
+    const totalWeight = Number(c.scanner_weights_momentum || 0) + Number(c.scanner_weights_volatility || 0) + Number(c.scanner_weights_trend || 0);
+    if (Math.abs(totalWeight - 100) > 0.1) {
+       errs.scanner_weights_momentum = 'Sum must be 100%';
     }
 
     setErrors(errs); return Object.keys(errs).length === 0;
@@ -613,6 +625,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         c[f] = Number(c[f]);
       }
     });
+
+    c.scanner_weights = {
+      momentum: Number(cfg.scanner_weights_momentum || 0) / 100,
+      volatility: Number(cfg.scanner_weights_volatility || 0) / 100,
+      trend: Number(cfg.scanner_weights_trend || 0) / 100
+    };
 
     if (c.hibernation_grace_period_sec !== undefined) {
       c.hibernation_grace_period_sec = Number(c.hibernation_grace_period_sec);
@@ -838,6 +856,50 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     {renderField('Check Interval (s)', 'scan_check_interval_sec', 'number', null, { min: 1 })}
                   </>
                 )}
+              </div>
+
+              <div className="mt-8 pt-6 border-t border-border/40">
+                <div className="flex justify-between items-start mb-4">
+                  <SectionHeader icon={LayoutGrid} title="Scoring Weights" subtitle="Contribution to opportunity score (Sum: 100%)" />
+                  <div className="flex flex-wrap gap-2 justify-end">
+                    {[
+                      { label: 'Balanced', w: [50, 30, 20] },
+                      { label: 'Aggressive', w: [80, 10, 10] },
+                      { label: 'Trend-Focused', w: [20, 20, 60] }
+                    ].map(p => (
+                      <button
+                        key={p.label}
+                        type="button"
+                        onClick={() => {
+                          setField('scanner_weights_momentum', p.w[0]);
+                          setField('scanner_weights_volatility', p.w[1]);
+                          setField('scanner_weights_trend', p.w[2]);
+                        }}
+                        className="px-2 py-1 rounded bg-accent/5 border border-accent/20 text-[8px] font-black uppercase tracking-widest text-accent hover:bg-accent/10 transition-colors"
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {renderField('Momentum %', 'scanner_weights_momentum', 'number', null, { min: 0, max: 100 })}
+                  {renderField('Volatility %', 'scanner_weights_volatility', 'number', null, { min: 0, max: 100 })}
+                  {renderField('Trend %', 'scanner_weights_trend', 'number', null, { min: 0, max: 100 })}
+                </div>
+                <div className="mt-4 p-4 bg-background/40 rounded-xl border border-border/40">
+                   <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest mb-2">
+                      <span className="text-dim">Weight Distribution</span>
+                      <span className={cn(Math.abs((Number(cfg.scanner_weights_momentum || 0) + Number(cfg.scanner_weights_volatility || 0) + Number(cfg.scanner_weights_trend || 0)) - 100) > 0.1 ? "text-red" : "text-green")}>
+                         Sum: {Number(cfg.scanner_weights_momentum || 0) + Number(cfg.scanner_weights_volatility || 0) + Number(cfg.scanner_weights_trend || 0)}%
+                      </span>
+                   </div>
+                   <div className="h-2 bg-white/5 rounded-full overflow-hidden flex border border-white/5">
+                      <div className="h-full bg-accent transition-all duration-500" style={{ width: `${cfg.scanner_weights_momentum}%` }} />
+                      <div className="h-full bg-amber transition-all duration-500" style={{ width: `${cfg.scanner_weights_volatility}%` }} />
+                      <div className="h-full bg-purple transition-all duration-500" style={{ width: `${cfg.scanner_weights_trend}%` }} />
+                   </div>
+                </div>
               </div>
             </section>
 

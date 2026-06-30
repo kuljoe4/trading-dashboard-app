@@ -137,6 +137,7 @@ const sessionConfigAllowedKeys = [
   'hibernation_mode',
   'hibernation_grace_period_sec',
   'trailing_guard_buffer_pct',
+  'scanner_weights',
 ]
 
 const sanitizeSessionConfig = (config) => {

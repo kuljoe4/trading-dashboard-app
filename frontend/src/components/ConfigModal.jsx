@@ -417,6 +417,7 @@ const flattenConfig = (config) => {
       slippage_abort_threshold: config.slippage_abort_threshold !== undefined ? Number(config.slippage_abort_threshold) : (CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT || 0.05),
       hibernation_mode: config.hibernation_mode || 'adaptive',
       hibernation_grace_period_sec: config.hibernation_grace_period_sec || 30,
+      sl_out_of_bounds_action: config.sl_out_of_bounds_action || 'clamp',
     };
   } catch (e) { return { ...config }; }
 };
@@ -1087,6 +1088,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 {renderField('Strategy Type', 'sl_type', 'text', [
                   { value: 'pct', label: 'Fixed Percentage' },
                   {value: 'lookback_low/high', label: 'High/Low Stop' }
+                ])}
+                {renderField('Out of Bounds', 'sl_out_of_bounds_action', 'text', [
+                  { value: 'clamp', label: 'Clamp to Limits' },
+                  { value: 'reject', label: 'Reject Entry' }
                 ])}
                 {cfg.sl_type === 'pct' ? (
                   renderField('Distance %', 'sl_distance_pct', 'number', null, { min: CONFIG_LIMITS.SL_DISTANCE_MIN, max: CONFIG_LIMITS.SL_DISTANCE_MAX, step: 0.1 })

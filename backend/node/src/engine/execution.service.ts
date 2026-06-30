@@ -190,8 +190,19 @@ export class ExecutionService {
         if (!price) continue;
 
         const lookback = this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
-        let slPrice = this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.minLow, lookback.maxHigh, opp.symbol);
+        const slResult = this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.minLow, lookback.maxHigh, opp.symbol);
 
+        if (slResult.rejected) {
+           this.logger.log(`${opp.symbol}: Entry skipped - ${slResult.reason}`);
+           this.broadcastService.broadcast('gate', {
+             gateState: 'sl_out_of_bounds',
+             reason: slResult.reason,
+             scannerPaused: false
+           });
+           continue;
+        }
+
+        let slPrice = slResult.slPrice;
         const slFiltered = this.orderManager.applyFilters(opp.symbol, slPrice, 1, {
           priceRounding: opp.direction.toUpperCase() === 'LONG' ? 'floor' : 'ceil',
           skipNotionalCheck: true

@@ -168,6 +168,10 @@ export class SessionConfig {
   @IsOptional()
   sl_max_pct?: number = 3.0;
 
+  @IsEnum(['clamp', 'reject'])
+  @IsOptional()
+  sl_out_of_bounds_action?: 'clamp' | 'reject' = 'clamp';
+
   @IsEnum(['fixed', 'exp_rr_seq'])
   @IsOptional()
   tp_mode?: 'fixed' | 'exp_rr_seq' = 'fixed';

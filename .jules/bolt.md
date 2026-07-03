@@ -132,3 +132,7 @@
 ## 2026-06-22 - [Optimization] Centralized REST Throttling & WebSocket-First State
 **Learning:** Startup bursts and aggressive polling fallbacks are the primary drivers of immediate IP bans from Binance. Sequential backfills and a centralized request queue are more effective than high-concurrency workers for maintaining IP reputation. Transitioning to a 'Seed-then-Stream' model (single REST call to establish baseline) eliminates redundant API weight consumption.
 **Action:** Implement a Proxy-based request queue in `BinanceClientFactory` to enforce global rate limits and replace REST polling fallbacks with 'Fail-Fast' logic to preserve IP status.
+
+## 2026-07-01 - [Optimization] O(1) Cache Eviction in SignalEngine
+**Learning:** Using 'Array.from(map.keys())' for cache eviction creates an O(N) array allocation just to access a few elements. In high-frequency services like SignalEngine, this causes unnecessary GC pressure. Using a direct iterator with 'map.keys().next()' allows for O(1) eviction without intermediate allocations.
+**Action:** Always use direct iterators for Map/Set eviction or partial processing in hot paths to achieve zero-allocation collection access.

@@ -52,6 +52,9 @@ export class BinanceClientFactory {
     // /private (for listenKey), /market (for anonymous market streams), and /public (HF data)
     const originalConnect = client.websocketStreams.connect.bind(client.websocketStreams);
     client.websocketStreams.connect = (async (params: any): Promise<any> => {
+      if (typeof WebSocket === 'undefined') {
+        throw new Error('WebSocket is not defined in this environment. Ensure "ws" package is correctly loaded.');
+      }
       // UDS streams use the listenKey (string without @ or !), while market streams use @ (kline, ticker) or ! (miniTicker)
       const isPrivate = !!params.stream && !params.stream.includes('@') && !params.stream.includes('!');
       const isHF = !!params.stream && params.stream.includes('!');
@@ -196,7 +199,7 @@ export class BinanceRequestQueue {
     }
 
     if (BinanceRequestQueue.currentWeight1m > 0) {
-      this.logger.log(`[BinanceQueue] Window rollover detected. Resetting weight: ${BinanceRequestQueue.currentWeight1m} -> 0`);
+      this.logger.debug(`[BinanceQueue] Window rollover detected. Resetting weight: ${BinanceRequestQueue.currentWeight1m} -> 0`);
       BinanceRequestQueue.currentWeight1m = 0;
       BinanceRequestQueue.windowStartTs = now;
 
@@ -376,26 +379,34 @@ export class BinanceRequestQueue {
             if (isBan) {
               // SRE: Attempt to extract actual ban duration from Retry-After header or error message
               let retryAfterSec = 600; // 10m Default
+              let absoluteUntil: number | null = null;
+
               if (error.headers && error.headers['retry-after']) {
                 retryAfterSec = parseInt(error.headers['retry-after'], 10);
               } else {
-                const match = msg.match(/retry in (\d+) (seconds|ms)/i);
-                if (match) {
-                  retryAfterSec = match[2].toLowerCase() === 'ms' ? Math.ceil(parseInt(match[1], 10) / 1000) : parseInt(match[1], 10);
+                // BOLT: Try to extract absolute ban expiry timestamp from message (e.g. "banned until 1782867892563")
+                const untilMatch = msg.match(/banned until (\d+)/i);
+                if (untilMatch) {
+                  absoluteUntil = parseInt(untilMatch[1], 10);
+                } else {
+                  const match = msg.match(/retry in (\d+) (seconds|ms)/i);
+                  if (match) {
+                    retryAfterSec = match[2].toLowerCase() === 'ms' ? Math.ceil(parseInt(match[1], 10) / 1000) : parseInt(match[1], 10);
+                  }
                 }
               }
 
-              const BAN_COOLDOWN_MS = Math.max(60000, retryAfterSec * 1000); // Minimum 1 minute
-              this.logger.fatal(`[BinanceQueue] IP BANNED (418). Entering safe cooldown mode for ${Math.ceil(BAN_COOLDOWN_MS / 60000)}m to protect infrastructure.`);
+              const until = absoluteUntil || (Date.now() + Math.max(60000, retryAfterSec * 1000));
+              const waitMin = Math.max(1, Math.ceil((until - Date.now()) / 60000));
+
+              this.logger.fatal(`[BinanceQueue] IP BANNED (418). Entering safe cooldown mode for ${waitMin}m to protect infrastructure. (Resuming at ${new Date(until).toLocaleTimeString()})`);
 
               // SRE: Purge non-emergency queue items to prevent burst on wakeup
               const itemsToKeep = this.queue.filter(i => i.isEmergency);
               const itemsToPurge = this.queue.filter(i => !i.isEmergency);
               this.queue = itemsToKeep;
 
-              itemsToPurge.forEach(i => i.reject(new Error('Queue purged due to IP ban.')));
-
-              const until = Date.now() + BAN_COOLDOWN_MS;
+              itemsToPurge.forEach(i => i.reject(new Error(`IP banned: Too many requests. Resuming in ${Math.max(1, Math.ceil((until - Date.now()) / 1000))}s.`)));
               const reason = msg || 'IP Banned (418) by Binance';
               this.eventEmitter.emit('binance.api_limit_reached', {
                 type: 'BAN',

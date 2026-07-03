@@ -29,7 +29,15 @@ describe('TradingSessionService Restart PnL Consistency', () => {
       { clear: jest.fn() } as any, // klineStore
       {} as any, // signalEngine
       {} as any, // riskEngine
-      { activeList: () => [], activeCount: () => 0, setEntering: jest.fn(), removeTrade: jest.fn(), recalculateTotalRisk: jest.fn(), totalRisk: () => 0, clear: jest.fn() } as any, // positionTracker
+      {
+        activeList: () => [],
+        activeCount: () => 0,
+        setEntering: jest.fn(),
+        removeTrade: jest.fn(),
+        recalculateTotalRisk: jest.fn(),
+        totalRisk: () => 0,
+        clear: jest.fn(),
+      } as any, // positionTracker
       orderManager as any,
       { setCandleCloseCallback: jest.fn(), stop: jest.fn() } as any, // marketFeed
       { stop: jest.fn() } as any, // momentumScanner

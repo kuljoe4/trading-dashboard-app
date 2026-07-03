@@ -461,6 +461,7 @@ export class TradingSessionService implements OnApplicationShutdown {
 
       const start = performance.now();
       const strategyConfigs = this.getStrategyConfigs(); const opportunitiesBySignature = new Map<string, any[]>(); let primaryOpportunities: any[] = [];
+      this.monitoringService.setLoopStage('SCANNING');
       for (const sc of strategyConfigs) { const sig = this.scanSignature(sc); if (!opportunitiesBySignature.has(sig)) opportunitiesBySignature.set(sig, this.momentumScanner.scan(sc)); if (primaryOpportunities.length === 0) primaryOpportunities = opportunitiesBySignature.get(sig) || []; }
       const scannerData = strategyConfigs.map(c => ({ strategy_label: c.strategy_label, opportunities: opportunitiesBySignature.get(this.scanSignature(c)) || [] }));
 
@@ -507,8 +508,10 @@ export class TradingSessionService implements OnApplicationShutdown {
           if (this.onTradeUpdate) await this.onTradeUpdate(t, this.getBalance());
         });
       }
+      this.monitoringService.setLoopStage('IDLE');
       this.monitoringService.recordMainLoop(performance.now() - start);
     } catch (error) {
+      this.monitoringService.setLoopStage('IDLE');
       this.logger.error(`Error in main loop: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       this.mainLoopProcessing = false;
@@ -832,7 +835,7 @@ export class TradingSessionService implements OnApplicationShutdown {
   }
 
   @OnEvent('trade.exchange_close')
-  async handleExchangeClose(payload: { symbol: string, exitPrice: number, reason: string, isReconciliation?: boolean }) {
+  async handleExchangeClose(payload: { symbol: string, exitPrice: number, reason: string, isReconciliation?: boolean, orderId?: string }) {
     if (!this.running) return;
     const { symbol, exitPrice, reason, isReconciliation } = payload;
 

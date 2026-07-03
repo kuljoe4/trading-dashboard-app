@@ -65,6 +65,7 @@ export class SessionStateService {
   public closedTrades: Trade[] = [];
   public activeTrades: Trade[] = []; // BOLT: Track active trades here for circular dependency removal
   public cachedClosedTradesStats: Record<string, { pnl: number, count: number, hits: number }> = {};
+  private appliedStatsPnL: Map<string, number> = new Map(); // trade.id -> pnl portion already in stats.totalPnl
 
   public listenerCount = 0;
   public dashboardCount = 0;
@@ -93,6 +94,7 @@ export class SessionStateService {
     this.binanceRateLimit = { used_1m: 0, limit: currentLimit };
     this.apiStatus = { isBanned: false, isRateLimited: false, banUntil: null, lastErrorMessage: null };
     this.cachedClosedTradesStats = {};
+    this.appliedStatsPnL.clear();
     this.realTimePositions.clear();
     this.realTimeOrders.clear();
 
@@ -110,6 +112,8 @@ export class SessionStateService {
       if (!this.cachedClosedTradesStats[label]) {
         this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
       }
+      this.cachedClosedTradesStats[label].pnl = roundEight(this.cachedClosedTradesStats[label].pnl + (trade.pnl || 0));
+      this.appliedStatsPnL.set(trade.id, trade.pnl || 0);
 
       // Initialize Global Tracking
       this.appliedGlobalPnL.set(trade.id, trade.pnl || 0);
@@ -207,6 +211,7 @@ export class SessionStateService {
     if (limits) {
        if (limits.limit10s) this.binanceOrderLimit.limit_10s = limits.limit10s;
        if (limits.limit1m) this.binanceOrderLimit.limit_1m = limits.limit1m;
+       return;
     }
     if (!headers) return;
 
@@ -358,7 +363,7 @@ export class SessionStateService {
     }
   }
 
-  rollbackClosedTrade(trade: Trade) {
+  rollbackClosedTrade(trade: Trade, prevAppliedPnL: number = 0) {
     const label = trade.strategy_label || 'Momentum Strategy';
 
     // Rollback Strategy Stats

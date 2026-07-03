@@ -306,7 +306,15 @@ export class SessionLifecycleService {
 
         this.logger.debug(`[Lifecycle] Real-time position update for ${symbol}: ${amount} @ ${entryPrice}`);
 
-        const trade = this.sessionState.activeTrades.find(t => t.symbol === symbol);
+        let trade = this.sessionState.activeTrades.find(t => t.symbol === symbol);
+
+        // SRE: Race condition guard - check in-flight entries if not in active list
+        if (!trade && amount !== 0) {
+           trade = this.positionTracker.getInFlightEntry(symbol);
+           if (trade) {
+              this.logger.debug(`[Lifecycle] [Sync] Matched in-flight entry for ${symbol} in ACCOUNT_UPDATE.`);
+           }
+        }
 
         // Real-time Quantity & Price Sync: Update active trade from UDS ACCOUNT_UPDATE
         if (trade && amount !== 0) {
@@ -431,7 +439,8 @@ export class SessionLifecycleService {
 
       currentWs.on('pong', () => {
         if (this.userDataWs !== currentWs) return;
-        this.logger.debug('[UDS] WebSocket PONG received. Heartbeat confirmed.');
+        // REDUCE LOG NOISE: Silence heartbeat PONGs
+        // this.logger.debug('[UDS] WebSocket PONG received. Heartbeat confirmed.');
         this.monitoringService.recordUdsPing();
       });
 
@@ -450,8 +459,9 @@ export class SessionLifecycleService {
           if (data.e === 'ACCOUNT_UPDATE' && data.a) {
             this.handleAccountUpdate(data);
           } else if (data.e === 'ORDER_TRADE_UPDATE') {
-            const order = data.o;
-            this.logger.log(`[Lifecycle] Order Update: ${order.s} ${order.S} ${order.X} (id=${order.i}, client_id=${order.c})`);
+            // REDUCE LOG NOISE: OrderManagerService already logs this with more detail
+            // const order = data.o;
+            // this.logger.log(`[Lifecycle] Order Update: ${order.s} ${order.S} ${order.X} (id=${order.i}, client_id=${order.c})`);
             this.eventEmitter.emit('binance.order_update', data);
           } else if (data.e === 'listenKeyExpired') {
             this.logger.warn('[Lifecycle] ListenKey expired, restarting user data stream...');
@@ -517,7 +527,10 @@ export class SessionLifecycleService {
            this.startUserDataStream(bc, true).catch(() => {});
         }
         // HEARTBEAT: Explicit debug log for UDS health observability
-        this.logger.debug(`[SRE] UDS Heartbeat: Status=${this.isUdsConnected ? 'CONNECTED' : 'DISCONNECTED'}, LastPing=${lastPing}s, ActiveTrades=${hasActiveTrades}`);
+        // REDUCE LOG NOISE: Downgrade heartbeat to verbose or silence entirely if connected
+        if (!this.isUdsConnected || lastPing > 30) {
+           this.logger.debug(`[SRE] UDS Heartbeat: Status=${this.isUdsConnected ? 'CONNECTED' : 'DISCONNECTED'}, LastPing=${lastPing}s, ActiveTrades=${hasActiveTrades}`);
+        }
       }, 60000);
 
       const startTime = Date.now();

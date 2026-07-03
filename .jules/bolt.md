@@ -136,3 +136,6 @@
 ## 2026-06-29 - [Optimization] O(K) Cache Eviction over O(N) Array Allocation
 **Learning:** Using 'Array.from(map.keys())' to perform partial cache eviction (e.g., removing the first 100 entries when a Map hits 1000) creates an unnecessary O(N) array allocation. Since Map iterators follow insertion order, using the direct iterator and calling '.next()' is (K)$ where $ is the eviction count.
 **Action:** Use direct Map iterators for partial eviction in high-frequency caches to eliminate O(N) allocations in the hot path.
+## 2026-06-30 - [Serialization] BigInt.prototype.toJSON Polyfill
+**Learning:** `JSON.stringify` throws a `TypeError: Do not know how to serialize a BigInt` when encountering large integers (e.g., Binance Order IDs). This can crash high-criticality logging or response serialization paths.
+**Action:** Implement a global polyfill `BigInt.prototype.toJSON = function() { return this.toString(); }` in a central utility (`lib/math.ts`) and ensure it's loaded early in the application lifecycle (`server.ts`) to provide safe, precision-preserving serialization across the entire process.

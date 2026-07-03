@@ -11,6 +11,14 @@ export class MonitoringService {
   private lastUdsPing = 0;
   private udsStatus: 'CONNECTED' | 'DISCONNECTED' | 'LAGGING' = 'DISCONNECTED';
 
+  // SRE: Loop Pipeline State tracking for real-time UI observability
+  private loopPipeline: {
+    stage: 'IDLE' | 'SCANNING' | 'EVALUATING' | 'RISK_CHECK' | 'EXECUTING' | 'COOLING_DOWN';
+    symbol?: string;
+    progress?: number;
+    ts: number;
+  } = { stage: 'IDLE', ts: Date.now() };
+
   constructor() {
     // BOLT: System health monitoring (CPU, RAM, Event Loop Lag) removed per requirement
   }
@@ -22,7 +30,12 @@ export class MonitoringService {
   clearAppMetrics() {
     this.hotLoopExecutionTime = 0;
     this.mainLoopExecutionTime = 0;
+    this.loopPipeline = { stage: 'IDLE', ts: Date.now() };
     this.logger.verbose('MonitoringService: Application loop metrics cleared');
+  }
+
+  setLoopStage(stage: typeof this.loopPipeline.stage, symbol?: string, progress?: number) {
+    this.loopPipeline = { stage, symbol, progress, ts: Date.now() };
   }
 
   getMetrics() {
@@ -37,7 +50,11 @@ export class MonitoringService {
         main_loop_ms: this.mainLoopExecutionTime,
         api_requests_total: this.apiRequestCount,
         exchange_uds_status: currentUdsStatus,
-        last_uds_ping_sec: this.lastUdsPing > 0 ? Math.floor((now - this.lastUdsPing) / 1000) : null
+        last_uds_ping_sec: this.lastUdsPing > 0 ? Math.floor((now - this.lastUdsPing) / 1000) : null,
+        loop_pipeline: {
+          ...this.loopPipeline,
+          age_ms: now - this.loopPipeline.ts
+        }
       }
     };
   }

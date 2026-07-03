@@ -22,6 +22,9 @@ export class SignalEngineService {
   private readonly emaCache = new Map<string, { value: number; insufficientData: boolean }>();
   private readonly emaDualCache = new Map<string, { values: [number, number]; insufficientData: boolean }>();
 
+  // BOLT OPTIMIZATION: Cache for EMA multipliers to avoid redundant divisions
+  private readonly multiplierCache = new Map<number, number>();
+
   // BOLT OPTIMIZATION: Stable caches for completed candles to allow O(1) incremental updates
   private readonly emaStableCache = new Map<string, { time: number; value: number; count: number }>();
 
@@ -627,7 +630,14 @@ export class SignalEngineService {
     }
 
     const insufficientData = len < period * 2;
-    const multiplier = 2 / (period + 1);
+
+    // BOLT OPTIMIZATION: Use cached multiplier to avoid redundant division
+    let multiplier = this.multiplierCache.get(period);
+    if (multiplier === undefined) {
+      multiplier = 2 / (period + 1);
+      this.multiplierCache.set(period, multiplier);
+    }
+
     let prevEma = 0;
     let ema = 0;
 
@@ -668,11 +678,15 @@ export class SignalEngineService {
     if (Number.isNaN(prevEma)) return null;
     const result: { values: [number, number]; insufficientData: boolean } = { values: [prevEma, ema], insufficientData };
     if (cacheKey) {
-      this.emaDualCache.set(cacheKey, result);
-      if (this.emaDualCache.size > 1000) {
-        const keys = Array.from(this.emaDualCache.keys());
-        for (let i = 0; i < 100; i++) this.emaDualCache.delete(keys[i]);
+      // BOLT OPTIMIZATION: Avoid Array.from() allocation. Use iterator for O(1) eviction burst.
+      if (this.emaDualCache.size >= 1000 && !this.emaDualCache.has(cacheKey)) {
+        const iter = this.emaDualCache.keys();
+        for (let i = 0; i < 100; i++) {
+          const key = iter.next().value;
+          if (key !== undefined) this.emaDualCache.delete(key);
+        }
       }
+      this.emaDualCache.set(cacheKey, result);
     }
     return result;
   }
@@ -724,11 +738,26 @@ export class SignalEngineService {
     // For absolute minimum histories, just use SMA
     if (len < minNeeded) {
       const res = { value: this.calculateSMA(candles, 0, len), insufficientData: true };
-      if (cacheKey) this.emaCache.set(cacheKey, res);
+      if (cacheKey) {
+        if (this.emaCache.size >= 1000 && !this.emaCache.has(cacheKey)) {
+          const iter = this.emaCache.keys();
+          for (let i = 0; i < 100; i++) {
+            const key = iter.next().value;
+            if (key !== undefined) this.emaCache.delete(key);
+          }
+        }
+        this.emaCache.set(cacheKey, res);
+      }
       return res;
     }
 
-    const multiplier = 2 / (period + 1);
+    // BOLT OPTIMIZATION: Use cached multiplier to avoid redundant division
+    let multiplier = this.multiplierCache.get(period);
+    if (multiplier === undefined) {
+      multiplier = 2 / (period + 1);
+      this.multiplierCache.set(period, multiplier);
+    }
+
     let ema = 0;
 
     // BOLT OPTIMIZATION: Try incremental path for the most common case (last or second-to-last candle)
@@ -764,12 +793,15 @@ export class SignalEngineService {
 
     const result = { value: ema, insufficientData };
     if (cacheKey) {
-      this.emaCache.set(cacheKey, result);
-      if (this.emaCache.size > 1000) {
-        // Simple LRU: remove oldest entries if cache grows too large
-        const keys = Array.from(this.emaCache.keys());
-        for (let i = 0; i < 100; i++) this.emaCache.delete(keys[i]);
+      // BOLT OPTIMIZATION: Avoid Array.from() allocation. Use iterator for O(1) eviction burst.
+      if (this.emaCache.size >= 1000 && !this.emaCache.has(cacheKey)) {
+        const iter = this.emaCache.keys();
+        for (let i = 0; i < 100; i++) {
+          const key = iter.next().value;
+          if (key !== undefined) this.emaCache.delete(key);
+        }
       }
+      this.emaCache.set(cacheKey, result);
     }
     return result;
   }

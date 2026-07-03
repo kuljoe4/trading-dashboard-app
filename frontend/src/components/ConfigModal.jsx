@@ -54,7 +54,7 @@ const Toggle = React.memo(({ value, onChange, label, color = "bg-accent" }) => (
 Toggle.displayName = 'Toggle'
 
 const Chip = React.forwardRef(({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10", ...props }, ref) => (
-  <button ref={ref} type="button" onClick={onClick} aria-pressed={active} className={cn("px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all", active ? activeClass : "border-border text-dim hover:border-dim/50")} {...props}>{children}</button>
+  <button ref={ref} type="button" onClick={onClick} aria-pressed={active} className={cn("px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none", active ? activeClass : "border-border text-dim hover:border-dim/50")} {...props}>{children}</button>
 ))
 Chip.displayName = 'Chip'
 
@@ -304,12 +304,27 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
     return Object.keys(errors).some(key => TAB_ERROR_MAP[key] === tabId);
   }, [errors]);
 
+  const handleKeyDown = (e) => {
+    const currentIndex = tabs.findIndex(t => t.id === section);
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      const nextIndex = (currentIndex + 1) % tabs.length;
+      onSectionChange(tabs[nextIndex].id);
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const prevIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+      onSectionChange(tabs[prevIndex].id);
+    }
+  };
+
   return (
     <div
-      className="flex gap-2 p-4 overflow-x-auto no-scrollbar touch-pan-x"
+      className="flex gap-2 p-4 overflow-x-auto no-scrollbar touch-pan-x outline-none"
       data-vaul-no-drag
       role="tablist"
       aria-label="Configuration sections"
+      onKeyDown={handleKeyDown}
+      tabIndex={0}
     >
       {tabs.map((tab) => (
         <SectionTab

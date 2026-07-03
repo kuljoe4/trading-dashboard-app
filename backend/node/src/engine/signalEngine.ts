@@ -756,8 +756,13 @@ export class SignalEngineService {
     if (cacheKey) {
       this.emaDualCache.set(cacheKey, result);
       if (this.emaDualCache.size > 1000) {
-        const keys = Array.from(this.emaDualCache.keys());
-        for (let i = 0; i < 100; i++) this.emaDualCache.delete(keys[i]);
+        // BOLT OPTIMIZATION: Use direct iterator for partial cache eviction to avoid O(N) array allocation
+        const it = this.emaDualCache.keys();
+        for (let i = 0; i < 100; i++) {
+          const { value, done } = it.next();
+          if (done) break;
+          this.emaDualCache.delete(value);
+        }
       }
     }
     return result;
@@ -852,9 +857,13 @@ export class SignalEngineService {
     if (cacheKey) {
       this.emaCache.set(cacheKey, result);
       if (this.emaCache.size > 1000) {
-        // Simple LRU: remove oldest entries if cache grows too large
-        const keys = Array.from(this.emaCache.keys());
-        for (let i = 0; i < 100; i++) this.emaCache.delete(keys[i]);
+        // BOLT OPTIMIZATION: Use direct iterator for partial cache eviction to avoid O(N) array allocation
+        const it = this.emaCache.keys();
+        for (let i = 0; i < 100; i++) {
+          const { value, done } = it.next();
+          if (done) break;
+          this.emaCache.delete(value);
+        }
       }
     }
     return result;

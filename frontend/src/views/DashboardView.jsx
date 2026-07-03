@@ -404,13 +404,14 @@ const GateBanner = ({ gateState, scannerPaused, reason, hibernating, activeTrade
 }
 
 const ScannerPreview = ({ scannerResults, config, onOpen }) => {
+  const { activeTrades } = useTradingStore(state => ({ activeTrades: state.activeTrades }), shallow);
   const threshold = config.scan_pct_threshold || 2
   const top = scannerResults.slice(0, 5)
   // Pre-allocate 5 slots to prevent layout shift
   const placeholders = Array.from({ length: Math.max(0, 5 - top.length) })
 
   return (
-    <div className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 shadow-sm h-[385px] flex flex-col">
+    <div className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 shadow-sm h-[395px] flex flex-col">
       <div className="p-5 border-b border-border flex justify-between items-center bg-surface/30 shrink-0">
         <div className="flex flex-col">
           <SectionLabel className="mb-0">
@@ -452,12 +453,40 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
                     <div className="flex-1 flex justify-center h-8">
                       <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={48} height={20} />
                     </div>
-                    <em className={cn("text-xs font-bold font-mono w-16 text-right", colorClass)}>
-                      {opp.pct >= 0 ? '+' : ''}{Number(opp.pct || 0).toFixed(2)}%
-                    </em>
-                    <b className={cn("text-[10px] font-bold w-12 text-right uppercase tracking-wider", passing ? "text-green" : "text-dim")}>
-                      {passing ? 'PASS' : 'WAIT'}
-                    </b>
+                    <div className="flex flex-col items-end w-16">
+                      <em className={cn("text-xs font-bold font-mono text-right", colorClass)}>
+                        {opp.pct >= 0 ? '+' : ''}{Number(opp.pct || 0).toFixed(2)}%
+                      </em>
+                      {activeTrades.some(t => t.symbol === opp.symbol) && (
+                        <div className="flex items-center gap-1 opacity-60">
+                           <Zap size={8} className="text-green fill-green/20" />
+                           <span className="text-[7px] font-black text-green uppercase tracking-tighter">In Pos</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="w-12 flex justify-end">
+                      {passing ? (
+                        opp.signalResult?.allFired ? (
+                          <Tooltip content="Meets momentum and signal criteria.">
+                            <b className="text-[10px] font-black text-green uppercase tracking-wider cursor-help">PASS</b>
+                          </Tooltip>
+                        ) : (
+                          <Tooltip content={
+                            <div className="flex flex-col gap-1 p-1">
+                               <div className="font-bold flex items-center gap-1.5 text-red-400">
+                                 <AlertCircle size={12} />
+                                 SIGNAL REJECTED
+                               </div>
+                               <div className="text-[10px] opacity-90">{opp.signalResult?.reason || 'Authorization failed'}</div>
+                            </div>
+                          }>
+                            <b className="text-[10px] font-black text-red-400 uppercase tracking-wider cursor-help">REJECT</b>
+                          </Tooltip>
+                        )
+                      ) : (
+                        <b className="text-[10px] font-bold text-dim uppercase tracking-wider">WAIT</b>
+                      )}
+                    </div>
                   </motion.div>
                 )
               })}
@@ -1193,7 +1222,7 @@ export function DashboardView({ initialStrategy }) {
         <Drawer.Root open={showScanner} onOpenChange={setShowScanner}>
           <Drawer.Portal>
             <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
-            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4svh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto h-auto">
+            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4svh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto h-[96svh]">
               <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
                 <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
                 <VisuallyHidden>
@@ -1201,7 +1230,7 @@ export function DashboardView({ initialStrategy }) {
                   <Drawer.Description>View live market scanner opportunities</Drawer.Description>
                 </VisuallyHidden>
               </div>
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 min-h-0">
                 <Suspense fallback={<LoadingFallback />}>
                   {showScanner && <ScannerOverlay onClose={() => setShowScanner(false)} />}
                 </Suspense>

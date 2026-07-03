@@ -199,7 +199,7 @@ export class BinanceRequestQueue {
     }
 
     if (BinanceRequestQueue.currentWeight1m > 0) {
-      this.logger.log(`[BinanceQueue] Window rollover detected. Resetting weight: ${BinanceRequestQueue.currentWeight1m} -> 0`);
+      this.logger.debug(`[BinanceQueue] Window rollover detected. Resetting weight: ${BinanceRequestQueue.currentWeight1m} -> 0`);
       BinanceRequestQueue.currentWeight1m = 0;
       BinanceRequestQueue.windowStartTs = now;
 

@@ -169,6 +169,17 @@ export class SessionStateService {
     this.updateOrderRateLimits(payload.headers);
   }
 
+  @OnEvent('binance.api_limit_cleared')
+  handleApiLimitCleared() {
+    this.apiStatus = {
+      isBanned: false,
+      isRateLimited: false,
+      banUntil: null,
+      lastErrorMessage: null
+    };
+    this.logger.log(`API Status restored: Recovery event received from Gateway.`);
+  }
+
   updateOrderRateLimits(headers: any | null, limits?: { limit10s?: number, limit1m?: number }) {
     if (limits) {
        if (limits.limit10s) this.binanceOrderLimit.limit_10s = limits.limit10s;

@@ -71,6 +71,7 @@ describe('Trade Lifecycle Integration', () => {
       addTrade: jest.fn(),
       removeTrade: jest.fn(),
       closeTrade: jest.fn(),
+      clear: jest.fn(),
       setEntering: jest.fn(),
       clear: jest.fn(),
       checkRrSequenceAdjustments: jest.fn(),

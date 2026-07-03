@@ -73,8 +73,7 @@ export class SessionStateService {
       entryCount: sessionHistory.length + sessionOpen.length,
       hitCount: sessionHistory.filter(t => (t.pnl || 0) > 0).length,
       totalPnl: roundEight(
-        sessionHistory.reduce((acc, t) => acc + (t.pnl || 0), 0) +
-        sessionOpen.reduce((acc, t) => acc + (t.pnl || 0), 0)
+        sessionHistory.reduce((acc, t) => acc + (t.pnl || 0), 0)
       ),
     };
     this.statsVersion = 0;
@@ -101,11 +100,11 @@ export class SessionStateService {
       if (!this.cachedClosedTradesStats[label]) {
         this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
       }
-      this.cachedClosedTradesStats[label].pnl = roundEight(this.cachedClosedTradesStats[label].pnl + (trade.pnl || 0));
 
-      // BOLT: Only closed trades count towards hitCount and count in closedStats
+      // BOLT: Only closed trades count towards PnL, hitCount and count in closedStats
       // Open trades will be added to these metrics when they close via updateStatsOnClose
       if (trade.status !== 'OPEN') {
+        this.cachedClosedTradesStats[label].pnl = roundEight(this.cachedClosedTradesStats[label].pnl + (trade.pnl || 0));
         if (!trade.is_reconciliation) {
           this.cachedClosedTradesStats[label].count++;
           if ((trade.pnl || 0) > 0) this.cachedClosedTradesStats[label].hits++;

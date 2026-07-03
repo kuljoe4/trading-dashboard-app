@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
+import { ConfirmationModal } from './ConfirmationModal'
 import { CONFIG_LIMITS } from '../constants/configLimits'
 import { settingsAPI, presetsAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
@@ -456,6 +457,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [liveConfigured, setLiveConfigured] = useState(false)
   const [modeWarning, setModeWarning] = useState(null)
   const [loadedPresetName, setLoadedPresetName] = useState(() => sessionStorage.getItem('loaded_preset_name'));
+  const [presetToDelete, setPresetToDelete] = useState(null);
 
   // Use a debounced effect for sessionStorage to avoid heavy stringify on every keystroke
   useEffect(() => {
@@ -722,8 +724,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     addAlert({ level: 'success', title: 'Preset Loaded', message: `Active configuration set to "${p.name}".` });
   }, [validate, addAlert]);
 
-  const deletePreset = React.useCallback(async (e, name) => {
-    e.stopPropagation();
+  const deletePreset = React.useCallback(async (name) => {
     try {
       await presetsAPI.delete(name);
       setPresets(prev => prev.filter(p => p.name !== name));
@@ -731,6 +732,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     } catch (e) {
       console.error('[ConfigModal] Error deleting preset:', e);
       addAlert({ level: 'error', title: 'Delete Failed', message: `Could not remove preset "${name}".` });
+    } finally {
+      setPresetToDelete(null);
     }
   }, [addAlert]);
 
@@ -740,7 +743,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     const exists = variants.some((v) => v.strategy_label === p.name)
 
     if (!exists && variants.length >= CONFIG_LIMITS.MAX_VARIANTS) {
-      alert(`Maximum of ${CONFIG_LIMITS.MAX_VARIANTS} strategy variants allowed.`);
+      addAlert({
+        level: 'warn',
+        title: 'Limit Reached',
+        message: `Maximum of ${CONFIG_LIMITS.MAX_VARIANTS} strategy variants allowed.`
+      });
       return;
     }
 
@@ -1413,11 +1420,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     isDirty={isDirty}
                     onLoad={loadPreset}
                     onToggleVariant={toggleVariant}
-                    onDelete={deletePreset}
+                    onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
                     isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
                   />
                 ))}
               </div>
+
+              <ConfirmationModal
+                isOpen={!!presetToDelete}
+                onClose={() => setPresetToDelete(null)}
+                onConfirm={() => deletePreset(presetToDelete)}
+                title="Delete Strategy Preset?"
+                message={`Are you sure you want to permanently remove "${presetToDelete}"? This will delete the configuration from the database and cannot be undone.`}
+                confirmText="Delete Preset"
+                variant="danger"
+              />
             </section>
           </div>
         )}

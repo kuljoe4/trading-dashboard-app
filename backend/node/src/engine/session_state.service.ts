@@ -173,6 +173,7 @@ export class SessionStateService {
     if (limits) {
        if (limits.limit10s) this.binanceOrderLimit.limit_10s = limits.limit10s;
        if (limits.limit1m) this.binanceOrderLimit.limit_1m = limits.limit1m;
+       return;
     }
     if (!headers) return;
 

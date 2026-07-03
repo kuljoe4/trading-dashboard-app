@@ -185,7 +185,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                   {opp.volume_rank && (
                     <div className="mt-1">
                       <Tooltip content={`Volume Rank: This symbol is #${opp.volume_rank} in 24h volume among tracked assets.`}>
-                         <span className="text-[7px] md:text-[8px] bg-white/5 border border-white/10 px-1 py-0.5 rounded text-dim/60 font-black uppercase tracking-tighter cursor-help">
+                         <span className="text-[7px] md:text-[8px] bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded text-accent font-black uppercase tracking-tighter cursor-help shadow-sm">
                             V#{opp.volume_rank}
                          </span>
                       </Tooltip>

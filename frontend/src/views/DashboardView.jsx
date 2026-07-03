@@ -282,18 +282,6 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
                 <Edit3 size={14} />
               </button>
             </Tooltip>
-            <Tooltip content={paused ? "Resume Session" : "Pause Session"}>
-              <button
-                onClick={(e) => { e.stopPropagation(); onPause(); }}
-                className={cn(
-                  "p-2 border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                  paused ? "bg-green/10 border-green/20 text-green hover:bg-green/20" : "bg-amber/10 border-amber/20 text-amber hover:bg-amber/20"
-                )}
-                aria-label={paused ? "Resume strategy session" : "Pause strategy session"}
-              >
-                {paused ? <Play size={14} fill="currentColor" /> : <Pause size={14} fill="currentColor" />}
-              </button>
-            </Tooltip>
           </div>
           <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter" style={{ color: pnlColor(s.activePnl) }}>
             {fmtUSD(s.activePnl)}
@@ -334,6 +322,27 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
                 />
               </div>
               <ScannerPreview scannerResults={scannerResults || []} config={config} onOpen={(e) => { e.stopPropagation(); onOpenScanner(); }} />
+
+              <div className="mt-6 pt-6 border-t border-border/20">
+                 <div className="flex items-center justify-between gap-4">
+                    <div className="flex flex-col gap-0.5">
+                       <span className="text-[10px] text-dim font-black uppercase tracking-widest">Session Control</span>
+                       <p className="text-[9px] text-dim/60 font-medium uppercase">Toggle active scanning and entry logic</p>
+                    </div>
+                    <Btn
+                      variant="ghost"
+                      onClick={(e) => { e.stopPropagation(); onPause(); }}
+                      className={cn(
+                        "px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all",
+                        paused
+                          ? "bg-green/10 text-green border-green/20 hover:bg-green/20 shadow-lg shadow-green/10"
+                          : "bg-amber/10 text-amber border-amber/20 hover:bg-amber/20 shadow-lg shadow-amber/10"
+                      )}
+                    >
+                      {paused ? <><Play size={12} fill="currentColor" className="mr-1" /> Resume Engine</> : <><Pause size={12} fill="currentColor" className="mr-1" /> Pause Engine</>}
+                    </Btn>
+                 </div>
+              </div>
             </div>
           </motion.div>
         )}
@@ -489,7 +498,7 @@ export function DashboardView({ initialStrategy }) {
     totalSlUsed, activeTrades, alerts, config, setSessionActive,
     updateConfig, patchConfig, gateState, gateReason, hibernating, agreementRequired,
     scannerPaused, sessionList, fetchSessions, wsStatus,
-    updateStats,
+    updateStats, analytics,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
     healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus
   } = useTradingStore(state => ({
@@ -528,7 +537,8 @@ export function DashboardView({ initialStrategy }) {
     setSyncing: state.setSyncing,
     configSyncing: state.configSyncing,
     isAdaptiveTightened: state.isAdaptiveTightened,
-    apiStatus: state.apiStatus
+    apiStatus: state.apiStatus,
+    analytics: state.analytics
   }), shallow)
 
   useEffect(() => {
@@ -689,9 +699,18 @@ export function DashboardView({ initialStrategy }) {
     setSyncing(true)
     try {
       await sessionAPI.delete(sessionToDelete)
+      addAlert({
+        level: 'success',
+        title: 'Session Deleted',
+        message: 'The session history has been permanently removed.'
+      });
       await fetchSessions()
     } catch (e) {
-      alert('Failed to delete session')
+      addAlert({
+        level: 'error',
+        title: 'Delete Failed',
+        message: 'Could not remove session records from the database.'
+      });
     } finally {
       setLoading(false)
       setSyncing(false)
@@ -991,6 +1010,51 @@ export function DashboardView({ initialStrategy }) {
           </motion.div>
         </div>
 
+
+        {/* ROI Trends & Insights */}
+        {analytics?.roiTrends && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            className="mb-8 lg:mb-12"
+          >
+            <div className="flex items-center justify-between mb-4">
+               <SectionLabel className="mb-0">
+                  <TrendingUp size={14} className="text-accent" /> Performance Insights
+               </SectionLabel>
+               <span className="text-[9px] text-dim font-black uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50">
+                  Updated Live
+               </span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+              <StatCard
+                label="7D ROI Trend"
+                value={`${analytics.roiTrends.sevenDay >= 0 ? '+' : ''}${analytics.roiTrends.sevenDay}%`}
+                color={pnlClass(analytics.roiTrends.sevenDay)}
+                tooltipText="Percentage return on account equity over the last 7 days."
+              />
+              <StatCard
+                label="4W ROI Trend"
+                value={`${analytics.roiTrends.fourWeek >= 0 ? '+' : ''}${analytics.roiTrends.fourWeek}%`}
+                color={pnlClass(analytics.roiTrends.fourWeek)}
+                tooltipText="Percentage return on account equity over the last 28 days."
+              />
+              <StatCard
+                label="Profit Factor"
+                value={Number(analytics.profitFactor || 0).toFixed(2)}
+                color="text-accent"
+                tooltipText="Ratio of gross profit to gross loss. > 1.0 is profitable."
+              />
+              <StatCard
+                label="Sharpe Ratio"
+                value={Number(analytics.sharpeRatio || 0).toFixed(2)}
+                color="text-accent"
+                tooltipText="Risk-adjusted return. Higher is better."
+              />
+            </div>
+          </motion.div>
+        )}
 
         {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 items-start gap-6">

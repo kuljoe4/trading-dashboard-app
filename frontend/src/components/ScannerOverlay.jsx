@@ -185,7 +185,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                   {opp.volume_rank && (
                     <div className="mt-1">
                       <Tooltip content={`Volume Rank: This symbol is #${opp.volume_rank} in 24h volume among tracked assets.`}>
-                         <span className="text-[7px] md:text-[8px] bg-white/5 border border-white/10 px-1 py-0.5 rounded text-dim/60 font-black uppercase tracking-tighter cursor-help">
+                         <span className="text-[7px] md:text-[8px] bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded text-accent font-black uppercase tracking-tighter cursor-help shadow-sm">
                             V#{opp.volume_rank}
                          </span>
                       </Tooltip>
@@ -227,10 +227,17 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                   <span className="text-[10px] text-dim font-mono whitespace-nowrap">{Number(opp.score || 0).toFixed(1)}</span>
                 </div>
                 <div className="flex justify-center">
-                  <Tooltip content={passing ? "Meets momentum criteria for automated entry." : "Below momentum threshold. Awaiting stronger price action."}>
-                    {passing
-                      ? <span className="px-2 py-0.5 rounded bg-green/10 text-green text-[9px] font-black uppercase tracking-tighter border border-green/20 cursor-help">PASS</span>
-                      : <span className="px-2 py-0.5 rounded bg-surface text-dim text-[9px] font-black uppercase tracking-tighter border border-border cursor-help">WAIT</span>}
+                  <Tooltip content={
+                    !passing ? "Below momentum threshold. Awaiting stronger price action." :
+                    opp.signalResult && !opp.signalResult.allFired ? `Signal Failed: ${opp.signalResult.reason}` :
+                    "Meets all criteria for automated entry."
+                  }>
+                    {!passing
+                      ? <span className="px-2 py-0.5 rounded bg-surface text-dim text-[9px] font-black uppercase tracking-tighter border border-border cursor-help">WAIT</span>
+                      : opp.signalResult && !opp.signalResult.allFired
+                      ? <span className="px-2 py-0.5 rounded bg-amber/10 text-amber text-[9px] font-black uppercase tracking-tighter border border-amber/20 cursor-help">REJECT</span>
+                      : <span className="px-2 py-0.5 rounded bg-green/10 text-green text-[9px] font-black uppercase tracking-tighter border border-green/20 cursor-help">PASS</span>
+                    }
                   </Tooltip>
                 </div>
               </div>

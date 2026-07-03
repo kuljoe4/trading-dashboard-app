@@ -1646,7 +1646,8 @@ export class OrderManagerService {
       this.updateWeight(response.headers);
       const data = await response.data() as any;
       if (!Array.isArray(data)) {
-        throw new Error(`Invalid position data received: ${JSON.stringify(data)}`);
+        // SENTINEL: Avoid stringifying potentially large or sensitive response objects.
+        throw new Error(`Invalid position data received (type: ${typeof data})`);
       }
       return data;
     } catch (err) {

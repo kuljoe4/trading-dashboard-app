@@ -1580,10 +1580,22 @@ export class SessionService implements OnModuleInit {
       const configInstance = plainToInstance(SessionConfig, mergedConfig);
       const errors = await validate(configInstance);
       if (errors.length > 0) {
+        // SENTINEL: Format validation errors to exclude sensitive data (like the 'value' field) before logging
+        const formatErrors = (errs: any[]): any[] => {
+          return errs.map(err => ({
+            property: err.property,
+            constraints: err.constraints,
+            children: err.children?.length ? formatErrors(err.children) : undefined
+          }));
+        };
+        const detailedErrors = formatErrors(errors);
         this.logger.warn(
-          `Validation failed for merged config: ${JSON.stringify(errors)}`,
+          `Validation failed for merged config: ${JSON.stringify(detailedErrors)}`,
         );
-        throw new BadRequestException("Invalid configuration parameters");
+        throw new BadRequestException({
+          message: "Invalid configuration parameters",
+          detail: detailedErrors
+        });
       }
 
       this.validateConfig(configInstance);

@@ -55,6 +55,7 @@ export class SessionStateService {
   public closedTrades: Trade[] = [];
   public activeTrades: Trade[] = []; // BOLT: Track active trades here for circular dependency removal
   public cachedClosedTradesStats: Record<string, { pnl: number, count: number, hits: number }> = {};
+  private appliedStatsPnL: Map<string, number> = new Map(); // trade.id -> pnl portion already in stats.totalPnl
 
   public listenerCount = 0;
   public dashboardCount = 0;
@@ -91,6 +92,7 @@ export class SessionStateService {
     this.binanceRateLimit = { used_1m: 0, limit: currentLimit };
     this.apiStatus = { isBanned: false, isRateLimited: false, banUntil: null, lastErrorMessage: null };
     this.cachedClosedTradesStats = {};
+    this.appliedStatsPnL.clear();
     this.realTimePositions.clear();
     this.realTimeOrders.clear();
 
@@ -102,6 +104,7 @@ export class SessionStateService {
         this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
       }
       this.cachedClosedTradesStats[label].pnl = roundEight(this.cachedClosedTradesStats[label].pnl + (trade.pnl || 0));
+      this.appliedStatsPnL.set(trade.id, trade.pnl || 0);
 
       // BOLT: Only closed trades count towards hitCount and count in closedStats
       // Open trades will be added to these metrics when they close via updateStatsOnClose
@@ -253,14 +256,25 @@ export class SessionStateService {
     };
   }
 
-  updateStatsOnEntry() {
+  updateStatsOnEntry(tradeId?: string, pnl: number = 0) {
     this.stats.entryCount++;
+    if (tradeId) {
+      this.appliedStatsPnL.set(tradeId, pnl);
+      this.stats.totalPnl = roundEight(this.stats.totalPnl + pnl);
+    }
     this.statsVersion++;
   }
 
-  updateStatsOnClose(isWin: boolean, pnl: number = 0, isReconciliation: boolean = false) {
+  updateStatsOnClose(isWin: boolean, pnl: number = 0, isReconciliation: boolean = false, tradeId?: string) {
     if (!isReconciliation && isWin) this.stats.hitCount++;
-    this.stats.totalPnl = roundEight(this.stats.totalPnl + pnl);
+
+    // DATA-CONSISTENCY: Use delta-based updates to prevent double-counting realized fees from resumed trades
+    const previouslyApplied = tradeId ? (this.appliedStatsPnL.get(tradeId) || 0) : 0;
+    const delta = roundEight(pnl - previouslyApplied);
+
+    this.stats.totalPnl = roundEight(this.stats.totalPnl + delta);
+    if (tradeId) this.appliedStatsPnL.set(tradeId, pnl);
+
     this.statsVersion++;
   }
 
@@ -273,7 +287,12 @@ export class SessionStateService {
     if (!this.cachedClosedTradesStats[label]) {
       this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
     }
-    this.cachedClosedTradesStats[label].pnl = roundEight(this.cachedClosedTradesStats[label].pnl + (trade.pnl || 0));
+
+    // DATA-CONSISTENCY: Use delta-based updates for variant stats as well
+    const previouslyApplied = this.appliedStatsPnL.get(trade.id) || 0;
+    const delta = roundEight((trade.pnl || 0) - previouslyApplied);
+    this.cachedClosedTradesStats[label].pnl = roundEight(this.cachedClosedTradesStats[label].pnl + delta);
+    this.appliedStatsPnL.set(trade.id, trade.pnl || 0);
 
     if (!trade.is_reconciliation) {
       this.cachedClosedTradesStats[label].count++;
@@ -286,18 +305,24 @@ export class SessionStateService {
     }
   }
 
-  rollbackClosedTrade(trade: Trade) {
+  rollbackClosedTrade(trade: Trade, prevAppliedPnL: number = 0) {
     const label = trade.strategy_label || 'Momentum Strategy';
+
+    // Determine the delta that was applied when closing
+    const delta = roundEight((trade.pnl || 0) - prevAppliedPnL);
+
     if (this.cachedClosedTradesStats[label]) {
-      this.cachedClosedTradesStats[label].pnl = roundEight(this.cachedClosedTradesStats[label].pnl - (trade.pnl || 0));
+      this.cachedClosedTradesStats[label].pnl = roundEight(this.cachedClosedTradesStats[label].pnl - delta);
       if (!trade.is_reconciliation) {
         this.cachedClosedTradesStats[label].count--;
         if ((trade.pnl || 0) > 0) this.cachedClosedTradesStats[label].hits--;
       }
     }
 
-    // DATA-07: Rollback global stats for consistency
-    this.stats.totalPnl = roundEight(this.stats.totalPnl - (trade.pnl || 0));
+    // DATA-07: Rollback global stats for consistency using the same delta
+    this.stats.totalPnl = roundEight(this.stats.totalPnl - delta);
+    this.appliedStatsPnL.set(trade.id, prevAppliedPnL);
+
     if (!trade.is_reconciliation && (trade.pnl || 0) > 0) {
       this.stats.hitCount--;
     }

@@ -77,7 +77,7 @@ export class ExecutionService {
           }
           if (result.exitOccurred && result.trade) {
             const closedTrade = result.trade;
-            this.sessionState.updateStatsOnClose((closedTrade.pnl || 0) > 0, closedTrade.pnl || 0, closedTrade.is_reconciliation);
+            this.sessionState.updateStatsOnClose((closedTrade.pnl || 0) > 0, closedTrade.pnl || 0, closedTrade.is_reconciliation, closedTrade.id);
 
             this.sessionState.addClosedTrade(closedTrade);
             this.sessionState.setActiveTrades(this.positionTracker.activeList());
@@ -237,7 +237,7 @@ export class ExecutionService {
           if (result.status === ExecutionStatus.SUCCESS && result.data) {
             const trade = result.data;
             this.positionTracker.addTrade(trade);
-            this.sessionState.updateStatsOnEntry();
+            this.sessionState.updateStatsOnEntry(trade.id, trade.pnl || 0);
 
             if (onTradeUpdate) {
               await onTradeUpdate(trade, balance);

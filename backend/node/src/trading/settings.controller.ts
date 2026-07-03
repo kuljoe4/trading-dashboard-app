@@ -84,7 +84,8 @@ export class SettingsController {
             message: `Live key failed: ${error.msg || error.message || 'Unknown error'}`,
             code: error.code
           });
-          this.logger.error(`Live API key validation failed: ${JSON.stringify(error)}`);
+          // SENTINEL: Only log safe fields to prevent leakage of credentials in full error objects
+          this.logger.error(`Live API key validation failed: ${JSON.stringify({ msg: error.msg, message: error.message, code: error.code })}`);
         }
       } catch (err) {
         results.valid = false;
@@ -125,7 +126,8 @@ export class SettingsController {
             message: `Testnet key failed: ${error.msg || error.message || 'Unknown error'}`,
             code: error.code
           });
-          this.logger.error(`Testnet API key validation failed: ${JSON.stringify(error)}`);
+          // SENTINEL: Only log safe fields to prevent leakage of credentials in full error objects
+          this.logger.error(`Testnet API key validation failed: ${JSON.stringify({ msg: error.msg, message: error.message, code: error.code })}`);
         }
       } catch (err) {
         results.valid = false;
@@ -213,7 +215,12 @@ export class SettingsController {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       this.logger.error(`Failed to update API keys: ${errorMsg}`);
-      this.logger.error(`Full error: ${JSON.stringify(err)}`);
+      // SENTINEL: Avoid JSON.stringify(err) which could leak plaintext credentials
+      this.logger.error(`Error details: ${JSON.stringify({
+        message: err instanceof Error ? err.message : String(err),
+        name: err instanceof Error ? err.name : 'Error',
+        code: (err as any)?.code
+      })}`);
       throw err;
     }
   }

@@ -813,8 +813,17 @@ export class MarketFeedService {
       if (task) {
         try {
           await this.backfillKlines(task.symbol, task.interval);
-        } catch (err) {
-          this.logger.error(`Backfill failed for ${task.symbol} ${task.interval}: ${err instanceof Error ? err.message : String(err)}`);
+        } catch (err: any) {
+          const msg = err.message || '';
+          const isBan = msg.includes('banned') || msg.includes('418');
+          const isRateLimit = msg.includes('429');
+
+          if (isBan || isRateLimit) {
+             this.logger.warn(`Critical API issue detected during backfill: ${msg}. Purging ${this.backfillQueue.length} items from backfill queue.`);
+             this.backfillQueue = [];
+             break; // Exit the while loop immediately
+          }
+          this.logger.error(`Backfill failed for ${task.symbol} ${task.interval}: ${msg}`);
         }
 
         // SRE: Adaptive gap between sequential requests to smooth out weight consumption.

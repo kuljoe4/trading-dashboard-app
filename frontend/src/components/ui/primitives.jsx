@@ -312,6 +312,8 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
     ? `${isCount ? "" : "≥ "}${isCount ? Math.round(threshold) : threshold}${unit}`
     : "Trigger: 0";
 
+  const ariaText = `${label}: ${formattedValue}. Threshold is ${thresholdText}. ${satisfied ? 'Condition satisfied' : 'Awaiting signal'}. ${sublabel || ''}`;
+
   return (
     <div
       className={cn(
@@ -319,7 +321,7 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
         borderColorClass
       )}
       role="region"
-      aria-label={`${label}: ${satisfied ? 'Satisfied' : 'Awaiting'}`}
+      aria-label={ariaText}
     >
       <div className="flex justify-between items-start gap-4 min-h-[1.5rem] mb-4 md:mb-6">
         <div className="text-[10px] md:text-[11px] text-dim tracking-[0.15em] uppercase font-bold shrink-0 whitespace-nowrap">{label}</div>

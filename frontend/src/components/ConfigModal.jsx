@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge } from './ui/primitives'
+import { RiskSummary } from './RiskSummary'
 import * as Switch from '@radix-ui/react-switch'
 import { ConfirmationModal } from './ConfirmationModal'
 import { CONFIG_LIMITS } from '../constants/configLimits'
@@ -1192,6 +1193,48 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     </p>
                  </div>
               </div>
+
+              {cfg.tp_mode === 'exp_rr_seq' && (
+                <div className="space-y-2 mt-6 bg-background/50 p-5 rounded-2xl border border-border/40 shadow-inner">
+                  <div className="flex justify-between text-[10px] text-dim font-bold uppercase tracking-widest mb-3 px-1">
+                    <span>RR Milestone (Target)</span>
+                    <span>Adjust SL to (R)</span>
+                  </div>
+                  {sequence.map(([live, exit], i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="relative flex-1">
+                        <input type="number" step="0.1" value={live} onChange={(e) => {
+                          const next = [...(Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [1.0, 2.0, 4.0])];
+                          next[i] = Number(e.target.value);
+                          setField('live_rr_sequence', next);
+                        }} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus:border-accent outline-none pr-7" />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
+                      </div>
+                      <ArrowRight size={14} className="text-dim/20 shrink-0" />
+                      <div className="relative flex-1">
+                        <input type="number" step="0.1" value={exit} onChange={(e) => {
+                          const next = [...(Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [0.0, 1.0, 2.0])];
+                          next[i] = Number(e.target.value);
+                          setField('exit_rr_sequence', next);
+                        }} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus:border-accent outline-none pr-7" />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
+                      </div>
+                      <button type="button" onClick={() => {
+                        const nextL = [...(cfg.live_rr_sequence || [])];
+                        const nextE = [...(cfg.exit_rr_sequence || [])];
+                        nextL.splice(i, 1);
+                        nextE.splice(i, 1);
+                        setCfg(prev => ({ ...prev, live_rr_sequence: nextL, exit_rr_sequence: nextE }));
+                      }} aria-label="Remove milestone" className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"><Trash2 size={16} /></button>
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => {
+                    const nextL = [...(Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [1.0, 2.0, 4.0]), 5.0];
+                    const nextE = [...(Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [0.0, 1.0, 2.0]), 3.0];
+                    setCfg(prev => ({ ...prev, live_rr_sequence: nextL, exit_rr_sequence: nextE }));
+                  }} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all mt-2 group flex items-center justify-center gap-2"><Plus size={14} className="group-hover:scale-110 transition-transform" /> Add RR Milestone</button>
+                </div>
+              )}
             </section>
 
             <section className="pt-6 border-t border-border/40">
@@ -1269,47 +1312,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 ])}
                 {cfg.tp_mode === 'fixed' ? renderField('Fixed Ratio (R)', 'tp_ratio', 'number', null, { min: 0.1, step: 0.1 }) : <div />}
               </div>
-              {cfg.tp_mode === 'exp_rr_seq' && (
-                <div className="space-y-2 mt-6 bg-background/50 p-5 rounded-2xl border border-border/40 shadow-inner">
-                  <div className="flex justify-between text-[10px] text-dim font-bold uppercase tracking-widest mb-3 px-1">
-                    <span>Live RR Milestone</span>
-                    <span>Adjust SL to (R)</span>
-                  </div>
-                  {sequence.map(([live, exit], i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <div className="relative flex-1">
-                        <input type="number" step="0.1" value={live} onChange={(e) => {
-                          const next = [...(Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [1.0, 2.0, 4.0])];
-                          next[i] = Number(e.target.value);
-                          setField('live_rr_sequence', next);
-                        }} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus:border-accent outline-none pr-7" />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
-                      </div>
-                      <ArrowRight size={14} className="text-dim/20 shrink-0" />
-                      <div className="relative flex-1">
-                        <input type="number" step="0.1" value={exit} onChange={(e) => {
-                          const next = [...(Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [0.0, 1.0, 2.0])];
-                          next[i] = Number(e.target.value);
-                          setField('exit_rr_sequence', next);
-                        }} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus:border-accent outline-none pr-7" />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
-                      </div>
-                      <button type="button" onClick={() => {
-                        const nextL = [...(cfg.live_rr_sequence || [])];
-                        const nextE = [...(cfg.exit_rr_sequence || [])];
-                        nextL.splice(i, 1);
-                        nextE.splice(i, 1);
-                        setCfg(prev => ({ ...prev, live_rr_sequence: nextL, exit_rr_sequence: nextE }));
-                      }} aria-label="Remove milestone" className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"><Trash2 size={16} /></button>
-                    </div>
-                  ))}
-                  <button type="button" onClick={() => {
-                    const nextL = [...(Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [1.0, 2.0, 4.0]), 5.0];
-                    const nextE = [...(Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [0.0, 1.0, 2.0]), 3.0];
-                    setCfg(prev => ({ ...prev, live_rr_sequence: nextL, exit_rr_sequence: nextE }));
-                  }} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all mt-2 group flex items-center justify-center gap-2"><Plus size={14} className="group-hover:scale-110 transition-transform" /> Add RR Milestone</button>
-                </div>
-              )}
             </section>
 
             <section className="pt-6 border-t border-border/40">
@@ -1562,6 +1564,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
           </div>
         )}
       </div>
+
+      <RiskSummary cfg={cfg} balance={currentModeBalance} />
 
       <div className="p-5 border-t border-border bg-surface flex gap-3 sticky bottom-0">
         <div className="flex-1 flex gap-2">

@@ -29,7 +29,7 @@ describe('TradingSessionService Restart PnL Consistency', () => {
       { clear: jest.fn() } as any, // klineStore
       {} as any, // signalEngine
       {} as any, // riskEngine
-      { activeList: () => [], activeCount: () => 0, setEntering: jest.fn(), removeTrade: jest.fn(), recalculateTotalRisk: jest.fn(), totalRisk: () => 0 } as any, // positionTracker
+      { activeList: () => [], activeCount: () => 0, setEntering: jest.fn(), removeTrade: jest.fn(), recalculateTotalRisk: jest.fn(), totalRisk: () => 0, clear: jest.fn() } as any, // positionTracker
       orderManager as any,
       { setCandleCloseCallback: jest.fn(), stop: jest.fn() } as any, // marketFeed
       { stop: jest.fn() } as any, // momentumScanner
@@ -41,7 +41,7 @@ describe('TradingSessionService Restart PnL Consistency', () => {
       sessionState as any,
       {} as any, // variantAnalytics
       { minimize: jest.fn(), getLastTickData: jest.fn(), getLastRiskResult: jest.fn(), getLastAnalyticsResult: jest.fn() } as any, // engineBroadcaster
-      {} as any, // gatingService
+      { canEnter: jest.fn().mockReturnValue({ canEnter: true }), isInsideTradingWindow: jest.fn().mockReturnValue(true), mapGateState: jest.fn() } as any, // gatingService
       {} as any, // maintenanceService
       {} as any, // auditLog
       { emit: jest.fn() } as any, // eventEmitter

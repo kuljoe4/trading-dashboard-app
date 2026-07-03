@@ -52,6 +52,9 @@ export class BinanceClientFactory {
     // /private (for listenKey), /market (for anonymous market streams), and /public (HF data)
     const originalConnect = client.websocketStreams.connect.bind(client.websocketStreams);
     client.websocketStreams.connect = (async (params: any): Promise<any> => {
+      if (typeof WebSocket === 'undefined') {
+        throw new Error('WebSocket is not defined in this environment. Ensure "ws" package is correctly loaded.');
+      }
       // UDS streams use the listenKey (string without @ or !), while market streams use @ (kline, ticker) or ! (miniTicker)
       const isPrivate = !!params.stream && !params.stream.includes('@') && !params.stream.includes('!');
       const isHF = !!params.stream && params.stream.includes('!');
@@ -196,7 +199,7 @@ export class BinanceRequestQueue {
     }
 
     if (BinanceRequestQueue.currentWeight1m > 0) {
-      this.logger.log(`[BinanceQueue] Window rollover detected. Resetting weight: ${BinanceRequestQueue.currentWeight1m} -> 0`);
+      this.logger.debug(`[BinanceQueue] Window rollover detected. Resetting weight: ${BinanceRequestQueue.currentWeight1m} -> 0`);
       BinanceRequestQueue.currentWeight1m = 0;
       BinanceRequestQueue.windowStartTs = now;
 

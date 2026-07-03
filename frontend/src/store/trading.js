@@ -114,6 +114,11 @@ const defaultConfig = {
   slippage_warning_threshold: CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT || 0.001,
   auto_scale_min_notional: true,
   debug_mode: false,
+  scanner_weights: {
+    momentum: 0.5,
+    volatility: 0.3,
+    trend: 0.2
+  },
 };
 
 export const useTradingStore = createWithEqualityFn((set, get) => ({
@@ -358,7 +363,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
             scannerResults: (d.opportunities || []).map(o => {
               const n = normalizeOpportunity(o);
               const p = prevMap.get(n.symbol);
-              return p ? { ...n, history: n.history ?? p.history, signalResult: n.signalResult ?? p.signalResult } : n;
+        return p ? { ...n, history: n.history ?? p.history, ohlc_history: n.ohlc_history ?? p.ohlc_history, signalResult: n.signalResult ?? p.signalResult } : n;
             }),
             variantScannerResults: d.variant_opportunities ? d.variant_opportunities.reduce((acc, v) => {
               acc[v.strategy_label] = v.opportunities.map(normalizeOpportunity);

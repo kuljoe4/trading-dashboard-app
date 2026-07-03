@@ -385,13 +385,13 @@ export class RiskEngineService {
     minLow?: number,
     maxHigh?: number,
     symbol?: string
-  ): number {
+  ): { slPrice: number; rejected: boolean; reason?: string } {
     if (config.sl_type === 'pct') {
       // Simple percentage-based SL
       const distance = entryPrice * ((config.sl_distance_pct ?? 0.8) / 100);
       const sl = direction === 'LONG' ? entryPrice - distance : entryPrice + distance;
       this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Pct SL: ${Number(sl || 0).toFixed(5)} (dist: ${config.sl_distance_pct}%)`);
-      return sl;
+      return { slPrice: sl, rejected: false };
     }
 
     // SL based on lookback period extremes
@@ -399,11 +399,12 @@ export class RiskEngineService {
       if (minLow === undefined || maxHigh === undefined || minLow === 0 || maxHigh === 0 || minLow === Infinity || maxHigh === -Infinity) {
         // Fallback to percentage if lookback data not available
         this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} Lookback extremes unavailable (minLow: ${minLow}, maxHigh: ${maxHigh}). Falling back to Pct SL.`);
-        return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' }, undefined, undefined, symbol);
+        return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, undefined, undefined, symbol);
       }
 
       const minPct = config.sl_min_pct ?? 0.3;
       const maxPct = config.sl_max_pct ?? 3.0;
+      const action = config.sl_out_of_bounds_action || 'clamp';
       const minDistance = entryPrice * (minPct / 100);
       const maxDistance = entryPrice * (maxPct / 100);
 
@@ -418,30 +419,43 @@ export class RiskEngineService {
         rawDistance = Math.abs(structuralSl - entryPrice);
       }
 
-      let clampType: 'RAW' | 'MIN_CLAMP' | 'MAX_CLAMP' = 'RAW';
-      let clampedDistance = rawDistance;
+      const rawDistPct = (rawDistance / entryPrice) * 100;
+      let clampType: 'RAW' | 'MIN_CLAMP' | 'MAX_CLAMP' | 'REJECT' = 'RAW';
+      let finalDistance = rawDistance;
+      let rejected = false;
+      let reason: string | undefined;
 
       if (rawDistance < minDistance) {
-        clampedDistance = minDistance;
-        clampType = 'MIN_CLAMP';
+        if (action === 'reject') {
+           clampType = 'REJECT';
+           rejected = true;
+           reason = `Lookback SL dist ${rawDistPct.toFixed(2)}% below min ${minPct}%`;
+        } else {
+           finalDistance = minDistance;
+           clampType = 'MIN_CLAMP';
+        }
       } else if (rawDistance > maxDistance) {
-        clampedDistance = maxDistance;
-        clampType = 'MAX_CLAMP';
+        if (action === 'reject') {
+           clampType = 'REJECT';
+           rejected = true;
+           reason = `Lookback SL dist ${rawDistPct.toFixed(2)}% above max ${maxPct}%`;
+        } else {
+           finalDistance = maxDistance;
+           clampType = 'MAX_CLAMP';
+        }
       }
 
-      // SRE: Guard against immediate breach. If structural SL is already at/past entry,
-      // we must use at least the minDistance to ensure a valid order.
-      const finalSl = direction === 'LONG' ? entryPrice - clampedDistance : entryPrice + clampedDistance;
+      const slPrice = direction === 'LONG' ? entryPrice - finalDistance : entryPrice + finalDistance;
 
       this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Lookback SL Journey:
         Entry: ${entryPrice}
         Extreme (${direction === 'LONG' ? 'Low' : 'High'}): ${structuralSl}
-        Raw Dist: ${Number(rawDistance || 0).toFixed(5)} (${Number((rawDistance / entryPrice) * 100).toFixed(2)}%)
+        Raw Dist: ${Number(rawDistance || 0).toFixed(5)} (${rawDistPct.toFixed(2)}%)
         Min: ${minPct}% (${Number(minDistance || 0).toFixed(5)}), Max: ${maxPct}% (${Number(maxDistance || 0).toFixed(5)})
-        Result: ${clampType} -> Dist: ${Number(clampedDistance || 0).toFixed(5)}
-        Final SL: ${Number(finalSl || 0).toFixed(5)}`);
+        Action: ${action.toUpperCase()}, Result: ${clampType} -> Dist: ${Number(finalDistance || 0).toFixed(5)}
+        Final SL: ${Number(slPrice || 0).toFixed(5)}`);
 
-      return finalSl;
+      return { slPrice, rejected, reason };
     }
 
     throw new ConfigValidationException(`Unknown sl_type: ${config.sl_type}`);

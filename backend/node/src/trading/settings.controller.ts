@@ -9,6 +9,7 @@ import { encrypt, decrypt } from '../lib/crypto';
 import { ApiKeyGuard } from '../lib/api-key.guard';
 import { extractIp } from '../lib/throttle';
 import { AuditLogService } from './audit-log.service';
+import { BinanceClientFactory } from '../lib/binanceClientFactory';
 
 @Controller('settings')
 @UseGuards(ApiKeyGuard)
@@ -19,6 +20,7 @@ export class SettingsController {
     @InjectRepository(SettingsEntity)
     private settingsRepository: Repository<SettingsEntity>,
     private readonly auditLog: AuditLogService,
+    private readonly binanceClientFactory: BinanceClientFactory,
   ) {}
 
   @Get('keys')
@@ -61,13 +63,18 @@ export class SettingsController {
 
     // Test live API key with public endpoint to verify key format
     if (body.api_key) {
+      const apiKey = body.api_key;
       try {
-        const response = await fetch('https://fapi.binance.com/fapi/v1/exchangeInfo', {
-          headers: {
-            'X-MBX-APIKEY': body.api_key.trim()
-          },
-          signal: AbortSignal.timeout(5000)
-        });
+        const response = await this.binanceClientFactory.genericRequest(
+          () => fetch('https://fapi.binance.com/fapi/v1/exchangeInfo', {
+            headers: {
+              'X-MBX-APIKEY': apiKey.trim()
+            },
+            signal: AbortSignal.timeout(5000)
+          }),
+          'validateKeys:live',
+          false
+        );
         
         if (response.ok) {
           results.checks.push({
@@ -102,13 +109,18 @@ export class SettingsController {
 
     // Test testnet API key with public endpoint to verify key format
     if (body.testnet_api_key) {
+      const testnetKey = body.testnet_api_key;
       try {
-        const response = await fetch('https://testnet.binancefuture.com/fapi/v1/exchangeInfo', {
-          headers: {
-            'X-MBX-APIKEY': body.testnet_api_key.trim()
-          },
-          signal: AbortSignal.timeout(5000)
-        });
+        const response = await this.binanceClientFactory.genericRequest(
+          () => fetch('https://testnet.binancefuture.com/fapi/v1/exchangeInfo', {
+            headers: {
+              'X-MBX-APIKEY': testnetKey.trim()
+            },
+            signal: AbortSignal.timeout(5000)
+          }),
+          'validateKeys:testnet',
+          false
+        );
         
         if (response.ok) {
           results.checks.push({

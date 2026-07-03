@@ -61,6 +61,12 @@ export class SessionConfig {
   scan_lookback: number = 3;
 
   @IsNumber()
+  @Min(1)
+  @Max(50)
+  @IsOptional()
+  scanner_signal_depth?: number = 10;
+
+  @IsNumber()
   @Min(CONFIG_LIMITS.SCAN_PCT_THRESHOLD_MIN)
   @IsOptional()
   scan_pct_threshold: number = 2.0;
@@ -131,6 +137,24 @@ export class SessionConfig {
     return value === null ? undefined : value;
   })
   signal_params?: Record<string, any>;
+
+  @IsEnum(['range', 'body', 'strict'])
+  @IsOptional()
+  engulfing_mode?: 'range' | 'body' | 'strict' = 'range';
+
+  @IsEnum(['is_opportunity', 'after_opportunity'])
+  @IsOptional()
+  engulfing_timing?: 'is_opportunity' | 'after_opportunity' = 'is_opportunity';
+
+  @IsBoolean()
+  @IsOptional()
+  engulfing_volume_confirm?: boolean = false;
+
+  @IsNumber()
+  @Min(1)
+  @Max(10)
+  @IsOptional()
+  engulfing_lookback?: number = 1;
 
   // Stop Loss Configuration
   @IsEnum(['pct', 'lookback_low/high'])

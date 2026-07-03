@@ -95,7 +95,7 @@ const TemporalRiskGrid = React.memo(() => {
 
       <InteractiveLimitCard
         label="Jitter"
-        subValue={config.trades_jitter_pct > 0 ? 'Randomized' : 'Fixed'}
+        subValue={config.trades_jitter_pct > 0 ? (config.trades_jitter_market_aware ? 'Market-Aware' : 'Randomized') : 'Fixed'}
         tooltip="Randomized variation added to the period window to prevent execution stampedes."
         value={config.trades_jitter_pct || 0}
         unit="%"
@@ -282,18 +282,6 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
                 <Edit3 size={14} />
               </button>
             </Tooltip>
-            <Tooltip content={paused ? "Resume Session" : "Pause Session"}>
-              <button
-                onClick={(e) => { e.stopPropagation(); onPause(); }}
-                className={cn(
-                  "p-2 border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                  paused ? "bg-green/10 border-green/20 text-green hover:bg-green/20" : "bg-amber/10 border-amber/20 text-amber hover:bg-amber/20"
-                )}
-                aria-label={paused ? "Resume strategy session" : "Pause strategy session"}
-              >
-                {paused ? <Play size={14} fill="currentColor" /> : <Pause size={14} fill="currentColor" />}
-              </button>
-            </Tooltip>
           </div>
           <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter" style={{ color: pnlColor(s.activePnl) }}>
             {fmtUSD(s.activePnl)}
@@ -334,6 +322,27 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
                 />
               </div>
               <ScannerPreview scannerResults={scannerResults || []} config={config} onOpen={(e) => { e.stopPropagation(); onOpenScanner(); }} />
+
+              <div className="mt-6 pt-6 border-t border-border/20">
+                 <div className="flex items-center justify-between gap-4">
+                    <div className="flex flex-col gap-0.5">
+                       <span className="text-[10px] text-dim font-black uppercase tracking-widest">Session Control</span>
+                       <p className="text-[9px] text-dim/60 font-medium uppercase">Toggle active scanning and entry logic</p>
+                    </div>
+                    <Btn
+                      variant="ghost"
+                      onClick={(e) => { e.stopPropagation(); onPause(); }}
+                      className={cn(
+                        "px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all",
+                        paused
+                          ? "bg-green/10 text-green border-green/20 hover:bg-green/20 shadow-lg shadow-green/10"
+                          : "bg-amber/10 text-amber border-amber/20 hover:bg-amber/20 shadow-lg shadow-amber/10"
+                      )}
+                    >
+                      {paused ? <><Play size={12} fill="currentColor" className="mr-1" /> Resume Engine</> : <><Pause size={12} fill="currentColor" className="mr-1" /> Pause Engine</>}
+                    </Btn>
+                 </div>
+              </div>
             </div>
           </motion.div>
         )}
@@ -395,13 +404,14 @@ const GateBanner = ({ gateState, scannerPaused, reason, hibernating, activeTrade
 }
 
 const ScannerPreview = ({ scannerResults, config, onOpen }) => {
+  const { activeTrades } = useTradingStore(state => ({ activeTrades: state.activeTrades }), shallow);
   const threshold = config.scan_pct_threshold || 2
   const top = scannerResults.slice(0, 5)
   // Pre-allocate 5 slots to prevent layout shift
   const placeholders = Array.from({ length: Math.max(0, 5 - top.length) })
 
   return (
-    <div className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 shadow-sm h-[385px] flex flex-col">
+    <div className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 shadow-sm h-[395px] flex flex-col">
       <div className="p-5 border-b border-border flex justify-between items-center bg-surface/30 shrink-0">
         <div className="flex flex-col">
           <SectionLabel className="mb-0">
@@ -443,12 +453,40 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
                     <div className="flex-1 flex justify-center h-8">
                       <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={48} height={20} />
                     </div>
-                    <em className={cn("text-xs font-bold font-mono w-16 text-right", colorClass)}>
-                      {opp.pct >= 0 ? '+' : ''}{Number(opp.pct || 0).toFixed(2)}%
-                    </em>
-                    <b className={cn("text-[10px] font-bold w-12 text-right uppercase tracking-wider", passing ? "text-green" : "text-dim")}>
-                      {passing ? 'PASS' : 'WAIT'}
-                    </b>
+                    <div className="flex flex-col items-end w-16">
+                      <em className={cn("text-xs font-bold font-mono text-right", colorClass)}>
+                        {opp.pct >= 0 ? '+' : ''}{Number(opp.pct || 0).toFixed(2)}%
+                      </em>
+                      {activeTrades.some(t => t.symbol === opp.symbol) && (
+                        <div className="flex items-center gap-1 opacity-60">
+                           <Zap size={8} className="text-green fill-green/20" />
+                           <span className="text-[7px] font-black text-green uppercase tracking-tighter">In Pos</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="w-12 flex justify-end">
+                      {passing ? (
+                        opp.signalResult?.allFired ? (
+                          <Tooltip content="Meets momentum and signal criteria.">
+                            <b className="text-[10px] font-black text-green uppercase tracking-wider cursor-help">PASS</b>
+                          </Tooltip>
+                        ) : (
+                          <Tooltip content={
+                            <div className="flex flex-col gap-1 p-1">
+                               <div className="font-bold flex items-center gap-1.5 text-red-400">
+                                 <AlertCircle size={12} />
+                                 SIGNAL REJECTED
+                               </div>
+                               <div className="text-[10px] opacity-90">{opp.signalResult?.reason || 'Authorization failed'}</div>
+                            </div>
+                          }>
+                            <b className="text-[10px] font-black text-red-400 uppercase tracking-wider cursor-help">REJECT</b>
+                          </Tooltip>
+                        )
+                      ) : (
+                        <b className="text-[10px] font-bold text-dim uppercase tracking-wider">WAIT</b>
+                      )}
+                    </div>
                   </motion.div>
                 )
               })}
@@ -489,7 +527,7 @@ export function DashboardView({ initialStrategy }) {
     totalSlUsed, activeTrades, alerts, config, setSessionActive,
     updateConfig, patchConfig, gateState, gateReason, hibernating, agreementRequired,
     scannerPaused, sessionList, fetchSessions, wsStatus,
-    updateStats,
+    updateStats, analytics,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
     healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus
   } = useTradingStore(state => ({
@@ -528,7 +566,8 @@ export function DashboardView({ initialStrategy }) {
     setSyncing: state.setSyncing,
     configSyncing: state.configSyncing,
     isAdaptiveTightened: state.isAdaptiveTightened,
-    apiStatus: state.apiStatus
+    apiStatus: state.apiStatus,
+    analytics: state.analytics
   }), shallow)
 
   useEffect(() => {
@@ -689,9 +728,18 @@ export function DashboardView({ initialStrategy }) {
     setSyncing(true)
     try {
       await sessionAPI.delete(sessionToDelete)
+      addAlert({
+        level: 'success',
+        title: 'Session Deleted',
+        message: 'The session history has been permanently removed.'
+      });
       await fetchSessions()
     } catch (e) {
-      alert('Failed to delete session')
+      addAlert({
+        level: 'error',
+        title: 'Delete Failed',
+        message: 'Could not remove session records from the database.'
+      });
     } finally {
       setLoading(false)
       setSyncing(false)
@@ -992,6 +1040,51 @@ export function DashboardView({ initialStrategy }) {
         </div>
 
 
+        {/* ROI Trends & Insights */}
+        {analytics?.roiTrends && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            className="mb-8 lg:mb-12"
+          >
+            <div className="flex items-center justify-between mb-4">
+               <SectionLabel className="mb-0">
+                  <TrendingUp size={14} className="text-accent" /> Performance Insights
+               </SectionLabel>
+               <span className="text-[9px] text-dim font-black uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50">
+                  Updated Live
+               </span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+              <StatCard
+                label="7D ROI Trend"
+                value={`${analytics.roiTrends.sevenDay >= 0 ? '+' : ''}${analytics.roiTrends.sevenDay}%`}
+                color={pnlClass(analytics.roiTrends.sevenDay)}
+                tooltipText="Percentage return on account equity over the last 7 days."
+              />
+              <StatCard
+                label="4W ROI Trend"
+                value={`${analytics.roiTrends.fourWeek >= 0 ? '+' : ''}${analytics.roiTrends.fourWeek}%`}
+                color={pnlClass(analytics.roiTrends.fourWeek)}
+                tooltipText="Percentage return on account equity over the last 28 days."
+              />
+              <StatCard
+                label="Profit Factor"
+                value={Number(analytics.profitFactor || 0).toFixed(2)}
+                color="text-accent"
+                tooltipText="Ratio of gross profit to gross loss. > 1.0 is profitable."
+              />
+              <StatCard
+                label="Sharpe Ratio"
+                value={Number(analytics.sharpeRatio || 0).toFixed(2)}
+                color="text-accent"
+                tooltipText="Risk-adjusted return. Higher is better."
+              />
+            </div>
+          </motion.div>
+        )}
+
         {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 items-start gap-6">
 
@@ -1053,20 +1146,48 @@ export function DashboardView({ initialStrategy }) {
                     })()}
                   </>
                 ) : (
-                  <button
-                    onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
-                    disabled={loading || isSyncing}
-                    aria-label="Create new trading session"
-                    className={cn(
-                      "bg-background border-2 border-dashed border-border rounded-2xl p-6 flex flex-col items-center justify-center gap-4 text-dim transition-all group min-h-[200px] col-span-1 md:col-span-2 w-full",
-                      (loading || isSyncing) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
+                  <>
+                    <button
+                      onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
+                      disabled={loading || isSyncing}
+                      aria-label="Create new trading session"
+                      className={cn(
+                        "bg-background border-2 border-dashed border-border rounded-2xl p-6 flex flex-col items-center justify-center gap-4 text-dim transition-all group min-h-[200px] w-full",
+                        sessionList.length === 0 ? "col-span-1 md:col-span-2" : "col-span-1",
+                        (loading || isSyncing) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
+                      )}
+                    >
+                      <div className="w-10 h-10 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
+                        <Plus size={20} />
+                      </div>
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-[11px] font-bold uppercase tracking-widest">New Strategy</span>
+                        {sessionList.length > 0 && <span className="text-[9px] opacity-40 uppercase tracking-tighter">Start fresh orchestration</span>}
+                      </div>
+                    </button>
+
+                    {sessionList.length > 0 && (
+                      <button
+                        onClick={handleResumeLast}
+                        disabled={loading || isSyncing}
+                        aria-label={`Resume last session: ${sessionList[0].config?.strategy_label || 'Momentum Strategy'}`}
+                        className={cn(
+                          "bg-background border-2 border-dashed border-border rounded-2xl p-6 flex flex-col items-center justify-center gap-4 text-dim transition-all group min-h-[200px] w-full col-span-1",
+                          (loading || isSyncing) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
+                        )}
+                      >
+                        <div className="w-10 h-10 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
+                          <History size={20} />
+                        </div>
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="text-[11px] font-bold uppercase tracking-widest">Resume Last</span>
+                          <span className="text-[9px] opacity-40 uppercase tracking-tighter truncate max-w-[150px]">
+                            {sessionList[0].config?.strategy_label || 'Momentum Strategy'}
+                          </span>
+                        </div>
+                      </button>
                     )}
-                  >
-                    <div className="w-10 h-10 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
-                      <Plus size={20} />
-                    </div>
-                    <span className="text-[11px] font-bold uppercase tracking-widest">Configure Strategy</span>
-                  </button>
+                  </>
                 )}
 
               </div>
@@ -1129,7 +1250,7 @@ export function DashboardView({ initialStrategy }) {
         <Drawer.Root open={showScanner} onOpenChange={setShowScanner}>
           <Drawer.Portal>
             <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
-            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4svh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto h-auto">
+            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4svh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto h-[96svh]">
               <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
                 <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
                 <VisuallyHidden>
@@ -1137,7 +1258,7 @@ export function DashboardView({ initialStrategy }) {
                   <Drawer.Description>View live market scanner opportunities</Drawer.Description>
                 </VisuallyHidden>
               </div>
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 min-h-0">
                 <Suspense fallback={<LoadingFallback />}>
                   {showScanner && <ScannerOverlay onClose={() => setShowScanner(false)} />}
                 </Suspense>

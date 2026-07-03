@@ -14,6 +14,12 @@ export interface Opportunity {
   score: number; // 0-100 opportunity score
   direction: 'LONG' | 'SHORT';
   history?: number[]; // Recent close prices for sparkline
+  ohlc_history?: Candle[]; // Full OHLC for detailed visualization
+  score_breakdown?: {
+    momentum: number;
+    volatility: number;
+    trend: number;
+  };
 }
 
 @Injectable()
@@ -134,9 +140,15 @@ export class MomentumScannerService {
         for (let i = 0; i < historyLen; i++) {
           history[i] = candles[startIdx + i].close;
         }
+
+        // SRE: Provide OHLC history for high-fidelity UI visualization (Candlestick chart)
+        const ohlcLen = Math.min(15, candles.length);
+        const ohlc_history = candles.slice(candles.length - ohlcLen);
+
         return {
           ...opp,
           history,
+          ohlc_history
         };
       });
     } catch (error) {
@@ -194,7 +206,7 @@ export class MomentumScannerService {
 
     // Calculate opportunity score (0-100)
     // Based on: momentum magnitude, volume, volatility
-    const score = this.calculateScore(
+    const { score, breakdown } = this.calculateScore(
       candles,
       momentumPct,
       config,
@@ -216,6 +228,7 @@ export class MomentumScannerService {
         volume_24h: Number(tickerData?.volume_24h || 0),
         score,
         direction,
+        score_breakdown: breakdown,
       },
       candles,
     };
@@ -243,12 +256,14 @@ export class MomentumScannerService {
     candles: Candle[],
     momentumPct: number,
     config: SessionConfig,
-  ): number {
+  ): { score: number, breakdown: { momentum: number, volatility: number, trend: number } } {
     const len = candles.length;
-    if (len === 0) return 0;
+    if (len === 0) return { score: 0, breakdown: { momentum: 0, volatility: 0, trend: 0 } };
 
-    // 1. Momentum component (0-50 points)
-    let score = Math.min(50, Math.abs(momentumPct) * 10);
+    const weights = config.scanner_weights || { momentum: 0.5, volatility: 0.3, trend: 0.2 };
+
+    // 1. Momentum component (Base 100 points scale before weighting)
+    const momentumRaw = Math.min(100, Math.abs(momentumPct) * 20);
 
     let totalRange = 0;
     let upCount = 0;
@@ -272,19 +287,34 @@ export class MomentumScannerService {
       }
     }
 
-    // 2. Volatility component (0-30 points)
+    // 2. Volatility component
+    let volRaw = 0;
     if (len >= 2) {
       const avgRange = totalRange / volWindow;
       const basePrice = candles[len - 1].close;
       const volatility = (avgRange / basePrice) * 100;
-      score += Math.min(30, volatility * 10);
+      volRaw = Math.min(100, volatility * 33);
     }
 
-    // 3. Trend confirmation component (0-20 points)
+    // 3. Trend confirmation component
+    let trendRaw = 0;
     if (len >= 5) {
-      score += Math.max(upCount, downCount) * 4;
+      trendRaw = (Math.max(upCount, downCount) / trendWindow) * 100;
     }
 
-    return Math.min(100, Math.max(0, score));
+    const momentumScore = momentumRaw * weights.momentum;
+    const volScore = volRaw * weights.volatility;
+    const trendScore = trendRaw * weights.trend;
+
+    const totalScore = Math.min(100, Math.max(0, momentumScore + volScore + trendScore));
+
+    return {
+      score: totalScore,
+      breakdown: {
+        momentum: momentumScore,
+        volatility: volScore,
+        trend: trendScore
+      }
+    };
   }
 }

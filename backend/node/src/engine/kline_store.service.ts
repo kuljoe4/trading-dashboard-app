@@ -144,16 +144,20 @@ export class KlineStoreService {
       return { minLow: 0, maxHigh: 0 };
     }
 
-    const startIdx = Math.max(0, candles.length - period);
+    // SRE: Exclude the current (incomplete) candle from structural lookback
+    // Indices: [length - period - 1, length - 1)
+    const startIdx = Math.max(0, candles.length - period - 1);
+    const endIdx = candles.length - 1;
     let minLow = Infinity;
     let maxHigh = -Infinity;
 
-    this.logger.debug(`[KlineStore] ${symbol} Lookback scan: window=${period}, candlesAvailable=${candles.length}, startIdx=${startIdx}`);
+    this.logger.debug(`[KlineStore] ${symbol} Lookback scan: window=${period}, candlesAvailable=${candles.length}, range=[${startIdx}, ${endIdx - 1}]`);
 
-    for (let i = startIdx; i < candles.length; i++) {
+    for (let i = startIdx; i < endIdx; i++) {
       const candle = candles[i];
       if (candle.low < minLow) minLow = candle.low;
       if (candle.high > maxHigh) maxHigh = candle.high;
+      this.logger.debug(`  [${i}] Low: ${candle.low}, High: ${candle.high} (Time: ${candle.time})`);
     }
 
     return { minLow, maxHigh };

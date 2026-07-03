@@ -69,13 +69,15 @@ const TradeDetailView = ({ tradeId }) => {
     )
   }
 
+  const addAlert = useTradingStore(state => state.addAlert);
   const handleClose = async (symbol) => {
     setIsClosing(true)
     try {
       await sessionAPI.closeTrade(symbol)
+      addAlert({ level: 'success', title: 'Liquidation Started', message: `Manual closure request for ${symbol} sent to exchange.` });
       window.location.hash = '#/trades'
     } catch (e) {
-      alert('Failed to close trade')
+      addAlert({ level: 'error', title: 'Closure Failed', message: e?.response?.data?.message || e.message || 'Could not close position.' });
     } finally {
       setIsClosing(false)
     }

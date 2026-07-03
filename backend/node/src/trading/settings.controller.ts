@@ -225,7 +225,6 @@ export class SettingsController {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       this.logger.error(`Failed to update API keys: ${errorMsg}`);
-      this.logger.error(`Full error: ${JSON.stringify(err)}`);
       throw err;
     }
   }

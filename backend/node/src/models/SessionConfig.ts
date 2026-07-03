@@ -274,6 +274,10 @@ export class SessionConfig {
 
   @IsBoolean()
   @IsOptional()
+  trades_jitter_market_aware?: boolean = false;
+
+  @IsBoolean()
+  @IsOptional()
   frequency_shaping_enabled?: boolean = false;
 
   @IsBoolean()

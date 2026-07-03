@@ -33,7 +33,8 @@ export class RiskEngineService {
     symbol: string,
     config: SessionConfig,
     totalSlUsed: number,
-    enteringCount = 0
+    enteringCount = 0,
+    marketScore?: number
   ): ReturnType<RiskEngineService['checkFrequencyAndPerformanceLimits']> {
     const now = Date.now();
 
@@ -63,7 +64,7 @@ export class RiskEngineService {
     }
 
     // 2. Frequency, Spacing & Performance Check (ULTRA-OPTIMIZED SINGLE PASS)
-    return this.checkFrequencyAndPerformanceLimits(activeTrades, closedTrades, config, now, enteringCount);
+    return this.checkFrequencyAndPerformanceLimits(activeTrades, closedTrades, config, now, enteringCount, symbol, marketScore);
   }
 
   /**
@@ -75,7 +76,9 @@ export class RiskEngineService {
     closedTrades: Trade[],
     config: SessionConfig,
     now: number,
-    enteringCount = 0
+    enteringCount = 0,
+    symbol = 'DUMMY',
+    marketScore?: number
   ): {
     canEnter: boolean;
     reason: string;
@@ -130,9 +133,17 @@ export class RiskEngineService {
 
     // Apply stable jitter to the period window to prevent "stampeding".
     // SRE: Floor effectiveMostRecentTs to 10s to ensure jitter is stable across high-frequency loop iterations (Issue 3)
-    const jitterSeed = Math.floor(Number(effectiveMostRecentTs) / 10000) * 10000;
-    const jitterFactor = jitterPct > 0
-      ? 1 + ((Math.abs(Math.sin(jitterSeed)) * jitterPct) / 100)
+    // BOLT: Market-Aware Jitter incorporates symbol-specific offset to prevent cross-symbol stampeding.
+    const symbolHash = symbol.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const jitterSeed = (Math.floor(effectiveMostRecentTs / 10000) * 10000) + symbolHash;
+
+    // PERFORMANCE: Market-aware scaling. High quality signals (high score) reduce jitter for faster entry.
+    const effectiveJitterPct = (config.trades_jitter_market_aware && marketScore !== undefined)
+      ? jitterPct * Math.max(0, 1 - (marketScore / 100))
+      : jitterPct;
+
+    const jitterFactor = effectiveJitterPct > 0
+      ? 1 + ((Math.abs(Math.sin(jitterSeed)) * effectiveJitterPct) / 100)
       : 1;
 
     const effectivePeriodMs = periodMinBase * 60 * 1000 * jitterFactor;

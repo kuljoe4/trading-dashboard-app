@@ -17,3 +17,7 @@
 ## 2026-06-29 - Orphan SL Order Accumulation
 **Learning:** While the engine tracked its primary SL order, previous failed ratchets or external exchange activity could leave "orphan" SL orders active. Binance's limit of 10 conditional orders per symbol (Error -2027) meant these orphans could block critical protection updates.
 **Action:** Enhanced the `MaintenanceService` watchdog to perform a "Single-Truth SL Audit". Any stop-loss order found on the exchange that is not the tracked `binance_stop_order_id` or matching the engine's deterministic `clientOrderId` is now explicitly cancelled.
+
+## 2026-07-02 - Multi-Part Execution PnL & Commission Integrity
+**Learning:** The engine previously ignored `PARTIALLY_FILLED` UDS events for Stop Loss orders and lacked execution-level deduplication for commissions. This led to "ghost positions" (local qty > exchange qty) during SL slippage/partial fills and double-counting of fees when the same trade was reported via both REST responses and the User Data Stream. Binance FAPI provides a unique trade ID (`t` or `tradeId`) for every execution slice which must be the authoritative key for financial state mutation.
+**Action:** Implemented a `tradeExecutionCache` to deduplicate commissions by Binance Trade ID. `OrderManagerService` now synchronizes `trade.qty` to the remaining exchange quantity on SL partial fills and restores it to total order size on the final fill to ensure atomic PnL integrity.

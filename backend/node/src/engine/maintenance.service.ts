@@ -61,9 +61,10 @@ export class MaintenanceService {
       let slOrdersBySymbol = new Map<string, any[]>();
 
       const isSlOrder = (o: any) => {
-        const isStandardSl = (o.type === 'STOP_MARKET' || o.type === 'STOP')
+        const type = (o.type || o.algoType || "").toUpperCase();
+        const isStandardSl = (type === 'STOP_MARKET' || type === 'STOP')
           && (o.closePosition === true || o.closePosition === 'true' || o.reduceOnly === true || o.reduceOnly === 'true');
-        const isConditionalAlgoSl = !!o.algoId && (o.algoType === 'CONDITIONAL' || o.type === 'STOP_MARKET');
+        const isConditionalAlgoSl = !!o.algoId && (o.algoType === 'CONDITIONAL' || type === 'STOP_MARKET');
         return isStandardSl || isConditionalAlgoSl;
       };
 

@@ -17,3 +17,7 @@
 ## 2026-06-29 - Orphan SL Order Accumulation
 **Learning:** While the engine tracked its primary SL order, previous failed ratchets or external exchange activity could leave "orphan" SL orders active. Binance's limit of 10 conditional orders per symbol (Error -2027) meant these orphans could block critical protection updates.
 **Action:** Enhanced the `MaintenanceService` watchdog to perform a "Single-Truth SL Audit". Any stop-loss order found on the exchange that is not the tracked `binance_stop_order_id` or matching the engine's deterministic `clientOrderId` is now explicitly cancelled.
+
+## 2026-07-03 - Multi-Part SL Fill Data Integrity
+**Learning:** During partial fills of a Stop Loss order, the local engine's `trade.qty` can diverge from the actual exchange position if not synchronized on `PARTIALLY_FILLED` events. Furthermore, if `trade.qty` is left at the remaining quantity when the final `FILLED` event arrives, subsequent PnL calculations for the closed trade will be calculated only on the final slice, leading to massive data corruption.
+**Action:** Synchronize `trade.qty` with the remaining exchange quantity (`order.q - order.z`) on every `PARTIALLY_FILLED` update. Upon the final `FILLED` event, restore `trade.qty` to the total order size (`order.q`) before emitting the closure event to ensure authoritative PnL calculation across the full position.

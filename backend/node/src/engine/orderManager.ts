@@ -148,40 +148,60 @@ export class OrderManagerService {
           trade.binance_order_id === orderId ||
           (clientOrderId && clientOrderId.startsWith(`ent-${tradeIdShort8}`));
 
-        if (status === 'FILLED' && isSlOrder) {
-          const metadata = {
-            orderId,
-            clientOrderId,
-            avgPrice,
-            lastPrice,
-            rawPrice: order.p,
-            status,
-            executionType
-          };
-          this.logger.log(`[${tradeIdShort8}] Binance SL HIT for ${symbol}. Closing trade locally. Meta: ${JSON.stringify(metadata)}`);
-          let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
+        if (isSlOrder) {
+          if (status === 'FILLED') {
+            // RESTORE: Set trade.qty to total order size for correct PnL calculation on final fill
+            trade.qty = parseFloat(order.q || '0');
 
-          if (exitPrice === 0) {
-             const tickerPrice = this.tickerCache.getPrice(symbol);
-             this.logger.warn(`[${tradeIdShort8}] Binance WS returned 0 price for ${symbol} SL. Using ticker fallback: ${tickerPrice}`);
-             exitPrice = tickerPrice || trade.current_sl;
+            const metadata = {
+              orderId,
+              clientOrderId,
+              avgPrice,
+              lastPrice,
+              rawPrice: order.p,
+              status,
+              executionType
+            };
+            this.logger.log(`[${tradeIdShort8}] Binance SL HIT for ${symbol}. Closing trade locally. Meta: ${JSON.stringify(metadata)}`);
+            let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
+
+            if (exitPrice === 0) {
+              const tickerPrice = this.tickerCache.getPrice(symbol);
+              this.logger.warn(`[${tradeIdShort8}] Binance WS returned 0 price for ${symbol} SL. Using ticker fallback: ${tickerPrice}`);
+              exitPrice = tickerPrice || trade.current_sl;
+            }
+
+            const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
+            const slLabel = formatSlType(slType);
+            trade.exit_signal_reason = `EXCHANGE_${slType}: Hit at ${exitPrice}`;
+
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+              msg: `[${tradeIdShort8}] Exchange SL hit for ${symbol} at ${exitPrice} (${slLabel})`,
+              level: 'info'
+            });
+
+            this.eventEmitter.emit('trade.exchange_close', {
+              symbol,
+              exitPrice,
+              reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
+              orderId // DATA-ACCURACY: Pass orderId to allow authoritative recovery if UDS price was estimated
+            });
+          } else if (status === 'PARTIALLY_FILLED') {
+            // SYNC: Update trade.qty to remaining exchange quantity (q - z)
+            const remainingQty = parseFloat(order.q || '0') - parseFloat(order.z || '0');
+            if (remainingQty > 0) {
+              this.logger.log(`[${tradeIdShort8}] [Sync] Partial SL fill for ${symbol}: ${order.z}/${order.q}. Updating remaining qty to ${remainingQty}`);
+              trade.qty = remainingQty;
+
+              // Update real-time position cache
+              this.sessionState.realTimePositions.set(symbol, {
+                amount: remainingQty,
+                entryPrice: trade.entry_price
+              });
+
+              this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: remainingQty });
+            }
           }
-
-          const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
-          const slLabel = formatSlType(slType);
-          trade.exit_signal_reason = `EXCHANGE_${slType}: Hit at ${exitPrice}`;
-
-          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
-            msg: `[${tradeIdShort8}] Exchange SL hit for ${symbol} at ${exitPrice} (${slLabel})`,
-            level: 'info'
-          });
-
-          this.eventEmitter.emit('trade.exchange_close', {
-            symbol,
-            exitPrice,
-            reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
-            orderId // DATA-ACCURACY: Pass orderId to allow authoritative recovery if UDS price was estimated
-          });
         }
         else if (isEntryOrder) {
            this.logger.debug(`[${tradeIdShort8}] [UDS] Entry order update for ${symbol}: Status=${status}, Price=${avgPrice}, Qty=${order.z}/${order.q}`);
@@ -212,43 +232,63 @@ export class OrderManagerService {
               this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: filledQty });
            }
         }
-        else if (status === 'FILLED' && side !== (trade.direction === 'LONG' ? 'BUY' : 'SELL')) {
-           this.logger.log(`[${tradeIdShort8}] Non-entry order FILLED for ${symbol} (${side}). Closing trade locally.`);
-           let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
+        else if (side !== (trade.direction === 'LONG' ? 'BUY' : 'SELL')) {
+           if (status === 'FILLED') {
+             // RESTORE: Set trade.qty to total order size for correct PnL calculation on final fill
+             trade.qty = parseFloat(order.q || '0');
 
-           if (exitPrice === 0) {
-              const tickerPrice = this.tickerCache.getPrice(symbol);
-              this.logger.warn(`[${tradeIdShort8}] Binance WS returned 0 price for ${symbol} fill. Using ticker fallback: ${tickerPrice}`);
-              exitPrice = tickerPrice || trade.entry_price;
-           }
+             this.logger.log(`[${tradeIdShort8}] Non-entry order FILLED for ${symbol} (${side}). Closing trade locally.`);
+             let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
 
-           // Distinguish between app-initiated manual close and external exchange events
-           const isAppManualClose = clientOrderId && clientOrderId.startsWith('cls-');
-           let reason = EXIT_REASONS.EXCHANGE_FILL;
+             if (exitPrice === 0) {
+                const tickerPrice = this.tickerCache.getPrice(symbol);
+                this.logger.warn(`[${tradeIdShort8}] Binance WS returned 0 price for ${symbol} fill. Using ticker fallback: ${tickerPrice}`);
+                exitPrice = tickerPrice || trade.entry_price;
+             }
 
-           if (isAppManualClose) {
-             reason = EXIT_REASONS.MANUAL_CLOSE;
-             trade.exit_signal_reason = `Manual close confirmed by exchange at ${exitPrice}`;
-           } else {
-             // External event (Manual close on Binance, or external TP/SL)
-             if (type === 'TAKE_PROFIT' || type === 'TAKE_PROFIT_MARKET') {
-               reason = EXIT_REASONS.TP_HIT;
-               trade.exit_signal_reason = `External Take Profit hit on exchange at ${exitPrice}`;
-             } else if (type === 'STOP' || type === 'STOP_MARKET') {
-               reason = EXIT_REASONS.SL_HIT;
-               trade.exit_signal_reason = `External Stop Loss hit on exchange at ${exitPrice}`;
+             // Distinguish between app-initiated manual close and external exchange events
+             const isAppManualClose = clientOrderId && clientOrderId.startsWith('cls-');
+             let reason = EXIT_REASONS.EXCHANGE_FILL;
+
+             if (isAppManualClose) {
+               reason = EXIT_REASONS.MANUAL_CLOSE;
+               trade.exit_signal_reason = `Manual close confirmed by exchange at ${exitPrice}`;
              } else {
-               reason = EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
-               trade.exit_signal_reason = `External close on exchange at ${exitPrice} (Type: ${type})`;
+               // External event (Manual close on Binance, or external TP/SL)
+               if (type === 'TAKE_PROFIT' || type === 'TAKE_PROFIT_MARKET') {
+                 reason = EXIT_REASONS.TP_HIT;
+                 trade.exit_signal_reason = `External Take Profit hit on exchange at ${exitPrice}`;
+               } else if (type === 'STOP' || type === 'STOP_MARKET') {
+                 reason = EXIT_REASONS.SL_HIT;
+                 trade.exit_signal_reason = `External Stop Loss hit on exchange at ${exitPrice}`;
+               } else {
+                 reason = EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
+                 trade.exit_signal_reason = `External close on exchange at ${exitPrice} (Type: ${type})`;
+               }
+             }
+
+             this.eventEmitter.emit('trade.exchange_close', {
+               symbol,
+               exitPrice,
+               reason,
+               orderId // DATA-ACCURACY: Pass orderId to allow authoritative recovery
+             });
+           } else if (status === 'PARTIALLY_FILLED') {
+             // SYNC: Update trade.qty to remaining exchange quantity (q - z)
+             const remainingQty = parseFloat(order.q || '0') - parseFloat(order.z || '0');
+             if (remainingQty > 0) {
+                this.logger.log(`[${tradeIdShort8}] [Sync] Partial exit fill for ${symbol}: ${order.z}/${order.q}. Updating remaining qty to ${remainingQty}`);
+                trade.qty = remainingQty;
+
+                // Update real-time position cache
+                this.sessionState.realTimePositions.set(symbol, {
+                   amount: remainingQty,
+                   entryPrice: trade.entry_price
+                });
+
+                this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: remainingQty });
              }
            }
-
-           this.eventEmitter.emit('trade.exchange_close', {
-             symbol,
-             exitPrice,
-             reason,
-             orderId // DATA-ACCURACY: Pass orderId to allow authoritative recovery
-           });
         }
       } else {
         this.logger.debug(`[UDS] Received TRADE update for ${symbol} (${side}) but no local active trade matches.`);

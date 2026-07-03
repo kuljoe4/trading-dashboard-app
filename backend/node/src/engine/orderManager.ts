@@ -148,7 +148,30 @@ export class OrderManagerService {
           trade.binance_order_id === orderId ||
           (clientOrderId && clientOrderId.startsWith(`ent-${tradeIdShort8}`));
 
-        if (status === 'FILLED' && isSlOrder) {
+        if (status === 'PARTIALLY_FILLED' && isSlOrder) {
+          const cumQty = parseFloat(order.z || '0');
+          const origQty = parseFloat(order.q || '0');
+          const commission = parseFloat(order.n || '0');
+          const remainingQty = Math.max(0, origQty - cumQty);
+
+          this.logger.log(`[${tradeIdShort8}] [Sync] Partial SL fill for ${symbol}: ${order.l} @ ${order.L}. Remaining: ${remainingQty}`);
+
+          if (remainingQty > 0 && Math.abs(trade.qty - remainingQty) > 0.00000001) {
+            trade.qty = remainingQty;
+            trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + commission);
+
+            this.sessionState.realTimePositions.set(symbol, {
+              amount: remainingQty,
+              entryPrice: trade.entry_price
+            });
+
+            this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: remainingQty });
+          }
+        }
+        else if (status === 'FILLED' && isSlOrder) {
+          const cumQty = parseFloat(order.z || '0');
+          const commission = parseFloat(order.n || '0');
+
           const metadata = {
             orderId,
             clientOrderId,
@@ -159,6 +182,8 @@ export class OrderManagerService {
             executionType
           };
           this.logger.log(`[${tradeIdShort8}] Binance SL HIT for ${symbol}. Closing trade locally. Meta: ${JSON.stringify(metadata)}`);
+
+          // DATA-ACCURACY: Prioritize weighted average price (ap) for multi-part executions
           let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
 
           if (exitPrice === 0) {
@@ -166,6 +191,12 @@ export class OrderManagerService {
              this.logger.warn(`[${tradeIdShort8}] Binance WS returned 0 price for ${symbol} SL. Using ticker fallback: ${tickerPrice}`);
              exitPrice = tickerPrice || trade.current_sl;
           }
+
+          // Restore total quantity for accurate PnL calculation in closeTrade
+          if (cumQty > 0) {
+            trade.qty = cumQty;
+          }
+          trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + commission);
 
           const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
           const slLabel = formatSlType(slType);

@@ -26,6 +26,25 @@ export class BinanceClientFactory {
     private readonly settingsRepository: Repository<SettingsEntity>,
   ) {}
 
+  /**
+   * SRE: Enqueue a generic asynchronous task into the throttled Binance request queue.
+   * Ensures that even manual 'fetch' calls respect process-wide rate limits and IP reputation.
+   */
+  async genericRequest<T>(fn: () => Promise<T>, label: string, isEmergency = false): Promise<T> {
+    if (!this.queue) {
+      this.queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository);
+    }
+
+    return this.queue.add(async () => {
+      const result = await fn();
+      // If the result looks like a Response (has headers), update the weight automatically
+      if (result && (result as any).headers) {
+        this.queue?.updateWeightFromHeaders((result as any).headers, label);
+      }
+      return result;
+    }, label, isEmergency);
+  }
+
   createClient(apiKey: string, apiSecret: string, isTestnet: boolean): DerivativesTradingUsdsFutures {
     const restURL = isTestnet
       ? DERIVATIVES_TRADING_USDS_FUTURES_REST_API_TESTNET_URL

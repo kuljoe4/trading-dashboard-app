@@ -12,7 +12,7 @@ import { SessionStateService } from './session_state.service';
 import { SignalEngineService } from './signalEngine';
 import { MonitoringService } from './monitoring.service';
 import { ENGINE_EVENTS } from './events';
-import { BinanceRequestQueue } from '../lib/binanceClientFactory';
+import { BinanceRequestQueue, BinanceClientFactory } from '../lib/binanceClientFactory';
 
 interface BinanceKline {
   stream?: string;
@@ -60,6 +60,7 @@ export class MarketFeedService {
     private signalEngine: SignalEngineService,
     private monitoringService: MonitoringService,
     private eventEmitter: EventEmitter2,
+    private binanceClientFactory: BinanceClientFactory,
     @InjectRepository(SettingsEntity)
     private readonly settingsRepository: Repository<SettingsEntity>,
   ) {}
@@ -133,8 +134,11 @@ export class MarketFeedService {
         this.updateWeight(response.headers);
         data = await response.data();
       } else {
-        const response = await fetch(`${restBase}/fapi/v1/ticker/24hr`, { signal: AbortSignal.timeout(10000) });
-        this.updateWeight(response.headers);
+        const response = await this.binanceClientFactory.genericRequest(
+          () => fetch(`${restBase}/fapi/v1/ticker/24hr`, { signal: AbortSignal.timeout(10000) }),
+          'ticker24hrPriceChangeStatistics',
+          false
+        );
         if (!response.ok) return;
         data = await response.json() as any[];
       }
@@ -216,8 +220,11 @@ export class MarketFeedService {
         data = await response.data();
       } else {
         this.logger.debug(`[MarketFeed] Fetching fresh exchange information via fetch...`);
-        const response = await fetch(`${restBase}/fapi/v1/exchangeInfo`, { signal: AbortSignal.timeout(10000) });
-        this.updateWeight(response.headers);
+        const response = await this.binanceClientFactory.genericRequest(
+          () => fetch(`${restBase}/fapi/v1/exchangeInfo`, { signal: AbortSignal.timeout(10000) }),
+          'exchangeInformation',
+          true // Metadata is critical for boot
+        );
         if (!response.ok) return;
         data = await response.json();
       }
@@ -886,8 +893,10 @@ export class MarketFeedService {
         klines = await response.data();
       } else {
         const url = `${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${this.klineStore.getMaxCandles()}`;
-        const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
-        this.updateWeight(response.headers);
+        const response = await this.binanceClientFactory.genericRequest(
+          () => fetch(url, { signal: AbortSignal.timeout(10000) }),
+          'klineCandlestickData'
+        );
         if (!response.ok) return;
         klines = await response.json() as any[];
       }

@@ -1870,7 +1870,14 @@ export class OrderManagerService {
                    } else if (clientOrderId && clientOrderId.startsWith('sig-')) {
                       reason = EXIT_REASONS.SIGNAL;
                    } else {
-                      reason = EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
+                      // BOLT: Distinguish TRAILING_STOP from initial SL hits
+                      const currentExchangeSl = parseFloat(orderData.stopPrice || orderData.triggerPrice || '0');
+                      const initialSl = Number(trade.initial_sl);
+                      if (currentExchangeSl > 0 && initialSl > 0 && Math.abs(currentExchangeSl - initialSl) > initialSl * 0.0001) {
+                        reason = EXIT_REASONS.TRAILING_STOP;
+                      } else {
+                        reason = EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
+                      }
                    }
                    this.logger.log(`[Sync] Successfully recovered exit reason for ${symbol}: ${reason} (Order Type: ${type})`);
 

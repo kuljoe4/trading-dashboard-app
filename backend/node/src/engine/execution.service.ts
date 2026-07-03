@@ -124,6 +124,8 @@ export class ExecutionService {
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);
 
     const now = Date.now();
+    const maxOpportunities = Math.min(opportunities.length, config.scanner_signal_depth || 10);
+
     // BOLT: Sequential processing of opportunities ensures that RiskEngine spacing
     // and frequency limits are correctly enforced between each entry.
     let count = 0;
@@ -160,6 +162,26 @@ export class ExecutionService {
         const sc = symbolConfigMap?.get(opp.symbol);
         const symbolConfig = (sc?.use_custom_config && sc.custom_config) ? { ...config, ...sc.custom_config } as SessionConfig : config;
 
+        // "After Opportunity" timing check:
+        // If timing is 'after_opportunity', the momentum event must have happened in the PREVIOUS candle.
+        if (symbolConfig.engulfing_timing === 'after_opportunity') {
+           const candles = this.klineStore.getRawCandles(opp.symbol, symbolConfig.scan_interval || '1m');
+           if (candles.length < 2) continue;
+
+           const prevCandle = candles[candles.length - 2];
+           const prevPrevCandle = candles[candles.length - 3];
+           if (!prevPrevCandle) continue;
+
+           const prevMomentum = ((prevCandle.close - prevPrevCandle.close) / prevPrevCandle.close) * 100;
+           const threshold = symbolConfig.scan_pct_threshold ?? 0;
+           const momentumMatched = opp.direction === 'LONG' ? prevMomentum >= threshold : prevMomentum <= -threshold;
+
+           if (!momentumMatched) {
+             this.logger.debug(`${opp.symbol}: After-Opp Timing failed. Previous candle did not match momentum threshold.`);
+             continue;
+           }
+        }
+
         // BOLT OPTIMIZATION: Enable minimal mode (6th arg) to trigger early-return in signal engine.
         // This avoids expensive metadata/description construction during the high-frequency entry scan.
         const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry', true);
@@ -173,7 +195,7 @@ export class ExecutionService {
         this.monitoringService.setLoopStage('RISK_CHECK', opp.symbol);
         const activeTrades = this.positionTracker.activeList();
         const enteringCount = this.positionTracker.enteringCount();
-        const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk(), enteringCount);
+        const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk(), enteringCount, opp.score);
 
         if (!riskResult.canEnter) {
           if (riskResult.reason.includes('Max open trades')) {

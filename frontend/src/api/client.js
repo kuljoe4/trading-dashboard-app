@@ -112,6 +112,7 @@ const sessionConfigAllowedKeys = [
   'max_trades_24h',
   'min_trade_interval_min',
   'trades_jitter_pct',
+  'trades_jitter_market_aware',
   'frequency_shaping_enabled',
   'frequency_tod_integration',
   'max_total_risk_pct',

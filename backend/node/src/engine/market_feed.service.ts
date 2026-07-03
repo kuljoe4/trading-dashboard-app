@@ -379,8 +379,15 @@ export class MarketFeedService {
         // The SDK proxy in binanceClientFactory.ts will correctly route to /public
         ws = await this.binanceClient.websocketStreams.connect({ stream });
       } else {
-        const url = `${wsBase}/${stream}`;
+        const url = `${wsBase.replace(/\/$/, '')}/${stream}`;
         ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+      }
+
+      // Add basic error handler to prevent process crashes from unhandled events
+      if (ws && typeof ws.on === 'function') {
+        ws.on('error', (err: any) => {
+          this.logger.error(`[MarketFeed] WebSocket error on ${stream}: ${err.message || String(err)}`);
+        });
       }
 
       ws.on('error', (err: any) => {
@@ -441,8 +448,15 @@ export class MarketFeedService {
         // The SDK proxy in binanceClientFactory.ts will correctly route to /public and add the prefix.
         ws = await this.binanceClient.websocketStreams.connect({ stream });
       } else {
-        const url = `${wsBase}/${stream}`;
+        const url = `${wsBase.replace(/\/$/, '')}/${stream}`;
         ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+      }
+
+      // Add basic error handler to prevent process crashes from unhandled events
+      if (ws && typeof ws.on === 'function') {
+        ws.on('error', (err: any) => {
+          this.logger.error(`[MarketFeed] WebSocket error on ${stream}: ${err.message || String(err)}`);
+        });
       }
 
       ws.on('error', (err: any) => {

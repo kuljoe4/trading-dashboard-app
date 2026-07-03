@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
+import { ConfirmationModal } from './ConfirmationModal'
 import { CONFIG_LIMITS } from '../constants/configLimits'
 import { settingsAPI, presetsAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
@@ -424,6 +425,11 @@ const flattenConfig = (config) => {
       slippage_abort_threshold: config.slippage_abort_threshold !== undefined ? Number(config.slippage_abort_threshold) : (CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT || 0.05),
       hibernation_mode: config.hibernation_mode || 'adaptive',
       hibernation_grace_period_sec: config.hibernation_grace_period_sec || 30,
+      scanner_signal_depth: config.scanner_signal_depth || 10,
+      engulfing_mode: config.engulfing_mode || 'range',
+      engulfing_timing: config.engulfing_timing || 'is_opportunity',
+      engulfing_volume_confirm: !!config.engulfing_volume_confirm,
+      engulfing_lookback: config.engulfing_lookback || 1,
     };
   } catch (e) { return { ...config }; }
 };
@@ -463,6 +469,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [liveConfigured, setLiveConfigured] = useState(false)
   const [modeWarning, setModeWarning] = useState(null)
   const [loadedPresetName, setLoadedPresetName] = useState(() => sessionStorage.getItem('loaded_preset_name'));
+  const [presetToDelete, setPresetToDelete] = useState(null);
 
   // Use a debounced effect for sessionStorage to avoid heavy stringify on every keystroke
   useEffect(() => {
@@ -510,6 +517,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     if (Math.abs(totalWeight - 100) > 0.1) {
        errs.scanner_weights_momentum = 'Sum must be 100%';
     }
+    if (c.scanner_signal_depth < 1) errs.scanner_signal_depth = 'Min 1';
 
     setErrors(errs); return Object.keys(errs).length === 0;
   }, [testnetConfigured, liveConfigured]);
@@ -613,7 +621,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'scan_pct_threshold', 'scan_lookback', 'scan_min_volume_usdt', 'watchlist_size',
       'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
-      'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
+      'scanner_signal_depth',
+      'engulfing_lookback',
+      'min_trade_interval_min', 'trades_jitter_pct', 'trades_jitter_market_aware', 'paper_starting_balance',
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
       'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
@@ -740,8 +750,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     addAlert({ level: 'success', title: 'Preset Loaded', message: `Active configuration set to "${p.name}".` });
   }, [validate, addAlert]);
 
-  const deletePreset = React.useCallback(async (e, name) => {
-    e.stopPropagation();
+  const deletePreset = React.useCallback(async (name) => {
     try {
       await presetsAPI.delete(name);
       setPresets(prev => prev.filter(p => p.name !== name));
@@ -749,6 +758,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     } catch (e) {
       console.error('[ConfigModal] Error deleting preset:', e);
       addAlert({ level: 'error', title: 'Delete Failed', message: `Could not remove preset "${name}".` });
+    } finally {
+      setPresetToDelete(null);
     }
   }, [addAlert]);
 
@@ -758,7 +769,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     const exists = variants.some((v) => v.strategy_label === p.name)
 
     if (!exists && variants.length >= CONFIG_LIMITS.MAX_VARIANTS) {
-      alert(`Maximum of ${CONFIG_LIMITS.MAX_VARIANTS} strategy variants allowed.`);
+      addAlert({
+        level: 'warn',
+        title: 'Limit Reached',
+        message: `Maximum of ${CONFIG_LIMITS.MAX_VARIANTS} strategy variants allowed.`
+      });
       return;
     }
 
@@ -845,6 +860,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 {renderField('Watchlist Offset', 'watchlist_offset', 'number', null, { min: 0, max: 100 })}
                 {renderField('Entry side', 'entry_side', 'text', ['both', 'long', 'short'])}
                 {renderField('Lookback (Candles)', 'scan_lookback', 'number', null, { min: 1 })}
+                <Tooltip content="The scanner will check signals for top candidates up to this depth. If top candidates fail signals, it moves to the next. Set higher for strict signal strategies to prevent stalling.">
+                   <span>{renderField('Signal Depth', 'scanner_signal_depth', 'number', null, { min: 1, max: 50 })}</span>
+                </Tooltip>
                 {renderField('Min Volume (USDT)', 'scan_min_volume_usdt', 'number', null, { min: 0, step: 100000 })}
                 {renderField('Scan Mode', 'scan_mode', 'text', [
                   { value: 'interval', label: 'Fixed Interval' },
@@ -968,6 +986,38 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
 
               <div className="space-y-6">
+                {(cfg.enabled_signals || []).includes('engulfing') && (
+                  <div className="bg-accent/5 p-4 rounded-2xl border border-accent/20">
+                    <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em] mb-4">Engulfing Expert Parameters</div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <Tooltip content="Body: Open/Close must engulf previous Open/Close. Range: High/Low must engulf. Strict: Both must engulf.">
+                        <span>{renderField('Engulfing Mode', 'engulfing_mode', 'text', [
+                          { value: 'range', label: 'Range (H/L)' },
+                          { value: 'body', label: 'Body (O/C)' },
+                          { value: 'strict', label: 'Strict (Both)' }
+                        ])}</span>
+                      </Tooltip>
+                      <Tooltip content="Is Opportunity: Signal fires on the momentum candle itself. After Opportunity: Signal must fire on the NEXT candle after momentum.">
+                        <span>{renderField('Timing', 'engulfing_timing', 'text', [
+                          { value: 'is_opportunity', label: 'Is Opportunity' },
+                          { value: 'after_opportunity', label: 'After Opportunity' }
+                        ])}</span>
+                      </Tooltip>
+                      <Tooltip content="Lookback: Number of previous candles to engulf. Set > 1 for 'Reverse Engulfing' where one candle swallows multiple previous opposite bars.">
+                         <span>{renderField('Engulfing Lookback', 'engulfing_lookback', 'number', null, { min: 1, max: 10 })}</span>
+                      </Tooltip>
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[10px] text-dim font-black tracking-widest uppercase">Vol Confirmation</label>
+                          <Tooltip content="When enabled, the engulfing candle MUST have higher volume than the engulfed candle.">
+                            <span><Toggle value={cfg.engulfing_volume_confirm === true} onChange={(v) => setField('engulfing_volume_confirm', v)} /></span>
+                          </Tooltip>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="bg-background/20 p-4 rounded-2xl border border-border/50">
                   <div className="text-[9px] font-black text-dim uppercase tracking-[0.2em] mb-4">Entry Specific EMAs</div>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
@@ -1279,9 +1329,22 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
 
                 {cfg.frequency_shaping_enabled && (
-                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 md:grid-cols-2 gap-6 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
-                    {renderField('Min Interval (m)', 'min_trade_interval_min', 'number', null, { min: 0 })}
-                    {renderField('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
+                    <div className="grid grid-cols-2 md:grid-cols-2 gap-6">
+                      {renderField('Min Interval (m)', 'min_trade_interval_min', 'number', null, { min: 0 })}
+                      {renderField('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
+                    </div>
+                    {cfg.trades_jitter_pct > 0 && (
+                      <div className="flex items-center justify-between pt-4 border-t border-border/40 animate-in fade-in slide-in-from-top-1 duration-200">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                            <Target size={12} className="text-accent" /> Market-Aware Jitter
+                          </span>
+                          <span className="text-[9px] text-dim font-medium uppercase tracking-tight">Prioritize high-quality signals with less random delay</span>
+                        </div>
+                        <Toggle value={cfg.trades_jitter_market_aware === true} onChange={(v) => setField('trades_jitter_market_aware', v)} color="bg-accent" />
+                      </div>
+                    )}
                   </motion.div>
                 )}
 
@@ -1475,11 +1538,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     isDirty={isDirty}
                     onLoad={loadPreset}
                     onToggleVariant={toggleVariant}
-                    onDelete={deletePreset}
+                    onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
                     isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
                   />
                 ))}
               </div>
+
+              <ConfirmationModal
+                isOpen={!!presetToDelete}
+                onClose={() => setPresetToDelete(null)}
+                onConfirm={() => deletePreset(presetToDelete)}
+                title="Delete Strategy Preset?"
+                message={`Are you sure you want to permanently remove "${presetToDelete}"? This will delete the configuration from the database and cannot be undone.`}
+                confirmText="Delete Preset"
+                variant="danger"
+              />
             </section>
           </div>
         )}

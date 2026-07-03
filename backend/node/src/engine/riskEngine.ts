@@ -130,7 +130,7 @@ export class RiskEngineService {
 
     // Apply stable jitter to the period window to prevent "stampeding".
     // SRE: Floor effectiveMostRecentTs to 10s to ensure jitter is stable across high-frequency loop iterations (Issue 3)
-    const jitterSeed = Math.floor(effectiveMostRecentTs / 10000) * 10000;
+    const jitterSeed = Math.floor(Number(effectiveMostRecentTs) / 10000) * 10000;
     const jitterFactor = jitterPct > 0
       ? 1 + ((Math.abs(Math.sin(jitterSeed)) * jitterPct) / 100)
       : 1;

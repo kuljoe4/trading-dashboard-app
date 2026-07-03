@@ -1053,20 +1053,48 @@ export function DashboardView({ initialStrategy }) {
                     })()}
                   </>
                 ) : (
-                  <button
-                    onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
-                    disabled={loading || isSyncing}
-                    aria-label="Create new trading session"
-                    className={cn(
-                      "bg-background border-2 border-dashed border-border rounded-2xl p-6 flex flex-col items-center justify-center gap-4 text-dim transition-all group min-h-[200px] col-span-1 md:col-span-2 w-full",
-                      (loading || isSyncing) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
+                  <>
+                    <button
+                      onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
+                      disabled={loading || isSyncing}
+                      aria-label="Create new trading session"
+                      className={cn(
+                        "bg-background border-2 border-dashed border-border rounded-2xl p-6 flex flex-col items-center justify-center gap-4 text-dim transition-all group min-h-[200px] w-full",
+                        sessionList.length === 0 ? "col-span-1 md:col-span-2" : "col-span-1",
+                        (loading || isSyncing) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
+                      )}
+                    >
+                      <div className="w-10 h-10 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
+                        <Plus size={20} />
+                      </div>
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-[11px] font-bold uppercase tracking-widest">New Strategy</span>
+                        {sessionList.length > 0 && <span className="text-[9px] opacity-40 uppercase tracking-tighter">Start fresh orchestration</span>}
+                      </div>
+                    </button>
+
+                    {sessionList.length > 0 && (
+                      <button
+                        onClick={handleResumeLast}
+                        disabled={loading || isSyncing}
+                        aria-label={`Resume last session: ${sessionList[0].config?.strategy_label || 'Momentum Strategy'}`}
+                        className={cn(
+                          "bg-background border-2 border-dashed border-border rounded-2xl p-6 flex flex-col items-center justify-center gap-4 text-dim transition-all group min-h-[200px] w-full col-span-1",
+                          (loading || isSyncing) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
+                        )}
+                      >
+                        <div className="w-10 h-10 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
+                          <History size={20} />
+                        </div>
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="text-[11px] font-bold uppercase tracking-widest">Resume Last</span>
+                          <span className="text-[9px] opacity-40 uppercase tracking-tighter truncate max-w-[150px]">
+                            {sessionList[0].config?.strategy_label || 'Momentum Strategy'}
+                          </span>
+                        </div>
+                      </button>
                     )}
-                  >
-                    <div className="w-10 h-10 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
-                      <Plus size={20} />
-                    </div>
-                    <span className="text-[11px] font-bold uppercase tracking-widest">Configure Strategy</span>
-                  </button>
+                  </>
                 )}
 
               </div>

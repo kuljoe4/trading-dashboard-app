@@ -91,8 +91,8 @@ export class SettingsController {
             message: `Live key failed: ${error.msg || error.message || 'Unknown error'}`,
             code: error.code
           });
-          // SENTINEL: Only log necessary error info to avoid leaking potentially sensitive fields in the full response
-          this.logger.error(`Live API key validation failed: ${JSON.stringify({ msg: error.msg, code: error.code, message: error.message })}`);
+          // SENTINEL: Only log safe fields to prevent leakage of credentials in full error objects
+          this.logger.error(`Live API key validation failed: ${JSON.stringify({ msg: error.msg, message: error.message, code: error.code })}`);
         }
       } catch (err) {
         results.valid = false;
@@ -138,8 +138,8 @@ export class SettingsController {
             message: `Testnet key failed: ${error.msg || error.message || 'Unknown error'}`,
             code: error.code
           });
-          // SENTINEL: Only log necessary error info to avoid leaking potentially sensitive fields in the full response
-          this.logger.error(`Testnet API key validation failed: ${JSON.stringify({ msg: error.msg, code: error.code, message: error.message })}`);
+          // SENTINEL: Only log safe fields to prevent leakage of credentials in full error objects
+          this.logger.error(`Testnet API key validation failed: ${JSON.stringify({ msg: error.msg, message: error.message, code: error.code })}`);
         }
       } catch (err) {
         results.valid = false;
@@ -227,10 +227,12 @@ export class SettingsController {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       this.logger.error(`Failed to update API keys: ${errorMsg}`);
-      // SENTINEL: Removed logger.error("Full error: " + JSON.stringify(err)) to prevent leaking plaintext credentials
-      // which might be present in the Entity or Error object during database save failures.
-      // SENTINEL: Do not log the full error object with JSON.stringify as it may contain
-      // sensitive data from the request body or database record.
+      // SENTINEL: Avoid JSON.stringify(err) which could leak plaintext credentials
+      this.logger.error(`Error details: ${JSON.stringify({
+        message: err instanceof Error ? err.message : String(err),
+        name: err instanceof Error ? err.name : 'Error',
+        code: (err as any)?.code
+      })}`);
       throw err;
     }
   }

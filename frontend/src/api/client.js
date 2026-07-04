@@ -112,6 +112,7 @@ const sessionConfigAllowedKeys = [
   'max_trades_24h',
   'min_trade_interval_min',
   'trades_jitter_pct',
+  'trades_jitter_market_aware',
   'frequency_shaping_enabled',
   'frequency_tod_integration',
   'max_total_risk_pct',
@@ -137,6 +138,7 @@ const sessionConfigAllowedKeys = [
   'hibernation_mode',
   'hibernation_grace_period_sec',
   'trailing_guard_buffer_pct',
+  'scanner_weights',
 ]
 
 const sanitizeSessionConfig = (config) => {

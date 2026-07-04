@@ -21,12 +21,14 @@ const TradesView = () => {
   // Lifecycle-scoped subscription contract
   useResourceFocus('global_trades');
 
+  const addAlert = useTradingStore(state => state.addAlert);
   const handleCloseTrade = async (symbol) => {
     try {
       await sessionAPI.closeTrade(symbol)
       setSelectedTradeId(null)
+      addAlert({ level: 'success', title: 'Liquidation Started', message: `Manual closure request for ${symbol} sent to exchange.` });
     } catch (e) {
-      alert('Failed to close trade: ' + (e?.response?.data?.message || e.message))
+      addAlert({ level: 'error', title: 'Closure Failed', message: e?.response?.data?.message || e.message || 'Could not close position.' });
     }
   }
 

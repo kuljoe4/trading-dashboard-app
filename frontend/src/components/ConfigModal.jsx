@@ -282,7 +282,7 @@ const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasErro
     aria-invalid={hasError}
     aria-controls={`config-panel-${id}`}
     id={`config-tab-${id}`}
-    tabIndex={0}
+    tabIndex={active ? 0 : -1}
   >
     <Icon size={12} className={cn(active ? "text-accent" : "text-dim", hasError && !active && "text-red")} />
     {label}
@@ -310,15 +310,21 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
   }, [errors]);
 
   const handleKeyDown = (e) => {
-    const currentIndex = tabs.findIndex(t => t.id === section);
-    if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      const nextIndex = (currentIndex + 1) % tabs.length;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      const currentIndex = tabs.findIndex(t => t.id === section);
+      let nextIndex;
+      if (e.key === 'ArrowRight') {
+        nextIndex = (currentIndex + 1) % tabs.length;
+      } else {
+        nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+      }
       onSectionChange(tabs[nextIndex].id);
-    } else if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      const prevIndex = (currentIndex - 1 + tabs.length) % tabs.length;
-      onSectionChange(tabs[prevIndex].id);
+
+      // Focus the new tab
+      setTimeout(() => {
+        const nextTab = document.getElementById(`config-tab-${tabs[nextIndex].id}`);
+        nextTab?.focus();
+      }, 0);
     }
   };
 
@@ -329,7 +335,7 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
       role="tablist"
       aria-label="Configuration sections"
       onKeyDown={handleKeyDown}
-      tabIndex={0}
+      tabIndex={-1}
     >
       {tabs.map((tab) => (
         <SectionTab

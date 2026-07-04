@@ -32,7 +32,7 @@ import { ConfigValidationException } from "../lib/exceptions";
 import { BinanceClientFactory } from "../lib/binanceClientFactory";
 import { AnalyticsService } from "../engine/analytics.service";
 import { MarketFeedService } from "../engine/market_feed.service";
-import { updateLogLevels } from "../lib/logger";
+import { updateLogLevels, sanitize } from "../lib/logger";
 import { roundEight } from "../lib/math";
 import { CONFIG_LIMITS, EXIT_REASONS, ENGINE_CONSTANTS } from "../models/constants";
 
@@ -1585,17 +1585,9 @@ export class SessionService implements OnModuleInit {
       const configInstance = plainToInstance(SessionConfig, mergedConfig);
       const errors = await validate(configInstance);
       if (errors.length > 0) {
-        // SENTINEL: Format validation errors to exclude sensitive data (like the 'value' field) before logging
-        const formatErrors = (errs: any[]): any[] => {
-          return errs.map(err => ({
-            property: err.property,
-            constraints: err.constraints,
-            children: err.children?.length ? formatErrors(err.children) : undefined
-          }));
-        };
-        const detailedErrors = formatErrors(errors);
+        // SENTINEL: Sanitize validation errors to mask 'value' fields containing sensitive inputs
         this.logger.warn(
-          `Validation failed for merged config: ${JSON.stringify(detailedErrors)}`,
+          `Validation failed for merged config: ${JSON.stringify(sanitize(errors))}`,
         );
         throw new BadRequestException({
           message: "Invalid configuration parameters",

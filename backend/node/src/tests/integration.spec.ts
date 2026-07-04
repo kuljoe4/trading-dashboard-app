@@ -78,7 +78,6 @@ describe('Trade Lifecycle Integration', () => {
       checkExitConditions: jest.fn(),
       setTradeUpdateCallback: jest.fn(),
       clear: jest.fn(),
-      isClosing: jest.fn().mockReturnValue(false),
     };
 
     mockOrderManager = {

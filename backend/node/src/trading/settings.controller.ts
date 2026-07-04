@@ -227,12 +227,8 @@ export class SettingsController {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       this.logger.error(`Failed to update API keys: ${errorMsg}`);
-      // SENTINEL: Avoid JSON.stringify(err) which could leak plaintext credentials
-      this.logger.error(`Error details: ${JSON.stringify({
-        message: err instanceof Error ? err.message : String(err),
-        name: err instanceof Error ? err.name : 'Error',
-        code: (err as any)?.code
-      })}`);
+      // SENTINEL: Do NOT use JSON.stringify(err) as it can leak credentials if the error contains the settings entity
+      this.logger.error(`Update failed for IP: ${req.ip || 'unknown'}`);
       throw err;
     }
   }

@@ -43,6 +43,8 @@ export function recordFailure(ip: string): number {
   return record.count;
 }
 
+import * as net from "net";
+
 export function clearFailures(ip: string): void {
   FAILURES.delete(ip);
 }
@@ -70,12 +72,8 @@ export function extractIp(headers: any, defaultIp: string): string {
     const ips = rawForwarded
       .split(",")
       .map((s: string) => s.trim())
-      .filter((s: string) => s.length > 0);
-
-    const candidate = ips.length > 0 ? ips[ips.length - 1] : defaultIp;
-
-    // SENTINEL: Validate candidate is a valid IPv4 or IPv6 address to prevent log injection and spoofing bypasses.
-    return isIP(candidate) ? candidate : defaultIp;
+      .filter((s: string) => s.length > 0 && net.isIP(s));
+    return ips.length > 0 ? ips[ips.length - 1] : defaultIp;
   }
   return defaultIp;
 }

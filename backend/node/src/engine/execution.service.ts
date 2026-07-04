@@ -10,6 +10,7 @@ import { OrderManagerService } from './orderManager';
 import { SessionStateService } from './session_state.service';
 import { GatingService } from './gating.service';
 import { BroadcastService } from './broadcast.service';
+import { MonitoringService } from './monitoring.service';
 import { EngineBroadcasterService } from './engine-broadcaster.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ENGINE_EVENTS } from './events';
@@ -36,6 +37,7 @@ export class ExecutionService {
     private readonly sessionState: SessionStateService,
     private readonly gatingService: GatingService,
     private readonly broadcastService: BroadcastService,
+    private readonly monitoringService: MonitoringService,
     private readonly engineBroadcaster: EngineBroadcasterService,
     private readonly eventEmitter: EventEmitter2,
     private readonly analyticsService: AnalyticsService,
@@ -276,7 +278,7 @@ export class ExecutionService {
           if (result.status === ExecutionStatus.SUCCESS && result.data) {
             const trade = result.data;
             this.positionTracker.addTrade(trade);
-            this.sessionState.updateStatsOnEntry(trade.id, trade.pnl || 0);
+            this.sessionState.updateStatsOnEntry(trade.id);
 
             if (onTradeUpdate) {
               await onTradeUpdate(trade, balance);

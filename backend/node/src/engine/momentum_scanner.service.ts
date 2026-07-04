@@ -26,6 +26,9 @@ export interface Opportunity {
 export class MomentumScannerService {
   private readonly logger = new Logger(MomentumScannerService.name);
 
+  // BOLT OPTIMIZATION: Static shared weights to avoid per-symbol object allocations in hot-path
+  private static readonly DEFAULT_WEIGHTS = { momentum: 0.5, volatility: 0.3, trend: 0.2 };
+
   constructor(
     private readonly klineStore: KlineStoreService,
     private readonly tickerCache: TickerCacheService,
@@ -252,7 +255,7 @@ export class MomentumScannerService {
     const len = candles.length;
     if (len === 0) return { score: 0, breakdown: { momentum: 0, volatility: 0, trend: 0 } };
 
-    const weights = config.scanner_weights || { momentum: 0.5, volatility: 0.3, trend: 0.2 };
+    const weights = config.scanner_weights || MomentumScannerService.DEFAULT_WEIGHTS;
 
     // 1. Momentum component (Base 100 points scale before weighting)
     const momentumRaw = Math.min(100, Math.abs(momentumPct) * 20);

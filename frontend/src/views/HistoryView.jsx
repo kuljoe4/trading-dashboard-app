@@ -372,8 +372,23 @@ export const HistoryView = () => {
       ])
       updateStats({ tradeHistory: historyRes.data.trades || [] })
       setShowDeleteConfirm(false)
+      updateStats({
+        alerts: [{
+          id: Math.random().toString(36).substring(2, 9),
+          level: 'success',
+          title: 'Records Cleared',
+          message: 'All standalone trade records have been removed.'
+        }]
+      })
     } catch (e) {
-      alert('Failed to delete standalone records')
+      updateStats({
+        alerts: [{
+          id: Math.random().toString(36).substring(2, 9),
+          level: 'error',
+          title: 'Clear Failed',
+          message: 'Could not remove standalone records from the database.'
+        }]
+      })
     } finally {
       setDeletingOrphans(false)
       updateStats({ isSyncing: false })

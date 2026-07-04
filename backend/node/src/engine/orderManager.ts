@@ -52,6 +52,8 @@ export class OrderManagerService {
 
   // IDEMPOTENCY: Tracking executed order IDs to prevent double-processing between REST and WebSocket (UDS)
   private executionCache: Map<string, number> = new Map();
+  // CHRONOS: Tracking individual trade execution IDs to prevent commission double-counting
+  private tradeExecutionCache: Map<string, number> = new Map();
   private readonly EXECUTION_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
   constructor(
@@ -150,6 +152,21 @@ export class OrderManagerService {
         const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
         const avgPrice = parseFloat(order.ap || '0'); // 'ap' is average price in ORDER_TRADE_UPDATE
         const lastPrice = parseFloat(order.L || '0');
+        const commission = parseFloat(order.n || '0');
+        const tradeExecutionId = order.t ? String(order.t) : null;
+
+        // CHRONOS: Accumulate authoritative commission from exchange slice
+        // DEDUPLICATION: Use tradeExecutionId to prevent double-counting between REST and UDS
+        if (commission > 0 && tradeExecutionId) {
+           if (!this.tradeExecutionCache.has(tradeExecutionId)) {
+              trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + commission);
+              this.tradeExecutionCache.set(tradeExecutionId, Date.now());
+              this.logger.debug(`[${tradeIdShort8}] [UDS] Accumulated commission for ${symbol}: ${commission}. Total: ${trade.realized_fee}`);
+              this.cleanupExecutionCache();
+           } else {
+              this.logger.debug(`[${tradeIdShort8}] [UDS] Dropping duplicate commission for execution ${tradeExecutionId}`);
+           }
+        }
 
         // BOLT: Handle both REST order IDs and Client IDs for SL matching
         const isSlOrder =
@@ -160,30 +177,7 @@ export class OrderManagerService {
           trade.binance_order_id === orderId ||
           (clientOrderId && clientOrderId.startsWith(`ent-${tradeIdShort8}`));
 
-        if (status === 'PARTIALLY_FILLED' && isSlOrder) {
-          const cumQty = parseFloat(order.z || '0');
-          const origQty = parseFloat(order.q || '0');
-          const commission = parseFloat(order.n || '0');
-          const remainingQty = Math.max(0, origQty - cumQty);
-
-          this.logger.log(`[${tradeIdShort8}] [Sync] Partial SL fill for ${symbol}: ${order.l} @ ${order.L}. Remaining: ${remainingQty}`);
-
-          if (remainingQty > 0 && Math.abs(trade.qty - remainingQty) > 0.00000001) {
-            trade.qty = remainingQty;
-            trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + commission);
-
-            this.sessionState.realTimePositions.set(symbol, {
-              amount: remainingQty,
-              entryPrice: trade.entry_price
-            });
-
-            this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: remainingQty });
-          }
-        }
-        else if (status === 'FILLED' && isSlOrder) {
-          const cumQty = parseFloat(order.z || '0');
-          const commission = parseFloat(order.n || '0');
-
+        if (isSlOrder && (status === 'FILLED' || status === 'PARTIALLY_FILLED')) {
           const metadata = {
             orderId,
             clientOrderId,
@@ -193,38 +187,49 @@ export class OrderManagerService {
             status,
             executionType
           };
-          this.logger.log(`[${tradeIdShort8}] Binance SL HIT for ${symbol}. Closing trade locally. Meta: ${JSON.stringify(metadata)}`);
 
-          // DATA-ACCURACY: Prioritize weighted average price (ap) for multi-part executions
-          let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
+          if (status === 'FILLED') {
+             this.logger.log(`[${tradeIdShort8}] Binance SL HIT for ${symbol}. Closing trade locally. Meta: ${JSON.stringify(metadata)}`);
+             let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
 
-          if (exitPrice === 0) {
-             const tickerPrice = this.tickerCache.getPrice(symbol);
-             this.logger.warn(`[${tradeIdShort8}] Binance WS returned 0 price for ${symbol} SL. Using ticker fallback: ${tickerPrice}`);
-             exitPrice = tickerPrice || trade.current_sl;
+             if (exitPrice === 0) {
+                const tickerPrice = this.tickerCache.getPrice(symbol);
+                this.logger.warn(`[${tradeIdShort8}] Binance WS returned 0 price for ${symbol} SL. Using ticker fallback: ${tickerPrice}`);
+                exitPrice = tickerPrice || trade.current_sl;
+             }
+
+             // Multi-Part Integrity: Restore full original quantity before closure to ensure correct PnL
+             const totalOrderQty = parseFloat(order.q || '0');
+             if (totalOrderQty > 0 && Math.abs(trade.qty - totalOrderQty) > 0.00000001) {
+                this.logger.log(`[${tradeIdShort8}] [Sync] Restoring full SL quantity for closure: ${trade.qty} -> ${totalOrderQty}`);
+                trade.qty = totalOrderQty;
+             }
+
+             const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
+             const slLabel = formatSlType(slType);
+             trade.exit_signal_reason = `EXCHANGE_${slType}: Hit at ${exitPrice}`;
+
+             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+               msg: `[${tradeIdShort8}] Exchange SL hit for ${symbol} at ${exitPrice} (${slLabel})`,
+               level: 'info'
+             });
+
+             this.eventEmitter.emit('trade.exchange_close', {
+               symbol,
+               exitPrice,
+               reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
+               orderId, // DATA-ACCURACY: Pass orderId to allow authoritative recovery if UDS price was estimated
+               feesAlreadyAccounted: true // CHRONOS: Tell closeTrade to skip estimated fees
+             });
+          } else {
+             // PARTIALLY_FILLED: Update trade.qty to remaining quantity for Watchdog Parity Audit
+             const remainingQty = parseFloat(order.q || '0') - parseFloat(order.z || '0');
+             if (remainingQty > 0 && Math.abs(trade.qty - remainingQty) > 0.00000001) {
+                this.logger.log(`[${tradeIdShort8}] [Sync] Updating SL partial fill quantity for ${symbol}: ${trade.qty} -> ${remainingQty}`);
+                trade.qty = remainingQty;
+                this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: remainingQty });
+             }
           }
-
-          // Restore total quantity for accurate PnL calculation in closeTrade
-          if (cumQty > 0) {
-            trade.qty = cumQty;
-          }
-          trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + commission);
-
-          const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
-          const slLabel = formatSlType(slType);
-          trade.exit_signal_reason = `EXCHANGE_${slType}: Hit at ${exitPrice}`;
-
-          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
-            msg: `[${tradeIdShort8}] Exchange SL hit for ${symbol} at ${exitPrice} (${slLabel})`,
-            level: 'info'
-          });
-
-          this.eventEmitter.emit('trade.exchange_close', {
-            symbol,
-            exitPrice,
-            reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
-            orderId // DATA-ACCURACY: Pass orderId to allow authoritative recovery if UDS price was estimated
-          });
         }
         else if (isEntryOrder) {
            this.logger.debug(`[${tradeIdShort8}] [UDS] Entry order update for ${symbol}: Status=${status}, Price=${avgPrice}, Qty=${order.z}/${order.q}`);
@@ -290,7 +295,8 @@ export class OrderManagerService {
              symbol,
              exitPrice,
              reason,
-             orderId // DATA-ACCURACY: Pass orderId to allow authoritative recovery
+             orderId, // DATA-ACCURACY: Pass orderId to allow authoritative recovery
+             feesAlreadyAccounted: true // CHRONOS: Tell closeTrade to skip estimated fees
            });
         }
       } else {
@@ -866,10 +872,32 @@ export class OrderManagerService {
           slPrice = direction === 'LONG' ? trade.entry_price - originalDistance : trade.entry_price + originalDistance;
           trade.current_sl = trade.initial_sl = slPrice;
 
-          // Zero-Cost Math Estimation for fees
-          const notionalValue = (trade.qty || 0) * (trade.entry_price || 0);
-          const fee = notionalValue * (this.takerFeeRate || 0.0004);
-          trade.realized_fee = roundEight(isNaN(fee) ? 0 : fee);
+          // CHRONOS: Authoritative Fee Attribution.
+          // Sum commissions from 'fills' if available, otherwise fallback to estimation.
+          let totalCommission = 0;
+          if (entryReceipt.fills && Array.isArray(entryReceipt.fills) && entryReceipt.fills.length > 0) {
+             totalCommission = entryReceipt.fills.reduce((sum: number, fill: any) => sum + parseFloat(fill.commission || '0'), 0);
+             if (totalCommission > 0) {
+                this.logger.log(`[${symbol}] Attributed authoritative entry fee from fills: ${totalCommission}`);
+             }
+          }
+
+          if (totalCommission > 0) {
+            trade.realized_fee = roundEight(totalCommission);
+
+            // CHRONOS: Seed tradeExecutionCache to prevent double-counting when UDS events arrive
+            entryReceipt.fills.forEach((fill: any) => {
+               if (fill.tradeId) {
+                  this.tradeExecutionCache.set(String(fill.tradeId), Date.now());
+               }
+            });
+            this.cleanupExecutionCache();
+          } else {
+            // Zero-Cost Math Estimation for fees
+            const notionalValue = (trade.qty || 0) * (trade.entry_price || 0);
+            const fee = notionalValue * (this.takerFeeRate || 0.0004);
+            trade.realized_fee = roundEight(isNaN(fee) ? 0 : fee);
+          }
 
           entryPrice = trade.entry_price;
           qty = trade.qty;
@@ -1772,6 +1800,11 @@ export class OrderManagerService {
         this.executionCache.delete(key);
       }
     }
+    for (const [key, timestamp] of this.tradeExecutionCache.entries()) {
+      if (now - timestamp > this.EXECUTION_CACHE_TTL) {
+        this.tradeExecutionCache.delete(key);
+      }
+    }
   }
 
   private markAsExecuted(symbol: string, orderId: string, status: string = 'FILLED') {
@@ -2027,7 +2060,7 @@ export class OrderManagerService {
     exitReason: string,
     paperMode = this.paperMode,
     localOnly = false,
-    options: { ignoreBlocked?: boolean, orderId?: string } = {}
+    options: { ignoreBlocked?: boolean, orderId?: string, feesAlreadyAccounted?: boolean } = {}
   ): Promise<{ trade: Trade; exitOccurred: boolean; closeBlocked?: boolean, error?: string }> {
     // SRE: Per-symbol concurrency lock to prevent overlapping closure attempts
     // BOLT: Lock is now universal to prevent race conditions during localOnly syncs (Issue 2)
@@ -2102,7 +2135,8 @@ export class OrderManagerService {
 
       // DATA-CONSISTENCY: For localOnly syncs in live mode, we must still estimate the exit fee
       // since the exchange actually collected it during the external SL/TP/Manual hit.
-      if (!paperMode && localOnly) {
+      // CHRONOS: Skip if fees were already accounted for via authoritative UDS 'n' events.
+      if (!paperMode && localOnly && !options.feesAlreadyAccounted) {
          const feeRate = this.takerFeeRate || 0.0004;
          const exitFee = roundEight(exitPrice * trade.qty * feeRate);
          if (!isNaN(exitFee) && exitFee > 0) {

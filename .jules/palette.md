@@ -54,3 +54,6 @@
 ## 2026-07-03 - Standardized Scanner Audit Observability
 **Learning:** Inconsistent visualization between top scanner results and the full list creates a "blind spot" for users trying to audit the engine's decision-making process. Providing full transparency (charts, score breakdowns, signal reasons) for ALL scanner results enables expert audit and builds trust. Accessibility was also lacking on expandable rows.
 **Action:** Refactored `ScannerRow` to be self-contained and implemented it across the entire scanner list. Added WAI-ARIA `role="button"`, `tabIndex`, and keyboard listeners (`Enter`/`Space`) to ensure detailed technical data is accessible to all users.
+## 2026-06-28 - Standardized Keyboard Navigation for Custom Tablists
+**Learning:** Custom tab implementations (e.g., using Chips in a flex container) lack the built-in accessibility of dedicated components like Radix Tabs. Users navigating via keyboard expect standard WAI-ARIA arrow-key behavior to cycle through sections.
+**Action:** Implement 'ArrowLeft' and 'ArrowRight' keyboard handlers on custom tablist containers and ensure all interactive tab elements use 'focus-visible' ring styles to provide clear, non-intrusive focus indicators for power users.

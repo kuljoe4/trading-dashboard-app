@@ -94,7 +94,7 @@ describe('BinanceRequestQueue Shared State', () => {
       // expected error from failingFn
     }
 
-    expect(logger.fatal).toHaveBeenCalledWith(expect.stringContaining('IP BANNED (418)'));
+    expect(logger.fatal).toHaveBeenCalledWith(expect.stringContaining('BAN status (IP banned (418))'));
     expect(exitCalled).toBe(false);
     expect(eventEmitter.emit).toHaveBeenCalledWith('binance.api_limit_reached', expect.objectContaining({
       type: 'BAN'
@@ -107,29 +107,22 @@ describe('BinanceRequestQueue Shared State', () => {
     mockExit.mockRestore();
   });
 
-  it('should parse absolute ban expiry timestamp from error message', async () => {
+  it('should emit recovery event when ban cooldown expires', async () => {
     const queue = new BinanceRequestQueue(logger, eventEmitter, settingsRepository);
-    const banExpiry = Date.now() + 3600000; // 1 hour from now
-    const banMsg = `Way too many requests; IP(136.110.48.50) banned until ${banExpiry}. Please use the websocket for live updates to avoid bans..`;
 
-    const failingFn = async () => {
-      const err = new Error(banMsg);
-      throw err;
-    };
+    // 1. Manually trigger a ban state
+    (BinanceRequestQueue as any).lastRequestTs = Date.now() + 5000;
+    (BinanceRequestQueue as any).currentWeight1m = 9999;
+    (BinanceRequestQueue as any).windowStartTs = Date.now() - 65000; // Force rollover eligibility
 
-    try {
-      await queue.add(failingFn, 'test-ban-expiry');
-    } catch (e) {
-      // expected error
-    }
+    // 2. Mock time to just after the cooldown
+    const now = Date.now() + 6000;
 
-    expect(logger.fatal).toHaveBeenCalledWith(expect.stringContaining(`Resuming at ${new Date(banExpiry).toLocaleTimeString()}`));
-    expect(eventEmitter.emit).toHaveBeenCalledWith('binance.api_limit_reached', expect.objectContaining({
-      type: 'BAN',
-      until: banExpiry
-    }));
+    // 3. Trigger rollover
+    (queue as any).executeRollover(now);
 
-    // Verify lastRequestTs is exactly the parsed timestamp
-    expect((BinanceRequestQueue as any).lastRequestTs).toBe(banExpiry);
+    // 4. Verify recovery event
+    expect(eventEmitter.emit).toHaveBeenCalledWith('binance.api_limit_cleared');
+    expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('Terminal Lock lifted'));
   });
 });

@@ -35,3 +35,36 @@ export function updateLogLevels(debugMode: boolean) {
 
   DynamicLogger.getInstance().setLogLevels(levels);
 }
+
+/**
+ * SENTINEL: Recursively sanitizes objects by masking sensitive fields
+ * such as 'value' (from ValidationError) and API keys/secrets.
+ */
+export function sanitize(obj: any): any {
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(sanitize);
+  }
+
+  const sanitized: any = {};
+  for (const key in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      const lowerKey = key.toLowerCase();
+      if (
+        lowerKey === "value" ||
+        lowerKey.includes("api_key") ||
+        lowerKey.includes("api_secret") ||
+        lowerKey.includes("password") ||
+        lowerKey.includes("token")
+      ) {
+        sanitized[key] = "[MASKED]";
+      } else {
+        sanitized[key] = sanitize(obj[key]);
+      }
+    }
+  }
+  return sanitized;
+}

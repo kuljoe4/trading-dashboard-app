@@ -81,7 +81,8 @@ describe('RiskEngineService - Frequency Limits', () => {
 
     const result = service.canEnter([], closed, 10000, 'BTCUSDT', mockConfig, 0);
 
-    const jitterSeed = Math.floor(lastTradeTs / 10000) * 10000;
+    const symbolHash = 'BTCUSDT'.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const jitterSeed = (Math.floor(lastTradeTs / 10000) * 10000) + symbolHash;
     const jitterFactor = 1 + ((Math.abs(Math.sin(jitterSeed)) * 50) / 100);
     const effectivePeriodMs = 60 * 60 * 1000 * jitterFactor;
     const isInside = (now - lastTradeTs) < effectivePeriodMs;

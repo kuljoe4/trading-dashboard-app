@@ -7,6 +7,17 @@
 const POWERS_OF_10 = [1, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10];
 
 /**
+ * BigInt Serialization Polyfill (Industry Standard 2026):
+ * Ensures that BigInt values (e.g. Binance Order IDs) can be serialized to JSON
+ * without throwing "Do not know how to serialize a BigInt".
+ */
+if (typeof BigInt !== 'undefined' && !(BigInt.prototype as any).toJSON) {
+  (BigInt.prototype as any).toJSON = function () {
+    return this.toString();
+  };
+}
+
+/**
  * BOLT OPTIMIZATION: High-performance mathematical rounding.
  * Replaced string-based exponential rounding with O(1) math ops.
  * Approximately 40x faster than previous implementation.

@@ -61,9 +61,10 @@ export class MaintenanceService {
       let slOrdersBySymbol = new Map<string, any[]>();
 
       const isSlOrder = (o: any) => {
-        const isStandardSl = (o.type === 'STOP_MARKET' || o.type === 'STOP')
+        const type = (o.type || o.algoType || "").toUpperCase();
+        const isStandardSl = (type === 'STOP_MARKET' || type === 'STOP')
           && (o.closePosition === true || o.closePosition === 'true' || o.reduceOnly === true || o.reduceOnly === 'true');
-        const isConditionalAlgoSl = !!o.algoId && (o.algoType === 'CONDITIONAL' || o.type === 'STOP_MARKET');
+        const isConditionalAlgoSl = !!o.algoId && (o.algoType === 'CONDITIONAL' || type === 'STOP_MARKET');
         return isStandardSl || isConditionalAlgoSl;
       };
 
@@ -224,9 +225,13 @@ export class MaintenanceService {
             const isClosePosition = matchingOrder.closePosition === true || matchingOrder.closePosition === 'true';
 
             if (!isClosePosition) {
+              // DATA-ACCURACY: Compare trade quantity with REMAINING exchange order quantity to support partial fills
               const orderQty = parseFloat(matchingOrder.origQty || matchingOrder.quantity || '0');
-              if (Math.abs(orderQty - trade.qty) > 0.00000001) {
-                this.logger.warn(`[Watchdog] ${trade.symbol} SL quantity mismatch: Order ${orderQty} vs Position ${trade.qty}. Triggering cancel-replace.`);
+              const executedQty = parseFloat(matchingOrder.executedQty || '0');
+              const remainingOrderQty = Math.max(0, orderQty - executedQty);
+
+              if (Math.abs(remainingOrderQty - trade.qty) > 0.00000001) {
+                this.logger.warn(`[Watchdog] ${trade.symbol} SL quantity mismatch: Order Remaining ${remainingOrderQty} vs Position ${trade.qty}. Triggering cancel-replace.`);
 
                 const cancelSuccess = await this.orderManager.cancelBinanceOrder(
                   trade.symbol,

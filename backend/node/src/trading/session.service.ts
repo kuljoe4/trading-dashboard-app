@@ -1586,12 +1586,13 @@ export class SessionService implements OnModuleInit {
       const errors = await validate(configInstance);
       if (errors.length > 0) {
         // SENTINEL: Sanitize validation errors to mask 'value' fields containing sensitive inputs
+        const sanitizedErrors = sanitize(errors);
         this.logger.warn(
-          `Validation failed for merged config: ${JSON.stringify(sanitize(errors))}`,
+          `Validation failed for merged config: ${JSON.stringify(sanitizedErrors)}`,
         );
         throw new BadRequestException({
           message: "Invalid configuration parameters",
-          detail: detailedErrors
+          detail: sanitizedErrors
         });
       }
 

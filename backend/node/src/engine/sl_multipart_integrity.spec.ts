@@ -41,9 +41,10 @@ describe('OrderManagerService - Multi-part SL Integrity', () => {
       mockMarketFeed,
       { getTicker: jest.fn(), getPrice: jest.fn() } as any, // tickerCache
       { incrementApiRequests: jest.fn() } as any, // monitoringService
+      { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn() } as any, // positionTracker
       mockSessionState,
       { log: jest.fn() } as any, // auditLog
-      eventEmitter,
+      eventEmitter as any,
       { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any // settingsRepository
     );
 

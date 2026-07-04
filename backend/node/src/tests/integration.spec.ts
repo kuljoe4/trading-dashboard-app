@@ -71,9 +71,7 @@ describe('Trade Lifecycle Integration', () => {
       addTrade: jest.fn(),
       removeTrade: jest.fn(),
       closeTrade: jest.fn(),
-      clear: jest.fn(),
       setEntering: jest.fn(),
-      clear: jest.fn(),
       checkRrSequenceAdjustments: jest.fn(),
       checkExitConditions: jest.fn(),
       setTradeUpdateCallback: jest.fn(),
@@ -122,7 +120,8 @@ describe('Trade Lifecycle Integration', () => {
       { broadcast: jest.fn() } as any,
       { serializeTrade: jest.fn() } as any,
       new EventEmitter2(),
-      { calculateAnalytics: jest.fn().mockReturnValue({ maxDrawdown: 0, maxDrawdownPct: 0, overallWinRate: 0, cumulativePnL: [] }) } as any
+      { calculateAnalytics: jest.fn().mockReturnValue({ maxDrawdown: 0, maxDrawdownPct: 0, overallWinRate: 0, cumulativePnL: [] }) } as any,
+      { setLoopStage: jest.fn() } as any
     );
 
     tradingSession = new TradingSessionService(

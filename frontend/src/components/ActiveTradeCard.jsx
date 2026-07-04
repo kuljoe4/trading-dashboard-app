@@ -25,12 +25,17 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
   let progress = 50
   let entryMarkPos = 50
 
+  let ariaText = `Trade status for ${trade.symbol}`
   if (entry && mark && sl) {
+    const pnlLabel = trade.pnl >= 0 ? 'profit' : 'loss'
+    const rrValue = Number(trade.rr || 0).toFixed(2)
+
     if (tp) {
       const totalRange = Math.abs(tp - sl)
       const distFromSl = Math.abs(mark - sl)
       progress = Math.max(0, Math.min(100, (distFromSl / totalRange) * 100))
       entryMarkPos = Math.max(0, Math.min(100, (Math.abs(entry - sl) / totalRange) * 100))
+      ariaText = `${trade.symbol} ${trade.direction}: ${rrValue}R ${pnlLabel}. Price is ${Math.round(progress)}% of the way from Stop Loss to Take Profit.`
     } else {
       // Without TP, we use a reference of 3R profit for the 100% mark
       const distToSl = Math.abs(entry - sl)
@@ -39,6 +44,7 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
 
       progress = Math.max(0, Math.min(100, (Math.abs(mark - sl) / totalRange) * 100))
       entryMarkPos = (Math.abs(entry - sl) / totalRange) * 100
+      ariaText = `${trade.symbol} ${trade.direction}: ${rrValue}R ${pnlLabel}. Price is ${Math.round(progress)}% of the way from Stop Loss to 3R target.`
     }
   }
 
@@ -63,7 +69,7 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
             </span>
             {trade.is_reconciliation && (
               <Tooltip content="Reconciled Trade: This trade was automatically imported from the exchange or resumed after a system restart.">
-                <span className="bg-amber/10 text-amber border border-amber/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter cursor-help">
+                <span className="bg-amber text-black border border-amber text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter cursor-help">
                   Recon
                 </span>
               </Tooltip>
@@ -109,7 +115,7 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
           aria-valuenow={Math.round(progress)}
           aria-valuemin="0"
           aria-valuemax="100"
-          aria-label={`Trade progress from SL to TP: ${Math.round(progress)}%`}
+          aria-valuetext={ariaText}
         >
           {/* Entry Point Marker */}
           <div

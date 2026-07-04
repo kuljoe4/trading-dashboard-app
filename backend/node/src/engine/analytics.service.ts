@@ -25,6 +25,10 @@ export interface AnalyticsResult {
   profitFactor: number;
   sharpeRatio: number;
   sortinoRatio: number;
+  roiTrends: {
+    sevenDay: number;
+    fourWeek: number;
+  };
 }
 
 @Injectable()
@@ -160,6 +164,28 @@ export class AnalyticsService {
       if (downsideStdDev > 0) sortinoRatio = meanReturn / downsideStdDev;
     }
 
+    // ROI Trends Calculation (UTC-aware)
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const fourWeeksAgo = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000);
+
+    let sevenDayPnL = 0;
+    let fourWeekPnL = 0;
+
+    for (let i = 0; i < totalTrades; i++) {
+      const t = sortedTrades[i];
+      const exitTs = t.exit_ts!;
+      const pnl = Number(t.pnl || 0);
+
+      if (exitTs >= sevenDaysAgo) sevenDayPnL += pnl;
+      if (exitTs >= fourWeeksAgo) fourWeekPnL += pnl;
+    }
+
+    const roiTrends = {
+      sevenDay: effectiveStartingBalance > 0 ? (sevenDayPnL / effectiveStartingBalance) * 100 : 0,
+      fourWeek: effectiveStartingBalance > 0 ? (fourWeekPnL / effectiveStartingBalance) * 100 : 0,
+    };
+
     return {
       cumulativePnL,
       maxDrawdown: roundTo(maxDD, 2),
@@ -177,6 +203,10 @@ export class AnalyticsService {
       profitFactor: roundTo(profitFactor, 2),
       sharpeRatio: roundTo(sharpeRatio, 2),
       sortinoRatio: roundTo(sortinoRatio, 2),
+      roiTrends: {
+        sevenDay: roundTo(roiTrends.sevenDay, 2),
+        fourWeek: roundTo(roiTrends.fourWeek, 2),
+      },
     };
   }
 }

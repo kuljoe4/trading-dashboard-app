@@ -19,6 +19,7 @@ describe('Throttle Library', () => {
     it('should handle multiple x-forwarded-for headers (array case)', () => {
       // In Node.js, multiple headers with the same name are often represented as an array
       const headers = { 'x-forwarded-for': ['203.0.113.1', '198.51.100.2'] };
+      // It should join them and take the last one (and it must be a valid IP).
       expect(extractIp(headers, '1.2.3.4')).toBe('198.51.100.2');
     });
 

@@ -95,63 +95,7 @@ export class MarketFeedService {
     this.startMiniTickerStream(wsBasePublic);
     this.startMarkTickerStream(wsBasePublic);
 
-    // SRE: Immediate "Cold Start" mitigation.
-    // If the ticker cache is empty (e.g. after Deep Sleep or fresh boot),
-    // we trigger an immediate REST fetch to ensure the bot can start scanning candidates
-    // without waiting for the next WS cycle or the 15s grace period.
-    if (this.tickerCache.getCacheSize() === 0) {
-       this.logger.log(`[MarketFeed] Ticker cache empty on start. Triggering immediate REST seeding...`);
-       this.fetchInitialTickers(restBase).catch(e => this.logger.error(`Initial ticker fetch failed: ${e.message}`));
-    }
-
-    // BOLT: We still keep a delayed check to verify WS is actually flowing and populate if it failed.
-    setTimeout(async () => {
-       try {
-         if (!this.running) return;
-         const size = this.tickerCache.getCacheSize();
-         if (size === 0) {
-            this.logger.warn(`[MarketFeed] Ticker cache still empty after 15s. Retrying REST fetchInitialTickers...`);
-            await this.fetchInitialTickers(restBase);
-         } else {
-            this.logger.log(`[MarketFeed] Market feed operational. Ticker cache size: ${size}.`);
-            this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
-         }
-       } catch (err) {
-         this.logger.error(`Failed during market feed bootstrap check: ${err instanceof Error ? err.message : String(err)}`);
-       }
-    }, 15000);
-
     this.startWatchlistManager(config);
-  }
-
-  private async fetchInitialTickers(restBase: string) {
-    try {
-      this.monitoringService.incrementApiRequests();
-      let data: any[];
-
-      if (this.binanceClient) {
-        const response = await this.binanceClient.restAPI.ticker24hrPriceChangeStatistics();
-        this.updateWeight(response.headers);
-        data = await response.data();
-      } else {
-        const response = await this.binanceClientFactory.genericRequest(
-          () => fetch(`${restBase}/fapi/v1/ticker/24hr`, { signal: AbortSignal.timeout(10000) }),
-          'ticker24hrPriceChangeStatistics',
-          false
-        );
-        if (!response.ok) return;
-        data = await response.json() as any[];
-      }
-
-      if (Array.isArray(data)) {
-        this.tickerCache.bulkUpdate(data);
-        this.logger.log(`[MarketFeed] Ticker cache seeded via REST: ${data.length} symbols.`);
-        // Proactively trigger watchlist update now that we have data
-        this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
-      }
-    } catch (err) {
-      this.logger.error(`Failed to fetch initial tickers: ${err instanceof Error ? err.message : String(err)}`);
-    }
   }
 
   public updateWeight(headers: any) {
@@ -405,16 +349,22 @@ export class MarketFeedService {
         this.lastMiniTickerMsgTs = Date.now();
         // BOLT: Even in Eco Mode, we must populate the cache if it's currently empty to allow the first watchlist re-evaluation.
         // SRE: During hibernation, we also need fresh data to qualify for wake-up.
-        const cacheEmpty = this.tickerCache.getCacheSize() === 0;
+        const isCacheEmpty = this.tickerCache.getCacheSize() === 0;
         const isHibernating = this.sessionState.hibernating;
         const hibMode = this.sessionState.config?.hibernation_mode || 'adaptive';
         const isLightSleep = isHibernating && hibMode === 'light';
 
-        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0 && !cacheEmpty && !isLightSleep) return;
+        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0 && !isCacheEmpty && !isLightSleep) return;
         try {
           const msg = JSON.parse(data as any);
           let tickers: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
-          if (tickers.length > 0) this.tickerCache.bulkUpdate(tickers);
+          if (tickers.length > 0) {
+            this.tickerCache.bulkUpdate(tickers);
+            if (isCacheEmpty) {
+              this.logger.log(`[MarketFeed] Ticker cache initialized via WS: ${tickers.length} symbols. Triggering watchlist update.`);
+              this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
+            }
+          }
         } catch (err) {
           this.logger.error(`Error processing mini-ticker stream: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -472,18 +422,24 @@ export class MarketFeedService {
 
       ws.on('message', (data: any) => {
         this.lastMarkTickerMsgTs = Date.now();
-        const cacheEmpty = this.tickerCache.getCacheSize() === 0;
+        const isCacheEmpty = this.tickerCache.getCacheSize() === 0;
         const isHibernating = this.sessionState.hibernating;
         const hibMode = this.sessionState.config?.hibernation_mode || 'adaptive';
         const isLightSleep = isHibernating && hibMode === 'light';
 
-        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0 && !cacheEmpty && !isLightSleep) return;
+        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0 && !isCacheEmpty && !isLightSleep) return;
         try {
           const msg = JSON.parse(data as any);
           const updates = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
-          for (const u of updates) {
-            // Field 'p' is Mark Price in !markTicker@arr
-            this.tickerCache.updateTicker(u.s, undefined, undefined, undefined, u.p);
+          if (updates.length > 0) {
+            for (const u of updates) {
+              // Field 'p' is Mark Price in !markTicker@arr
+              this.tickerCache.updateTicker(u.s, undefined, undefined, undefined, u.p);
+            }
+            if (isCacheEmpty) {
+              this.logger.log(`[MarketFeed] Ticker cache (Mark) initialized via WS. Triggering watchlist update.`);
+              this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
+            }
           }
         } catch (err) {
           this.logger.error(`Error processing mark-ticker stream: ${err instanceof Error ? err.message : String(err)}`);

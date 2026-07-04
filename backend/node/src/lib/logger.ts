@@ -68,3 +68,15 @@ export function sanitize(obj: any): any {
   }
   return sanitized;
 }
+
+/**
+ * SENTINEL: Recursively formats ValidationError objects from class-validator
+ * for safe reporting in API responses.
+ */
+export function formatValidationErrors(errs: any[]): any[] {
+  return errs.map((err) => ({
+    property: err.property,
+    constraints: err.constraints,
+    children: err.children?.length ? formatValidationErrors(err.children) : undefined,
+  }));
+}

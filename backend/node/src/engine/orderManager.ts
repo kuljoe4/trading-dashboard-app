@@ -57,7 +57,6 @@ export class OrderManagerService {
   private readonly EXECUTION_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
   // COMMISSION IDEMPOTENCY: Tracking unique Binance trade IDs to prevent double-counting commissions
-  private tradeExecutionCache: Map<string, number> = new Map();
   private readonly TRADE_EXECUTION_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
   constructor(
@@ -211,29 +210,7 @@ export class OrderManagerService {
 
           this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: remainingQty });
         }
-        else if (status === 'FILLED' && isSlOrder) {
-          const metadata = {
-            orderId,
-            clientOrderId,
-            avgPrice,
-            lastPrice,
-            rawPrice: order.p,
-            status,
-            executionType
-          };
-          this.logger.log(`[${tradeIdShort8}] Binance SL HIT for ${symbol}. Closing trade locally. Meta: ${JSON.stringify(metadata)}`);
-
-          // CHRONOS: Restore trade.qty to the total order size (order.q) before closeTrade is called.
-          // This ensures PnL is calculated for the full position instead of just the final execution slice.
-          const totalQty = parseFloat(order.q || '0');
-          if (totalQty > 0 && trade.qty !== totalQty) {
-             this.logger.debug(`[${tradeIdShort8}] [Sync] Restoring qty to ${totalQty} for final SL PnL calculation.`);
-             trade.qty = totalQty;
-          }
-
-          let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
-
-        if (isSlOrder) {
+        else if (isSlOrder) {
           if (status === 'FILLED') {
             const metadata = {
               orderId,

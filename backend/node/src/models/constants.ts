@@ -31,6 +31,7 @@ export const CONFIG_LIMITS = {
   MAX_TRADES_24H_DEFAULT: 0,
   MIN_TRADE_INTERVAL_DEFAULT: 0,
   TRADES_JITTER_DEFAULT: 0,
+  TRADES_JITTER_MARKET_AWARE_DEFAULT: false,
   TP_RATIO_MIN: 0.1,
   TP_RATIO_DEFAULT: 2.0,
   TOTAL_SL_GUARD_DEFAULT: 200.0,
@@ -49,9 +50,9 @@ export const CONFIG_LIMITS = {
 
 export const ENGINE_CONSTANTS = {
   BINANCE_WS_BASE: process.env.BINANCE_WS_BASE || 'wss://fstream.binance.com',
-  BINANCE_WS_PUBLIC: process.env.BINANCE_WS_PUBLIC || 'wss://fstream.binance.com/ws',
-  BINANCE_WS_MARKET: process.env.BINANCE_WS_MARKET || 'wss://fstream.binance.com/stream',
-  BINANCE_WS_PRIVATE: process.env.BINANCE_WS_BASE || 'wss://fstream.binance.com/private',
+  BINANCE_WS_PUBLIC: process.env.BINANCE_WS_PUBLIC || 'wss://fstream.binance.com/public',
+  BINANCE_WS_MARKET: process.env.BINANCE_WS_MARKET || 'wss://fstream.binance.com/market',
+  BINANCE_WS_PRIVATE: process.env.BINANCE_WS_PRIVATE || 'wss://fstream.binance.com/private',
   BINANCE_REST_BASE: process.env.BINANCE_REST_BASE || 'https://fapi.binance.com',
   KLINE_STREAM_CHUNK_SIZE: 20,
   WATCHLIST_REFRESH_INTERVAL_MS: 120000,

@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge } from './ui/primitives'
+import { RiskSummary } from './RiskSummary'
 import * as Switch from '@radix-ui/react-switch'
+import { ConfirmationModal } from './ConfirmationModal'
 import { CONFIG_LIMITS } from '../constants/configLimits'
 import { settingsAPI, presetsAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
@@ -16,7 +18,10 @@ const TAB_ERROR_MAP = {
   trading_mode: 'advanced',
   risk_pct_per_trade: 'risk',
   max_open_trades: 'risk',
-  sl_distance_pct: 'risk'
+  sl_distance_pct: 'risk',
+  scanner_weights_momentum: 'scan',
+  scanner_weights_volatility: 'scan',
+  scanner_weights_trend: 'scan',
 };
 
 const SIGNALS = [
@@ -54,7 +59,7 @@ const Toggle = React.memo(({ value, onChange, label, color = "bg-accent" }) => (
 Toggle.displayName = 'Toggle'
 
 const Chip = React.forwardRef(({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10", ...props }, ref) => (
-  <button ref={ref} type="button" onClick={onClick} aria-pressed={active} className={cn("px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all", active ? activeClass : "border-border text-dim hover:border-dim/50")} {...props}>{children}</button>
+  <button ref={ref} type="button" onClick={onClick} aria-pressed={active} className={cn("px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none", active ? activeClass : "border-border text-dim hover:border-dim/50")} {...props}>{children}</button>
 ))
 Chip.displayName = 'Chip'
 
@@ -277,7 +282,7 @@ const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasErro
     aria-invalid={hasError}
     aria-controls={`config-panel-${id}`}
     id={`config-tab-${id}`}
-    tabIndex={0}
+    tabIndex={active ? 0 : -1}
   >
     <Icon size={12} className={cn(active ? "text-accent" : "text-dim", hasError && !active && "text-red")} />
     {label}
@@ -304,12 +309,33 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
     return Object.keys(errors).some(key => TAB_ERROR_MAP[key] === tabId);
   }, [errors]);
 
+  const handleKeyDown = (e) => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      const currentIndex = tabs.findIndex(t => t.id === section);
+      let nextIndex;
+      if (e.key === 'ArrowRight') {
+        nextIndex = (currentIndex + 1) % tabs.length;
+      } else {
+        nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+      }
+      onSectionChange(tabs[nextIndex].id);
+
+      // Focus the new tab
+      setTimeout(() => {
+        const nextTab = document.getElementById(`config-tab-${tabs[nextIndex].id}`);
+        nextTab?.focus();
+      }, 0);
+    }
+  };
+
   return (
     <div
-      className="flex gap-2 p-4 overflow-x-auto no-scrollbar touch-pan-x"
+      className="flex gap-2 p-4 overflow-x-auto no-scrollbar touch-pan-x outline-none"
       data-vaul-no-drag
       role="tablist"
       aria-label="Configuration sections"
+      onKeyDown={handleKeyDown}
+      tabIndex={-1}
     >
       {tabs.map((tab) => (
         <SectionTab
@@ -397,6 +423,7 @@ const flattenConfig = (config) => {
   if (!config) return {};
   try {
     const params = typeof config.signal_params === 'string' ? JSON.parse(config.signal_params || '{}') : config.signal_params || {};
+    const weights = config.scanner_weights || { momentum: 0.5, volatility: 0.3, trend: 0.2 };
     return {
       ...config,
       trading_mode: config.trading_mode || (config.paper_mode ? 'paper' : 'live'),
@@ -408,6 +435,9 @@ const flattenConfig = (config) => {
       signal_params_entry_ema_slow: params.entry_ema_slow,
       signal_params_exit_ema_fast: params.exit_ema_fast,
       signal_params_exit_ema_slow: params.exit_ema_slow,
+      scanner_weights_momentum: weights.momentum * 100,
+      scanner_weights_volatility: weights.volatility * 100,
+      scanner_weights_trend: weights.trend * 100,
       live_rr_sequence: Array.isArray(config.live_rr_sequence) ? config.live_rr_sequence : [1.0, 2.0, 4.0],
       exit_rr_sequence: Array.isArray(config.exit_rr_sequence) ? config.exit_rr_sequence : [0.0, 1.0, 2.0],
       trailing_guard_buffer_pct: config.trailing_guard_buffer_pct !== undefined ? config.trailing_guard_buffer_pct : CONFIG_LIMITS.TRAILING_GUARD_DEFAULT,
@@ -417,6 +447,12 @@ const flattenConfig = (config) => {
       slippage_abort_threshold: config.slippage_abort_threshold !== undefined ? Number(config.slippage_abort_threshold) : (CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT || 0.05),
       hibernation_mode: config.hibernation_mode || 'adaptive',
       hibernation_grace_period_sec: config.hibernation_grace_period_sec || 30,
+      sl_out_of_bounds_action: config.sl_out_of_bounds_action || 'clamp',
+      scanner_signal_depth: config.scanner_signal_depth || 10,
+      engulfing_mode: config.engulfing_mode || 'range',
+      engulfing_timing: config.engulfing_timing || 'is_opportunity',
+      engulfing_volume_confirm: !!config.engulfing_volume_confirm,
+      engulfing_lookback: config.engulfing_lookback || 1,
     };
   } catch (e) { return { ...config }; }
 };
@@ -456,6 +492,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [liveConfigured, setLiveConfigured] = useState(false)
   const [modeWarning, setModeWarning] = useState(null)
   const [loadedPresetName, setLoadedPresetName] = useState(() => sessionStorage.getItem('loaded_preset_name'));
+  const [presetToDelete, setPresetToDelete] = useState(null);
 
   // Use a debounced effect for sessionStorage to avoid heavy stringify on every keystroke
   useEffect(() => {
@@ -498,6 +535,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     if (c.sl_distance_pct > 5) {
       errs.sl_distance_pct_warn = 'Aggressive (>5%)'
     }
+
+    const totalWeight = Number(c.scanner_weights_momentum || 0) + Number(c.scanner_weights_volatility || 0) + Number(c.scanner_weights_trend || 0);
+    if (Math.abs(totalWeight - 100) > 0.1) {
+       errs.scanner_weights_momentum = 'Sum must be 100%';
+    }
+    if (c.scanner_signal_depth < 1) errs.scanner_signal_depth = 'Min 1';
 
     setErrors(errs); return Object.keys(errs).length === 0;
   }, [testnetConfigured, liveConfigured]);
@@ -601,7 +644,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'scan_pct_threshold', 'scan_lookback', 'scan_min_volume_usdt', 'watchlist_size',
       'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
-      'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
+      'scanner_signal_depth',
+      'engulfing_lookback',
+      'min_trade_interval_min', 'trades_jitter_pct', 'trades_jitter_market_aware', 'paper_starting_balance',
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
       'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
@@ -613,6 +658,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         c[f] = Number(c[f]);
       }
     });
+
+    c.scanner_weights = {
+      momentum: Number(cfg.scanner_weights_momentum || 0) / 100,
+      volatility: Number(cfg.scanner_weights_volatility || 0) / 100,
+      trend: Number(cfg.scanner_weights_trend || 0) / 100
+    };
 
     if (c.hibernation_grace_period_sec !== undefined) {
       c.hibernation_grace_period_sec = Number(c.hibernation_grace_period_sec);
@@ -722,8 +773,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     addAlert({ level: 'success', title: 'Preset Loaded', message: `Active configuration set to "${p.name}".` });
   }, [validate, addAlert]);
 
-  const deletePreset = React.useCallback(async (e, name) => {
-    e.stopPropagation();
+  const deletePreset = React.useCallback(async (name) => {
     try {
       await presetsAPI.delete(name);
       setPresets(prev => prev.filter(p => p.name !== name));
@@ -731,6 +781,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     } catch (e) {
       console.error('[ConfigModal] Error deleting preset:', e);
       addAlert({ level: 'error', title: 'Delete Failed', message: `Could not remove preset "${name}".` });
+    } finally {
+      setPresetToDelete(null);
     }
   }, [addAlert]);
 
@@ -740,7 +792,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     const exists = variants.some((v) => v.strategy_label === p.name)
 
     if (!exists && variants.length >= CONFIG_LIMITS.MAX_VARIANTS) {
-      alert(`Maximum of ${CONFIG_LIMITS.MAX_VARIANTS} strategy variants allowed.`);
+      addAlert({
+        level: 'warn',
+        title: 'Limit Reached',
+        message: `Maximum of ${CONFIG_LIMITS.MAX_VARIANTS} strategy variants allowed.`
+      });
       return;
     }
 
@@ -827,6 +883,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 {renderField('Watchlist Offset', 'watchlist_offset', 'number', null, { min: 0, max: 100 })}
                 {renderField('Entry side', 'entry_side', 'text', ['both', 'long', 'short'])}
                 {renderField('Lookback (Candles)', 'scan_lookback', 'number', null, { min: 1 })}
+                <Tooltip content="The scanner will check signals for top candidates up to this depth. If top candidates fail signals, it moves to the next. Set higher for strict signal strategies to prevent stalling.">
+                   <span>{renderField('Signal Depth', 'scanner_signal_depth', 'number', null, { min: 1, max: 50 })}</span>
+                </Tooltip>
                 {renderField('Min Volume (USDT)', 'scan_min_volume_usdt', 'number', null, { min: 0, step: 100000 })}
                 {renderField('Scan Mode', 'scan_mode', 'text', [
                   { value: 'interval', label: 'Fixed Interval' },
@@ -838,6 +897,50 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     {renderField('Check Interval (s)', 'scan_check_interval_sec', 'number', null, { min: 1 })}
                   </>
                 )}
+              </div>
+
+              <div className="mt-8 pt-6 border-t border-border/40">
+                <div className="flex justify-between items-start mb-4">
+                  <SectionHeader icon={LayoutGrid} title="Scoring Weights" subtitle="Contribution to opportunity score (Sum: 100%)" />
+                  <div className="flex flex-wrap gap-2 justify-end">
+                    {[
+                      { label: 'Balanced', w: [50, 30, 20] },
+                      { label: 'Aggressive', w: [80, 10, 10] },
+                      { label: 'Trend-Focused', w: [20, 20, 60] }
+                    ].map(p => (
+                      <button
+                        key={p.label}
+                        type="button"
+                        onClick={() => {
+                          setField('scanner_weights_momentum', p.w[0]);
+                          setField('scanner_weights_volatility', p.w[1]);
+                          setField('scanner_weights_trend', p.w[2]);
+                        }}
+                        className="px-2 py-1 rounded bg-accent/5 border border-accent/20 text-[8px] font-black uppercase tracking-widest text-accent hover:bg-accent/10 transition-colors"
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {renderField('Momentum %', 'scanner_weights_momentum', 'number', null, { min: 0, max: 100 })}
+                  {renderField('Volatility %', 'scanner_weights_volatility', 'number', null, { min: 0, max: 100 })}
+                  {renderField('Trend %', 'scanner_weights_trend', 'number', null, { min: 0, max: 100 })}
+                </div>
+                <div className="mt-4 p-4 bg-background/40 rounded-xl border border-border/40">
+                   <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest mb-2">
+                      <span className="text-dim">Weight Distribution</span>
+                      <span className={cn(Math.abs((Number(cfg.scanner_weights_momentum || 0) + Number(cfg.scanner_weights_volatility || 0) + Number(cfg.scanner_weights_trend || 0)) - 100) > 0.1 ? "text-red" : "text-green")}>
+                         Sum: {Number(cfg.scanner_weights_momentum || 0) + Number(cfg.scanner_weights_volatility || 0) + Number(cfg.scanner_weights_trend || 0)}%
+                      </span>
+                   </div>
+                   <div className="h-2 bg-white/5 rounded-full overflow-hidden flex border border-white/5">
+                      <div className="h-full bg-accent transition-all duration-500" style={{ width: `${cfg.scanner_weights_momentum}%` }} />
+                      <div className="h-full bg-amber transition-all duration-500" style={{ width: `${cfg.scanner_weights_volatility}%` }} />
+                      <div className="h-full bg-purple transition-all duration-500" style={{ width: `${cfg.scanner_weights_trend}%` }} />
+                   </div>
+                </div>
               </div>
             </section>
 
@@ -906,6 +1009,38 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
 
               <div className="space-y-6">
+                {(cfg.enabled_signals || []).includes('engulfing') && (
+                  <div className="bg-accent/5 p-4 rounded-2xl border border-accent/20">
+                    <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em] mb-4">Engulfing Expert Parameters</div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <Tooltip content="Body: Open/Close must engulf previous Open/Close. Range: High/Low must engulf. Strict: Both must engulf.">
+                        <span>{renderField('Engulfing Mode', 'engulfing_mode', 'text', [
+                          { value: 'range', label: 'Range (H/L)' },
+                          { value: 'body', label: 'Body (O/C)' },
+                          { value: 'strict', label: 'Strict (Both)' }
+                        ])}</span>
+                      </Tooltip>
+                      <Tooltip content="Is Opportunity: Signal fires on the momentum candle itself. After Opportunity: Signal must fire on the NEXT candle after momentum.">
+                        <span>{renderField('Timing', 'engulfing_timing', 'text', [
+                          { value: 'is_opportunity', label: 'Is Opportunity' },
+                          { value: 'after_opportunity', label: 'After Opportunity' }
+                        ])}</span>
+                      </Tooltip>
+                      <Tooltip content="Lookback: Number of previous candles to engulf. Set > 1 for 'Reverse Engulfing' where one candle swallows multiple previous opposite bars.">
+                         <span>{renderField('Engulfing Lookback', 'engulfing_lookback', 'number', null, { min: 1, max: 10 })}</span>
+                      </Tooltip>
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[10px] text-dim font-black tracking-widest uppercase">Vol Confirmation</label>
+                          <Tooltip content="When enabled, the engulfing candle MUST have higher volume than the engulfed candle.">
+                            <span><Toggle value={cfg.engulfing_volume_confirm === true} onChange={(v) => setField('engulfing_volume_confirm', v)} /></span>
+                          </Tooltip>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="bg-background/20 p-4 rounded-2xl border border-border/50">
                   <div className="text-[9px] font-black text-dim uppercase tracking-[0.2em] mb-4">Entry Specific EMAs</div>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
@@ -1079,6 +1214,48 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     </p>
                  </div>
               </div>
+
+              {cfg.tp_mode === 'exp_rr_seq' && (
+                <div className="space-y-2 mt-6 bg-background/50 p-5 rounded-2xl border border-border/40 shadow-inner">
+                  <div className="flex justify-between text-[10px] text-dim font-bold uppercase tracking-widest mb-3 px-1">
+                    <span>RR Milestone (Target)</span>
+                    <span>Adjust SL to (R)</span>
+                  </div>
+                  {sequence.map(([live, exit], i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="relative flex-1">
+                        <input type="number" step="0.1" value={live} onChange={(e) => {
+                          const next = [...(Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [1.0, 2.0, 4.0])];
+                          next[i] = Number(e.target.value);
+                          setField('live_rr_sequence', next);
+                        }} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus:border-accent outline-none pr-7" />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
+                      </div>
+                      <ArrowRight size={14} className="text-dim/20 shrink-0" />
+                      <div className="relative flex-1">
+                        <input type="number" step="0.1" value={exit} onChange={(e) => {
+                          const next = [...(Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [0.0, 1.0, 2.0])];
+                          next[i] = Number(e.target.value);
+                          setField('exit_rr_sequence', next);
+                        }} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus:border-accent outline-none pr-7" />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
+                      </div>
+                      <button type="button" onClick={() => {
+                        const nextL = [...(cfg.live_rr_sequence || [])];
+                        const nextE = [...(cfg.exit_rr_sequence || [])];
+                        nextL.splice(i, 1);
+                        nextE.splice(i, 1);
+                        setCfg(prev => ({ ...prev, live_rr_sequence: nextL, exit_rr_sequence: nextE }));
+                      }} aria-label="Remove milestone" className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"><Trash2 size={16} /></button>
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => {
+                    const nextL = [...(Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [1.0, 2.0, 4.0]), 5.0];
+                    const nextE = [...(Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [0.0, 1.0, 2.0]), 3.0];
+                    setCfg(prev => ({ ...prev, live_rr_sequence: nextL, exit_rr_sequence: nextE }));
+                  }} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all mt-2 group flex items-center justify-center gap-2"><Plus size={14} className="group-hover:scale-110 transition-transform" /> Add RR Milestone</button>
+                </div>
+              )}
             </section>
 
             <section className="pt-6 border-t border-border/40">
@@ -1087,6 +1264,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 {renderField('Strategy Type', 'sl_type', 'text', [
                   { value: 'pct', label: 'Fixed Percentage' },
                   {value: 'lookback_low/high', label: 'High/Low Stop' }
+                ])}
+                {renderField('Out of Bounds', 'sl_out_of_bounds_action', 'text', [
+                  { value: 'clamp', label: 'Clamp to Limits' },
+                  { value: 'reject', label: 'Reject Entry' }
                 ])}
                 {cfg.sl_type === 'pct' ? (
                   renderField('Distance %', 'sl_distance_pct', 'number', null, { min: CONFIG_LIMITS.SL_DISTANCE_MIN, max: CONFIG_LIMITS.SL_DISTANCE_MAX, step: 0.1 })
@@ -1152,47 +1333,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 ])}
                 {cfg.tp_mode === 'fixed' ? renderField('Fixed Ratio (R)', 'tp_ratio', 'number', null, { min: 0.1, step: 0.1 }) : <div />}
               </div>
-              {cfg.tp_mode === 'exp_rr_seq' && (
-                <div className="space-y-2 mt-6 bg-background/50 p-5 rounded-2xl border border-border/40 shadow-inner">
-                  <div className="flex justify-between text-[10px] text-dim font-bold uppercase tracking-widest mb-3 px-1">
-                    <span>Live RR Milestone</span>
-                    <span>Adjust SL to (R)</span>
-                  </div>
-                  {sequence.map(([live, exit], i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <div className="relative flex-1">
-                        <input type="number" step="0.1" value={live} onChange={(e) => {
-                          const next = [...(Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [1.0, 2.0, 4.0])];
-                          next[i] = Number(e.target.value);
-                          setField('live_rr_sequence', next);
-                        }} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus:border-accent outline-none pr-7" />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
-                      </div>
-                      <ArrowRight size={14} className="text-dim/20 shrink-0" />
-                      <div className="relative flex-1">
-                        <input type="number" step="0.1" value={exit} onChange={(e) => {
-                          const next = [...(Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [0.0, 1.0, 2.0])];
-                          next[i] = Number(e.target.value);
-                          setField('exit_rr_sequence', next);
-                        }} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus:border-accent outline-none pr-7" />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
-                      </div>
-                      <button type="button" onClick={() => {
-                        const nextL = [...(cfg.live_rr_sequence || [])];
-                        const nextE = [...(cfg.exit_rr_sequence || [])];
-                        nextL.splice(i, 1);
-                        nextE.splice(i, 1);
-                        setCfg(prev => ({ ...prev, live_rr_sequence: nextL, exit_rr_sequence: nextE }));
-                      }} aria-label="Remove milestone" className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"><Trash2 size={16} /></button>
-                    </div>
-                  ))}
-                  <button type="button" onClick={() => {
-                    const nextL = [...(Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [1.0, 2.0, 4.0]), 5.0];
-                    const nextE = [...(Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [0.0, 1.0, 2.0]), 3.0];
-                    setCfg(prev => ({ ...prev, live_rr_sequence: nextL, exit_rr_sequence: nextE }));
-                  }} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all mt-2 group flex items-center justify-center gap-2"><Plus size={14} className="group-hover:scale-110 transition-transform" /> Add RR Milestone</button>
-                </div>
-              )}
             </section>
 
             <section className="pt-6 border-t border-border/40">
@@ -1217,9 +1357,22 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
 
                 {cfg.frequency_shaping_enabled && (
-                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 md:grid-cols-2 gap-6 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
-                    {renderField('Min Interval (m)', 'min_trade_interval_min', 'number', null, { min: 0 })}
-                    {renderField('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
+                    <div className="grid grid-cols-2 md:grid-cols-2 gap-6">
+                      {renderField('Min Interval (m)', 'min_trade_interval_min', 'number', null, { min: 0 })}
+                      {renderField('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
+                    </div>
+                    {cfg.trades_jitter_pct > 0 && (
+                      <div className="flex items-center justify-between pt-4 border-t border-border/40 animate-in fade-in slide-in-from-top-1 duration-200">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                            <Target size={12} className="text-accent" /> Market-Aware Jitter
+                          </span>
+                          <span className="text-[9px] text-dim font-medium uppercase tracking-tight">Prioritize high-quality signals with less random delay</span>
+                        </div>
+                        <Toggle value={cfg.trades_jitter_market_aware === true} onChange={(v) => setField('trades_jitter_market_aware', v)} color="bg-accent" />
+                      </div>
+                    )}
                   </motion.div>
                 )}
 
@@ -1413,15 +1566,27 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     isDirty={isDirty}
                     onLoad={loadPreset}
                     onToggleVariant={toggleVariant}
-                    onDelete={deletePreset}
+                    onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
                     isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
                   />
                 ))}
               </div>
+
+              <ConfirmationModal
+                isOpen={!!presetToDelete}
+                onClose={() => setPresetToDelete(null)}
+                onConfirm={() => deletePreset(presetToDelete)}
+                title="Delete Strategy Preset?"
+                message={`Are you sure you want to permanently remove "${presetToDelete}"? This will delete the configuration from the database and cannot be undone.`}
+                confirmText="Delete Preset"
+                variant="danger"
+              />
             </section>
           </div>
         )}
       </div>
+
+      <RiskSummary cfg={cfg} balance={currentModeBalance} />
 
       <div className="p-5 border-t border-border bg-surface flex gap-3 sticky bottom-0">
         <div className="flex-1 flex gap-2">

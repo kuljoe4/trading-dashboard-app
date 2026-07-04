@@ -132,6 +132,12 @@
 ## 2026-06-22 - [Optimization] Centralized REST Throttling & WebSocket-First State
 **Learning:** Startup bursts and aggressive polling fallbacks are the primary drivers of immediate IP bans from Binance. Sequential backfills and a centralized request queue are more effective than high-concurrency workers for maintaining IP reputation. Transitioning to a 'Seed-then-Stream' model (single REST call to establish baseline) eliminates redundant API weight consumption.
 **Action:** Implement a Proxy-based request queue in `BinanceClientFactory` to enforce global rate limits and replace REST polling fallbacks with 'Fail-Fast' logic to preserve IP status.
+## 2026-07-03 - [Scanner UI] O(N*M) Lookup Bottleneck
+**Learning:** React components rendering lists that perform nested searches against other configuration arrays (like ) create (N \times M)$ bottlenecks that degrade UI responsiveness during high-frequency data streams.
+**Action:** Always pre-calculate a `Set` or `Map` using `useMemo` to convert nested searches into (1)$ lookups, ensuring (N+M)$ linear complexity for the render pass.
+## 2026-07-03 - [Scanner UI] O(N*M) Lookup Bottleneck
+**Learning:** React components rendering lists that perform nested searches against other configuration arrays (like `single_symbol_configs`) create $O(N \times M)$ bottlenecks that degrade UI responsiveness during high-frequency data streams.
+**Action:** Always pre-calculate a `Set` or `Map` using `useMemo` to convert nested searches into $O(1)$ lookups, ensuring $O(N+M)$ linear complexity for the render pass.
 
 ## 2026-07-01 - [Optimization] O(1) Cache Eviction in SignalEngine
 **Learning:** Using 'Array.from(map.keys())' for cache eviction creates an O(N) array allocation just to access a few elements. In high-frequency services like SignalEngine, this causes unnecessary GC pressure. Using a direct iterator with 'map.keys().next()' allows for O(1) eviction without intermediate allocations.

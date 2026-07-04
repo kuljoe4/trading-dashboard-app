@@ -347,6 +347,16 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
     return activeWindows.filter(w => w.symbol.toLowerCase().includes(term))
   }, [activeWindows, search])
 
+  // BOLT OPTIMIZATION: Pre-calculate a Set of monitored symbols to avoid O(N*M) lookup in the render loop.
+  // Reduces complexity from O(N*M) to O(N+M), improving render performance when many symbols are monitored.
+  const monitoredSymbols = useMemo(() => {
+    const set = new Set();
+    config?.single_symbol_configs?.forEach(sc => {
+      if (sc.enabled) set.add(sc.symbol);
+    });
+    return set;
+  }, [config?.single_symbol_configs]);
+
   return (
     <div className="flex flex-col h-full bg-surface text-text overflow-hidden">
       <div className="p-4 border-b border-border flex justify-between items-center shrink-0 h-[64px]">
@@ -505,7 +515,8 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
             const passing = Math.abs(opp.pct) >= threshold
             const dir = (opp.dir || opp.direction || '').toLowerCase()
             const isLong = dir ? dir === 'long' : opp.pct >= 0
-            const isSingleMonitor = config?.single_symbol_configs?.some(sc => sc.symbol === opp.symbol && sc.enabled)
+            // BOLT OPTIMIZATION: Use O(1) Set lookup instead of O(M) array search
+            const isSingleMonitor = monitoredSymbols.has(opp.symbol)
 
             return (
               <div key={opp.symbol}

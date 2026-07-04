@@ -55,6 +55,8 @@ export class OrderManagerService {
   // CHRONOS: Tracking individual trade execution IDs to prevent commission double-counting
   private tradeExecutionCache: Map<string, number> = new Map();
   private readonly EXECUTION_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+  // COMMISSION IDEMPOTENCY: Tracking unique Binance trade IDs to prevent double-counting commissions
   private readonly TRADE_EXECUTION_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
   constructor(
@@ -188,7 +190,24 @@ export class OrderManagerService {
           trade.binance_order_id === orderId ||
           (clientOrderId && clientOrderId.startsWith(`ent-${tradeIdShort8}`));
 
-        if (isSlOrder) {
+        if (status === 'PARTIALLY_FILLED' && isSlOrder) {
+          const totalQty = parseFloat(order.q || '0');
+          const filledQty = parseFloat(order.z || '0');
+          const remainingQty = roundEight(totalQty - filledQty);
+
+          this.logger.log(`[${tradeIdShort8}] [Sync] Partial SL fill for ${symbol}: ${filledQty}/${totalQty}. Remaining: ${remainingQty}`);
+
+          trade.qty = remainingQty;
+
+          // SRE: Update real-time position cache to match exchange
+          this.sessionState.realTimePositions.set(symbol, {
+             amount: remainingQty,
+             entryPrice: trade.entry_price
+          });
+
+          this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: remainingQty });
+        }
+        else if (isSlOrder) {
           if (status === 'FILLED') {
             const metadata = {
               orderId,

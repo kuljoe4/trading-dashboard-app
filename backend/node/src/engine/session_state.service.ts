@@ -80,6 +80,13 @@ export class SessionStateService {
     const sessionHistory = sessionId ? initialHistory.filter(t => t.sessionId === sessionId) : [];
     const sessionOpen = sessionId ? initialOpen.filter(t => t.sessionId === sessionId) : [];
 
+    this.stats = {
+      entryCount: sessionHistory.length + sessionOpen.length,
+      hitCount: sessionHistory.filter(t => (t.pnl || 0) > 0).length,
+      totalPnl: roundEight(
+        sessionHistory.reduce((acc, t) => acc + (t.pnl || 0), 0)
+      ),
+    };
     this.statsVersion = 0;
     this.closedTrades = initialHistory;
     this.activeTrades = initialOpen;
@@ -112,18 +119,12 @@ export class SessionStateService {
       if (!this.cachedClosedTradesStats[label]) {
         this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
       }
-      this.cachedClosedTradesStats[label].pnl = roundEight(this.cachedClosedTradesStats[label].pnl + (trade.pnl || 0));
-      this.appliedStatsPnL.set(trade.id, trade.pnl || 0);
 
-      // Initialize Global Tracking
-      this.appliedGlobalPnL.set(trade.id, trade.pnl || 0);
-      this.countedGlobalEntries.add(trade.id);
-
-      // Initialize Strategy Tracking
-      this.appliedStrategyPnL.set(trade.id, trade.pnl || 0);
-      this.countedStrategyEntries.add(trade.id);
-
+      // BOLT: Only closed trades count towards hitCount, count, and PnL in closedStats
+      // Open trades will be added to these metrics when they close via updateStatsOnClose
       if (trade.status !== 'OPEN') {
+        this.cachedClosedTradesStats[label].pnl = roundEight(this.cachedClosedTradesStats[label].pnl + (trade.pnl || 0));
+
         if (!trade.is_reconciliation) {
           if ((trade.pnl || 0) > 0) {
             this.countedGlobalHits.add(trade.id);

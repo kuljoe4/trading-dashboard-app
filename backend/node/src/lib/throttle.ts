@@ -1,3 +1,5 @@
+import { isIP } from 'net';
+
 // SENTINEL: Centralized IP-based failure tracking to prevent brute-force
 const FAILURES = new Map<string, { count: number; lastFailure: number }>();
 const MAX_FAILURES = 10;
@@ -72,8 +74,8 @@ export function extractIp(headers: any, defaultIp: string): string {
 
     const candidate = ips.length > 0 ? ips[ips.length - 1] : defaultIp;
 
-    // SENTINEL: Validate candidate IP format to prevent injection attacks
-    return isValidIp(candidate) ? candidate : defaultIp;
+    // SENTINEL: Validate candidate is a valid IPv4 or IPv6 address to prevent log injection and spoofing bypasses.
+    return isIP(candidate) ? candidate : defaultIp;
   }
   return defaultIp;
 }

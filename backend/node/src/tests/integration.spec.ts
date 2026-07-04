@@ -57,7 +57,7 @@ describe('Trade Lifecycle Integration', () => {
 
     mockRiskEngine = {
       canEnter: jest.fn().mockReturnValue({ canEnter: true }),
-      computeSl: jest.fn().mockReturnValue(49000),
+      computeSl: jest.fn().mockReturnValue({ slPrice: 49000, rejected: false }),
       computeTp: jest.fn().mockReturnValue(52000),
       computePositionSize: jest.fn().mockReturnValue(0.1),
     };
@@ -71,7 +71,9 @@ describe('Trade Lifecycle Integration', () => {
       addTrade: jest.fn(),
       removeTrade: jest.fn(),
       closeTrade: jest.fn(),
+      clear: jest.fn(),
       setEntering: jest.fn(),
+      clear: jest.fn(),
       checkRrSequenceAdjustments: jest.fn(),
       checkExitConditions: jest.fn(),
       setTradeUpdateCallback: jest.fn(),
@@ -96,6 +98,7 @@ describe('Trade Lifecycle Integration', () => {
       minimize: jest.fn(),
       stats: {},
       closedTrades: [],
+      realTimePositions: new Map(),
     };
 
     mockAuditLog = {
@@ -139,7 +142,7 @@ describe('Trade Lifecycle Integration', () => {
         mockSessionState,
         { calculateVariantStats: jest.fn() } as any,
         { broadcastTick: jest.fn(), serializeTrade: jest.fn(), minimize: jest.fn(), getLastTickData: jest.fn(), getLastRiskResult: jest.fn(), getLastAnalyticsResult: jest.fn() } as any,
-        { isInsideTradingWindow: jest.fn().mockReturnValue(true), enterHibernation: jest.fn(), exitHibernation: jest.fn() } as any,
+        { isInsideTradingWindow: jest.fn().mockReturnValue(true), mapGateState: jest.fn().mockReturnValue('active'), enterHibernation: jest.fn(), exitHibernation: jest.fn() } as any,
         {} as any, // maintenanceService
         mockAuditLog,
         new EventEmitter2()

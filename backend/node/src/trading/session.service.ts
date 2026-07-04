@@ -47,6 +47,16 @@ export class SessionService implements OnModuleInit {
 
   private analyticsCache: { data: any; ts: number } | null = null;
   private readonly CACHE_TTL_MS = 60000; // 1 minute
+
+  // DATA-CONSISTENCY: Fields that cannot be modified while a session is active
+  private static readonly IMMUTABLE_SESSION_FIELDS = [
+    'trading_mode',
+    'paper_mode',
+    'paper_starting_balance',
+    'testnet_starting_balance',
+    'live_starting_balance',
+  ];
+
   // SENTINEL: In-memory tracking to prevent database-heavy count() and log spamming
   private logRateLimits = new Map<string, { count: number; resetAt: number }>();
   private sessionLogCounts = new Map<string, number>();
@@ -156,7 +166,10 @@ export class SessionService implements OnModuleInit {
     this.logger.log("Cleaning up stale running sessions...");
     const updateResult = await this.sessionRepository.update(
       { running: true },
-      { running: false },
+      {
+        running: false,
+        endTime: new Date()
+      },
     );
     if (updateResult.affected && updateResult.affected > 0) {
       this.logger.verbose(
@@ -205,27 +218,19 @@ export class SessionService implements OnModuleInit {
             if (session) {
               const mode =
                 session.tradingMode || (session.paperMode ? "paper" : "live");
-              let realizedPnl: number;
 
-              if (mode === "paper") {
-                const startingBalance =
-                  session.config?.paper_starting_balance || 10000;
-                realizedPnl = roundEight(balance - startingBalance);
-              } else {
-                // Live/Testnet: Sum all trades (including OPEN) for this session using optimized DB aggregation
-                // This ensures that fees and funding from active trades are reflected in totalPnl immediately
-                // and prevents corruption from external deposits/withdrawals.
-                const aggregation = await queryRunner.manager
-                  .createQueryBuilder(TradeEntity, "trade")
-                  .select("SUM(trade.pnl)", "sum")
-                  .where("trade.sessionId = :sessionId", { sessionId })
-                  .andWhere("trade.status IN (:...statuses)", {
-                    statuses: [...TERMINAL_STATUSES, "OPEN"],
-                  })
-                  .getRawOne();
+              // DATA-CONSISTENCY: Use trade summation for PnL in ALL modes (including Paper)
+              // to ensure consistency and prevent corruption from external balance adjustments.
+              const aggregation = await queryRunner.manager
+                .createQueryBuilder(TradeEntity, "trade")
+                .select("SUM(trade.pnl)", "sum")
+                .where("trade.sessionId = :sessionId", { sessionId })
+                .andWhere("trade.status IN (:...statuses)", {
+                  statuses: [...TERMINAL_STATUSES, "OPEN"],
+                })
+                .getRawOne();
 
-                realizedPnl = roundEight(Number(aggregation?.sum || 0));
-              }
+              const realizedPnl = roundEight(Number(aggregation?.sum || 0));
 
               await queryRunner.manager.update(SessionEntity, sessionId, {
                 balance,
@@ -357,29 +362,19 @@ export class SessionService implements OnModuleInit {
       await queryRunner.manager.save(TradeEntity, tradeEntity);
 
       // 2. Update Session PnL and Balance
-      // BOLT: Use trade summation for PnL in Live mode to prevent corruption from external deposits/withdrawals.
-      // For Paper mode, balance-based PnL is safe as the engine controls the balance entirely.
-      const mode =
-        session.tradingMode || (session.paperMode ? "paper" : "live");
-      let realizedPnl: number;
+      // DATA-CONSISTENCY: Use trade summation for PnL in ALL modes (including Paper)
+      // to ensure consistency and prevent corruption from manual balance adjustments.
+      // This ensures that fees and funding from active trades are reflected in totalPnl immediately.
+      const aggregation = await queryRunner.manager
+        .createQueryBuilder(TradeEntity, "trade")
+        .select("SUM(trade.pnl)", "sum")
+        .where("trade.sessionId = :sessionId", { sessionId })
+        .andWhere("trade.status IN (:...statuses)", {
+          statuses: [...TERMINAL_STATUSES, "OPEN"],
+        })
+        .getRawOne();
 
-      if (mode === "paper") {
-        const startingBalance = session.config?.paper_starting_balance || 10000;
-        realizedPnl = roundEight(balance - startingBalance);
-      } else {
-        // Live/Testnet: Sum all trades (including OPEN) for this session using optimized DB aggregation
-        // This ensures that fees and funding from active trades are reflected in totalPnl immediately.
-        const aggregation = await queryRunner.manager
-          .createQueryBuilder(TradeEntity, "trade")
-          .select("SUM(trade.pnl)", "sum")
-          .where("trade.sessionId = :sessionId", { sessionId })
-          .andWhere("trade.status IN (:...statuses)", {
-            statuses: [...TERMINAL_STATUSES, "OPEN"],
-          })
-          .getRawOne();
-
-        realizedPnl = roundEight(Number(aggregation?.sum || 0));
-      }
+      const realizedPnl = roundEight(Number(aggregation?.sum || 0));
 
       await queryRunner.manager.update(SessionEntity, sessionId, {
         balance,
@@ -1560,6 +1555,16 @@ export class SessionService implements OnModuleInit {
 
       if (!session) throw new NotFoundException("Session not found");
 
+      // DATA-CONSISTENCY: Block modification of immutable fields while session is running
+      if (this.sessionRunning && this.currentSessionId === id) {
+        for (const field of SessionService.IMMUTABLE_SESSION_FIELDS) {
+          const typedPartial = partialConfig as any;
+          if (typedPartial[field] !== undefined && typedPartial[field] !== session.config?.[field]) {
+            throw new BadRequestException(`Cannot modify ${field} while session is running`);
+          }
+        }
+      }
+
       // 1. Merge state instead of overwriting, strictly preserving the live mode and established paper mode
       const mergedConfig = {
         ...(session.config || {}),
@@ -1584,7 +1589,10 @@ export class SessionService implements OnModuleInit {
         this.logger.warn(
           `Validation failed for merged config: ${JSON.stringify(sanitize(errors))}`,
         );
-        throw new BadRequestException("Invalid configuration parameters");
+        throw new BadRequestException({
+          message: "Invalid configuration parameters",
+          detail: detailedErrors
+        });
       }
 
       this.validateConfig(configInstance);
@@ -1707,7 +1715,10 @@ export class SessionService implements OnModuleInit {
 
     const sessionId = this.currentSessionId;
 
-    await this.sessionRepository.update(sessionId, { running: false });
+    await this.sessionRepository.update(sessionId, {
+      running: false,
+      endTime: new Date()
+    });
 
     // Stop the actual trading engine
     await this.tradingSessionService.stop();
@@ -1976,6 +1987,7 @@ export class SessionService implements OnModuleInit {
       });
       const logRetentionDays = (settings as any)?.log_retention_days || 7;
       const tradeRetentionDays = (settings as any)?.trade_retention_days || 30;
+      const klineRetentionDays = 7;
 
       const logCutoff = new Date(
         Date.now() - logRetentionDays * 24 * 60 * 60 * 1000,
@@ -1997,11 +2009,20 @@ export class SessionService implements OnModuleInit {
         .andWhere("status IN (:...statuses)", { statuses: TERMINAL_STATUSES })
         .execute();
 
+      // SEC-02: Cleanup old kline data to prevent unbounded storage growth
+      const klineCutoff = Date.now() - klineRetentionDays * 24 * 60 * 60 * 1000;
+      const deletedKlines = await this.sessionRepository.manager
+        .createQueryBuilder()
+        .delete()
+        .from("klines")
+        .where("time < :cutoff", { cutoff: klineCutoff })
+        .execute();
+
       // SENTINEL: Also cleanup audit logs periodically
       const auditRetentionDays = (settings as any)?.audit_retention_days || 90;
       const deletedAudit = await this.auditLog.cleanup(auditRetentionDays);
 
-      this.logger.log(`Cleanup completed: ${deletedLogs.affected || 0} logs, ${deletedTrades.affected || 0} trades, and ${deletedAudit || 0} audit entries removed.`);
+      this.logger.log(`Cleanup completed: ${deletedLogs.affected || 0} logs, ${deletedTrades.affected || 0} trades, ${deletedKlines.affected || 0} klines, and ${deletedAudit || 0} audit entries removed.`);
     } catch (e: any) {
       this.logger.error(`Data cleanup failed: ${e.message}`);
     }

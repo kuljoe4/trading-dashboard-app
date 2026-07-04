@@ -4,7 +4,7 @@ import { cn } from "./utils"
 import * as ProgressPrimitive from "@radix-ui/react-progress"
 import * as TooltipPrimitive from "@radix-ui/react-tooltip"
 import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock, Info } from 'lucide-react'
-import { Sparkline as SparklineChart } from '../DataCharts'
+import { Sparkline as SparklineChart, CandlestickChart as CandlestickChartBase } from '../DataCharts'
 import { useTradingStore } from '../../store/trading'
 import { useTooltipContext, Tooltip } from './tooltip'
 
@@ -312,6 +312,8 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
     ? `${isCount ? "" : "≥ "}${isCount ? Math.round(threshold) : threshold}${unit}`
     : "Trigger: 0";
 
+  const ariaText = `${label}: ${formattedValue}. Threshold is ${thresholdText}. ${satisfied ? 'Condition satisfied' : 'Awaiting signal'}. ${sublabel || ''}`;
+
   return (
     <div
       className={cn(
@@ -319,7 +321,7 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
         borderColorClass
       )}
       role="region"
-      aria-label={`${label}: ${satisfied ? 'Satisfied' : 'Awaiting'}`}
+      aria-label={ariaText}
     >
       <div className="flex justify-between items-start gap-4 min-h-[1.5rem] mb-4 md:mb-6">
         <div className="text-[10px] md:text-[11px] text-dim tracking-[0.15em] uppercase font-bold shrink-0 whitespace-nowrap">{label}</div>
@@ -514,5 +516,6 @@ export const CopyButton = ({ value, className, tooltip = "Copy", successTooltip 
   )
 }
 
-// --- Sparkline ---
+// --- Charts ---
 export const Sparkline = SparklineChart;
+export const CandlestickChart = CandlestickChartBase;

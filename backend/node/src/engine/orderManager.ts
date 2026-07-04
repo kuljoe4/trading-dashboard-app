@@ -145,14 +145,11 @@ export class OrderManagerService {
       if (this.tradeExecutionCache.has(tradeId)) {
         isDuplicateTrade = true;
         this.logger.debug(`[Idempotency] Dropping duplicate trade execution for ${symbol} (TradeID: ${tradeId})`);
-      } else {
-        this.tradeExecutionCache.set(tradeId, Date.now());
-        this.cleanupTradeExecutionCache();
       }
     }
 
     // Accuracy Improvement: Update trade entry/exit price from User Data Stream (ORDER_TRADE_UPDATE)
-    if (executionType === 'TRADE') {
+    if (executionType === 'TRADE' && !isDuplicateTrade) {
       const activeTrades = this.sessionState.activeTrades;
       let trade = activeTrades.find(t => t.symbol === symbol);
 
@@ -178,7 +175,7 @@ export class OrderManagerService {
               trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + commission);
               this.tradeExecutionCache.set(tradeExecutionId, Date.now());
               this.logger.debug(`[${tradeIdShort8}] [UDS] Accumulated commission for ${symbol}: ${commission}. Total: ${trade.realized_fee}`);
-              this.cleanupExecutionCache();
+              this.cleanupTradeExecutionCache();
            } else {
               this.logger.debug(`[${tradeIdShort8}] [UDS] Dropping duplicate commission for execution ${tradeExecutionId}`);
            }
@@ -223,7 +220,7 @@ export class OrderManagerService {
             };
             this.logger.log(`[${tradeIdShort8}] Binance SL HIT for ${symbol}. Closing trade locally. Meta: ${JSON.stringify(metadata)}`);
 
-            // COMPLIANCE: On final SL fill, restore trade.qty to the total order size (order.q)
+            // CHRONOS/COMPLIANCE: On final SL fill, restore trade.qty to the total order size (order.q)
             // so closeTrade calculates PnL correctly for the entire position.
             const totalOrderQty = parseFloat(order.q || '0');
             if (totalOrderQty > 0 && Math.abs(trade.qty - totalOrderQty) > 0.00000001) {
@@ -252,7 +249,8 @@ export class OrderManagerService {
               symbol,
               exitPrice,
               reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
-              orderId // DATA-ACCURACY: Pass orderId to allow authoritative recovery if UDS price was estimated
+              orderId, // DATA-ACCURACY: Pass orderId to allow authoritative recovery if UDS price was estimated
+              feesAlreadyAccounted: true
             });
           } else if (status === 'PARTIALLY_FILLED') {
             // COMPLIANCE: Synchronize local qty with remaining exchange position during SL partial fill.

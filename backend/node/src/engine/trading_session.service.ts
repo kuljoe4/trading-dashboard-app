@@ -210,7 +210,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       const cp = await this.tickerCache.getPrice(t.symbol); const ep = cp ?? t.last_price ?? t.entry_price;
       const res = await this.positionTracker.closeTrade(t.symbol, ep, EXIT_REASONS.SESSION_TERMINATED, this.config!, isPaper);
       if (res.exitOccurred && res.trade) {
-        this.sessionState.updateStatsOnClose((res.trade.pnl || 0) > 0, res.trade.pnl || 0, res.trade.is_reconciliation); this.sessionState.addClosedTrade(res.trade);
+        this.sessionState.updateStatsOnClose((res.trade.pnl || 0) > 0, res.trade.pnl || 0, res.trade.is_reconciliation, res.trade.id); this.sessionState.addClosedTrade(res.trade);
         await this.updateBalance(res.trade); if (this.onTradeUpdate) await this.onTradeUpdate(res.trade, this.getBalance());
       } else {
         t.status = 'CLOSED'; t.exit_ts = new Date(); t.exit_reason = EXIT_REASONS.SESSION_TERMINATED;
@@ -232,7 +232,7 @@ export class TradingSessionService implements OnApplicationShutdown {
         const notional = t.entry_price * (t.qty || 0);
         const finalPnlPct = (notional !== 0) ? (t.pnl / notional) * 100 : 0;
         t.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
-        this.sessionState.addClosedTrade(t); this.sessionState.updateStatsOnClose((t.pnl || 0) > 0, t.pnl || 0, t.is_reconciliation);
+        this.sessionState.addClosedTrade(t); this.sessionState.updateStatsOnClose((t.pnl || 0) > 0, t.pnl || 0, t.is_reconciliation, t.id);
         await this.updateBalance(t); if (this.onTradeUpdate) await this.onTradeUpdate(t, this.getBalance());
         this.positionTracker.removeTrade(t.symbol);
       }
@@ -461,6 +461,7 @@ export class TradingSessionService implements OnApplicationShutdown {
 
       const start = performance.now();
       const strategyConfigs = this.getStrategyConfigs(); const opportunitiesBySignature = new Map<string, any[]>(); let primaryOpportunities: any[] = [];
+      this.monitoringService.setLoopStage('SCANNING');
       for (const sc of strategyConfigs) { const sig = this.scanSignature(sc); if (!opportunitiesBySignature.has(sig)) opportunitiesBySignature.set(sig, this.momentumScanner.scan(sc)); if (primaryOpportunities.length === 0) primaryOpportunities = opportunitiesBySignature.get(sig) || []; }
       const scannerData = strategyConfigs.map(c => ({ strategy_label: c.strategy_label, opportunities: opportunitiesBySignature.get(this.scanSignature(c)) || [] }));
 
@@ -507,8 +508,10 @@ export class TradingSessionService implements OnApplicationShutdown {
           if (this.onTradeUpdate) await this.onTradeUpdate(t, this.getBalance());
         });
       }
+      this.monitoringService.setLoopStage('IDLE');
       this.monitoringService.recordMainLoop(performance.now() - start);
     } catch (error) {
+      this.monitoringService.setLoopStage('IDLE');
       this.logger.error(`Error in main loop: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       this.mainLoopProcessing = false;
@@ -832,7 +835,7 @@ export class TradingSessionService implements OnApplicationShutdown {
   }
 
   @OnEvent('trade.exchange_close')
-  async handleExchangeClose(payload: { symbol: string, exitPrice: number, reason: string, isReconciliation?: boolean }) {
+  async handleExchangeClose(payload: { symbol: string, exitPrice: number, reason: string, isReconciliation?: boolean, orderId?: string }) {
     if (!this.running) return;
     const { symbol, exitPrice, reason, isReconciliation } = payload;
 
@@ -878,7 +881,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       const cooldownMin = this.config?.min_trade_interval_min || 2;
       this.executionService.setCooldown(trade.symbol, mode, cooldownMin);
 
-      this.sessionState.updateStatsOnClose((trade.pnl || 0) > 0, trade.pnl || 0, trade.is_reconciliation);
+      this.sessionState.updateStatsOnClose((trade.pnl || 0) > 0, trade.pnl || 0, trade.is_reconciliation, trade.id);
       await this.updateBalance(trade);
       this.sessionState.addClosedTrade(trade);
       if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());

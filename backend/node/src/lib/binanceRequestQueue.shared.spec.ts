@@ -106,4 +106,30 @@ describe('BinanceRequestQueue Shared State', () => {
 
     mockExit.mockRestore();
   });
+
+  it('should parse absolute ban expiry timestamp from error message', async () => {
+    const queue = new BinanceRequestQueue(logger, eventEmitter, settingsRepository);
+    const banExpiry = Date.now() + 3600000; // 1 hour from now
+    const banMsg = `Way too many requests; IP(136.110.48.50) banned until ${banExpiry}. Please use the websocket for live updates to avoid bans..`;
+
+    const failingFn = async () => {
+      const err = new Error(banMsg);
+      throw err;
+    };
+
+    try {
+      await queue.add(failingFn, 'test-ban-expiry');
+    } catch (e) {
+      // expected error
+    }
+
+    expect(logger.fatal).toHaveBeenCalledWith(expect.stringContaining(`Resuming at ${new Date(banExpiry).toLocaleTimeString()}`));
+    expect(eventEmitter.emit).toHaveBeenCalledWith('binance.api_limit_reached', expect.objectContaining({
+      type: 'BAN',
+      until: banExpiry
+    }));
+
+    // Verify lastRequestTs is exactly the parsed timestamp
+    expect((BinanceRequestQueue as any).lastRequestTs).toBe(banExpiry);
+  });
 });

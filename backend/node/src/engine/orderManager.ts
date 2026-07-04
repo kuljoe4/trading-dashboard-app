@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
@@ -10,6 +10,7 @@ import { SignalEngineService } from './signalEngine';
 import { MarketFeedService } from './market_feed.service';
 import { TickerCacheService } from './ticker_cache.service';
 import { MonitoringService } from './monitoring.service';
+import { PositionTrackerService } from './positionTracker';
 import { SessionStateService } from './session_state.service';
 import { AuditLogService } from '../trading/audit-log.service';
 import { v4 as uuid } from 'uuid';
@@ -60,6 +61,8 @@ export class OrderManagerService {
     private readonly marketFeed: MarketFeedService,
     private readonly tickerCache: TickerCacheService,
     private readonly monitoringService: MonitoringService,
+    @Inject(forwardRef(() => PositionTrackerService))
+    private readonly positionTracker: PositionTrackerService,
     private readonly sessionState: SessionStateService,
     private readonly auditLog: AuditLogService,
     private readonly eventEmitter: EventEmitter2,
@@ -128,13 +131,22 @@ export class OrderManagerService {
     if (executionType === 'TRADE') {
       this.logger.log(udsMsg);
     } else {
-      this.logger.debug(udsMsg);
+      // REDUCE LOG NOISE: Silence non-TRADE updates like NEW/CANCELED to avoid stream spam
+      // this.logger.debug(udsMsg);
     }
 
     // Accuracy Improvement: Update trade entry/exit price from User Data Stream (ORDER_TRADE_UPDATE)
     if (executionType === 'TRADE') {
       const activeTrades = this.sessionState.activeTrades;
-      const trade = activeTrades.find(t => t.symbol === symbol);
+      let trade = activeTrades.find(t => t.symbol === symbol);
+
+      // SRE: Race condition guard - if not in activeTrades, check if it's an in-flight entry
+      if (!trade && clientOrderId) {
+        trade = this.positionTracker.getInFlightEntry(symbol);
+        if (trade) {
+          this.logger.debug(`[UDS] Matched in-flight entry for ${symbol} via registry.`);
+        }
+      }
 
       if (trade) {
         const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
@@ -415,6 +427,7 @@ export class OrderManagerService {
     }
   }
 
+  private lastWeightLogTs = 0;
   private updateWeight(headers: any) {
     if (headers && this.sessionState) {
       // Handle both native Headers and plain objects
@@ -425,7 +438,13 @@ export class OrderManagerService {
       if (weight) {
         const currentWeight = parseInt(weight, 10);
         if (!isNaN(currentWeight) && currentWeight >= 0) {
-           this.logger.debug(`Binance Weight Update: ${currentWeight}`);
+           // REDUCE LOG NOISE: Throttle weight logs to once per 10 seconds unless it's a warning
+           const now = Date.now();
+           if (now - this.lastWeightLogTs > 10000) {
+              this.logger.debug(`Binance Weight Update: ${currentWeight}`);
+              this.lastWeightLogTs = now;
+           }
+
            if (typeof this.sessionState.updateRateLimit === 'function') {
               this.sessionState.updateRateLimit(currentWeight);
            }
@@ -688,6 +707,10 @@ export class OrderManagerService {
           if (entryOrderId.length > 36) {
              this.logger.error(`[${symbol}] CRITICAL: Generated ClientOrderId too long: ${entryOrderId}`);
           }
+
+          // SRE: Register in-flight entry to prevent UDS race conditions
+          this.positionTracker.setInFlight(symbol, trade);
+
           const entryOrder = {
             symbol,
             side: binanceDirection as any,
@@ -699,7 +722,13 @@ export class OrderManagerService {
           };
 
           this.logger.log(`Placing entry order (Attempt ${attempts}): ${JSON.stringify(entryOrder)}`);
-          const response = await this.binanceClient.restAPI.newOrder(entryOrder as any);
+          let response;
+          try {
+            response = await this.binanceClient.restAPI.newOrder(entryOrder as any);
+          } catch (e) {
+            this.positionTracker.clearInFlight(symbol);
+            throw e;
+          }
 
           this.updateWeight(response?.headers);
           const entryReceipt = await response.data() as any;
@@ -787,7 +816,7 @@ export class OrderManagerService {
              if (this.sessionState.realTimePositions.has(symbol)) {
                 absoluteEntryPrice = this.sessionState.realTimePositions.get(symbol)!.entryPrice;
                 if (absoluteEntryPrice > 0) {
-                   this.logger.log(`[${symbol}] [Sync] Using UDS-cached entry price: ${absoluteEntryPrice}`);
+                   this.logger.debug(`[${symbol}] [Sync] Using UDS-cached entry price: ${absoluteEntryPrice}`);
                 }
              }
 
@@ -877,7 +906,8 @@ export class OrderManagerService {
           trade.risk_usdt = roundEight(Math.max(0, direction === 'LONG' ? trade.entry_price - slPrice : slPrice - trade.entry_price) * trade.qty);
           trade.initial_risk_usdt = trade.risk_usdt;
 
-          const msg = `Binance order placed: ${symbol} ${direction} qty=${qty} order_id=${entryReceipt.orderId} est_fee=${trade.realized_fee}`;
+          // Combined log for entry
+          const msg = `Binance order placed: ${symbol} ${direction} @ ${trade.entry_price} qty=${qty} order_id=${entryReceipt.orderId} est_fee=${trade.realized_fee} SL=${slPrice}`;
           this.logger.log(msg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
 
@@ -971,10 +1001,14 @@ export class OrderManagerService {
     // Initialize PnL as net of entry fees (immediately realized)
     trade.pnl = roundEight(-(trade.realized_fee || 0));
 
-    const msgEnter = `Enter: ${symbol} ${direction} @ ${entryPrice} qty=${qty} SL=${slPrice} TP=${tpPrice}`;
+    // REDUCE LOG NOISE: Combined with "Binance order placed" above for live mode
+    if (this.paperMode) {
+      const msgEnter = `Enter (Paper): ${symbol} ${direction} @ ${entryPrice} qty=${qty} SL=${slPrice} TP=${tpPrice}`;
       this.logger.log(msgEnter);
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgEnter, level: 'info' });
-      this.recordSuccess();
+    }
+
+    this.recordSuccess();
       return { status: ExecutionStatus.SUCCESS, data: trade };
     } catch (error) {
       if (error instanceof ExchangeExecutionException) throw error;
@@ -1513,6 +1547,7 @@ export class OrderManagerService {
     return this.ratchetLocks.get(symbol) === true;
   }
 
+
   /**
    * Cancel an order on Binance
    */
@@ -1899,7 +1934,14 @@ export class OrderManagerService {
                    } else if (clientOrderId && clientOrderId.startsWith('sig-')) {
                       reason = EXIT_REASONS.SIGNAL;
                    } else {
-                      reason = EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
+                      // BOLT: Distinguish TRAILING_STOP from initial SL hits
+                      const currentExchangeSl = parseFloat(orderData.stopPrice || orderData.triggerPrice || '0');
+                      const initialSl = Number(trade.initial_sl);
+                      if (currentExchangeSl > 0 && initialSl > 0 && Math.abs(currentExchangeSl - initialSl) > initialSl * 0.0001) {
+                        reason = EXIT_REASONS.TRAILING_STOP;
+                      } else {
+                        reason = EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
+                      }
                    }
                    this.logger.log(`[Sync] Successfully recovered exit reason for ${symbol}: ${reason} (Order Type: ${type})`);
 
@@ -1938,19 +1980,20 @@ export class OrderManagerService {
   ): Promise<{ isValid: boolean; error?: string }> {
     const direction = trade.direction;
 
-    // Signed slippage: positive value means worse price (negative slippage), negative means better price (positive slippage).
+    // Signed slippage: positive value means better price (improvement), negative means worse price.
     const slippage = direction === 'LONG'
-      ? (actualPrice - targetPrice) / targetPrice
-      : (targetPrice - actualPrice) / targetPrice;
+      ? (targetPrice - actualPrice) / targetPrice
+      : (actualPrice - targetPrice) / targetPrice;
 
     const warningThreshold = config?.slippage_warning_threshold ?? 0.001;
     const abortThreshold = Math.min(config?.slippage_abort_threshold ?? CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT, CONFIG_LIMITS.SLIPPAGE_ABORT_MAX);
 
     const slippagePctNum = slippage * 100;
     const slippagePctStr = slippagePctNum.toFixed(4);
+    const sign = slippage >= 0 ? '+' : '';
 
-    if (slippage <= 0) {
-      this.logger.log(`[Execution] PRICE IMPROVEMENT for ${symbol}: Target ${targetPrice}, Actual ${actualPrice.toFixed(8)} (Slippage: ${slippagePctStr}%)`);
+    if (slippage >= 0) {
+      this.logger.log(`[Execution] PRICE IMPROVEMENT for ${symbol}: Target ${targetPrice}, Actual ${actualPrice.toFixed(8)} (Slippage: ${sign}${slippagePctStr}%)`);
     } else {
       this.logger.log(`[Execution] Negative slippage for ${symbol}: Target ${targetPrice}, Actual ${actualPrice.toFixed(8)} (Slippage: ${slippagePctStr}%)`);
     }
@@ -1984,7 +2027,7 @@ export class OrderManagerService {
     }
 
     // Abort if negative slippage (worse price) exceeds threshold
-    if (slippage > abortThreshold) {
+    if (slippage < -abortThreshold) {
       const abortMsg = `[CRITICAL] Negative slippage for ${symbol} (${slippagePctStr}%) exceeded abort threshold (${(abortThreshold * 100).toFixed(2)}%). Unwinding immediately.`;
       this.logger.error(abortMsg);
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: abortMsg, level: 'error' });
@@ -2003,7 +2046,7 @@ export class OrderManagerService {
         this.logger.error(`Slippage unwind exception for ${symbol}: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);
         throw unwindErr;
       }
-    } else if (slippage > warningThreshold) {
+    } else if (slippage < -warningThreshold) {
       this.logger.warn(`Slippage warning for ${symbol}: Delta ${slippagePctStr}% exceeds threshold ${(warningThreshold * 100).toFixed(2)}%`);
     }
 
@@ -2069,7 +2112,7 @@ export class OrderManagerService {
 
         // Only update if we found a valid authoritative price
         if (context.price > 0 && Math.abs(context.price - exitPrice) > 0.00000001) {
-           this.logger.log(`[${symbol}] [Sync] Updated exit price from exchange context: ${exitPrice} -> ${context.price}`);
+           this.logger.debug(`[${symbol}] [Sync] Updated exit price from exchange context: ${exitPrice} -> ${context.price}`);
            exitPrice = context.price;
 
            // BOLT: Field Synchronization. Update tooltip reason to match the new authoritative price.
@@ -2525,9 +2568,9 @@ export class OrderManagerService {
         trade.status = 'CLOSED';
       }
 
-      const msgCloseFinal = `Close: ${symbol} @ ${exitPrice} P&L=${Number(trade.pnl || 0).toFixed(2)} (${Number(trade.pnl_pct || 0).toFixed(2)}%) Fee=${trade.realized_fee} Reason=${exitReason}`;
-      this.logger.log(msgCloseFinal);
-      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgCloseFinal, level: 'info' });
+      // REDUCE LOG NOISE: PositionTrackerService already logs a standardized closure message.
+      // We only log to debug here for internal traceability.
+      this.logger.debug(`Close logic completed for ${symbol} @ ${exitPrice}. Net PnL: ${trade.pnl}`);
 
       return { trade, exitOccurred: true };
     } catch (error) {

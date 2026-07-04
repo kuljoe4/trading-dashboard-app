@@ -156,7 +156,10 @@ export class SessionService implements OnModuleInit {
     this.logger.log("Cleaning up stale running sessions...");
     const updateResult = await this.sessionRepository.update(
       { running: true },
-      { running: false },
+      {
+        running: false,
+        endTime: new Date()
+      },
     );
     if (updateResult.affected && updateResult.affected > 0) {
       this.logger.verbose(
@@ -1706,7 +1709,10 @@ export class SessionService implements OnModuleInit {
 
     const sessionId = this.currentSessionId;
 
-    await this.sessionRepository.update(sessionId, { running: false });
+    await this.sessionRepository.update(sessionId, {
+      running: false,
+      endTime: new Date()
+    });
 
     // Stop the actual trading engine
     await this.tradingSessionService.stop();
@@ -1975,6 +1981,7 @@ export class SessionService implements OnModuleInit {
       });
       const logRetentionDays = (settings as any)?.log_retention_days || 7;
       const tradeRetentionDays = (settings as any)?.trade_retention_days || 30;
+      const klineRetentionDays = 7;
 
       const logCutoff = new Date(
         Date.now() - logRetentionDays * 24 * 60 * 60 * 1000,
@@ -1996,11 +2003,20 @@ export class SessionService implements OnModuleInit {
         .andWhere("status IN (:...statuses)", { statuses: TERMINAL_STATUSES })
         .execute();
 
+      // SEC-02: Cleanup old kline data to prevent unbounded storage growth
+      const klineCutoff = Date.now() - klineRetentionDays * 24 * 60 * 60 * 1000;
+      const deletedKlines = await this.sessionRepository.manager
+        .createQueryBuilder()
+        .delete()
+        .from("klines")
+        .where("time < :cutoff", { cutoff: klineCutoff })
+        .execute();
+
       // SENTINEL: Also cleanup audit logs periodically
       const auditRetentionDays = (settings as any)?.audit_retention_days || 90;
       const deletedAudit = await this.auditLog.cleanup(auditRetentionDays);
 
-      this.logger.log(`Cleanup completed: ${deletedLogs.affected || 0} logs, ${deletedTrades.affected || 0} trades, and ${deletedAudit || 0} audit entries removed.`);
+      this.logger.log(`Cleanup completed: ${deletedLogs.affected || 0} logs, ${deletedTrades.affected || 0} trades, ${deletedKlines.affected || 0} klines, and ${deletedAudit || 0} audit entries removed.`);
     } catch (e: any) {
       this.logger.error(`Data cleanup failed: ${e.message}`);
     }

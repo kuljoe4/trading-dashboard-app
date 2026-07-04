@@ -18,6 +18,7 @@ export class PositionTrackerService {
 
   private trades: Map<string, Trade> = new Map(); // symbol -> Trade
   private enteringSymbols: Set<string> = new Set(); // symbols currently in the process of entering
+  private inFlightEntries: Map<string, Trade> = new Map(); // symbols with dispatched orders but not yet in trades Map
   private pendingRisk: Map<string, number> = new Map(); // symbol -> reserved risk amount
   private closingSymbols: Set<string> = new Set(); // symbols currently in the process of closing
   private rrSequenceIndex: Map<string, number> = new Map(); // symbol -> current milestone index
@@ -53,6 +54,7 @@ export class PositionTrackerService {
   clear(): void {
     this.trades.clear();
     this.enteringSymbols.clear();
+    this.inFlightEntries.clear();
     this.pendingRisk.clear();
     this.closingSymbols.clear();
     this.rrSequenceIndex.clear();
@@ -74,6 +76,18 @@ export class PositionTrackerService {
 
   enteringCount(): number {
     return this.enteringSymbols.size;
+  }
+
+  getInFlightEntry(symbol: string): Trade | undefined {
+    return this.inFlightEntries.get(symbol);
+  }
+
+  setInFlight(symbol: string, trade: Trade): void {
+    this.inFlightEntries.set(symbol, trade);
+  }
+
+  clearInFlight(symbol: string): void {
+    this.inFlightEntries.delete(symbol);
   }
 
   /**
@@ -129,6 +143,9 @@ export class PositionTrackerService {
     if (this.enteringSymbols.has(trade.symbol)) {
        this.setEntering(trade.symbol, false);
     }
+
+    // SRE: Remove from in-flight registry now that it's in active trades
+    this.clearInFlight(trade.symbol);
 
     this._activeListCache = null;
     this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);

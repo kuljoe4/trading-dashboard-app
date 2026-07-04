@@ -95,7 +95,8 @@ export class TickerCacheService {
   }
 
   topByVolume(n: number, excluded: string[] = []): Ticker[] {
-    const cacheKey = `${n}_${[...excluded].sort().join(',')}`;
+    // BOLT OPTIMIZATION: Avoid expensive sort/join for empty exclusion lists (common case)
+    const cacheKey = excluded.length === 0 ? String(n) : `${n}_${[...excluded].sort().join(',')}`;
     const cached = this._topByVolumeCache[cacheKey];
     const now = Date.now();
 

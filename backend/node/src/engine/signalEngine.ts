@@ -764,12 +764,14 @@ export class SignalEngineService {
     if (Number.isNaN(prevEma)) return null;
     const result: { values: [number, number]; insufficientData: boolean } = { values: [prevEma, ema], insufficientData };
     if (cacheKey) {
-      // BOLT OPTIMIZATION: Avoid Array.from() allocation. Use iterator for O(1) eviction burst.
-      if (this.emaDualCache.size >= 1000 && !this.emaDualCache.has(cacheKey)) {
+      this.emaDualCache.set(cacheKey, result);
+      if (this.emaDualCache.size > 1000) {
+        // BOLT OPTIMIZATION: Use direct iterator for O(1) eviction to avoid O(N) Array.from allocation
         const iter = this.emaDualCache.keys();
         for (let i = 0; i < 100; i++) {
-          const key = iter.next().value;
-          if (key !== undefined) this.emaDualCache.delete(key);
+          const next = iter.next();
+          if (next.done) break;
+          this.emaDualCache.delete(next.value);
         }
       }
       this.emaDualCache.set(cacheKey, result);
@@ -879,12 +881,14 @@ export class SignalEngineService {
 
     const result = { value: ema, insufficientData };
     if (cacheKey) {
-      // BOLT OPTIMIZATION: Avoid Array.from() allocation. Use iterator for O(1) eviction burst.
-      if (this.emaCache.size >= 1000 && !this.emaCache.has(cacheKey)) {
+      this.emaCache.set(cacheKey, result);
+      if (this.emaCache.size > 1000) {
+        // BOLT OPTIMIZATION: Use direct iterator for O(1) eviction to avoid O(N) Array.from allocation
         const iter = this.emaCache.keys();
         for (let i = 0; i < 100; i++) {
-          const key = iter.next().value;
-          if (key !== undefined) this.emaCache.delete(key);
+          const next = iter.next();
+          if (next.done) break;
+          this.emaCache.delete(next.value);
         }
       }
       this.emaCache.set(cacheKey, result);

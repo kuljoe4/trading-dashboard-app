@@ -55,9 +55,6 @@ export class OrderManagerService {
   // CHRONOS: Tracking individual trade execution IDs to prevent commission double-counting
   private tradeExecutionCache: Map<string, number> = new Map();
   private readonly EXECUTION_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
-
-  // COMMISSION IDEMPOTENCY: Tracking unique Binance trade IDs to prevent double-counting commissions
-  private tradeExecutionCache: Map<string, number> = new Map();
   private readonly TRADE_EXECUTION_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
   constructor(
@@ -146,14 +143,11 @@ export class OrderManagerService {
       if (this.tradeExecutionCache.has(tradeId)) {
         isDuplicateTrade = true;
         this.logger.debug(`[Idempotency] Dropping duplicate trade execution for ${symbol} (TradeID: ${tradeId})`);
-      } else {
-        this.tradeExecutionCache.set(tradeId, Date.now());
-        this.cleanupTradeExecutionCache();
       }
     }
 
     // Accuracy Improvement: Update trade entry/exit price from User Data Stream (ORDER_TRADE_UPDATE)
-    if (executionType === 'TRADE') {
+    if (executionType === 'TRADE' && !isDuplicateTrade) {
       const activeTrades = this.sessionState.activeTrades;
       let trade = activeTrades.find(t => t.symbol === symbol);
 
@@ -179,7 +173,7 @@ export class OrderManagerService {
               trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + commission);
               this.tradeExecutionCache.set(tradeExecutionId, Date.now());
               this.logger.debug(`[${tradeIdShort8}] [UDS] Accumulated commission for ${symbol}: ${commission}. Total: ${trade.realized_fee}`);
-              this.cleanupExecutionCache();
+              this.cleanupTradeExecutionCache();
            } else {
               this.logger.debug(`[${tradeIdShort8}] [UDS] Dropping duplicate commission for execution ${tradeExecutionId}`);
            }
@@ -194,45 +188,6 @@ export class OrderManagerService {
           trade.binance_order_id === orderId ||
           (clientOrderId && clientOrderId.startsWith(`ent-${tradeIdShort8}`));
 
-        if (status === 'PARTIALLY_FILLED' && isSlOrder) {
-          const totalQty = parseFloat(order.q || '0');
-          const filledQty = parseFloat(order.z || '0');
-          const remainingQty = roundEight(totalQty - filledQty);
-
-          this.logger.log(`[${tradeIdShort8}] [Sync] Partial SL fill for ${symbol}: ${filledQty}/${totalQty}. Remaining: ${remainingQty}`);
-
-          trade.qty = remainingQty;
-
-          // SRE: Update real-time position cache to match exchange
-          this.sessionState.realTimePositions.set(symbol, {
-             amount: remainingQty,
-             entryPrice: trade.entry_price
-          });
-
-          this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: remainingQty });
-        }
-        else if (status === 'FILLED' && isSlOrder) {
-          const metadata = {
-            orderId,
-            clientOrderId,
-            avgPrice,
-            lastPrice,
-            rawPrice: order.p,
-            status,
-            executionType
-          };
-          this.logger.log(`[${tradeIdShort8}] Binance SL HIT for ${symbol}. Closing trade locally. Meta: ${JSON.stringify(metadata)}`);
-
-          // CHRONOS: Restore trade.qty to the total order size (order.q) before closeTrade is called.
-          // This ensures PnL is calculated for the full position instead of just the final execution slice.
-          const totalQty = parseFloat(order.q || '0');
-          if (totalQty > 0 && trade.qty !== totalQty) {
-             this.logger.debug(`[${tradeIdShort8}] [Sync] Restoring qty to ${totalQty} for final SL PnL calculation.`);
-             trade.qty = totalQty;
-          }
-
-          let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
-
         if (isSlOrder) {
           if (status === 'FILLED') {
             const metadata = {
@@ -246,7 +201,7 @@ export class OrderManagerService {
             };
             this.logger.log(`[${tradeIdShort8}] Binance SL HIT for ${symbol}. Closing trade locally. Meta: ${JSON.stringify(metadata)}`);
 
-            // COMPLIANCE: On final SL fill, restore trade.qty to the total order size (order.q)
+            // CHRONOS/COMPLIANCE: On final SL fill, restore trade.qty to the total order size (order.q)
             // so closeTrade calculates PnL correctly for the entire position.
             const totalOrderQty = parseFloat(order.q || '0');
             if (totalOrderQty > 0 && Math.abs(trade.qty - totalOrderQty) > 0.00000001) {
@@ -275,7 +230,8 @@ export class OrderManagerService {
               symbol,
               exitPrice,
               reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
-              orderId // DATA-ACCURACY: Pass orderId to allow authoritative recovery if UDS price was estimated
+              orderId, // DATA-ACCURACY: Pass orderId to allow authoritative recovery if UDS price was estimated
+              feesAlreadyAccounted: true
             });
           } else if (status === 'PARTIALLY_FILLED') {
             // COMPLIANCE: Synchronize local qty with remaining exchange position during SL partial fill.

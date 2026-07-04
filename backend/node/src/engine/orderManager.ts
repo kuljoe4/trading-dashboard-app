@@ -194,12 +194,44 @@ export class OrderManagerService {
           trade.binance_order_id === orderId ||
           (clientOrderId && clientOrderId.startsWith(`ent-${tradeIdShort8}`));
 
-        // Real-time Commission Sync
-        const commission = parseFloat(order.n || '0');
-        if (commission > 0 && !isDuplicateTrade) {
-          this.logger.debug(`[${tradeIdShort8}] [Sync] Adding commission from UDS: ${commission} ${order.N}`);
-          trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + commission);
+        if (status === 'PARTIALLY_FILLED' && isSlOrder) {
+          const totalQty = parseFloat(order.q || '0');
+          const filledQty = parseFloat(order.z || '0');
+          const remainingQty = roundEight(totalQty - filledQty);
+
+          this.logger.log(`[${tradeIdShort8}] [Sync] Partial SL fill for ${symbol}: ${filledQty}/${totalQty}. Remaining: ${remainingQty}`);
+
+          trade.qty = remainingQty;
+
+          // SRE: Update real-time position cache to match exchange
+          this.sessionState.realTimePositions.set(symbol, {
+             amount: remainingQty,
+             entryPrice: trade.entry_price
+          });
+
+          this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: remainingQty });
         }
+        else if (status === 'FILLED' && isSlOrder) {
+          const metadata = {
+            orderId,
+            clientOrderId,
+            avgPrice,
+            lastPrice,
+            rawPrice: order.p,
+            status,
+            executionType
+          };
+          this.logger.log(`[${tradeIdShort8}] Binance SL HIT for ${symbol}. Closing trade locally. Meta: ${JSON.stringify(metadata)}`);
+
+          // CHRONOS: Restore trade.qty to the total order size (order.q) before closeTrade is called.
+          // This ensures PnL is calculated for the full position instead of just the final execution slice.
+          const totalQty = parseFloat(order.q || '0');
+          if (totalQty > 0 && trade.qty !== totalQty) {
+             this.logger.debug(`[${tradeIdShort8}] [Sync] Restoring qty to ${totalQty} for final SL PnL calculation.`);
+             trade.qty = totalQty;
+          }
+
+          let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
 
         if (isSlOrder) {
           if (status === 'FILLED') {

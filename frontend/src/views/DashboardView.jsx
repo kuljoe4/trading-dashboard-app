@@ -546,6 +546,11 @@ export function DashboardView({ initialStrategy }) {
     strategy_label: config.strategy_label || 'Momentum Strategy'
   }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, hitCount, config.strategy_label])
 
+  const lastSession = useMemo(() => {
+    if (!sessionList || sessionList.length === 0) return null;
+    return [...sessionList].sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())[0];
+  }, [sessionList]);
+
   const activePnlMap = useMemo(() => {
     const map = { [currentStrategy.strategy_label]: 0 };
     (config.strategy_variants || []).forEach(v => {
@@ -648,14 +653,13 @@ export function DashboardView({ initialStrategy }) {
   }
 
   async function handleResumeLast() {
-    if (sessionList.length === 0) return;
-    const last = sessionList[0];
+    if (!lastSession) return;
     setLoading(true);
     setSyncing(true);
     try {
-      const res = await sessionAPI.start(last.config, last.paperMode, last.id);
+      const res = await sessionAPI.start(lastSession.config, lastSession.paperMode, lastSession.id);
       setSessionActive(true, res.data.strategyId || res.data.strategy_id);
-      addAlert({ level: 'success', title: 'Session Resumed', message: `Restored previous session "${last.config.strategy_label}".` });
+      addAlert({ level: 'success', title: 'Session Resumed', message: `Restored previous session "${lastSession.config.strategy_label}".` });
     } catch (e) {
       addAlert({ level: 'error', title: 'Resume Failed', message: 'Could not restore previous session state.' });
     } finally {
@@ -1053,20 +1057,45 @@ export function DashboardView({ initialStrategy }) {
                     })()}
                   </>
                 ) : (
-                  <button
-                    onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
-                    disabled={loading || isSyncing}
-                    aria-label="Create new trading session"
-                    className={cn(
-                      "bg-background border-2 border-dashed border-border rounded-2xl p-6 flex flex-col items-center justify-center gap-4 text-dim transition-all group min-h-[200px] col-span-1 md:col-span-2 w-full",
-                      (loading || isSyncing) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5 col-span-1 md:col-span-2">
+                    <button
+                      onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
+                      disabled={loading || isSyncing}
+                      aria-label="Create new trading strategy"
+                      className={cn(
+                        "bg-background border-2 border-dashed border-border rounded-2xl p-6 flex flex-col items-center justify-center gap-4 text-dim transition-all group min-h-[200px] w-full",
+                        lastSession ? "col-span-1" : "col-span-1 md:col-span-2",
+                        (loading || isSyncing) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
+                      )}
+                    >
+                      <div className="w-10 h-10 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
+                        <Plus size={20} />
+                      </div>
+                      <span className="text-[11px] font-bold uppercase tracking-widest">New Strategy</span>
+                    </button>
+
+                    {lastSession && (
+                      <button
+                        onClick={handleResumeLast}
+                        disabled={loading || isSyncing}
+                        aria-label={`Resume last session: ${lastSession.config.strategy_label}`}
+                        className={cn(
+                          "bg-background border-2 border-dashed border-border rounded-2xl p-6 flex flex-col items-center justify-center gap-4 text-dim transition-all group min-h-[200px] w-full col-span-1",
+                          (loading || isSyncing) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
+                        )}
+                      >
+                        <div className="w-10 h-10 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
+                          <History size={20} />
+                        </div>
+                        <div className="flex flex-col items-center">
+                          <span className="text-[11px] font-bold uppercase tracking-widest">Resume Last</span>
+                          <span className="text-[9px] text-dim/60 font-medium uppercase mt-1 truncate max-w-[150px]">
+                            {lastSession.config.strategy_label}
+                          </span>
+                        </div>
+                      </button>
                     )}
-                  >
-                    <div className="w-10 h-10 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
-                      <Plus size={20} />
-                    </div>
-                    <span className="text-[11px] font-bold uppercase tracking-widest">Configure Strategy</span>
-                  </button>
+                  </div>
                 )}
 
               </div>

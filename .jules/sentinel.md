@@ -42,3 +42,13 @@
 **Vulnerability:** WebSocket authentication failures (invalid tokens and unauthorized origins) were only logged to the console but not recorded in the persistent database audit log, creating an observability gap for security monitoring.
 **Learning:** In a hybrid API architecture, all authentication entry points (both HTTP and WebSocket) must share a common auditing standard. Failing to persist rejections on one interface allows for unmonitored probing.
 **Prevention:** Ensure the `AuditLogService` is utilized in the WebSocket handshake hook (`verifyClient`) to mirror the auditing behavior of HTTP guards. Always normalize headers like `host` and `user-agent` (which can be arrays) before passing them to logging or URL parsing logic.
+
+## 2026-06-30 - [Log Injection via X-Forwarded-For]
+**Vulnerability:** The `extractIp` utility did not validate that the string extracted from the `X-Forwarded-For` header was actually a valid IP address. An attacker could provide a malicious payload (e.g., HTML tags for XSS in an audit dashboard, or CRLF for log splitting) which would then be persisted in the audit logs.
+**Learning:** External data used as an identifier or for logging MUST be validated against its expected format. For IP addresses, Node's built-in `net.isIP` provides a robust validation mechanism.
+**Prevention:** Always use `net.isIP(candidate)` to validate extracted IP addresses before using them in logging, throttling, or persistent storage. Fall back to a safe default if validation fails.
+
+## 2026-06-30 - [Credential Leakage in Error Logs]
+**Vulnerability:** Controllers handling sensitive data (like `SettingsController.updateKeys`) sometimes logged the full error object using `JSON.stringify(err)`. If an error occurred (e.g., a database constraint violation), the serialized error object could contain the full request body, including plaintext API keys and secrets.
+**Learning:** Serialization of error objects is dangerous as they often capture the state of the application at the point of failure, which may include sensitive inputs or internal metadata.
+**Prevention:** Never use `JSON.stringify(err)` for logging in paths that touch sensitive data. Log a specific error message and safe metadata instead. Ensure that internal error objects are caught and sanitized before they reach the controller's logger.

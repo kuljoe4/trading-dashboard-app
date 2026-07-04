@@ -22,6 +22,9 @@ export class SignalEngineService {
   private readonly emaCache = new Map<string, { value: number; insufficientData: boolean }>();
   private readonly emaDualCache = new Map<string, { values: [number, number]; insufficientData: boolean }>();
 
+  // BOLT OPTIMIZATION: Cache for EMA multipliers to avoid redundant divisions
+  private readonly multiplierCache = new Map<number, number>();
+
   // BOLT OPTIMIZATION: Stable caches for completed candles to allow O(1) incremental updates
   private readonly emaStableCache = new Map<string, { time: number; value: number; count: number }>();
 
@@ -68,7 +71,8 @@ export class SignalEngineService {
         const slow = parseInt(params.entry_ema_slow || '21', 10);
         maxReq = Math.max(maxReq, Math.max(fast, slow) * 2);
       } else if (signalType === 'engulfing') {
-        maxReq = Math.max(maxReq, 2);
+        const lookback = parseInt(params.engulfing_lookback || config.engulfing_lookback || '1', 10);
+        maxReq = Math.max(maxReq, lookback + 1);
       }
     }
 
@@ -279,21 +283,106 @@ export class SignalEngineService {
   ): SignalDetail {
     try {
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
-      if (candles.length < 2) {
+      const lookback = Math.max(config.engulfing_lookback || 1, 1);
+
+      if (candles.length < lookback + 1) {
         return { fired: false, value: 0, threshold: 0, unit: 'bool', metric: 'Engulfing', description: 'Insufficient data', insufficientData: true };
       }
 
-      const prevCandle = candles[candles.length - 2];
-      const currCandle = candles[candles.length - 1];
-      const fired = currCandle.high > prevCandle.high && currCandle.low < prevCandle.low;
+      const curr = candles[candles.length - 1];
+      const prevCandles = candles.slice(candles.length - 1 - lookback, candles.length - 1);
+
+      const mode = config.engulfing_mode || 'range';
+      const volConfirm = config.engulfing_volume_confirm || false;
+
+      const isBullish = curr.close > curr.open;
+      const isBearish = curr.close < curr.open;
+
+      // Calculate aggregate range and body of the lookback period
+      let aggregateHigh = -Infinity;
+      let aggregateLow = Infinity;
+      let aggregateBodyHigh = -Infinity;
+      let aggregateBodyLow = Infinity;
+      let allReverse = true;
+
+      for (const p of prevCandles) {
+        if (p.high > aggregateHigh) aggregateHigh = p.high;
+        if (p.low < aggregateLow) aggregateLow = p.low;
+
+        const bH = Math.max(p.open, p.close);
+        const bL = Math.min(p.open, p.close);
+        if (bH > aggregateBodyHigh) aggregateBodyHigh = bH;
+        if (bL < aggregateBodyLow) aggregateBodyLow = bL;
+
+        // Directional check: for LONG entry, all previous must be Bearish (Reverse Engulfing)
+        if (side === 'LONG' && p.close > p.open) allReverse = false;
+        if (side === 'SHORT' && p.close < p.open) allReverse = false;
+      }
+
+      const currBodyHigh = Math.max(curr.open, curr.close);
+      const currBodyLow = Math.min(curr.open, curr.close);
       
+      const bodyEngulfs = currBodyHigh > aggregateBodyHigh && currBodyLow < aggregateBodyLow;
+      const rangeEngulfs = curr.high > aggregateHigh && curr.low < aggregateLow;
+      const volumeConfirms = curr.volume > prevCandles[prevCandles.length - 1].volume;
+
+      let fired = false;
+      let reason = '';
+
+      if (side === 'LONG') {
+        if (!isBullish) {
+          fired = false;
+          reason = 'Not a bullish candle';
+        } else if (!allReverse) {
+          fired = false;
+          reason = `Previous ${lookback} candles not bearish`;
+        } else {
+          if (mode === 'body') fired = bodyEngulfs;
+          else if (mode === 'range') fired = rangeEngulfs;
+          else if (mode === 'strict') fired = bodyEngulfs && rangeEngulfs;
+
+          if (fired && volConfirm && !volumeConfirms) {
+            fired = false;
+            reason = 'Insufficient volume confirmation';
+          } else if (!fired) {
+            reason = mode === 'body' ? 'Body did not engulf' : mode === 'range' ? 'Range did not engulf' : 'Strict engulfing failed';
+          }
+        }
+      } else if (side === 'SHORT') {
+        if (!isBearish) {
+          fired = false;
+          reason = 'Not a bearish candle';
+        } else if (!allReverse) {
+          fired = false;
+          reason = `Previous ${lookback} candles not bullish`;
+        } else {
+          if (mode === 'body') fired = bodyEngulfs;
+          else if (mode === 'range') fired = rangeEngulfs;
+          else if (mode === 'strict') fired = bodyEngulfs && rangeEngulfs;
+
+          if (fired && volConfirm && !volumeConfirms) {
+            fired = false;
+            reason = 'Insufficient volume confirmation';
+          } else if (!fired) {
+            reason = mode === 'body' ? 'Body did not engulf' : mode === 'range' ? 'Range did not engulf' : 'Strict engulfing failed';
+          }
+        }
+      } else {
+        // Generic (no side) - default to old behavior but with mode awareness
+        if (mode === 'body') fired = bodyEngulfs;
+        else if (mode === 'range') fired = rangeEngulfs;
+        else fired = bodyEngulfs && rangeEngulfs;
+
+        if (fired && volConfirm && !volumeConfirms) fired = false;
+      }
+
       return {
         fired,
         value: fired ? 1 : 0,
         threshold: 1,
         unit: 'bool',
         metric: 'Engulfing',
-        description: fired ? 'Engulfing pattern detected' : 'No engulfing pattern',
+        description: fired ? `Engulfing pattern (${mode}) detected` : (reason || 'No engulfing pattern'),
       };
     } catch (error) {
       this.logger.debug(`Engulfing signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -627,7 +716,14 @@ export class SignalEngineService {
     }
 
     const insufficientData = len < period * 2;
-    const multiplier = 2 / (period + 1);
+
+    // BOLT OPTIMIZATION: Use cached multiplier to avoid redundant division
+    let multiplier = this.multiplierCache.get(period);
+    if (multiplier === undefined) {
+      multiplier = 2 / (period + 1);
+      this.multiplierCache.set(period, multiplier);
+    }
+
     let prevEma = 0;
     let ema = 0;
 
@@ -678,6 +774,7 @@ export class SignalEngineService {
           this.emaDualCache.delete(next.value);
         }
       }
+      this.emaDualCache.set(cacheKey, result);
     }
     return result;
   }
@@ -729,11 +826,26 @@ export class SignalEngineService {
     // For absolute minimum histories, just use SMA
     if (len < minNeeded) {
       const res = { value: this.calculateSMA(candles, 0, len), insufficientData: true };
-      if (cacheKey) this.emaCache.set(cacheKey, res);
+      if (cacheKey) {
+        if (this.emaCache.size >= 1000 && !this.emaCache.has(cacheKey)) {
+          const iter = this.emaCache.keys();
+          for (let i = 0; i < 100; i++) {
+            const key = iter.next().value;
+            if (key !== undefined) this.emaCache.delete(key);
+          }
+        }
+        this.emaCache.set(cacheKey, res);
+      }
       return res;
     }
 
-    const multiplier = 2 / (period + 1);
+    // BOLT OPTIMIZATION: Use cached multiplier to avoid redundant division
+    let multiplier = this.multiplierCache.get(period);
+    if (multiplier === undefined) {
+      multiplier = 2 / (period + 1);
+      this.multiplierCache.set(period, multiplier);
+    }
+
     let ema = 0;
 
     // BOLT OPTIMIZATION: Try incremental path for the most common case (last or second-to-last candle)
@@ -779,6 +891,7 @@ export class SignalEngineService {
           this.emaCache.delete(next.value);
         }
       }
+      this.emaCache.set(cacheKey, result);
     }
     return result;
   }

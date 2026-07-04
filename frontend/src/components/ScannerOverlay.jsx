@@ -3,19 +3,35 @@ import { fmtVol } from '../lib/theme'
 import { formatDuration } from '../lib/formatters'
 import { PulseDot, Sparkline, cn, CopyButton, Tooltip, CandlestickChart } from './ui/primitives'
 import { useTradingStore } from '../store/trading'
-import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2 } from 'lucide-react'
+import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { shallow } from 'zustand/shallow'
 
-const ScannerRow = React.memo(({ opp, i, threshold, activeTrades, isSingleMonitor, isLong, passing }) => {
+const ScannerRow = React.memo(({ opp, i, config, activeTrades }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const threshold = config?.scan_pct_threshold || 2.0;
+  const dir = (opp.dir || opp.direction || '').toLowerCase();
+  const isLong = dir ? dir === 'long' : opp.pct >= 0;
+  const passing = Math.abs(opp.pct) >= threshold;
+  const isSingleMonitor = config?.single_symbol_configs?.some(sc => sc.symbol === opp.symbol && sc.enabled);
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      setIsExpanded(!isExpanded);
+    }
+  };
 
   return (
     <div className="flex flex-col border-b border-border/50">
       <div
         onClick={() => setIsExpanded(!isExpanded)}
+        onKeyDown={handleKeyDown}
+        role="button"
+        tabIndex={0}
+        aria-expanded={isExpanded}
         className={cn(
-          "grid grid-cols-[30px_1fr_80px_60px] md:grid-cols-[30px_100px_1fr_60px_1fr_1fr_50px] items-center px-4 py-3 transition-all h-[56px] group cursor-pointer",
+          "grid grid-cols-[30px_1fr_80px_60px] md:grid-cols-[30px_100px_1fr_60px_1fr_1fr_50px] items-center px-4 py-3 transition-all h-[56px] group cursor-pointer outline-none focus-visible:bg-white/5",
           !passing && "opacity-45 grayscale-[0.5]",
           isSingleMonitor && "bg-accent/5",
           passing && "hover:bg-white/5 active:bg-white/10",

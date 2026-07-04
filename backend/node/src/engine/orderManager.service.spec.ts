@@ -17,6 +17,11 @@ describe('OrderManagerService', () => {
       { getTicker: jest.fn(), getPrice: jest.fn() } as any, // tickerCache
       { incrementApiRequests: jest.fn() } as any, // monitoringService
       {
+        getInFlightEntry: jest.fn(),
+        setInFlight: jest.fn(),
+        clearInFlight: jest.fn()
+      } as any, // positionTracker
+      {
         isRateLimited: () => false,
         isOrderRateLimited: () => false,
         binanceRateLimit: { used_1m: 0, limit: 2400 },

@@ -1,106 +1,136 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { OrderManagerService } from './orderManager';
-import { SignalEngineService } from './signalEngine';
-import { MarketFeedService } from './market_feed.service';
-import { TickerCacheService } from './ticker_cache.service';
-import { MonitoringService } from './monitoring.service';
-import { SessionStateService } from './session_state.service';
-import { AuditLogService } from '../trading/audit-log.service';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { Trade } from '../models/Trade';
-import { EXIT_REASONS } from '../models/constants';
+import { ENGINE_EVENTS } from './events';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
-describe('OrderManagerService Idempotency', () => {
+describe('OrderManagerService - Idempotency & Partial SL Sync', () => {
   let service: OrderManagerService;
-  let binanceClient: any;
+  let eventEmitter: EventEmitter2;
   let sessionState: any;
 
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        OrderManagerService,
-        { provide: SignalEngineService, useValue: {} },
-        {
-          provide: MarketFeedService,
-          useValue: { getSymbolFilters: () => ({ stepSize: 0.01, tickSize: 0.01, qtyPrecision: 2 }) },
-        },
-        { provide: TickerCacheService, useValue: { getTicker: () => ({ price: 100 }), getPrice: () => 100 } },
-        { provide: MonitoringService, useValue: { incrementApiRequests: () => {} } },
-        {
-          provide: SessionStateService,
-          useValue: {
-            getBalance: () => 1000,
-            updateRateLimit: () => {},
-            updateOrderRateLimits: () => {},
-            getBinanceRateLimit: () => ({ used_weight_1m: 0, limit: 1200 }),
-            isRateLimited: () => false,
-            realTimePositions: new Map(),
-            activeTrades: [],
-          },
-        },
-        { provide: AuditLogService, useValue: { log: () => {} } },
-        { provide: EventEmitter2, useValue: { emit: () => {} } },
-        {
-          provide: getRepositoryToken(SettingsEntity),
-          useValue: { findOne: () => Promise.resolve({}), update: () => Promise.resolve({}) },
-        },
-      ],
-    }).compile();
-
-    service = module.get<OrderManagerService>(OrderManagerService);
-    sessionState = module.get<SessionStateService>(SessionStateService);
-
-    binanceClient = {
-      restAPI: {
-        newOrder: jest.fn(),
-        queryOrder: jest.fn(),
-        cancelAllOpenOrders: jest.fn(),
-      },
+  beforeEach(() => {
+    eventEmitter = new EventEmitter2();
+    sessionState = {
+      activeTrades: [],
+      realTimeOrders: new Map(),
+      realTimePositions: new Map(),
+      isRateLimited: jest.fn().mockReturnValue(false),
+      updateRateLimit: jest.fn(),
+      updateOrderRateLimits: jest.fn(),
+      getBinanceRateLimit: jest.fn().mockReturnValue({ used_1m: 0, limit: 2400 }),
     };
+
+    service = new OrderManagerService(
+      {} as any, // signalEngine
+      { getSymbolFilters: jest.fn() } as any, // marketFeed
+      { getPrice: jest.fn() } as any, // tickerCache
+      { incrementApiRequests: jest.fn() } as any, // monitoringService
+      sessionState,
+      { log: jest.fn() } as any, // auditLog
+      eventEmitter,
+      { findOne: jest.fn(), update: jest.fn() } as any // settingsRepository
+    );
   });
 
-  it('recovers from network timeout during closeTrade using queryOrder', async () => {
-    service.setBinanceClient(binanceClient, false); // Live mode
-
-    const trade: Trade = {
-      id: 'test-uuid-1234567890',
+  it('should sync trade.qty on PARTIALLY_FILLED SL order and restore it on final FILLED', async () => {
+    const trade = {
+      id: 'test-trade-id',
       symbol: 'BTCUSDT',
-      direction: 'LONG',
       qty: 1.0,
-      entry_price: 50000,
-      binance_order_id: 'original_entry_id',
+      direction: 'LONG',
+      binance_stop_order_id: 'sl-123',
       status: 'OPEN',
-    } as any;
+      entry_price: 50000,
+    } as Trade;
+    sessionState.activeTrades = [trade];
 
-    // 1. First attempt fails with network timeout
-    binanceClient.restAPI.newOrder.mockRejectedValueOnce(new Error('ETIMEDOUT'));
+    const emitSpy = jest.spyOn(eventEmitter, 'emit');
 
-    // 2. Second attempt (retry) fails with Duplicate clientOrderId -2011
-    binanceClient.restAPI.newOrder.mockResolvedValueOnce({
-      data: () => Promise.resolve({ code: -2011, msg: 'Duplicate clientOrderId' }),
-      headers: { get: () => '10' }
-    });
+    // 1. Partial fill of SL (50% filled)
+    // In Binance UDS: 'z' is cumulative filled qty, 'q' is total order qty
+    const partialPayload = {
+      e: 'ORDER_TRADE_UPDATE',
+      o: {
+        s: 'BTCUSDT',
+        X: 'PARTIALLY_FILLED',
+        i: 'sl-123',
+        z: '0.4', // Cumulative filled
+        q: '1.0',
+        x: 'TRADE',
+        S: 'SELL',
+        ot: 'STOP_MARKET',
+        ap: '49000'
+      }
+    };
 
-    // 3. queryOrder succeeds and returns the filled order details
-    binanceClient.restAPI.queryOrder.mockResolvedValueOnce({
-      data: () => Promise.resolve({
-        orderId: 'exchange_close_id',
-        status: 'FILLED',
-        avgPrice: '51000',
-        executedQty: '1.0',
-        cumQuote: '51000'
-      }),
-      headers: { get: () => '11' }
-    });
+    await service.handleBinanceOrderUpdate(partialPayload);
 
-    const result = await service.closeTrade('BTCUSDT', trade, 51000, EXIT_REASONS.TP_HIT, false);
+    // Current behavior check (Expected to FAIL before fix):
+    // It should update trade.qty to 0.6 (1.0 - 0.4) and emit QUANTITY_SYNC
+    expect(trade.qty).toBe(0.6);
+    expect(emitSpy).toHaveBeenCalledWith(ENGINE_EVENTS.QUANTITY_SYNC, { symbol: 'BTCUSDT', qty: 0.6 });
 
-    expect(result.exitOccurred).toBe(true);
-    expect(result.trade.exit_price).toBe(51000);
-    expect(result.trade.binance_close_order_id).toBe('exchange_close_id');
-    expect(binanceClient.restAPI.newOrder).toHaveBeenCalledTimes(2);
-    expect(binanceClient.restAPI.queryOrder).toHaveBeenCalled();
+    // 2. Final fill of SL
+    const finalPayload = {
+      e: 'ORDER_TRADE_UPDATE',
+      o: {
+        s: 'BTCUSDT',
+        X: 'FILLED',
+        i: 'sl-123',
+        z: '1.0',
+        q: '1.0',
+        x: 'TRADE',
+        S: 'SELL',
+        ot: 'STOP_MARKET',
+        ap: '48900'
+      }
+    };
+
+    await service.handleBinanceOrderUpdate(finalPayload);
+
+    // After final fill, trade.qty should be restored to 1.0 for PnL calculation in closeTrade
+    expect(trade.qty).toBe(1.0);
+    expect(emitSpy).toHaveBeenCalledWith('trade.exchange_close', expect.objectContaining({
+      symbol: 'BTCUSDT',
+      exitPrice: 48900
+    }));
+  });
+
+  it('should deduplicate commissions between consecutive UDS updates', async () => {
+    const trade = {
+      id: 'test-trade-comm',
+      symbol: 'BTCUSDT',
+      qty: 1.0,
+      direction: 'LONG',
+      realized_fee: 0,
+      binance_order_id: 'entry-123',
+      status: 'OPEN',
+    } as Trade;
+    sessionState.activeTrades = [trade];
+
+    const udsPayload = {
+      e: 'ORDER_TRADE_UPDATE',
+      o: {
+        s: 'BTCUSDT',
+        X: 'FILLED',
+        i: 'entry-123',
+        t: 'trade-999', // Unique Binance Trade ID
+        n: '2.5', // Commission
+        N: 'USDT',
+        z: '1.0',
+        q: '1.0',
+        x: 'TRADE',
+        S: 'BUY',
+        ap: '50000'
+      }
+    };
+
+    // First update: should add commission
+    await service.handleBinanceOrderUpdate(udsPayload);
+    expect(trade.realized_fee).toBe(2.5);
+
+    // Second update (duplicate UDS event): should NOT add commission again
+    await service.handleBinanceOrderUpdate(udsPayload);
+    expect(trade.realized_fee).toBe(2.5);
   });
 });

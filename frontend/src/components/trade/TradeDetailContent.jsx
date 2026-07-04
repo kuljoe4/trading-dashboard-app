@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo, memo } from 'react'
 import { 
   ShieldCheck, Clock, ArrowUpRight, ArrowDownRight, Activity, Zap, 
-  Info, ShieldAlert, CheckCircle2, BarChart3, TrendingUp, XCircle, Loader2
+  Info, ShieldAlert, CheckCircle2, BarChart3, TrendingUp, XCircle, Loader2, Trash2
 } from 'lucide-react'
 import { fmtUSD, pnlColor, pnlClass, fmt } from '../../lib/theme'
 import { price, formatDuration } from '../../lib/formatters'
-import { StatCard, SectionLabel, cn, CopyButton, Tooltip, PulseDot } from '../ui/primitives'
+import { StatCard, SectionLabel, cn, CopyButton, Tooltip, PulseDot, Btn } from '../ui/primitives'
 import { motion, AnimatePresence } from 'framer-motion'
+import { ConfirmationModal } from '../ConfirmationModal'
 
 const Metric = memo(({ label, value, tooltip }) => (
   <div className="flex flex-col gap-1.5 group/metric">
@@ -165,10 +166,15 @@ const ExitMonitor = ({ status, logic, trade }) => {
           let triggerProgress = 0;
           if (!s.insufficientData) {
              if (s.threshold_is_price) {
-                const totalDist = Math.abs(entryPrice - threshold);
-                const currentDist = Math.abs(mark - threshold);
+             // BOLT: Direction-aware proximity math.
+             // 0% = Entry Price, 100% = Threshold.
+             // If price moves past threshold, it stays at 100% (fired).
+             // If price moves back past entry, it stays at 0%.
+             const totalDist = isLong ? (threshold - entryPrice) : (entryPrice - threshold);
+             const progressDist = isLong ? (mark - entryPrice) : (entryPrice - mark);
+
                 if (totalDist > 0) {
-                   triggerProgress = Math.max(0, Math.min(100, (1 - (currentDist / totalDist)) * 100));
+                triggerProgress = Math.max(0, Math.min(100, (progressDist / totalDist) * 100));
                 }
              } else {
                 triggerProgress = Math.max(0, Math.min(100, (Math.abs(value) / threshold) * 100));
@@ -401,50 +407,6 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
             </div>
           </div>
         </div>
-
-        <div className="flex flex-col gap-4 min-w-[200px]">
-          {trade.close_blocked && (
-             <div className="bg-red/10 border border-red/20 rounded-xl p-3 flex flex-col gap-1 items-center text-center animate-pulse">
-                <span className="text-[10px] font-black text-red uppercase tracking-widest flex items-center gap-1">
-                   <ShieldAlert size={12} /> Liquidation Blocked
-                </span>
-                <span className="text-[8px] text-red/60 font-bold uppercase leading-tight">
-                   Max retries exceeded. Manual intervention on Binance is required.
-                </span>
-             </div>
-          )}
-          {!trade.close_blocked && trade.close_attempts > 0 && (
-             <div className="bg-amber/10 border border-amber/20 rounded-xl p-2 flex items-center justify-center gap-2">
-                <Loader2 className="animate-spin text-amber" size={10} />
-                <span className="text-[8px] font-black text-amber uppercase tracking-widest">
-                   Closure Retry {trade.close_attempts}/5
-                </span>
-             </div>
-          )}
-          <button
-            onClick={() => confirmClose ? onTradeClose(trade.symbol) : setConfirmClose(true)}
-            disabled={isClosing}
-            aria-label={isClosing ? "Closing position" : confirmClose ? "Confirm close position" : "Close position"}
-            className={cn(
-              "h-12 md:h-16 px-6 rounded-xl md:rounded-2xl font-bold uppercase text-[10px] md:text-[11px] tracking-[0.2em] transition-all flex items-center justify-center gap-3 relative overflow-hidden",
-              confirmClose ? "bg-red text-white animate-pulse" : "bg-red/10 text-red border border-red/20 hover:bg-red/20"
-            )}
-          >
-            <motion.div
-              initial={false}
-              animate={{
-                y: (confirmClose && !isClosing) ? -20 : 0,
-                opacity: (confirmClose && !isClosing) ? 0 : 1
-              }}
-              className="flex items-center"
-            >
-              {isClosing ? <Loader2 className="animate-spin" size={16} /> : <XCircle size={16} />}
-            </motion.div>
-            <span aria-live="polite" className="font-black">
-              {isClosing ? 'Closing...' : confirmClose ? 'Confirm Close?' : 'Force Liquidation'}
-            </span>
-          </button>
-        </div>
       </div>
 
       {/* Price Runway */}
@@ -597,6 +559,65 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
             )}
          </div>
       </div>
+
+      <div className="mt-4 md:mt-8 pt-6 border-t border-border/40">
+        <SectionLabel className="mb-4 text-red">Danger Zone</SectionLabel>
+        <div className="bg-red/5 border border-red/10 rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-6 transition-all hover:bg-red/10">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-red/10 flex items-center justify-center text-red shrink-0">
+              <ShieldAlert size={24} />
+            </div>
+            <div className="flex flex-col">
+              <h3 className="text-sm font-bold uppercase tracking-tight text-red">Force Liquidation</h3>
+              <p className="text-[10px] text-dim font-medium uppercase mt-1">Immediately close this position at current market price. This ignores all strategy logic.</p>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 w-full md:w-auto min-w-[200px]">
+            {trade.close_blocked && (
+               <div className="bg-red/10 border border-red/20 rounded-xl p-3 flex flex-col gap-1 items-center text-center animate-pulse mb-2">
+                  <span className="text-[10px] font-black text-red uppercase tracking-widest flex items-center gap-1">
+                     <ShieldAlert size={12} /> Liquidation Blocked
+                  </span>
+                  <span className="text-[8px] text-red/60 font-bold uppercase leading-tight">
+                     Max retries exceeded. Manual intervention on Binance is required.
+                  </span>
+               </div>
+            )}
+            {!trade.close_blocked && trade.close_attempts > 0 && (
+               <div className="bg-amber/10 border border-amber/20 rounded-xl p-2 flex items-center justify-center gap-2 mb-2">
+                  <Loader2 className="animate-spin text-amber" size={10} />
+                  <span className="text-[8px] font-black text-amber uppercase tracking-widest">
+                     Closure Retry {trade.close_attempts}/5
+                  </span>
+               </div>
+            )}
+            <Btn
+              variant="danger"
+              onClick={() => setConfirmClose(true)}
+              disabled={isClosing}
+              loading={isClosing}
+              className="w-full h-12 uppercase tracking-widest font-black"
+            >
+              <Trash2 size={16} /> Force Close
+            </Btn>
+          </div>
+        </div>
+      </div>
+
+      <ConfirmationModal
+        isOpen={confirmClose}
+        onClose={() => setConfirmClose(false)}
+        onConfirm={() => {
+          setConfirmClose(false);
+          onTradeClose(trade.symbol);
+        }}
+        title="Force Liquidation?"
+        message={`Are you sure you want to immediately close your ${trade.symbol} ${trade.direction} position at market price? This bypasses all exit signals and risk guards.`}
+        confirmText="Confirm Liquidation"
+        variant="danger"
+        loading={isClosing}
+      />
     </div>
   )
 })

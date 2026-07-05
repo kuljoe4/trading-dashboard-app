@@ -7,8 +7,34 @@ import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, Chevron
 import { motion, AnimatePresence } from 'framer-motion'
 import { shallow } from 'zustand/shallow'
 
-const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scannerPaused, hibernating, lastScanTs, now }) => {
+const FreshnessIndicator = React.memo(({ lastScanTs }) => {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  if (lastScanTs <= 0) return null;
+  const age = Math.max(0, now - lastScanTs);
+
+  return (
+    <Tooltip content={`Telemetry timestamped ${formatDuration(age)} ago`}>
+      <div className="w-1.5 h-1.5 rounded-full bg-green/40 cursor-help" />
+    </Tooltip>
+  );
+});
+FreshnessIndicator.displayName = 'FreshnessIndicator';
+
+const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scannerPaused, hibernating, lastScanTs }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+
+  // DEBUG: Track telemetry presence in expanded state to identify synchronization gaps
+  useEffect(() => {
+    if (isExpanded && (!opp.ohlc_history || opp.ohlc_history.length === 0)) {
+      console.warn(`[Scanner Debug] Expanded ${opp.symbol} has no telemetry. Gated: ${scannerPaused}, Hibernating: ${hibernating}, LastScan: ${lastScanTs}`);
+    }
+  }, [isExpanded, opp.symbol, opp.ohlc_history, scannerPaused, hibernating, lastScanTs]);
   const threshold = config?.scan_pct_threshold || 2.0;
   const dir = (opp.dir || opp.direction || '').toLowerCase();
   const isLong = dir ? dir === 'long' : opp.pct >= 0;
@@ -166,7 +192,7 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                 </div>
                 <div className="bg-surface/50 border border-border rounded-2xl p-5 flex items-center justify-center min-h-[180px] relative overflow-hidden group/viz">
                    <div className="absolute inset-0 opacity-[0.03] pointer-events-none group-hover/viz:opacity-[0.05] transition-opacity" style={{ backgroundImage: 'radial-gradient(var(--color-accent) 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
-                   {opp.ohlc_history ? (
+                   {Array.isArray(opp.ohlc_history) && opp.ohlc_history.length >= 2 ? (
                      <div className="w-full flex flex-col items-center relative z-10">
                         <CandlestickChart data={opp.ohlc_history} width={360} height={140} />
                         <div className="flex justify-between w-full mt-6 px-2">
@@ -243,11 +269,7 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                           <div className="flex flex-col">
                              <div className="flex items-center gap-2 mb-1">
                                 <span className="text-[9px] text-dim font-black uppercase tracking-[0.2em]">Composite Authority</span>
-                                {lastScanTs > 0 && (
-                                   <Tooltip content={`Telemetry timestamped ${formatDuration(Math.max(0, now - lastScanTs))} ago`}>
-                                      <div className="w-1.5 h-1.5 rounded-full bg-green/40 cursor-help" />
-                                   </Tooltip>
-                                )}
+                                <FreshnessIndicator lastScanTs={lastScanTs} />
                              </div>
                              <div className="flex items-baseline gap-2">
                                 <span className={cn("text-3xl font-mono font-black tracking-tighter leading-none", opp.score > 85 ? "text-accent shadow-accent/20" : "text-text")}>
@@ -349,9 +371,9 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
   }), shallow)
   const threshold = config.scan_pct_threshold || 2.0
   const [search, setSearch] = useState('')
-  const [now, setNow] = useState(Date.now())
   const lastUpdateRef = useRef(lastScanTs)
 
+  const [now, setNow] = useState(Date.now())
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
@@ -541,7 +563,6 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
               scannerPaused={scannerPaused}
               hibernating={hibernating}
               lastScanTs={lastScanTs}
-              now={now}
             />
           ))
         )}

@@ -467,7 +467,11 @@ export class TradingSessionService implements OnApplicationShutdown {
 
       if (this.sessionState.dashboardCount > 0) {
         const baseConfig = strategyConfigs[0];
-        const opportunitiesWithSignals = primaryOpportunities.slice(0, 10).map((opp) => { const signalResult = this.signalEngine.checkEntry(opp.symbol, baseConfig, baseConfig.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry'); return { ...opp, signalResult }; });
+        // BOLT: Process all Top 15 opportunities (matching UI) for entry signals and telemetry.
+        const opportunitiesWithSignals = primaryOpportunities.slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS).map((opp) => {
+           const signalResult = this.signalEngine.checkEntry(opp.symbol, baseConfig, baseConfig.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry');
+           return { ...opp, signalResult };
+        });
         this.updateScannerResults(opportunitiesWithSignals); this.lastVariantScannerResults = scannerData;
         const now = Date.now(); const isFull = now - this.lastScannerFullBroadcast > 30000;
         const nextResultsJson = JSON.stringify(this.lastScannerResults.map(o => o.symbol + o.direction + o.score));
@@ -488,8 +492,20 @@ export class TradingSessionService implements OnApplicationShutdown {
           this.broadcast('scanner', {
             count: this.lastScannerResults.length,
             last_scan_ts: this.sessionState.last_scan_ts,
-            opportunities: this.lastScannerResults.slice(0, 5).map(o => { if (isFull) return o; const { history, ...rest } = o; return rest; }),
-            variant_opportunities: this.lastVariantScannerResults.map(v => ({ ...v, opportunities: v.opportunities.slice(0, 5).map((o: any) => { if (isFull) return o; const { history, ...rest } = o; return rest; }) })),
+            // BOLT: Expand broadcast to Top 15 (matching UI "Top 15 results") and ensure full telemetry is sent during full broadcasts
+            opportunities: this.lastScannerResults.slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS).map(o => {
+               if (isFull) return o;
+               const { history, ohlc_history, ...rest } = o;
+               return rest;
+            }),
+            variant_opportunities: this.lastVariantScannerResults.map(v => ({
+               ...v,
+               opportunities: v.opportunities.slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS).map((o: any) => {
+                  if (isFull) return o;
+                  const { history, ohlc_history, ...rest } = o;
+                  return rest;
+               })
+            })),
             activeWindows: this.getActiveWindows()
           });
         }
@@ -538,8 +554,9 @@ export class TradingSessionService implements OnApplicationShutdown {
       vol: o.volume_24h,
       volume_usdt: o.volume_24h,
       volume_rank: o.volume_rank,
-      score: roundTo(o.score / 10, 1),
+      score: roundTo(o.score, 1),
       history: o.history,
+      ohlc_history: o.ohlc_history,
       signalResult: o.signalResult,
     }));
     this.refreshActiveWindows(this.lastScannerResults);

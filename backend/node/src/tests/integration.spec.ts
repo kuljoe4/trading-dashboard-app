@@ -75,6 +75,7 @@ describe('Trade Lifecycle Integration', () => {
       checkRrSequenceAdjustments: jest.fn(),
       checkExitConditions: jest.fn(),
       setTradeUpdateCallback: jest.fn(),
+      clear: jest.fn(),
     };
 
     mockOrderManager = {
@@ -162,8 +163,6 @@ describe('Trade Lifecycle Integration', () => {
       mockEngineBroadcaster,
       new EventEmitter2(),
       mockAnalyticsService
-      { calculateAnalytics: jest.fn().mockReturnValue({ maxDrawdown: 0, maxDrawdownPct: 0, overallWinRate: 0, cumulativePnL: [] }) } as any,
-      { setLoopStage: jest.fn() } as any
     );
 
     tradingSession = new TradingSessionService(

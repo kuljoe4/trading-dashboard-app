@@ -32,7 +32,7 @@ import { ConfigValidationException } from "../lib/exceptions";
 import { BinanceClientFactory } from "../lib/binanceClientFactory";
 import { AnalyticsService } from "../engine/analytics.service";
 import { MarketFeedService } from "../engine/market_feed.service";
-import { updateLogLevels, sanitize } from "../lib/logger";
+import { updateLogLevels, sanitize, formatValidationErrors } from "../lib/logger";
 import { roundEight } from "../lib/math";
 import { CONFIG_LIMITS, EXIT_REASONS, ENGINE_CONSTANTS } from "../models/constants";
 
@@ -1586,9 +1586,12 @@ export class SessionService implements OnModuleInit {
       const configInstance = plainToInstance(SessionConfig, mergedConfig);
       const errors = await validate(configInstance);
       if (errors.length > 0) {
+        // SENTINEL: Extract non-sensitive metadata from validation errors for reporting
+        const detailedErrors = formatValidationErrors(errors);
         // SENTINEL: Sanitize validation errors to mask 'value' fields containing sensitive inputs
+        const sanitizedErrors = sanitize(errors);
         this.logger.warn(
-          `Validation failed for merged config: ${JSON.stringify(sanitize(errors))}`,
+          `Validation failed for merged config: ${JSON.stringify(sanitizedErrors)}`,
         );
         throw new BadRequestException({
           message: "Invalid configuration parameters",
@@ -2023,7 +2026,29 @@ export class SessionService implements OnModuleInit {
       const auditRetentionDays = (settings as any)?.audit_retention_days || 90;
       const deletedAudit = await this.auditLog.cleanup(auditRetentionDays);
 
-      this.logger.log(`Cleanup completed: ${deletedLogs.affected || 0} logs, ${deletedTrades.affected || 0} trades, ${deletedKlines.affected || 0} klines, and ${deletedAudit || 0} audit entries removed.`);
+      // SENTINEL: Implement memory cleanup for session-specific trackers to prevent memory exhaustion
+      // Iterate through the maps and remove entries for sessions that are no longer running.
+      const runningSessions = await this.sessionRepository.find({ where: { running: true }, select: ['id'] });
+      const runningIds = new Set(runningSessions.map(s => s.id));
+      if (this.currentSessionId) runningIds.add(this.currentSessionId);
+
+      let logRateLimitCleared = 0;
+      for (const sid of this.logRateLimits.keys()) {
+        if (!runningIds.has(sid)) {
+          this.logRateLimits.delete(sid);
+          logRateLimitCleared++;
+        }
+      }
+
+      let sessionLogCountCleared = 0;
+      for (const sid of this.sessionLogCounts.keys()) {
+        if (!runningIds.has(sid)) {
+          this.sessionLogCounts.delete(sid);
+          sessionLogCountCleared++;
+        }
+      }
+
+      this.logger.log(`Cleanup completed: ${deletedLogs.affected || 0} logs, ${deletedTrades.affected || 0} trades, ${deletedKlines.affected || 0} klines, and ${deletedAudit || 0} audit entries removed. Tracker memory cleared for ${logRateLimitCleared + sessionLogCountCleared} stale sessions.`);
     } catch (e: any) {
       this.logger.error(`Data cleanup failed: ${e.message}`);
     }

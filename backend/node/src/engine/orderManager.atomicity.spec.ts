@@ -9,7 +9,14 @@ describe('OrderManagerService Atomicity', () => {
   let mockMarketFeed: any;
   let mockSessionState: any;
   let mockAuditLog: any;
+  let mockPositionTracker: any;
 
+    mockPositionTracker = {
+      getInFlightEntry: jest.fn(),
+      setInFlight: jest.fn(),
+      clearInFlight: jest.fn(),
+      addTrade: jest.fn(),
+    };
   beforeEach(() => {
     mockSignalEngine = {
       checkEntry: jest.fn(),

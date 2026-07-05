@@ -42,7 +42,7 @@ describe('SL Ratchet Race Conditions & Protection Gaps', () => {
       { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn(), isRatcheting: jest.fn() } as any,
       mockSessionState,
       mockAuditLog,
-      mockEventEmitter, { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any
+      mockEventEmitter as any, { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any
     );
 
     mockBinanceClient = {

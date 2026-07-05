@@ -148,7 +148,7 @@ export class OrderManagerService {
     }
 
     // Accuracy Improvement: Update trade entry/exit price from User Data Stream (ORDER_TRADE_UPDATE)
-    if (executionType === 'TRADE') {
+    if (executionType === 'TRADE' && !isDuplicateTrade) {
       const activeTrades = this.sessionState.activeTrades;
       let trade = activeTrades.find(t => t.symbol === symbol);
 
@@ -174,7 +174,7 @@ export class OrderManagerService {
               trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + commission);
               this.tradeExecutionCache.set(tradeExecutionId, Date.now());
               this.logger.debug(`[${tradeIdShort8}] [UDS] Accumulated commission for ${symbol}: ${commission}. Total: ${trade.realized_fee}`);
-              this.cleanupExecutionCache();
+              this.cleanupTradeExecutionCache();
            } else {
               this.logger.debug(`[${tradeIdShort8}] [UDS] Dropping duplicate commission for execution ${tradeExecutionId}`);
            }

@@ -44,7 +44,7 @@ describe('OrderManagerService - Multi-part SL Integrity', () => {
       { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn() } as any, // positionTracker
       mockSessionState,
       { log: jest.fn() } as any, // auditLog
-      eventEmitter,
+      eventEmitter as any,
       { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any // settingsRepository
     );
 

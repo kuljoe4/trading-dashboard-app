@@ -15,6 +15,7 @@ import { EngineBroadcasterService } from './engine-broadcaster.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ENGINE_EVENTS } from './events';
 import { AnalyticsService } from './analytics.service';
+import { MonitoringService } from './monitoring.service';
 import { v4 as uuid } from 'uuid';
 import { roundTo, roundEight } from '../lib/math';
 import { ExecutionStatus } from '../models/ExecutionResult';
@@ -41,6 +42,7 @@ export class ExecutionService {
     private readonly engineBroadcaster: EngineBroadcasterService,
     private readonly eventEmitter: EventEmitter2,
     private readonly analyticsService: AnalyticsService,
+    private readonly monitoringService: MonitoringService,
   ) {}
 
   public setCooldown(symbol: string, mode: string, minutes: number) {

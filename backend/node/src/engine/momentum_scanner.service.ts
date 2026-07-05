@@ -142,6 +142,11 @@ export class MomentumScannerService {
         }
 
         opp.history = history;
+
+        // BOLT: Populate OHLC history for detailed chart visualization in the UI
+        const ohlcLen = Math.min(ENGINE_CONSTANTS.SPARKLINE_HISTORY_LEN, candles.length);
+        opp.ohlc_history = candles.slice(candles.length - ohlcLen);
+
         finalOpportunities[i] = opp;
       }
 

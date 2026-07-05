@@ -42,11 +42,19 @@ export const Sparkline = React.memo(({ data = [], width = 60, height = 24, color
  * Handles OHLC data with zero external dependencies and minimal memory footprint.
  */
 export const CandlestickChart = React.memo(({ data = [], width = 100, height = 50, signals = [] }) => {
-  if (!data || data.length < 2) return <div style={{ width, height }} />;
+  if (!Array.isArray(data) || data.length < 2) return <div style={{ width, height }} />;
 
   const { bars, min, max, range, barWidth, gap } = React.useMemo(() => {
-    const min = Math.min(...data.map(d => d.low));
-    const max = Math.max(...data.map(d => d.high));
+    // SEC: Validate all data points to prevent Infinity/NaN from breaking SVG layout or causing hangs
+    const validData = data.filter(d =>
+       Number.isFinite(d.low) && Number.isFinite(d.high) &&
+       Number.isFinite(d.open) && Number.isFinite(d.close)
+    );
+
+    if (validData.length < 2) return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0 };
+
+    const min = Math.min(...validData.map(d => d.low));
+    const max = Math.max(...validData.map(d => d.high));
     const range = (max - min) || 1;
     const barWidth = (width / data.length) * 0.7;
     const gap = (width / data.length) * 0.3;

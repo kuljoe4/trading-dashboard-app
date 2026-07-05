@@ -9,7 +9,37 @@ const DEFAULT_LOG_FILTERS = { info: true, warn: true, error: true };
 const normalizeOpportunity = (o = {}) => {
   const m = toNumber(o.pct ?? o.momentum ?? o.percent_change);
   const d = (o.dir ?? o.direction ?? (m >= 0 ? 'long' : 'short')).toString().toLowerCase();
-  return { ...o, symbol: o.symbol ?? '---', pct: m, momentum: m, dir: d, direction: d, vol: toNumber(o.vol ?? o.volume ?? o.volume_usdt ?? o.volume_24h), score: toNumber(o.score), price: toNumber(o.price) };
+
+  // SEC: Strict property picking and input sanitization to harden against prototype pollution or malformed WebSocket payloads.
+  return {
+    symbol: (o.symbol ?? '---').replace(/[^A-Z0-9]/gi, '').substring(0, 20),
+    pct: m,
+    momentum: m,
+    dir: d,
+    direction: d,
+    vol: toNumber(o.vol ?? o.volume ?? o.volume_usdt ?? o.volume_24h),
+    score: toNumber(o.score),
+    price: toNumber(o.price),
+    volume_rank: o.volume_rank ? parseInt(String(o.volume_rank), 10) : undefined,
+    history: Array.isArray(o.history) ? o.history.map(v => toNumber(v)) : undefined,
+    ohlc_history: Array.isArray(o.ohlc_history) ? o.ohlc_history.map(c => ({
+      time: toNumber(c.time || c.t),
+      open: toNumber(c.open || c.o),
+      high: toNumber(c.high || c.h),
+      low: toNumber(c.low || c.l),
+      close: toNumber(c.close || c.c),
+      volume: toNumber(c.volume || c.q)
+    })) : undefined,
+    score_breakdown: o.score_breakdown ? {
+      momentum: toNumber(o.score_breakdown.momentum),
+      volatility: toNumber(o.score_breakdown.volatility),
+      trend: toNumber(o.score_breakdown.trend)
+    } : undefined,
+    signalResult: o.signalResult ? {
+      allFired: !!o.signalResult.allFired,
+      reason: String(o.signalResult.reason || '').substring(0, 200)
+    } : undefined
+  };
 }
 
 const normalizeTrade = (t = {}, pt = null) => {

@@ -7,13 +7,13 @@ import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, Chevron
 import { motion, AnimatePresence } from 'framer-motion'
 import { shallow } from 'zustand/shallow'
 
-const ScannerRow = React.memo(({ opp, i, config, activeTrades }) => {
+const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const threshold = config?.scan_pct_threshold || 2.0;
   const dir = (opp.dir || opp.direction || '').toLowerCase();
   const isLong = dir ? dir === 'long' : opp.pct >= 0;
   const passing = Math.abs(opp.pct) >= threshold;
-  const isSingleMonitor = config?.single_symbol_configs?.some(sc => sc.symbol === opp.symbol && sc.enabled);
+  const isSingleMonitor = isMonitored ?? config?.single_symbol_configs?.some(sc => sc.symbol === opp.symbol && sc.enabled);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -42,7 +42,7 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades }) => {
           {opp.volume_rank && (
             <div className="mt-1">
               <Tooltip content={`Volume Rank: This symbol is #${opp.volume_rank} in 24h volume among tracked assets.`}>
-                 <span className="text-[7px] md:text-[8px] bg-white/5 border border-white/10 px-1 py-0.5 rounded text-dim/60 font-black uppercase tracking-tighter cursor-help">
+                 <span className="text-[7px] md:text-[8px] bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded text-accent font-black uppercase tracking-tighter cursor-help shadow-sm">
                     V#{opp.volume_rank}
                  </span>
               </Tooltip>
@@ -527,84 +527,16 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
             </button>
           </div>
         ) : (
-          filteredResults.map((opp, i) => {
-            const passing = Math.abs(opp.pct) >= threshold
-            const dir = (opp.dir || opp.direction || '').toLowerCase()
-            const isLong = dir ? dir === 'long' : opp.pct >= 0
-            // BOLT OPTIMIZATION: Use O(1) Set lookup instead of O(M) array search
-            const isSingleMonitor = monitoredSymbols.has(opp.symbol)
-
-            return (
-              <div key={opp.symbol}
-                className={cn(
-                  "grid grid-cols-[30px_1fr_80px_60px] md:grid-cols-[30px_100px_1fr_60px_1fr_1fr_50px] items-center px-4 py-3 border-b border-border/50 transition-all h-[56px] group",
-                  !passing && "opacity-45 grayscale-[0.5]",
-                  isSingleMonitor && "bg-accent/5",
-                  passing && "hover:bg-white/5 active:bg-white/10"
-                )}>
-                <div className="flex flex-col justify-center">
-                  <span className="text-[11px] text-dim font-mono leading-none">#{i + 1}</span>
-                  {opp.volume_rank && (
-                    <div className="mt-1">
-                      <Tooltip content={`Volume Rank: This symbol is #${opp.volume_rank} in 24h volume among tracked assets.`}>
-                         <span className="text-[7px] md:text-[8px] bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded text-accent font-black uppercase tracking-tighter cursor-help shadow-sm">
-                            V#{opp.volume_rank}
-                         </span>
-                      </Tooltip>
-                    </div>
-                  )}
-                </div>
-                <div className="flex flex-col justify-center overflow-hidden">
-                   <div className="flex items-baseline gap-0.5">
-                     <span className="text-[14px] font-bold font-mono truncate">{opp.symbol.replace("USDT", "")}</span>
-                     <span className="text-[9px] text-dim font-mono opacity-50">/U</span>
-                     <CopyButton value={opp.symbol} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ml-1" />
-                   </div>
-                   {isSingleMonitor && (
-                     <div className="flex items-center gap-1 mt-0.5">
-                        <ShieldCheck size={10} className="text-accent" />
-                        <span className="text-[8px] font-bold text-accent uppercase tracking-tighter">Monitored</span>
-                     </div>
-                   )}
-                </div>
-                <div className="flex flex-col items-end">
-                  <span className={cn(
-                    "text-[14px] font-bold font-mono",
-                    isLong ? "text-green" : "text-red"
-                  )}>
-                    {isLong ? "+" : "-"}{Number(Math.abs(opp.pct || 0)).toFixed(2)}%
-                  </span>
-                  <div className="md:hidden mt-1">
-                    <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={40} height={12} />
-                  </div>
-                </div>
-                <div className="md:flex justify-center hidden">
-                  <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={40} height={16} />
-                </div>
-                <span className="text-[11px] text-dim font-mono text-right md:block hidden">{fmtVol(opp.vol)}</span>
-                <div className="md:flex items-center gap-2 px-2 overflow-hidden hidden">
-                  <div className="flex-1 h-1 bg-border rounded-full overflow-hidden min-w-[20px]">
-                    <div className="h-full bg-accent rounded-full" style={{ width: `${(Number(opp.score || 0) / 10) * 100}%` }} />
-                  </div>
-                  <span className="text-[10px] text-dim font-mono whitespace-nowrap">{Number(opp.score || 0).toFixed(1)}</span>
-                </div>
-                <div className="flex justify-center">
-                  <Tooltip content={
-                    !passing ? "Below momentum threshold. Awaiting stronger price action." :
-                    opp.signalResult && !opp.signalResult.allFired ? `Signal Failed: ${opp.signalResult.reason}` :
-                    "Meets all criteria for automated entry."
-                  }>
-                    {!passing
-                      ? <span className="px-2 py-0.5 rounded bg-surface text-dim text-[9px] font-black uppercase tracking-tighter border border-border cursor-help">WAIT</span>
-                      : opp.signalResult && !opp.signalResult.allFired
-                      ? <span className="px-2 py-0.5 rounded bg-amber/10 text-amber text-[9px] font-black uppercase tracking-tighter border border-amber/20 cursor-help">REJECT</span>
-                      : <span className="px-2 py-0.5 rounded bg-green/10 text-green text-[9px] font-black uppercase tracking-tighter border border-green/20 cursor-help">PASS</span>
-                    }
-                  </Tooltip>
-                </div>
-              </div>
-            )
-          })
+          filteredResults.map((opp, i) => (
+            <ScannerRow
+              key={opp.symbol}
+              opp={opp}
+              i={i}
+              config={config}
+              activeTrades={activeTrades}
+              isMonitored={monitoredSymbols.has(opp.symbol)}
+            />
+          ))
         )}
       </div>
 

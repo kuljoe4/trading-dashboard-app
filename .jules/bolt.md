@@ -142,6 +142,10 @@
 ## 2026-07-01 - [Optimization] O(1) Cache Eviction in SignalEngine
 **Learning:** Using 'Array.from(map.keys())' for cache eviction creates an O(N) array allocation just to access a few elements. In high-frequency services like SignalEngine, this causes unnecessary GC pressure. Using a direct iterator with 'map.keys().next()' allows for O(1) eviction without intermediate allocations.
 **Action:** Always use direct iterators for Map/Set eviction or partial processing in hot paths to achieve zero-allocation collection access.
+
+## 2026-07-05 - [Optimization] Signal Engine Structural Lookback Caching
+**Learning:** O(N) structural lookbacks in signals (MA, Breakout) are ideal candidates for stable caching based on the last completed candle timestamp. In a high-frequency polling environment, recalculating structural ranges (min/max/average) over 200+ candles on every 1s/2s tick is a major CPU sink.
+**Action:** Implement 'stable' caches for all structural indicators that only update when a new candle closes, turning O(N) loops into O(1) lookups for the vast majority of evaluation cycles.
 ## 2026-06-29 - [Optimization] O(K) Cache Eviction over O(N) Array Allocation
 **Learning:** Using 'Array.from(map.keys())' to perform partial cache eviction (e.g., removing the first 100 entries when a Map hits 1000) creates an unnecessary O(N) array allocation. Since Map iterators follow insertion order, using the direct iterator and calling '.next()' is (K)$ where $ is the eviction count.
 **Action:** Use direct Map iterators for partial eviction in high-frequency caches to eliminate O(N) allocations in the hot path.

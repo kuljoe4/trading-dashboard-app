@@ -27,6 +27,8 @@ export class SignalEngineService {
 
   // BOLT OPTIMIZATION: Stable caches for completed candles to allow O(1) incremental updates
   private readonly emaStableCache = new Map<string, { time: number; value: number; count: number }>();
+  private readonly smaStableCache = new Map<string, { time: number; value: number; count: number }>();
+  private readonly hlStableCache = new Map<string, { time: number; minLow: number; maxHigh: number; count: number }>();
 
   private readonly signalHandlers: Record<
     string,
@@ -223,6 +225,10 @@ export class SignalEngineService {
     };
   }
 
+  /**
+   * BOLT OPTIMIZATION: Calculates Breakout HL signal with stable caching for structural lookbacks.
+   * This turns O(N) into O(1) for the vast majority of calls.
+   */
   private breakoutHlSignal(
     symbol: string,
     config: SessionConfig,
@@ -251,9 +257,38 @@ export class SignalEngineService {
     let maxHigh = -Infinity;
     let minLow = Infinity;
     const startIdx = Math.max(0, candles.length - lookback - 1);
-    for (let i = startIdx; i < candles.length - 1; i++) {
-      if (candles[i].high > maxHigh) maxHigh = candles[i].high;
-      if (candles[i].low < minLow) minLow = candles[i].low;
+    const endIdx = candles.length - 1;
+
+    // BOLT OPTIMIZATION: Try stable cache if we are scanning up to the last completed candle
+    const stableKey = `${symbol}:${interval}:${lookback}`;
+    const targetCandle = candles[endIdx - 1];
+    const stable = this.hlStableCache.get(stableKey);
+
+    if (stable && stable.time === targetCandle.time && stable.count === lookback) {
+      minLow = stable.minLow;
+      maxHigh = stable.maxHigh;
+    } else {
+      for (let i = startIdx; i < endIdx; i++) {
+        if (candles[i].high > maxHigh) maxHigh = candles[i].high;
+        if (candles[i].low < minLow) minLow = candles[i].low;
+      }
+
+      // Maintain stable cache
+      this.hlStableCache.set(stableKey, {
+        time: targetCandle.time,
+        minLow,
+        maxHigh,
+        count: lookback,
+      });
+
+      if (this.hlStableCache.size > 1000) {
+        const iter = this.hlStableCache.keys();
+        for (let i = 0; i < 100; i++) {
+          const next = iter.next();
+          if (next.done) break;
+          this.hlStableCache.delete(next.value);
+        }
+      }
     }
 
     const isLong = side === 'LONG';
@@ -405,7 +440,7 @@ export class SignalEngineService {
         return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'MA Cross', description: 'Insufficient data', insufficientData: true };
       }
 
-      const ma = this.calculateSMA(candles, candles.length - period - 1, candles.length - 1);
+      const ma = this.calculateSMA(candles, candles.length - period - 1, candles.length - 1, symbol, interval, period);
       const prevClose = candles[candles.length - 2].close;
       const currClose = candles[candles.length - 1].close;
       const diff = currClose - ma;
@@ -787,15 +822,59 @@ export class SignalEngineService {
     return this.calculateEMALastTwoAt(candles, candles.length - 1, period, interval, symbol);
   }
 
-  private calculateSMA(candles: any[], start: number, end: number): number {
+  /**
+   * BOLT OPTIMIZATION: Calculates SMA with stable caching for completed candles.
+   * This turns O(N) into O(1) for the vast majority of calls.
+   */
+  private calculateSMA(
+    candles: any[],
+    start: number,
+    end: number,
+    symbol?: string,
+    interval?: string,
+    period?: number
+  ): number {
     const count = end - start;
     if (count <= 0) return 0;
+
+    // BOLT OPTIMIZATION: Try stable cache if we are scanning up to the last completed candle
+    const isCompletedUpdate = end === candles.length - 1;
+    const stableKey = (symbol && interval && period && isCompletedUpdate) ? `${symbol}:${interval}:${period}` : null;
+    if (stableKey) {
+      const targetCandle = candles[end - 1];
+      const stable = this.smaStableCache.get(stableKey);
+      if (stable && stable.time === targetCandle.time && stable.count === count) {
+        return stable.value;
+      }
+    }
 
     let sum = 0;
     for (let i = start; i < end; i++) {
       sum += candles[i].close;
     }
-    return sum / count;
+    const sma = sum / count;
+
+    // Maintain stable cache if it's the last completed candle
+    if (stableKey) {
+      const targetCandle = candles[end - 1];
+      this.smaStableCache.set(stableKey, {
+        time: targetCandle.time,
+        value: sma,
+        count,
+      });
+
+      // Simple O(1) eviction
+      if (this.smaStableCache.size > 1000) {
+        const iter = this.smaStableCache.keys();
+        for (let i = 0; i < 100; i++) {
+          const next = iter.next();
+          if (next.done) break;
+          this.smaStableCache.delete(next.value);
+        }
+      }
+    }
+
+    return sma;
   }
 
   /**

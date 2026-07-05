@@ -126,11 +126,9 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
 ConfigField.displayName = 'ConfigField'
 
 const SignalChip = React.memo(({ signal, active, onClick }) => {
-  const [key, label, desc] = signal;
+  const [key, label] = signal;
   return (
-    <Tooltip content={desc} side="bottom">
-      <Chip active={active} onClick={() => onClick(key, active)}>{label}</Chip>
-    </Tooltip>
+    <Chip active={active} onClick={() => onClick(key, active)}>{label}</Chip>
   );
 })
 SignalChip.displayName = 'SignalChip'
@@ -152,20 +150,18 @@ const ExitSignalCard = React.memo(({ signal, active, delayValue, onToggle, onDel
 
   return (
     <div className="flex flex-col gap-2">
-      <Tooltip content={desc}>
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => onToggle(key, active)}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(key, active); } }}
-          className={cn("w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all text-left cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-red/50", active ? "border-red/40 bg-red/5" : "border-border hover:border-border-hover bg-surface/50")}
-        >
-          <span className={cn("text-xs font-bold", active ? "text-red" : "text-text")}>{label}</span>
-          <Switch.Root checked={active} className={cn("h-5 w-9 rounded-full transition-colors relative pointer-events-none", active ? "bg-red" : "bg-border")}>
-            <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
-          </Switch.Root>
-        </div>
-      </Tooltip>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => onToggle(key, active)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(key, active); } }}
+        className={cn("w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all text-left cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-red/50", active ? "border-red/40 bg-red/5" : "border-border hover:border-border-hover bg-surface/50")}
+      >
+        <span className={cn("text-xs font-bold", active ? "text-red" : "text-text")}>{label}</span>
+        <Switch.Root checked={active} className={cn("h-5 w-9 rounded-full transition-colors relative pointer-events-none", active ? "bg-red" : "bg-border")}>
+          <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
+        </Switch.Root>
+      </div>
       {active && (
         <div className="px-1 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
           <label className="text-[9px] font-bold text-dim uppercase tracking-wider">Delay Trigger (s)</label>
@@ -395,16 +391,14 @@ const PresetItem = React.memo(({ preset, isLoaded, isDirty, onLoad, onToggleVari
       </button>
 
       <div className="flex items-center gap-2">
-        <Tooltip content={isVariant ? "Remove from variants" : "Add as strategy variant"}>
-          <button
-            type="button"
-            onClick={(e) => onToggleVariant(e, preset)}
-            aria-label={isVariant ? `Remove ${preset.name} from variants` : `Add ${preset.name} as variant`}
-            className={cn("p-2 rounded-lg transition-all active:scale-95", isVariant ? "bg-accent/10 text-accent border border-accent/20" : "bg-surface border border-border text-dim hover:text-accent hover:border-accent/20")}
-          >
-            {isVariant ? <XCircle size={16} /> : <Plus size={16} />}
-          </button>
-        </Tooltip>
+        <button
+          type="button"
+          onClick={(e) => onToggleVariant(e, preset)}
+          aria-label={isVariant ? `Remove ${preset.name} from variants` : `Add ${preset.name} as variant`}
+          className={cn("p-2 rounded-lg transition-all active:scale-95", isVariant ? "bg-accent/10 text-accent border border-accent/20" : "bg-surface border border-border text-dim hover:text-accent hover:border-accent/20")}
+        >
+          {isVariant ? <XCircle size={16} /> : <Plus size={16} />}
+        </button>
         <button
           type="button"
           onClick={(e) => onDelete(e, preset.name)}
@@ -1362,17 +1356,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       {renderField('Min Interval (m)', 'min_trade_interval_min', 'number', null, { min: 0 })}
                       {renderField('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
                     </div>
-                    {cfg.trades_jitter_pct > 0 && (
-                      <div className="flex items-center justify-between pt-4 border-t border-border/40 animate-in fade-in slide-in-from-top-1 duration-200">
-                        <div className="flex flex-col">
-                          <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
-                            <Target size={12} className="text-accent" /> Market-Aware Jitter
-                          </span>
-                          <span className="text-[9px] text-dim font-medium uppercase tracking-tight">Prioritize high-quality signals with less random delay</span>
-                        </div>
-                        <Toggle value={cfg.trades_jitter_market_aware === true} onChange={(v) => setField('trades_jitter_market_aware', v)} color="bg-accent" />
+                    <div className={cn("flex items-center justify-between pt-4 border-t border-border/40 transition-opacity duration-300", cfg.trades_jitter_pct <= 0 && "opacity-40 pointer-events-none")}>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                          <Target size={12} className="text-accent" /> Market-Aware Jitter
+                        </span>
+                        <span className="text-[9px] text-dim font-medium uppercase tracking-tight">Prioritize high-quality signals with less random delay</span>
                       </div>
-                    )}
+                      <Toggle value={cfg.trades_jitter_market_aware === true} onChange={(v) => setField('trades_jitter_market_aware', v)} color="bg-accent" />
+                    </div>
                   </motion.div>
                 )}
 

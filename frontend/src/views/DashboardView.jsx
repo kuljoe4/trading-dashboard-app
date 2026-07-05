@@ -260,28 +260,24 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
         </div>
         <div className="text-right shrink-0">
           <div className="flex gap-2 mb-2 relative z-20">
-            <Tooltip content={isExpanded ? "Hide Details" : "Show Details"}>
-              <button
-                onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
-                aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
-                aria-expanded={isExpanded}
-                className={cn(
-                  "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                  isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
-                )}
-              >
-                <Activity size={14} />
-              </button>
-            </Tooltip>
-            <Tooltip content="Edit Config">
-              <button
-                onClick={(e) => { e.stopPropagation(); onEdit(); }}
-                className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none"
-                aria-label="Edit strategy configuration"
-              >
-                <Edit3 size={14} />
-              </button>
-            </Tooltip>
+            <button
+              onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
+              aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
+              aria-expanded={isExpanded}
+              className={cn(
+                "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
+              )}
+            >
+              <Activity size={14} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onEdit(); }}
+              className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none"
+              aria-label="Edit strategy configuration"
+            >
+              <Edit3 size={14} />
+            </button>
           </div>
           <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter" style={{ color: pnlColor(s.activePnl) }}>
             {fmtUSD(s.activePnl)}
@@ -449,7 +445,7 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
                   >
                     <span className="text-[10px] text-dim font-mono w-4">#{i + 1}</span>
                     <strong className="text-xs font-mono w-16">{opp.symbol.replace('USDT', '')}</strong>
-                    <CopyButton value={opp.symbol} tooltip="Copy Symbol" className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 -ml-2" />
+                    <CopyButton value={opp.symbol} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 -ml-2" />
                     <div className="flex-1 flex justify-center h-8">
                       <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={48} height={20} />
                     </div>
@@ -467,21 +463,9 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
                     <div className="w-12 flex justify-end">
                       {passing ? (
                         opp.signalResult?.allFired ? (
-                          <Tooltip content="Meets momentum and signal criteria.">
-                            <b className="text-[10px] font-black text-green uppercase tracking-wider cursor-help">PASS</b>
-                          </Tooltip>
+                          <b className="text-[10px] font-black text-green uppercase tracking-wider">PASS</b>
                         ) : (
-                          <Tooltip content={
-                            <div className="flex flex-col gap-1 p-1">
-                               <div className="font-bold flex items-center gap-1.5 text-red-400">
-                                 <AlertCircle size={12} />
-                                 SIGNAL REJECTED
-                               </div>
-                               <div className="text-[10px] opacity-90">{opp.signalResult?.reason || 'Authorization failed'}</div>
-                            </div>
-                          }>
-                            <b className="text-[10px] font-black text-red-400 uppercase tracking-wider cursor-help">REJECT</b>
-                          </Tooltip>
+                          <b className="text-[10px] font-black text-red-400 uppercase tracking-wider">REJECT</b>
                         )
                       ) : (
                         <b className="text-[10px] font-bold text-dim uppercase tracking-wider">WAIT</b>
@@ -822,30 +806,27 @@ export function DashboardView({ initialStrategy }) {
         >
           <div className="flex gap-3">
             {config.frequency_shaping_enabled && (
-              <Tooltip content="Adaptive Frequency Shaping is ACTIVE. Limits will automatically tighten if TOD performance drops.">
-                <div className="hidden xl:flex items-center gap-2 px-3 py-1.5 bg-accent/10 border border-accent/20 rounded-xl text-[10px] font-bold text-accent uppercase tracking-widest animate-in fade-in zoom-in duration-500">
-                  <Activity size={12} />
-                  Frequency Guard
-                </div>
-              </Tooltip>
+              <div className="hidden xl:flex items-center gap-2 px-3 py-1.5 bg-accent/10 border border-accent/20 rounded-xl text-[10px] font-bold text-accent uppercase tracking-widest animate-in fade-in zoom-in duration-500">
+                <Activity size={12} />
+                Frequency Guard
+              </div>
             )}
 
-            <Tooltip content={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}>
-              <button
-                onClick={() => setThrottled(!isThrottled)}
-                className={cn(
-                  "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                  isThrottled
-                    ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
-                    : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
-                )}
-              >
-                <Leaf size={18} fill={isThrottled ? "currentColor" : "none"} />
-                <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest">
-                  {isThrottled ? "Eco Active" : "Eco Mode"}
-                </span>
-              </button>
-            </Tooltip>
+            <button
+              onClick={() => setThrottled(!isThrottled)}
+              aria-label={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}
+              className={cn(
+                "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                isThrottled
+                  ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
+                  : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
+              )}
+            >
+              <Leaf size={18} fill={isThrottled ? "currentColor" : "none"} />
+              <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest">
+                {isThrottled ? "Eco Active" : "Eco Mode"}
+              </span>
+            </button>
 
             {sessionActive && (
               <Btn
@@ -1045,7 +1026,7 @@ export function DashboardView({ initialStrategy }) {
 
 
         {/* ROI Trends & Insights */}
-        {analytics?.roiTrends && (
+        {(analytics?.roiTrends || !sessionActive) && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -1056,33 +1037,41 @@ export function DashboardView({ initialStrategy }) {
                <SectionLabel className="mb-0">
                   <TrendingUp size={14} className="text-accent" /> Performance Insights
                </SectionLabel>
-               <span className="text-[9px] text-dim font-black uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50">
-                  Updated Live
-               </span>
+               <div className="flex items-center gap-3">
+                 <button
+                   onClick={() => window.location.hash = '#/history'}
+                   className="text-[10px] font-black uppercase tracking-widest text-accent hover:text-accent/80 transition-colors flex items-center gap-1.5"
+                 >
+                   View Full Analytics <ChevronRight size={12} />
+                 </button>
+                 <span className="text-[9px] text-dim font-black uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50">
+                    Updated Live
+                 </span>
+               </div>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
               <StatCard
                 label="7D ROI Trend"
-                value={`${analytics.roiTrends.sevenDay >= 0 ? '+' : ''}${analytics.roiTrends.sevenDay}%`}
-                color={pnlClass(analytics.roiTrends.sevenDay)}
+                value={analytics?.roiTrends ? `${analytics.roiTrends.sevenDay >= 0 ? '+' : ''}${analytics.roiTrends.sevenDay}%` : '---'}
+                color={analytics?.roiTrends ? pnlClass(analytics.roiTrends.sevenDay) : "text-dim"}
                 tooltipText="Percentage return on account equity over the last 7 days."
               />
               <StatCard
                 label="4W ROI Trend"
-                value={`${analytics.roiTrends.fourWeek >= 0 ? '+' : ''}${analytics.roiTrends.fourWeek}%`}
-                color={pnlClass(analytics.roiTrends.fourWeek)}
+                value={analytics?.roiTrends ? `${analytics.roiTrends.fourWeek >= 0 ? '+' : ''}${analytics.roiTrends.fourWeek}%` : '---'}
+                color={analytics?.roiTrends ? pnlClass(analytics.roiTrends.fourWeek) : "text-dim"}
                 tooltipText="Percentage return on account equity over the last 28 days."
               />
               <StatCard
                 label="Profit Factor"
-                value={Number(analytics.profitFactor || 0).toFixed(2)}
-                color="text-accent"
+                value={analytics ? Number(analytics.profitFactor || 0).toFixed(2) : '---'}
+                color={analytics ? "text-accent" : "text-dim"}
                 tooltipText="Ratio of gross profit to gross loss. > 1.0 is profitable."
               />
               <StatCard
                 label="Sharpe Ratio"
-                value={Number(analytics.sharpeRatio || 0).toFixed(2)}
-                color="text-accent"
+                value={analytics ? Number(analytics.sharpeRatio || 0).toFixed(2) : '---'}
+                color={analytics ? "text-accent" : "text-dim"}
                 tooltipText="Risk-adjusted return. Higher is better."
               />
             </div>
@@ -1270,17 +1259,15 @@ export function DashboardView({ initialStrategy }) {
 
         {/* Mobile Floating Controls */}
         <div className="lg:hidden fixed bottom-24 right-6 flex flex-col gap-4 z-[100]">
-          <Tooltip content="Open Market Scanner" side="left">
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              onClick={() => setShowScanner(true)}
-              aria-label="Open Market Scanner"
-              className="w-10 h-10 rounded-full bg-accent text-white shadow-2xl flex items-center justify-center animate-in fade-in zoom-in duration-500"
-            >
-              <Zap size={20} />
-            </motion.button>
-          </Tooltip>
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={() => setShowScanner(true)}
+            aria-label="Open Market Scanner"
+            className="w-10 h-10 rounded-full bg-accent text-white shadow-2xl flex items-center justify-center animate-in fade-in zoom-in duration-500"
+          >
+            <Zap size={20} />
+          </motion.button>
         </div>
 
         <BottomNav selected={selected} />

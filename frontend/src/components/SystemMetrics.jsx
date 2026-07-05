@@ -71,15 +71,7 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
               {wsStatus === 'live' ? 'Live' : 'Offline'}
             </span>
             {(gateState === 'sleeping' || gateState === 'max_trades' || gateState === 'max_trades_period') && (
-              <Tooltip
-                side="right"
-                content={gateState === 'sleeping'
-                  ? "Sleep Mode: WebSockets closed. CPU usage reduced by >95%."
-                  : "Gating Active: Momentum scanning paused. Main loop CPU reduced by ~90%."
-                }
-              >
-                <span className="text-[8px] text-accent font-bold uppercase tracking-tight animate-pulse cursor-help">Efficiency Active</span>
-              </Tooltip>
+              <span className="text-[8px] text-accent font-bold uppercase tracking-tight animate-pulse">Efficiency Active</span>
             )}
           </div>
         )}
@@ -177,11 +169,9 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
             compact={compact}
           />
           <div className="w-px h-3 bg-border/50" />
-          <Tooltip content={`UDS: ${monitoring?.application?.exchange_uds_status || 'DISCONNECTED'}`}>
-             <div className="flex items-center">
-                <PulseDot color={monitoring?.application?.exchange_uds_status === 'CONNECTED' ? "bg-green" : "bg-red"} />
-             </div>
-          </Tooltip>
+          <div className="flex items-center">
+             <PulseDot color={monitoring?.application?.exchange_uds_status === 'CONNECTED' ? "bg-green" : "bg-red"} />
+          </div>
         </div>
       )}
     </>

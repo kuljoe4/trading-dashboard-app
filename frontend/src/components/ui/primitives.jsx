@@ -152,22 +152,17 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
 })
 
 // --- Stat Card ---
-export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing }) => {
+export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing, tooltipText }) => {
   // BOLT: Clean up double-negative visuals: if value starts with '-', don't show negative arrow in label/icon.
-  // This component currently doesn't show an icon, but if the value passed from parent has both '-' and an arrow,
-  // it might look redundant. The user pointed out: "Total Performance" displays ▼ - $9,920.52.
-  // We should ensure the parent (HistoryView or Dashboard) doesn't pass both.
-  // However, we can also sanitize it here.
-
   const sanitizedValue = typeof value === 'string' && (value.includes('▼') || value.includes('▲') || value.includes('▾') || value.includes('▴')) && value.includes('-')
     ? value.replace('-', '') // Remove the minus if an arrow is already present
     : value;
 
-  return (
+  const content = (
     <div
       className="bg-surface border border-border/60 p-3 md:p-4 lg:p-5 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[80px] lg:min-h-[100px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
       role="region"
-      aria-label={`${label}: ${value}`}
+      aria-label={`${label}: ${value}${tooltipText ? '. ' + tooltipText : ''}`}
       aria-busy={syncing}
     >
       {syncing && (
@@ -176,6 +171,7 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
       <div className="flex flex-col gap-0.5 w-full">
         <div className="flex items-start gap-1.5 min-h-[2rem] md:min-h-[2.25rem]">
             <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] flex-1" aria-hidden="true">{label}</div>
+            {tooltipText && <Info size={10} className="text-dim/30 group-hover:text-accent transition-colors" />}
         </div>
         <div className="flex flex-col">
           <div className={cn(
@@ -196,6 +192,12 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
       </div>
     </div>
   );
+
+  if (tooltipText) {
+    return <Tooltip content={tooltipText}>{content}</Tooltip>;
+  }
+
+  return content;
 })
 
 // --- Section Label ---

@@ -3,11 +3,11 @@ import { fmtVol } from '../lib/theme'
 import { formatDuration } from '../lib/formatters'
 import { PulseDot, Sparkline, cn, CopyButton, Tooltip, CandlestickChart } from './ui/primitives'
 import { useTradingStore } from '../store/trading'
-import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp } from 'lucide-react'
+import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { shallow } from 'zustand/shallow'
 
-const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored }) => {
+const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scannerPaused, hibernating, lastScanTs, now }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const threshold = config?.scan_pct_threshold || 2.0;
   const dir = (opp.dir || opp.direction || '').toLowerCase();
@@ -37,12 +37,12 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored }) =>
           passing && "hover:bg-white/5 active:bg-white/10",
           isExpanded && "bg-white/[0.02]"
         )}>
-        <div className="flex flex-col justify-center">
-          <span className="text-[11px] text-dim font-mono leading-none">#{i + 1}</span>
+        <div className="flex flex-col justify-center gap-1">
+          <span className="text-[10px] text-dim font-black font-mono leading-none opacity-40 group-hover:opacity-100 transition-opacity">{(i + 1).toString().padStart(2, '0')}</span>
           {opp.volume_rank && (
-            <div className="mt-1">
-              <span className="text-[7px] md:text-[8px] bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded text-accent font-black uppercase tracking-tighter shadow-sm">
-                V#{opp.volume_rank}
+            <div className="flex items-center">
+              <span className="text-[8px] bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded-[4px] text-accent font-black uppercase tracking-tighter shadow-sm">
+                V{opp.volume_rank}
               </span>
             </div>
           )}
@@ -161,94 +161,106 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored }) =>
             )}
             <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-8 border-t border-white/5">
               <div className="flex flex-col gap-4">
-                <div className="text-[10px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-2">
+                <div className="text-[10px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-2 px-1">
                    <Activity size={12} className="text-accent" /> Signal Visualization
                 </div>
-                <div className="bg-surface border border-border rounded-2xl p-4 flex items-center justify-center min-h-[160px] relative overflow-hidden">
-                   <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(var(--color-accent) 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
+                <div className="bg-surface/50 border border-border rounded-2xl p-5 flex items-center justify-center min-h-[180px] relative overflow-hidden group/viz">
+                   <div className="absolute inset-0 opacity-[0.03] pointer-events-none group-hover/viz:opacity-[0.05] transition-opacity" style={{ backgroundImage: 'radial-gradient(var(--color-accent) 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
                    {opp.ohlc_history ? (
-                     <div className="w-full flex flex-col items-center">
-                        <CandlestickChart data={opp.ohlc_history} width={360} height={120} />
-                        <div className="flex justify-between w-full mt-4 px-2">
+                     <div className="w-full flex flex-col items-center relative z-10">
+                        <CandlestickChart data={opp.ohlc_history} width={360} height={140} />
+                        <div className="flex justify-between w-full mt-6 px-2">
                            <div className="flex flex-col">
-                              <span className="text-[8px] text-dim uppercase font-black tracking-widest">Entry Target</span>
-                              <span className="text-xs font-mono font-bold">${opp.price.toLocaleString()}</span>
+                              <span className="text-[9px] text-dim uppercase font-black tracking-widest mb-1">Entry Level</span>
+                              <span className="text-sm font-mono font-black text-text/90">${opp.price.toLocaleString()}</span>
                            </div>
                            <div className="flex flex-col items-end">
-                              <span className="text-[8px] text-dim uppercase font-black tracking-widest">Momentum</span>
-                              <span className={cn("text-xs font-mono font-bold", isLong ? "text-green" : "text-red")}>
-                                {isLong ? "+" : "-"}{Number(Math.abs(opp.pct || 0)).toFixed(2)}%
+                              <span className="text-[9px] text-dim uppercase font-black tracking-widest mb-1">Delta</span>
+                              <span className={cn("text-sm font-mono font-black", isLong ? "text-green" : "text-red")}>
+                                {isLong ? "▲" : "▼"} {Number(Math.abs(opp.pct || 0)).toFixed(2)}%
                               </span>
                            </div>
                         </div>
                      </div>
                    ) : (
-                     <div className="text-[10px] text-dim italic opacity-40 uppercase tracking-widest">Loading OHLC telemetry...</div>
+                     <div className="flex flex-col items-center gap-4 py-4">
+                        <div className="relative">
+                          <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shadow-inner">
+                             {hibernating ? <Zap size={28} className="text-amber/40 animate-pulse" /> : <Activity size={28} className="text-dim/20 animate-pulse" />}
+                          </div>
+                          <div className={cn(
+                            "absolute -top-1 -right-1 w-4 h-4 rounded-full border-2 border-surface flex items-center justify-center",
+                            hibernating ? "bg-amber" : scannerPaused ? "bg-red" : "bg-accent"
+                          )}>
+                            <div className="w-1 h-1 rounded-full bg-white animate-ping" />
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-center gap-1.5">
+                          <div className="text-[11px] text-dim font-black uppercase tracking-[0.2em] animate-pulse text-center leading-none">
+                             {hibernating ? "Deep Sleep" : scannerPaused ? "Scanner Gated" : "Synchronizing"}
+                          </div>
+                          <p className="text-[9px] text-dim/40 font-bold uppercase tracking-tight text-center">
+                            {hibernating ? "Market telemetry paused to save resources" : scannerPaused ? "Awaiting next valid window" : "Establishing authoritative data link..."}
+                          </p>
+                        </div>
+                     </div>
                    )}
                 </div>
               </div>
 
               <div className="flex flex-col gap-4">
-                 <div className="text-[10px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-2">
-                   <LayoutGrid size={12} className="text-accent" /> Opportunity Scoring
+                 <div className="text-[10px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-2 px-1">
+                   <LayoutGrid size={12} className="text-accent" /> Intelligence Score
                  </div>
-                 <div className="bg-surface border border-border rounded-2xl p-5 flex flex-col gap-4 relative overflow-hidden group/scoring" role="group" aria-label="Detailed score breakdown">
-                    <div className="absolute top-0 right-0 p-3 opacity-10 group-hover/scoring:opacity-20 transition-opacity">
-                       <TrendingUp size={40} className="text-accent" />
+                 <div className="bg-surface/50 border border-border rounded-2xl p-6 flex flex-col gap-5 relative overflow-hidden group/scoring shadow-sm" role="group" aria-label="Detailed score breakdown">
+                    <div className="absolute -top-4 -right-4 p-8 opacity-[0.03] group-hover/scoring:opacity-10 transition-opacity">
+                       <TrendingUp size={120} className="text-accent" />
                     </div>
 
-                    <div className="space-y-5 relative z-10">
-                       <div className="space-y-2">
-                          <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
-                             <span className="text-dim">Momentum Contribution</span>
-                             <span className="text-accent">{opp.score_breakdown?.momentum?.toFixed(1) || '0.0'}%</span>
+                    <div className="space-y-6 relative z-10">
+                       {[
+                         { label: 'Momentum', value: opp.score_breakdown?.momentum, color: 'bg-accent', text: 'text-accent' },
+                         { label: 'Volatility', value: opp.score_breakdown?.volatility, color: 'bg-amber', text: 'text-amber' },
+                         { label: 'Trend Strength', value: opp.score_breakdown?.trend, color: 'bg-purple-400', text: 'text-purple-400' }
+                       ].map((metric) => (
+                        <div key={metric.label} className="space-y-2.5">
+                          <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest">
+                             <span className="text-dim/80">{metric.label}</span>
+                             <span className={cn(metric.text)}>{metric.value?.toFixed(1) || '0.0'}%</span>
                           </div>
-                          <div className="h-1.5 bg-background rounded-full overflow-hidden border border-white/5">
+                          <div className="h-2 bg-background/80 rounded-full overflow-hidden border border-white/5 shadow-inner">
                              <motion.div
                                initial={{ width: 0 }}
-                               animate={{ width: `${opp.score_breakdown?.momentum || 0}%` }}
-                               className="h-full bg-accent shadow-[0_0_8px_var(--color-accent)]"
+                               animate={{ width: `${metric.value || 0}%` }}
+                               transition={{ type: "spring", stiffness: 50, damping: 20 }}
+                               className={cn("h-full shadow-[0_0_12px_rgba(var(--accent-rgb),0.3)]", metric.color)}
                              />
                           </div>
-                       </div>
+                        </div>
+                       ))}
 
-                       <div className="space-y-2">
-                          <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
-                             <span className="text-dim">Volatility Component</span>
-                             <span className="text-amber">{opp.score_breakdown?.volatility?.toFixed(1) || '0.0'}%</span>
-                          </div>
-                          <div className="h-1.5 bg-background rounded-full overflow-hidden border border-white/5">
-                             <motion.div
-                               initial={{ width: 0 }}
-                               animate={{ width: `${opp.score_breakdown?.volatility || 0}%` }}
-                               className="h-full bg-amber shadow-[0_0_8px_var(--color-amber)]"
-                             />
-                          </div>
-                       </div>
-
-                       <div className="space-y-2">
-                          <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
-                             <span className="text-dim">Trend Strength</span>
-                             <span className="text-purple-400">{opp.score_breakdown?.trend?.toFixed(1) || '0.0'}%</span>
-                          </div>
-                          <div className="h-1.5 bg-background rounded-full overflow-hidden border border-white/5">
-                             <motion.div
-                               initial={{ width: 0 }}
-                               animate={{ width: `${opp.score_breakdown?.trend || 0}%` }}
-                               className="h-full bg-purple-400 shadow-[0_0_8px_#a855f7]"
-                             />
-                          </div>
-                       </div>
-
-                       <div className="pt-2 border-t border-white/5 flex justify-between items-end">
+                       <div className="pt-4 mt-2 border-t border-border/40 flex justify-between items-end">
                           <div className="flex flex-col">
-                             <span className="text-[8px] text-dim font-black uppercase tracking-[0.2em]">Aggregate Score</span>
-                             <span className={cn("text-2xl font-mono font-black tracking-tighter leading-none mt-1", opp.score > 85 ? "text-accent" : "text-text")}>
-                                {opp.score.toFixed(1)}
-                             </span>
+                             <div className="flex items-center gap-2 mb-1">
+                                <span className="text-[9px] text-dim font-black uppercase tracking-[0.2em]">Composite Authority</span>
+                                {lastScanTs > 0 && (
+                                   <Tooltip content={`Telemetry timestamped ${formatDuration(Math.max(0, now - lastScanTs))} ago`}>
+                                      <div className="w-1.5 h-1.5 rounded-full bg-green/40 cursor-help" />
+                                   </Tooltip>
+                                )}
+                             </div>
+                             <div className="flex items-baseline gap-2">
+                                <span className={cn("text-3xl font-mono font-black tracking-tighter leading-none", opp.score > 85 ? "text-accent shadow-accent/20" : "text-text")}>
+                                   {opp.score.toFixed(1)}
+                                </span>
+                                <span className="text-[10px] text-dim font-bold uppercase tracking-widest opacity-40">/ 100</span>
+                             </div>
                           </div>
-                          <div className="text-[8px] text-dim/40 font-bold uppercase text-right leading-tight">
-                             Weights: {config.scanner_weights ? `${(config.scanner_weights.momentum*100).toFixed(0)}/${(config.scanner_weights.volatility*100).toFixed(0)}/${(config.scanner_weights.trend*100).toFixed(0)}` : '50/30/20'}
+                          <div className="flex flex-col items-end gap-1">
+                             <div className="text-[8px] text-dim/60 font-black uppercase tracking-tighter">Engine Logic Weighting</div>
+                             <div className="px-2 py-1 rounded-md bg-background border border-border/50 font-mono text-[9px] font-bold text-text/60">
+                                {config.scanner_weights ? `${(config.scanner_weights.momentum*100).toFixed(0)}:${(config.scanner_weights.volatility*100).toFixed(0)}:${(config.scanner_weights.trend*100).toFixed(0)}` : '50:30:20'}
+                             </div>
                           </div>
                        </div>
                     </div>
@@ -256,42 +268,61 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored }) =>
               </div>
 
               <div className="flex flex-col gap-4">
-                 <div className="text-[10px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-2">
-                   <ShieldCheck size={12} className="text-accent" /> Authorization Audit
+                 <div className="text-[10px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-2 px-1">
+                   <ShieldCheck size={12} className="text-accent" /> Security Audit
                  </div>
-                 <div className="bg-surface border border-border rounded-2xl p-5 flex flex-col gap-4 h-full">
-                    <div className="flex items-center gap-3">
+                 <div className="bg-surface/50 border border-border rounded-2xl p-6 flex flex-col gap-6 h-full relative overflow-hidden group/audit">
+                    <div className={cn(
+                      "absolute top-0 right-0 w-32 h-32 blur-3xl opacity-[0.05] transition-opacity group-hover/audit:opacity-[0.08]",
+                      opp.signalResult?.allFired ? "bg-green" : "bg-red"
+                    )} />
+
+                    <div className="flex items-center gap-4 relative z-10">
                        <div className={cn(
-                         "w-10 h-10 rounded-full flex items-center justify-center shadow-lg",
-                         opp.signalResult?.allFired ? "bg-green/10 text-green" : "bg-red/10 text-red"
+                         "w-12 h-12 rounded-2xl flex items-center justify-center border shadow-2xl transition-transform duration-500 group-hover/audit:scale-110",
+                         opp.signalResult?.allFired ? "bg-green text-white border-green/30 shadow-green/20" : "bg-red text-white border-red/30 shadow-red/20"
                        )}>
-                         {opp.signalResult?.allFired ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
+                         {opp.signalResult?.allFired ? <CheckCircle2 size={24} /> : <AlertCircle size={24} />}
                        </div>
-                       <div className="flex flex-col">
-                          <div className="text-[11px] font-black uppercase tracking-widest">
+                       <div className="flex flex-col gap-0.5">
+                          <div className="text-[13px] font-black uppercase tracking-tight">
                              {opp.signalResult?.allFired ? 'Authorization Passed' : 'Authorization Denied'}
                           </div>
-                          <div className="text-[9px] text-dim font-bold uppercase tracking-tight">
-                             Strategy Engine Verification
+                          <div className="text-[9px] text-dim font-black uppercase tracking-widest opacity-60">
+                             Engine Integrity Verified
                           </div>
                        </div>
                     </div>
 
-                    <div className="space-y-3 pt-2">
-                       <div className="flex justify-between items-center text-[10px]">
-                          <span className="text-dim uppercase font-black tracking-widest">Momentum Thresh.</span>
-                          <span className="text-green font-bold font-mono">OK (≥ {threshold}%)</span>
+                    <div className="space-y-4 relative z-10">
+                       <div className="p-4 bg-background/50 rounded-xl border border-border/40 flex flex-col gap-3">
+                          <div className="flex justify-between items-center text-[10px] font-bold">
+                             <div className="flex items-center gap-2">
+                               <div className="w-1.5 h-1.5 rounded-full bg-green shadow-[0_0_6px_rgba(34,197,94,0.6)]" />
+                               <span className="text-dim uppercase tracking-widest">Velocity Threshold</span>
+                             </div>
+                             <span className="text-text font-mono">OK (≥{threshold}%)</span>
+                          </div>
+                          <div className="h-px bg-border/20" />
+                          <div className="flex justify-between items-center text-[10px] font-bold">
+                             <div className="flex items-center gap-2">
+                               <div className={cn("w-1.5 h-1.5 rounded-full shadow-[0_0_6px_rgba(255,255,255,0.2)]", opp.signalResult?.allFired ? "bg-green" : "bg-red")} />
+                               <span className="text-dim uppercase tracking-widest">Pattern Recognition</span>
+                             </div>
+                             <span className={cn("uppercase tracking-widest font-black", opp.signalResult?.allFired ? "text-green" : "text-red")}>
+                                {opp.signalResult?.allFired ? 'Patterns Verified' : 'Rejected'}
+                             </span>
+                          </div>
                        </div>
-                       <div className="flex justify-between items-center text-[10px]">
-                          <span className="text-dim uppercase font-black tracking-widest">Signal Logic</span>
-                          <span className={cn("font-bold uppercase tracking-widest", opp.signalResult?.allFired ? "text-green" : "text-red")}>
-                             {opp.signalResult?.allFired ? 'Patterns Verified' : 'Pattern Rejected'}
-                          </span>
-                       </div>
+
                        {!opp.signalResult?.allFired && (
-                         <div className="bg-red/5 border border-red/10 rounded-xl p-3 mt-2">
-                            <div className="text-[8px] text-red/60 uppercase font-black tracking-widest mb-1">Reason:</div>
-                            <div className="text-[11px] text-red-400 font-bold leading-relaxed">{opp.signalResult?.reason || 'Unknown authorization failure'}</div>
+                         <div className="bg-red/10 border border-red/20 rounded-xl p-4 animate-in fade-in slide-in-from-top-1 duration-500">
+                            <div className="flex items-center gap-2 text-[9px] text-red font-black uppercase tracking-widest mb-2">
+                               <XCircle size={12} /> Rejection Analysis
+                            </div>
+                            <div className="text-[11px] text-red-400/90 font-bold leading-relaxed italic pr-2 border-l-2 border-red/30 pl-3">
+                               "{opp.signalResult?.reason || 'Critical authorization failure detected'}"
+                            </div>
                          </div>
                        )}
                     </div>
@@ -355,40 +386,47 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
   return (
     <div className="flex flex-col h-full bg-surface text-text overflow-hidden">
       <div className="p-4 border-b border-border flex justify-between items-center shrink-0 h-[64px]">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="relative">
-             <PulseDot color={hibernating ? "bg-amber" : scannerPaused ? "bg-red" : "bg-green"} />
-             {!hibernating && !scannerPaused && (
-               <span className="absolute inset-0 rounded-full border border-green animate-ping opacity-20 scale-150" />
-             )}
-          </div>
+        <div className="flex items-center gap-4 min-w-0">
           <div className="flex flex-col">
-            <div className="flex items-center gap-2">
-              <span className="text-[14px] font-bold hidden sm:inline">Live Scanner</span>
+            <div className="flex items-center gap-2.5">
+              <div className="relative flex items-center justify-center w-5 h-5">
+                 <PulseDot color={hibernating ? "bg-amber" : scannerPaused ? "bg-red" : "bg-green"} />
+                 {!hibernating && !scannerPaused && (
+                   <span className="absolute inset-0 rounded-full border border-green animate-ping opacity-20 scale-150" />
+                 )}
+              </div>
+              <span className="text-[15px] font-black tracking-tight hidden sm:inline uppercase">Live Scanner</span>
+              <div className="h-4 w-px bg-border/40 hidden sm:block mx-1" />
               {hibernating ? (
-                <span className="text-[10px] text-amber font-black uppercase tracking-tighter">Deep Sleep</span>
+                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber/10 border border-amber/20 shadow-lg shadow-amber/5">
+                  <span className="w-1 h-1 rounded-full bg-amber animate-pulse" />
+                  <span className="text-[9px] text-amber font-black uppercase tracking-widest">Deep Sleep</span>
+                </div>
               ) : scannerPaused ? (
-                <span className="text-[10px] text-red font-black uppercase tracking-tighter">Gated</span>
+                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red/10 border border-red/20 shadow-lg shadow-red/5">
+                  <span className="w-1 h-1 rounded-full bg-red animate-pulse" />
+                  <span className="text-[9px] text-red font-black uppercase tracking-widest">Gated</span>
+                </div>
               ) : (
-                <span className="text-[10px] text-green font-black uppercase tracking-tighter flex items-center gap-1">
-                  Active
-                  <span className="inline-block w-1 h-1 rounded-full bg-green animate-pulse" />
-                </span>
+                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-green/10 border border-green/20 shadow-lg shadow-green/5">
+                  <span className="w-1 h-1 rounded-full bg-green animate-pulse" />
+                  <span className="text-[9px] text-green font-black uppercase tracking-widest">Active</span>
+                </div>
               )}
             </div>
             {lastScanTs > 0 && (
-              <div className="flex items-center gap-1.5 opacity-60">
+              <div className="flex items-center gap-2 mt-1">
+                <Clock size={10} className="text-dim/40" />
                 <span className={cn(
-                  "text-[8px] text-dim font-black uppercase tracking-[0.1em] transition-colors duration-500",
+                  "text-[9px] text-dim font-bold uppercase tracking-wider transition-colors duration-500",
                   scanAge < 5000 && "text-green"
                 )}>
-                  Last Scan: {scanAge < 2000 ? 'Just now' : `${formatDuration(scanAge)} ago`}
+                  {scanAge < 2000 ? 'Just now' : `${formatDuration(scanAge)} ago`}
                 </span>
                 {isUpdating && <div className="w-1 h-1 rounded-full bg-green animate-ping" />}
               </div>
             )}
           </div>
-          <span className="text-[10px] text-dim font-medium uppercase tracking-wider hidden md:inline ml-2">threshold ≥ {threshold}%</span>
         </div>
 
         <div className="flex items-center gap-3 flex-1 justify-end max-w-md">
@@ -401,7 +439,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-              className="w-full bg-background border border-border rounded-xl pl-9 pr-8 py-1.5 text-[11px] font-bold focus:border-accent outline-none transition-all"
+              className="w-full bg-background border border-border rounded-xl pl-9 pr-8 py-1.5 text-[11px] font-bold focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none transition-all"
               aria-label="Filter scanner symbols"
             />
             {search && (
@@ -414,7 +452,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
               </button>
             )}
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full transition-colors shrink-0" aria-label="Close scanner">
+          <button onClick={onClose} className="p-2 hover:bg-white/5 focus-visible:bg-white/5 focus-visible:ring-2 focus-visible:ring-accent outline-none rounded-full transition-colors shrink-0" aria-label="Close scanner">
             <X size={18} className="text-dim" />
           </button>
         </div>
@@ -500,6 +538,10 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
               config={config}
               activeTrades={activeTrades}
               isMonitored={monitoredSymbols.has(opp.symbol)}
+              scannerPaused={scannerPaused}
+              hibernating={hibernating}
+              lastScanTs={lastScanTs}
+              now={now}
             />
           ))
         )}

@@ -368,10 +368,31 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
             scannerResults: (d.opportunities || []).map(o => {
               const n = normalizeOpportunity(o);
               const p = prevMap.get(n.symbol);
-        return p ? { ...n, history: n.history ?? p.history, ohlc_history: n.ohlc_history ?? p.ohlc_history, signalResult: n.signalResult ?? p.signalResult } : n;
+              if (!p) return n;
+
+              // BOLT: Aggressive data retention. Preserve telemetry and breakdowns across gated updates.
+              return {
+                ...n,
+                history: (n.history && n.history.length > 0) ? n.history : p.history,
+                ohlc_history: (n.ohlc_history && n.ohlc_history.length > 0) ? n.ohlc_history : p.ohlc_history,
+                score_breakdown: n.score_breakdown || p.score_breakdown,
+                signalResult: n.signalResult || p.signalResult
+              };
             }),
             variantScannerResults: d.variant_opportunities ? d.variant_opportunities.reduce((acc, v) => {
-              acc[v.strategy_label] = v.opportunities.map(normalizeOpportunity);
+              const prevOppMap = new Map((st.variantScannerResults[v.strategy_label] || []).map(r => [r.symbol, r]));
+              acc[v.strategy_label] = v.opportunities.map(o => {
+                const n = normalizeOpportunity(o);
+                const p = prevOppMap.get(n.symbol);
+                if (!p) return n;
+                return {
+                  ...n,
+                  history: (n.history && n.history.length > 0) ? n.history : p.history,
+                  ohlc_history: (n.ohlc_history && n.ohlc_history.length > 0) ? n.ohlc_history : p.ohlc_history,
+                  score_breakdown: n.score_breakdown || p.score_breakdown,
+                  signalResult: n.signalResult || p.signalResult
+                };
+              });
               return acc;
             }, {}) : st.variantScannerResults,
             activeWindows: d.activeWindows || st.activeWindows,

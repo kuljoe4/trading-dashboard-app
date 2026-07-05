@@ -32,14 +32,6 @@ export const TooltipProvider = ({ children, ...props }) => {
   return (
     <TooltipContext.Provider value={value}>
       <TooltipPrimitive.Provider {...props}>
-        <div
-          onClick={() => setActiveTooltipId(null)}
-          className={cn(
-            "fixed inset-0 z-[10010] bg-black/60 transition-all duration-300",
-            activeTooltipId ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-          )}
-          aria-hidden="true"
-        />
         {children}
       </TooltipPrimitive.Provider>
     </TooltipContext.Provider>

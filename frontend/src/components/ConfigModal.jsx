@@ -1362,17 +1362,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       {renderField('Min Interval (m)', 'min_trade_interval_min', 'number', null, { min: 0 })}
                       {renderField('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
                     </div>
-                    {cfg.trades_jitter_pct > 0 && (
-                      <div className="flex items-center justify-between pt-4 border-t border-border/40 animate-in fade-in slide-in-from-top-1 duration-200">
-                        <div className="flex flex-col">
-                          <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
-                            <Target size={12} className="text-accent" /> Market-Aware Jitter
-                          </span>
-                          <span className="text-[9px] text-dim font-medium uppercase tracking-tight">Prioritize high-quality signals with less random delay</span>
-                        </div>
-                        <Toggle value={cfg.trades_jitter_market_aware === true} onChange={(v) => setField('trades_jitter_market_aware', v)} color="bg-accent" />
+                    <div className={cn("flex items-center justify-between pt-4 border-t border-border/40 transition-opacity duration-300", cfg.trades_jitter_pct <= 0 && "opacity-40 pointer-events-none")}>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                          <Target size={12} className="text-accent" /> Market-Aware Jitter
+                        </span>
+                        <span className="text-[9px] text-dim font-medium uppercase tracking-tight">Prioritize high-quality signals with less random delay</span>
                       </div>
-                    )}
+                      <Toggle value={cfg.trades_jitter_market_aware === true} onChange={(v) => setField('trades_jitter_market_aware', v)} color="bg-accent" />
+                    </div>
                   </motion.div>
                 )}
 

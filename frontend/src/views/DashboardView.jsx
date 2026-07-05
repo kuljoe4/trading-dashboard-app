@@ -1045,7 +1045,7 @@ export function DashboardView({ initialStrategy }) {
 
 
         {/* ROI Trends & Insights */}
-        {analytics?.roiTrends && (
+        {(analytics?.roiTrends || !sessionActive) && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -1056,33 +1056,41 @@ export function DashboardView({ initialStrategy }) {
                <SectionLabel className="mb-0">
                   <TrendingUp size={14} className="text-accent" /> Performance Insights
                </SectionLabel>
-               <span className="text-[9px] text-dim font-black uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50">
-                  Updated Live
-               </span>
+               <div className="flex items-center gap-3">
+                 <button
+                   onClick={() => window.location.hash = '#/history'}
+                   className="text-[10px] font-black uppercase tracking-widest text-accent hover:text-accent/80 transition-colors flex items-center gap-1.5"
+                 >
+                   View Full Analytics <ChevronRight size={12} />
+                 </button>
+                 <span className="text-[9px] text-dim font-black uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50">
+                    Updated Live
+                 </span>
+               </div>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
               <StatCard
                 label="7D ROI Trend"
-                value={`${analytics.roiTrends.sevenDay >= 0 ? '+' : ''}${analytics.roiTrends.sevenDay}%`}
-                color={pnlClass(analytics.roiTrends.sevenDay)}
+                value={analytics?.roiTrends ? `${analytics.roiTrends.sevenDay >= 0 ? '+' : ''}${analytics.roiTrends.sevenDay}%` : '---'}
+                color={analytics?.roiTrends ? pnlClass(analytics.roiTrends.sevenDay) : "text-dim"}
                 tooltipText="Percentage return on account equity over the last 7 days."
               />
               <StatCard
                 label="4W ROI Trend"
-                value={`${analytics.roiTrends.fourWeek >= 0 ? '+' : ''}${analytics.roiTrends.fourWeek}%`}
-                color={pnlClass(analytics.roiTrends.fourWeek)}
+                value={analytics?.roiTrends ? `${analytics.roiTrends.fourWeek >= 0 ? '+' : ''}${analytics.roiTrends.fourWeek}%` : '---'}
+                color={analytics?.roiTrends ? pnlClass(analytics.roiTrends.fourWeek) : "text-dim"}
                 tooltipText="Percentage return on account equity over the last 28 days."
               />
               <StatCard
                 label="Profit Factor"
-                value={Number(analytics.profitFactor || 0).toFixed(2)}
-                color="text-accent"
+                value={analytics ? Number(analytics.profitFactor || 0).toFixed(2) : '---'}
+                color={analytics ? "text-accent" : "text-dim"}
                 tooltipText="Ratio of gross profit to gross loss. > 1.0 is profitable."
               />
               <StatCard
                 label="Sharpe Ratio"
-                value={Number(analytics.sharpeRatio || 0).toFixed(2)}
-                color="text-accent"
+                value={analytics ? Number(analytics.sharpeRatio || 0).toFixed(2) : '---'}
+                color={analytics ? "text-accent" : "text-dim"}
                 tooltipText="Risk-adjusted return. Higher is better."
               />
             </div>

@@ -67,7 +67,7 @@ describe('SessionService Validation', () => {
       mockRepository, // BalanceHistory
       mockTradingSessionService,
       mockOrderManagerService,
-      {} as any, // marketFeed
+      { fetchExchangeInfo: jest.fn().mockResolvedValue({}) } as any, // marketFeed
       { emit: jest.fn() } as any, // EventEmitter2
       mockAnalyticsService,
       mockBinanceClientFactory,
@@ -515,6 +515,27 @@ describe('SessionService Validation', () => {
           paper_mode: false
         })
       });
+    });
+
+    it('should block modification of immutable fields while session is running', async () => {
+      const sessionId = 'active-session-id';
+      const existingSession = {
+        id: sessionId,
+        tradingMode: 'paper',
+        paperMode: true,
+        config: {
+          trading_mode: 'paper',
+          paper_mode: true,
+          paper_starting_balance: 10000
+        }
+      };
+
+      mockQueryRunner.manager.findOne.mockResolvedValue(existingSession);
+      (service as any).sessionRunning = true;
+      (service as any).currentSessionId = sessionId;
+
+      const partialConfig = { paper_starting_balance: 20000 } as any;
+      await expect(service.updateSession(sessionId, partialConfig)).rejects.toThrow('Cannot modify paper_starting_balance while session is running');
     });
   });
 });

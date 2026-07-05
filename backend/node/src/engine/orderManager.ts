@@ -174,7 +174,7 @@ export class OrderManagerService {
               trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + commission);
               this.tradeExecutionCache.set(tradeExecutionId, Date.now());
               this.logger.debug(`[${tradeIdShort8}] [UDS] Accumulated commission for ${symbol}: ${commission}. Total: ${trade.realized_fee}`);
-              this.cleanupTradeExecutionCache();
+              this.cleanupExecutionCache();
            } else {
               this.logger.debug(`[${tradeIdShort8}] [UDS] Dropping duplicate commission for execution ${tradeExecutionId}`);
            }

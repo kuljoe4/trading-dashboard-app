@@ -1233,7 +1233,8 @@ export class OrderManagerService {
               symbol,
               exitPrice: this.tickerCache.getPrice(symbol) || currentSlPrice,
               reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
-              feesAlreadyAccounted: false
+              feesAlreadyAccounted: false,
+              needsMarketClose: true
             });
             return { orderId: 'TRIGGERED_LOCALLY', price: currentSlPrice };
           } else if (code === -4044 || code === -4045 || code === -1116) {
@@ -1334,7 +1335,8 @@ export class OrderManagerService {
             symbol,
             exitPrice: this.tickerCache.getPrice(symbol) || currentSlPrice,
             reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
-            feesAlreadyAccounted: false
+            feesAlreadyAccounted: false,
+            needsMarketClose: true
           });
           return { orderId: 'TRIGGERED_LOCALLY', price: currentSlPrice };
         } else if (msg.includes('Account position is empty') || msg.includes('-4044') || msg.includes('-4045') || msg.includes('-4141') || msg.includes('-1116')) {

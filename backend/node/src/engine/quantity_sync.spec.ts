@@ -1,8 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { OrderManagerService } from './orderManager';
-import { SessionLifecycleService } from './session-lifecycle.service';
 import { PositionTrackerService } from './positionTracker';
+import { SessionLifecycleService } from './session-lifecycle.service';
 import { SessionStateService } from './session_state.service';
 import { SignalEngineService } from './signalEngine';
 import { RiskEngineService } from './riskEngine';
@@ -28,7 +28,7 @@ describe('Real-time Quantity Synchronization', () => {
       providers: [
         OrderManagerService,
         SessionLifecycleService,
-        PositionTrackerService,
+         { provide: PositionTrackerService, useValue: { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn(), isRatcheting: jest.fn(), isEntering: jest.fn(), isClosing: jest.fn() } },
         SessionStateService,
         EventEmitter2,
         {

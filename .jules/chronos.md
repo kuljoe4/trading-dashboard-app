@@ -33,3 +33,7 @@
 ## 2026-06-29 - Multi-part SL Fill PnL & Quantity Divergence
 **Learning:** The engine previously assumed Stop Loss fills were atomic. In reality, Binance FAPI SL orders can fill in multiple slices. Ignoring `PARTIALLY_FILLED` UDS events caused local quantity divergence and risk calculation errors. Furthermore, using the price of the final slice for the entire trade quantity resulted in PnL inaccuracies.
 **Action:** Implemented `PARTIALLY_FILLED` synchronization to track remaining quantity during SL hits. Final `FILLED` events now restore cumulative quantity and prioritize the authoritative `avgPrice` (`ap` field) to ensure PnL precision for multi-part executions.
+
+## 2026-07-04 - Multi-Part Execution Commission Double-Counting
+**Learning:** Authoritative commissions from Binance FAPI arrive via the User Data Stream (UDS) 'n' field on every execution slice ('TRADE' events). However, the engine's closure logic (closeTrade) also attempted to estimate and apply a taker fee when a trade transitioned to terminal states. This resulted in double-counting of commissions for all exchange-confirmed fills. Authoritative exchange data must always suppress local estimation.
+**Action:** Implemented a 'feesAlreadyAccounted' signal in the 'trade.exchange_close' event. Modified OrderManagerService.closeTrade to bypass fee estimation when this flag is present. Refactored UDS handling to consolidate terminal state detection and authoritative fee accumulation.

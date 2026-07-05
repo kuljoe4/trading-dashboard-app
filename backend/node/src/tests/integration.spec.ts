@@ -73,11 +73,9 @@ describe('Trade Lifecycle Integration', () => {
       closeTrade: jest.fn(),
       clear: jest.fn(),
       setEntering: jest.fn(),
-      clear: jest.fn(),
       checkRrSequenceAdjustments: jest.fn(),
       checkExitConditions: jest.fn(),
       setTradeUpdateCallback: jest.fn(),
-      clear: jest.fn(),
     };
 
     mockOrderManager = {
@@ -110,6 +108,47 @@ describe('Trade Lifecycle Integration', () => {
         stop: jest.fn().mockResolvedValue({ status: 'stopped' }),
     };
 
+    const mockMonitoringService = {
+      recordHotLoop: jest.fn(),
+      recordMainLoop: jest.fn(),
+      clearAppMetrics: jest.fn(),
+      setLoopStage: jest.fn(),
+      incrementApiRequests: jest.fn()
+    } as any;
+
+    const mockEngineBroadcaster = {
+      broadcastTick: jest.fn(),
+      serializeTrade: jest.fn(),
+      minimize: jest.fn(),
+      getLastTickData: jest.fn(),
+      getLastRiskResult: jest.fn(),
+      getLastAnalyticsResult: jest.fn(),
+      getLastScannerResults: jest.fn()
+    } as any;
+
+    const mockGatingService = {
+      isInsideTradingWindow: jest.fn().mockReturnValue(true),
+      mapGateState: jest.fn().mockReturnValue('active'),
+      enterHibernation: jest.fn(),
+      exitHibernation: jest.fn()
+    } as any;
+
+    const mockAnalyticsService = {
+      calculateAnalytics: jest.fn().mockReturnValue({
+        maxDrawdown: 0,
+        maxDrawdownPct: 0,
+        overallWinRate: 0,
+        cumulativePnL: [],
+        timeOfDay: [],
+        roiTrends: { sevenDay: 0, fourWeek: 0 }
+      })
+    } as any;
+
+    const mockBroadcastService = {
+      setWsBroadcaster: jest.fn(),
+      broadcast: jest.fn()
+    } as any;
+
     executionService = new ExecutionService(
       mockTickerCache,
       mockKlineStore,
@@ -118,34 +157,35 @@ describe('Trade Lifecycle Integration', () => {
       mockPositionTracker,
       mockOrderManager,
       mockSessionState,
-      { mapGateState: jest.fn() } as any,
-      { broadcast: jest.fn() } as any,
-      { serializeTrade: jest.fn() } as any,
+      mockGatingService,
+      mockBroadcastService,
+      mockMonitoringService,
+      mockEngineBroadcaster,
       new EventEmitter2(),
-      { calculateAnalytics: jest.fn().mockReturnValue({ maxDrawdown: 0, maxDrawdownPct: 0, overallWinRate: 0, cumulativePnL: [] }) } as any
+      mockAnalyticsService
     );
 
     tradingSession = new TradingSessionService(
-        mockTickerCache,
-        mockKlineStore,
-        mockSignalEngine,
-        mockRiskEngine,
-        ({ ...mockPositionTracker, recalculateTotalRisk: jest.fn() } as any),
-        mockOrderManager,
-        { start: jest.fn(), stop: jest.fn(), setCandleCloseCallback: jest.fn() } as any,
-        { start: jest.fn(), stop: jest.fn(), scan: jest.fn().mockReturnValue([{ symbol: 'BTCUSDT', direction: 'long', momentum: 5, volume_24h: 1000000, score: 80 }]) } as any,
-        { recordHotLoop: jest.fn(), recordMainLoop: jest.fn(), clearAppMetrics: jest.fn() } as any,
-        { calculateAnalytics: jest.fn() } as any,
-        executionService,
-        mockSessionLifecycle,
-        { setWsBroadcaster: jest.fn(), broadcast: jest.fn() } as any,
-        mockSessionState,
-        { calculateVariantStats: jest.fn() } as any,
-        { broadcastTick: jest.fn(), serializeTrade: jest.fn(), minimize: jest.fn(), getLastTickData: jest.fn(), getLastRiskResult: jest.fn(), getLastAnalyticsResult: jest.fn() } as any,
-        { isInsideTradingWindow: jest.fn().mockReturnValue(true), mapGateState: jest.fn().mockReturnValue('active'), enterHibernation: jest.fn(), exitHibernation: jest.fn() } as any,
-        {} as any, // maintenanceService
-        mockAuditLog,
-        new EventEmitter2()
+      mockTickerCache,
+      mockKlineStore,
+      mockSignalEngine,
+      mockRiskEngine,
+      ({ ...mockPositionTracker, recalculateTotalRisk: jest.fn() } as any),
+      mockOrderManager,
+      { start: jest.fn(), stop: jest.fn(), setCandleCloseCallback: jest.fn() } as any, // marketFeed
+      { start: jest.fn(), stop: jest.fn(), scan: jest.fn().mockReturnValue([{ symbol: 'BTCUSDT', direction: 'long', momentum: 5, volume_24h: 1000000, score: 80 }]) } as any, // momentumScanner
+      mockMonitoringService,
+      mockAnalyticsService,
+      executionService,
+      mockSessionLifecycle,
+      mockBroadcastService,
+      mockSessionState,
+      { calculateVariantStats: jest.fn() } as any, // variantAnalytics
+      mockEngineBroadcaster,
+      mockGatingService,
+      {} as any, // maintenanceService
+      mockAuditLog,
+      new EventEmitter2()
     );
   });
 

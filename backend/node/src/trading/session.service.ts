@@ -1262,6 +1262,7 @@ export class SessionService implements OnModuleInit {
             exitPrice: 0,
             reason: EXIT_REASONS.EXCHANGE_SYNC,
             isReconciliation: true,
+            feesAlreadyAccounted: false,
           });
         }
       }
@@ -1591,7 +1592,7 @@ export class SessionService implements OnModuleInit {
         );
         throw new BadRequestException({
           message: "Invalid configuration parameters",
-          detail: detailedErrors
+          detail: errors
         });
       }
 

@@ -52,13 +52,9 @@ export class OrderManagerService {
 
   // IDEMPOTENCY: Tracking executed order IDs to prevent double-processing between REST and WebSocket (UDS)
   private executionCache: Map<string, number> = new Map();
-  // CHRONOS: Tracking individual trade execution IDs to prevent commission double-counting
+  // CHRONOS: Tracking unique Binance trade IDs to prevent commission double-counting and PnL errors
   private tradeExecutionCache: Map<string, number> = new Map();
   private readonly EXECUTION_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
-
-  // COMMISSION IDEMPOTENCY: Tracking unique Binance trade IDs to prevent double-counting commissions
-  private tradeExecutionCache: Map<string, number> = new Map();
-  private readonly TRADE_EXECUTION_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
   constructor(
     private readonly signalEngine: SignalEngineService,
@@ -146,10 +142,9 @@ export class OrderManagerService {
       if (this.tradeExecutionCache.has(tradeId)) {
         isDuplicateTrade = true;
         this.logger.debug(`[Idempotency] Dropping duplicate trade execution for ${symbol} (TradeID: ${tradeId})`);
-      } else {
-        this.tradeExecutionCache.set(tradeId, Date.now());
-        this.cleanupTradeExecutionCache();
       }
+      // Note: We don't commit to cache here; we do it during commission accumulation
+      // to ensure we only deduplicate if commission was actually processed.
     }
 
     // Accuracy Improvement: Update trade entry/exit price from User Data Stream (ORDER_TRADE_UPDATE)
@@ -174,8 +169,8 @@ export class OrderManagerService {
 
         // CHRONOS: Accumulate authoritative commission from exchange slice
         // DEDUPLICATION: Use tradeExecutionId to prevent double-counting between REST and UDS
-        if (commission > 0 && tradeExecutionId) {
-           if (!this.tradeExecutionCache.has(tradeExecutionId)) {
+         if (commission > 0 && tradeExecutionId) {
+           if (!isDuplicateTrade) {
               trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + commission);
               this.tradeExecutionCache.set(tradeExecutionId, Date.now());
               this.logger.debug(`[${tradeIdShort8}] [UDS] Accumulated commission for ${symbol}: ${commission}. Total: ${trade.realized_fee}`);
@@ -194,72 +189,41 @@ export class OrderManagerService {
           trade.binance_order_id === orderId ||
           (clientOrderId && clientOrderId.startsWith(`ent-${tradeIdShort8}`));
 
-        if (status === 'PARTIALLY_FILLED' && isSlOrder) {
-          const totalQty = parseFloat(order.q || '0');
-          const filledQty = parseFloat(order.z || '0');
-          const remainingQty = roundEight(totalQty - filledQty);
-
-          this.logger.log(`[${tradeIdShort8}] [Sync] Partial SL fill for ${symbol}: ${filledQty}/${totalQty}. Remaining: ${remainingQty}`);
-
-          trade.qty = remainingQty;
-
-          // SRE: Update real-time position cache to match exchange
-          this.sessionState.realTimePositions.set(symbol, {
-             amount: remainingQty,
-             entryPrice: trade.entry_price
-          });
-
-          this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: remainingQty });
-        }
-        else if (status === 'FILLED' && isSlOrder) {
-          const metadata = {
-            orderId,
-            clientOrderId,
-            avgPrice,
-            lastPrice,
-            rawPrice: order.p,
-            status,
-            executionType
-          };
-          this.logger.log(`[${tradeIdShort8}] Binance SL HIT for ${symbol}. Closing trade locally. Meta: ${JSON.stringify(metadata)}`);
-
-          // CHRONOS: Restore trade.qty to the total order size (order.q) before closeTrade is called.
-          // This ensures PnL is calculated for the full position instead of just the final execution slice.
-          const totalQty = parseFloat(order.q || '0');
-          if (totalQty > 0 && trade.qty !== totalQty) {
-             this.logger.debug(`[${tradeIdShort8}] [Sync] Restoring qty to ${totalQty} for final SL PnL calculation.`);
-             trade.qty = totalQty;
-          }
-
-          let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
-
         if (isSlOrder) {
-          if (status === 'FILLED') {
-            const metadata = {
-              orderId,
-              clientOrderId,
-              avgPrice,
-              lastPrice,
-              rawPrice: order.p,
-              status,
-              executionType
-            };
+          if (status === 'PARTIALLY_FILLED') {
+            const totalQty = parseFloat(order.q || '0');
+            const filledQty = parseFloat(order.z || '0');
+            const remainingQty = roundEight(totalQty - filledQty);
+
+            if (remainingQty >= 0 && Math.abs(trade.qty - remainingQty) > 0.00000001) {
+              this.logger.log(`[${tradeIdShort8}] [Sync] Partial SL fill for ${symbol}: ${filledQty}/${totalQty}. Remaining: ${remainingQty}`);
+              trade.qty = remainingQty;
+
+              // SRE: Update real-time position cache to match exchange
+              this.sessionState.realTimePositions.set(symbol, {
+                amount: remainingQty,
+                entryPrice: trade.entry_price
+              });
+
+              this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: remainingQty });
+            }
+          }
+          else if (status === 'FILLED') {
+            const totalQty = parseFloat(order.q || '0');
+            const metadata = { orderId, clientOrderId, avgPrice, lastPrice, rawPrice: order.p, status, executionType };
             this.logger.log(`[${tradeIdShort8}] Binance SL HIT for ${symbol}. Closing trade locally. Meta: ${JSON.stringify(metadata)}`);
 
-            // COMPLIANCE: On final SL fill, restore trade.qty to the total order size (order.q)
-            // so closeTrade calculates PnL correctly for the entire position.
-            const totalOrderQty = parseFloat(order.q || '0');
-            if (totalOrderQty > 0 && Math.abs(trade.qty - totalOrderQty) > 0.00000001) {
-              this.logger.log(`[${tradeIdShort8}] [Sync] Restoring qty for final SL fill: ${trade.qty} -> ${totalOrderQty}`);
-              trade.qty = totalOrderQty;
+            // CHRONOS: Restore trade.qty to the total order size (order.q) before closeTrade is called.
+            if (totalQty > 0 && Math.abs(trade.qty - totalQty) > 0.00000001) {
+              this.logger.debug(`[${tradeIdShort8}] [Sync] Restoring qty to ${totalQty} for final SL PnL calculation.`);
+              trade.qty = totalQty;
             }
 
             let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
-
             if (exitPrice === 0) {
-               const tickerPrice = this.tickerCache.getPrice(symbol);
-               this.logger.warn(`[${tradeIdShort8}] Binance WS returned 0 price for ${symbol} SL. Using ticker fallback: ${tickerPrice}`);
-               exitPrice = tickerPrice || trade.current_sl;
+              const tickerPrice = this.tickerCache.getPrice(symbol);
+              this.logger.warn(`[${tradeIdShort8}] Binance WS returned 0 price for ${symbol} SL. Using ticker fallback: ${tickerPrice}`);
+              exitPrice = tickerPrice || trade.current_sl;
             }
 
             const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
@@ -275,27 +239,9 @@ export class OrderManagerService {
               symbol,
               exitPrice,
               reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
-              orderId // DATA-ACCURACY: Pass orderId to allow authoritative recovery if UDS price was estimated
+              orderId, // DATA-ACCURACY: Pass orderId for authoritative recovery
+              feesAlreadyAccounted: true // CHRONOS: Signal that commissions were already handled via UDS 'n' events
             });
-          } else if (status === 'PARTIALLY_FILLED') {
-            // COMPLIANCE: Synchronize local qty with remaining exchange position during SL partial fill.
-            // Remaining Qty = Total Order Qty (order.q) - Cumulative Filled (order.z)
-            const totalOrderQty = parseFloat(order.q || '0');
-            const cumulativeFilled = parseFloat(order.z || '0');
-            const remainingQty = roundEight(totalOrderQty - cumulativeFilled);
-
-            if (remainingQty >= 0 && Math.abs(trade.qty - remainingQty) > 0.00000001) {
-              this.logger.log(`[${tradeIdShort8}] [Sync] Partial SL fill for ${symbol}. Updating local qty: ${trade.qty} -> ${remainingQty}`);
-              trade.qty = remainingQty;
-
-              // SRE: Proactively update real-time position cache
-              this.sessionState.realTimePositions.set(symbol, {
-                 amount: remainingQty,
-                 entryPrice: trade.entry_price
-              });
-
-              this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: remainingQty });
-            }
           }
         }
         else if (isEntryOrder) {
@@ -366,7 +312,8 @@ export class OrderManagerService {
                symbol,
                exitPrice,
                reason,
-               orderId // DATA-ACCURACY: Pass orderId to allow authoritative recovery
+               orderId, // DATA-ACCURACY: Pass orderId to allow authoritative recovery
+               feesAlreadyAccounted: true // CHRONOS: Signal that commissions were already handled via UDS 'n' events
              });
            } else if (status === 'PARTIALLY_FILLED') {
              // SYNC: Update trade.qty to remaining exchange quantity (q - z)
@@ -406,14 +353,6 @@ export class OrderManagerService {
     }
   }
 
-  private cleanupTradeExecutionCache() {
-    const now = Date.now();
-    for (const [key, timestamp] of this.tradeExecutionCache.entries()) {
-      if (now - timestamp > this.TRADE_EXECUTION_CACHE_TTL) {
-        this.tradeExecutionCache.delete(key);
-      }
-    }
-  }
 
   private checkCircuitBreaker(): boolean {
     if (this.consecutiveFailures >= this.MAX_CONSECUTIVE_FAILURES) {
@@ -847,7 +786,7 @@ export class OrderManagerService {
               this.logger.debug(`[${symbol}] [Sync] Adding commissions from REST entry fills: ${totalEntryCommission}`);
               trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + totalEntryCommission);
             }
-            this.cleanupTradeExecutionCache();
+            this.cleanupExecutionCache();
           }
 
           if (entryReceipt.code && entryReceipt.code !== 0) {
@@ -1176,7 +1115,8 @@ export class OrderManagerService {
         this.eventEmitter.emit('trade.exchange_close', {
           symbol: trade.symbol,
           exitPrice: currentMarketPrice,
-          reason: `${EXIT_REASONS.SL_HIT}_${slType}`
+          reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
+          feesAlreadyAccounted: false // Local trigger, fee not yet accounted by UDS
         });
         return { orderId: 'TRIGGERED_LOCALLY', price: currentSlPrice };
       }
@@ -1292,7 +1232,8 @@ export class OrderManagerService {
             this.eventEmitter.emit('trade.exchange_close', {
               symbol,
               exitPrice: this.tickerCache.getPrice(symbol) || currentSlPrice,
-              reason: `${EXIT_REASONS.SL_HIT}_${slType}`
+              reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
+              feesAlreadyAccounted: false
             });
             return { orderId: 'TRIGGERED_LOCALLY', price: currentSlPrice };
           } else if (code === -4044 || code === -4045 || code === -1116) {
@@ -1303,7 +1244,8 @@ export class OrderManagerService {
             this.eventEmitter.emit('trade.exchange_close', {
                symbol,
                exitPrice: this.tickerCache.getPrice(symbol) || trade.entry_price,
-               reason: EXIT_REASONS.EXCHANGE_SYNC
+               reason: EXIT_REASONS.EXCHANGE_SYNC,
+               feesAlreadyAccounted: false
             });
             return { orderId: 'TRIGGERED_LOCALLY', price: trade.entry_price };
           } else {
@@ -1391,7 +1333,8 @@ export class OrderManagerService {
           this.eventEmitter.emit('trade.exchange_close', {
             symbol,
             exitPrice: this.tickerCache.getPrice(symbol) || currentSlPrice,
-            reason: `${EXIT_REASONS.SL_HIT}_${slType}`
+            reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
+            feesAlreadyAccounted: false
           });
           return { orderId: 'TRIGGERED_LOCALLY', price: currentSlPrice };
         } else if (msg.includes('Account position is empty') || msg.includes('-4044') || msg.includes('-4045') || msg.includes('-4141') || msg.includes('-1116')) {
@@ -1401,7 +1344,8 @@ export class OrderManagerService {
           this.eventEmitter.emit('trade.exchange_close', {
              symbol,
              exitPrice: this.tickerCache.getPrice(symbol) || trade.entry_price,
-             reason: EXIT_REASONS.EXCHANGE_SYNC
+             reason: EXIT_REASONS.EXCHANGE_SYNC,
+             feesAlreadyAccounted: false
           });
           return { orderId: 'TRIGGERED_LOCALLY', price: trade.entry_price };
         } else if (msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
@@ -2434,11 +2378,11 @@ export class OrderManagerService {
                 this.logger.debug(`[${symbol}] [Sync] Adding commissions from REST exit fills: ${exitFeeFromFills}`);
                 trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + exitFeeFromFills);
               }
-              this.cleanupTradeExecutionCache();
+              this.cleanupExecutionCache();
             }
 
             // Zero-Cost Math Estimation for exit fees (FALLBACK ONLY)
-            if (exitFeeFromFills === 0) {
+            if (exitFeeFromFills === 0 && !options.feesAlreadyAccounted) {
               const exitNotional = (executedExitQtyFinal > 0 ? executedExitQtyFinal : trade.qty) * exitPrice;
               const feeRate = this.takerFeeRate || 0.0004;
               let exitFee = exitNotional * feeRate;
@@ -2510,10 +2454,12 @@ export class OrderManagerService {
                     trade.exit_reason = trade.exit_reason === EXIT_REASONS.EXCHANGE_SYNC ? EXIT_REASONS.EXCHANGE_SYNC_RECOVERY : EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
                   }
 
-                  const feeRate = this.takerFeeRate || 0.0004;
-                  let exitFee = exitPrice * trade.qty * feeRate;
-                  if (isNaN(exitFee)) exitFee = 0;
-                  trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + exitFee);
+                  if (!options.feesAlreadyAccounted) {
+                    const feeRate = this.takerFeeRate || 0.0004;
+                    let exitFee = exitPrice * trade.qty * feeRate;
+                    if (isNaN(exitFee)) exitFee = 0;
+                    trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + exitFee);
+                  }
 
                   // BOLT: Field Synchronization. Update tooltip reason to match the new authoritative price.
                   if (trade.exit_signal_reason && trade.exit_signal_reason.includes('at')) {

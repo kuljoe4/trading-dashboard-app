@@ -58,17 +58,11 @@ describe('MomentumScannerService Environment Filtering', () => {
         marketFeed as any,
         { getTicker: jest.fn(), getPrice: jest.fn() } as any, // tickerCache
         { incrementApiRequests: jest.fn() } as any, // monitoringService
-        {
-          isRateLimited: () => false,
-          isOrderRateLimited: () => false,
-          binanceRateLimit: { used_1m: 0, limit: 2400 },
-          updateRateLimit: jest.fn(),
-          updateOrderRateLimits: jest.fn(),
-          realTimePositions: new Map(),
-          realTimeOrders: new Map()
-        } as any, // sessionState
+        { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn() } as any, // positionTracker
+        { isRateLimited: () => false, isOrderRateLimited: () => false, realTimePositions: new Map(), realTimeOrders: new Map(), binanceRateLimit: { used_1m: 0, limit: 2400 } } as any, // sessionState
         mockAuditLog as any,
-        { emit: jest.fn() } as any, { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any
+        { emit: jest.fn() } as any,
+        { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any // settingsRepository
     );
     (orderManager as any).marketFeed = marketFeed;
     const mockRest = {

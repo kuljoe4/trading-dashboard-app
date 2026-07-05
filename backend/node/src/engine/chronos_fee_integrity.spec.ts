@@ -15,9 +15,8 @@ import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { ENGINE_EVENTS } from './events';
 import { EXIT_REASONS } from '../models/constants';
 
-describe('Chronos: Partial Fill and Quantity Integrity', () => {
+describe('Chronos: Fee Integrity and Double-Counting Prevention', () => {
   let orderManager: OrderManagerService;
-  let positionTracker: PositionTrackerService;
   let sessionState: SessionStateService;
   let eventEmitter: EventEmitter2;
 
@@ -25,7 +24,7 @@ describe('Chronos: Partial Fill and Quantity Integrity', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         OrderManagerService,
-        { provide: PositionTrackerService, useValue: { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn(), isRatcheting: jest.fn(), isEntering: jest.fn(), isClosing: jest.fn(), addTrade: jest.fn() } },
+        { provide: PositionTrackerService, useValue: { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn(), isEntering: jest.fn(), isClosing: jest.fn() } },
         SessionStateService,
         EventEmitter2,
         { provide: SignalEngineService, useValue: { checkEntry: jest.fn() } },
@@ -40,13 +39,17 @@ describe('Chronos: Partial Fill and Quantity Integrity', () => {
     }).compile();
 
     orderManager = module.get<OrderManagerService>(OrderManagerService);
-    positionTracker = module.get<PositionTrackerService>(PositionTrackerService);
     sessionState = module.get<SessionStateService>(SessionStateService);
     eventEmitter = module.get<EventEmitter2>(EventEmitter2);
 
-    // Initial state: 1.0 BTC @ 50000
+    // Mock live mode
+    (orderManager as any).paperMode = false;
+    (orderManager as any).takerFeeRate = 0.0004; // 0.04%
+  });
+
+  it('should not double-count fees when a trade is closed via UDS-confirmed fill', async () => {
     const trade = {
-      id: 'trade-12345678-1234-1234-1234-123456789012',
+      id: 'test-trade-fee-integrity',
       symbol: 'BTCUSDT',
       direction: 'LONG',
       entry_price: 50000,
@@ -54,86 +57,82 @@ describe('Chronos: Partial Fill and Quantity Integrity', () => {
       initial_sl: 49000,
       current_sl: 49000,
       status: 'OPEN',
-      pnl: -20, // entry fee
-      realized_fee: 20, _realized_fee_internal: 20,
-      risk_usdt: 1000,
-      binance_stop_order_id: 'sl-order-id'
+      realized_fee: 20, // entry fee (0.04% of 50000)
+      binance_stop_order_id: 'sl-123'
     } as any;
 
     sessionState.activeTrades = [trade];
-    positionTracker.addTrade(trade);
-  });
 
-  it('should synchronize trade.qty and realized_fee on partial SL hit from UDS', async () => {
-    const trade = sessionState.activeTrades[0];
-
-    // Simulate partial SL hit: 0.4 BTC @ 49000
-    const payload = {
-      e: 'ORDER_TRADE_UPDATE',
-      o: {
-        s: 'BTCUSDT',
-        X: 'PARTIALLY_FILLED',
-        i: 'sl-order-id',
-        c: 'sl-trade-12',
-        l: '0.4', // last executed quantity
-        z: '0.4', // cumulative filled
-        q: '1.0', // original quantity
-        L: '49000', // last price
-        n: '8', t: 'fill-1', // slice commission
-        x: 'TRADE',
-        S: 'SELL',
-        ot: 'STOP_MARKET',
-        ap: '49000'
-      }
-    };
-
-    const emitSpy = jest.spyOn(eventEmitter, 'emit');
-    await orderManager.handleBinanceOrderUpdate(payload);
-
-    // EXPECTATION: trade.qty should be updated to reflects the remaining position (1.0 - 0.4 = 0.6)
-    expect(trade.qty).toBe(0.6);
-    expect(trade.realized_fee).toBe(28); // 20 (entry) + 8 (slice)
-    expect(emitSpy).toHaveBeenCalledWith(ENGINE_EVENTS.QUANTITY_SYNC, expect.objectContaining({ symbol: 'BTCUSDT', qty: 0.6 }));
-  });
-
-  it('should restore trade.qty and prioritize weighted average price on final SL hit', async () => {
-    const trade = sessionState.activeTrades[0];
-    trade.qty = 0.6; // Assuming partial fill already occurred
-    trade.realized_fee = 28;
-
-    // Simulate final slice: 0.6 BTC @ 48500
-    // Weighted average price (ap) for total 1.0 becomes (0.4*49000 + 0.6*48500) / 1.0 = 48700
-    const payload = {
+    // 1. Simulate UDS SL Hit event with authoritative commission
+    const udsPayload = {
       e: 'ORDER_TRADE_UPDATE',
       o: {
         s: 'BTCUSDT',
         X: 'FILLED',
-        i: 'sl-order-id',
-        c: 'sl-trade-12',
-        l: '0.6',
-        z: '1.0', // total cumulative filled
+        i: 'sl-123',
+        c: 'sl-test',
         q: '1.0',
-        L: '48500',
-        n: '12', t: 'fill-2', // final slice commission
+        z: '1.0',
+        L: '49000',
+        n: '19.6', // SL exit fee (0.04% of 49000)
         x: 'TRADE',
         S: 'SELL',
         ot: 'STOP_MARKET',
-        ap: '48700' // AUTHORITATIVE AVERAGE PRICE
+        ap: '49000',
+        t: 'trade-id-456' // Unique Binance trade ID
       }
     };
 
     const emitSpy = jest.spyOn(eventEmitter, 'emit');
-    await orderManager.handleBinanceOrderUpdate(payload);
+    await orderManager.handleBinanceOrderUpdate(udsPayload);
 
-    // EXPECTATION: trade.qty should be restored to 1.0 for closeTrade to calculate final PnL correctly
-    expect(trade.qty).toBe(1.0);
-    expect(trade.realized_fee).toBe(40); // 28 + 12
+    // Verify UDS commission was accumulated correctly
+    expect(trade.realized_fee).toBe(20 + 19.6);
 
-    // Final exit event should use avgPrice (ap)
+    // Verify the exit event signals that fees are already accounted for
     expect(emitSpy).toHaveBeenCalledWith('trade.exchange_close', expect.objectContaining({
       symbol: 'BTCUSDT',
-      exitPrice: 48700,
-      reason: expect.stringMatching(/SL_HIT/)
+      feesAlreadyAccounted: true
     }));
+
+    // 2. Directly call closeTrade (simulating downstream flow) with feesAlreadyAccounted: true
+    const result = await orderManager.closeTrade(
+      'BTCUSDT',
+      trade,
+      49000,
+      EXIT_REASONS.SL_HIT,
+      false, // paperMode = false
+      true,  // localOnly = true (exchange already flat)
+      { feesAlreadyAccounted: true }
+    );
+
+    // VERIFICATION: realized_fee should remain 39.6, NOT increase by an estimated 19.6
+    expect(result.trade.realized_fee).toBe(39.6);
+  });
+
+  it('should still estimate fees for local-only closures if feesAlreadyAccounted is false', async () => {
+    const trade = {
+      id: 'test-trade-estimate',
+      symbol: 'BTCUSDT',
+      direction: 'LONG',
+      entry_price: 50000,
+      qty: 1.0,
+      status: 'OPEN',
+      realized_fee: 20,
+      binance_order_id: 'ent-123'
+    } as any;
+
+    const result = await orderManager.closeTrade(
+      'BTCUSDT',
+      trade,
+      49000,
+      EXIT_REASONS.EXCHANGE_SYNC,
+      false, // paperMode = false
+      true,  // localOnly = true
+      { feesAlreadyAccounted: false }
+    );
+
+    // VERIFICATION: realized_fee should include estimated exit fee (39.6)
+    expect(result.trade.realized_fee).toBe(39.6);
   });
 });

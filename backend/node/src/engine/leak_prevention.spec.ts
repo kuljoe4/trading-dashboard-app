@@ -6,6 +6,7 @@ import { SessionStateService } from './session_state.service';
 import { SignalEngineService } from './signalEngine';
 import { MonitoringService } from './monitoring.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { ENGINE_CONSTANTS } from '../models/constants';
 import WebSocket from 'ws';
 
@@ -34,6 +35,12 @@ describe('MarketFeedService Leak Fixes', () => {
         { provide: SignalEngineService, useValue: { getRequiredWarmup: jest.fn().mockReturnValue(100) } },
         { provide: MonitoringService, useValue: { incrementApiRequests: jest.fn() } },
         { provide: EventEmitter2, useValue: { emit: jest.fn() } },
+        {
+          provide: BinanceClientFactory,
+          useValue: {
+            genericRequest: jest.fn().mockImplementation((fn) => fn())
+          }
+        },
       ],
     }).compile();
 

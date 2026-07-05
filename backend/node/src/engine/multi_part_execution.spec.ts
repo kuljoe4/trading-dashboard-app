@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { OrderManagerService } from './orderManager';
+import { PositionTrackerService } from './positionTracker';
 import { SessionStateService } from './session_state.service';
 import { SignalEngineService } from './signalEngine';
 import { MarketFeedService } from './market_feed.service';
@@ -20,7 +21,7 @@ describe('Multi-part Execution Handling', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         OrderManagerService,
-        SessionStateService,
+        SessionStateService, { provide: PositionTrackerService, useValue: { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn(), isRatcheting: jest.fn(), isEntering: jest.fn(), isClosing: jest.fn() } },
         EventEmitter2,
         {
           provide: SignalEngineService,

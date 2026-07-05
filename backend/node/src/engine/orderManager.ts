@@ -174,7 +174,7 @@ export class OrderManagerService {
               trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + commission);
               this.tradeExecutionCache.set(tradeExecutionId, Date.now());
               this.logger.debug(`[${tradeIdShort8}] [UDS] Accumulated commission for ${symbol}: ${commission}. Total: ${trade.realized_fee}`);
-              this.cleanupTradeExecutionCache();
+              this.cleanupExecutionCache();
            } else {
               this.logger.debug(`[${tradeIdShort8}] [UDS] Dropping duplicate commission for execution ${tradeExecutionId}`);
            }
@@ -1233,7 +1233,8 @@ export class OrderManagerService {
               symbol,
               exitPrice: this.tickerCache.getPrice(symbol) || currentSlPrice,
               reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
-              feesAlreadyAccounted: false
+              feesAlreadyAccounted: false,
+              needsMarketClose: true
             });
             return { orderId: 'TRIGGERED_LOCALLY', price: currentSlPrice };
           } else if (code === -4044 || code === -4045 || code === -1116) {
@@ -1334,7 +1335,8 @@ export class OrderManagerService {
             symbol,
             exitPrice: this.tickerCache.getPrice(symbol) || currentSlPrice,
             reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
-            feesAlreadyAccounted: false
+            feesAlreadyAccounted: false,
+            needsMarketClose: true
           });
           return { orderId: 'TRIGGERED_LOCALLY', price: currentSlPrice };
         } else if (msg.includes('Account position is empty') || msg.includes('-4044') || msg.includes('-4045') || msg.includes('-4141') || msg.includes('-1116')) {

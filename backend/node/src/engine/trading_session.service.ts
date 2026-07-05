@@ -835,9 +835,9 @@ export class TradingSessionService implements OnApplicationShutdown {
   }
 
   @OnEvent('trade.exchange_close')
-  async handleExchangeClose(payload: { symbol: string, exitPrice: number, reason: string, isReconciliation?: boolean, orderId?: string, feesAlreadyAccounted?: boolean }) {
+  async handleExchangeClose(payload: { symbol: string, exitPrice: number, reason: string, isReconciliation?: boolean, orderId?: string, feesAlreadyAccounted?: boolean, needsMarketClose?: boolean }) {
     if (!this.running) return;
-    const { symbol, exitPrice, reason, isReconciliation, feesAlreadyAccounted } = payload;
+    const { symbol, exitPrice, reason, isReconciliation, feesAlreadyAccounted, needsMarketClose } = payload;
 
     // SRE: Idempotency guard - check if we are already closing this symbol
     if (this.inFlightExchangeCloses.has(symbol) || this.positionTracker.isClosing(symbol)) {
@@ -845,7 +845,17 @@ export class TradingSessionService implements OnApplicationShutdown {
        return;
     }
 
-    const trade = this.positionTracker.activeList().find(t => t.symbol === symbol);
+    let trade = this.positionTracker.activeList().find(t => t.symbol === symbol);
+
+    // CHRONOS: Race condition guard - check in-flight entries if not in active list
+    if (!trade) {
+      trade = this.positionTracker.getInFlightEntry(symbol);
+      if (trade) {
+        this.logger.debug(`[Chronos] Matched in-flight entry for ${symbol} closure.`);
+        // Note: positionTracker.closeTrade handles trades not in the active Map
+      }
+    }
+
     if (!trade) return;
 
     this.inFlightExchangeCloses.add(symbol);
@@ -858,8 +868,9 @@ export class TradingSessionService implements OnApplicationShutdown {
     // Determination: Should we only update local state or attempt an exchange close?
     // Reasons like SL_HIT, EXCHANGE_FILL, and EXCHANGE_SYNC (ghost positions) imply the exchange is already at 0.
     // WATCHDOG_NUCLEAR_CLOSE however requires an active market close order.
-    const localOnly = reason !== EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE;
-    const ignoreBlocked = reason === EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE;
+    // CHRONOS: needsMarketClose explicitly forces localOnly = false for rejected SLs.
+    const localOnly = !needsMarketClose && reason !== EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE;
+    const ignoreBlocked = reason === EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE || needsMarketClose;
 
     const res = await this.positionTracker.closeTrade(symbol, exitPrice, reason, this.config!, this.config?.paper_mode ?? true, localOnly, { ignoreBlocked, orderId: payload.orderId, feesAlreadyAccounted });
 

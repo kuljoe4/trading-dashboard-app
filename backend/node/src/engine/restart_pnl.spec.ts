@@ -43,7 +43,7 @@ describe('TradingSessionService Restart PnL Consistency', () => {
       { minimize: jest.fn(), getLastTickData: jest.fn(), getLastRiskResult: jest.fn(), getLastAnalyticsResult: jest.fn() } as any, // engineBroadcaster
       { mapGateState: jest.fn(), isInsideTradingWindow: jest.fn().mockReturnValue(true) } as any, // gatingService
       {} as any, // maintenanceService
-      {} as any, // auditLog
+      { log: jest.fn() } as any, // auditLog
       { emit: jest.fn() } as any, // eventEmitter
     );
   });

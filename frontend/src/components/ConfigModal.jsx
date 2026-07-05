@@ -646,7 +646,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
       'scanner_signal_depth',
       'engulfing_lookback',
-      'min_trade_interval_min', 'trades_jitter_pct', 'trades_jitter_market_aware', 'paper_starting_balance',
+      'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
       'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',

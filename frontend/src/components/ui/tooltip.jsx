@@ -74,7 +74,7 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
           }
         }}
       >
-        {children}
+        {React.Children.count(children) === 1 && React.isValidElement(children) ? children : <span>{children}</span>}
       </TooltipPrimitive.Trigger>
       <TooltipContent side={side} align={align} className={className}>
         {content}

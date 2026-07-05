@@ -932,7 +932,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 {renderField('Entry side', 'entry_side', 'text', ['both', 'long', 'short'])}
                 {renderField('Lookback (Candles)', 'scan_lookback', 'number', null, { min: 1 })}
                 <Tooltip content="The scanner will check signals for top candidates up to this depth. If top candidates fail signals, it moves to the next. Set higher for strict signal strategies to prevent stalling.">
-                   <span>{renderField('Signal Depth', 'scanner_signal_depth', 'number', null, { min: 1, max: 50 })}</span>
+                  {renderField('Signal Depth', 'scanner_signal_depth', 'number', null, { min: 1, max: 50 })}
                 </Tooltip>
                 {renderField('Min Volume (USDT)', 'scan_min_volume_usdt', 'number', null, { min: 0, step: 100000 })}
                 {renderField('Scan Mode', 'scan_mode', 'text', [
@@ -1047,7 +1047,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
                 {renderField('MA Period', 'signal_params_ma_period', 'number', null, { min: 1 })}
                 <Tooltip content="Global fallback period used if specific Entry/Exit EMA is not set">
-                  <span>{renderField('EMA (Global Fallback)', 'signal_params_ema_period', 'number', null, { min: 1 })}</span>
+                  {renderField('EMA (Global Fallback)', 'signal_params_ema_period', 'number', null, { min: 1 })}
                 </Tooltip>
               </div>
 
@@ -1057,26 +1057,26 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em] mb-4">Engulfing Expert Parameters</div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       <Tooltip content="Body: Open/Close must engulf previous Open/Close. Range: High/Low must engulf. Strict: Both must engulf.">
-                        <span>{renderField('Engulfing Mode', 'engulfing_mode', 'text', [
+                        {renderField('Engulfing Mode', 'engulfing_mode', 'text', [
                           { value: 'range', label: 'Range (H/L)' },
                           { value: 'body', label: 'Body (O/C)' },
                           { value: 'strict', label: 'Strict (Both)' }
-                        ])}</span>
+                        ])}
                       </Tooltip>
                       <Tooltip content="Is Opportunity: Signal fires on the momentum candle itself. After Opportunity: Signal must fire on the NEXT candle after momentum.">
-                        <span>{renderField('Timing', 'engulfing_timing', 'text', [
+                        {renderField('Timing', 'engulfing_timing', 'text', [
                           { value: 'is_opportunity', label: 'Is Opportunity' },
                           { value: 'after_opportunity', label: 'After Opportunity' }
-                        ])}</span>
+                        ])}
                       </Tooltip>
                       <Tooltip content="Lookback: Number of previous candles to engulf. Set > 1 for 'Reverse Engulfing' where one candle swallows multiple previous opposite bars.">
-                         <span>{renderField('Engulfing Lookback', 'engulfing_lookback', 'number', null, { min: 1, max: 10 })}</span>
+                        {renderField('Engulfing Lookback', 'engulfing_lookback', 'number', null, { min: 1, max: 10 })}
                       </Tooltip>
                       <div className="flex flex-col gap-1.5">
                         <div className="flex justify-between items-center">
                           <label className="text-[10px] text-dim font-black tracking-widest uppercase">Vol Confirmation</label>
                           <Tooltip content="When enabled, the engulfing candle MUST have higher volume than the engulfed candle.">
-                            <span><Toggle value={cfg.engulfing_volume_confirm === true} onChange={(v) => setField('engulfing_volume_confirm', v)} /></span>
+                            <Toggle value={cfg.engulfing_volume_confirm === true} onChange={(v) => setField('engulfing_volume_confirm', v)} />
                           </Tooltip>
                         </div>
                       </div>
@@ -1198,7 +1198,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     <div className="flex items-center gap-2">
                       <Toggle value={cfg.auto_scale_min_notional !== false} onChange={(v) => setField('auto_scale_min_notional', v)} color="bg-accent" />
                       <Tooltip content="Binance Futures requires a minimum position size of 5 USDT. When enabled, the engine automatically scales UP small positions to $5.05 to avoid exchange rejections.">
-                         <span><Activity size={10} className="text-dim cursor-help" /></span>
+                        <Activity size={10} className="text-dim cursor-help" />
                       </Tooltip>
                     </div>
                   </div>
@@ -1324,7 +1324,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
                 <div className="md:col-span-2">
                   <Tooltip content="Safety buffer that prevents trailing stops from being placed too close to the market price. This avoids 'Order would immediately trigger' errors and instant fills during high volatility. Recommended: 0.03% to 0.05%.">
-                    <span>{renderField('Trailing Guard (%)', 'trailing_guard_buffer_pct', 'number', null, { min: CONFIG_LIMITS.TRAILING_GUARD_MIN, max: CONFIG_LIMITS.TRAILING_GUARD_MAX, step: 0.01 })}</span>
+                    {renderField('Trailing Guard (%)', 'trailing_guard_buffer_pct', 'number', null, { min: CONFIG_LIMITS.TRAILING_GUARD_MIN, max: CONFIG_LIMITS.TRAILING_GUARD_MAX, step: 0.01 })}
                   </Tooltip>
                 </div>
               </div>

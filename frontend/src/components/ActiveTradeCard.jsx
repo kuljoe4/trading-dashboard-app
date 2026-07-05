@@ -59,9 +59,9 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
       className="bg-surface border border-border/40 rounded-2xl p-4 md:p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.98] group"
       aria-label={`View details for ${trade.symbol} ${trade.direction} trade, ${fmtUSD(trade.pnl)} P&L, ${Number(trade.rr || 0).toFixed(2)} RR`}
     >
-      <div className="flex items-center justify-between gap-3 min-w-0">
+      <div className="flex items-start justify-between gap-3 min-w-0">
         <div className="flex flex-col gap-1 min-w-0 flex-1">
-          <div className="flex items-center gap-2 whitespace-nowrap overflow-hidden">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm md:text-base font-black font-mono tracking-tight shrink-0">{trade.symbol || '---'}</span>
             <CopyButton value={trade.symbol} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity scale-75 -ml-1" />
             <span className={cn("text-[9px] md:text-xs font-black px-1.5 py-0.5 rounded border uppercase shrink-0", isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5')}>
@@ -82,16 +82,20 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
         </div>
 
         <div className="flex flex-col items-end shrink-0 min-w-[80px]">
-          <div className={cn(
-            "text-base md:text-lg lg:text-xl font-black font-mono tracking-tighter leading-none mb-1",
-            trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlClass(trade.pnl) : 'text-dim'
-          )}>
-            {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
-          </div>
+          <Tooltip content="Live P&L including commission and funding">
+            <div className={cn(
+              "text-base md:text-lg lg:text-xl font-black font-mono tracking-tighter leading-none mb-1 cursor-help border-b border-dotted border-white/5",
+              trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlClass(trade.pnl) : 'text-dim'
+            )}>
+              {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
+            </div>
+          </Tooltip>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] md:text-[11px] font-black font-mono text-dim/60 uppercase tracking-widest">
-              {Number(trade.rr || 0).toFixed(2)}R
-            </span>
+            <Tooltip content="Current Reward-to-Risk ratio based on Entry and SL distance">
+              <span className="text-[10px] md:text-[11px] font-black font-mono text-dim/60 uppercase tracking-widest cursor-help">
+                {Number(trade.rr || 0).toFixed(2)}R
+              </span>
+            </Tooltip>
             {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
               <Tooltip content={`Commission: -${fmtUSD(trade.realized_fee || 0)} | Funding: ${trade.funding_fee > 0 ? '-' : '+'}${fmtUSD(Math.abs(trade.funding_fee || 0))}`}>
                 <div className="text-[8px] md:text-[9px] font-black font-mono text-red/40 uppercase tracking-tighter cursor-help border-b border-dotted border-red/10">

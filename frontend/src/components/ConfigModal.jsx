@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge } from './ui/primitives'
 import { RiskSummary } from './RiskSummary'
@@ -8,8 +8,55 @@ import { ConfirmationModal } from './ConfirmationModal'
 import { CONFIG_LIMITS } from '../constants/configLimits'
 import { settingsAPI, presetsAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 
 const fmtUSD = (v) => `$${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const CollapsibleSection = ({ id, icon, title, subtitle, children, defaultOpen = true }) => {
+  const storageKey = `config_section_${id}_open`;
+  const [isOpen, setIsOpen] = useState(() => {
+    const saved = localStorage.getItem(storageKey);
+    return saved !== null ? saved === 'true' : defaultOpen;
+  });
+
+  const toggle = () => {
+    const next = !isOpen;
+    setIsOpen(next);
+    localStorage.setItem(storageKey, String(next));
+  };
+
+  return (
+    <section className="bg-background/40 rounded-2xl border border-border/40 overflow-hidden transition-all">
+      <button
+        type="button"
+        onClick={toggle}
+        className="w-full flex items-center justify-between p-5 hover:bg-white/[0.02] transition-colors group"
+      >
+        <SectionHeader icon={icon} title={title} subtitle={subtitle} className="mb-0" />
+        <div className={cn(
+          "w-8 h-8 rounded-lg border border-border/40 flex items-center justify-center text-dim transition-all group-hover:border-accent/40 group-hover:text-accent",
+          isOpen && "rotate-180 bg-accent/5 border-accent/20 text-accent"
+        )}>
+          <ChevronDown size={16} />
+        </div>
+      </button>
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+          >
+            <div className="p-5 pt-0 border-t border-border/5">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </section>
+  );
+};
 
 const TAB_ERROR_MAP = {
   scan_interval: 'scan',
@@ -35,12 +82,12 @@ const SIGNALS = [
   ['engulfing', 'Engulfing', 'Entry on bullish or bearish engulfing pattern.'],
 ]
 
-const SectionHeader = React.memo(({ icon: Icon, title, subtitle }) => (
-  <div className="flex items-center gap-3 mb-4">
+const SectionHeader = React.memo(({ icon: Icon, title, subtitle, className }) => (
+  <div className={cn("flex items-center gap-3 mb-4", className)}>
     <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
       <Icon size={18} />
     </div>
-    <div>
+    <div className="text-left">
       <h3 className="text-sm font-bold uppercase tracking-tight">{title}</h3>
       {subtitle && <p className="text-[10px] text-dim font-medium uppercase">{subtitle}</p>}
     </div>
@@ -857,16 +904,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             id="config-panel-scan"
             role="tabpanel"
             aria-labelledby="config-tab-scan"
-            className="space-y-6 lg:space-y-8 animate-in fade-in duration-300"
+            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
           >
-            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
-              <SectionHeader icon={Settings2} title="General" subtitle="Basic strategy identification" />
+            <CollapsibleSection id="scan_general" icon={Settings2} title="General" subtitle="Basic strategy identification">
               {renderField('Strategy label', 'strategy_label', 'text', null, { placeholder: 'Momentum Strategy' })}
-            </section>
+            </CollapsibleSection>
 
-            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
+            <CollapsibleSection id="scan_global" icon={Search} title="Global Scanner" subtitle="Automatic discovery settings">
               <div className="p-4 bg-accent/5 border border-accent/20 rounded-2xl flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><Search size={20} /></div><div><div className="text-sm font-bold">Global Scanner</div><div className="text-[10px] text-dim font-medium uppercase">Automatic discovery</div></div></div>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent">
+                    <Search size={20} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold">Global Scanner</div>
+                    <div className="text-[10px] text-dim font-medium uppercase">Automatic discovery</div>
+                  </div>
+                </div>
                 <Toggle value={cfg.global_scanner_enabled !== false} onChange={(v) => setField('global_scanner_enabled', v)} />
               </div>
 
@@ -936,17 +990,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                    </div>
                 </div>
               </div>
-            </section>
+            </CollapsibleSection>
 
-            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
-              <SectionHeader icon={Plus} title="Static Watchlist" subtitle="Rank only these symbols (comma separated)" />
+            <CollapsibleSection id="scan_watchlist" icon={Plus} title="Static Watchlist" subtitle="Rank only these symbols">
               <ListInput placeholder="BTCUSDT, ETHUSDT, SOLUSDT..." value={cfg.symbols} onChange={(val) => setField('symbols', val)} />
-            </section>
+            </CollapsibleSection>
 
-            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
-              <SectionHeader icon={XCircle} title="Exclusion List" subtitle="Symbols to never trade" />
+            <CollapsibleSection id="scan_exclusion" icon={XCircle} title="Exclusion List" subtitle="Symbols to never trade">
               <ListInput placeholder="BTCUSDT, ETHUSDT..." value={cfg.excluded_symbols} onChange={(val) => setField('excluded_symbols', val)} />
-            </section>
+            </CollapsibleSection>
 
             <section className="pt-6 border-t border-border/40">
                <div className="flex justify-between items-center mb-4">
@@ -970,11 +1022,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             id="config-panel-strategy"
             role="tabpanel"
             aria-labelledby="config-tab-strategy"
-            className="space-y-6 lg:space-y-8 animate-in fade-in duration-300"
+            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
           >
-            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
-              <div className="flex justify-between items-center mb-4">
-                <SectionHeader icon={Zap} title="Entry Signals" subtitle="Triggers for opening positions" />
+            <CollapsibleSection id="strategy_entry" icon={Zap} title="Entry Signals" subtitle="Triggers for opening positions">
+              <div className="flex justify-end mb-4">
                 <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'any' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'any')}>ANY</button>
                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'all' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'all')}>ALL</button>
@@ -990,11 +1041,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   />
                 ))}
               </div>
-            </section>
+            </CollapsibleSection>
 
-            <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={Activity} title="Signal Parameters" subtitle="Technical indicator periods" />
-
+            <CollapsibleSection id="strategy_params" icon={Activity} title="Signal Parameters" subtitle="Technical indicator periods">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
                 {renderField('MA Period', 'signal_params_ma_period', 'number', null, { min: 1 })}
                 <Tooltip content="Global fallback period used if specific Entry/Exit EMA is not set">
@@ -1082,29 +1131,28 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                    </div>
                 </div>
               )}
-            </section>
+            </CollapsibleSection>
 
-            <section className="pt-6 border-t border-border/40">
-               <div className="flex justify-between items-center mb-4">
-                 <SectionHeader icon={XCircle} title="Exit Signals" subtitle="Automated early closures" />
+            <CollapsibleSection id="strategy_exit" icon={XCircle} title="Exit Signals" subtitle="Automated early closures">
+              <div className="flex justify-end mb-4">
                  <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.exit_signal_logic || 'any') === 'any' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'any')}>ANY</button>
                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", cfg.exit_signal_logic === 'all' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'all')}>ALL</button>
                  </div>
-               </div>
-               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                 {SIGNALS.map((signal) => (
-                   <ExitSignalCard
-                    key={signal[0]}
-                    signal={signal}
-                    active={(cfg.exit_signals || []).includes(signal[0])}
-                    delayValue={(cfg.exit_signal_delays || {})[signal[0]]}
-                    onToggle={(key, active) => setField('exit_signals', active ? cfg.exit_signals.filter(s => s !== key) : [...(cfg.exit_signals || []), key])}
-                    onDelayChange={(key, val) => setField('exit_signal_delays', { ...(cfg.exit_signal_delays || {}), [key]: val })}
-                   />
-                 ))}
-               </div>
-            </section>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {SIGNALS.map((signal) => (
+                  <ExitSignalCard
+                   key={signal[0]}
+                   signal={signal}
+                   active={(cfg.exit_signals || []).includes(signal[0])}
+                   delayValue={(cfg.exit_signal_delays || {})[signal[0]]}
+                   onToggle={(key, active) => setField('exit_signals', active ? cfg.exit_signals.filter(s => s !== key) : [...(cfg.exit_signals || []), key])}
+                   onDelayChange={(key, val) => setField('exit_signal_delays', { ...(cfg.exit_signal_delays || {}), [key]: val })}
+                  />
+                ))}
+              </div>
+            </CollapsibleSection>
           </div>
         )}
 
@@ -1113,10 +1161,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             id="config-panel-risk"
             role="tabpanel"
             aria-labelledby="config-tab-risk"
-            className="space-y-6 lg:space-y-8 animate-in fade-in duration-300"
+            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
           >
-            <section>
-              <SectionHeader icon={ShieldCheck} title="Capital Guards" subtitle="Global safety limits" />
+            <CollapsibleSection id="risk_guards" icon={ShieldCheck} title="Capital Guards" subtitle="Global safety limits">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                 {renderField('Risk % Per Trade', 'risk_pct_per_trade', 'number', null, { min: CONFIG_LIMITS.RISK_PER_TRADE_MIN, max: CONFIG_LIMITS.RISK_PER_TRADE_MAX, step: 0.1 })}
                 {renderField('Max Total Risk %', 'max_total_risk_pct', 'number', null, { min: CONFIG_LIMITS.MAX_TOTAL_RISK_MIN, max: CONFIG_LIMITS.MAX_TOTAL_RISK_MAX })}
@@ -1250,10 +1297,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   }} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all mt-2 group flex items-center justify-center gap-2"><Plus size={14} className="group-hover:scale-110 transition-transform" /> Add RR Milestone</button>
                 </div>
               )}
-            </section>
+            </CollapsibleSection>
 
-            <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={ShieldCheck} title="Stop Loss Strategy" subtitle="Risk truncation parameters" />
+            <CollapsibleSection id="risk_sl" icon={ShieldCheck} title="Stop Loss Strategy" subtitle="Risk truncation parameters">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                 {renderField('Strategy Type', 'sl_type', 'text', [
                   { value: 'pct', label: 'Fixed Percentage' },
@@ -1316,10 +1362,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     </p>
                  </div>
               </div>
-            </section>
+            </CollapsibleSection>
 
-            <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={Target} title="Profit Realization" subtitle="Locking gains and scaling exits" />
+            <CollapsibleSection id="risk_tp" icon={Target} title="Profit Realization" subtitle="Locking gains and scaling exits">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                 {renderField('Exit Strategy', 'tp_mode', 'text', [
                   { value: 'fixed', label: 'Fixed Ratio (TP)' },
@@ -1327,10 +1372,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 ])}
                 {cfg.tp_mode === 'fixed' ? renderField('Fixed Ratio (R)', 'tp_ratio', 'number', null, { min: 0.1, step: 0.1 }) : <div />}
               </div>
-            </section>
+            </CollapsibleSection>
 
-            <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={Clock} title="Frequency & Temporal Risk" subtitle="Execution windows & frequency shaping" />
+            <CollapsibleSection id="risk_temporal" icon={Clock} title="Frequency & Temporal Risk" subtitle="Execution windows & frequency shaping">
 
               <div className="space-y-4 mb-8">
                 <div className="p-4 bg-background/50 rounded-2xl border border-border/50 flex items-center justify-between group hover:border-accent/30 transition-colors">
@@ -1414,7 +1458,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                    <button type="button" onClick={() => setField('trading_windows', [...(cfg.trading_windows || []), { start: '09:00', end: '17:00' }])} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all flex items-center justify-center gap-2"><Plus size={14} /> Add Window</button>
                  </div>
                </div>
-            </section>
+            </CollapsibleSection>
           </div>
         )}
 
@@ -1423,10 +1467,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             id="config-panel-advanced"
             role="tabpanel"
             aria-labelledby="config-tab-advanced"
-            className="space-y-6 lg:space-y-8 animate-in fade-in duration-300"
+            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
           >
-            <section>
-              <SectionHeader icon={Briefcase} title="Execution Environment" subtitle="Target exchange and mode" />
+            <CollapsibleSection id="adv_env" icon={Briefcase} title="Execution Environment" subtitle="Target exchange and mode">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {['paper', 'testnet', 'live'].map(m => (
                   <EnvironmentButton
@@ -1443,19 +1486,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   <div className="text-xs text-orange">{modeWarning}</div>
                 </div>
               )}
-            </section>
+            </CollapsibleSection>
 
-            <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={TrendingUp} title="Initial Capital" subtitle="Starting balance for sessions" />
+            <CollapsibleSection id="adv_capital" icon={TrendingUp} title="Initial Capital" subtitle="Starting balance for sessions">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                 {renderField('Paper Balance ($)', 'paper_starting_balance', 'number', null, { min: 0 })}
                 {renderField('Demo Balance ($)', 'testnet_starting_balance', 'number', null, { min: 0, placeholder: '10000' })}
                 {renderField('Live Balance ($)', 'live_starting_balance', 'number', null, { min: 0 })}
               </div>
-            </section>
+            </CollapsibleSection>
 
-            <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={Activity} title="Engine Performance" subtitle="Hot and main loop cadences" />
+            <CollapsibleSection id="adv_perf" icon={Activity} title="Engine Performance" subtitle="Hot and main loop cadences">
               <div className="grid grid-cols-2 gap-6 mb-6">
                 {renderField('Hot Loop (ms)', 'hot_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.HOT_LOOP_MIN })}
                 {renderField('Main Loop (ms)', 'main_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.MAIN_LOOP_MIN })}
@@ -1472,55 +1513,54 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   <Toggle value={cfg.debug_mode === true} onChange={(v) => setField('debug_mode', v)} color="bg-amber" />
                 </div>
               </div>
+            </CollapsibleSection>
 
-              <div className="mt-8 pt-6 border-t border-border/40">
-                <SectionHeader icon={Clock} title="Hibernation Management" subtitle="Gated idle resource strategy" />
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-                  {[
-                    { id: 'light', label: 'Light Sleep', desc: 'Fastest resumption. Keeps market streams active. Best for low latency.' },
-                    { id: 'adaptive', label: 'Adaptive', desc: 'SRE Recommended. 30s light grace period before deep sleep. Balanced.' },
-                    { id: 'deep', label: 'Deep Sleep', desc: 'Maximum resource savings. Immediate stream teardown and cache purge.' }
-                  ].map(mode => (
-                    <button
-                      key={mode.id}
-                      type="button"
-                      onClick={() => setField('hibernation_mode', mode.id)}
-                      className={cn(
-                        "p-4 rounded-xl border-2 text-left transition-all relative group",
-                        cfg.hibernation_mode === mode.id ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover"
-                      )}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className={cn("text-[10px] font-black uppercase tracking-tighter", cfg.hibernation_mode === mode.id ? "text-accent" : "text-text")}>{mode.label}</span>
-                        {cfg.hibernation_mode === mode.id && <CheckCircle2 size={14} className="text-accent" />}
-                      </div>
-                      <p className="text-[9px] text-dim font-bold uppercase tracking-tight leading-tight">{mode.desc}</p>
-                    </button>
-                  ))}
-                </div>
-
-                {cfg.hibernation_mode === 'adaptive' && (
-                  <div className="mb-6 animate-in fade-in slide-in-from-top-2 duration-300">
-                    {renderField('Adaptive Grace Period (s)', 'hibernation_grace_period_sec', 'number', null, { min: 5, max: 3600 })}
-                    <p className="mt-1.5 text-[9px] text-dim font-medium uppercase tracking-tight">Time to maintain Light Sleep before full cache purge.</p>
-                  </div>
-                )}
-
-                <div className="p-4 bg-background/40 border border-border/40 rounded-xl space-y-2">
-                   <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-accent">
-                      <ShieldCheck size={12} /> Resource vs. Latency Trade-off
-                   </div>
-                   <p className="text-[10px] text-dim leading-relaxed font-medium italic border-l border-accent/20 pl-3">
-                      {cfg.hibernation_mode === 'light' ?
-                        "Maintaining MarketFeed during hibernation avoids the 250+ weight REST backfill burst, ensuring the engine is ready to trade the millisecond gating clears." :
-                        cfg.hibernation_mode === 'deep' ?
-                        "Deep sleep minimizes CPU, network, and memory by purging all non-essential data. Resumption requires a heavy API burst and short warmup period." :
-                        "Adaptive mode provides 30 seconds of high-readiness light sleep before transitioning to deep sleep for prolonged gating periods."
-                      }
-                   </p>
-                </div>
+            <CollapsibleSection id="adv_hibernation" icon={Clock} title="Hibernation Management" subtitle="Gated idle resource strategy">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                {[
+                  { id: 'light', label: 'Light Sleep', desc: 'Fastest resumption. Keeps market streams active. Best for low latency.' },
+                  { id: 'adaptive', label: 'Adaptive', desc: 'SRE Recommended. 30s light grace period before deep sleep. Balanced.' },
+                  { id: 'deep', label: 'Deep Sleep', desc: 'Maximum resource savings. Immediate stream teardown and cache purge.' }
+                ].map(mode => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    onClick={() => setField('hibernation_mode', mode.id)}
+                    className={cn(
+                      "p-4 rounded-xl border-2 text-left transition-all relative group",
+                      cfg.hibernation_mode === mode.id ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover"
+                    )}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={cn("text-[10px] font-black uppercase tracking-tighter", cfg.hibernation_mode === mode.id ? "text-accent" : "text-text")}>{mode.label}</span>
+                      {cfg.hibernation_mode === mode.id && <CheckCircle2 size={14} className="text-accent" />}
+                    </div>
+                    <p className="text-[9px] text-dim font-bold uppercase tracking-tight leading-tight">{mode.desc}</p>
+                  </button>
+                ))}
               </div>
-            </section>
+
+              {cfg.hibernation_mode === 'adaptive' && (
+                <div className="mb-6 animate-in fade-in slide-in-from-top-2 duration-300">
+                  {renderField('Adaptive Grace Period (s)', 'hibernation_grace_period_sec', 'number', null, { min: 5, max: 3600 })}
+                  <p className="mt-1.5 text-[9px] text-dim font-medium uppercase tracking-tight">Time to maintain Light Sleep before full cache purge.</p>
+                </div>
+              )}
+
+              <div className="p-4 bg-background/40 border border-border/40 rounded-xl space-y-2">
+                 <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-accent">
+                    <ShieldCheck size={12} /> Resource vs. Latency Trade-off
+                 </div>
+                 <p className="text-[10px] text-dim leading-relaxed font-medium italic border-l border-accent/20 pl-3">
+                    {cfg.hibernation_mode === 'light' ?
+                      "Maintaining MarketFeed during hibernation avoids the 250+ weight REST backfill burst, ensuring the engine is ready to trade the millisecond gating clears." :
+                      cfg.hibernation_mode === 'deep' ?
+                      "Deep sleep minimizes CPU, network, and memory by purging all non-essential data. Resumption requires a heavy API burst and short warmup period." :
+                      "Adaptive mode provides 30 seconds of high-readiness light sleep before transitioning to deep sleep for prolonged gating periods."
+                    }
+                 </p>
+              </div>
+            </CollapsibleSection>
           </div>
         )}
 

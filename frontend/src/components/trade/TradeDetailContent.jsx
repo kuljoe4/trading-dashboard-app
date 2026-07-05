@@ -9,17 +9,10 @@ import { StatCard, SectionLabel, cn, CopyButton, Tooltip, PulseDot, Btn } from '
 import { motion, AnimatePresence } from 'framer-motion'
 import { ConfirmationModal } from '../ConfirmationModal'
 
-const Metric = memo(({ label, value, tooltip }) => (
+const Metric = memo(({ label, value }) => (
   <div className="flex flex-col gap-1.5 group/metric">
     <div className="flex items-center gap-1">
       <span className="text-[9px] font-black text-dim uppercase tracking-[0.2em]">{label}</span>
-      {tooltip && (
-        <Tooltip content={tooltip} side="top" align="center" className="z-[10030]">
-          <div className="p-1 -m-1 cursor-help">
-            <Info size={12} className="text-dim/40 md:size-[10px]" />
-          </div>
-        </Tooltip>
-      )}
     </div>
     <span className="font-mono text-sm font-bold text-text/90">{value}</span>
   </div>
@@ -52,13 +45,8 @@ const RRLadder = ({ trade }) => {
           <SectionLabel className="mb-0">
              <Zap size={14} className="text-accent" fill="currentColor" /> Guard Ladder
           </SectionLabel>
-          <Tooltip content="Incremental profit milestones that automatically adjust your stop loss to lock in gains." className="z-[10030]">
-            <Info size={12} className="text-dim/40 cursor-help" />
-          </Tooltip>
         </div>
-        <Tooltip content="Live Ratchet: The engine proactively trails your stop loss as these milestones are hit." className="z-[10030]">
-          <div className="text-[10px] text-accent font-mono bg-accent/10 px-2 py-0.5 rounded border border-accent/20 cursor-help">Live Ratchet</div>
-        </Tooltip>
+        <div className="text-[10px] text-accent font-mono bg-accent/10 px-2 py-0.5 rounded border border-accent/20">Live Ratchet</div>
       </div>
 
       <div className="flex gap-4 overflow-x-auto no-scrollbar mb-8 pb-2">
@@ -398,11 +386,9 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                 ROI: {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
               </div>
               {trade.is_reconciliation && (
-                <Tooltip content="Reconciled Trade: This position was automatically synchronized from the exchange state.">
-                  <div className="bg-amber/10 text-amber border border-amber/20 px-2 py-0.5 md:px-4 md:py-1.5 rounded-full text-[8px] md:text-xs font-black uppercase tracking-widest cursor-help shadow-sm flex items-center gap-1.5">
-                    <Activity size={12} className="md:size-3" /> Reconciled
-                  </div>
-                </Tooltip>
+                <div className="bg-amber/10 text-amber border border-amber/20 px-2 py-0.5 md:px-4 md:py-1.5 rounded-full text-[8px] md:text-xs font-black uppercase tracking-widest shadow-sm flex items-center gap-1.5">
+                  <Activity size={12} className="md:size-3" /> Reconciled
+                </div>
               )}
             </div>
           </div>
@@ -473,15 +459,14 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                    { label: 'TP Mode', value: trade.tp_mode === 'exp_rr_seq' ? 'Expansion RR' : 'Fixed Ratio' },
                     { label: 'Commission', value: fmtUSD(-(trade.realized_fee || 0)), color: 'text-red/70' },
                     { label: 'Funding Fee', value: fmtUSD(-(trade.funding_fee || 0)), color: trade.funding_fee > 0 ? 'text-red/70' : 'text-green/70' },
-                   { label: 'ROI from Entry', value: `${pnlPct.toFixed(2)}%`, color: pnlPct >= 0 ? 'text-green' : 'text-red', tooltip: 'Current price percentage change relative to entry' },
-                   { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%`, tooltip: 'Current percentage distance from market price to stop loss' },
-                   { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%`, tooltip: 'Percentage distance from entry price to initial stop loss' },
-                   { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0), tooltip: 'Fixed initial dollar risk calculated at time of entry' },
+                   { label: 'ROI from Entry', value: `${pnlPct.toFixed(2)}%`, color: pnlPct >= 0 ? 'text-green' : 'text-red' },
+                   { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%` },
+                   { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%` },
+                   { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0) },
                    {
                      label: 'Daily Δ at Entry',
                      value: `${(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} ${Math.abs(trade.entry_daily_change_pct || 0).toFixed(2)}%`,
-                     color: pnlClass(trade.entry_daily_change_pct),
-                     tooltip: '24h price change percentage at the exact moment of entry'
+                     color: pnlClass(trade.entry_daily_change_pct)
                    },
                    trade.exit_ts && {
                      label: 'Exit Signal',
@@ -501,20 +486,12 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                         if (type === 'EXCHANGE FILL') return 'Exchange Fill';
                         return type;
                      })(),
-                     tooltip: trade.exit_signal_reason || trade.exit_reason || 'No detailed reason provided',
                      color: 'text-accent'
                    }
                  ].filter(Boolean).map(item => (
                    <div key={item.label} className="flex justify-between items-center py-3 border-b border-border/40 last:border-0">
                       <div className="flex items-center gap-1.5">
                         <span className="text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
-                        {item.tooltip && (
-                          <Tooltip content={item.tooltip} className="z-[10030]">
-                            <div className="p-1 -m-1 cursor-help">
-                              <Info size={12} className="text-dim/40 md:size-[10px]" />
-                            </div>
-                          </Tooltip>
-                        )}
                       </div>
                       <span className={cn("text-xs font-bold font-mono", item.color)}>{item.value}</span>
                    </div>
@@ -539,11 +516,9 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                         <div className="flex items-center gap-2">
                            <span className="text-dim/60 text-[9px] uppercase tracking-[0.1em]">{adj.reason}</span>
                            {adj.adaptive && (
-                              <Tooltip content="Adaptive Guard: This adjustment was automatically widened to prevent exchange rejection or instant fill due to high volatility.">
-                                 <span className="bg-amber/10 text-amber px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter flex items-center gap-1 border border-amber/20">
-                                    <Activity size={8} /> Adaptive
-                                 </span>
-                              </Tooltip>
+                              <span className="bg-amber/10 text-amber px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter flex items-center gap-1 border border-amber/20">
+                                 <Activity size={8} /> Adaptive
+                              </span>
                            )}
                         </div>
                       </div>

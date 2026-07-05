@@ -111,24 +111,22 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
         </div>
         <div className="flex flex-col items-start min-w-[80px] max-w-[120px]">
           <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Exit</span>
-          <Tooltip content={trade.exit_signal_reason || trade.exit_reason || 'No detailed reason provided'}>
-            <span className="text-[8px] font-black text-text/60 uppercase truncate w-full leading-tight cursor-help border-b border-dotted border-dim/20">
-              {(() => {
-                const type = trade.exit_signal_type?.replace(/_/g, ' ') || (trade.exit_reason || 'Manual');
-                const reason = trade.exit_signal_reason || '';
-                if (type === 'STOP LOSS' || type === 'SL HIT') {
-                  if (reason.includes('INITIAL_SL')) return 'Initial SL';
-                  if (reason.includes('RR_sequence_milestone_0')) return 'Breakeven';
-                  if (reason.includes('RR_sequence_milestone')) {
-                    const match = reason.match(/milestone_(\d+)/);
-                    return match ? `Ratchet M${match[1]}` : 'Ratchet SL';
-                  }
-                  return 'Stop Loss';
+          <span className="text-[8px] font-black text-text/60 uppercase truncate w-full leading-tight">
+            {(() => {
+              const type = trade.exit_signal_type?.replace(/_/g, ' ') || (trade.exit_reason || 'Manual');
+              const reason = trade.exit_signal_reason || '';
+              if (type === 'STOP LOSS' || type === 'SL HIT') {
+                if (reason.includes('INITIAL_SL')) return 'Initial SL';
+                if (reason.includes('RR_sequence_milestone_0')) return 'Breakeven';
+                if (reason.includes('RR_sequence_milestone')) {
+                  const match = reason.match(/milestone_(\d+)/);
+                  return match ? `Ratchet M${match[1]}` : 'Ratchet SL';
                 }
-                return type;
-              })()}
-            </span>
-          </Tooltip>
+                return 'Stop Loss';
+              }
+              return type;
+            })()}
+          </span>
         </div>
       </div>
     </div>
@@ -255,12 +253,10 @@ const SessionGroup = React.memo(({ session, trades }) => {
             </div>
             <div className="flex flex-col">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Expectancy</span>
-              <Tooltip content="Expected value per trade based on historical performance">
-                <span className={cn("text-xs font-bold flex items-center gap-1.5 border-b border-dotted border-dim/30", expectancyStatus.color)}>
-                  <expectancyStatus.icon size={12} aria-hidden="true" />
-                  {Number(expectancyStatus.expectancy).toFixed(2)}
-                </span>
-              </Tooltip>
+              <span className={cn("text-xs font-bold flex items-center gap-1.5", expectancyStatus.color)}>
+                <expectancyStatus.icon size={12} aria-hidden="true" />
+                {Number(expectancyStatus.expectancy).toFixed(2)}
+              </span>
             </div>
             <div className="flex flex-col items-end">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Net P&L</span>

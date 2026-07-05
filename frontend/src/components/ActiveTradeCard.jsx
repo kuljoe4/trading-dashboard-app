@@ -68,20 +68,16 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
               {isLong ? '▲' : '▼'} {trade.direction || '---'}
             </span>
             {trade.is_reconciliation && (
-              <Tooltip content="Reconciled Trade: This trade was automatically imported from the exchange or resumed after a system restart.">
-                <span className="bg-amber text-black border border-amber text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter cursor-help">
-                  Recon
-                </span>
-              </Tooltip>
+              <span className="bg-amber text-black border border-amber text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter">
+                Recon
+              </span>
             )}
           </div>
           {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
-            <Tooltip content="Manual Monitor Active: This symbol is being explicitly tracked regardless of global scanner state.">
-              <div className="flex items-center gap-1 whitespace-nowrap overflow-hidden">
-                <ShieldCheck size={10} className="text-accent shrink-0" />
-                <span className="text-[9px] font-black text-accent uppercase tracking-widest opacity-80 truncate">Monitored</span>
-              </div>
-            </Tooltip>
+            <div className="flex items-center gap-1 whitespace-nowrap overflow-hidden">
+              <ShieldCheck size={10} className="text-accent shrink-0" />
+              <span className="text-[9px] font-black text-accent uppercase tracking-widest opacity-80 truncate">Monitored</span>
+            </div>
           )}
         </div>
 
@@ -134,16 +130,12 @@ export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
         </div>
         <div className="flex justify-between text-[9px] font-bold text-dim uppercase tracking-widest font-mono">
           <div className="flex flex-col items-start">
-            <Tooltip content="Stop Loss distance from entry price.">
-              <span className="text-red/60 cursor-help border-b border-dotted border-red/20">SL</span>
-            </Tooltip>
+            <span className="text-red/60">SL</span>
             <span className="text-[8px] opacity-40">{entry ? ((Math.abs(entry - sl) / entry) * 100).toFixed(1) : 0}%</span>
           </div>
           <span className="text-text/20">Entry</span>
           <div className="flex flex-col items-end">
-            <Tooltip content="Target Profit distance from entry price.">
-              <span className="text-green/60 cursor-help border-b border-dotted border-green/20">{tp ? 'TP' : '3R'}</span>
-            </Tooltip>
+            <span className="text-green/60">{tp ? 'TP' : '3R'}</span>
             <span className="text-[8px] opacity-40">{tp && entry ? ((Math.abs(tp - entry) / entry) * 100).toFixed(1) : '---'}</span>
           </div>
         </div>

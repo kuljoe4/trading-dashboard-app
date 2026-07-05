@@ -77,16 +77,11 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
       <div className="flex flex-col gap-0.5 w-full relative z-10">
         <div className="flex items-start w-full min-h-[2rem] md:min-h-[2.25rem]">
           <div className="flex items-center gap-2 flex-grow overflow-hidden mr-1">
-            <Tooltip content={tooltip}>
-              <div className={cn(
-                "text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] cursor-help hover:text-dim/80 transition-colors",
-                tooltip && "border-b border-dotted border-dim/30"
-              )}>{label}</div>
-            </Tooltip>
+            <div className={cn(
+              "text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] hover:text-dim/80 transition-colors"
+            )}>{label}</div>
             {indicator === 'amber' && (
-              <Tooltip content="Adaptive tightening active">
-                <div className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse cursor-help shrink-0" />
-              </Tooltip>
+              <div className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse shrink-0" />
             )}
           </div>
           <button
@@ -157,7 +152,7 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
 })
 
 // --- Stat Card ---
-export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing, tooltipText }) => {
+export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing }) => {
   // BOLT: Clean up double-negative visuals: if value starts with '-', don't show negative arrow in label/icon.
   // This component currently doesn't show an icon, but if the value passed from parent has both '-' and an arrow,
   // it might look redundant. The user pointed out: "Total Performance" displays ▼ - $9,920.52.
@@ -181,7 +176,6 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
       <div className="flex flex-col gap-0.5 w-full">
         <div className="flex items-start gap-1.5 min-h-[2rem] md:min-h-[2.25rem]">
             <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] flex-1" aria-hidden="true">{label}</div>
-            {tooltipText && <Tooltip content={tooltipText}><Info size={10} className="text-dim hover:text-accent cursor-help shrink-0 mt-0.5" /></Tooltip>}
         </div>
         <div className="flex flex-col">
           <div className={cn(
@@ -258,39 +252,31 @@ export const StatusBadge = ({ status }) => {
 
 // --- Mode Badges ---
 export const PaperBadge = () => (
-  <Tooltip content="Paper: Simulated trading using local balance. No real funds used.">
-    <span className="px-2.5 py-1 rounded-full border border-amber/20 bg-amber/10 text-[10px] text-amber font-bold tracking-wider flex items-center gap-1.5 cursor-help">
-      <Zap size={10} fill="currentColor" />
-      PAPER
-    </span>
-  </Tooltip>
+  <span className="px-2.5 py-1 rounded-full border border-amber/20 bg-amber/10 text-[10px] text-amber font-bold tracking-wider flex items-center gap-1.5">
+    <Zap size={10} fill="currentColor" />
+    PAPER
+  </span>
 )
 
 export const EcoBadge = () => (
-  <Tooltip content="Eco: Power-saving mode with reduced updates to save CPU and memory.">
-    <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5 shadow-[0_0_10px_rgba(0,229,160,0.05)] cursor-help">
-      <div className="w-1.5 h-1.5 bg-green rounded-full animate-pulse" />
-      ECO
-    </span>
-  </Tooltip>
+  <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5 shadow-[0_0_10px_rgba(0,229,160,0.05)]">
+    <div className="w-1.5 h-1.5 bg-green rounded-full animate-pulse" />
+    ECO
+  </span>
 )
 
 export const DemoBadge = () => (
-  <Tooltip content="Demo: Trading on Binance Testnet with virtual funds. Use for strategy testing.">
-    <span className="px-2.5 py-1 rounded-full border border-purple/20 bg-purple/10 text-[10px] text-purple font-bold tracking-wider flex items-center gap-1.5 cursor-help">
-      <Zap size={10} fill="currentColor" />
-      DEMO
-    </span>
-  </Tooltip>
+  <span className="px-2.5 py-1 rounded-full border border-purple/20 bg-purple/10 text-[10px] text-purple font-bold tracking-wider flex items-center gap-1.5">
+    <Zap size={10} fill="currentColor" />
+    DEMO
+  </span>
 )
 
 export const LiveBadge = () => (
-  <Tooltip content="Live: Real capital trading on Binance Production. Proceed with caution.">
-    <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5 cursor-help">
-      <Zap size={10} fill="currentColor" />
-      LIVE
-    </span>
-  </Tooltip>
+  <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5">
+    <Zap size={10} fill="currentColor" />
+    LIVE
+  </span>
 )
 
 // --- Condition Widget ---
@@ -500,19 +486,17 @@ export const CopyButton = ({ value, className, tooltip = "Copy", successTooltip 
   }
 
   return (
-    <Tooltip content={copied ? successTooltip : tooltip}>
-      <button
-        onClick={handleCopy}
-        className={cn(
-          "p-1.5 rounded-md transition-all active:scale-90",
-          copied ? "text-green bg-green/10" : "text-dim hover:text-text hover:bg-white/5",
-          className
-        )}
-        aria-label={copied ? successTooltip : tooltip}
-      >
-        {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
-      </button>
-    </Tooltip>
+    <button
+      onClick={handleCopy}
+      className={cn(
+        "p-1.5 rounded-md transition-all active:scale-90",
+        copied ? "text-green bg-green/10" : "text-dim hover:text-text hover:bg-white/5",
+        className
+      )}
+      aria-label={copied ? successTooltip : tooltip}
+    >
+      {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+    </button>
   )
 }
 

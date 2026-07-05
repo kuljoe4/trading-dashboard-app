@@ -41,11 +41,9 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored }) =>
           <span className="text-[11px] text-dim font-mono leading-none">#{i + 1}</span>
           {opp.volume_rank && (
             <div className="mt-1">
-              <Tooltip content={`Volume Rank: This symbol is #${opp.volume_rank} in 24h volume among tracked assets.`}>
-                 <span className="text-[7px] md:text-[8px] bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded text-accent font-black uppercase tracking-tighter cursor-help shadow-sm">
-                    V#{opp.volume_rank}
-                 </span>
-              </Tooltip>
+              <span className="text-[7px] md:text-[8px] bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded text-accent font-black uppercase tracking-tighter shadow-sm">
+                V#{opp.volume_rank}
+              </span>
             </div>
           )}
         </div>
@@ -57,12 +55,10 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored }) =>
            </div>
            <div className="flex items-center gap-1.5 mt-0.5">
             {activeTrades.some(t => t.symbol === opp.symbol) && (
-               <Tooltip content="Currently in Position">
-                 <div className="flex items-center gap-1">
-                    <Zap size={10} className="text-green fill-green/20" />
-                    <span className="text-[8px] font-bold text-green uppercase tracking-tighter">In Pos</span>
-                 </div>
-               </Tooltip>
+              <div className="flex items-center gap-1">
+                 <Zap size={10} className="text-green fill-green/20" />
+                 <span className="text-[8px] font-bold text-green uppercase tracking-tighter">In Pos</span>
+              </div>
             )}
             {isSingleMonitor && (
               <div className="flex items-center gap-1">
@@ -132,31 +128,14 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored }) =>
         <div className="flex justify-center items-center gap-2">
           {passing ? (
             opp.signalResult?.allFired ? (
-              <Tooltip content="Meets momentum and signal criteria for entry.">
-                <span className="px-2 py-0.5 rounded bg-green/10 text-green text-[9px] font-black uppercase tracking-tighter border border-green/20 cursor-help">PASS</span>
-              </Tooltip>
+              <span className="px-2 py-0.5 rounded bg-green/10 text-green text-[9px] font-black uppercase tracking-tighter border border-green/20">PASS</span>
             ) : (
-              <Tooltip content={
-                <div className="flex flex-col gap-1">
-                  <div className="font-bold flex items-center gap-1.5 text-red">
-                    <AlertCircle size={12} />
-                    SIGNAL REJECTED
-                  </div>
-                  <div className="text-[11px] opacity-90">{opp.signalResult?.reason || 'Authorization failed'}</div>
-                  <div className="text-[10px] opacity-60 mt-1 border-t border-white/10 pt-1">
-                    Symbol meets volume/momentum but fails pattern validation.
-                  </div>
-                </div>
-              }>
-                <span className="px-2 py-0.5 rounded bg-red/10 text-red text-[9px] font-black uppercase tracking-tighter border border-red/20 cursor-help flex items-center gap-1">
-                  REJECT
-                </span>
-              </Tooltip>
+              <span className="px-2 py-0.5 rounded bg-red/10 text-red text-[9px] font-black uppercase tracking-tighter border border-red/20 flex items-center gap-1">
+                REJECT
+              </span>
             )
           ) : (
-            <Tooltip content="Below momentum threshold. Awaiting stronger price action.">
-              <span className="px-2 py-0.5 rounded bg-surface text-dim text-[9px] font-black uppercase tracking-tighter border border-border cursor-help">WAIT</span>
-            </Tooltip>
+            <span className="px-2 py-0.5 rounded bg-surface text-dim text-[9px] font-black uppercase tracking-tighter border border-border">WAIT</span>
           )}
           <div className="hidden md:block opacity-0 group-hover:opacity-100 transition-opacity">
              {isExpanded ? <ChevronUp size={12} className="text-dim" /> : <ChevronDown size={12} className="text-dim" />}
@@ -464,29 +443,19 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
           <span className="text-[8px] text-dim/60 normal-case tracking-normal">Top 15 results</span>
         </div>
         <div className="flex justify-end">
-          <Tooltip content="Price change % since the last scan interval.">
-            <span className="cursor-help border-b border-dotted border-dim/30">Move</span>
-          </Tooltip>
+          <span>Move</span>
         </div>
         <div className="flex justify-center">
-          <Tooltip content="Recent price action history (Sparkline).">
-            <span className="cursor-help border-b border-dotted border-dim/30">Trend</span>
-          </Tooltip>
+          <span>Trend</span>
         </div>
         <div className="flex justify-end">
-          <Tooltip content="24-hour trading volume in USDT.">
-            <span className="cursor-help border-b border-dotted border-dim/30">Volume</span>
-          </Tooltip>
+          <span>Volume</span>
         </div>
         <div className="flex justify-end px-2">
-          <Tooltip content="Internal engine ranking based on volatility, trend, and volume.">
-            <span className="cursor-help border-b border-dotted border-dim/30">Score</span>
-          </Tooltip>
+          <span>Score</span>
         </div>
         <div className="flex justify-center">
-          <Tooltip content="Gating status: PASS if the symbol meets the minimum momentum threshold.">
-            <span className="cursor-help border-b border-dotted border-dim/30">Pass</span>
-          </Tooltip>
+          <span>Pass</span>
         </div>
       </div>
 
@@ -495,14 +464,10 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
         <span>#</span>
         <span>Symbol</span>
         <div className="flex justify-end">
-          <Tooltip content="Price change % since the last scan interval.">
-            <span className="cursor-help border-b border-dotted border-dim/30">Move</span>
-          </Tooltip>
+          <span>Move</span>
         </div>
         <div className="flex justify-center">
-          <Tooltip content="Gating status: PASS if the symbol meets the minimum momentum threshold.">
-            <span className="cursor-help border-b border-dotted border-dim/30">Pass</span>
-          </Tooltip>
+          <span>Pass</span>
         </div>
       </div>
 

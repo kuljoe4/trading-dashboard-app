@@ -39,9 +39,16 @@ export function updateLogLevels(debugMode: boolean) {
 /**
  * SENTINEL: Recursively sanitizes objects by masking sensitive fields
  * such as 'value' (from ValidationError) and API keys/secrets.
+ * Protects against accidental leakage of credentials in logs.
  */
 export function sanitize(obj: any): any {
   if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+
+  // SENTINEL: Guard against special objects to prevent them from being
+  // incorrectly serialized into empty objects by the property loop.
+  if (obj instanceof Date || obj instanceof Buffer || obj instanceof RegExp) {
     return obj;
   }
 
@@ -53,12 +60,20 @@ export function sanitize(obj: any): any {
   for (const key in obj) {
     if (Object.prototype.hasOwnProperty.call(obj, key)) {
       const lowerKey = key.toLowerCase();
+      // SENTINEL: Broaden detection to catch camelCase, snake_case, and kebab-case
+      // variations of sensitive fields, as well as additional security keywords.
       if (
         lowerKey === "value" ||
         lowerKey.includes("api_key") ||
-        lowerKey.includes("api_secret") ||
+        lowerKey.includes("apikey") ||
+        lowerKey.includes("api-key") ||
+        lowerKey.includes("secret") ||
         lowerKey.includes("password") ||
-        lowerKey.includes("token")
+        lowerKey.includes("token") ||
+        lowerKey.includes("auth") ||
+        lowerKey.includes("credential") ||
+        lowerKey.includes("private") ||
+        lowerKey.includes("seed")
       ) {
         sanitized[key] = "[MASKED]";
       } else {

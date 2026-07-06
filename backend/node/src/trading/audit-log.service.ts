@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuditLog as AuditLogEntity } from '../models/entities/AuditLog.entity';
+import { sanitize } from '../lib/logger';
 
 @Injectable()
 export class AuditLogService {
@@ -22,8 +23,14 @@ export class AuditLogService {
     level?: 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';
   }) {
     try {
-      const entry = this.auditLogRepository.create({
+      // SENTINEL: Sanitize details to prevent accidental credential leakage in audit logs
+      const sanitizedParams = {
         ...params,
+        details: params.details ? sanitize(params.details) : undefined,
+      };
+
+      const entry = this.auditLogRepository.create({
+        ...sanitizedParams,
         level: params.level || 'INFO',
         timestamp: new Date(),
       });

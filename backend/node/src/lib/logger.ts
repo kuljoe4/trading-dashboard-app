@@ -40,10 +40,19 @@ export function updateLogLevels(debugMode: boolean) {
  * SENTINEL: Recursively sanitizes objects by masking sensitive fields
  * such as 'value' (from ValidationError) and API keys/secrets.
  * Protects against accidental leakage of credentials in logs.
+ * Includes circular reference protection and recursion depth limits.
  */
-export function sanitize(obj: any): any {
+export function sanitize(obj: any, visited = new WeakSet<any>(), depth = 0): any {
   if (obj === null || typeof obj !== 'object') {
     return obj;
+  }
+
+  if (depth > 10) {
+    return Array.isArray(obj) ? "[Array]" : "[Object]";
+  }
+
+  if (visited.has(obj)) {
+    return "[Circular]";
   }
 
   // SENTINEL: Guard against special objects to prevent them from being
@@ -52,8 +61,10 @@ export function sanitize(obj: any): any {
     return obj;
   }
 
+  visited.add(obj);
+
   if (Array.isArray(obj)) {
-    return obj.map(sanitize);
+    return obj.map((item) => sanitize(item, visited, depth + 1));
   }
 
   const sanitized: any = {};
@@ -73,11 +84,16 @@ export function sanitize(obj: any): any {
         lowerKey.includes("auth") ||
         lowerKey.includes("credential") ||
         lowerKey.includes("private") ||
-        lowerKey.includes("seed")
+        lowerKey.includes("seed") ||
+        lowerKey.includes("mnemonic") ||
+        lowerKey.includes("passphrase") ||
+        lowerKey.includes("cookie") ||
+        lowerKey.includes("session") ||
+        lowerKey.includes("signature")
       ) {
         sanitized[key] = "[MASKED]";
       } else {
-        sanitized[key] = sanitize(obj[key]);
+        sanitized[key] = sanitize(obj[key], visited, depth + 1);
       }
     }
   }

@@ -146,8 +146,7 @@ export class SessionStateService {
         entryCount: this.countedGlobalEntries.size,
         hitCount: this.countedGlobalHits.size,
         totalPnl: roundEight(
-          initialHistory
-            .filter(t => t.sessionId === sessionId)
+          [...sessionHistory, ...sessionOpen]
             .reduce((acc, t) => acc + (t.pnl || 0), 0)
         )
     };
@@ -316,6 +315,10 @@ export class SessionStateService {
     this.statsVersion++;
   }
 
+  /**
+   * Update session PnL stats. Supports partial updates for open trades (fees/funding)
+   * to ensure in-memory totalPnl remains consistent with the database.
+   */
   updateStatsOnClose(isWin: boolean, pnl: number = 0, isReconciliation: boolean = false, tradeId?: string) {
     if (tradeId) {
       if (!isReconciliation && isWin && !this.countedGlobalHits.has(tradeId)) {
@@ -327,6 +330,7 @@ export class SessionStateService {
       const delta = roundEight(pnl - applied);
       this.stats.totalPnl = roundEight(this.stats.totalPnl + delta);
       this.appliedGlobalPnL.set(tradeId, pnl);
+      this.appliedStatsPnL.set(tradeId, pnl);
     } else {
       if (!isReconciliation && isWin) this.stats.hitCount++;
       this.stats.totalPnl = roundEight(this.stats.totalPnl + pnl);

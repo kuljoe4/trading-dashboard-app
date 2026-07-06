@@ -17,6 +17,7 @@ describe('OrderManagerService - Idempotency & Partial SL Sync', () => {
       isRateLimited: jest.fn().mockReturnValue(false),
       updateRateLimit: jest.fn(),
       updateOrderRateLimits: jest.fn(),
+      updateStatsOnClose: jest.fn(),
       getBinanceRateLimit: jest.fn().mockReturnValue({ used_1m: 0, limit: 2400 }),
     };
 

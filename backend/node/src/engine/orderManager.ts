@@ -172,6 +172,17 @@ export class OrderManagerService {
          if (commission > 0 && tradeExecutionId) {
            if (!isDuplicateTrade) {
               trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + commission);
+              // Update PnL and notify session state of the fee change immediately to prevent aggregate drift.
+              // For OPEN trades, we only track the realized portion (fees/funding).
+              if (trade.status === 'OPEN') {
+                trade.pnl = roundEight(-(trade.realized_fee || 0) - (trade.funding_fee || 0));
+                this.sessionState.updateStatsOnClose(false, trade.pnl || 0, false, trade.id);
+              } else {
+                const exitPrice = trade.exit_price || 0;
+                trade.pnl = roundEight((trade.direction === 'LONG' ? exitPrice - trade.entry_price : trade.entry_price - exitPrice) * trade.qty - trade.realized_fee - trade.funding_fee);
+                this.sessionState.updateStatsOnClose((trade.pnl || 0) > 0, trade.pnl || 0, false, trade.id);
+              }
+
               this.tradeExecutionCache.set(tradeExecutionId, Date.now());
               this.logger.debug(`[${tradeIdShort8}] [UDS] Accumulated commission for ${symbol}: ${commission}. Total: ${trade.realized_fee}`);
               this.cleanupExecutionCache();

@@ -279,6 +279,8 @@ export class ExecutionService {
             const trade = result.data;
             this.positionTracker.addTrade(trade);
             this.sessionState.updateStatsOnEntry(trade.id);
+            // DATA-PNL: Proactively update session totalPnl with entry fees
+            this.sessionState.updateStatsOnClose(false, trade.pnl || 0, false, trade.id);
 
             if (onTradeUpdate) {
               await onTradeUpdate(trade, balance);

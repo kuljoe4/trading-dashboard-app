@@ -30,6 +30,7 @@ describe('OrderManagerService - Multi-part SL Integrity', () => {
       realTimeOrders: new Map(),
       realTimePositions: new Map(),
       activeTrades: [],
+      updateStatsOnClose: jest.fn(),
       getBinanceRateLimit: jest.fn().mockReturnValue({ used_1m: 0, limit: 2400 }),
     };
     eventEmitter = {

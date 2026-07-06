@@ -152,3 +152,11 @@
 ## 2026-06-30 - [Serialization] BigInt.prototype.toJSON Polyfill
 **Learning:** `JSON.stringify` throws a `TypeError: Do not know how to serialize a BigInt` when encountering large integers (e.g., Binance Order IDs). This can crash high-criticality logging or response serialization paths.
 **Action:** Implement a global polyfill `BigInt.prototype.toJSON = function() { return this.toString(); }` in a central utility (`lib/math.ts`) and ensure it's loaded early in the application lifecycle (`server.ts`) to provide safe, precision-preserving serialization across the entire process.
+
+## 2026-07-06 - [Optimization] Single-Pass Analytics Processing
+**Learning:** Recalculating session analytics with multiple passes (filter, reduce, main loop, ROI loop) and  object comparisons creates significant CPU and GC overhead as trade history grows. Fusing these into two passes (one filter/sum and one main/ROI metrics loop) with millisecond-based comparisons reduces execution time and allocations.
+**Action:** Always look to fuse independent data aggregation passes into a single loop when processing collections in hot paths or expensive background services.
+
+## 2026-07-06 - [Optimization] Single-Pass Analytics Processing
+**Learning:** Recalculating session analytics with multiple passes (filter, reduce, main loop, ROI loop) and `Date` object comparisons creates significant CPU and GC overhead as trade history grows. Fusing these into two passes (one filter/sum and one main/ROI metrics loop) with millisecond-based comparisons reduces execution time and allocations.
+**Action:** Always look to fuse independent data aggregation passes into a single loop when processing collections in hot paths or expensive background services.

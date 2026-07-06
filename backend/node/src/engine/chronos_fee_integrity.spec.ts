@@ -84,7 +84,7 @@ describe('Chronos: Fee Integrity and Double-Counting Prevention', () => {
     };
 
     const emitSpy = jest.spyOn(eventEmitter, 'emit');
-    await orderManager.handleBinanceOrderUpdate(udsPayload);
+    await orderManager.handleBinanceOrderUpdate(udsPayload as any);
 
     // Verify UDS commission was accumulated correctly
     expect(trade.realized_fee).toBe(20 + 19.6);

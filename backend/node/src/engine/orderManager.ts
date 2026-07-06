@@ -15,6 +15,14 @@ import { SessionStateService } from './session_state.service';
 import { AuditLogService } from '../trading/audit-log.service';
 import { v4 as uuid } from 'uuid';
 import { roundEight, floorStep, roundTo, formatSlType } from '../lib/math';
+import {
+  BinanceOrderUpdateEvent,
+  BinanceUserCommissionRate,
+  BinanceOrderReceipt,
+  BinanceAlgoOrderReceipt,
+  BinancePositionV3,
+  BinanceTrade
+} from '../models/binance.types';
 import { ENGINE_CONSTANTS, CONFIG_LIMITS, EXIT_REASONS } from '../models/constants';
 import { ENGINE_EVENTS } from './events';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -71,7 +79,7 @@ export class OrderManagerService {
   ) {}
 
   @OnEvent('binance.order_update')
-  async handleBinanceOrderUpdate(payload: any) {
+  async handleBinanceOrderUpdate(payload: BinanceOrderUpdateEvent) {
     const order = payload.o;
     const symbol = order.s;
     const status = order.X; // Order Status
@@ -434,7 +442,7 @@ export class OrderManagerService {
       try {
         // v31.0.0+: Methods are directly on restAPI
         const response = await this.binanceClient.restAPI.userCommissionRate({ symbol: 'BTCUSDT' });
-        const data = await response.data() as any;
+        const data = (await response.data()) as BinanceUserCommissionRate;
         if (data && data.takerCommissionRate) {
           const rate = parseFloat(data.takerCommissionRate);
           if (!isNaN(rate)) {
@@ -501,7 +509,7 @@ export class OrderManagerService {
    * DATA-07: Robust validation for both standard and algorithmic order responses.
    * Ensures that Stop Loss placement is confirmed active on the exchange before proceeding.
    */
-  public validateStopLossPlacement(symbol: string, response: any): { isValid: boolean, orderId?: string } {
+  public validateStopLossPlacement(symbol: string, response: Partial<BinanceOrderReceipt & BinanceAlgoOrderReceipt>): { isValid: boolean, orderId?: string } {
     if (!response) {
       this.logger.error(`[${symbol}] Received null or undefined order response payload from exchange.`);
       return { isValid: false };
@@ -765,7 +773,7 @@ export class OrderManagerService {
           }
 
           this.updateWeight(response?.headers);
-          const entryReceipt = await response.data() as any;
+          const entryReceipt = (await response.data()) as BinanceOrderReceipt;
           this.logger.log(`Entry receipt: ${JSON.stringify(entryReceipt)}`);
 
           // REST COMMISSION SYNC: Cache trade IDs and sum commissions from the response fills
@@ -798,7 +806,7 @@ export class OrderManagerService {
             if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
                this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId on entry retry. Recovering order state...`);
                const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: entryOrderId });
-               const queryData = await queryRes.data() as any;
+               const queryData = (await queryRes.data()) as BinanceOrderReceipt;
                if (queryData && queryData.orderId) {
                   this.logger.log(`[${symbol}] [Sync] Successfully recovered existing order state for duplicate ID: ${queryData.orderId} (Status: ${queryData.status})`);
                   entryReceipt.orderId = queryData.orderId;
@@ -815,7 +823,7 @@ export class OrderManagerService {
             }
           }
 
-          trade.binance_order_id = entryReceipt.orderId;
+          trade.binance_order_id = String(entryReceipt.orderId);
 
           // BOLT: Proactively seed real-time order cache to reduce subsequent REST weight
           const entryOrderEntry = {
@@ -879,7 +887,7 @@ export class OrderManagerService {
                 try {
                    this.logger.log(`[${symbol}] [Sync] Binance returned 0 price for entry and UDS cache empty. Fetching authoritative price via queryOrder...`);
                    const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, orderId: BigInt(trade.binance_order_id) });
-                   const queryData = await queryRes.data() as any;
+                   const queryData = (await queryRes.data()) as BinanceOrderReceipt;
                    absoluteEntryPrice = parseFloat(queryData.avgPrice || queryData.price || '0');
                    if (absoluteEntryPrice > 0) {
                      this.logger.log(`[${symbol}] [Sync] Successfully fetched authoritative entry price: ${absoluteEntryPrice}`);
@@ -1170,7 +1178,7 @@ export class OrderManagerService {
       try {
         const response = await this.binanceClient.restAPI.newAlgoOrder(slOrderParams as any);
         this.updateWeight(response?.headers);
-        const orderData = await response.data() as any;
+        const orderData = (await response.data()) as BinanceAlgoOrderReceipt;
 
         if (orderData.code && orderData.code !== 0) {
           const code = orderData.code;
@@ -1182,7 +1190,7 @@ export class OrderManagerService {
             this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId on SL retry. Recovering SL state...`);
             // Algo orders might need a different query endpoint or different parameters
             const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
-            const queryData = await queryRes.data() as any;
+            const queryData = (await queryRes.data()) as BinanceOrderReceipt;
             if (queryData && queryData.orderId) {
               this.logger.log(`[${symbol}] [Sync] Successfully recovered existing SL order state: ${queryData.orderId}`);
               stopLossId = String(queryData.orderId);
@@ -1279,7 +1287,7 @@ export class OrderManagerService {
 
           try {
             const fallbackRes = await this.binanceClient.restAPI.newOrder(standardParams as any);
-            const fallbackData = await fallbackRes.data() as any;
+            const fallbackData = (await fallbackRes.data()) as BinanceOrderReceipt;
             const validation = this.validateStopLossPlacement(symbol, fallbackData);
             if (validation.isValid) {
               stopLossId = validation.orderId!;
@@ -1353,7 +1361,7 @@ export class OrderManagerService {
         } else if (msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
           this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId (via exception) on SL retry. Recovering SL state...`);
           const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
-          const queryData = await queryRes.data() as any;
+          const queryData = (await queryRes.data()) as BinanceOrderReceipt;
           if (queryData && queryData.orderId) {
             this.logger.log(`[${symbol}] [Sync] Successfully recovered existing SL order state: ${queryData.orderId}`);
             stopLossId = String(queryData.orderId);
@@ -1626,19 +1634,19 @@ export class OrderManagerService {
     }
   }
 
-  public async fetchAllOpenOrders(): Promise<any[]> {
+  public async fetchAllOpenOrders(): Promise<(BinanceOrderReceipt | BinanceAlgoOrderReceipt)[]> {
     if (!this.binanceClient) return [];
     try {
       this.monitoringService.incrementApiRequests();
       // Use standard endpoint
       const response = await this.binanceClient.restAPI.currentAllOpenOrders();
       this.updateWeight(response?.headers);
-      const standardOrders = (await response.data() as any[]) || [];
+      const standardOrders = ((await response.data()) as BinanceOrderReceipt[]) || [];
 
       // Also fetch algorithmic orders (Stop Losses)
       const algoOrders = await this.fetchAllOpenAlgoOrders();
 
-      const allOrders = [...standardOrders, ...algoOrders];
+      const allOrders: (BinanceOrderReceipt | BinanceAlgoOrderReceipt)[] = [...standardOrders, ...algoOrders];
 
       // Proactively seed the real-time order cache to eliminate subsequent REST weight
       const ordersBySymbol = new Map<string, any[]>();
@@ -1658,13 +1666,13 @@ export class OrderManagerService {
     }
   }
 
-  public async fetchAllOpenAlgoOrders(): Promise<any[]> {
+  public async fetchAllOpenAlgoOrders(): Promise<BinanceAlgoOrderReceipt[]> {
     if (!this.binanceClient) return [];
     try {
       this.monitoringService.incrementApiRequests();
       const response = await this.binanceClient.restAPI.currentAllAlgoOpenOrders();
       this.updateWeight(response?.headers);
-      const data = await response.data() as any;
+      const data = (await response.data()) as (BinanceAlgoOrderReceipt[] | { orders: BinanceAlgoOrderReceipt[] });
       if (Array.isArray(data)) return data;
       if (data && Array.isArray(data.orders)) return data.orders;
       return [];
@@ -1772,7 +1780,7 @@ export class OrderManagerService {
     return { exitTriggered, exitSignalType };
   }
 
-  public async fetchAllPositions(): Promise<any[]> {
+  public async fetchAllPositions(): Promise<BinancePositionV3[]> {
     if (!this.binanceClient) return [];
     if (!this.paperMode && this.sessionState.isRateLimited(0.95)) return [];
     try {
@@ -1780,7 +1788,7 @@ export class OrderManagerService {
       // Finding 7: Use V3 for targeted active positions
       const response = await this.binanceClient.restAPI.positionInformationV3();
       this.updateWeight(response.headers);
-      const data = await response.data() as any;
+      const data = (await response.data()) as BinancePositionV3[];
       if (!Array.isArray(data)) {
         // SENTINEL: Avoid stringifying potentially large or sensitive response objects.
         throw new Error(`Invalid position data received (type: ${typeof data})`);
@@ -1792,7 +1800,7 @@ export class OrderManagerService {
     }
   }
 
-  public async fetchOpenOrders(symbol: string, options: { forceFresh?: boolean } = {}): Promise<any[]> {
+  public async fetchOpenOrders(symbol: string, options: { forceFresh?: boolean } = {}): Promise<(BinanceOrderReceipt | BinanceAlgoOrderReceipt)[]> {
     if (!options.forceFresh) {
       const cached = this.sessionState.realTimeOrders.get(symbol);
       if (cached) return cached;
@@ -1805,12 +1813,12 @@ export class OrderManagerService {
       // 1. Fetch standard orders
       const res = await this.binanceClient.restAPI.currentAllOpenOrders({ symbol });
       this.updateWeight(res?.headers);
-      const standardOrders = (await res.data() as any[]) || [];
+      const standardOrders = ((await res.data()) as BinanceOrderReceipt[]) || [];
 
       // 2. Fetch algorithmic orders (Stop Losses)
       const algoOrders = await this.fetchOpenAlgoOrders(symbol, { forceFresh: true });
 
-      const allOrders = [...standardOrders, ...algoOrders];
+      const allOrders: (BinanceOrderReceipt | BinanceAlgoOrderReceipt)[] = [...standardOrders, ...algoOrders];
       this.sessionState.realTimeOrders.set(symbol, allOrders);
       return allOrders;
     } catch (err) {
@@ -1819,13 +1827,13 @@ export class OrderManagerService {
     }
   }
 
-  public async fetchOpenAlgoOrders(symbol: string, options: { forceFresh?: boolean } = {}): Promise<any[]> {
+  public async fetchOpenAlgoOrders(symbol: string, options: { forceFresh?: boolean } = {}): Promise<BinanceAlgoOrderReceipt[]> {
     if (!this.binanceClient) return [];
     try {
       this.monitoringService.incrementApiRequests();
       const response = await this.binanceClient.restAPI.currentAllAlgoOpenOrders({ symbol });
       this.updateWeight(response?.headers);
-      const data = await response.data() as any;
+      const data = (await response.data()) as (BinanceAlgoOrderReceipt[] | { orders: BinanceAlgoOrderReceipt[] });
       if (Array.isArray(data)) return data;
       if (data && Array.isArray(data.orders)) return data.orders;
       return [];
@@ -1860,7 +1868,7 @@ export class OrderManagerService {
     this.sessionState.realTimePositions.set(symbol, { amount, entryPrice });
   }
 
-  public async fetchPosition(symbol: string, options: { forceFresh?: boolean } = {}): Promise<any | null> {
+  public async fetchPosition(symbol: string, options: { forceFresh?: boolean } = {}): Promise<BinancePositionV3 | null> {
     // Zero-Weight Path: Prefer local real-time cache from User Data Stream
     if (!options.forceFresh) {
       const cached = this.sessionState.realTimePositions.get(symbol);
@@ -1870,7 +1878,18 @@ export class OrderManagerService {
             positionAmt: String(cached.amount),
             entryPrice: String(cached.entryPrice),
             unRealizedProfit: '0', // Not critical for closure checks
-            positionSide: 'BOTH'
+            positionSide: 'BOTH',
+            breakEvenPrice: '0',
+            markPrice: '0',
+            liquidationPrice: '0',
+            leverage: '0',
+            maxNotionalValue: '0',
+            marginType: 'cross',
+            isolatedMargin: '0',
+            isAutoAddMargin: 'false',
+            notional: '0',
+            isolatedWallet: '0',
+            updateTime: Date.now()
          };
       }
     }
@@ -1890,7 +1909,7 @@ export class OrderManagerService {
       // Finding 7: Use V3 for targeted active positions
       const response = await this.binanceClient.restAPI.positionInformationV3({ symbol });
       this.updateWeight(response?.headers);
-      const data = await response.data() as any;
+      const data = (await response.data()) as BinancePositionV3[];
 
       if (Array.isArray(data)) {
         // Find position with non-zero amount (Hedge Mode support)
@@ -1920,7 +1939,7 @@ export class OrderManagerService {
       // If no orderId provided, try to find the most recent one in trade history
       if (!orderId) {
         const tradesRes = await this.binanceClient.restAPI.accountTradeList({ symbol, limit: 10 });
-        const trades = await tradesRes.data() as any;
+        const trades = (await tradesRes.data()) as BinanceTrade[];
         if (Array.isArray(trades) && trades.length > 0) {
           const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
           // Sort by time descending to get the most recent fills
@@ -1933,7 +1952,7 @@ export class OrderManagerService {
             if (Date.now() - Number(lastFill.time) > 300000) {
               this.logger.warn(`[${(trade.id || 'N/A').substring(0, 8)}] Sync Recovery: Found fill for ${symbol} but it is too old. Ignoring.`);
             } else {
-              orderId = lastFill.orderId;
+              orderId = String(lastFill.orderId);
             }
           }
         }
@@ -1943,7 +1962,7 @@ export class OrderManagerService {
          try {
             this.logger.log(`[Sync] Recovering authoritative order context for ID ${orderId}...`);
             const orderRes = await this.binanceClient.restAPI.queryOrder({ symbol, orderId: BigInt(orderId) });
-            const orderData = await orderRes.data() as any;
+            const orderData = (await orderRes.data()) as BinanceOrderReceipt;
 
             if (orderData && orderData.type) {
                 const fillPrice = parseFloat(orderData.avgPrice || orderData.price || '0');
@@ -2244,7 +2263,7 @@ export class OrderManagerService {
               } as any);
 
               this.updateWeight(response?.headers);
-              orderData = await response.data() as any;
+              orderData = (await response.data()) as BinanceOrderReceipt;
 
               if (orderData && orderData.code && orderData.code !== 0) {
                 const code = orderData.code;
@@ -2254,7 +2273,7 @@ export class OrderManagerService {
                   this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId on close retry. Recovering close state...`);
                   const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: clientOrderId });
                   this.updateWeight(queryRes?.headers);
-                  orderData = await queryRes.data() as any;
+                  orderData = (await queryRes.data()) as BinanceOrderReceipt;
                   if (orderData && orderData.orderId) {
                     this.logger.log(`[${symbol}] [Sync] Successfully recovered existing close order: ${orderData.orderId} (Status: ${orderData.status})`);
                     closeSuccess = true;
@@ -2294,7 +2313,7 @@ export class OrderManagerService {
                 this.logger.log(`[${symbol}] [Sync] Duplicate ID exception on close. Recovering...`);
                 const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: clientOrderId });
                 this.updateWeight(queryRes?.headers);
-                orderData = await queryRes.data() as any;
+                orderData = (await queryRes.data()) as BinanceOrderReceipt;
                 if (orderData && orderData.orderId) {
                   closeSuccess = true;
                   break;
@@ -2346,7 +2365,7 @@ export class OrderManagerService {
             if (absoluteExitPrice === 0 && trade.binance_close_order_id) {
                try {
                   const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, orderId: BigInt(trade.binance_close_order_id) });
-                  const queryData = await queryRes.data() as any;
+                  const queryData = (await queryRes.data()) as BinanceOrderReceipt;
                   absoluteExitPrice = parseFloat(queryData.avgPrice || queryData.price || '0');
                } catch (queryErr) {
                   this.logger.warn(`[${symbol}] [Sync] Failed to fetch authoritative exit price: ${queryErr instanceof Error ? queryErr.message : String(queryErr)}`);
@@ -2433,7 +2452,7 @@ export class OrderManagerService {
                   try {
                     const response = await this.binanceClient.restAPI.positionInformationV3({ symbol });
                     this.updateWeight(response?.headers);
-                    const data = await response.data() as any;
+                    const data = (await response.data()) as BinancePositionV3[];
                     if (Array.isArray(data)) {
                       const activePosition = data.find(p => parseFloat(p.positionAmt) !== 0);
                       positionAmt = activePosition ? parseFloat(activePosition.positionAmt) : 0;
@@ -2542,10 +2561,10 @@ export class OrderManagerService {
                       newClientOrderId: clientOrderId
                     } as any);
 
-                    const limitData = await limitResponse.data() as any;
+                    const limitData = (await limitResponse.data()) as BinanceOrderReceipt;
                     if (limitData.orderId) {
                       this.logger.log(`Aggressive LIMIT fallback for ${symbol} successful: ${limitData.orderId}`);
-                      trade.binance_close_order_id = limitData.orderId;
+                      trade.binance_close_order_id = String(limitData.orderId);
                     }
                   } catch (limitErr) {
                     this.logger.error(`Aggressive LIMIT fallback failed for ${symbol}: ${limitErr instanceof Error ? limitErr.message : String(limitErr)}`);

@@ -51,6 +51,8 @@ describe('OrderManagerService - Idempotency & Partial SL Sync', () => {
     // In Binance UDS: 'z' is cumulative filled qty, 'q' is total order qty
     const partialPayload = {
       e: 'ORDER_TRADE_UPDATE',
+      E: Date.now(),
+      T: Date.now(),
       o: {
         s: 'BTCUSDT',
         X: 'PARTIALLY_FILLED',
@@ -64,7 +66,7 @@ describe('OrderManagerService - Idempotency & Partial SL Sync', () => {
       }
     };
 
-    await service.handleBinanceOrderUpdate(partialPayload);
+    await service.handleBinanceOrderUpdate(partialPayload as any);
 
     // Current behavior check (Expected to FAIL before fix):
     // It should update trade.qty to 0.6 (1.0 - 0.4) and emit QUANTITY_SYNC
@@ -74,6 +76,8 @@ describe('OrderManagerService - Idempotency & Partial SL Sync', () => {
     // 2. Final fill of SL
     const finalPayload = {
       e: 'ORDER_TRADE_UPDATE',
+      E: Date.now(),
+      T: Date.now(),
       o: {
         s: 'BTCUSDT',
         X: 'FILLED',
@@ -87,7 +91,7 @@ describe('OrderManagerService - Idempotency & Partial SL Sync', () => {
       }
     };
 
-    await service.handleBinanceOrderUpdate(finalPayload);
+    await service.handleBinanceOrderUpdate(finalPayload as any);
 
     // After final fill, trade.qty should be restored to 1.0 for PnL calculation in closeTrade
     expect(trade.qty).toBe(1.0);
@@ -111,6 +115,8 @@ describe('OrderManagerService - Idempotency & Partial SL Sync', () => {
 
     const udsPayload = {
       e: 'ORDER_TRADE_UPDATE',
+      E: Date.now(),
+      T: Date.now(),
       o: {
         s: 'BTCUSDT',
         X: 'FILLED',
@@ -127,11 +133,11 @@ describe('OrderManagerService - Idempotency & Partial SL Sync', () => {
     };
 
     // First update: should add commission
-    await service.handleBinanceOrderUpdate(udsPayload);
+    await service.handleBinanceOrderUpdate(udsPayload as any);
     expect(trade.realized_fee).toBe(2.5);
 
     // Second update (duplicate UDS event): should NOT add commission again
-    await service.handleBinanceOrderUpdate(udsPayload);
+    await service.handleBinanceOrderUpdate(udsPayload as any);
     expect(trade.realized_fee).toBe(2.5);
   });
 });

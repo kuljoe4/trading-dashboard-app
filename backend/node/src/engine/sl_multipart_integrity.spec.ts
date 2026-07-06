@@ -94,7 +94,7 @@ describe('OrderManagerService - Multi-part SL Integrity', () => {
       }
     };
 
-    await service.handleBinanceOrderUpdate(slice1);
+    await service.handleBinanceOrderUpdate(slice1 as any);
 
     // Verify quantity sync for partial fill (should reflect remaining 0.05)
     expect(trade.qty).toBe(0.05);
@@ -102,7 +102,7 @@ describe('OrderManagerService - Multi-part SL Integrity', () => {
     expect(eventEmitter.emit).toHaveBeenCalledWith(ENGINE_EVENTS.QUANTITY_SYNC, { symbol: 'BTCUSDT', qty: 0.05 });
 
     // 1b. Redelivery of slice 1 (Deduplication Check)
-    await service.handleBinanceOrderUpdate(slice1);
+    await service.handleBinanceOrderUpdate(slice1 as any);
     expect(trade.realized_fee).toBe(2.0 + 0.984); // Should NOT increase
 
     // 2. Second slice: FILLED (Remaining 50%)
@@ -123,7 +123,7 @@ describe('OrderManagerService - Multi-part SL Integrity', () => {
       }
     };
 
-    await service.handleBinanceOrderUpdate(slice2);
+    await service.handleBinanceOrderUpdate(slice2 as any);
 
     // Verify quantity restoration for final PnL
     expect(trade.qty).toBe(0.1);
@@ -183,7 +183,7 @@ describe('OrderManagerService - Multi-part SL Integrity', () => {
       }
     };
 
-    await service.handleBinanceOrderUpdate(udsFill);
+    await service.handleBinanceOrderUpdate(udsFill as any);
 
     // Fee should NOT increase
     expect(trade.realized_fee).toBe(2.0);

@@ -88,7 +88,7 @@ describe('Chronos: Partial Fill and Quantity Integrity', () => {
     };
 
     const emitSpy = jest.spyOn(eventEmitter, 'emit');
-    await orderManager.handleBinanceOrderUpdate(payload);
+    await orderManager.handleBinanceOrderUpdate(payload as any);
 
     // EXPECTATION: trade.qty should be updated to reflects the remaining position (1.0 - 0.4 = 0.6)
     expect(trade.qty).toBe(0.6);
@@ -123,7 +123,7 @@ describe('Chronos: Partial Fill and Quantity Integrity', () => {
     };
 
     const emitSpy = jest.spyOn(eventEmitter, 'emit');
-    await orderManager.handleBinanceOrderUpdate(payload);
+    await orderManager.handleBinanceOrderUpdate(payload as any);
 
     // EXPECTATION: trade.qty should be restored to 1.0 for closeTrade to calculate final PnL correctly
     expect(trade.qty).toBe(1.0);

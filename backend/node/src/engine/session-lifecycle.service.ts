@@ -15,6 +15,12 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditLogService } from '../trading/audit-log.service';
 import { ConfigValidationException } from '../lib/exceptions';
 import { roundEight } from '../lib/math';
+import {
+  BinancePositionMode,
+  BinanceBalanceV3,
+  BinanceListenKeyResponse,
+  BinanceAccountUpdateEvent
+} from '../models/binance.types';
 import { ENGINE_CONSTANTS, EXIT_REASONS } from '../models/constants';
 
 @Injectable()
@@ -99,7 +105,7 @@ export class SessionLifecycleService {
         try {
           this.monitoringService.incrementApiRequests();
           const currentModeRes = await bc.restAPI.getCurrentPositionMode();
-          const currentModeData = await currentModeRes.data();
+          const currentModeData = (await currentModeRes.data()) as BinancePositionMode;
 
           if (currentModeData && currentModeData.dualSidePosition === false) {
             this.logger.debug('Binance position mode is already One-Way.');
@@ -264,11 +270,11 @@ export class SessionLifecycleService {
       // Traceability: Log successful balance fetch
       this.logger.debug(`[Lifecycle] Successfully fetched balance via REST V3.`);
 
-      const data = await res.data() as any;
-      const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
+      const data = (await res.data()) as BinanceBalanceV3[];
+      const usdt = Array.isArray(data) ? data.find((b) => b.asset === 'USDT') : null;
 
       if (usdt) {
-        return parseFloat(usdt.balance || 0);
+        return parseFloat(String(usdt.balance || '0'));
       }
 
       this.logger.warn(`Could not find USDT balance in Binance response. Data received: ${JSON.stringify(data).substring(0, 200)}`);
@@ -279,10 +285,10 @@ export class SessionLifecycleService {
     }
   }
 
-  public handleAccountUpdate(data: any) {
+  public handleAccountUpdate(data: BinanceAccountUpdateEvent) {
     // Real-time Balance Tracking (Zero Weight)
     if (data.a.B) {
-      const usdt = data.a.B.find((b: any) => b.a === 'USDT');
+      const usdt = data.a.B.find((b) => b.a === 'USDT');
       if (usdt) {
         const nb = parseFloat(usdt.wb);
         const liveBalMsg = `[Lifecycle] Received real-time balance update: ${nb} USDT`;
@@ -390,7 +396,7 @@ export class SessionLifecycleService {
       const res = await bc.restAPI.startUserDataStream();
       if (!res || !res.data) throw new Error('Failed to start user data stream: No response from Binance');
 
-      const resData = await res.data() as any;
+      const resData = (await res.data()) as BinanceListenKeyResponse;
       const newListenKey = resData.listenKey;
 
       const oldWs = this.userDataWs;

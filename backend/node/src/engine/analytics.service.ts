@@ -43,13 +43,22 @@ export class AnalyticsService {
    * If provided, overallPnlPct is calculated as (netPnL / (currentBalance - netPnL)) * 100.
    */
   calculateAnalytics(trades: TradeEntity[], startingBalance: number = 10000, currentBalance?: number): AnalyticsResult {
-    // BOLT OPTIMIZATION: Combine multiple iterations into a single-pass loop
-    // 1. Initial filter and sort (necessary for equity curve)
-    const sortedTrades = [...trades]
-      .filter(t => t.status !== 'OPEN' && t.exit_ts && !t.is_reconciliation)
-      .sort((a, b) => a.exit_ts!.getTime() - b.exit_ts!.getTime());
+    // BOLT OPTIMIZATION: Fuse filter and PnL summation into a single pass
+    const filteredTrades: TradeEntity[] = [];
+    let totalNetPnL = 0;
 
+    for (let i = 0; i < trades.length; i++) {
+      const t = trades[i];
+      if (t.status !== 'OPEN' && t.exit_ts && !t.is_reconciliation) {
+        filteredTrades.push(t);
+        totalNetPnL += Number(t.pnl || 0);
+      }
+    }
+
+    // Sort is necessary for equity curve and drawdown metrics
+    const sortedTrades = filteredTrades.sort((a, b) => a.exit_ts!.getTime() - b.exit_ts!.getTime());
     const totalTrades = sortedTrades.length;
+
     let currentPnL = 0;
     let maxPnL = 0;
     let maxDD = 0;
@@ -66,9 +75,15 @@ export class AnalyticsService {
     let sumSquaredReturnPct = 0;
     let downsideSumSquaredReturnPct = 0;
 
+    // ROI Trends Calculation (UTC-aware) - Pre-calculate boundaries
+    const nowMs = Date.now();
+    const sevenDaysAgoMs = nowMs - 7 * 24 * 60 * 60 * 1000;
+    const fourWeeksAgoMs = nowMs - 28 * 24 * 60 * 60 * 1000;
+    let sevenDayPnL = 0;
+    let fourWeekPnL = 0;
+
     // Performance Engineering: If currentBalance is provided, anchor the entire history
     // to the current account power to ensure scale-invariant drawdown and performance.
-    const totalNetPnL = sortedTrades.reduce((sum, t) => sum + Number(t.pnl || 0), 0);
     const effectiveStartingBalance = (currentBalance && currentBalance > 0)
       ? Math.max(1, currentBalance - totalNetPnL)
       : startingBalance;
@@ -78,10 +93,12 @@ export class AnalyticsService {
     // Time of day analysis (0-23 hours) - Fixed size array for better performance
     const todStats = Array.from({ length: 24 }, () => ({ pnl: 0, wins: 0, total: 0 }));
 
-    // BOLT OPTIMIZATION: Single-pass calculation for ALL metrics to avoid multiple array iterations
+    // BOLT OPTIMIZATION: Single-pass calculation for ALL metrics including ROI trends
     for (let i = 0; i < totalTrades; i++) {
       const t = sortedTrades[i];
       const pnl = Number(t.pnl || 0);
+      const exitTs = t.exit_ts!;
+      const exitTsMs = exitTs.getTime();
 
       // Calculate return percentage relative to balance at time of trade
       const tradeReturnPct = rollingBalance > 0 ? (pnl / rollingBalance) * 100 : 0;
@@ -100,12 +117,16 @@ export class AnalyticsService {
       if (ddPct > maxDDPct) maxDDPct = ddPct;
 
       cumulativePnL[i] = {
-        ts: t.exit_ts!.toISOString(),
+        ts: exitTs.toISOString(),
         pnl: roundTo(currentPnL, 2),
       };
 
+      // ROI Trends (Fused into main loop)
+      if (exitTsMs >= sevenDaysAgoMs) sevenDayPnL += pnl;
+      if (exitTsMs >= fourWeeksAgoMs) fourWeekPnL += pnl;
+
       // Time of Day
-      const hour = t.exit_ts!.getUTCHours();
+      const hour = exitTs.getUTCHours();
       const stats = todStats[hour];
       stats.pnl += pnl;
       stats.total += 1;
@@ -162,23 +183,6 @@ export class AnalyticsService {
 
       if (stdDev > 0) sharpeRatio = meanReturn / stdDev;
       if (downsideStdDev > 0) sortinoRatio = meanReturn / downsideStdDev;
-    }
-
-    // ROI Trends Calculation (UTC-aware)
-    const now = new Date();
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const fourWeeksAgo = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000);
-
-    let sevenDayPnL = 0;
-    let fourWeekPnL = 0;
-
-    for (let i = 0; i < totalTrades; i++) {
-      const t = sortedTrades[i];
-      const exitTs = t.exit_ts!;
-      const pnl = Number(t.pnl || 0);
-
-      if (exitTs >= sevenDaysAgo) sevenDayPnL += pnl;
-      if (exitTs >= fourWeeksAgo) fourWeekPnL += pnl;
     }
 
     const roiTrends = {

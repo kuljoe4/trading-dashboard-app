@@ -1,5 +1,5 @@
 ux_state:
-  last_review: 2026-06-29
+  last_review: 2026-07-06
 
 findings:
   - id: UX-001
@@ -79,7 +79,7 @@ findings:
     recommendation: "Added amber border/badge for Paper Mode across the dashboard."
 
   - id: UX-009
-    status: open
+    status: improved
     severity: medium
     category: information-architecture
     screens:
@@ -186,17 +186,46 @@ findings:
     notes: "Recon badge used low-contrast amber text."
     recommendation: "Increased contrast ratio for status badges (text-black on bg-amber)."
 
+  - id: UX-021
+    status: open
+    severity: high
+    category: accessibility
+    screens:
+      - dashboard
+    notes: "InteractiveLimitCard buttons (40x40px) are below the 44px mobile touch target standard."
+    recommendation: "Increase button size to 44x44px for increment/decrement controls."
+
+  - id: UX-022
+    status: open
+    severity: medium
+    category: usability
+    screens:
+      - config-modal
+    notes: "High cognitive load in 'Advanced' section due to dense grouping of environment, capital, and performance settings."
+    recommendation: "Further split 'Advanced' into 'Environment' and 'System' tabs or use internal sub-sections with clearer separation."
+
+  - id: UX-023
+    status: open
+    severity: medium
+    category: consistency
+    screens:
+      - scanner
+      - dashboard
+    notes: "Manual 'Monitored' badge styling differs between ScannerRow and StrategyCard."
+    recommendation: "Standardize the ShieldCheck badge and Monitored text across all components."
+
 design_decisions:
   - DD-001: "Operator Cockpit vision - prioritize information density and real-time awareness over marketing aesthetics."
   - DD-002: "WebSocket-first data flow with delta merging to minimize network egress while keeping UI fresh."
   - DD-003: "Eco Mode - throttle updates and background tasks when tab is inactive to preserve system resources."
   - DD-004: "Zustand for state management to ensure atomic updates across related components."
   - DD-005: "Risk Projection - Live estimated notional calculation during configuration to prevent exchange rejections."
+  - DD-006: "Drawer-based navigation for Mobile - Use Vaul for scanner and config surfaces to preserve context."
 
 metrics:
-  overall_score: 9.5
+  overall_score: 9.4
   task_completion_rate: 0.95
-  accessibility_issues_open: 0
-  total_open_findings: 6
+  accessibility_issues_open: 1
+  total_open_findings: 8
   performance_score_lighthouse: 98
   ws_latency_avg_ms: 115

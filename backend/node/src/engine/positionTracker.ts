@@ -128,6 +128,14 @@ export class PositionTrackerService {
   }
 
   addTrade(trade: Trade): void {
+    // CHRONOS: Skip adding trades that were already closed while in-flight
+    if (trade.status !== 'OPEN') {
+      this.logger.debug(`[PositionTracker] Skipping addTrade for ${trade.symbol} - already in terminal status ${trade.status}`);
+      this.clearInFlight(trade.symbol);
+      this.setEntering(trade.symbol, false);
+      return;
+    }
+
     // Correctly handle symbol overwrites to prevent double-counting risk
     const existing = this.trades.get(trade.symbol);
     if (existing) {
@@ -384,7 +392,18 @@ export class PositionTrackerService {
     localOnly?: boolean,
     options: { ignoreBlocked?: boolean, orderId?: string, feesAlreadyAccounted?: boolean } = {}
   ): Promise<{ trade: Trade | null; exitOccurred: boolean; closeBlocked?: boolean, error?: string }> {
-    const trade = this.trades.get(symbol);
+    // CHRONOS: Fallback to in-flight registry if not in active trades (Race Condition Guard)
+    let trade = this.trades.get(symbol);
+    let isInFlight = false;
+
+    if (!trade) {
+       trade = this.inFlightEntries.get(symbol);
+       if (trade) {
+          isInFlight = true;
+          this.logger.log(`[Chronos] Found in-flight trade for ${symbol} closure. Local Map recovery active.`);
+       }
+    }
+
     if (!trade || trade.status !== 'OPEN' || this.closingSymbols.has(symbol)) {
       return { trade: null, exitOccurred: false };
     }
@@ -412,6 +431,8 @@ export class PositionTrackerService {
       this._totalRisk = roundEight(this._totalRisk - (existing.risk_usdt || 0));
     }
     this.trades.delete(symbol);
+    this.clearInFlight(symbol);
+    this.setEntering(symbol, false);
     this.closingSymbols.delete(symbol);
     this.rrSequenceIndex.delete(symbol);
     this._activeListCache = null;

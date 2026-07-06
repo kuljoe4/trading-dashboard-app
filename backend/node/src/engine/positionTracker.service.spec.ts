@@ -293,6 +293,7 @@ describe('PositionTrackerService', () => {
       const trade1 = {
         symbol: 'BTCUSDT',
         risk_usdt: 100,
+        status: 'OPEN',
       } as unknown as Trade;
 
       service.addTrade(trade1);
@@ -327,6 +328,7 @@ describe('PositionTrackerService', () => {
       const trade1 = {
         symbol: 'BTCUSDT',
         risk_usdt: 100,
+        status: 'OPEN',
       } as unknown as Trade;
       service.addTrade(trade1);
 

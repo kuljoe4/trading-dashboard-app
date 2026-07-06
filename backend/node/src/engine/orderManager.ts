@@ -915,6 +915,7 @@ export class OrderManagerService {
             );
 
             if (!slippageValidation.isValid) {
+              this.positionTracker.clearInFlight(symbol);
               return { status: ExecutionStatus.ORDER_REJECTED, error: slippageValidation.error };
             }
 
@@ -964,8 +965,9 @@ export class OrderManagerService {
 
           const slResult = await this.placeStopLoss(trade, slPrice, trade.entry_price);
           if (slResult?.orderId === 'TRIGGERED_LOCALLY') {
-             this.logger.log(`[${trade.id.substring(0, 8)}] SL for ${symbol} was triggered locally during entry. Trade will be closed.`);
-             return { status: ExecutionStatus.SUCCESS, data: trade };
+             this.logger.log(`[${trade.id.substring(0, 8)}] SL for ${symbol} was triggered locally during entry. Trade will be handled by event-driven closure.`);
+             // CHRONOS: Return SL_FAILED to prevent ExecutionService from re-adding this closed trade as 'OPEN'
+             return { status: ExecutionStatus.SL_FAILED, data: trade, error: 'Stop loss triggered locally during entry' };
           }
           if (!slResult || slResult.error) {
             const slError = slResult?.error || 'Unknown SL placement error';
@@ -973,6 +975,7 @@ export class OrderManagerService {
             try {
               const unwindResult = await this.closeTrade(symbol, trade, entryPrice, EXIT_REASONS.SL_PLACEMENT_FAILURE);
               if (unwindResult.exitOccurred) {
+                this.positionTracker.clearInFlight(symbol);
                 return { status: ExecutionStatus.SL_FAILED, data: trade, unwindPerformed: true, error: slError };
               } else {
                 throw new Error(`Emergency unwind failed after SL error: ${slError}`);
@@ -985,7 +988,11 @@ export class OrderManagerService {
           break; // Success, exit retry loop
 
         } catch (err: unknown) {
-          if (err instanceof ExchangeExecutionException) throw err;
+          if (err instanceof ExchangeExecutionException) {
+            // SRE: Ensure cleanup on re-thrown exceptions
+            this.positionTracker.clearInFlight(symbol);
+            throw err;
+          }
           const errMsg = err instanceof Error ? err.message : String(err);
           const isNetworkError = errMsg.includes('Network error') || errMsg.includes('timeout') || errMsg.includes('ECONNRESET') || errMsg.includes('ETIMEDOUT');
 
@@ -994,6 +1001,9 @@ export class OrderManagerService {
              await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
              continue;
           }
+
+          // CHRONOS: Ensure in-flight cleanup on all entry failure paths
+          this.positionTracker.clearInFlight(symbol);
 
           if (trade.binance_order_id) {
             this.logger.error(`[${symbol}] Critical Failure: Unexpected error after market entry: ${errMsg}`);

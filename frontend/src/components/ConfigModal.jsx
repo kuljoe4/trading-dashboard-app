@@ -528,6 +528,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [errors, setErrors] = useState({})
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [symbolSearch, setSymbolSearch] = useState('')
   const [testnetConfigured, setTestnetConfigured] = useState(false)
   const [liveConfigured, setLiveConfigured] = useState(false)
@@ -816,6 +817,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
   const deletePreset = React.useCallback(async (name) => {
     try {
+      setIsDeleting(true);
       await presetsAPI.delete(name);
       setPresets(prev => prev.filter(p => p.name !== name));
       addAlert({ level: 'info', title: 'Preset Deleted', message: `"${name}" has been removed from the database.` });
@@ -823,6 +825,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       console.error('[ConfigModal] Error deleting preset:', e);
       addAlert({ level: 'error', title: 'Delete Failed', message: `Could not remove preset "${name}".` });
     } finally {
+      setIsDeleting(false);
       setPresetToDelete(null);
     }
   }, [addAlert]);
@@ -1612,6 +1615,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 message={`Are you sure you want to permanently remove "${presetToDelete}"? This will delete the configuration from the database and cannot be undone.`}
                 confirmText="Delete Preset"
                 variant="danger"
+                loading={isDeleting}
               />
             </section>
           </div>

@@ -105,7 +105,7 @@ export const TooltipTrigger = TooltipPrimitive.Trigger
 export const TooltipContent = React.forwardRef(({ className, sideOffset = 8, ...props }, ref) => (
   <TooltipPrimitive.Portal>
     {/* Context-aware backdrop: only active when a tooltip is open, non-blocking */}
-    <div className="fixed inset-0 z-[10015] pointer-events-none bg-black/5 backdrop-blur-[0.5px] animate-in fade-in duration-300" />
+    <div className="fixed inset-0 z-[10015] pointer-events-none bg-black/5 animate-in fade-in duration-300" />
     <TooltipPrimitive.Content
       ref={ref}
       sideOffset={sideOffset}

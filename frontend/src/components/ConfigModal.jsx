@@ -707,6 +707,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       trend: Number(cfg.scanner_weights_trend || 0) / 100
     };
 
+    // Remove flattened UI fields after bundling into scanner_weights object
+    delete c.scanner_weights_momentum;
+    delete c.scanner_weights_volatility;
+    delete c.scanner_weights_trend;
+
     if (c.hibernation_grace_period_sec !== undefined) {
       c.hibernation_grace_period_sec = Number(c.hibernation_grace_period_sec);
     }

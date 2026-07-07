@@ -216,7 +216,7 @@ export const settingsAPI = {
 
 export const presetsAPI = {
   list: () => api.get('/presets'),
-  save: (name, config) => api.post('/presets', { name, config }),
+  save: (name, config) => api.post('/presets', { name, config: sanitizeSessionConfig(config) }),
   delete: (name) => api.delete(`/presets/${name}`),
 }
 

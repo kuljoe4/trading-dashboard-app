@@ -268,6 +268,29 @@ export class SessionStateService {
   }
 
   /**
+   * CHRONOS: Verify if there are enough order slots available for a multi-part operation.
+   * Priority:
+   * 0 - Emergency (always true unless absolute 0 remains)
+   * 1 - Normal (requires at least 5% buffer + requiredCount)
+   * 2 - Low (requires at least 15% buffer + requiredCount)
+   */
+  hasOrderCapacity(requiredCount: number, priority: number): boolean {
+    const limit10s = this.binanceOrderLimit.limit_10s;
+    const remaining10s = limit10s - this.binanceOrderLimit.used_10s;
+
+    const limit1m = this.binanceOrderLimit.limit_1m;
+    const remaining1m = limit1m - this.binanceOrderLimit.used_1m;
+
+    const buffer10s = priority === 0 ? 1 : (priority === 1 ? Math.ceil(limit10s * 0.05) : Math.ceil(limit10s * 0.15));
+    const buffer1m = priority === 0 ? 5 : (priority === 1 ? Math.ceil(limit1m * 0.05) : Math.ceil(limit1m * 0.15));
+
+    if (remaining10s < (requiredCount + buffer10s)) return false;
+    if (remaining1m < (requiredCount + buffer1m)) return false;
+
+    return true;
+  }
+
+  /**
    * Check if order rate limits are approaching thresholds based on priority.
    * Priority:
    * 0 - Emergency (Closes, first SL) - Never throttles

@@ -29,7 +29,8 @@ describe('OrderManagerService', () => {
         updateOrderRateLimits: jest.fn(),
         realTimePositions: new Map(),
         realTimeOrders: new Map(),
-        config: {}
+        config: {},
+        hasOrderCapacity: () => true
       } as any, // sessionState
       { log: jest.fn() } as any, // auditLog
       { emit: jest.fn() } as any, { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any

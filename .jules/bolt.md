@@ -160,3 +160,7 @@
 ## 2026-07-06 - [Optimization] Single-Pass Analytics Processing
 **Learning:** Recalculating session analytics with multiple passes (filter, reduce, main loop, ROI loop) and `Date` object comparisons creates significant CPU and GC overhead as trade history grows. Fusing these into two passes (one filter/sum and one main/ROI metrics loop) with millisecond-based comparisons reduces execution time and allocations.
 **Action:** Always look to fuse independent data aggregation passes into a single loop when processing collections in hot paths or expensive background services.
+
+## 2026-07-07 - [Optimization] Centralized Stable Lookback Caching
+**Learning:** Redundant (N)$ structural lookbacks (min/max) across different services (RiskEngine, SignalEngine) create unnecessary CPU load and GC pressure. Centralizing these lookbacks into the data source (KlineStore) with a stable cache based on the last completed candle timestamp converts multiple (N)$ operations into a single (1)$ lookup per tick.
+**Action:** Always centralize technical indicator calculations that depend on completed candles into the primary data service and implement stable caching to eliminate redundant iterations across the engine.

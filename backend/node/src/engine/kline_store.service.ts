@@ -18,6 +18,9 @@ export class KlineStoreService {
   private klines: Map<string, Candle[]> = new Map();
   private readonly MAX_CANDLES = this.readMaxCandles();
 
+  // BOLT OPTIMIZATION: Stable caches for completed candles to allow O(1) lookbacks
+  private readonly hlStableCache = new Map<string, { time: number; minLow: number; maxHigh: number; count: number }>();
+
   constructor(
     @InjectRepository(KlineEntity)
     private readonly klineRepository: Repository<KlineEntity>,
@@ -130,7 +133,8 @@ export class KlineStoreService {
   }
 
   /**
-   * BOLT OPTIMIZATION: Calculate min/max extremes in a single pass without array allocations (slice/map).
+   * BOLT OPTIMIZATION: Calculate min/max extremes in a single pass with stable caching for completed candles.
+   * This turns O(N) into O(1) for the vast majority of calls and eliminates hot-path string allocations/logging.
    */
   getLookbackExtremes(
     symbol: string,
@@ -146,18 +150,42 @@ export class KlineStoreService {
 
     // SRE: Exclude the current (incomplete) candle from structural lookback
     // Indices: [length - period - 1, length - 1)
-    const startIdx = Math.max(0, candles.length - period - 1);
     const endIdx = candles.length - 1;
+    const startIdx = Math.max(0, endIdx - period);
+    const targetCandle = candles[endIdx - 1];
+
+    // BOLT OPTIMIZATION: Try stable cache if we are scanning up to the last completed candle
+    const stableKey = `${symbol}:${interval}:${period}`;
+    const stable = this.hlStableCache.get(stableKey);
+
+    if (stable && stable.time === targetCandle.time && stable.count === period) {
+      return { minLow: stable.minLow, maxHigh: stable.maxHigh };
+    }
+
     let minLow = Infinity;
     let maxHigh = -Infinity;
-
-    this.logger.debug(`[KlineStore] ${symbol} Lookback scan: window=${period}, candlesAvailable=${candles.length}, range=[${startIdx}, ${endIdx - 1}]`);
 
     for (let i = startIdx; i < endIdx; i++) {
       const candle = candles[i];
       if (candle.low < minLow) minLow = candle.low;
       if (candle.high > maxHigh) maxHigh = candle.high;
-      this.logger.debug(`  [${i}] Low: ${candle.low}, High: ${candle.high} (Time: ${candle.time})`);
+    }
+
+    // Maintain stable cache
+    this.hlStableCache.set(stableKey, {
+      time: targetCandle.time,
+      minLow,
+      maxHigh,
+      count: period,
+    });
+
+    if (this.hlStableCache.size > 1000) {
+      const iter = this.hlStableCache.keys();
+      for (let i = 0; i < 100; i++) {
+        const next = iter.next();
+        if (next.done) break;
+        this.hlStableCache.delete(next.value);
+      }
     }
 
     return { minLow, maxHigh };

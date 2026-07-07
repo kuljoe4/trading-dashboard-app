@@ -28,7 +28,6 @@ export class SignalEngineService {
   // BOLT OPTIMIZATION: Stable caches for completed candles to allow O(1) incremental updates
   private readonly emaStableCache = new Map<string, { time: number; value: number; count: number }>();
   private readonly smaStableCache = new Map<string, { time: number; value: number; count: number }>();
-  private readonly hlStableCache = new Map<string, { time: number; minLow: number; maxHigh: number; count: number }>();
 
   private readonly signalHandlers: Record<
     string,
@@ -226,8 +225,8 @@ export class SignalEngineService {
   }
 
   /**
-   * BOLT OPTIMIZATION: Calculates Breakout HL signal with stable caching for structural lookbacks.
-   * This turns O(N) into O(1) for the vast majority of calls.
+   * BOLT OPTIMIZATION: Calculates Breakout HL signal using optimized KlineStore lookbacks.
+   * This leverages the centralized stable cache in KlineStore for O(1) execution.
    */
   private breakoutHlSignal(
     symbol: string,
@@ -254,42 +253,8 @@ export class SignalEngineService {
 
     const current = candles[candles.length - 1];
 
-    let maxHigh = -Infinity;
-    let minLow = Infinity;
-    const startIdx = Math.max(0, candles.length - lookback - 1);
-    const endIdx = candles.length - 1;
-
-    // BOLT OPTIMIZATION: Try stable cache if we are scanning up to the last completed candle
-    const stableKey = `${symbol}:${interval}:${lookback}`;
-    const targetCandle = candles[endIdx - 1];
-    const stable = this.hlStableCache.get(stableKey);
-
-    if (stable && stable.time === targetCandle.time && stable.count === lookback) {
-      minLow = stable.minLow;
-      maxHigh = stable.maxHigh;
-    } else {
-      for (let i = startIdx; i < endIdx; i++) {
-        if (candles[i].high > maxHigh) maxHigh = candles[i].high;
-        if (candles[i].low < minLow) minLow = candles[i].low;
-      }
-
-      // Maintain stable cache
-      this.hlStableCache.set(stableKey, {
-        time: targetCandle.time,
-        minLow,
-        maxHigh,
-        count: lookback,
-      });
-
-      if (this.hlStableCache.size > 1000) {
-        const iter = this.hlStableCache.keys();
-        for (let i = 0; i < 100; i++) {
-          const next = iter.next();
-          if (next.done) break;
-          this.hlStableCache.delete(next.value);
-        }
-      }
-    }
+    // BOLT OPTIMIZATION: Use centralized KlineStore extremes which implements stable caching.
+    const { minLow, maxHigh } = this.klineStore.getLookbackExtremes(symbol, interval, lookback);
 
     const isLong = side === 'LONG';
     const target = isLong ? minLow : maxHigh; // Target for EXIT is the opposite side of the range

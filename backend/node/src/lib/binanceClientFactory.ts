@@ -5,7 +5,7 @@ import {
   DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_TESTNET_URL,
   DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_PROD_URL
 } from '@binance/derivatives-trading-usds-futures';
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef, OnModuleInit } from '@nestjs/common';
 import WebSocket from 'ws';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -14,7 +14,7 @@ import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { SessionStateService } from '../engine/session_state.service';
 
 @Injectable()
-export class BinanceClientFactory {
+export class BinanceClientFactory implements OnModuleInit {
   private readonly logger = new Logger(BinanceClientFactory.name);
   private queue: BinanceRequestQueue | null = null;
 
@@ -25,6 +25,27 @@ export class BinanceClientFactory {
     @InjectRepository(SettingsEntity)
     private readonly settingsRepository: Repository<SettingsEntity>,
   ) {}
+
+  async onModuleInit() {
+    // SRE: Load persistent ban status on startup to prevent immediate retry cycles after crash/restart
+    try {
+      const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+      if (settings && settings.api_ban_until && Number(settings.api_ban_until) > Date.now()) {
+        const remaining = Math.round((Number(settings.api_ban_until) - Date.now()) / 60000);
+        this.logger.warn(`Resuming with active API Ban/Cooldown. Remaining: ${remaining}m. Reason: ${settings.api_ban_reason}`);
+
+        BinanceRequestQueue.setCooldownUntil(Number(settings.api_ban_until));
+
+        this.eventEmitter.emit('binance.api_limit_reached', {
+          type: 'BAN',
+          message: settings.api_ban_reason || 'Persistent Ban',
+          until: Number(settings.api_ban_until)
+        });
+      }
+    } catch (e) {
+      this.logger.error(`Failed to load persistent ban status: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
 
   /**
    * SRE: Enqueue a generic asynchronous task into the throttled Binance request queue.
@@ -120,6 +141,12 @@ export class BinanceClientFactory {
               // RESEARCH-01: Instead of process.exit(1), implement a long sleep to break boot loops and allow UI visibility.
               // Lock the REST queue until the absolute exchange timestamp to ensure zero egress traffic.
               BinanceRequestQueue.setCooldownUntil(until);
+
+              // SRE Overwatch: Persist ban status to DB to survive restarts
+              this.settingsRepository.update('default', {
+                api_ban_until: until,
+                api_ban_reason: msg
+              }).catch(err => this.logger.error(`Failed to persist ban status (WS): ${err.message}`));
 
               this.eventEmitter.emit('binance.api_limit_reached', {
                 type: 'BAN',
@@ -260,6 +287,13 @@ export class BinanceRequestQueue {
 
       if (wasBanned) {
         this.logger.log(`[BinanceQueue] Terminal Lock lifted. System resuming normal execution.`);
+
+        // SRE Overwatch: Clear persistent ban status in DB
+        this.settingsRepository.update('default', {
+          api_ban_until: null,
+          api_ban_reason: null
+        }).catch(err => this.logger.error(`Failed to clear persistent ban status: ${err.message}`));
+
         this.eventEmitter.emit('binance.api_limit_cleared');
       }
     } else {
@@ -441,6 +475,12 @@ export class BinanceRequestQueue {
                }
             }
             BinanceRequestQueue.setCooldownUntil(until);
+
+            // SRE Overwatch: Persist ban status to DB to survive restarts
+            this.settingsRepository.update('default', {
+                api_ban_until: until,
+                api_ban_reason: msg
+            }).catch(err => this.logger.error(`Failed to persist ban status: ${err.message}`));
 
             this.eventEmitter.emit('binance.api_limit_reached', {
                 type: isBan ? 'BAN' : 'RATE_LIMIT',

@@ -7,3 +7,8 @@
 **Vulnerability:** Several components (`MarketFeedService`, `SettingsController`) used direct `fetch` calls to Binance, bypassing the centralized `BinanceRequestQueue`. These unthrottled requests ignored process-wide weight limits and IP-ban cooldowns.
 **Learning:** A request queue is only as effective as its coverage. Naked REST calls outside the primary SDK wrapper can trigger IP bans even if the main trading logic is perfectly throttled.
 **Prevention:** Enforce a "Gatekeeper" pattern where all external exchange traffic must pass through a throttled factory method (`BinanceClientFactory.genericRequest`). Standardize weight extraction and logging for these generic tasks to maintain telemetry visibility.
+
+## 2026-07-07 - Volatile API Ban Status
+**Vulnerability:** API ban and rate-limit cooldowns were stored only in static memory within `BinanceRequestQueue`. Upon application crash or restart (common in cloud environments like Railway), this state was lost, causing the bot to immediately resume hammering the exchange API even if a 24-hour ban was still active.
+**Learning:** For high-stakes exchange integrations, "Terminal Lock" states must be persistent. Relying on process memory for IP reputation protection is a single point of failure in distributed or auto-restarting infrastructures.
+**Prevention:** Persist `api_ban_until` and `api_ban_reason` to a global settings table. Implement `OnModuleInit` in the client factory to re-hydrate the request queue's cooldown state from the database before any egress traffic is dispatched.

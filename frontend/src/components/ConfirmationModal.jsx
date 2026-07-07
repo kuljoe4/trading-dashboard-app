@@ -11,24 +11,21 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
         {isOpen && (
           <Dialog.Portal forceMount>
             <Dialog.Overlay asChild>
-              <div className="fixed inset-0 z-[10100] bg-black/80 cursor-pointer">
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="w-full h-full"
-                />
-              </div>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-[10100] bg-black/80 cursor-pointer w-full h-full"
+              />
             </Dialog.Overlay>
             <Dialog.Content asChild>
-              <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[10110] outline-none w-[calc(100%-2rem)] max-w-md">
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                  className="bg-surface border border-border rounded-2xl p-6 shadow-2xl overflow-hidden"
-                >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[10110] outline-none w-[calc(100%-2rem)] max-w-md bg-surface border border-border rounded-2xl p-6 shadow-2xl overflow-hidden"
+              >
                   <div className="flex justify-between items-start mb-4">
                     <div className={cn(
                       "w-10 h-10 rounded-full flex items-center justify-center",
@@ -76,8 +73,7 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
                       {confirmText}
                     </Btn>
                   </div>
-                </motion.div>
-              </div>
+              </motion.div>
             </Dialog.Content>
           </Dialog.Portal>
         )}

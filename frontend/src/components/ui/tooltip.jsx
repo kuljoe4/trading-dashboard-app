@@ -63,8 +63,11 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
       const isSingleElement = React.Children.count(children) === 1 && React.isValidElement(children);
       // Radix asChild/Slot doesn't play well with Fragments, even if they have a single child
       const isFragment = isSingleElement && children.type === React.Fragment;
+      // Functional components or class components without forwardRef will fail to slot correctly.
+      // We check if it's a DOM element (string type) to be safe, while allowing memo/forwardRef if we can detect them.
+      const isDOMElement = typeof children.type === 'string';
 
-      if (isSingleElement && !isFragment) {
+      if (isSingleElement && !isFragment && isDOMElement) {
         return children;
       }
     } catch (err) {

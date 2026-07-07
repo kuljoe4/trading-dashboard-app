@@ -58,6 +58,21 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
     };
   }, [id, setActiveTooltipId]);
 
+  const trigger = React.useMemo(() => {
+    try {
+      const isSingleElement = React.Children.count(children) === 1 && React.isValidElement(children);
+      // Radix asChild/Slot doesn't play well with Fragments, even if they have a single child
+      const isFragment = isSingleElement && children.type === React.Fragment;
+
+      if (isSingleElement && !isFragment) {
+        return children;
+      }
+    } catch (err) {
+      console.warn('[Tooltip] Trigger validation failed, falling back to span wrapper', err);
+    }
+    return <span className="inline-flex">{children}</span>;
+  }, [children]);
+
   return (
     <TooltipPrimitive.Root
       open={open}
@@ -74,7 +89,7 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
           }
         }}
       >
-        {React.Children.count(children) === 1 && React.isValidElement(children) ? children : <span>{children}</span>}
+        {trigger}
       </TooltipPrimitive.Trigger>
       <TooltipContent side={side} align={align} className={className}>
         {content}
@@ -83,6 +98,7 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
     </TooltipPrimitive.Root>
   );
 };
+Tooltip.displayName = 'Tooltip';
 
 export const TooltipTrigger = TooltipPrimitive.Trigger
 

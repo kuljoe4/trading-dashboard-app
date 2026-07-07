@@ -50,13 +50,15 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
 
                 <div className="flex gap-3">
                   <Dialog.Close asChild>
-                    <Btn
-                      variant="ghost"
-                      disabled={loading}
-                      className="flex-1"
-                    >
-                      {cancelText}
-                    </Btn>
+                    <div className="flex-1">
+                      <Btn
+                        variant="ghost"
+                        disabled={loading}
+                        className="w-full"
+                      >
+                        {cancelText}
+                      </Btn>
+                    </div>
                   </Dialog.Close>
                   <Btn
                     variant={variant}

@@ -1505,6 +1505,20 @@ export class OrderManagerService {
     // LOCK: Prevent Watchdog from interfering during the cancel/replace window
     this.ratchetLocks.set(trade.symbol, true);
 
+    // CHRONOS: Pre-flight capacity check.
+    // Ratcheting is a multi-part operation (Cancel + Replace + potential Rollback).
+    // We budget for 2 slots (Replace + Rollback) with normal priority (1).
+    if (!this.paperMode && this.binanceClient) {
+      const hasWeight = !this.sessionState.isRateLimited(0.85);
+      const hasOrderSlots = this.sessionState.hasOrderCapacity(2, 1);
+
+      if (!hasWeight || !hasOrderSlots) {
+         this.logger.warn(`[SL Ratchet] Deferring ratchet for ${trade.symbol} due to low capacity (WeightOK=${hasWeight}, SlotsOK=${hasOrderSlots}).`);
+         this.ratchetLocks.delete(trade.symbol);
+         return { success: false };
+      }
+    }
+
     const oldSlPrice = prevSlPrice || trade.current_sl;
     const oldStopOrderId = trade.binance_stop_order_id;
     const oldStopOrderType = trade.binance_stop_order_type;
@@ -1612,7 +1626,7 @@ export class OrderManagerService {
         : await this.binanceClient.restAPI.cancelOrder({ symbol, orderId: BigInt(orderId) });
 
       this.updateWeight(response?.headers);
-      const data = await response.data();
+      const data = typeof response.data === 'function' ? await response.data() : response.data;
       this.logger.log(`Binance ${orderType} order canceled: ${symbol} order_id=${orderId}. Response: ${JSON.stringify(data)}`);
       return true;
     } catch (err) {

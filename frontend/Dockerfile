@@ -3,9 +3,10 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 ENV NODE_ENV=development
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
-COPY package*.json ./
-RUN npm ci --include=dev
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 COPY . .
 ARG VITE_WS_URL
@@ -14,7 +15,7 @@ ARG VITE_API_URL
 ENV VITE_WS_URL=$VITE_WS_URL \
     VITE_API_URL=$VITE_API_URL
 
-RUN npm run build
+RUN pnpm run build
 
 # Production stage - static nginx footprint is materially smaller than a Node server
 FROM nginx:alpine

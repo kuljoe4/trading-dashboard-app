@@ -11,7 +11,7 @@ const normalizeOpportunity = (o = {}) => {
   const d = (o.dir ?? o.direction ?? (m >= 0 ? 'long' : 'short')).toString().toLowerCase();
 
   // SEC: Strict property picking and input sanitization to harden against prototype pollution or malformed WebSocket payloads.
-  return {
+  const res = {
     symbol: (o.symbol ?? '---').replace(/[^A-Z0-9]/gi, '').substring(0, 20),
     pct: m,
     momentum: m,
@@ -37,9 +37,17 @@ const normalizeOpportunity = (o = {}) => {
     } : undefined,
     signalResult: o.signalResult ? {
       allFired: !!o.signalResult.allFired,
+      firedSignals: Array.isArray(o.signalResult.firedSignals) ? o.signalResult.firedSignals.map(s => String(s)) : [],
       reason: String(o.signalResult.reason || '').substring(0, 200)
     } : undefined
   };
+
+  // DEBUG: Track state inconsistencies where logic says "satisfied" but data shows 0 signals
+  if (res.signalResult?.allFired && res.signalResult.firedSignals.length === 0) {
+    console.warn(`[Normalization Warning] ${res.symbol}: Condition satisfied but firedSignals is empty. Check backend signal detail resolution.`);
+  }
+
+  return res;
 }
 
 const normalizeTrade = (t = {}, pt = null) => {

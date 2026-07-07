@@ -91,7 +91,7 @@ export class ExecutionService {
             this.setCooldown(trade.symbol, mode, cooldownMin);
 
             const analytics = this.analyticsService.calculateAnalytics(
-              this.sessionState.closedTrades as any,
+              this.sessionState.closedTrades as any[],
               config.paper_mode ? config.paper_starting_balance : config.live_starting_balance
             );
 
@@ -186,7 +186,7 @@ export class ExecutionService {
 
         // BOLT OPTIMIZATION: Enable minimal mode (6th arg) to trigger early-return in signal engine.
         // This avoids expensive metadata/description construction during the high-frequency entry scan.
-        const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry', true);
+        const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', true);
         if (!signalResult.allFired) {
           if (signalResult.reason.includes('warm-up')) {
             this.logger.debug(`${opp.symbol}: Entry blocked - ${signalResult.reason}`);
@@ -219,7 +219,7 @@ export class ExecutionService {
         if (!price) continue;
 
         const lookback = this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
-        const slResult = this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.minLow, lookback.maxHigh, opp.symbol);
+        const slResult = this.riskEngine.computeSl(price, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig, lookback.minLow, lookback.maxHigh, opp.symbol);
 
         if (slResult.rejected) {
            this.logger.log(`${opp.symbol}: Entry skipped - ${slResult.reason}`);
@@ -238,13 +238,13 @@ export class ExecutionService {
         });
         slPrice = slFiltered.price;
 
-        const qty = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as any, symbolConfig, opp.symbol);
+        const qty = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig, opp.symbol);
 
         if (qty <= 0) {
           this.logger.debug(`${opp.symbol}: Position size is 0 after SL filtering. SL: ${slPrice}, Entry: ${price}`);
           continue;
         }
-        const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
+        const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig);
 
         const reservedRisk = roundEight(Math.abs(price - slPrice) * qty);
 
@@ -261,9 +261,9 @@ export class ExecutionService {
 
         try {
           const result = await this.orderManager.enter(
-            (this.sessionState.config as any)?.sessionId || uuid().substring(0, 8),
+            this.sessionState.config?.strategy_label || uuid().substring(0, 8),
             opp.symbol,
-            opp.direction.toUpperCase() as any,
+            opp.direction.toUpperCase() as 'LONG' | 'SHORT',
             price,
             qty,
             slPrice,

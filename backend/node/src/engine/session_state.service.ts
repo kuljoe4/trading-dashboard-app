@@ -167,7 +167,7 @@ export class SessionStateService {
     } else {
       this.balancePaper = config.paper_starting_balance || 10000;
       if (mode === 'testnet') {
-        this.balanceLive = (config as any).testnet_starting_balance || 0;
+        this.balanceLive = config.testnet_starting_balance || 0;
       } else {
         this.balanceLive = config.live_starting_balance || 0;
       }

@@ -88,7 +88,7 @@ describe('SL Partial Fill Synchronization', () => {
     };
 
     const emitSpy = jest.spyOn(eventEmitter, 'emit');
-    await orderManager.handleBinanceOrderUpdate(payload);
+    await orderManager.handleBinanceOrderUpdate(payload as any);
 
     const trade = sessionState.activeTrades[0];
     // FAIL EXPECTATION: Currently the code doesn't handle PARTIALLY_FILLED for SL
@@ -120,7 +120,7 @@ describe('SL Partial Fill Synchronization', () => {
     };
 
     const emitSpy = jest.spyOn(eventEmitter, 'emit');
-    await orderManager.handleBinanceOrderUpdate(payload);
+    await orderManager.handleBinanceOrderUpdate(payload as any);
 
     // The 'trade.exchange_close' event should be emitted
     expect(emitSpy).toHaveBeenCalledWith('trade.exchange_close', expect.objectContaining({

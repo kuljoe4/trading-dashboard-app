@@ -108,7 +108,7 @@ describe('Real-time Quantity Synchronization', () => {
     };
 
     const emitSpy = jest.spyOn(eventEmitter, 'emit');
-    await orderManager.handleBinanceOrderUpdate(payload);
+    await orderManager.handleBinanceOrderUpdate(payload as any);
 
     const trade = sessionState.activeTrades[0];
     expect(trade.qty).toBe(0.5);
@@ -132,7 +132,7 @@ describe('Real-time Quantity Synchronization', () => {
     const emitSpy = jest.spyOn(eventEmitter, 'emit');
 
     // Call the service method directly to test actual implementation
-    sessionLifecycle.handleAccountUpdate(payload);
+    sessionLifecycle.handleAccountUpdate(payload as any);
 
     const trade = sessionState.activeTrades[0];
     // In actual implementation, quantity decrease is IGNORED during ACCOUNT_UPDATE if not in closing state
@@ -159,7 +159,7 @@ describe('Real-time Quantity Synchronization', () => {
     const positionTracker = (sessionLifecycle as any).positionTracker;
     jest.spyOn(positionTracker, 'isClosing').mockReturnValue(true);
 
-    sessionLifecycle.handleAccountUpdate(payload);
+    sessionLifecycle.handleAccountUpdate(payload as any);
 
     const trade = sessionState.activeTrades[0];
     expect(trade.qty).toBe(0.3);

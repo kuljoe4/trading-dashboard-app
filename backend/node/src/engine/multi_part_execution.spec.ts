@@ -90,7 +90,7 @@ describe('Multi-part Execution Handling', () => {
       }
     };
 
-    await orderManager.handleBinanceOrderUpdate(partialPayload);
+    await orderManager.handleBinanceOrderUpdate(partialPayload as any);
 
     // Verify quantity synced to remaining (0.6)
     expect(trade.qty).toBe(0.6);
@@ -113,7 +113,7 @@ describe('Multi-part Execution Handling', () => {
       }
     };
 
-    await orderManager.handleBinanceOrderUpdate(finalPayload);
+    await orderManager.handleBinanceOrderUpdate(finalPayload as any);
 
     // Verify quantity restored to original (1.0) before closure for correct PnL
     expect(trade.qty).toBe(1.0);
@@ -144,7 +144,7 @@ describe('Multi-part Execution Handling', () => {
       }
     };
 
-    await orderManager.handleBinanceOrderUpdate(partialPayload);
+    await orderManager.handleBinanceOrderUpdate(partialPayload as any);
 
     // Verify quantity synced to remaining (0.5)
     expect(trade.qty).toBe(0.5);
@@ -167,7 +167,7 @@ describe('Multi-part Execution Handling', () => {
       }
     };
 
-    await orderManager.handleBinanceOrderUpdate(finalPayload);
+    await orderManager.handleBinanceOrderUpdate(finalPayload as any);
 
     // Verify quantity restored to original (1.0) before closure
     expect(trade.qty).toBe(1.0);

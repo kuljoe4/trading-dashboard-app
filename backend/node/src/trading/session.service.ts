@@ -1175,7 +1175,7 @@ export class SessionService implements OnModuleInit {
             this.logger.log(
               `[SRE] Initiating periodic full state reconciliation...`,
             );
-            this.reconcileLiveState(binanceClient).catch((e) =>
+            this.tradingSessionService.reconcileLiveState().catch((e) =>
               this.logger.error(`Periodic reconciliation failed: ${e.message}`),
             );
           }
@@ -1204,109 +1204,45 @@ export class SessionService implements OnModuleInit {
     return { strategyId: this.currentSessionId, status: "started" };
   }
 
-  /**
-   * SRE: Performs a full audit of local state against Binance exchange state.
-   * This is the "TruthFallback" part of the Hybrid Event-Loop architecture.
-   */
-  private async reconcileLiveState(binanceClient: any) {
+  @OnEvent('reconciliation.adopt_positions')
+  async handleAdoptPositions(payload: { positions: any[], orders: any[] }) {
     if (!this.sessionRunning || !this.currentSessionId) return;
 
     const session = await this.sessionRepository.findOne({
       where: { id: this.currentSessionId },
-      select: ["id", "tradingMode", "paperMode"],
+      select: ["id", "tradingMode", "paperMode", "config"],
     });
-    const mode =
-      session?.tradingMode || (session?.paperMode ? "paper" : "live");
 
-    try {
-      this.logger.log(
-        `[SRE] Periodic full state reconciliation started for ${mode.toUpperCase()} session ${this.currentSessionId}`,
-      );
+    if (!session) return;
+    const mode = session.tradingMode || (session.paperMode ? "paper" : "live");
 
-      const allExchangePositions =
-        await this.tradingSessionService.fetchAllPositions();
-      const activeExPositions = allExchangePositions.filter(
-        (p) => Math.abs(parseFloat(p.positionAmt)) > 0,
-      );
-      const activeExMap = new Map(activeExPositions.map((p) => [p.symbol, p]));
+    this.logger.warn(
+      `[Reconciliation] Processing adoption request for ${payload.positions.length} positions.`,
+    );
 
-      // PERF: Fetch all open orders once for the entire reconciliation to save weight
-      const allOpenOrders = await this.orderManager.fetchAllOpenOrders();
+    const imported = await this.adoptExchangePositions(
+      payload.positions,
+      mode,
+      session.config,
+      payload.orders,
+    );
 
-      const localOpenTrades = this.tradingSessionService.getActiveTradesRaw();
-      const localSymbols = new Set(localOpenTrades.map((t) => t.symbol));
+    // Hot-add adopted trades to the running engine
+    for (const t of imported) {
+      const tradeModel = plainToInstance(Trade, t);
+      // BOLT: Use addTrade to ensure PositionTracker correctly initializes milestone state
+      this.tradingSessionService.addTrade(tradeModel as any);
 
-      this.logger.debug(
-        `[Reconciliation] Local symbols: [${Array.from(localSymbols).join(",")}], Exchange symbols: [${Array.from(activeExMap.keys()).join(",")}]`,
-      );
+      this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, {
+        trade: tradeModel,
+      });
+    }
 
-      // 1. Audit Local Trades (Local -> Exchange)
-      for (const trade of localOpenTrades) {
-        // Skip reconciliation trades themselves to avoid loops, and only check truly OPEN trades
-        if (trade.is_reconciliation || trade.status !== "OPEN") continue;
-
-        const exPos = activeExMap.get(trade.symbol);
-        if (!exPos) {
-          const metadata = {
-            id: trade.id,
-            entryPrice: trade.entry_price,
-            qty: trade.qty,
-            entryTs: trade.entry_ts,
-          };
-          this.logger.error(
-            `[Reconciliation] [CRITICAL] Local ${mode.toUpperCase()} trade ${trade.symbol} not found on exchange. Triggering sync close. Meta: ${JSON.stringify(metadata)}`,
-          );
-
-          this.eventEmitter.emit("trade.exchange_close", {
-            symbol: trade.symbol,
-            exitPrice: 0,
-            reason: EXIT_REASONS.EXCHANGE_SYNC,
-            isReconciliation: true,
-            feesAlreadyAccounted: false,
-          });
-        }
-      }
-
-      // 2. Audit Exchange Positions (Exchange -> Local)
-      const ghostPositions = activeExPositions.filter(
-        (p) => !localSymbols.has(p.symbol),
-      );
-      if (ghostPositions.length > 0) {
-        this.logger.warn(
-          `[Reconciliation] Found ${ghostPositions.length} untracked positions during periodic audit. Adopting...`,
-        );
-        const imported = await this.adoptExchangePositions(
-          ghostPositions,
-          mode,
-          session?.config || null,
-          allOpenOrders,
-        );
-
-        // Hot-add adopted trades to the running engine
-        for (const t of imported) {
-          const tradeModel = plainToInstance(Trade, t);
-          // BOLT: Use addTrade to ensure PositionTracker correctly initializes milestone state
-          this.tradingSessionService.addTrade(tradeModel as any);
-
-          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, {
-            trade: tradeModel,
-          });
-        }
-
-        if (imported.length > 0) {
-          // BOLT: Synchronize active trades state and trigger watchlist update for newly adopted trades
-          this.tradingSessionService.seedActiveTrades(this.tradingSessionService.getActiveTradesRaw());
-          this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
-          this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
-        }
-      }
-      this.logger.log(
-        `[SRE] Periodic reconciliation complete. State verified.`,
-      );
-    } catch (e) {
-      this.logger.error(
-        `[Reconciliation] Periodic logic failed: ${e instanceof Error ? e.message : String(e)}`,
-      );
+    if (imported.length > 0) {
+      // BOLT: Synchronize active trades state and trigger watchlist update for newly adopted trades
+      this.tradingSessionService.seedActiveTrades(this.tradingSessionService.getActiveTradesRaw());
+      this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
+      this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
     }
   }
 
@@ -1446,8 +1382,8 @@ export class SessionService implements OnModuleInit {
             initial_sl: initialSl,
             rr_sequence_index: -1,
             max_rr_achieved: 0,
-          } as any;
-          rrSequenceIndex = this.tradingSessionService.reconcileMilestoneFromSl(tempTrade, slPrice, config as any);
+          } as Trade;
+          rrSequenceIndex = this.tradingSessionService.reconcileMilestoneFromSl(tempTrade, slPrice, config);
           maxRrAchieved = tempTrade.max_rr_achieved;
           this.logger.log(`[Reconciliation] Adopted ${exPos.symbol} reconciled milestone index: ${rrSequenceIndex}, peak RR: ${maxRrAchieved}`);
         }

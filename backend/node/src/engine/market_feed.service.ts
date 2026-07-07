@@ -12,6 +12,7 @@ import { SessionStateService } from './session_state.service';
 import { SignalEngineService } from './signalEngine';
 import { MonitoringService } from './monitoring.service';
 import { ENGINE_EVENTS } from './events';
+import { BinanceExchangeInfo } from '../models/binance.types';
 import { BinanceRequestQueue, BinanceClientFactory } from '../lib/binanceClientFactory';
 
 interface BinanceKline {
@@ -156,12 +157,12 @@ export class MarketFeedService {
     try {
       this.monitoringService.incrementApiRequests();
 
-      let data: any;
+      let data: BinanceExchangeInfo | null = null;
       if (this.binanceClient) {
         this.logger.debug(`[MarketFeed] Fetching fresh exchange information from SDK...`);
         const response = await this.binanceClient.restAPI.exchangeInformation();
         this.updateWeight(response.headers);
-        data = await response.data();
+        data = (await response.data()) as BinanceExchangeInfo;
       } else {
         this.logger.debug(`[MarketFeed] Fetching fresh exchange information via fetch...`);
         const response = await this.binanceClientFactory.genericRequest(
@@ -170,29 +171,29 @@ export class MarketFeedService {
           true // Metadata is critical for boot
         );
         if (!response.ok) return;
-        data = await response.json();
+        data = (await response.json()) as BinanceExchangeInfo;
       }
 
       if (data) {
 
         // Dynamic Rate Limit Detection
         if (data && Array.isArray(data.rateLimits)) {
-           const requestWeightLimit = data.rateLimits.find((l: any) => l.rateLimitType === 'REQUEST_WEIGHT' && l.interval === 'MINUTE');
+           const requestWeightLimit = data.rateLimits.find((l) => l.rateLimitType === 'REQUEST_WEIGHT' && l.interval === 'MINUTE');
            if (requestWeightLimit) {
-              const limit = parseInt(requestWeightLimit.limit, 10);
+              const limit = parseInt(String(requestWeightLimit.limit), 10);
               this.sessionState.updateRateLimit(this.sessionState.binanceRateLimit.used_1m, limit);
               // SRE Overwatch: Synchronize dynamic limit to the centralized gateway queue
               BinanceRequestQueue.setWeightLimit(limit);
               this.logger.log(`Dynamic Binance Rate Limit detected: ${limit}/min`);
            }
 
-           const orderLimit10s = data.rateLimits.find((l: any) => l.rateLimitType === 'ORDERS' && l.interval === 'SECOND' && l.intervalNum === 10);
-           const orderLimit1m = data.rateLimits.find((l: any) => l.rateLimitType === 'ORDERS' && l.interval === 'MINUTE');
+           const orderLimit10s = data.rateLimits.find((l) => l.rateLimitType === 'ORDERS' && l.interval === 'SECOND' && l.intervalNum === 10);
+           const orderLimit1m = data.rateLimits.find((l) => l.rateLimitType === 'ORDERS' && l.interval === 'MINUTE');
 
            if (orderLimit10s || orderLimit1m) {
               this.sessionState.updateOrderRateLimits(null, {
-                limit10s: orderLimit10s ? parseInt(orderLimit10s.limit, 10) : undefined,
-                limit1m: orderLimit1m ? parseInt(orderLimit1m.limit, 10) : undefined
+                limit10s: orderLimit10s ? parseInt(String(orderLimit10s.limit), 10) : undefined,
+                limit1m: orderLimit1m ? parseInt(String(orderLimit1m.limit), 10) : undefined
               });
               this.logger.log(`Dynamic Binance Order Limits: 10s=${orderLimit10s?.limit}, 1m=${orderLimit1m?.limit}`);
            }
@@ -214,19 +215,19 @@ export class MarketFeedService {
                 if (s.filters && Array.isArray(s.filters)) {
                   for (const f of s.filters) {
                     if (f.filterType === 'PRICE_FILTER') {
-                      parsed.tickSize = parseFloat(f.tickSize);
+                      parsed.tickSize = parseFloat(String(f.tickSize));
                       parsed.pricePrecision = Math.max(0, Math.round(-Math.log10(parsed.tickSize)));
                     } else if (f.filterType === 'LOT_SIZE') {
-                      parsed.stepSize = parseFloat(f.stepSize);
+                      parsed.stepSize = parseFloat(String(f.stepSize));
                       parsed.qtyPrecision = Math.max(0, Math.round(-Math.log10(parsed.stepSize)));
                     } else if (f.filterType === 'MARKET_LOT_SIZE') {
-                      parsed.marketMaxQty = parseFloat(f.maxQty);
-                      parsed.marketMinQty = parseFloat(f.minQty);
+                      parsed.marketMaxQty = parseFloat(String(f.maxQty));
+                      parsed.marketMinQty = parseFloat(String(f.minQty));
                     } else if (f.filterType === 'PERCENT_PRICE') {
-                      parsed.multiplierUp = parseFloat(f.multiplierUp || '1.1');
-                      parsed.multiplierDown = parseFloat(f.multiplierDown || '0.9');
+                      parsed.multiplierUp = parseFloat(String(f.multiplierUp || '1.1'));
+                      parsed.multiplierDown = parseFloat(String(f.multiplierDown || '0.9'));
                     } else if (f.filterType === 'MIN_NOTIONAL' || f.filterType === 'NOTIONAL') {
-                      parsed.minNotional = parseFloat(f.notional || f.minNotional || '0');
+                      parsed.minNotional = parseFloat(String(f.notional || f.minNotional || '0'));
                     }
                   }
                 }
@@ -576,7 +577,7 @@ export class MarketFeedService {
       }
 
       for (const trade of activeTrades) {
-        const t = trade as any;
+        const t = trade;
         if (!newWatchlist.has(t.symbol)) newWatchlist.set(t.symbol, new Set());
         newWatchlist.get(t.symbol)!.add('1m');
         if (config.scan_interval) newWatchlist.get(t.symbol)!.add(config.scan_interval);
@@ -837,7 +838,7 @@ export class MarketFeedService {
     await new Promise(resolve => setTimeout(resolve, Math.random() * ENGINE_CONSTANTS.BACKFILL_MAX_JITTER_MS));
     try {
       this.monitoringService.incrementApiRequests();
-      let klines: any[];
+      let klines: any[][];
 
       if (this.binanceClient) {
         const response = await this.binanceClient.restAPI.klineCandlestickData({
@@ -846,7 +847,7 @@ export class MarketFeedService {
           limit: this.klineStore.getMaxCandles()
         });
         this.updateWeight(response.headers);
-        klines = await response.data();
+        klines = (await response.data()) as any[][];
       } else {
         const url = `${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${this.klineStore.getMaxCandles()}`;
         const response = await this.binanceClientFactory.genericRequest(
@@ -854,7 +855,7 @@ export class MarketFeedService {
           'klineCandlestickData'
         );
         if (!response.ok) return;
-        klines = await response.json() as any[];
+        klines = (await response.json()) as any[][];
       }
 
       if (Array.isArray(klines)) await this.klineStore.seedFromRest(symbol, interval, klines);

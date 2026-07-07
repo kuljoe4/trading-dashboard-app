@@ -19,6 +19,7 @@ import { SessionStateService } from './session_state.service';
 import { ENGINE_EVENTS } from './events';
 import { v4 as uuid } from 'uuid';
 import { roundEight, roundTo } from '../lib/math';
+import { BinanceBalanceV3 } from '../models/binance.types';
 import { ENGINE_CONSTANTS, CONFIG_LIMITS, EXIT_REASONS } from '../models/constants';
 import { VariantAnalyticsService } from './variant-analytics.service';
 import { EngineBroadcasterService } from './engine-broadcaster.service';
@@ -611,9 +612,9 @@ export class TradingSessionService implements OnApplicationShutdown {
         : (res?.headers?.['x-mbx-used-weight-1m'] || res?.headers?.['X-MBX-USED-WEIGHT-1M']);
       if (weight) this.sessionState.updateRateLimit(parseInt(weight, 10));
 
-      const data = await res.data() as any;
-      const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
-      return usdt ? parseFloat(usdt.balance || 0) : 0;
+      const data = (await res.data()) as BinanceBalanceV3[];
+      const usdt = Array.isArray(data) ? data.find((b) => b.asset === 'USDT') : null;
+      return usdt ? parseFloat(String(usdt.balance || '0')) : 0;
     } catch (e: any) {
       this.logger.error(`Balance fetch failed: ${e.message}`);
       return 0;
@@ -810,6 +811,16 @@ export class TradingSessionService implements OnApplicationShutdown {
   }
 
   async fetchTickerPrice(symbol: string): Promise<number | null> { return this.tickerCache.getPrice(symbol); }
+
+  /**
+   * SRE: Triggers a full state reconciliation audit.
+   * Delegates to MaintenanceService to keep the engine decoupled from persistence events.
+   */
+  async reconcileLiveState() {
+    if (!this.running || !this.config) return;
+    await this.maintenanceService.reconcileLiveState(this.running, this.config);
+  }
+
   async fetchPosition(symbol: string): Promise<any | null> { return this.orderManager.fetchPosition(symbol); }
   async fetchAllPositions(): Promise<any[]> { return this.orderManager.fetchAllPositions(); }
   seedRealTimePosition(symbol: string, amount: number, entryPrice: number) {

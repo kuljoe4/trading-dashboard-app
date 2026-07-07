@@ -10,6 +10,7 @@ import { OrderManagerService } from './orderManager';
 import { SessionStateService } from './session_state.service';
 import { GatingService } from './gating.service';
 import { BroadcastService } from './broadcast.service';
+import { MonitoringService } from './monitoring.service';
 import { EngineBroadcasterService } from './engine-broadcaster.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ENGINE_EVENTS } from './events';
@@ -36,6 +37,7 @@ export class ExecutionService {
     private readonly sessionState: SessionStateService,
     private readonly gatingService: GatingService,
     private readonly broadcastService: BroadcastService,
+    private readonly monitoringService: MonitoringService,
     private readonly engineBroadcaster: EngineBroadcasterService,
     private readonly eventEmitter: EventEmitter2,
     private readonly analyticsService: AnalyticsService,
@@ -77,7 +79,7 @@ export class ExecutionService {
           }
           if (result.exitOccurred && result.trade) {
             const closedTrade = result.trade;
-            this.sessionState.updateStatsOnClose((closedTrade.pnl || 0) > 0, closedTrade.pnl || 0, closedTrade.is_reconciliation);
+            this.sessionState.updateStatsOnClose((closedTrade.pnl || 0) > 0, closedTrade.pnl || 0, closedTrade.is_reconciliation, closedTrade.id);
 
             this.sessionState.addClosedTrade(closedTrade);
             this.sessionState.setActiveTrades(this.positionTracker.activeList());
@@ -89,7 +91,7 @@ export class ExecutionService {
             this.setCooldown(trade.symbol, mode, cooldownMin);
 
             const analytics = this.analyticsService.calculateAnalytics(
-              this.sessionState.closedTrades as any,
+              this.sessionState.closedTrades as any[],
               config.paper_mode ? config.paper_starting_balance : config.live_starting_balance
             );
 
@@ -124,9 +126,15 @@ export class ExecutionService {
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);
 
     const now = Date.now();
+    const maxOpportunities = Math.min(opportunities.length, config.scanner_signal_depth || 10);
+
     // BOLT: Sequential processing of opportunities ensures that RiskEngine spacing
     // and frequency limits are correctly enforced between each entry.
+    let count = 0;
     for (const opp of opportunities) {
+      count++;
+      this.monitoringService.setLoopStage('EVALUATING', opp.symbol, (count / opportunities.length) * 100);
+
       // SRE: Global Entry Lock check. If an entry is already in flight, defer all other evaluations
       // until the current one confirms and risk gating state is updated.
       if (this.sessionState.entryInProgress) {
@@ -156,9 +164,29 @@ export class ExecutionService {
         const sc = symbolConfigMap?.get(opp.symbol);
         const symbolConfig = (sc?.use_custom_config && sc.custom_config) ? { ...config, ...sc.custom_config } as SessionConfig : config;
 
+        // "After Opportunity" timing check:
+        // If timing is 'after_opportunity', the momentum event must have happened in the PREVIOUS candle.
+        if (symbolConfig.engulfing_timing === 'after_opportunity') {
+           const candles = this.klineStore.getRawCandles(opp.symbol, symbolConfig.scan_interval || '1m');
+           if (candles.length < 2) continue;
+
+           const prevCandle = candles[candles.length - 2];
+           const prevPrevCandle = candles[candles.length - 3];
+           if (!prevPrevCandle) continue;
+
+           const prevMomentum = ((prevCandle.close - prevPrevCandle.close) / prevPrevCandle.close) * 100;
+           const threshold = symbolConfig.scan_pct_threshold ?? 0;
+           const momentumMatched = opp.direction === 'LONG' ? prevMomentum >= threshold : prevMomentum <= -threshold;
+
+           if (!momentumMatched) {
+             this.logger.debug(`${opp.symbol}: After-Opp Timing failed. Previous candle did not match momentum threshold.`);
+             continue;
+           }
+        }
+
         // BOLT OPTIMIZATION: Enable minimal mode (6th arg) to trigger early-return in signal engine.
         // This avoids expensive metadata/description construction during the high-frequency entry scan.
-        const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry', true);
+        const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', true);
         if (!signalResult.allFired) {
           if (signalResult.reason.includes('warm-up')) {
             this.logger.debug(`${opp.symbol}: Entry blocked - ${signalResult.reason}`);
@@ -166,9 +194,10 @@ export class ExecutionService {
           continue;
         }
 
+        this.monitoringService.setLoopStage('RISK_CHECK', opp.symbol);
         const activeTrades = this.positionTracker.activeList();
         const enteringCount = this.positionTracker.enteringCount();
-        const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk(), enteringCount);
+        const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk(), enteringCount, opp.score);
 
         if (!riskResult.canEnter) {
           if (riskResult.reason.includes('Max open trades')) {
@@ -190,21 +219,32 @@ export class ExecutionService {
         if (!price) continue;
 
         const lookback = this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
-        let slPrice = this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.minLow, lookback.maxHigh, opp.symbol);
+        const slResult = this.riskEngine.computeSl(price, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig, lookback.minLow, lookback.maxHigh, opp.symbol);
 
+        if (slResult.rejected) {
+           this.logger.log(`${opp.symbol}: Entry skipped - ${slResult.reason}`);
+           this.broadcastService.broadcast('gate', {
+             gateState: 'sl_out_of_bounds',
+             reason: slResult.reason,
+             scannerPaused: false
+           });
+           continue;
+        }
+
+        let slPrice = slResult.slPrice;
         const slFiltered = this.orderManager.applyFilters(opp.symbol, slPrice, 1, {
           priceRounding: opp.direction.toUpperCase() === 'LONG' ? 'floor' : 'ceil',
           skipNotionalCheck: true
         });
         slPrice = slFiltered.price;
 
-        const qty = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as any, symbolConfig, opp.symbol);
+        const qty = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig, opp.symbol);
 
         if (qty <= 0) {
           this.logger.debug(`${opp.symbol}: Position size is 0 after SL filtering. SL: ${slPrice}, Entry: ${price}`);
           continue;
         }
-        const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
+        const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig);
 
         const reservedRisk = roundEight(Math.abs(price - slPrice) * qty);
 
@@ -212,6 +252,7 @@ export class ExecutionService {
         const openPrice = ticker?.open_24h || price;
         const dailyChangeAtEntry = ((price - openPrice) / openPrice) * 100 * (opp.direction.toUpperCase() === 'LONG' ? 1 : -1);
 
+        this.monitoringService.setLoopStage('EXECUTING', opp.symbol);
         this.logger.log(`[Risk Integrity] Reserving ${Number(reservedRisk || 0).toFixed(2)} USDT risk for ${opp.symbol} entry attempt.`);
 
         // SRE: Lock the entry pipeline before dispatching to Binance
@@ -220,9 +261,9 @@ export class ExecutionService {
 
         try {
           const result = await this.orderManager.enter(
-            (this.sessionState.config as any)?.sessionId || uuid().substring(0, 8),
+            this.sessionState.config?.strategy_label || uuid().substring(0, 8),
             opp.symbol,
-            opp.direction.toUpperCase() as any,
+            opp.direction.toUpperCase() as 'LONG' | 'SHORT',
             price,
             qty,
             slPrice,
@@ -237,7 +278,7 @@ export class ExecutionService {
           if (result.status === ExecutionStatus.SUCCESS && result.data) {
             const trade = result.data;
             this.positionTracker.addTrade(trade);
-            this.sessionState.updateStatsOnEntry();
+            this.sessionState.updateStatsOnEntry(trade.id);
 
             if (onTradeUpdate) {
               await onTradeUpdate(trade, balance);

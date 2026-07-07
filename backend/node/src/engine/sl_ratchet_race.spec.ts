@@ -29,6 +29,7 @@ describe('SL Ratchet Race Conditions & Protection Gaps', () => {
     mockSessionState = {
       isRateLimited: jest.fn().mockReturnValue(false),
       isOrderRateLimited: jest.fn().mockReturnValue(false),
+      hasOrderCapacity: jest.fn().mockReturnValue(true),
       config: { trailing_guard_buffer_pct: 0.1 }
     };
     mockAuditLog = { log: jest.fn() };
@@ -39,9 +40,10 @@ describe('SL Ratchet Race Conditions & Protection Gaps', () => {
       mockMarketFeed,
       mockTickerCache,
       { incrementApiRequests: jest.fn() } as any,
+      { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn(), isRatcheting: jest.fn() } as any,
       mockSessionState,
       mockAuditLog,
-      mockEventEmitter, { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any
+      mockEventEmitter as any, { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any
     );
 
     mockBinanceClient = {

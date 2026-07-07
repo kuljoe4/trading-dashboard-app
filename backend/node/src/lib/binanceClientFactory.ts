@@ -5,7 +5,7 @@ import {
   DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_TESTNET_URL,
   DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_PROD_URL
 } from '@binance/derivatives-trading-usds-futures';
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef, OnModuleInit } from '@nestjs/common';
 import WebSocket from 'ws';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -14,7 +14,7 @@ import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { SessionStateService } from '../engine/session_state.service';
 
 @Injectable()
-export class BinanceClientFactory {
+export class BinanceClientFactory implements OnModuleInit {
   private readonly logger = new Logger(BinanceClientFactory.name);
   private queue: BinanceRequestQueue | null = null;
 
@@ -25,6 +25,46 @@ export class BinanceClientFactory {
     @InjectRepository(SettingsEntity)
     private readonly settingsRepository: Repository<SettingsEntity>,
   ) {}
+
+  async onModuleInit() {
+    // SRE: Load persistent ban status on startup to prevent immediate retry cycles after crash/restart
+    try {
+      const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+      if (settings && settings.api_ban_until && Number(settings.api_ban_until) > Date.now()) {
+        const remaining = Math.round((Number(settings.api_ban_until) - Date.now()) / 60000);
+        this.logger.warn(`Resuming with active API Ban/Cooldown. Remaining: ${remaining}m. Reason: ${settings.api_ban_reason}`);
+
+        BinanceRequestQueue.setCooldownUntil(Number(settings.api_ban_until));
+
+        this.eventEmitter.emit('binance.api_limit_reached', {
+          type: 'BAN',
+          message: settings.api_ban_reason || 'Persistent Ban',
+          until: Number(settings.api_ban_until)
+        });
+      }
+    } catch (e) {
+      this.logger.error(`Failed to load persistent ban status: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /**
+   * SRE: Enqueue a generic asynchronous task into the throttled Binance request queue.
+   * Ensures that even manual 'fetch' calls respect process-wide rate limits and IP reputation.
+   */
+  async genericRequest<T>(fn: () => Promise<T>, label: string, isEmergency = false): Promise<T> {
+    if (!this.queue) {
+      this.queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository);
+    }
+
+    return this.queue.add(async () => {
+      const result = await fn();
+      // If the result looks like a Response (has headers), update the weight automatically
+      if (result && (result as any).headers) {
+        this.queue?.updateWeightFromHeaders((result as any).headers, label);
+      }
+      return result;
+    }, label, isEmergency);
+  }
 
   createClient(apiKey: string, apiSecret: string, isTestnet: boolean): DerivativesTradingUsdsFutures {
     const restURL = isTestnet
@@ -52,22 +92,25 @@ export class BinanceClientFactory {
     // /private (for listenKey), /market (for anonymous market streams), and /public (HF data)
     const originalConnect = client.websocketStreams.connect.bind(client.websocketStreams);
     client.websocketStreams.connect = (async (params: any): Promise<any> => {
-      // UDS streams use the listenKey (string without @ or !), while market streams use @ (kline, ticker) or ! (miniTicker)
-      const isPrivate = !!params.stream && !params.stream.includes('@') && !params.stream.includes('!');
-      const isHF = !!params.stream && params.stream.includes('!');
+      // Citadel: Strictly isolate stream types for zero-collision routing (private, public/hf, market)
+      const stream = params.stream || '';
+      const isHF = stream.includes('!');
+      const isMarket = stream.includes('@');
+      // Citadel: Explicitly identify listenKeys (64-char alphanumeric) vs market streams
+      const isPrivate = !isHF && !isMarket && !stream.includes('/') && /^[a-zA-Z0-9]{60,}$/.test(stream);
 
       let gatewayURL = wsURL;
       const urlObj = new URL(wsURL);
 
       if (isPrivate) {
-        // SRE: Strictly route private listenKey traffic to the /private gateway for PROD.
         if (!isTestnet) urlObj.pathname = '/private';
         else urlObj.pathname = '/ws';
+      } else if (isHF) {
+        if (!isTestnet) urlObj.pathname = '/public';
+        else urlObj.pathname = stream.includes('/') ? '/stream' : '/ws';
       } else {
-        // Market/Public data traffic routes to /market or /public for PROD.
-        // BOLT: Recognize high-frequency global streams (containing !) and route to /public.
-        if (!isTestnet) urlObj.pathname = isHF ? '/public' : '/market';
-        else urlObj.pathname = params.stream?.includes('/') ? '/stream' : '/ws';
+        if (!isTestnet) urlObj.pathname = '/market';
+        else urlObj.pathname = stream.includes('/') ? '/stream' : '/ws';
       }
 
       // SRE: Correct construction of the final WebSocket URL for the SDK.
@@ -81,10 +124,36 @@ export class BinanceClientFactory {
           const finalUrl = `${gatewayURL}?streams=${params.stream}`;
           this.logger.debug(`[BinanceClient] Connecting to gateway (Manual): ${finalUrl.substring(0, 100)}... | isHF=${isHF}`);
 
-          const ws = new WebSocket(finalUrl);
+          const ws = new WebSocket(finalUrl, { handshakeTimeout: 5000 });
           // BOLT: Add error handler to prevent unhandled 'error' events from crashing the process (e.g. 400 Bad Request)
-          ws.on('error', (err) => {
-            this.logger.error(`[BinanceClient] WebSocket error for ${params.stream}: ${err.message}`);
+          ws.on('error', (err: any) => {
+            const msg = err.message || '';
+            this.logger.error(`[BinanceClient] WebSocket error for ${params.stream}: ${msg}`);
+
+            // CITADEL FAIL-FAST: Detected critical IP reputation threats (429, 418)
+            if (msg.includes('429') || msg.includes('418')) {
+              this.logger.fatal(`[CRITICAL] WebSocket handshake failed with rate-limit/ban status (${msg}). Entering Terminal Lock.`);
+
+              // SRE: Attempt to extract absolute ban timestamp from message: "banned until (\d+)"
+              const banMatch = msg.match(/banned until (\d+)/i);
+              const until = banMatch ? parseInt(banMatch[1], 10) : Date.now() + (24 * 60 * 60 * 1000);
+
+              // RESEARCH-01: Instead of process.exit(1), implement a long sleep to break boot loops and allow UI visibility.
+              // Lock the REST queue until the absolute exchange timestamp to ensure zero egress traffic.
+              BinanceRequestQueue.setCooldownUntil(until);
+
+              // SRE Overwatch: Persist ban status to DB to survive restarts
+              this.settingsRepository.update('default', {
+                api_ban_until: until,
+                api_ban_reason: msg
+              }).catch(err => this.logger.error(`Failed to persist ban status (WS): ${err.message}`));
+
+              this.eventEmitter.emit('binance.api_limit_reached', {
+                type: 'BAN',
+                message: msg,
+                until
+              });
+            }
           });
           // SDK expected interface: disconnect() method
           (ws as any).disconnect = () => (ws as any).terminate();
@@ -195,8 +264,11 @@ export class BinanceRequestQueue {
       return;
     }
 
+    // Citadel: If cooldown just expired, emit an event to clear ban status in the engine
+    const wasBanned = BinanceRequestQueue.currentWeight1m === 9999;
+
     if (BinanceRequestQueue.currentWeight1m > 0) {
-      this.logger.log(`[BinanceQueue] Window rollover detected. Resetting weight: ${BinanceRequestQueue.currentWeight1m} -> 0`);
+      this.logger.debug(`[BinanceQueue] Window rollover detected. Resetting weight: ${BinanceRequestQueue.currentWeight1m} -> 0`);
       BinanceRequestQueue.currentWeight1m = 0;
       BinanceRequestQueue.windowStartTs = now;
 
@@ -212,6 +284,18 @@ export class BinanceRequestQueue {
 
       // SRE: Proactively update the entire engine state so background tasks can resume immediately
       this.eventEmitter.emit('binance.weight_update', 0);
+
+      if (wasBanned) {
+        this.logger.log(`[BinanceQueue] Terminal Lock lifted. System resuming normal execution.`);
+
+        // SRE Overwatch: Clear persistent ban status in DB
+        this.settingsRepository.update('default', {
+          api_ban_until: null,
+          api_ban_reason: null
+        }).catch(err => this.logger.error(`Failed to clear persistent ban status: ${err.message}`));
+
+        this.eventEmitter.emit('binance.api_limit_cleared');
+      }
     } else {
       // Just keep the window timestamp current to prevent multiple resets in the same minute
       BinanceRequestQueue.windowStartTs = now;
@@ -279,6 +363,10 @@ export class BinanceRequestQueue {
     if (limit > 0) {
       BinanceRequestQueue.weightLimit1m = limit;
     }
+  }
+
+  public static setCooldownUntil(until: number) {
+    BinanceRequestQueue.lastRequestTs = until;
   }
 
   private async process() {
@@ -362,64 +450,48 @@ export class BinanceRequestQueue {
 
           item.resolve(result);
         } catch (error: any) {
-          // If we hit an IP ban or rate limit error, increase delay significantly
           const msg = error.message || '';
           const code = error.code || (error.data ? error.data.code : null);
-          const isBan = msg.includes('banned') || msg.includes('418') || code === -1003;
+          const isBan = msg.includes('418') || code === -1003 || msg.includes('banned');
           const isRateLimit = msg.includes('429') || code === -1015;
 
+          // CITADEL FAIL-FAST: Detected critical IP reputation threats (429, 418, -1003)
           if (isBan || isRateLimit) {
-            this.logger.error(`[BinanceQueue] Critical rate limit/ban detected. Status: ${isBan ? 'BANNED' : 'RATE_LIMITED'}. Increasing cooldown...`);
+            this.logger.fatal(`[CRITICAL] API request failed with ${isBan ? 'BAN' : 'RATE_LIMIT'} status (${msg}). Entering Terminal Lock.`);
 
             // RESEARCH-01: Instead of process.exit(1), implement a long sleep to break boot loops and allow UI visibility.
             // Exiting causes Railway to immediately restart, leading to a "hammering" effect that can prolong bans.
+            let until = Date.now() + 60000; // 1m default for rate limit
+
             if (isBan) {
-              // SRE: Attempt to extract actual ban duration from Retry-After header or error message
-              let retryAfterSec = 600; // 10m Default
-              if (error.headers && error.headers['retry-after']) {
-                retryAfterSec = parseInt(error.headers['retry-after'], 10);
-              } else {
-                const match = msg.match(/retry in (\d+) (seconds|ms)/i);
-                if (match) {
-                  retryAfterSec = match[2].toLowerCase() === 'ms' ? Math.ceil(parseInt(match[1], 10) / 1000) : parseInt(match[1], 10);
-                }
-              }
-
-              const BAN_COOLDOWN_MS = Math.max(60000, retryAfterSec * 1000); // Minimum 1 minute
-              this.logger.fatal(`[BinanceQueue] IP BANNED (418). Entering safe cooldown mode for ${Math.ceil(BAN_COOLDOWN_MS / 60000)}m to protect infrastructure.`);
-
-              // SRE: Purge non-emergency queue items to prevent burst on wakeup
-              const itemsToKeep = this.queue.filter(i => i.isEmergency);
-              const itemsToPurge = this.queue.filter(i => !i.isEmergency);
-              this.queue = itemsToKeep;
-
-              itemsToPurge.forEach(i => i.reject(new Error('Queue purged due to IP ban.')));
-
-              const until = Date.now() + BAN_COOLDOWN_MS;
-              const reason = msg || 'IP Banned (418) by Binance';
-              this.eventEmitter.emit('binance.api_limit_reached', {
-                type: 'BAN',
-                message: reason,
-                until
-              });
-
-              // RESEARCH-02: Persist ban status to DB to survive process restarts
-              this.settingsRepository.update('default', {
-                api_ban_until: until,
-                api_ban_reason: reason
-              }).catch(e => this.logger.error(`Failed to persist API ban: ${e.message}`));
-
-              BinanceRequestQueue.lastRequestTs = until;
-            } else {
-              BinanceRequestQueue.lastRequestTs = Date.now() + 60000; // Forced 1-minute pause for rate limit
-
-              this.eventEmitter.emit('binance.api_limit_reached', {
-                type: 'RATE_LIMIT',
-                message: msg,
-                until: Date.now() + 60000
-              });
+               // SRE: Attempt to extract absolute ban timestamp from message: "banned until (\d+)"
+               const banMatch = msg.match(/banned until (\d+)/i);
+               if (banMatch) {
+                 until = parseInt(banMatch[1], 10);
+               } else if (error.headers && error.headers['retry-after']) {
+                 until = Date.now() + (parseInt(error.headers['retry-after'], 10) * 1000);
+               } else {
+                 until = Date.now() + (24 * 60 * 60 * 1000); // 24h fallback for ban
+               }
             }
+            BinanceRequestQueue.setCooldownUntil(until);
+
+            // SRE Overwatch: Persist ban status to DB to survive restarts
+            this.settingsRepository.update('default', {
+                api_ban_until: until,
+                api_ban_reason: msg
+            }).catch(err => this.logger.error(`Failed to persist ban status: ${err.message}`));
+
+            this.eventEmitter.emit('binance.api_limit_reached', {
+                type: isBan ? 'BAN' : 'RATE_LIMIT',
+                message: msg,
+                until
+            });
+
+            // Purge non-emergency queue items
+            this.queue = this.queue.filter(i => i.isEmergency);
           }
+
           item.reject(error);
         }
       }

@@ -4,7 +4,7 @@ import { cn } from "./utils"
 import * as ProgressPrimitive from "@radix-ui/react-progress"
 import * as TooltipPrimitive from "@radix-ui/react-tooltip"
 import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock, Info } from 'lucide-react'
-import { Sparkline as SparklineChart } from '../DataCharts'
+import { Sparkline as SparklineChart, CandlestickChart as CandlestickChartBase } from '../DataCharts'
 import { useTradingStore } from '../../store/trading'
 import { useTooltipContext, Tooltip } from './tooltip'
 
@@ -77,16 +77,11 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
       <div className="flex flex-col gap-0.5 w-full relative z-10">
         <div className="flex items-start w-full min-h-[2rem] md:min-h-[2.25rem]">
           <div className="flex items-center gap-2 flex-grow overflow-hidden mr-1">
-            <Tooltip content={tooltip}>
-              <div className={cn(
-                "text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] cursor-help hover:text-dim/80 transition-colors",
-                tooltip && "border-b border-dotted border-dim/30"
-              )}>{label}</div>
-            </Tooltip>
+            <div className={cn(
+              "text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] hover:text-dim/80 transition-colors"
+            )}>{label}</div>
             {indicator === 'amber' && (
-              <Tooltip content="Adaptive tightening active">
-                <div className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse cursor-help shrink-0" />
-              </Tooltip>
+              <div className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse shrink-0" />
             )}
           </div>
           <button
@@ -159,20 +154,15 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
 // --- Stat Card ---
 export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing, tooltipText }) => {
   // BOLT: Clean up double-negative visuals: if value starts with '-', don't show negative arrow in label/icon.
-  // This component currently doesn't show an icon, but if the value passed from parent has both '-' and an arrow,
-  // it might look redundant. The user pointed out: "Total Performance" displays ▼ - $9,920.52.
-  // We should ensure the parent (HistoryView or Dashboard) doesn't pass both.
-  // However, we can also sanitize it here.
-
   const sanitizedValue = typeof value === 'string' && (value.includes('▼') || value.includes('▲') || value.includes('▾') || value.includes('▴')) && value.includes('-')
     ? value.replace('-', '') // Remove the minus if an arrow is already present
     : value;
 
-  return (
+  const content = (
     <div
       className="bg-surface border border-border/60 p-3 md:p-4 lg:p-5 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[80px] lg:min-h-[100px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
       role="region"
-      aria-label={`${label}: ${value}`}
+      aria-label={`${label}: ${value}${tooltipText ? '. ' + tooltipText : ''}`}
       aria-busy={syncing}
     >
       {syncing && (
@@ -181,7 +171,7 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
       <div className="flex flex-col gap-0.5 w-full">
         <div className="flex items-start gap-1.5 min-h-[2rem] md:min-h-[2.25rem]">
             <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] flex-1" aria-hidden="true">{label}</div>
-            {tooltipText && <Tooltip content={tooltipText}><Info size={10} className="text-dim hover:text-accent cursor-help shrink-0 mt-0.5" /></Tooltip>}
+            {tooltipText && <Info size={10} className="text-dim/30 group-hover:text-accent transition-colors" />}
         </div>
         <div className="flex flex-col">
           <div className={cn(
@@ -202,6 +192,12 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
       </div>
     </div>
   );
+
+  if (tooltipText) {
+    return <Tooltip content={tooltipText}>{content}</Tooltip>;
+  }
+
+  return content;
 })
 
 // --- Section Label ---
@@ -258,39 +254,31 @@ export const StatusBadge = ({ status }) => {
 
 // --- Mode Badges ---
 export const PaperBadge = () => (
-  <Tooltip content="Paper: Simulated trading using local balance. No real funds used.">
-    <span className="px-2.5 py-1 rounded-full border border-amber/20 bg-amber/10 text-[10px] text-amber font-bold tracking-wider flex items-center gap-1.5 cursor-help">
-      <Zap size={10} fill="currentColor" />
-      PAPER
-    </span>
-  </Tooltip>
+  <span className="px-2.5 py-1 rounded-full border border-amber/20 bg-amber/10 text-[10px] text-amber font-bold tracking-wider flex items-center gap-1.5">
+    <Zap size={10} fill="currentColor" />
+    PAPER
+  </span>
 )
 
 export const EcoBadge = () => (
-  <Tooltip content="Eco: Power-saving mode with reduced updates to save CPU and memory.">
-    <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5 shadow-[0_0_10px_rgba(0,229,160,0.05)] cursor-help">
-      <div className="w-1.5 h-1.5 bg-green rounded-full animate-pulse" />
-      ECO
-    </span>
-  </Tooltip>
+  <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5 shadow-[0_0_10px_rgba(0,229,160,0.05)]">
+    <div className="w-1.5 h-1.5 bg-green rounded-full animate-pulse" />
+    ECO
+  </span>
 )
 
 export const DemoBadge = () => (
-  <Tooltip content="Demo: Trading on Binance Testnet with virtual funds. Use for strategy testing.">
-    <span className="px-2.5 py-1 rounded-full border border-purple/20 bg-purple/10 text-[10px] text-purple font-bold tracking-wider flex items-center gap-1.5 cursor-help">
-      <Zap size={10} fill="currentColor" />
-      DEMO
-    </span>
-  </Tooltip>
+  <span className="px-2.5 py-1 rounded-full border border-purple/20 bg-purple/10 text-[10px] text-purple font-bold tracking-wider flex items-center gap-1.5">
+    <Zap size={10} fill="currentColor" />
+    DEMO
+  </span>
 )
 
 export const LiveBadge = () => (
-  <Tooltip content="Live: Real capital trading on Binance Production. Proceed with caution.">
-    <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5 cursor-help">
-      <Zap size={10} fill="currentColor" />
-      LIVE
-    </span>
-  </Tooltip>
+  <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5">
+    <Zap size={10} fill="currentColor" />
+    LIVE
+  </span>
 )
 
 // --- Condition Widget ---
@@ -312,6 +300,8 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
     ? `${isCount ? "" : "≥ "}${isCount ? Math.round(threshold) : threshold}${unit}`
     : "Trigger: 0";
 
+  const ariaText = `${label}: ${formattedValue}. Threshold is ${thresholdText}. ${satisfied ? 'Condition satisfied' : 'Awaiting signal'}. ${sublabel || ''}`;
+
   return (
     <div
       className={cn(
@@ -319,7 +309,7 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
         borderColorClass
       )}
       role="region"
-      aria-label={`${label}: ${satisfied ? 'Satisfied' : 'Awaiting'}`}
+      aria-label={ariaText}
     >
       <div className="flex justify-between items-start gap-4 min-h-[1.5rem] mb-4 md:mb-6">
         <div className="text-[10px] md:text-[11px] text-dim tracking-[0.15em] uppercase font-bold shrink-0 whitespace-nowrap">{label}</div>
@@ -498,21 +488,20 @@ export const CopyButton = ({ value, className, tooltip = "Copy", successTooltip 
   }
 
   return (
-    <Tooltip content={copied ? successTooltip : tooltip}>
-      <button
-        onClick={handleCopy}
-        className={cn(
-          "p-1.5 rounded-md transition-all active:scale-90",
-          copied ? "text-green bg-green/10" : "text-dim hover:text-text hover:bg-white/5",
-          className
-        )}
-        aria-label={copied ? successTooltip : tooltip}
-      >
-        {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
-      </button>
-    </Tooltip>
+    <button
+      onClick={handleCopy}
+      className={cn(
+        "p-1.5 rounded-md transition-all active:scale-90",
+        copied ? "text-green bg-green/10" : "text-dim hover:text-text hover:bg-white/5",
+        className
+      )}
+      aria-label={copied ? successTooltip : tooltip}
+    >
+      {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+    </button>
   )
 }
 
-// --- Sparkline ---
+// --- Charts ---
 export const Sparkline = SparklineChart;
+export const CandlestickChart = CandlestickChartBase;

@@ -9,19 +9,78 @@ const DEFAULT_LOG_FILTERS = { info: true, warn: true, error: true };
 const normalizeOpportunity = (o = {}) => {
   const m = toNumber(o.pct ?? o.momentum ?? o.percent_change);
   const d = (o.dir ?? o.direction ?? (m >= 0 ? 'long' : 'short')).toString().toLowerCase();
-  return { ...o, symbol: o.symbol ?? '---', pct: m, momentum: m, dir: d, direction: d, vol: toNumber(o.vol ?? o.volume ?? o.volume_usdt ?? o.volume_24h), score: toNumber(o.score), price: toNumber(o.price) };
+
+  // SEC: Strict property picking and input sanitization to harden against prototype pollution or malformed WebSocket payloads.
+  return {
+    symbol: (o.symbol ?? '---').replace(/[^A-Z0-9]/gi, '').substring(0, 20),
+    pct: m,
+    momentum: m,
+    dir: d,
+    direction: d,
+    vol: toNumber(o.vol ?? o.volume ?? o.volume_usdt ?? o.volume_24h),
+    score: toNumber(o.score),
+    price: toNumber(o.price),
+    volume_rank: o.volume_rank ? parseInt(String(o.volume_rank), 10) : undefined,
+    history: Array.isArray(o.history) ? o.history.map(v => toNumber(v)) : undefined,
+    ohlc_history: Array.isArray(o.ohlc_history) ? o.ohlc_history.map(c => ({
+      time: toNumber(c.time || c.t),
+      open: toNumber(c.open || c.o),
+      high: toNumber(c.high || c.h),
+      low: toNumber(c.low || c.l),
+      close: toNumber(c.close || c.c),
+      volume: toNumber(c.volume || c.q)
+    })) : undefined,
+    score_breakdown: o.score_breakdown ? {
+      momentum: toNumber(o.score_breakdown.momentum),
+      volatility: toNumber(o.score_breakdown.volatility),
+      trend: toNumber(o.score_breakdown.trend)
+    } : undefined,
+    signalResult: o.signalResult ? {
+      allFired: !!o.signalResult.allFired,
+      reason: String(o.signalResult.reason || '').substring(0, 200)
+    } : undefined
+  };
 }
 
 const normalizeTrade = (t = {}, pt = null) => {
   if (!t || typeof t !== 'object') return null;
   const p = pt || {};
+
+  // BOLT: Parse signal status from compressed JSON if present in tick
+  let sigStatus = t.exit_signals_status;
+  if (!sigStatus && t._sig_json) {
+    try { sigStatus = JSON.parse(t._sig_json); } catch (e) {}
+  }
+
   const f = `${t.pnl}:${t.rr}:${t.current_price}:${t.sl_price}`;
-  if (p._fingerprint === f && !t._delta && !t._thin) return p;
+  if (p._fingerprint === f && !t._delta && !t._thin && !t._sig_json) return p;
   if (t._delta || t._thin) {
-    return { ...p, ...t, pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl, rr: t.rr !== undefined ? toNumber(t.rr) : p.rr, current_price: t.current_price !== undefined ? toNumber(t.current_price) : p.current_price, sl_price: t.sl_price !== undefined ? toNumber(t.sl_price) : p.sl_price, max_rr: t.max_rr !== undefined ? toNumber(t.max_rr) : p.max_rr, exit_signals_status: t.exit_signals_status || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence, exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence, sl_adjustments: t.sl_adjustments || p.sl_adjustments, exit_signal_logic: t.exit_signal_logic || p.exit_signal_logic, tp_mode: t.tp_mode || p.tp_mode, tp_ratio: t.tp_ratio !== undefined ? toNumber(t.tp_ratio) : p.tp_ratio };
+    return {
+      ...p, ...t,
+      pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl,
+      rr: t.rr !== undefined ? toNumber(t.rr) : p.rr,
+      current_price: t.current_price !== undefined ? toNumber(t.current_price) : p.current_price,
+      sl_price: t.sl_price !== undefined ? toNumber(t.sl_price) : p.sl_price,
+      max_rr: t.max_rr !== undefined ? toNumber(t.max_rr) : p.max_rr,
+      entry_price: t.entry_price !== undefined ? toNumber(t.entry_price) : p.entry_price,
+      qty: t.qty !== undefined ? toNumber(t.qty) : p.qty,
+      exit_signals_status: sigStatus || p.exit_signals_status || {},
+      strategy_config: t.strategy_config || p.strategy_config,
+      live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence,
+      exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence,
+      sl_adjustments: t.sl_adjustments || p.sl_adjustments,
+      exit_signal_logic: t.exit_signal_logic || p.exit_signal_logic,
+      tp_mode: t.tp_mode || p.tp_mode,
+      tp_ratio: t.tp_ratio !== undefined ? toNumber(t.tp_ratio) : p.tp_ratio,
+      mark_price: t.mark_price !== undefined ? toNumber(t.mark_price) : p.mark_price,
+      last_price: t.last_price !== undefined ? toNumber(t.last_price) : p.last_price,
+      realized_fee: t.realized_fee !== undefined ? toNumber(t.realized_fee) : p.realized_fee,
+      funding_fee: t.funding_fee !== undefined ? toNumber(t.funding_fee) : p.funding_fee,
+      is_reconciliation: t.is_reconciliation ?? p.is_reconciliation
+    };
   }
   const ep = toNumber(t.entry_price ?? t.entry ?? p.entry_price);
-  return { ...t, symbol: t.symbol ?? p.symbol ?? '---', strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy', direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(), entry_price: ep, current_price: toNumber(t.current_price ?? t.current ?? p.current_price ?? t.exit_price ?? ep, ep), sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price), initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl), tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp), pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl ?? 0, rr: (t.rr !== undefined) ? toNumber(t.rr) : p.rr ?? 0, max_rr: (t.max_rr !== undefined) ? toNumber(t.max_rr) : p.max_rr ?? 0, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [], exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [], tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'), tp_ratio: (t.tp_ratio !== undefined) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0, sl_adjustments: t.sl_adjustments || p.sl_adjustments || [], exit_reason: t.exit_reason ?? p.exit_reason, exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price), paper_mode: t.paper_mode ?? p.paper_mode ?? true, qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0), max_rr_achieved: toNumber(t.max_rr_achieved ?? t.max_rr ?? p.max_rr_achieved ?? 0), exit_signals_status: t.exit_signals_status || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, _fingerprint: f };
+  return { ...t, symbol: t.symbol ?? p.symbol ?? '---', strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy', direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(), entry_price: ep, current_price: toNumber(t.current_price ?? t.current ?? p.current_price ?? t.exit_price ?? ep, ep), sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price), initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl), tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp), pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl ?? 0, rr: (t.rr !== undefined) ? toNumber(t.rr) : p.rr ?? 0, max_rr: (t.max_rr !== undefined) ? toNumber(t.max_rr) : p.max_rr ?? 0, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [], exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [], tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'), tp_ratio: (t.tp_ratio !== undefined) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0, sl_adjustments: t.sl_adjustments || p.sl_adjustments || [], exit_reason: t.exit_reason ?? p.exit_reason, exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price), paper_mode: t.paper_mode ?? p.paper_mode ?? true, qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0), max_rr_achieved: toNumber(t.max_rr_achieved ?? t.max_rr ?? p.max_rr_achieved ?? 0), exit_signals_status: sigStatus || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, _fingerprint: f };
 }
 
 const deepMerge = (target, source) => {
@@ -90,12 +149,17 @@ const defaultConfig = {
   slippage_warning_threshold: CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT || 0.001,
   auto_scale_min_notional: true,
   debug_mode: false,
+  scanner_weights: {
+    momentum: 0.5,
+    volatility: 0.3,
+    trend: 0.2
+  },
 };
 
 export const useTradingStore = createWithEqualityFn((set, get) => ({
   sessionActive: false, sessionPaused: false, strategyId: null, balance: 10000, totalPnl: 0, totalRiskPct: 0, totalSlUsed: 0,
   activeTrades: [], logs: [], logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
-  gateState: null, gateReason: null, hibernating: false, isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
+  gateState: null, gateReason: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, lastScanTs: 0, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
   apiStatus: { isBanned: false, isRateLimited: false, banUntil: null, lastErrorMessage: null },
   tradesInPeriod: undefined, maxTradesPeriod: undefined, tradesIn24h: undefined, maxTrades24h: undefined,
   alerts: [],
@@ -274,8 +338,8 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
     let u = normalizeUrl(import.meta.env.VITE_WS_URL, 'wss') || `${window.location.protocol === 'https:' ? 'wss://' : 'ws://'}${window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '')}/session/ws`;
     if (u && !u.includes('/session/ws')) u = u.replace(/\/$/, '') + '/session/ws';
     const ak = localStorage.getItem('MOMENTUM_ADMIN_API_KEY') || import.meta.env.VITE_ADMIN_API_KEY;
-    if (ak) u += (u.includes('?') ? '&' : '?') + `token=${encodeURIComponent(ak)}`;
-    const ws = new WebSocket(u);
+    // SENTINEL: Use sub-protocol for auth instead of query parameter to prevent credential leakage in logs
+    const ws = new WebSocket(u, ak || []);
     ws.onopen = () => { set({ wsStatus: 'live', reconnectAttempts: 0 }); ws.send(JSON.stringify({ type: 'set_active', active: !get().isThrottled })); };
     let lsu = 0;
     ws.onmessage = (e) => {
@@ -300,7 +364,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
           // BOLT: Prevent flickering during config sync
           const nextConfig = d.config ? (st.configSyncing ? st.config : deepMerge(st.config, d.config)) : st.config;
 
-          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, logs: d.logLines?.map(normalizeLog) || st.logs, scannerResults: d.scannerResults?.map(normalizeOpportunity) || st.scannerResults, activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: nextHistory, gateState: d.gateState ?? st.gateState, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, scannerPaused: d.scannerPaused ?? st.scannerPaused, config: nextConfig, tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h, apiStatus: d.apiStatus || st.apiStatus };
+          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, logs: d.logLines?.map(normalizeLog) || st.logs, scannerResults: d.scannerResults?.map(normalizeOpportunity) || st.scannerResults, activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: nextHistory, gateState: d.gateState ?? st.gateState, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, config: nextConfig, tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h, apiStatus: d.apiStatus || st.apiStatus };
         });
       } else if (d.type === 'tick') {
         set((st) => {
@@ -318,7 +382,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
           }
 
           return {
-            balance: d.balance ?? st.balance, totalPnl: d.total_pnl ?? st.totalPnl, totalRiskPct: d.total_risk_pct ?? st.totalRiskPct, totalSlUsed: d.total_sl_used ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, variantStats: d.variant_stats || st.variantStats, activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, hibernating: d.hibernating ?? st.hibernating, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, scannerPaused: d.scannerPaused ?? st.scannerPaused, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics,
+            balance: d.balance ?? st.balance, totalPnl: d.total_pnl ?? st.totalPnl, totalRiskPct: d.total_risk_pct ?? st.totalRiskPct, totalSlUsed: d.total_sl_used ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, variantStats: d.variant_stats || st.variantStats, activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics,
             config: nextConfig,
             tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h,
             apiStatus: d.apiStatus || st.apiStatus
@@ -327,7 +391,45 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
       } else if (d.type === 'log') set(st => ({ logs: [normalizeLog(d), ...st.logs].slice(0, MAX_LOG_LINES) }));
       else if (d.type === 'scanner') {
         const now = Date.now(); if (now - lsu < 200) return; lsu = now;
-        set(st => ({ scannerResults: (d.opportunities || []).map(o => { const n = normalizeOpportunity(o); const p = st.scannerResults.find(x => x.symbol === n.symbol); return p ? { ...n, history: n.history ?? p.history, signalResult: n.signalResult ?? p.signalResult } : n; }), variantScannerResults: d.variant_opportunities ? d.variant_opportunities.reduce((acc, v) => { acc[v.strategy_label] = v.opportunities.map(normalizeOpportunity); return acc; }, {}) : st.variantScannerResults, activeWindows: d.activeWindows || st.activeWindows }));
+        set(st => {
+          // BOLT OPTIMIZATION: Use Map for O(1) lookup during normalization to achieve O(N+M) complexity.
+          const prevMap = new Map(st.scannerResults.map(r => [r.symbol, r]));
+          return {
+            scannerResults: (d.opportunities || []).map(o => {
+              const n = normalizeOpportunity(o);
+              const p = prevMap.get(n.symbol);
+              if (!p) return n;
+
+              // BOLT: Aggressive data retention. Preserve telemetry and breakdowns across gated updates.
+              return {
+                ...n,
+                history: (n.history && n.history.length > 0) ? n.history : p.history,
+                ohlc_history: (n.ohlc_history && n.ohlc_history.length > 0) ? n.ohlc_history : p.ohlc_history,
+                score_breakdown: n.score_breakdown || p.score_breakdown,
+                signalResult: n.signalResult || p.signalResult
+              };
+            }),
+            variantScannerResults: d.variant_opportunities ? d.variant_opportunities.reduce((acc, v) => {
+              const prevOppMap = new Map((st.variantScannerResults[v.strategy_label] || []).map(r => [r.symbol, r]));
+              acc[v.strategy_label] = v.opportunities.map(o => {
+                const n = normalizeOpportunity(o);
+                const p = prevOppMap.get(n.symbol);
+                if (!p) return n;
+                return {
+                  ...n,
+                  history: (n.history && n.history.length > 0) ? n.history : p.history,
+                  ohlc_history: (n.ohlc_history && n.ohlc_history.length > 0) ? n.ohlc_history : p.ohlc_history,
+                  score_breakdown: n.score_breakdown || p.score_breakdown,
+                  signalResult: n.signalResult || p.signalResult
+                };
+              });
+              return acc;
+            }, {}) : st.variantScannerResults,
+            activeWindows: d.activeWindows || st.activeWindows,
+            hibernating: d.hibernating ?? st.hibernating,
+            lastScanTs: d.last_scan_ts ?? st.lastScanTs
+          };
+        });
       } else if (d.type === 'trade_event') {
         const t = d.trade ? normalizeTrade(d.trade) : null;
         set(st => ({ activeTrades: d.event === 'closed' ? st.activeTrades.filter(x => x.symbol !== d.symbol) : (t ? [...st.activeTrades, t] : st.activeTrades), tradeHistory: d.event === 'closed' && t ? [t, ...st.tradeHistory].slice(0, 50) : st.tradeHistory, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount }));

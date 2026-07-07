@@ -35,6 +35,7 @@ describe('OrderManagerService - PnL Consistency', () => {
       mockMarketFeed,
       { getTicker: jest.fn(), getPrice: jest.fn() } as any, // tickerCache
       { incrementApiRequests: jest.fn() } as any, // monitoringService
+      { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn() } as any, // positionTracker
       mockTradingSession,
       { log: jest.fn() } as any, // auditLog
       { emit: jest.fn() } as any, { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any
@@ -124,6 +125,8 @@ describe('OrderManagerService - PnL Consistency', () => {
           symbol: 'BTCUSDT',
           orderId: '112233',
           type: 'STOP_MARKET',
+          stopPrice: '49000',
+          avgPrice: '49200', // Canonical average price
           status: 'FILLED'
        })
     });
@@ -163,6 +166,7 @@ describe('OrderManagerService - PnL Consistency', () => {
           symbol: 'BTCUSDT',
           orderId: '998877',
           type: 'MARKET',
+          avgPrice: '50500', // Canonical average price
           clientOrderId: 'sig-test-id-recon-2',
           status: 'FILLED'
        })

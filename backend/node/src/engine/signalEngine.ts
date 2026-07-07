@@ -11,6 +11,7 @@ interface SignalDetail {
   metric: string;
   description: string;
   insufficientData?: boolean;
+  threshold_is_price?: boolean;
 }
 
 @Injectable()
@@ -21,8 +22,12 @@ export class SignalEngineService {
   private readonly emaCache = new Map<string, { value: number; insufficientData: boolean }>();
   private readonly emaDualCache = new Map<string, { values: [number, number]; insufficientData: boolean }>();
 
+  // BOLT OPTIMIZATION: Cache for EMA multipliers to avoid redundant divisions
+  private readonly multiplierCache = new Map<number, number>();
+
   // BOLT OPTIMIZATION: Stable caches for completed candles to allow O(1) incremental updates
   private readonly emaStableCache = new Map<string, { time: number; value: number; count: number }>();
+  private readonly smaStableCache = new Map<string, { time: number; value: number; count: number }>();
 
   private readonly signalHandlers: Record<
     string,
@@ -67,7 +72,8 @@ export class SignalEngineService {
         const slow = parseInt(params.entry_ema_slow || '21', 10);
         maxReq = Math.max(maxReq, Math.max(fast, slow) * 2);
       } else if (signalType === 'engulfing') {
-        maxReq = Math.max(maxReq, 2);
+        const lookback = parseInt(params.engulfing_lookback || config.engulfing_lookback || '1', 10);
+        maxReq = Math.max(maxReq, lookback + 1);
       }
     }
 
@@ -218,6 +224,10 @@ export class SignalEngineService {
     };
   }
 
+  /**
+   * BOLT OPTIMIZATION: Calculates Breakout HL signal using optimized KlineStore lookbacks.
+   * This leverages the centralized stable cache in KlineStore for O(1) execution.
+   */
   private breakoutHlSignal(
     symbol: string,
     config: SessionConfig,
@@ -243,26 +253,23 @@ export class SignalEngineService {
 
     const current = candles[candles.length - 1];
 
-    let maxHigh = -Infinity;
-    let minLow = Infinity;
-    const startIdx = Math.max(0, candles.length - lookback - 1);
-    for (let i = startIdx; i < candles.length - 1; i++) {
-      if (candles[i].high > maxHigh) maxHigh = candles[i].high;
-      if (candles[i].low < minLow) minLow = candles[i].low;
-    }
+    // BOLT OPTIMIZATION: Use centralized KlineStore extremes which implements stable caching.
+    const { minLow, maxHigh } = this.klineStore.getLookbackExtremes(symbol, interval, lookback);
 
-    const fired = current.close > maxHigh || current.close < minLow;
-    const value = current.close > maxHigh ? current.close - maxHigh : minLow - current.close;
+    const isLong = side === 'LONG';
+    const target = isLong ? minLow : maxHigh; // Target for EXIT is the opposite side of the range
+    const fired = isLong ? current.close <= target : current.close >= target;
 
     return {
       fired,
-      value: roundTo(value, 2),
-      threshold: 0,
-      unit: 'dist',
-      metric: 'Breakout',
+      value: roundTo(current.close, 4),
+      threshold: roundTo(target, 4),
+      unit: 'price',
+      metric: 'Breakout HL',
       description: fired 
-        ? `Price broke ${current.close > maxHigh ? 'HIGH' : 'LOW'} of ${lookback} periods`
-        : `Price within ${lookback} period range (${minLow.toFixed(2)} - ${maxHigh.toFixed(2)})`,
+        ? `Price breached ${isLong ? 'LOW' : 'HIGH'} of ${lookback} periods`
+        : `Monitoring ${lookback} period ${isLong ? 'Low' : 'High'} level`,
+      threshold_is_price: true,
     };
   }
 
@@ -276,21 +283,106 @@ export class SignalEngineService {
   ): SignalDetail {
     try {
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
-      if (candles.length < 2) {
+      const lookback = Math.max(config.engulfing_lookback || 1, 1);
+
+      if (candles.length < lookback + 1) {
         return { fired: false, value: 0, threshold: 0, unit: 'bool', metric: 'Engulfing', description: 'Insufficient data', insufficientData: true };
       }
 
-      const prevCandle = candles[candles.length - 2];
-      const currCandle = candles[candles.length - 1];
-      const fired = currCandle.high > prevCandle.high && currCandle.low < prevCandle.low;
+      const curr = candles[candles.length - 1];
+      const prevCandles = candles.slice(candles.length - 1 - lookback, candles.length - 1);
+
+      const mode = config.engulfing_mode || 'range';
+      const volConfirm = config.engulfing_volume_confirm || false;
+
+      const isBullish = curr.close > curr.open;
+      const isBearish = curr.close < curr.open;
+
+      // Calculate aggregate range and body of the lookback period
+      let aggregateHigh = -Infinity;
+      let aggregateLow = Infinity;
+      let aggregateBodyHigh = -Infinity;
+      let aggregateBodyLow = Infinity;
+      let allReverse = true;
+
+      for (const p of prevCandles) {
+        if (p.high > aggregateHigh) aggregateHigh = p.high;
+        if (p.low < aggregateLow) aggregateLow = p.low;
+
+        const bH = Math.max(p.open, p.close);
+        const bL = Math.min(p.open, p.close);
+        if (bH > aggregateBodyHigh) aggregateBodyHigh = bH;
+        if (bL < aggregateBodyLow) aggregateBodyLow = bL;
+
+        // Directional check: for LONG entry, all previous must be Bearish (Reverse Engulfing)
+        if (side === 'LONG' && p.close > p.open) allReverse = false;
+        if (side === 'SHORT' && p.close < p.open) allReverse = false;
+      }
+
+      const currBodyHigh = Math.max(curr.open, curr.close);
+      const currBodyLow = Math.min(curr.open, curr.close);
       
+      const bodyEngulfs = currBodyHigh > aggregateBodyHigh && currBodyLow < aggregateBodyLow;
+      const rangeEngulfs = curr.high > aggregateHigh && curr.low < aggregateLow;
+      const volumeConfirms = curr.volume > prevCandles[prevCandles.length - 1].volume;
+
+      let fired = false;
+      let reason = '';
+
+      if (side === 'LONG') {
+        if (!isBullish) {
+          fired = false;
+          reason = 'Not a bullish candle';
+        } else if (!allReverse) {
+          fired = false;
+          reason = `Previous ${lookback} candles not bearish`;
+        } else {
+          if (mode === 'body') fired = bodyEngulfs;
+          else if (mode === 'range') fired = rangeEngulfs;
+          else if (mode === 'strict') fired = bodyEngulfs && rangeEngulfs;
+
+          if (fired && volConfirm && !volumeConfirms) {
+            fired = false;
+            reason = 'Insufficient volume confirmation';
+          } else if (!fired) {
+            reason = mode === 'body' ? 'Body did not engulf' : mode === 'range' ? 'Range did not engulf' : 'Strict engulfing failed';
+          }
+        }
+      } else if (side === 'SHORT') {
+        if (!isBearish) {
+          fired = false;
+          reason = 'Not a bearish candle';
+        } else if (!allReverse) {
+          fired = false;
+          reason = `Previous ${lookback} candles not bullish`;
+        } else {
+          if (mode === 'body') fired = bodyEngulfs;
+          else if (mode === 'range') fired = rangeEngulfs;
+          else if (mode === 'strict') fired = bodyEngulfs && rangeEngulfs;
+
+          if (fired && volConfirm && !volumeConfirms) {
+            fired = false;
+            reason = 'Insufficient volume confirmation';
+          } else if (!fired) {
+            reason = mode === 'body' ? 'Body did not engulf' : mode === 'range' ? 'Range did not engulf' : 'Strict engulfing failed';
+          }
+        }
+      } else {
+        // Generic (no side) - default to old behavior but with mode awareness
+        if (mode === 'body') fired = bodyEngulfs;
+        else if (mode === 'range') fired = rangeEngulfs;
+        else fired = bodyEngulfs && rangeEngulfs;
+
+        if (fired && volConfirm && !volumeConfirms) fired = false;
+      }
+
       return {
         fired,
         value: fired ? 1 : 0,
         threshold: 1,
         unit: 'bool',
         metric: 'Engulfing',
-        description: fired ? 'Engulfing pattern detected' : 'No engulfing pattern',
+        description: fired ? `Engulfing pattern (${mode}) detected` : (reason || 'No engulfing pattern'),
       };
     } catch (error) {
       this.logger.debug(`Engulfing signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -313,7 +405,7 @@ export class SignalEngineService {
         return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'MA Cross', description: 'Insufficient data', insufficientData: true };
       }
 
-      const ma = this.calculateSMA(candles, candles.length - period - 1, candles.length - 1);
+      const ma = this.calculateSMA(candles, candles.length - period - 1, candles.length - 1, symbol, interval, period);
       const prevClose = candles[candles.length - 2].close;
       const currClose = candles[candles.length - 1].close;
       const diff = currClose - ma;
@@ -327,6 +419,7 @@ export class SignalEngineService {
         unit: 'price',
         metric: 'MA Cross',
         description: `Price crossed MA(${period})`,
+        threshold_is_price: true,
       };
     } catch (error) {
       this.logger.debug(`MA signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -377,6 +470,7 @@ export class SignalEngineService {
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Cross' : 'Entry EMA Cross',
         description: `Price crossed EMA(${period})`,
+        threshold_is_price: true,
       };
     } catch (error) {
       this.logger.debug(`EMA signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -436,6 +530,7 @@ export class SignalEngineService {
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual' : 'Entry EMA Dual',
         description: `EMA(${fastPeriod}) crossed EMA(${slowPeriod})`,
+        threshold_is_price: true,
       };
     } catch (error) {
       this.logger.debug(`EMA Dual Cross signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -513,6 +608,7 @@ export class SignalEngineService {
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual Close' : 'Entry EMA Dual Close',
         description: `Last closed candle (${completedClose.toFixed(2)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${fastPeriod}) and EMA(${slowPeriod})`,
+        threshold_is_price: true,
       };
     } catch (error) {
       this.logger.debug(`EMA Dual Close signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -583,6 +679,7 @@ export class SignalEngineService {
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Close' : 'Entry EMA Close',
         description: `Last closed candle (${completedClose.toFixed(2)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${period})`,
+        threshold_is_price: true,
       };
     } catch (error) {
       this.logger.debug(`EMA Close signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -619,7 +716,14 @@ export class SignalEngineService {
     }
 
     const insufficientData = len < period * 2;
-    const multiplier = 2 / (period + 1);
+
+    // BOLT OPTIMIZATION: Use cached multiplier to avoid redundant division
+    let multiplier = this.multiplierCache.get(period);
+    if (multiplier === undefined) {
+      multiplier = 2 / (period + 1);
+      this.multiplierCache.set(period, multiplier);
+    }
+
     let prevEma = 0;
     let ema = 0;
 
@@ -662,9 +766,15 @@ export class SignalEngineService {
     if (cacheKey) {
       this.emaDualCache.set(cacheKey, result);
       if (this.emaDualCache.size > 1000) {
-        const keys = Array.from(this.emaDualCache.keys());
-        for (let i = 0; i < 100; i++) this.emaDualCache.delete(keys[i]);
+        // BOLT OPTIMIZATION: Use direct iterator for O(1) eviction to avoid O(N) Array.from allocation
+        const iter = this.emaDualCache.keys();
+        for (let i = 0; i < 100; i++) {
+          const next = iter.next();
+          if (next.done) break;
+          this.emaDualCache.delete(next.value);
+        }
       }
+      this.emaDualCache.set(cacheKey, result);
     }
     return result;
   }
@@ -677,15 +787,59 @@ export class SignalEngineService {
     return this.calculateEMALastTwoAt(candles, candles.length - 1, period, interval, symbol);
   }
 
-  private calculateSMA(candles: any[], start: number, end: number): number {
+  /**
+   * BOLT OPTIMIZATION: Calculates SMA with stable caching for completed candles.
+   * This turns O(N) into O(1) for the vast majority of calls.
+   */
+  private calculateSMA(
+    candles: any[],
+    start: number,
+    end: number,
+    symbol?: string,
+    interval?: string,
+    period?: number
+  ): number {
     const count = end - start;
     if (count <= 0) return 0;
+
+    // BOLT OPTIMIZATION: Try stable cache if we are scanning up to the last completed candle
+    const isCompletedUpdate = end === candles.length - 1;
+    const stableKey = (symbol && interval && period && isCompletedUpdate) ? `${symbol}:${interval}:${period}` : null;
+    if (stableKey) {
+      const targetCandle = candles[end - 1];
+      const stable = this.smaStableCache.get(stableKey);
+      if (stable && stable.time === targetCandle.time && stable.count === count) {
+        return stable.value;
+      }
+    }
 
     let sum = 0;
     for (let i = start; i < end; i++) {
       sum += candles[i].close;
     }
-    return sum / count;
+    const sma = sum / count;
+
+    // Maintain stable cache if it's the last completed candle
+    if (stableKey) {
+      const targetCandle = candles[end - 1];
+      this.smaStableCache.set(stableKey, {
+        time: targetCandle.time,
+        value: sma,
+        count,
+      });
+
+      // Simple O(1) eviction
+      if (this.smaStableCache.size > 1000) {
+        const iter = this.smaStableCache.keys();
+        for (let i = 0; i < 100; i++) {
+          const next = iter.next();
+          if (next.done) break;
+          this.smaStableCache.delete(next.value);
+        }
+      }
+    }
+
+    return sma;
   }
 
   /**
@@ -716,11 +870,26 @@ export class SignalEngineService {
     // For absolute minimum histories, just use SMA
     if (len < minNeeded) {
       const res = { value: this.calculateSMA(candles, 0, len), insufficientData: true };
-      if (cacheKey) this.emaCache.set(cacheKey, res);
+      if (cacheKey) {
+        if (this.emaCache.size >= 1000 && !this.emaCache.has(cacheKey)) {
+          const iter = this.emaCache.keys();
+          for (let i = 0; i < 100; i++) {
+            const key = iter.next().value;
+            if (key !== undefined) this.emaCache.delete(key);
+          }
+        }
+        this.emaCache.set(cacheKey, res);
+      }
       return res;
     }
 
-    const multiplier = 2 / (period + 1);
+    // BOLT OPTIMIZATION: Use cached multiplier to avoid redundant division
+    let multiplier = this.multiplierCache.get(period);
+    if (multiplier === undefined) {
+      multiplier = 2 / (period + 1);
+      this.multiplierCache.set(period, multiplier);
+    }
+
     let ema = 0;
 
     // BOLT OPTIMIZATION: Try incremental path for the most common case (last or second-to-last candle)
@@ -758,10 +927,15 @@ export class SignalEngineService {
     if (cacheKey) {
       this.emaCache.set(cacheKey, result);
       if (this.emaCache.size > 1000) {
-        // Simple LRU: remove oldest entries if cache grows too large
-        const keys = Array.from(this.emaCache.keys());
-        for (let i = 0; i < 100; i++) this.emaCache.delete(keys[i]);
+        // BOLT OPTIMIZATION: Use direct iterator for O(1) eviction to avoid O(N) Array.from allocation
+        const iter = this.emaCache.keys();
+        for (let i = 0; i < 100; i++) {
+          const next = iter.next();
+          if (next.done) break;
+          this.emaCache.delete(next.value);
+        }
       }
+      this.emaCache.set(cacheKey, result);
     }
     return result;
   }

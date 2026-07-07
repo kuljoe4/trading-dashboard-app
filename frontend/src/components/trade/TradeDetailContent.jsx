@@ -1,24 +1,18 @@
 import React, { useState, useEffect, useMemo, memo } from 'react'
 import { 
   ShieldCheck, Clock, ArrowUpRight, ArrowDownRight, Activity, Zap, 
-  Info, ShieldAlert, CheckCircle2, BarChart3, TrendingUp, XCircle, Loader2
+  Info, ShieldAlert, CheckCircle2, BarChart3, TrendingUp, XCircle, Loader2, Trash2
 } from 'lucide-react'
 import { fmtUSD, pnlColor, pnlClass, fmt } from '../../lib/theme'
 import { price, formatDuration } from '../../lib/formatters'
-import { StatCard, SectionLabel, cn, CopyButton, Tooltip, PulseDot } from '../ui/primitives'
+import { StatCard, SectionLabel, cn, CopyButton, Tooltip, PulseDot, Btn } from '../ui/primitives'
 import { motion, AnimatePresence } from 'framer-motion'
+import { ConfirmationModal } from '../ConfirmationModal'
 
-const Metric = memo(({ label, value, tooltip }) => (
+const Metric = memo(({ label, value }) => (
   <div className="flex flex-col gap-1.5 group/metric">
     <div className="flex items-center gap-1">
       <span className="text-[9px] font-black text-dim uppercase tracking-[0.2em]">{label}</span>
-      {tooltip && (
-        <Tooltip content={tooltip} side="top" align="center" className="z-[102]">
-          <div className="p-1 -m-1 cursor-help">
-            <Info size={12} className="text-dim/40 md:size-[10px]" />
-          </div>
-        </Tooltip>
-      )}
     </div>
     <span className="font-mono text-sm font-bold text-text/90">{value}</span>
   </div>
@@ -45,22 +39,17 @@ const RRLadder = ({ trade }) => {
   }
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
-      <div className="flex justify-between items-center mb-6">
+    <div className="bg-surface border border-border rounded-2xl p-4 md:p-6 shadow-sm">
+      <div className="flex justify-between items-center mb-4 md:mb-6">
         <div className="flex items-center gap-2">
           <SectionLabel className="mb-0">
              <Zap size={14} className="text-accent" fill="currentColor" /> Guard Ladder
           </SectionLabel>
-          <Tooltip content="Incremental profit milestones that automatically adjust your stop loss to lock in gains." className="z-[102]">
-            <Info size={12} className="text-dim/40 cursor-help" />
-          </Tooltip>
         </div>
-        <Tooltip content="Live Ratchet: The engine proactively trails your stop loss as these milestones are hit." className="z-[102]">
-          <div className="text-[10px] text-accent font-mono bg-accent/10 px-2 py-0.5 rounded border border-accent/20 cursor-help">Live Ratchet</div>
-        </Tooltip>
+        <div className="text-[10px] text-accent font-mono bg-accent/10 px-2 py-0.5 rounded border border-accent/20">Live Ratchet</div>
       </div>
 
-      <div className="flex gap-4 overflow-x-auto no-scrollbar mb-8 pb-2">
+      <div className="flex gap-4 overflow-x-auto no-scrollbar mb-4 md:mb-8 pb-2">
         {triggers.map((trigger, i) => {
           const done = maxRR >= trigger
           const current = i === activeIdx
@@ -88,16 +77,16 @@ const RRLadder = ({ trade }) => {
         })}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="p-4 bg-background/40 rounded-xl border border-border">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-6">
+        <div className="p-3 md:p-4 bg-background/40 rounded-xl border border-border">
           <div className="text-[10px] text-dim font-bold uppercase tracking-widest mb-1">Live RR</div>
           <div className={cn("text-xl font-mono font-bold", liveRR >= 0 ? "text-green" : "text-red")}>{fmt(liveRR, 2)}</div>
         </div>
-        <div className="p-4 bg-background/40 rounded-xl border border-border">
+        <div className="p-3 md:p-4 bg-background/40 rounded-xl border border-border">
           <div className="text-[10px] text-dim font-bold uppercase tracking-widest mb-1">Peak RR</div>
           <div className="text-xl font-mono font-bold text-accent">{fmt(maxRR, 2)}</div>
         </div>
-        <div className="p-4 bg-background/40 rounded-xl border border-border">
+        <div className="p-3 md:p-4 bg-background/40 rounded-xl border border-border">
           <div className="text-[10px] text-dim font-bold uppercase tracking-widest mb-1">Secured SL</div>
           <div className="text-xl font-mono font-bold text-text flex flex-col">
             <span>{price(currentSl)}</span>
@@ -114,145 +103,180 @@ const RRLadder = ({ trade }) => {
 const ExitMonitor = ({ status, logic, trade }) => {
   if (!status || Object.keys(status).length === 0) return null;
   const entries = Object.entries(status)
+  const mark = Number(trade.current_price || trade.mark_price || 0)
+  const isLong = trade.direction === 'LONG'
+  const entryPrice = Number(trade.entry_price || 0)
+  const qty = Number(trade.qty || 0)
+  const riskUsdt = Number(trade.risk_usdt || trade.initial_risk_usdt || 0)
+
+  const allFired = entries.every(([_, s]) => s.fired && s.active)
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm flex flex-col">
-      <div className="flex items-center justify-between mb-6">
-        <SectionLabel className="mb-0">
-          <ShieldCheck size={14} className="text-red" /> Technical Exit Signals
-        </SectionLabel>
-        <div className="px-2 py-0.5 rounded bg-background/50 border border-border/50 text-[8px] font-black text-dim uppercase tracking-widest">
-          {logic === 'all' ? 'Consensus' : 'Any'}
+    <div className="bg-surface border border-border rounded-2xl p-4 md:p-6 shadow-sm flex flex-col">
+      <div className="flex items-center justify-between mb-4 md:mb-8">
+        <div className="flex flex-col gap-1">
+          <SectionLabel className="mb-0">
+            <ShieldCheck size={14} className="text-red" /> Technical Exit Signals
+          </SectionLabel>
+          <div className="text-[8px] text-dim font-bold uppercase tracking-widest opacity-60">
+            Logic: {logic === 'all' ? 'All-Conditions Consensus' : 'Any-Condition Trigger'}
+          </div>
         </div>
+        {logic === 'all' && (
+           <div className="flex items-center gap-3">
+              <div className="flex -space-x-1.5">
+                 {entries.map(([key, s]) => (
+                    <div key={key} className={cn(
+                      "w-4 h-4 rounded-full border-2 border-surface flex items-center justify-center transition-all duration-500",
+                      s.fired && s.active ? "bg-green text-white scale-110 shadow-lg shadow-green/20" : "bg-dim/20 text-dim/40"
+                    )}>
+                       {s.fired && s.active ? <CheckCircle2 size={10} /> : <div className="w-1 h-1 rounded-full bg-current" />}
+                    </div>
+                 ))}
+              </div>
+              <span className={cn("text-[9px] font-black uppercase tracking-tighter", allFired ? "text-green" : "text-dim")}>
+                 {entries.filter(([_, s]) => s.fired && s.active).length}/{entries.length} Satisfied
+              </span>
+           </div>
+        )}
       </div>
 
-      <div className="space-y-3 flex-1">
+      <div className="space-y-4 md:space-y-6 flex-1">
         {entries.map(([key, s]) => {
           const value = Number.isFinite(Number(s.value)) ? Number(s.value) : 0
           const threshold = Math.max(Math.abs(Number(s.threshold) || 1), 0.0001)
           const isFired = s.fired && s.active
           const isDelayed = s.remaining_delay > 0
-          const progress = s.insufficientData ? 0 : Math.min((Math.abs(value) / threshold) * 100, 100)
+
+          // BOLT: Clarity Overhaul. "Progress" now means distance to THRESHOLD.
+          // Once THRESHOLD is met, we show "CRITERIA MET" and change color.
+          // If logic='all' and some are not hit, we show "AWAITING CONSENSUS".
+          let triggerProgress = 0;
+          if (!s.insufficientData) {
+             if (s.threshold_is_price) {
+             // BOLT: Direction-aware proximity math.
+             // 0% = Entry Price, 100% = Threshold.
+             // If price moves past threshold, it stays at 100% (fired).
+             // If price moves back past entry, it stays at 0%.
+             const totalDist = isLong ? (threshold - entryPrice) : (entryPrice - threshold);
+             const progressDist = isLong ? (mark - entryPrice) : (entryPrice - mark);
+
+                if (totalDist > 0) {
+                triggerProgress = Math.max(0, Math.min(100, (progressDist / totalDist) * 100));
+                }
+             } else {
+                triggerProgress = Math.max(0, Math.min(100, (Math.abs(value) / threshold) * 100));
+             }
+          }
 
           const estExitPrice = s.threshold_is_price ? threshold : null
-          const estPnl = (estExitPrice && trade.entry_price && trade.qty)
-            ? (estExitPrice - trade.entry_price) * trade.qty * (trade.direction === 'LONG' ? 1 : -1)
+          const estPnl = (estExitPrice && entryPrice && qty)
+            ? (estExitPrice - entryPrice) * qty * (isLong ? 1 : -1)
             : null
 
           return (
             <div key={key} className={cn(
-              "group relative overflow-hidden p-3 md:p-4 rounded-xl border transition-all duration-300",
-              isFired ? "bg-red/5 border-red/30 shadow-[0_0_15px_rgba(255,68,102,0.05)]" : "bg-background/20 border-border hover:border-accent/30",
+              "group relative overflow-hidden p-4 md:p-6 rounded-2xl md:rounded-[2rem] border transition-all duration-700",
+              isFired ? "bg-red/5 border-red/40 shadow-[0_0_40px_rgba(255,68,102,0.15)]" : s.fired ? "bg-amber/5 border-amber/30" : "bg-background/30 border-border/80 hover:border-accent/50 hover:bg-background/50",
               isDelayed && !isFired && "opacity-80"
             )}>
               {isFired && (
-                <div className="absolute top-0 right-0 p-1">
+                <div className="absolute top-5 right-5">
                    <PulseDot color="bg-red" />
                 </div>
               )}
 
-              <div className="flex justify-between items-center mb-3 gap-2">
-                <div className="flex items-center gap-2 md:gap-3 min-w-0">
-                   <div className={cn(
-                     "w-8 h-8 md:w-9 md:h-9 rounded-xl flex items-center justify-center border transition-colors shrink-0",
-                     isFired ? "bg-red text-white border-red/20 shadow-lg shadow-red/20" : "bg-surface border-border text-dim group-hover:text-accent group-hover:border-accent/20"
-                   )}>
-                     {isFired ? <Zap size={16} className="md:size-[18px]" fill="currentColor" /> : <Activity size={16} className="md:size-[18px]" />}
-                   </div>
-                   <div className="flex flex-col min-w-0">
-                     <div className="flex items-center gap-1.5">
-                       <span className="text-[10px] md:text-xs font-black uppercase tracking-tight truncate">{s.label || key}</span>
-                       {isDelayed && !isFired && (
-                         <div className="flex items-center gap-1 text-amber text-[7px] font-black uppercase tracking-tighter">
-                            <Clock size={8} /> {Math.ceil(s.remaining_delay)}s
-                         </div>
-                       )}
+              <div className="flex flex-col gap-4 md:gap-6">
+                <div className="flex justify-between items-start gap-4">
+                  <div className="flex items-center gap-3 md:gap-4 min-w-0">
+                     <div className={cn(
+                       "w-10 h-10 md:w-14 md:h-14 rounded-xl md:rounded-[1.25rem] flex items-center justify-center border transition-all duration-700 shrink-0",
+                       isFired ? "bg-red text-white border-red/30 shadow-2xl shadow-red/20 scale-105" : s.fired ? "bg-amber text-white border-amber/20 shadow-xl shadow-amber/20" : "bg-surface border-border/80 text-dim group-hover:text-accent group-hover:border-accent/40 group-hover:scale-110"
+                     )}>
+                       {isFired ? <Zap size={20} className="md:size-7" fill="currentColor" /> : <Activity size={20} className="md:size-7" />}
                      </div>
-                     <span className="text-[8px] md:text-[9px] text-dim font-bold truncate uppercase opacity-60 tracking-tighter">
-                       {isDelayed && !isFired ? 'Waiting for warm-up...' : (s.description || 'Monitoring')}
-                     </span>
-                   </div>
-                <div className="flex flex-col items-end shrink-0 gap-1">
-                   <div className={cn("text-xs md:text-sm font-mono font-black tracking-tighter", isFired ? "text-red" : "text-text")}>
-                     {s.insufficientData ? 'N/A' : Number(value).toFixed(value >= 100 ? 2 : 4)}
-                     <span className="text-[9px] md:text-[10px] ml-0.5 opacity-40 font-bold">{s.unit}</span>
-                   </div>
-                   <div className="text-[7px] md:text-[8px] font-black uppercase text-accent tracking-tight">
-                     {s.insufficientData ? 'Collecting...' : `${progress.toFixed(0)}% Triggered`}
-                   </div>
-                </div>
+                     <div className="flex flex-col min-w-0">
+                       <div className="flex items-center gap-2">
+                         <span className="text-[12px] md:text-[16px] font-black uppercase tracking-tight truncate">{s.label || key}</span>
+                         {isDelayed && !isFired && (
+                           <div className="flex items-center gap-1.5 text-amber bg-amber/10 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-tighter border border-amber/20">
+                              <Clock size={12} /> {Math.ceil(s.remaining_delay)}s
+                           </div>
+                         )}
+                       </div>
+                       <span className="text-[10px] md:text-[11px] text-dim font-bold truncate uppercase opacity-80 tracking-tight mt-0.5 md:mt-1">
+                         {isFired ? 'Consolidated signal fired' : isDelayed && !isFired ? 'Waiting for warmup period...' : s.fired ? 'Threshold met - Awaiting consensus' : 'Monitoring live threshold'}
+                       </span>
+                     </div>
+                  </div>
+                  <div className="flex flex-col items-end shrink-0 gap-1.5 md:gap-2.5">
+                     <div className={cn("text-base md:text-2xl font-mono font-black tracking-tighter leading-none", isFired ? "text-red" : s.fired ? "text-amber" : "text-text")}>
+                       {s.insufficientData ? '---' : Number(value).toFixed(value >= 100 ? 2 : 4)}
+                       <span className="text-[10px] md:text-[14px] ml-1 opacity-40 font-bold">{s.unit}</span>
+                     </div>
+                     <div className={cn(
+                        "text-[9px] md:text-[10px] font-black uppercase tracking-widest px-2 md:px-3 py-1 md:py-1.5 rounded-lg md:rounded-xl border flex items-center gap-2 transition-all duration-500",
+                        isFired ? "bg-red text-white border-red/20 shadow-lg shadow-red/20" : s.fired ? "bg-amber/20 text-amber border-amber/30" : "bg-accent/10 text-accent border-accent/20"
+                     )}>
+                       {s.insufficientData ? 'Collecting' : isFired ? 'TRIGGER FIRED' : s.fired ? 'CRITERIA MET' : 'AWAITING LEVEL'}
+                     </div>
+                  </div>
                 </div>
 
-                {!s.insufficientData && (
-                <div className="h-1 bg-background/50 rounded-full overflow-hidden mb-3">
-                  <div 
-                    className={cn("h-full transition-all duration-300", isFired ? "bg-red" : "bg-accent")} 
-                    style={{ width: `${progress}%` }} 
-                  />
-                </div>
-                )}
-
-                <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-dim/60 border-t border-border/40 pt-2 mt-auto">
-                 <span>Target: {s.threshold}</span>
-                 <div className="flex items-center gap-3">
-                    {estPnl !== null && (
-                       <span className={pnlClass(estPnl)}>PnL: {fmtUSD(estPnl)}</span>
-                    )}
-                    {/* RR calculation: PnL / Absolute Risk */}
-                    {estPnl !== null && trade.risk_usdt && (
-                       <span>RR: {(Math.abs(estPnl) / Number(trade.risk_usdt)).toFixed(1)}</span>
-                    )}
-                 </div>
-                 </div>
-                 </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <div className="flex justify-between items-center px-0.5">
-                    <div className="flex items-center gap-1">
-                      <span className="text-[7px] font-black text-dim uppercase tracking-widest">Activation</span>
-                      <Tooltip content="Proximity to technical trigger threshold. 100% means the signal is fully active." className="z-[102]">
-                        <div className="p-1 -m-1 cursor-help">
-                          <Info size={10} className="text-dim/40 md:size-[8px]" />
-                        </div>
-                      </Tooltip>
+                <div className="space-y-4 md:space-y-5">
+                  {/* Unified Trigger Progress Gauge */}
+                  <div className="space-y-2.5">
+                    <div className="flex justify-between items-end px-1">
+                       <span className="text-[9px] md:text-[10px] font-black text-dim uppercase tracking-[0.2em]">Signal Convergence</span>
+                       <span className={cn("text-[11px] md:text-[12px] font-mono font-black", s.fired ? "text-green" : "text-text/80")}>{s.insufficientData ? '0.0' : triggerProgress.toFixed(1)}%</span>
                     </div>
-                    <span className={cn("text-[8px] font-black font-mono", isFired ? "text-red" : "text-accent")}>
-                      {s.distPct ? Math.min(100, s.distPct).toFixed(1) : '0.0'}%
-                    </span>
-                  </div>
-                  <div className="h-1 bg-background/50 rounded-full overflow-hidden relative">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${progress}%` }}
-                      transition={{ type: "spring", stiffness: 60, damping: 25 }}
-                      className={cn(
-                        "absolute top-0 left-0 h-full rounded-full",
-                        isFired ? "bg-red" : isDelayed ? "bg-amber/40" : "bg-accent"
-                      )}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="flex justify-between items-center px-0.5">
-                    <div className="flex items-center gap-1 w-full justify-end">
-                      <Tooltip content="Price Proximity: Visual indicator of how close the price is to the target RR (Take Profit)." className="z-[102]">
-                        <div className="p-1 -m-1 cursor-help">
-                          <Info size={10} className="text-dim/40 md:size-[8px]" />
-                        </div>
-                      </Tooltip>
-                      <span className="text-[7px] font-black text-dim uppercase tracking-widest text-right">Price Prox.</span>
+                    <div className="h-3 md:h-4 bg-background/80 rounded-full overflow-hidden relative shadow-[inset_0_2px_6px_rgba(0,0,0,0.4)] border border-white/5">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${triggerProgress}%` }}
+                        transition={{ type: "spring", stiffness: 40, damping: 20 }}
+                        className={cn(
+                          "absolute top-0 left-0 h-full rounded-full transition-colors duration-700",
+                          isFired ? "bg-red shadow-[0_0_30px_rgba(255,68,102,0.6)]" : s.fired ? "bg-amber" : "bg-accent"
+                        )}
+                      >
+                         <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.2)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.2)_50%,rgba(255,255,255,0.2)_75%,transparent_75%,transparent)] bg-[length:1rem_1rem] opacity-50 animate-[move-stripe_1s_linear_infinite]" />
+                      </motion.div>
                     </div>
                   </div>
-                  <div className="h-1 bg-background/50 rounded-full overflow-hidden relative flex justify-end">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${Math.min(100, Math.max(0, trade.rr * 20))}%` }}
-                      className={cn(
-                        "h-full rounded-full transition-colors duration-500",
-                        trade.rr > 0 ? "bg-green shadow-[0_0_8px_rgba(0,229,160,0.3)]" : "bg-red/40"
+
+                  <div className="flex flex-wrap items-center justify-between gap-x-4 md:gap-x-8 gap-y-3 md:gap-y-4 text-[10px] md:text-[11px] font-black uppercase tracking-widest text-dim/60 border-t border-border/40 pt-4 md:pt-5">
+                   <div className="flex items-center gap-2.5">
+                      <span className="opacity-40">Target Level:</span>
+                      <span className="text-text/80 font-mono tracking-tight text-[11px] md:text-[12px]">{s.threshold} {s.unit}</span>
+                   </div>
+
+                   <div className="flex items-center gap-4 md:gap-8">
+                      {estExitPrice && mark > 0 && (
+                         <div className="flex items-center gap-2.5">
+                            <span className="opacity-40">Distance:</span>
+                            <span className="font-mono text-accent text-[11px] md:text-[12px]">
+                              {Math.abs(((mark - estExitPrice) / mark) * 100).toFixed(2)}%
+                            </span>
+                         </div>
                       )}
-                    />
+                      {(estPnl !== null || s.threshold_is_price) && (
+                         <div className="flex items-center gap-2.5">
+                            <span className="opacity-40">Est. PnL:</span>
+                            <span className={cn("font-mono text-[11px] md:text-[12px]", estPnl != null ? pnlClass(estPnl) : "text-dim")}>
+                               {estPnl != null ? fmtUSD(estPnl) : '---'}
+                            </span>
+                         </div>
+                      )}
+                      {(estPnl !== null || s.threshold_is_price) && riskUsdt > 0 && (
+                         <div className="flex items-center gap-2.5">
+                            <span className="opacity-40">Est. RR:</span>
+                            <span className="font-mono text-text/80 text-[11px] md:text-[12px]">
+                               {estPnl != null ? (estPnl / riskUsdt).toFixed(2) : '---'}R
+                            </span>
+                         </div>
+                      )}
+                   </div>
                   </div>
                 </div>
               </div>
@@ -261,7 +285,7 @@ const ExitMonitor = ({ status, logic, trade }) => {
         })}
       </div>
 
-      <div className="mt-4 flex items-center gap-2 p-3 bg-white/[0.02] border border-white/[0.05] rounded-xl">
+      <div className="mt-4 md:mt-6 flex items-center gap-3 p-3 md:p-4 bg-white/[0.03] border border-white/[0.08] rounded-2xl">
         <Info size={12} className="text-dim" />
         <p className="text-[8px] text-dim font-bold uppercase tracking-widest leading-relaxed">
           {logic === 'all'
@@ -362,58 +386,12 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                 ROI: {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
               </div>
               {trade.is_reconciliation && (
-                <Tooltip content="Reconciled Trade: This position was automatically synchronized from the exchange state.">
-                  <div className="bg-amber/10 text-amber border border-amber/20 px-2 py-0.5 md:px-4 md:py-1.5 rounded-full text-[8px] md:text-xs font-black uppercase tracking-widest cursor-help shadow-sm flex items-center gap-1.5">
-                    <Activity size={12} className="md:size-3" /> Reconciled
-                  </div>
-                </Tooltip>
+                <div className="bg-amber/10 text-amber border border-amber/20 px-2 py-0.5 md:px-4 md:py-1.5 rounded-full text-[8px] md:text-xs font-black uppercase tracking-widest shadow-sm flex items-center gap-1.5">
+                  <Activity size={12} className="md:size-3" /> Reconciled
+                </div>
               )}
             </div>
           </div>
-        </div>
-
-        <div className="flex flex-col gap-4 min-w-[200px]">
-          {trade.close_blocked && (
-             <div className="bg-red/10 border border-red/20 rounded-xl p-3 flex flex-col gap-1 items-center text-center animate-pulse">
-                <span className="text-[10px] font-black text-red uppercase tracking-widest flex items-center gap-1">
-                   <ShieldAlert size={12} /> Liquidation Blocked
-                </span>
-                <span className="text-[8px] text-red/60 font-bold uppercase leading-tight">
-                   Max retries exceeded. Manual intervention on Binance is required.
-                </span>
-             </div>
-          )}
-          {!trade.close_blocked && trade.close_attempts > 0 && (
-             <div className="bg-amber/10 border border-amber/20 rounded-xl p-2 flex items-center justify-center gap-2">
-                <Loader2 className="animate-spin text-amber" size={10} />
-                <span className="text-[8px] font-black text-amber uppercase tracking-widest">
-                   Closure Retry {trade.close_attempts}/5
-                </span>
-             </div>
-          )}
-          <button
-            onClick={() => confirmClose ? onTradeClose(trade.symbol) : setConfirmClose(true)}
-            disabled={isClosing}
-            aria-label={isClosing ? "Closing position" : confirmClose ? "Confirm close position" : "Close position"}
-            className={cn(
-              "h-12 md:h-16 px-6 rounded-xl md:rounded-2xl font-bold uppercase text-[10px] md:text-[11px] tracking-[0.2em] transition-all flex items-center justify-center gap-3 relative overflow-hidden",
-              confirmClose ? "bg-red text-white animate-pulse" : "bg-red/10 text-red border border-red/20 hover:bg-red/20"
-            )}
-          >
-            <motion.div
-              initial={false}
-              animate={{
-                y: (confirmClose && !isClosing) ? -20 : 0,
-                opacity: (confirmClose && !isClosing) ? 0 : 1
-              }}
-              className="flex items-center"
-            >
-              {isClosing ? <Loader2 className="animate-spin" size={16} /> : <XCircle size={16} />}
-            </motion.div>
-            <span aria-live="polite" className="font-black">
-              {isClosing ? 'Closing...' : confirmClose ? 'Confirm Close?' : 'Force Liquidation'}
-            </span>
-          </button>
         </div>
       </div>
 
@@ -481,18 +459,18 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                    { label: 'TP Mode', value: trade.tp_mode === 'exp_rr_seq' ? 'Expansion RR' : 'Fixed Ratio' },
                     { label: 'Commission', value: fmtUSD(-(trade.realized_fee || 0)), color: 'text-red/70' },
                     { label: 'Funding Fee', value: fmtUSD(-(trade.funding_fee || 0)), color: trade.funding_fee > 0 ? 'text-red/70' : 'text-green/70' },
-                   { label: 'ROI from Entry', value: `${pnlPct.toFixed(2)}%`, color: pnlPct >= 0 ? 'text-green' : 'text-red', tooltip: 'Current price percentage change relative to entry' },
-                   { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%`, tooltip: 'Current percentage distance from market price to stop loss' },
-                   { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%`, tooltip: 'Percentage distance from entry price to initial stop loss' },
-                   { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0), tooltip: 'Fixed initial dollar risk calculated at time of entry' },
+                   { label: 'ROI from Entry', value: `${pnlPct.toFixed(2)}%`, color: pnlPct >= 0 ? 'text-green' : 'text-red' },
+                   { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%` },
+                   { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%` },
+                   { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0) },
                    {
                      label: 'Daily Δ at Entry',
                      value: `${(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} ${Math.abs(trade.entry_daily_change_pct || 0).toFixed(2)}%`,
-                     color: pnlClass(trade.entry_daily_change_pct),
-                     tooltip: '24h price change percentage at the exact moment of entry'
+                     color: pnlClass(trade.entry_daily_change_pct)
                    },
                    trade.exit_ts && {
                      label: 'Exit Signal',
+                     tooltip: trade.exit_signal_reason,
                      value: (() => {
                         const type = trade.exit_signal_type?.replace(/_/g, ' ') || (trade.exit_reason || 'Manual');
                         const reason = trade.exit_signal_reason || '';
@@ -509,22 +487,20 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                         if (type === 'EXCHANGE FILL') return 'Exchange Fill';
                         return type;
                      })(),
-                     tooltip: trade.exit_signal_reason || trade.exit_reason || 'No detailed reason provided',
                      color: 'text-accent'
                    }
                  ].filter(Boolean).map(item => (
                    <div key={item.label} className="flex justify-between items-center py-3 border-b border-border/40 last:border-0">
                       <div className="flex items-center gap-1.5">
                         <span className="text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
-                        {item.tooltip && (
-                          <Tooltip content={item.tooltip} className="z-[102]">
-                            <div className="p-1 -m-1 cursor-help">
-                              <Info size={12} className="text-dim/40 md:size-[10px]" />
-                            </div>
-                          </Tooltip>
-                        )}
                       </div>
-                      <span className={cn("text-xs font-bold font-mono", item.color)}>{item.value}</span>
+                      {item.tooltip ? (
+                        <Tooltip content={item.tooltip}>
+                          <span className={cn("text-xs font-bold font-mono cursor-help border-b border-dotted border-white/10", item.color)}>{item.value}</span>
+                        </Tooltip>
+                      ) : (
+                        <span className={cn("text-xs font-bold font-mono", item.color)}>{item.value}</span>
+                      )}
                    </div>
                  ))}
               </div>
@@ -547,11 +523,9 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                         <div className="flex items-center gap-2">
                            <span className="text-dim/60 text-[9px] uppercase tracking-[0.1em]">{adj.reason}</span>
                            {adj.adaptive && (
-                              <Tooltip content="Adaptive Guard: This adjustment was automatically widened to prevent exchange rejection or instant fill due to high volatility.">
-                                 <span className="bg-amber/10 text-amber px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter flex items-center gap-1 border border-amber/20">
-                                    <Activity size={8} /> Adaptive
-                                 </span>
-                              </Tooltip>
+                              <span className="bg-amber/10 text-amber px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter flex items-center gap-1 border border-amber/20">
+                                 <Activity size={8} /> Adaptive
+                              </span>
                            )}
                         </div>
                       </div>
@@ -567,6 +541,65 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
             )}
          </div>
       </div>
+
+      <div className="mt-4 md:mt-8 pt-6 border-t border-border/40">
+        <SectionLabel className="mb-4 text-red">Danger Zone</SectionLabel>
+        <div className="bg-red/5 border border-red/10 rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-6 transition-all hover:bg-red/10">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-red/10 flex items-center justify-center text-red shrink-0">
+              <ShieldAlert size={24} />
+            </div>
+            <div className="flex flex-col">
+              <h3 className="text-sm font-bold uppercase tracking-tight text-red">Force Liquidation</h3>
+              <p className="text-[10px] text-dim font-medium uppercase mt-1">Immediately close this position at current market price. This ignores all strategy logic.</p>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 w-full md:w-auto min-w-[200px]">
+            {trade.close_blocked && (
+               <div className="bg-red/10 border border-red/20 rounded-xl p-3 flex flex-col gap-1 items-center text-center animate-pulse mb-2">
+                  <span className="text-[10px] font-black text-red uppercase tracking-widest flex items-center gap-1">
+                     <ShieldAlert size={12} /> Liquidation Blocked
+                  </span>
+                  <span className="text-[8px] text-red/60 font-bold uppercase leading-tight">
+                     Max retries exceeded. Manual intervention on Binance is required.
+                  </span>
+               </div>
+            )}
+            {!trade.close_blocked && trade.close_attempts > 0 && (
+               <div className="bg-amber/10 border border-amber/20 rounded-xl p-2 flex items-center justify-center gap-2 mb-2">
+                  <Loader2 className="animate-spin text-amber" size={10} />
+                  <span className="text-[8px] font-black text-amber uppercase tracking-widest">
+                     Closure Retry {trade.close_attempts}/5
+                  </span>
+               </div>
+            )}
+            <Btn
+              variant="danger"
+              onClick={() => setConfirmClose(true)}
+              disabled={isClosing}
+              loading={isClosing}
+              className="w-full h-12 uppercase tracking-widest font-black"
+            >
+              <Trash2 size={16} /> Force Close
+            </Btn>
+          </div>
+        </div>
+      </div>
+
+      <ConfirmationModal
+        isOpen={confirmClose}
+        onClose={() => setConfirmClose(false)}
+        onConfirm={() => {
+          setConfirmClose(false);
+          onTradeClose(trade.symbol);
+        }}
+        title="Force Liquidation?"
+        message={`Are you sure you want to immediately close your ${trade.symbol} ${trade.direction} position at market price? This bypasses all exit signals and risk guards.`}
+        confirmText="Confirm Liquidation"
+        variant="danger"
+        loading={isClosing}
+      />
     </div>
   )
 })

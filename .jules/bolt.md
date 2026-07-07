@@ -132,3 +132,35 @@
 ## 2026-06-22 - [Optimization] Centralized REST Throttling & WebSocket-First State
 **Learning:** Startup bursts and aggressive polling fallbacks are the primary drivers of immediate IP bans from Binance. Sequential backfills and a centralized request queue are more effective than high-concurrency workers for maintaining IP reputation. Transitioning to a 'Seed-then-Stream' model (single REST call to establish baseline) eliminates redundant API weight consumption.
 **Action:** Implement a Proxy-based request queue in `BinanceClientFactory` to enforce global rate limits and replace REST polling fallbacks with 'Fail-Fast' logic to preserve IP status.
+## 2026-07-03 - [Scanner UI] O(N*M) Lookup Bottleneck
+**Learning:** React components rendering lists that perform nested searches against other configuration arrays (like ) create (N \times M)$ bottlenecks that degrade UI responsiveness during high-frequency data streams.
+**Action:** Always pre-calculate a `Set` or `Map` using `useMemo` to convert nested searches into (1)$ lookups, ensuring (N+M)$ linear complexity for the render pass.
+## 2026-07-03 - [Scanner UI] O(N*M) Lookup Bottleneck
+**Learning:** React components rendering lists that perform nested searches against other configuration arrays (like `single_symbol_configs`) create $O(N \times M)$ bottlenecks that degrade UI responsiveness during high-frequency data streams.
+**Action:** Always pre-calculate a `Set` or `Map` using `useMemo` to convert nested searches into $O(1)$ lookups, ensuring $O(N+M)$ linear complexity for the render pass.
+
+## 2026-07-01 - [Optimization] O(1) Cache Eviction in SignalEngine
+**Learning:** Using 'Array.from(map.keys())' for cache eviction creates an O(N) array allocation just to access a few elements. In high-frequency services like SignalEngine, this causes unnecessary GC pressure. Using a direct iterator with 'map.keys().next()' allows for O(1) eviction without intermediate allocations.
+**Action:** Always use direct iterators for Map/Set eviction or partial processing in hot paths to achieve zero-allocation collection access.
+
+## 2026-07-05 - [Optimization] Signal Engine Structural Lookback Caching
+**Learning:** O(N) structural lookbacks in signals (MA, Breakout) are ideal candidates for stable caching based on the last completed candle timestamp. In a high-frequency polling environment, recalculating structural ranges (min/max/average) over 200+ candles on every 1s/2s tick is a major CPU sink.
+**Action:** Implement 'stable' caches for all structural indicators that only update when a new candle closes, turning O(N) loops into O(1) lookups for the vast majority of evaluation cycles.
+## 2026-06-29 - [Optimization] O(K) Cache Eviction over O(N) Array Allocation
+**Learning:** Using 'Array.from(map.keys())' to perform partial cache eviction (e.g., removing the first 100 entries when a Map hits 1000) creates an unnecessary O(N) array allocation. Since Map iterators follow insertion order, using the direct iterator and calling '.next()' is (K)$ where $ is the eviction count.
+**Action:** Use direct Map iterators for partial eviction in high-frequency caches to eliminate O(N) allocations in the hot path.
+## 2026-06-30 - [Serialization] BigInt.prototype.toJSON Polyfill
+**Learning:** `JSON.stringify` throws a `TypeError: Do not know how to serialize a BigInt` when encountering large integers (e.g., Binance Order IDs). This can crash high-criticality logging or response serialization paths.
+**Action:** Implement a global polyfill `BigInt.prototype.toJSON = function() { return this.toString(); }` in a central utility (`lib/math.ts`) and ensure it's loaded early in the application lifecycle (`server.ts`) to provide safe, precision-preserving serialization across the entire process.
+
+## 2026-07-06 - [Optimization] Single-Pass Analytics Processing
+**Learning:** Recalculating session analytics with multiple passes (filter, reduce, main loop, ROI loop) and  object comparisons creates significant CPU and GC overhead as trade history grows. Fusing these into two passes (one filter/sum and one main/ROI metrics loop) with millisecond-based comparisons reduces execution time and allocations.
+**Action:** Always look to fuse independent data aggregation passes into a single loop when processing collections in hot paths or expensive background services.
+
+## 2026-07-06 - [Optimization] Single-Pass Analytics Processing
+**Learning:** Recalculating session analytics with multiple passes (filter, reduce, main loop, ROI loop) and `Date` object comparisons creates significant CPU and GC overhead as trade history grows. Fusing these into two passes (one filter/sum and one main/ROI metrics loop) with millisecond-based comparisons reduces execution time and allocations.
+**Action:** Always look to fuse independent data aggregation passes into a single loop when processing collections in hot paths or expensive background services.
+
+## 2026-07-07 - [Optimization] Centralized Stable Lookback Caching
+**Learning:** Redundant (N)$ structural lookbacks (min/max) across different services (RiskEngine, SignalEngine) create unnecessary CPU load and GC pressure. Centralizing these lookbacks into the data source (KlineStore) with a stable cache based on the last completed candle timestamp converts multiple (N)$ operations into a single (1)$ lookup per tick.
+**Action:** Always centralize technical indicator calculations that depend on completed candles into the primary data service and implement stable caching to eliminate redundant iterations across the engine.

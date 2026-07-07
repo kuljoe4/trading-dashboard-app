@@ -94,7 +94,7 @@ describe('BinanceRequestQueue Shared State', () => {
       // expected error from failingFn
     }
 
-    expect(logger.fatal).toHaveBeenCalledWith(expect.stringContaining('IP BANNED (418)'));
+    expect(logger.fatal).toHaveBeenCalledWith(expect.stringContaining('BAN status (IP banned (418))'));
     expect(exitCalled).toBe(false);
     expect(eventEmitter.emit).toHaveBeenCalledWith('binance.api_limit_reached', expect.objectContaining({
       type: 'BAN'
@@ -105,5 +105,24 @@ describe('BinanceRequestQueue Shared State', () => {
     expect(lastRequest).toBeGreaterThan(Date.now() + 500000);
 
     mockExit.mockRestore();
+  });
+
+  it('should emit recovery event when ban cooldown expires', async () => {
+    const queue = new BinanceRequestQueue(logger, eventEmitter, settingsRepository);
+
+    // 1. Manually trigger a ban state
+    (BinanceRequestQueue as any).lastRequestTs = Date.now() + 5000;
+    (BinanceRequestQueue as any).currentWeight1m = 9999;
+    (BinanceRequestQueue as any).windowStartTs = Date.now() - 65000; // Force rollover eligibility
+
+    // 2. Mock time to just after the cooldown
+    const now = Date.now() + 6000;
+
+    // 3. Trigger rollover
+    (queue as any).executeRollover(now);
+
+    // 4. Verify recovery event
+    expect(eventEmitter.emit).toHaveBeenCalledWith('binance.api_limit_cleared');
+    expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('Terminal Lock lifted'));
   });
 });

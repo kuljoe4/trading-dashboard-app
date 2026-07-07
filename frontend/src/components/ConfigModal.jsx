@@ -1,13 +1,75 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge } from './ui/primitives'
+import { RiskSummary } from './RiskSummary'
 import * as Switch from '@radix-ui/react-switch'
+import { ConfirmationModal } from './ConfirmationModal'
 import { CONFIG_LIMITS } from '../constants/configLimits'
 import { settingsAPI, presetsAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 
 const fmtUSD = (v) => `$${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const CollapsibleSection = ({ id, icon, title, subtitle, children, defaultOpen = true }) => {
+  const storageKey = `config_section_${id}_open`;
+  const [isOpen, setIsOpen] = useState(() => {
+    const saved = localStorage.getItem(storageKey);
+    return saved !== null ? saved === 'true' : defaultOpen;
+  });
+
+  const toggle = () => {
+    const next = !isOpen;
+    setIsOpen(next);
+    localStorage.setItem(storageKey, String(next));
+  };
+
+  return (
+    <section className="bg-background/40 rounded-2xl border border-border/40 overflow-hidden transition-all">
+      <button
+        type="button"
+        onClick={toggle}
+        className="w-full flex items-center justify-between p-5 hover:bg-white/[0.02] transition-colors group"
+      >
+        <SectionHeader icon={icon} title={title} subtitle={subtitle} className="mb-0" />
+        <div className={cn(
+          "w-8 h-8 rounded-lg border border-border/40 flex items-center justify-center text-dim transition-all group-hover:border-accent/40 group-hover:text-accent",
+          isOpen && "rotate-180 bg-accent/5 border-accent/20 text-accent"
+        )}>
+          <ChevronDown size={16} />
+        </div>
+      </button>
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+          >
+            <div className="p-5 pt-0 border-t border-border/5">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </section>
+  );
+};
+
+const TAB_ERROR_MAP = {
+  scan_interval: 'scan',
+  scan_lookback: 'scan',
+  scan_mode: 'scan',
+  trading_mode: 'advanced',
+  risk_pct_per_trade: 'risk',
+  max_open_trades: 'risk',
+  sl_distance_pct: 'risk',
+  scanner_weights_momentum: 'scan',
+  scanner_weights_volatility: 'scan',
+  scanner_weights_trend: 'scan',
+};
 
 const SIGNALS = [
   ['momentum_pct', '% Momentum', 'Entry when momentum exceeds threshold.'],
@@ -20,12 +82,12 @@ const SIGNALS = [
   ['engulfing', 'Engulfing', 'Entry on bullish or bearish engulfing pattern.'],
 ]
 
-const SectionHeader = React.memo(({ icon: Icon, title, subtitle }) => (
-  <div className="flex items-center gap-3 mb-4">
+const SectionHeader = React.memo(({ icon: Icon, title, subtitle, className }) => (
+  <div className={cn("flex items-center gap-3 mb-4", className)}>
     <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
       <Icon size={18} />
     </div>
-    <div>
+    <div className="text-left">
       <h3 className="text-sm font-bold uppercase tracking-tight">{title}</h3>
       {subtitle && <p className="text-[10px] text-dim font-medium uppercase">{subtitle}</p>}
     </div>
@@ -44,7 +106,7 @@ const Toggle = React.memo(({ value, onChange, label, color = "bg-accent" }) => (
 Toggle.displayName = 'Toggle'
 
 const Chip = React.forwardRef(({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10", ...props }, ref) => (
-  <button ref={ref} type="button" onClick={onClick} aria-pressed={active} className={cn("px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all", active ? activeClass : "border-border text-dim hover:border-dim/50")} {...props}>{children}</button>
+  <button ref={ref} type="button" onClick={onClick} aria-pressed={active} className={cn("px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none", active ? activeClass : "border-border text-dim hover:border-dim/50")} {...props}>{children}</button>
 ))
 Chip.displayName = 'Chip'
 
@@ -111,11 +173,9 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
 ConfigField.displayName = 'ConfigField'
 
 const SignalChip = React.memo(({ signal, active, onClick }) => {
-  const [key, label, desc] = signal;
+  const [key, label] = signal;
   return (
-    <Tooltip content={desc} side="bottom">
-      <Chip active={active} onClick={() => onClick(key, active)}>{label}</Chip>
-    </Tooltip>
+    <Chip active={active} onClick={() => onClick(key, active)}>{label}</Chip>
   );
 })
 SignalChip.displayName = 'SignalChip'
@@ -137,20 +197,18 @@ const ExitSignalCard = React.memo(({ signal, active, delayValue, onToggle, onDel
 
   return (
     <div className="flex flex-col gap-2">
-      <Tooltip content={desc}>
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => onToggle(key, active)}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(key, active); } }}
-          className={cn("w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all text-left cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-red/50", active ? "border-red/40 bg-red/5" : "border-border hover:border-border-hover bg-surface/50")}
-        >
-          <span className={cn("text-xs font-bold", active ? "text-red" : "text-text")}>{label}</span>
-          <Switch.Root checked={active} className={cn("h-5 w-9 rounded-full transition-colors relative pointer-events-none", active ? "bg-red" : "bg-border")}>
-            <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
-          </Switch.Root>
-        </div>
-      </Tooltip>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => onToggle(key, active)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(key, active); } }}
+        className={cn("w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all text-left cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-red/50", active ? "border-red/40 bg-red/5" : "border-border hover:border-border-hover bg-surface/50")}
+      >
+        <span className={cn("text-xs font-bold", active ? "text-red" : "text-text")}>{label}</span>
+        <Switch.Root checked={active} className={cn("h-5 w-9 rounded-full transition-colors relative pointer-events-none", active ? "bg-red" : "bg-border")}>
+          <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
+        </Switch.Root>
+      </div>
       {active && (
         <div className="px-1 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
           <label className="text-[9px] font-bold text-dim uppercase tracking-wider">Delay Trigger (s)</label>
@@ -257,24 +315,31 @@ const ListInput = React.memo(({ value, onChange, placeholder }) => {
 })
 ListInput.displayName = 'ListInput'
 
-const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick }) => (
+const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasError }) => (
   <Chip
     active={active}
     onClick={() => onClick(id)}
-    className="flex items-center gap-2"
+    className={cn("flex items-center gap-2 relative", hasError && !active && "border-red/40")}
     role="tab"
     aria-selected={active}
+    aria-invalid={hasError}
     aria-controls={`config-panel-${id}`}
     id={`config-tab-${id}`}
-    tabIndex={0}
+    tabIndex={active ? 0 : -1}
   >
-    <Icon size={12} className={cn(active ? "text-accent" : "text-dim")} />
+    <Icon size={12} className={cn(active ? "text-accent" : "text-dim", hasError && !active && "text-red")} />
     {label}
+    {hasError && !active && (
+      <span className="absolute -top-1 -right-1 flex h-2 w-2">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red opacity-75"></span>
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-red"></span>
+      </span>
+    )}
   </Chip>
 ))
 SectionTab.displayName = 'SectionTab'
 
-const SectionTabs = React.memo(({ section, onSectionChange }) => {
+const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
   const tabs = useMemo(() => [
     { id: 'scan', label: 'Scanner', icon: Search },
     { id: 'strategy', label: 'Strategy', icon: Zap },
@@ -283,12 +348,37 @@ const SectionTabs = React.memo(({ section, onSectionChange }) => {
     { id: 'presets', label: 'Presets', icon: FolderOpen }
   ], []);
 
+  const tabHasError = React.useCallback((tabId) => {
+    return Object.keys(errors).some(key => TAB_ERROR_MAP[key] === tabId);
+  }, [errors]);
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      const currentIndex = tabs.findIndex(t => t.id === section);
+      let nextIndex;
+      if (e.key === 'ArrowRight') {
+        nextIndex = (currentIndex + 1) % tabs.length;
+      } else {
+        nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+      }
+      onSectionChange(tabs[nextIndex].id);
+
+      // Focus the new tab
+      setTimeout(() => {
+        const nextTab = document.getElementById(`config-tab-${tabs[nextIndex].id}`);
+        nextTab?.focus();
+      }, 0);
+    }
+  };
+
   return (
     <div
-      className="flex gap-2 p-4 overflow-x-auto no-scrollbar touch-pan-x"
+      className="flex gap-2 p-4 overflow-x-auto no-scrollbar touch-pan-x outline-none"
       data-vaul-no-drag
       role="tablist"
       aria-label="Configuration sections"
+      onKeyDown={handleKeyDown}
+      tabIndex={-1}
     >
       {tabs.map((tab) => (
         <SectionTab
@@ -296,6 +386,7 @@ const SectionTabs = React.memo(({ section, onSectionChange }) => {
           {...tab}
           active={section === tab.id}
           onClick={onSectionChange}
+          hasError={tabHasError(tab.id)}
         />
       ))}
     </div>
@@ -347,16 +438,14 @@ const PresetItem = React.memo(({ preset, isLoaded, isDirty, onLoad, onToggleVari
       </button>
 
       <div className="flex items-center gap-2">
-        <Tooltip content={isVariant ? "Remove from variants" : "Add as strategy variant"}>
-          <button
-            type="button"
-            onClick={(e) => onToggleVariant(e, preset)}
-            aria-label={isVariant ? `Remove ${preset.name} from variants` : `Add ${preset.name} as variant`}
-            className={cn("p-2 rounded-lg transition-all active:scale-95", isVariant ? "bg-accent/10 text-accent border border-accent/20" : "bg-surface border border-border text-dim hover:text-accent hover:border-accent/20")}
-          >
-            {isVariant ? <XCircle size={16} /> : <Plus size={16} />}
-          </button>
-        </Tooltip>
+        <button
+          type="button"
+          onClick={(e) => onToggleVariant(e, preset)}
+          aria-label={isVariant ? `Remove ${preset.name} from variants` : `Add ${preset.name} as variant`}
+          className={cn("p-2 rounded-lg transition-all active:scale-95", isVariant ? "bg-accent/10 text-accent border border-accent/20" : "bg-surface border border-border text-dim hover:text-accent hover:border-accent/20")}
+        >
+          {isVariant ? <XCircle size={16} /> : <Plus size={16} />}
+        </button>
         <button
           type="button"
           onClick={(e) => onDelete(e, preset.name)}
@@ -375,6 +464,7 @@ const flattenConfig = (config) => {
   if (!config) return {};
   try {
     const params = typeof config.signal_params === 'string' ? JSON.parse(config.signal_params || '{}') : config.signal_params || {};
+    const weights = config.scanner_weights || { momentum: 0.5, volatility: 0.3, trend: 0.2 };
     return {
       ...config,
       trading_mode: config.trading_mode || (config.paper_mode ? 'paper' : 'live'),
@@ -386,6 +476,9 @@ const flattenConfig = (config) => {
       signal_params_entry_ema_slow: params.entry_ema_slow,
       signal_params_exit_ema_fast: params.exit_ema_fast,
       signal_params_exit_ema_slow: params.exit_ema_slow,
+      scanner_weights_momentum: weights.momentum * 100,
+      scanner_weights_volatility: weights.volatility * 100,
+      scanner_weights_trend: weights.trend * 100,
       live_rr_sequence: Array.isArray(config.live_rr_sequence) ? config.live_rr_sequence : [1.0, 2.0, 4.0],
       exit_rr_sequence: Array.isArray(config.exit_rr_sequence) ? config.exit_rr_sequence : [0.0, 1.0, 2.0],
       trailing_guard_buffer_pct: config.trailing_guard_buffer_pct !== undefined ? config.trailing_guard_buffer_pct : CONFIG_LIMITS.TRAILING_GUARD_DEFAULT,
@@ -395,6 +488,12 @@ const flattenConfig = (config) => {
       slippage_abort_threshold: config.slippage_abort_threshold !== undefined ? Number(config.slippage_abort_threshold) : (CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT || 0.05),
       hibernation_mode: config.hibernation_mode || 'adaptive',
       hibernation_grace_period_sec: config.hibernation_grace_period_sec || 30,
+      sl_out_of_bounds_action: config.sl_out_of_bounds_action || 'clamp',
+      scanner_signal_depth: config.scanner_signal_depth || 10,
+      engulfing_mode: config.engulfing_mode || 'range',
+      engulfing_timing: config.engulfing_timing || 'is_opportunity',
+      engulfing_volume_confirm: !!config.engulfing_volume_confirm,
+      engulfing_lookback: config.engulfing_lookback || 1,
     };
   } catch (e) { return { ...config }; }
 };
@@ -429,11 +528,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [errors, setErrors] = useState({})
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [symbolSearch, setSymbolSearch] = useState('')
   const [testnetConfigured, setTestnetConfigured] = useState(false)
   const [liveConfigured, setLiveConfigured] = useState(false)
   const [modeWarning, setModeWarning] = useState(null)
   const [loadedPresetName, setLoadedPresetName] = useState(() => sessionStorage.getItem('loaded_preset_name'));
+  const [presetToDelete, setPresetToDelete] = useState(null);
 
   // Use a debounced effect for sessionStorage to avoid heavy stringify on every keystroke
   useEffect(() => {
@@ -476,6 +577,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     if (c.sl_distance_pct > 5) {
       errs.sl_distance_pct_warn = 'Aggressive (>5%)'
     }
+
+    const totalWeight = Number(c.scanner_weights_momentum || 0) + Number(c.scanner_weights_volatility || 0) + Number(c.scanner_weights_trend || 0);
+    if (Math.abs(totalWeight - 100) > 0.1) {
+       errs.scanner_weights_momentum = 'Sum must be 100%';
+    }
+    if (c.scanner_signal_depth < 1) errs.scanner_signal_depth = 'Min 1';
 
     setErrors(errs); return Object.keys(errs).length === 0;
   }, [testnetConfigured, liveConfigured]);
@@ -579,6 +686,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'scan_pct_threshold', 'scan_lookback', 'scan_min_volume_usdt', 'watchlist_size',
       'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
+      'scanner_signal_depth',
+      'engulfing_lookback',
       'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
@@ -591,6 +700,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         c[f] = Number(c[f]);
       }
     });
+
+    c.scanner_weights = {
+      momentum: Number(cfg.scanner_weights_momentum || 0) / 100,
+      volatility: Number(cfg.scanner_weights_volatility || 0) / 100,
+      trend: Number(cfg.scanner_weights_trend || 0) / 100
+    };
 
     if (c.hibernation_grace_period_sec !== undefined) {
       c.hibernation_grace_period_sec = Number(c.hibernation_grace_period_sec);
@@ -700,15 +815,18 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     addAlert({ level: 'success', title: 'Preset Loaded', message: `Active configuration set to "${p.name}".` });
   }, [validate, addAlert]);
 
-  const deletePreset = React.useCallback(async (e, name) => {
-    e.stopPropagation();
+  const deletePreset = React.useCallback(async (name) => {
     try {
+      setIsDeleting(true);
       await presetsAPI.delete(name);
       setPresets(prev => prev.filter(p => p.name !== name));
       addAlert({ level: 'info', title: 'Preset Deleted', message: `"${name}" has been removed from the database.` });
     } catch (e) {
       console.error('[ConfigModal] Error deleting preset:', e);
       addAlert({ level: 'error', title: 'Delete Failed', message: `Could not remove preset "${name}".` });
+    } finally {
+      setIsDeleting(false);
+      setPresetToDelete(null);
     }
   }, [addAlert]);
 
@@ -718,7 +836,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     const exists = variants.some((v) => v.strategy_label === p.name)
 
     if (!exists && variants.length >= CONFIG_LIMITS.MAX_VARIANTS) {
-      alert(`Maximum of ${CONFIG_LIMITS.MAX_VARIANTS} strategy variants allowed.`);
+      addAlert({
+        level: 'warn',
+        title: 'Limit Reached',
+        message: `Maximum of ${CONFIG_LIMITS.MAX_VARIANTS} strategy variants allowed.`
+      });
       return;
     }
 
@@ -776,7 +898,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
           </div>
           <button type="button" onClick={onClose} aria-label="Close configuration" className="p-2 hover:bg-white/5 rounded-full transition-colors shrink-0"><X size={18} className="text-dim" /></button>
         </div>
-        <SectionTabs section={section} onSectionChange={setSection} />
+        <SectionTabs section={section} onSectionChange={setSection} errors={errors} />
       </div>
 
       <div className="flex-1 overflow-y-auto no-scrollbar p-4 md:p-6 pb-32 overscroll-contain" data-vaul-no-drag>
@@ -785,16 +907,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             id="config-panel-scan"
             role="tabpanel"
             aria-labelledby="config-tab-scan"
-            className="space-y-6 lg:space-y-8 animate-in fade-in duration-300"
+            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
           >
-            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
-              <SectionHeader icon={Settings2} title="General" subtitle="Basic strategy identification" />
+            <CollapsibleSection id="scan_general" icon={Settings2} title="General" subtitle="Basic strategy identification">
               {renderField('Strategy label', 'strategy_label', 'text', null, { placeholder: 'Momentum Strategy' })}
-            </section>
+            </CollapsibleSection>
 
-            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
+            <CollapsibleSection id="scan_global" icon={Search} title="Global Scanner" subtitle="Automatic discovery settings">
               <div className="p-4 bg-accent/5 border border-accent/20 rounded-2xl flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><Search size={20} /></div><div><div className="text-sm font-bold">Global Scanner</div><div className="text-[10px] text-dim font-medium uppercase">Automatic discovery</div></div></div>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent">
+                    <Search size={20} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold">Global Scanner</div>
+                    <div className="text-[10px] text-dim font-medium uppercase">Automatic discovery</div>
+                  </div>
+                </div>
                 <Toggle value={cfg.global_scanner_enabled !== false} onChange={(v) => setField('global_scanner_enabled', v)} />
               </div>
 
@@ -805,6 +934,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 {renderField('Watchlist Offset', 'watchlist_offset', 'number', null, { min: 0, max: 100 })}
                 {renderField('Entry side', 'entry_side', 'text', ['both', 'long', 'short'])}
                 {renderField('Lookback (Candles)', 'scan_lookback', 'number', null, { min: 1 })}
+                <Tooltip content="The scanner will check signals for top candidates up to this depth. If top candidates fail signals, it moves to the next. Set higher for strict signal strategies to prevent stalling.">
+                  {renderField('Signal Depth', 'scanner_signal_depth', 'number', null, { min: 1, max: 50 })}
+                </Tooltip>
                 {renderField('Min Volume (USDT)', 'scan_min_volume_usdt', 'number', null, { min: 0, step: 100000 })}
                 {renderField('Scan Mode', 'scan_mode', 'text', [
                   { value: 'interval', label: 'Fixed Interval' },
@@ -817,17 +949,59 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   </>
                 )}
               </div>
-            </section>
 
-            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
-              <SectionHeader icon={Plus} title="Static Watchlist" subtitle="Rank only these symbols (comma separated)" />
+              <div className="mt-8 pt-6 border-t border-border/40">
+                <div className="flex justify-between items-start mb-4">
+                  <SectionHeader icon={LayoutGrid} title="Scoring Weights" subtitle="Contribution to opportunity score (Sum: 100%)" />
+                  <div className="flex flex-wrap gap-2 justify-end">
+                    {[
+                      { label: 'Balanced', w: [50, 30, 20] },
+                      { label: 'Aggressive', w: [80, 10, 10] },
+                      { label: 'Trend-Focused', w: [20, 20, 60] }
+                    ].map(p => (
+                      <button
+                        key={p.label}
+                        type="button"
+                        onClick={() => {
+                          setField('scanner_weights_momentum', p.w[0]);
+                          setField('scanner_weights_volatility', p.w[1]);
+                          setField('scanner_weights_trend', p.w[2]);
+                        }}
+                        className="px-2 py-1 rounded bg-accent/5 border border-accent/20 text-[8px] font-black uppercase tracking-widest text-accent hover:bg-accent/10 transition-colors"
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {renderField('Momentum %', 'scanner_weights_momentum', 'number', null, { min: 0, max: 100 })}
+                  {renderField('Volatility %', 'scanner_weights_volatility', 'number', null, { min: 0, max: 100 })}
+                  {renderField('Trend %', 'scanner_weights_trend', 'number', null, { min: 0, max: 100 })}
+                </div>
+                <div className="mt-4 p-4 bg-background/40 rounded-xl border border-border/40">
+                   <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest mb-2">
+                      <span className="text-dim">Weight Distribution</span>
+                      <span className={cn(Math.abs((Number(cfg.scanner_weights_momentum || 0) + Number(cfg.scanner_weights_volatility || 0) + Number(cfg.scanner_weights_trend || 0)) - 100) > 0.1 ? "text-red" : "text-green")}>
+                         Sum: {Number(cfg.scanner_weights_momentum || 0) + Number(cfg.scanner_weights_volatility || 0) + Number(cfg.scanner_weights_trend || 0)}%
+                      </span>
+                   </div>
+                   <div className="h-2 bg-white/5 rounded-full overflow-hidden flex border border-white/5">
+                      <div className="h-full bg-accent transition-all duration-500" style={{ width: `${cfg.scanner_weights_momentum}%` }} />
+                      <div className="h-full bg-amber transition-all duration-500" style={{ width: `${cfg.scanner_weights_volatility}%` }} />
+                      <div className="h-full bg-purple transition-all duration-500" style={{ width: `${cfg.scanner_weights_trend}%` }} />
+                   </div>
+                </div>
+              </div>
+            </CollapsibleSection>
+
+            <CollapsibleSection id="scan_watchlist" icon={Plus} title="Static Watchlist" subtitle="Rank only these symbols">
               <ListInput placeholder="BTCUSDT, ETHUSDT, SOLUSDT..." value={cfg.symbols} onChange={(val) => setField('symbols', val)} />
-            </section>
+            </CollapsibleSection>
 
-            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
-              <SectionHeader icon={XCircle} title="Exclusion List" subtitle="Symbols to never trade" />
+            <CollapsibleSection id="scan_exclusion" icon={XCircle} title="Exclusion List" subtitle="Symbols to never trade">
               <ListInput placeholder="BTCUSDT, ETHUSDT..." value={cfg.excluded_symbols} onChange={(val) => setField('excluded_symbols', val)} />
-            </section>
+            </CollapsibleSection>
 
             <section className="pt-6 border-t border-border/40">
                <div className="flex justify-between items-center mb-4">
@@ -851,11 +1025,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             id="config-panel-strategy"
             role="tabpanel"
             aria-labelledby="config-tab-strategy"
-            className="space-y-6 lg:space-y-8 animate-in fade-in duration-300"
+            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
           >
-            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
-              <div className="flex justify-between items-center mb-4">
-                <SectionHeader icon={Zap} title="Entry Signals" subtitle="Triggers for opening positions" />
+            <CollapsibleSection id="strategy_entry" icon={Zap} title="Entry Signals" subtitle="Triggers for opening positions">
+              <div className="flex justify-end mb-4">
                 <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'any' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'any')}>ANY</button>
                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'all' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'all')}>ALL</button>
@@ -871,19 +1044,49 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   />
                 ))}
               </div>
-            </section>
+            </CollapsibleSection>
 
-            <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={Activity} title="Signal Parameters" subtitle="Technical indicator periods" />
-
+            <CollapsibleSection id="strategy_params" icon={Activity} title="Signal Parameters" subtitle="Technical indicator periods">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
                 {renderField('MA Period', 'signal_params_ma_period', 'number', null, { min: 1 })}
                 <Tooltip content="Global fallback period used if specific Entry/Exit EMA is not set">
-                  <span>{renderField('EMA (Global Fallback)', 'signal_params_ema_period', 'number', null, { min: 1 })}</span>
+                  {renderField('EMA (Global Fallback)', 'signal_params_ema_period', 'number', null, { min: 1 })}
                 </Tooltip>
               </div>
 
               <div className="space-y-6">
+                {(cfg.enabled_signals || []).includes('engulfing') && (
+                  <div className="bg-accent/5 p-4 rounded-2xl border border-accent/20">
+                    <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em] mb-4">Engulfing Expert Parameters</div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <Tooltip content="Body: Open/Close must engulf previous Open/Close. Range: High/Low must engulf. Strict: Both must engulf.">
+                        {renderField('Engulfing Mode', 'engulfing_mode', 'text', [
+                          { value: 'range', label: 'Range (H/L)' },
+                          { value: 'body', label: 'Body (O/C)' },
+                          { value: 'strict', label: 'Strict (Both)' }
+                        ])}
+                      </Tooltip>
+                      <Tooltip content="Is Opportunity: Signal fires on the momentum candle itself. After Opportunity: Signal must fire on the NEXT candle after momentum.">
+                        {renderField('Timing', 'engulfing_timing', 'text', [
+                          { value: 'is_opportunity', label: 'Is Opportunity' },
+                          { value: 'after_opportunity', label: 'After Opportunity' }
+                        ])}
+                      </Tooltip>
+                      <Tooltip content="Lookback: Number of previous candles to engulf. Set > 1 for 'Reverse Engulfing' where one candle swallows multiple previous opposite bars.">
+                        {renderField('Engulfing Lookback', 'engulfing_lookback', 'number', null, { min: 1, max: 10 })}
+                      </Tooltip>
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[10px] text-dim font-black tracking-widest uppercase">Vol Confirmation</label>
+                          <Tooltip content="When enabled, the engulfing candle MUST have higher volume than the engulfed candle.">
+                            <Toggle value={cfg.engulfing_volume_confirm === true} onChange={(v) => setField('engulfing_volume_confirm', v)} />
+                          </Tooltip>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="bg-background/20 p-4 rounded-2xl border border-border/50">
                   <div className="text-[9px] font-black text-dim uppercase tracking-[0.2em] mb-4">Entry Specific EMAs</div>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
@@ -931,29 +1134,28 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                    </div>
                 </div>
               )}
-            </section>
+            </CollapsibleSection>
 
-            <section className="pt-6 border-t border-border/40">
-               <div className="flex justify-between items-center mb-4">
-                 <SectionHeader icon={XCircle} title="Exit Signals" subtitle="Automated early closures" />
+            <CollapsibleSection id="strategy_exit" icon={XCircle} title="Exit Signals" subtitle="Automated early closures">
+              <div className="flex justify-end mb-4">
                  <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.exit_signal_logic || 'any') === 'any' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'any')}>ANY</button>
                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", cfg.exit_signal_logic === 'all' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'all')}>ALL</button>
                  </div>
-               </div>
-               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                 {SIGNALS.map((signal) => (
-                   <ExitSignalCard
-                    key={signal[0]}
-                    signal={signal}
-                    active={(cfg.exit_signals || []).includes(signal[0])}
-                    delayValue={(cfg.exit_signal_delays || {})[signal[0]]}
-                    onToggle={(key, active) => setField('exit_signals', active ? cfg.exit_signals.filter(s => s !== key) : [...(cfg.exit_signals || []), key])}
-                    onDelayChange={(key, val) => setField('exit_signal_delays', { ...(cfg.exit_signal_delays || {}), [key]: val })}
-                   />
-                 ))}
-               </div>
-            </section>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {SIGNALS.map((signal) => (
+                  <ExitSignalCard
+                   key={signal[0]}
+                   signal={signal}
+                   active={(cfg.exit_signals || []).includes(signal[0])}
+                   delayValue={(cfg.exit_signal_delays || {})[signal[0]]}
+                   onToggle={(key, active) => setField('exit_signals', active ? cfg.exit_signals.filter(s => s !== key) : [...(cfg.exit_signals || []), key])}
+                   onDelayChange={(key, val) => setField('exit_signal_delays', { ...(cfg.exit_signal_delays || {}), [key]: val })}
+                  />
+                ))}
+              </div>
+            </CollapsibleSection>
           </div>
         )}
 
@@ -962,10 +1164,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             id="config-panel-risk"
             role="tabpanel"
             aria-labelledby="config-tab-risk"
-            className="space-y-6 lg:space-y-8 animate-in fade-in duration-300"
+            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
           >
-            <section>
-              <SectionHeader icon={ShieldCheck} title="Capital Guards" subtitle="Global safety limits" />
+            <CollapsibleSection id="risk_guards" icon={ShieldCheck} title="Capital Guards" subtitle="Global safety limits">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                 {renderField('Risk % Per Trade', 'risk_pct_per_trade', 'number', null, { min: CONFIG_LIMITS.RISK_PER_TRADE_MIN, max: CONFIG_LIMITS.RISK_PER_TRADE_MAX, step: 0.1 })}
                 {renderField('Max Total Risk %', 'max_total_risk_pct', 'number', null, { min: CONFIG_LIMITS.MAX_TOTAL_RISK_MIN, max: CONFIG_LIMITS.MAX_TOTAL_RISK_MAX })}
@@ -1000,7 +1201,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     <div className="flex items-center gap-2">
                       <Toggle value={cfg.auto_scale_min_notional !== false} onChange={(v) => setField('auto_scale_min_notional', v)} color="bg-accent" />
                       <Tooltip content="Binance Futures requires a minimum position size of 5 USDT. When enabled, the engine automatically scales UP small positions to $5.05 to avoid exchange rejections.">
-                         <span><Activity size={10} className="text-dim cursor-help" /></span>
+                        <Activity size={10} className="text-dim cursor-help" />
                       </Tooltip>
                     </div>
                   </div>
@@ -1057,83 +1258,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     </p>
                  </div>
               </div>
-            </section>
 
-            <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={ShieldCheck} title="Stop Loss Strategy" subtitle="Risk truncation parameters" />
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                {renderField('Strategy Type', 'sl_type', 'text', [
-                  { value: 'pct', label: 'Fixed Percentage' },
-                  {value: 'lookback_low/high', label: 'High/Low Stop' }
-                ])}
-                {cfg.sl_type === 'pct' ? (
-                  renderField('Distance %', 'sl_distance_pct', 'number', null, { min: CONFIG_LIMITS.SL_DISTANCE_MIN, max: CONFIG_LIMITS.SL_DISTANCE_MAX, step: 0.1 })
-                ) : (
-                  <div className="grid grid-cols-2 gap-4">
-                    {renderField('Lookback Period', 'sl_lookback_period', 'number', null, { min: 1 })}
-                    {renderField('Lookback TF', 'sl_lookback_timeframe', 'text', ['1m', '5m', '15m', '1h'])}
-                  </div>
-                )}
-                {cfg.sl_type !== 'pct' && renderField('Max Allowed SL %', 'sl_pct_limit', 'number', null, { min: 0.1, step: 0.1 })}
-                <div className="grid grid-cols-2 gap-4">
-                  {renderField('Floor Min %', 'sl_min_pct', 'number', null, { min: 0.1, step: 0.1 })}
-                  {renderField('Ceiling Max %', 'sl_max_pct', 'number', null, { min: 0.1, step: 0.1 })}
-                </div>
-                <div className="md:col-span-2">
-                  <Tooltip content="Safety buffer that prevents trailing stops from being placed too close to the market price. This avoids 'Order would immediately trigger' errors and instant fills during high volatility. Recommended: 0.03% to 0.05%.">
-                    <span>{renderField('Trailing Guard (%)', 'trailing_guard_buffer_pct', 'number', null, { min: CONFIG_LIMITS.TRAILING_GUARD_MIN, max: CONFIG_LIMITS.TRAILING_GUARD_MAX, step: 0.01 })}</span>
-                  </Tooltip>
-                </div>
-              </div>
-
-              <div className="mt-6 p-5 bg-accent/5 border border-accent/20 rounded-2xl space-y-3.5 shadow-sm">
-                 <div className="flex items-center gap-2.5 text-[10px] font-black uppercase tracking-[0.15em] text-accent">
-                    <div className="p-1.5 bg-accent/10 rounded-lg group">
-                      <ShieldCheck size={14} className="fill-accent/20 group-hover:animate-pulse" />
-                    </div>
-                    Trailing Safety Guide
-                 </div>
-                 <div className="space-y-3">
-                    <p className="text-[11px] text-dim leading-relaxed font-medium">
-                       The <span className="text-text font-bold">Trailing Guard</span> prevents exchange rejections (Error -4120) by maintaining a mandatory gap between your Stop Loss and the active Market Price.
-                    </p>
-                    <div className="bg-background/40 p-3 rounded-xl border border-border/30 relative overflow-hidden group">
-                       <div className="absolute top-0 left-0 w-1 h-full bg-accent/30" />
-                       <div className="flex items-center gap-1.5 mb-2">
-                          <Activity size={10} className="text-accent group-hover:animate-bounce" />
-                          <span className="text-[9px] text-accent font-black uppercase tracking-widest">Dynamic Hard-Cap Example</span>
-                       </div>
-                       <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-1">
-                             <div className="text-[8px] text-dim/40 font-bold uppercase tracking-tighter text-dim/60">Current Market</div>
-                             <div className="text-xs font-mono font-bold text-text/90">0.14302</div>
-                          </div>
-                          <div className="space-y-1 text-right">
-                             <div className="text-[8px] text-dim/40 font-bold uppercase tracking-tighter text-dim/60">Engine Response</div>
-                             <div className="text-xs font-mono font-bold text-amber">0.14305</div>
-                          </div>
-                       </div>
-                    </div>
-                    <p className="text-[10px] text-dim/60 italic leading-snug border-l-2 border-accent/20 pl-3">
-                       Essential for SHORT trades near entry and high-volatility LONG trades. Prevents "instant fills" caused by the market spread touching your stop exactly at the moment of update.
-                    </p>
-                 </div>
-              </div>
-            </section>
-
-            <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={Target} title="Profit Realization" subtitle="Locking gains and scaling exits" />
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                {renderField('Exit Strategy', 'tp_mode', 'text', [
-                  { value: 'fixed', label: 'Fixed Ratio (TP)' },
-                  { value: 'exp_rr_seq', label: 'Dynamic RR Milestone' }
-                ])}
-                {cfg.tp_mode === 'fixed' ? renderField('Fixed Ratio (R)', 'tp_ratio', 'number', null, { min: 0.1, step: 0.1 }) : <div />}
-              </div>
               {cfg.tp_mode === 'exp_rr_seq' && (
                 <div className="space-y-2 mt-6 bg-background/50 p-5 rounded-2xl border border-border/40 shadow-inner">
                   <div className="flex justify-between text-[10px] text-dim font-bold uppercase tracking-widest mb-3 px-1">
-                    <span>Live RR Milestone</span>
+                    <span>RR Milestone (Target)</span>
                     <span>Adjust SL to (R)</span>
                   </div>
                   {sequence.map(([live, exit], i) => (
@@ -1171,10 +1300,84 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   }} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all mt-2 group flex items-center justify-center gap-2"><Plus size={14} className="group-hover:scale-110 transition-transform" /> Add RR Milestone</button>
                 </div>
               )}
-            </section>
+            </CollapsibleSection>
 
-            <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={Clock} title="Frequency & Temporal Risk" subtitle="Execution windows & frequency shaping" />
+            <CollapsibleSection id="risk_sl" icon={ShieldCheck} title="Stop Loss Strategy" subtitle="Risk truncation parameters">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                {renderField('Strategy Type', 'sl_type', 'text', [
+                  { value: 'pct', label: 'Fixed Percentage' },
+                  {value: 'lookback_low/high', label: 'High/Low Stop' }
+                ])}
+                {renderField('Out of Bounds', 'sl_out_of_bounds_action', 'text', [
+                  { value: 'clamp', label: 'Clamp to Limits' },
+                  { value: 'reject', label: 'Reject Entry' }
+                ])}
+                {cfg.sl_type === 'pct' ? (
+                  renderField('Distance %', 'sl_distance_pct', 'number', null, { min: CONFIG_LIMITS.SL_DISTANCE_MIN, max: CONFIG_LIMITS.SL_DISTANCE_MAX, step: 0.1 })
+                ) : (
+                  <div className="grid grid-cols-2 gap-4">
+                    {renderField('Lookback Period', 'sl_lookback_period', 'number', null, { min: 1 })}
+                    {renderField('Lookback TF', 'sl_lookback_timeframe', 'text', ['1m', '5m', '15m', '1h'])}
+                  </div>
+                )}
+                {cfg.sl_type !== 'pct' && renderField('Max Allowed SL %', 'sl_pct_limit', 'number', null, { min: 0.1, step: 0.1 })}
+                <div className="grid grid-cols-2 gap-4">
+                  {renderField('Floor Min %', 'sl_min_pct', 'number', null, { min: 0.1, step: 0.1 })}
+                  {renderField('Ceiling Max %', 'sl_max_pct', 'number', null, { min: 0.1, step: 0.1 })}
+                </div>
+                <div className="md:col-span-2">
+                  <Tooltip content="Safety buffer that prevents trailing stops from being placed too close to the market price. This avoids 'Order would immediately trigger' errors and instant fills during high volatility. Recommended: 0.03% to 0.05%.">
+                    {renderField('Trailing Guard (%)', 'trailing_guard_buffer_pct', 'number', null, { min: CONFIG_LIMITS.TRAILING_GUARD_MIN, max: CONFIG_LIMITS.TRAILING_GUARD_MAX, step: 0.01 })}
+                  </Tooltip>
+                </div>
+              </div>
+
+              <div className="mt-6 p-5 bg-accent/5 border border-accent/20 rounded-2xl space-y-3.5 shadow-sm">
+                 <div className="flex items-center gap-2.5 text-[10px] font-black uppercase tracking-[0.15em] text-accent">
+                    <div className="p-1.5 bg-accent/10 rounded-lg group">
+                      <ShieldCheck size={14} className="fill-accent/20 group-hover:animate-pulse" />
+                    </div>
+                    Trailing Safety Guide
+                 </div>
+                 <div className="space-y-3">
+                    <p className="text-[11px] text-dim leading-relaxed font-medium">
+                       The <span className="text-text font-bold">Trailing Guard</span> prevents exchange rejections (Error -4120) by maintaining a mandatory gap between your Stop Loss and the active Market Price.
+                    </p>
+                    <div className="bg-background/40 p-3 rounded-xl border border-border/30 relative overflow-hidden group">
+                       <div className="absolute top-0 left-0 w-1 h-full bg-accent/30" />
+                       <div className="flex items-center gap-1.5 mb-2">
+                          <Activity size={10} className="text-accent group-hover:animate-bounce" />
+                          <span className="text-[9px] text-accent font-black uppercase tracking-widest">Dynamic Hard-Cap Example</span>
+                       </div>
+                       <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                             <div className="text-[8px] text-dim/40 font-bold uppercase tracking-tighter text-dim/60">Current Market</div>
+                             <div className="text-xs font-mono font-bold text-text/90">0.14302</div>
+                          </div>
+                          <div className="space-y-1 text-right">
+                             <div className="text-[8px] text-dim/40 font-bold uppercase tracking-tighter text-dim/60">Engine Response</div>
+                             <div className="text-xs font-mono font-bold text-amber">0.14305</div>
+                          </div>
+                       </div>
+                    </div>
+                    <p className="text-[10px] text-dim/60 italic leading-snug border-l-2 border-accent/20 pl-3">
+                       Essential for SHORT trades near entry and high-volatility LONG trades. Prevents "instant fills" caused by the market spread touching your stop exactly at the moment of update.
+                    </p>
+                 </div>
+              </div>
+            </CollapsibleSection>
+
+            <CollapsibleSection id="risk_tp" icon={Target} title="Profit Realization" subtitle="Locking gains and scaling exits">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                {renderField('Exit Strategy', 'tp_mode', 'text', [
+                  { value: 'fixed', label: 'Fixed Ratio (TP)' },
+                  { value: 'exp_rr_seq', label: 'Dynamic RR Milestone' }
+                ])}
+                {cfg.tp_mode === 'fixed' ? renderField('Fixed Ratio (R)', 'tp_ratio', 'number', null, { min: 0.1, step: 0.1 }) : <div />}
+              </div>
+            </CollapsibleSection>
+
+            <CollapsibleSection id="risk_temporal" icon={Clock} title="Frequency & Temporal Risk" subtitle="Execution windows & frequency shaping">
 
               <div className="space-y-4 mb-8">
                 <div className="p-4 bg-background/50 rounded-2xl border border-border/50 flex items-center justify-between group hover:border-accent/30 transition-colors">
@@ -1195,9 +1398,20 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
 
                 {cfg.frequency_shaping_enabled && (
-                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 md:grid-cols-2 gap-6 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
-                    {renderField('Min Interval (m)', 'min_trade_interval_min', 'number', null, { min: 0 })}
-                    {renderField('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
+                    <div className="grid grid-cols-2 md:grid-cols-2 gap-6">
+                      {renderField('Min Interval (m)', 'min_trade_interval_min', 'number', null, { min: 0 })}
+                      {renderField('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
+                    </div>
+                    <div className={cn("flex items-center justify-between pt-4 border-t border-border/40 transition-opacity duration-300", cfg.trades_jitter_pct <= 0 && "opacity-40 pointer-events-none")}>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                          <Target size={12} className="text-accent" /> Market-Aware Jitter
+                        </span>
+                        <span className="text-[9px] text-dim font-medium uppercase tracking-tight">Prioritize high-quality signals with less random delay</span>
+                      </div>
+                      <Toggle value={cfg.trades_jitter_market_aware === true} onChange={(v) => setField('trades_jitter_market_aware', v)} color="bg-accent" />
+                    </div>
                   </motion.div>
                 )}
 
@@ -1247,7 +1461,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                    <button type="button" onClick={() => setField('trading_windows', [...(cfg.trading_windows || []), { start: '09:00', end: '17:00' }])} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all flex items-center justify-center gap-2"><Plus size={14} /> Add Window</button>
                  </div>
                </div>
-            </section>
+            </CollapsibleSection>
           </div>
         )}
 
@@ -1256,10 +1470,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             id="config-panel-advanced"
             role="tabpanel"
             aria-labelledby="config-tab-advanced"
-            className="space-y-6 lg:space-y-8 animate-in fade-in duration-300"
+            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
           >
-            <section>
-              <SectionHeader icon={Briefcase} title="Execution Environment" subtitle="Target exchange and mode" />
+            <CollapsibleSection id="adv_env" icon={Briefcase} title="Execution Environment" subtitle="Target exchange and mode">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {['paper', 'testnet', 'live'].map(m => (
                   <EnvironmentButton
@@ -1276,19 +1489,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   <div className="text-xs text-orange">{modeWarning}</div>
                 </div>
               )}
-            </section>
+            </CollapsibleSection>
 
-            <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={TrendingUp} title="Initial Capital" subtitle="Starting balance for sessions" />
+            <CollapsibleSection id="adv_capital" icon={TrendingUp} title="Initial Capital" subtitle="Starting balance for sessions">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                 {renderField('Paper Balance ($)', 'paper_starting_balance', 'number', null, { min: 0 })}
                 {renderField('Demo Balance ($)', 'testnet_starting_balance', 'number', null, { min: 0, placeholder: '10000' })}
                 {renderField('Live Balance ($)', 'live_starting_balance', 'number', null, { min: 0 })}
               </div>
-            </section>
+            </CollapsibleSection>
 
-            <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={Activity} title="Engine Performance" subtitle="Hot and main loop cadences" />
+            <CollapsibleSection id="adv_perf" icon={Activity} title="Engine Performance" subtitle="Hot and main loop cadences">
               <div className="grid grid-cols-2 gap-6 mb-6">
                 {renderField('Hot Loop (ms)', 'hot_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.HOT_LOOP_MIN })}
                 {renderField('Main Loop (ms)', 'main_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.MAIN_LOOP_MIN })}
@@ -1305,55 +1516,54 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   <Toggle value={cfg.debug_mode === true} onChange={(v) => setField('debug_mode', v)} color="bg-amber" />
                 </div>
               </div>
+            </CollapsibleSection>
 
-              <div className="mt-8 pt-6 border-t border-border/40">
-                <SectionHeader icon={Clock} title="Hibernation Management" subtitle="Gated idle resource strategy" />
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-                  {[
-                    { id: 'light', label: 'Light Sleep', desc: 'Fastest resumption. Keeps market streams active. Best for low latency.' },
-                    { id: 'adaptive', label: 'Adaptive', desc: 'SRE Recommended. 30s light grace period before deep sleep. Balanced.' },
-                    { id: 'deep', label: 'Deep Sleep', desc: 'Maximum resource savings. Immediate stream teardown and cache purge.' }
-                  ].map(mode => (
-                    <button
-                      key={mode.id}
-                      type="button"
-                      onClick={() => setField('hibernation_mode', mode.id)}
-                      className={cn(
-                        "p-4 rounded-xl border-2 text-left transition-all relative group",
-                        cfg.hibernation_mode === mode.id ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover"
-                      )}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className={cn("text-[10px] font-black uppercase tracking-tighter", cfg.hibernation_mode === mode.id ? "text-accent" : "text-text")}>{mode.label}</span>
-                        {cfg.hibernation_mode === mode.id && <CheckCircle2 size={14} className="text-accent" />}
-                      </div>
-                      <p className="text-[9px] text-dim font-bold uppercase tracking-tight leading-tight">{mode.desc}</p>
-                    </button>
-                  ))}
-                </div>
-
-                {cfg.hibernation_mode === 'adaptive' && (
-                  <div className="mb-6 animate-in fade-in slide-in-from-top-2 duration-300">
-                    {renderField('Adaptive Grace Period (s)', 'hibernation_grace_period_sec', 'number', null, { min: 5, max: 3600 })}
-                    <p className="mt-1.5 text-[9px] text-dim font-medium uppercase tracking-tight">Time to maintain Light Sleep before full cache purge.</p>
-                  </div>
-                )}
-
-                <div className="p-4 bg-background/40 border border-border/40 rounded-xl space-y-2">
-                   <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-accent">
-                      <ShieldCheck size={12} /> Resource vs. Latency Trade-off
-                   </div>
-                   <p className="text-[10px] text-dim leading-relaxed font-medium italic border-l border-accent/20 pl-3">
-                      {cfg.hibernation_mode === 'light' ?
-                        "Maintaining MarketFeed during hibernation avoids the 250+ weight REST backfill burst, ensuring the engine is ready to trade the millisecond gating clears." :
-                        cfg.hibernation_mode === 'deep' ?
-                        "Deep sleep minimizes CPU, network, and memory by purging all non-essential data. Resumption requires a heavy API burst and short warmup period." :
-                        "Adaptive mode provides 30 seconds of high-readiness light sleep before transitioning to deep sleep for prolonged gating periods."
-                      }
-                   </p>
-                </div>
+            <CollapsibleSection id="adv_hibernation" icon={Clock} title="Hibernation Management" subtitle="Gated idle resource strategy">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                {[
+                  { id: 'light', label: 'Light Sleep', desc: 'Fastest resumption. Keeps market streams active. Best for low latency.' },
+                  { id: 'adaptive', label: 'Adaptive', desc: 'SRE Recommended. 30s light grace period before deep sleep. Balanced.' },
+                  { id: 'deep', label: 'Deep Sleep', desc: 'Maximum resource savings. Immediate stream teardown and cache purge.' }
+                ].map(mode => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    onClick={() => setField('hibernation_mode', mode.id)}
+                    className={cn(
+                      "p-4 rounded-xl border-2 text-left transition-all relative group",
+                      cfg.hibernation_mode === mode.id ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover"
+                    )}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={cn("text-[10px] font-black uppercase tracking-tighter", cfg.hibernation_mode === mode.id ? "text-accent" : "text-text")}>{mode.label}</span>
+                      {cfg.hibernation_mode === mode.id && <CheckCircle2 size={14} className="text-accent" />}
+                    </div>
+                    <p className="text-[9px] text-dim font-bold uppercase tracking-tight leading-tight">{mode.desc}</p>
+                  </button>
+                ))}
               </div>
-            </section>
+
+              {cfg.hibernation_mode === 'adaptive' && (
+                <div className="mb-6 animate-in fade-in slide-in-from-top-2 duration-300">
+                  {renderField('Adaptive Grace Period (s)', 'hibernation_grace_period_sec', 'number', null, { min: 5, max: 3600 })}
+                  <p className="mt-1.5 text-[9px] text-dim font-medium uppercase tracking-tight">Time to maintain Light Sleep before full cache purge.</p>
+                </div>
+              )}
+
+              <div className="p-4 bg-background/40 border border-border/40 rounded-xl space-y-2">
+                 <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-accent">
+                    <ShieldCheck size={12} /> Resource vs. Latency Trade-off
+                 </div>
+                 <p className="text-[10px] text-dim leading-relaxed font-medium italic border-l border-accent/20 pl-3">
+                    {cfg.hibernation_mode === 'light' ?
+                      "Maintaining MarketFeed during hibernation avoids the 250+ weight REST backfill burst, ensuring the engine is ready to trade the millisecond gating clears." :
+                      cfg.hibernation_mode === 'deep' ?
+                      "Deep sleep minimizes CPU, network, and memory by purging all non-essential data. Resumption requires a heavy API burst and short warmup period." :
+                      "Adaptive mode provides 30 seconds of high-readiness light sleep before transitioning to deep sleep for prolonged gating periods."
+                    }
+                 </p>
+              </div>
+            </CollapsibleSection>
           </div>
         )}
 
@@ -1391,15 +1601,28 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     isDirty={isDirty}
                     onLoad={loadPreset}
                     onToggleVariant={toggleVariant}
-                    onDelete={deletePreset}
+                    onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
                     isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
                   />
                 ))}
               </div>
+
+              <ConfirmationModal
+                isOpen={!!presetToDelete}
+                onClose={() => setPresetToDelete(null)}
+                onConfirm={() => deletePreset(presetToDelete)}
+                title="Delete Strategy Preset?"
+                message={`Are you sure you want to permanently remove "${presetToDelete}"? This will delete the configuration from the database and cannot be undone.`}
+                confirmText="Delete Preset"
+                variant="danger"
+                loading={isDeleting}
+              />
             </section>
           </div>
         )}
       </div>
+
+      <RiskSummary cfg={cfg} balance={currentModeBalance} />
 
       <div className="p-5 border-t border-border bg-surface flex gap-3 sticky bottom-0">
         <div className="flex-1 flex gap-2">

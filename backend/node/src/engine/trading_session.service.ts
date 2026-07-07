@@ -19,6 +19,7 @@ import { SessionStateService } from './session_state.service';
 import { ENGINE_EVENTS } from './events';
 import { v4 as uuid } from 'uuid';
 import { roundEight, roundTo } from '../lib/math';
+import { BinanceBalanceV3 } from '../models/binance.types';
 import { ENGINE_CONSTANTS, CONFIG_LIMITS, EXIT_REASONS } from '../models/constants';
 import { VariantAnalyticsService } from './variant-analytics.service';
 import { EngineBroadcasterService } from './engine-broadcaster.service';
@@ -61,6 +62,7 @@ export class TradingSessionService implements OnApplicationShutdown {
   private listenKey: string | null = null;
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
   private _lastGateBroadcastTs = 0;
+  private _lastGatedScanTs = 0;
   private hibernateGraceTimeout: NodeJS.Timeout | null = null;
   private inFlightExchangeCloses: Set<string> = new Set();
 
@@ -209,7 +211,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       const cp = await this.tickerCache.getPrice(t.symbol); const ep = cp ?? t.last_price ?? t.entry_price;
       const res = await this.positionTracker.closeTrade(t.symbol, ep, EXIT_REASONS.SESSION_TERMINATED, this.config!, isPaper);
       if (res.exitOccurred && res.trade) {
-        this.sessionState.updateStatsOnClose((res.trade.pnl || 0) > 0, res.trade.pnl || 0, res.trade.is_reconciliation); this.sessionState.addClosedTrade(res.trade);
+        this.sessionState.updateStatsOnClose((res.trade.pnl || 0) > 0, res.trade.pnl || 0, res.trade.is_reconciliation, res.trade.id); this.sessionState.addClosedTrade(res.trade);
         await this.updateBalance(res.trade); if (this.onTradeUpdate) await this.onTradeUpdate(res.trade, this.getBalance());
       } else {
         t.status = 'CLOSED'; t.exit_ts = new Date(); t.exit_reason = EXIT_REASONS.SESSION_TERMINATED;
@@ -231,7 +233,7 @@ export class TradingSessionService implements OnApplicationShutdown {
         const notional = t.entry_price * (t.qty || 0);
         const finalPnlPct = (notional !== 0) ? (t.pnl / notional) * 100 : 0;
         t.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
-        this.sessionState.addClosedTrade(t); this.sessionState.updateStatsOnClose((t.pnl || 0) > 0, t.pnl || 0, t.is_reconciliation);
+        this.sessionState.addClosedTrade(t); this.sessionState.updateStatsOnClose((t.pnl || 0) > 0, t.pnl || 0, t.is_reconciliation, t.id);
         await this.updateBalance(t); if (this.onTradeUpdate) await this.onTradeUpdate(t, this.getBalance());
         this.positionTracker.removeTrade(t.symbol);
       }
@@ -422,28 +424,55 @@ export class TradingSessionService implements OnApplicationShutdown {
     try {
       const activeTrades = this.positionTracker.activeList();
       await this.refreshRiskGating();
+      const now = Date.now();
 
-      if (this.isGated() || this.sessionState.hibernating) {
+      // PERF: Adaptive Scanning Frequency.
+      // When gated (Light Sleep), we throttle scanning to 3x the normal interval.
+      // This balances UI "freshness" with CPU/API resource conservation.
+      if (this.isGated() && !this.sessionState.hibernating) {
+        const baseInterval = this.config.main_loop_interval_ms || 15000;
+        if (now - this._lastGatedScanTs < (baseInterval * 3)) {
+          // If we recently scanned while gated, skip this iteration
+          this.mainLoopProcessing = false;
+          return;
+        }
+        this._lastGatedScanTs = now;
+      }
+
+      // BOLT: Allow scanning even when gated (Light Sleep) to keep UI fresh.
+      // Deep Sleep (hibernating) still pauses scanning for resource efficiency.
+      if (this.sessionState.hibernating) {
         // CODE-04: Ensure active windows are refreshed even when gated to clear expired opportunities
         this.refreshActiveWindows([]);
 
         if (this.sessionState.listenerCount > 0) {
           const now = Date.now(); const isFull = now - this.lastScannerFullBroadcast > 30000; if (isFull) this.lastScannerFullBroadcast = now;
-          this.broadcast('scanner', { count: this.lastScannerResults.length, hibernating: this.sessionState.hibernating, opportunities: this.lastScannerResults.slice(0, 5).map(o => { if (isFull) return o; const { history, ...rest } = o; return rest; }), variant_opportunities: this.lastVariantScannerResults.map(v => ({ ...v, opportunities: v.opportunities.slice(0, 5).map((o: any) => { if (isFull) return o; const { history, ...rest } = o; return rest; }) })), activeWindows: this.getActiveWindows() });
+          this.broadcast('scanner', {
+            count: this.lastScannerResults.length,
+            hibernating: true,
+            last_scan_ts: this.sessionState.last_scan_ts,
+            opportunities: this.lastScannerResults.slice(0, 5).map(o => { if (isFull) return o; const { history, ...rest } = o; return rest; }),
+            variant_opportunities: this.lastVariantScannerResults.map(v => ({ ...v, opportunities: v.opportunities.slice(0, 5).map((o: any) => { if (isFull) return o; const { history, ...rest } = o; return rest; }) })),
+            activeWindows: this.getActiveWindows()
+          });
         }
-        // DATA-07: Ensure processing flag is reset even on early return during gating
         this.mainLoopProcessing = false;
         return;
       }
 
       const start = performance.now();
       const strategyConfigs = this.getStrategyConfigs(); const opportunitiesBySignature = new Map<string, any[]>(); let primaryOpportunities: any[] = [];
+      this.monitoringService.setLoopStage('SCANNING');
       for (const sc of strategyConfigs) { const sig = this.scanSignature(sc); if (!opportunitiesBySignature.has(sig)) opportunitiesBySignature.set(sig, this.momentumScanner.scan(sc)); if (primaryOpportunities.length === 0) primaryOpportunities = opportunitiesBySignature.get(sig) || []; }
       const scannerData = strategyConfigs.map(c => ({ strategy_label: c.strategy_label, opportunities: opportunitiesBySignature.get(this.scanSignature(c)) || [] }));
 
       if (this.sessionState.dashboardCount > 0) {
         const baseConfig = strategyConfigs[0];
-        const opportunitiesWithSignals = primaryOpportunities.slice(0, 10).map((opp) => { const signalResult = this.signalEngine.checkEntry(opp.symbol, baseConfig, baseConfig.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry'); return { ...opp, signalResult }; });
+        // BOLT: Process all Top 15 opportunities (matching UI) for entry signals and telemetry.
+        const opportunitiesWithSignals = primaryOpportunities.slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS).map((opp) => {
+           const signalResult = this.signalEngine.checkEntry(opp.symbol, baseConfig, baseConfig.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry');
+           return { ...opp, signalResult };
+        });
         this.updateScannerResults(opportunitiesWithSignals); this.lastVariantScannerResults = scannerData;
         const now = Date.now(); const isFull = now - this.lastScannerFullBroadcast > 30000;
         const nextResultsJson = JSON.stringify(this.lastScannerResults.map(o => o.symbol + o.direction + o.score));
@@ -460,9 +489,33 @@ export class TradingSessionService implements OnApplicationShutdown {
 
         if (isFull || resultsChanged || resultsPriceChanged()) {
           if (isFull) this.lastScannerFullBroadcast = now; this.lastScannerResultsJson = nextResultsJson;
-          this.broadcast('scanner', { count: this.lastScannerResults.length, opportunities: this.lastScannerResults.slice(0, 5).map(o => { if (isFull) return o; const { history, ...rest } = o; return rest; }), variant_opportunities: this.lastVariantScannerResults.map(v => ({ ...v, opportunities: v.opportunities.slice(0, 5).map((o: any) => { if (isFull) return o; const { history, ...rest } = o; return rest; }) })), activeWindows: this.getActiveWindows() });
+          this.sessionState.last_scan_ts = Date.now();
+          this.broadcast('scanner', {
+            count: this.lastScannerResults.length,
+            last_scan_ts: this.sessionState.last_scan_ts,
+            // BOLT: Expand broadcast to Top 15 (matching UI "Top 15 results") and ensure full telemetry is sent during full broadcasts
+            opportunities: this.lastScannerResults.slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS).map(o => {
+               if (isFull) return o;
+               const { history, ohlc_history, ...rest } = o;
+               return rest;
+            }),
+            variant_opportunities: this.lastVariantScannerResults.map(v => ({
+               ...v,
+               opportunities: v.opportunities.slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS).map((o: any) => {
+                  if (isFull) return o;
+                  const { history, ohlc_history, ...rest } = o;
+                  return rest;
+               })
+            })),
+            activeWindows: this.getActiveWindows()
+          });
         }
       } else this.refreshActiveWindows(primaryOpportunities);
+
+      if (this.isGated()) {
+        this.mainLoopProcessing = false;
+        return;
+      }
 
       for (const sc of strategyConfigs) {
         const opps = opportunitiesBySignature.get(this.scanSignature(sc)) || [];
@@ -472,8 +525,10 @@ export class TradingSessionService implements OnApplicationShutdown {
           if (this.onTradeUpdate) await this.onTradeUpdate(t, this.getBalance());
         });
       }
+      this.monitoringService.setLoopStage('IDLE');
       this.monitoringService.recordMainLoop(performance.now() - start);
     } catch (error) {
+      this.monitoringService.setLoopStage('IDLE');
       this.logger.error(`Error in main loop: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       this.mainLoopProcessing = false;
@@ -490,7 +545,21 @@ export class TradingSessionService implements OnApplicationShutdown {
   private async onCandleClose(symbol: string) { if (!this.running || !this.config) return; if (this.config.debug_mode) this.logger.verbose(`Candle closed for ${symbol}`); }
 
   private updateScannerResults(opportunities: any[]) {
-    this.lastScannerResults = opportunities.map((o) => ({ symbol: o.symbol, price: o.price, pct: roundTo(o.momentum, 2), momentum: roundTo(o.momentum, 2), direction: o.direction.toLowerCase(), dir: o.direction.toLowerCase(), vol: o.volume_24h, volume_usdt: o.volume_24h, score: roundTo(o.score / 10, 1), history: o.history, signalResult: o.signalResult, }));
+    this.lastScannerResults = opportunities.map((o) => ({
+      symbol: o.symbol,
+      price: o.price,
+      pct: roundTo(o.momentum, 2),
+      momentum: roundTo(o.momentum, 2),
+      direction: o.direction.toLowerCase(),
+      dir: o.direction.toLowerCase(),
+      vol: o.volume_24h,
+      volume_usdt: o.volume_24h,
+      volume_rank: o.volume_rank,
+      score: roundTo(o.score, 1),
+      history: o.history,
+      ohlc_history: o.ohlc_history,
+      signalResult: o.signalResult,
+    }));
     this.refreshActiveWindows(this.lastScannerResults);
   }
 
@@ -543,9 +612,9 @@ export class TradingSessionService implements OnApplicationShutdown {
         : (res?.headers?.['x-mbx-used-weight-1m'] || res?.headers?.['X-MBX-USED-WEIGHT-1M']);
       if (weight) this.sessionState.updateRateLimit(parseInt(weight, 10));
 
-      const data = await res.data() as any;
-      const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
-      return usdt ? parseFloat(usdt.balance || 0) : 0;
+      const data = (await res.data()) as BinanceBalanceV3[];
+      const usdt = Array.isArray(data) ? data.find((b) => b.asset === 'USDT') : null;
+      return usdt ? parseFloat(String(usdt.balance || '0')) : 0;
     } catch (e: any) {
       this.logger.error(`Balance fetch failed: ${e.message}`);
       return 0;
@@ -742,6 +811,16 @@ export class TradingSessionService implements OnApplicationShutdown {
   }
 
   async fetchTickerPrice(symbol: string): Promise<number | null> { return this.tickerCache.getPrice(symbol); }
+
+  /**
+   * SRE: Triggers a full state reconciliation audit.
+   * Delegates to MaintenanceService to keep the engine decoupled from persistence events.
+   */
+  async reconcileLiveState() {
+    if (!this.running || !this.config) return;
+    await this.maintenanceService.reconcileLiveState(this.running, this.config);
+  }
+
   async fetchPosition(symbol: string): Promise<any | null> { return this.orderManager.fetchPosition(symbol); }
   async fetchAllPositions(): Promise<any[]> { return this.orderManager.fetchAllPositions(); }
   seedRealTimePosition(symbol: string, amount: number, entryPrice: number) {
@@ -784,9 +863,9 @@ export class TradingSessionService implements OnApplicationShutdown {
   }
 
   @OnEvent('trade.exchange_close')
-  async handleExchangeClose(payload: { symbol: string, exitPrice: number, reason: string, isReconciliation?: boolean }) {
+  async handleExchangeClose(payload: { symbol: string, exitPrice: number, reason: string, isReconciliation?: boolean, orderId?: string, feesAlreadyAccounted?: boolean, needsMarketClose?: boolean }) {
     if (!this.running) return;
-    const { symbol, exitPrice, reason, isReconciliation } = payload;
+    const { symbol, exitPrice, reason, isReconciliation, feesAlreadyAccounted, needsMarketClose } = payload;
 
     // SRE: Idempotency guard - check if we are already closing this symbol
     if (this.inFlightExchangeCloses.has(symbol) || this.positionTracker.isClosing(symbol)) {
@@ -794,7 +873,17 @@ export class TradingSessionService implements OnApplicationShutdown {
        return;
     }
 
-    const trade = this.positionTracker.activeList().find(t => t.symbol === symbol);
+    let trade = this.positionTracker.activeList().find(t => t.symbol === symbol);
+
+    // CHRONOS: Race condition guard - check in-flight entries if not in active list
+    if (!trade) {
+      trade = this.positionTracker.getInFlightEntry(symbol);
+      if (trade) {
+        this.logger.debug(`[Chronos] Matched in-flight entry for ${symbol} closure.`);
+        // Note: positionTracker.closeTrade handles trades not in the active Map
+      }
+    }
+
     if (!trade) return;
 
     this.inFlightExchangeCloses.add(symbol);
@@ -807,16 +896,18 @@ export class TradingSessionService implements OnApplicationShutdown {
     // Determination: Should we only update local state or attempt an exchange close?
     // Reasons like SL_HIT, EXCHANGE_FILL, and EXCHANGE_SYNC (ghost positions) imply the exchange is already at 0.
     // WATCHDOG_NUCLEAR_CLOSE however requires an active market close order.
-    const localOnly = reason !== EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE;
-    const ignoreBlocked = reason === EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE;
+    // CHRONOS: needsMarketClose explicitly forces localOnly = false for rejected SLs.
+    const localOnly = !needsMarketClose && reason !== EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE;
+    const ignoreBlocked = reason === EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE || needsMarketClose;
 
-    const res = await this.positionTracker.closeTrade(symbol, exitPrice, reason, this.config!, this.config?.paper_mode ?? true, localOnly, { ignoreBlocked });
+    const res = await this.positionTracker.closeTrade(symbol, exitPrice, reason, this.config!, this.config?.paper_mode ?? true, localOnly, { ignoreBlocked, orderId: payload.orderId, feesAlreadyAccounted });
 
     if (res.exitOccurred && res.trade) {
       if (isReconciliation) res.trade.is_reconciliation = true;
-      // BOLT: Prioritize the more specific reason recovered from the exchange (e.g. SL_HIT vs EXCHANGE_SYNC)
+      // BOLT: Prioritize the more specific reason and price recovered from the exchange (e.g. SL_HIT vs EXCHANGE_SYNC)
       const finalizedReason = res.trade.exit_reason || reason;
-      await this.finalizeTradeClosure(res.trade, exitPrice, finalizedReason);
+      const finalizedPrice = res.trade.exit_price || exitPrice;
+      await this.finalizeTradeClosure(res.trade, finalizedPrice, finalizedReason);
     }
     } finally {
       this.inFlightExchangeCloses.delete(symbol);
@@ -829,7 +920,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       const cooldownMin = this.config?.min_trade_interval_min || 2;
       this.executionService.setCooldown(trade.symbol, mode, cooldownMin);
 
-      this.sessionState.updateStatsOnClose((trade.pnl || 0) > 0, trade.pnl || 0, trade.is_reconciliation);
+      this.sessionState.updateStatsOnClose((trade.pnl || 0) > 0, trade.pnl || 0, trade.is_reconciliation, trade.id);
       await this.updateBalance(trade);
       this.sessionState.addClosedTrade(trade);
       if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
@@ -870,7 +961,8 @@ export class TradingSessionService implements OnApplicationShutdown {
       const pp = this.sessionState.balancePaper; const pl = this.sessionState.balanceLive;
       const pa = this.appliedPnL.get(res.trade.id) || 0;
       try {
-        await this.finalizeTradeClosure(res.trade, cp, EXIT_REASONS.MANUAL_CLOSE);
+        const finalizedPrice = res.trade.exit_price || cp;
+        await this.finalizeTradeClosure(res.trade, finalizedPrice, EXIT_REASONS.MANUAL_CLOSE);
         await this.auditLog.log({
           action: 'MANUAL_TRADE_CLOSE',
           resourceId: res.trade.id,

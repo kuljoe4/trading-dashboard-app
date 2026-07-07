@@ -18,6 +18,7 @@ export class PositionTrackerService {
 
   private trades: Map<string, Trade> = new Map(); // symbol -> Trade
   private enteringSymbols: Set<string> = new Set(); // symbols currently in the process of entering
+  private inFlightEntries: Map<string, Trade> = new Map(); // symbols with dispatched orders but not yet in trades Map
   private pendingRisk: Map<string, number> = new Map(); // symbol -> reserved risk amount
   private closingSymbols: Set<string> = new Set(); // symbols currently in the process of closing
   private rrSequenceIndex: Map<string, number> = new Map(); // symbol -> current milestone index
@@ -53,6 +54,7 @@ export class PositionTrackerService {
   clear(): void {
     this.trades.clear();
     this.enteringSymbols.clear();
+    this.inFlightEntries.clear();
     this.pendingRisk.clear();
     this.closingSymbols.clear();
     this.rrSequenceIndex.clear();
@@ -74,6 +76,18 @@ export class PositionTrackerService {
 
   enteringCount(): number {
     return this.enteringSymbols.size;
+  }
+
+  getInFlightEntry(symbol: string): Trade | undefined {
+    return this.inFlightEntries.get(symbol);
+  }
+
+  setInFlight(symbol: string, trade: Trade): void {
+    this.inFlightEntries.set(symbol, trade);
+  }
+
+  clearInFlight(symbol: string): void {
+    this.inFlightEntries.delete(symbol);
   }
 
   /**
@@ -114,6 +128,14 @@ export class PositionTrackerService {
   }
 
   addTrade(trade: Trade): void {
+    // CHRONOS: Skip adding trades that were already closed while in-flight
+    if (trade.status !== 'OPEN') {
+      this.logger.debug(`[PositionTracker] Skipping addTrade for ${trade.symbol} - already in terminal status ${trade.status}`);
+      this.clearInFlight(trade.symbol);
+      this.setEntering(trade.symbol, false);
+      return;
+    }
+
     // Correctly handle symbol overwrites to prevent double-counting risk
     const existing = this.trades.get(trade.symbol);
     if (existing) {
@@ -129,6 +151,9 @@ export class PositionTrackerService {
     if (this.enteringSymbols.has(trade.symbol)) {
        this.setEntering(trade.symbol, false);
     }
+
+    // SRE: Remove from in-flight registry now that it's in active trades
+    this.clearInFlight(trade.symbol);
 
     this._activeListCache = null;
     this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
@@ -151,17 +176,13 @@ export class PositionTrackerService {
       : trade.entry_price - currentPrice;
     const liveRr = reward / risk;
 
-    // Update peak R:R (one-way ladder, never goes down)
-    const prevMaxRr = trade.max_rr_achieved;
-    trade.max_rr_achieved = Math.max(prevMaxRr, liveRr);
-
     // Find highest milestone crossed by max_rr
     let currentIndex = -1;
     const liveRrSequence = config.live_rr_sequence || [];
     const exitRrSequence = config.exit_rr_sequence || [];
 
     for (let i = 0; i < liveRrSequence.length; i++) {
-      if (trade.max_rr_achieved >= liveRrSequence[i]) {
+      if (Math.max(trade.max_rr_achieved, liveRr) >= liveRrSequence[i]) {
         currentIndex = i;
       }
     }
@@ -169,9 +190,11 @@ export class PositionTrackerService {
     // If we crossed a new milestone, update SL
     const prevIndex = this.rrSequenceIndex.get(symbol) ?? -1;
     if (currentIndex > prevIndex && currentIndex >= 0) {
-      this.rrSequenceIndex.set(symbol, currentIndex);
-      trade.rr_sequence_index = currentIndex;
-      trade.updated_at = new Date();
+      // SRE: Ratchet Race Guard. If an exchange-side mutation is already in flight for this symbol,
+      // skip evaluation to prevent redundant overlapping requests.
+      if (this.orderManager.isRatcheting(symbol)) {
+         return;
+      }
 
       // Get target RR for this milestone
       const exitRr = exitRrSequence[currentIndex] ?? 0;
@@ -220,51 +243,42 @@ export class PositionTrackerService {
       // PERFORMANCE: Apply a minimum delta guard (0.01% of entry) to reduce order-count rate limit pressure.
       const minDelta = trade.entry_price * 0.0001;
 
+      let shouldUpdate = false;
       if (trade.direction === 'LONG' && newSl) {
         // BOLT: Use epsilon + minDelta comparison to avoid loops on tiny float differences
-        if (newSl > trade.current_sl + Math.max(0.00000001, minDelta)) {
-          const prevSl = trade.current_sl;
-
-          // Acknowledge-then-Update: Update exchange first in live mode
-          const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
-
-          if (updateRes.success) {
-             const finalSl = updateRes.price || newSl;
-             const prevRisk = trade.risk_usdt || 0;
-             trade.current_sl = finalSl;
-             trade.risk_usdt = Math.max(0, trade.entry_price - trade.current_sl) * trade.qty;
-
-             this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
-             this.logSlAdjustment(trade, prevSl, finalSl, currentIndex, !!updateRes.price && updateRes.price !== newSl);
-
-             // Notify of trade state change for persistence
-             this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
-          } else {
-             this.logger.warn(`[SL Ratchet] Local state for ${symbol} LONG SL update rolled back due to exchange failure.`);
-          }
-        }
+        shouldUpdate = newSl > trade.current_sl + Math.max(0.00000001, minDelta);
       } else if (trade.direction === 'SHORT' && newSl) {
-        // BOLT: Use epsilon + minDelta comparison to avoid loops on tiny float differences
-        if (newSl < trade.current_sl - Math.max(0.00000001, minDelta)) {
-          const prevSl = trade.current_sl;
+        shouldUpdate = newSl < trade.current_sl - Math.max(0.00000001, minDelta);
+      }
 
-          // Acknowledge-then-Update: Update exchange first in live mode
-          const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
+      if (shouldUpdate) {
+        const prevSl = trade.current_sl;
+        const prevRisk = trade.risk_usdt || 0;
 
-          if (updateRes.success) {
-             const finalSl = updateRes.price || newSl;
-             const prevRisk = trade.risk_usdt || 0;
-             trade.current_sl = finalSl;
-             trade.risk_usdt = Math.max(0, trade.current_sl - trade.entry_price) * trade.qty;
+        // Acknowledge-then-Update: Update exchange first in live mode
+        const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
 
-             this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
-             this.logSlAdjustment(trade, prevSl, finalSl, currentIndex, !!updateRes.price && updateRes.price !== newSl);
+        if (updateRes.success) {
+           const finalSl = updateRes.price || newSl;
 
-             // Notify of trade state change for persistence
-             this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
-          } else {
-             this.logger.warn(`[SL Ratchet] Local state for ${symbol} SHORT SL update rolled back due to exchange failure.`);
-          }
+           // Acknowledge-then-Commit: Only update local state after exchange confirmation
+           this.rrSequenceIndex.set(symbol, currentIndex);
+           trade.rr_sequence_index = currentIndex;
+           trade.max_rr_achieved = Math.max(trade.max_rr_achieved, liveRr);
+           trade.updated_at = new Date();
+           trade.current_sl = finalSl;
+
+           // Recalculate risk USDT
+           const slDistance = Math.abs(trade.entry_price - trade.current_sl);
+           trade.risk_usdt = roundEight(slDistance * trade.qty);
+
+           this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
+           this.logSlAdjustment(trade, prevSl, finalSl, currentIndex, !!updateRes.price && updateRes.price !== newSl);
+
+           // Notify of trade state change for persistence
+           this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+        } else {
+           this.logger.warn(`[SL Ratchet] Local state for ${symbol} SL update rolled back due to exchange failure.`);
         }
       }
     }
@@ -376,9 +390,20 @@ export class PositionTrackerService {
     config?: SessionConfig,
     paperMode?: boolean,
     localOnly?: boolean,
-    options: { ignoreBlocked?: boolean } = {}
+    options: { ignoreBlocked?: boolean, orderId?: string, feesAlreadyAccounted?: boolean } = {}
   ): Promise<{ trade: Trade | null; exitOccurred: boolean; closeBlocked?: boolean, error?: string }> {
-    const trade = this.trades.get(symbol);
+    // CHRONOS: Fallback to in-flight registry if not in active trades (Race Condition Guard)
+    let trade = this.trades.get(symbol);
+    let isInFlight = false;
+
+    if (!trade) {
+       trade = this.inFlightEntries.get(symbol);
+       if (trade) {
+          isInFlight = true;
+          this.logger.log(`[Chronos] Found in-flight trade for ${symbol} closure. Local Map recovery active.`);
+       }
+    }
+
     if (!trade || trade.status !== 'OPEN' || this.closingSymbols.has(symbol)) {
       return { trade: null, exitOccurred: false };
     }
@@ -406,6 +431,8 @@ export class PositionTrackerService {
       this._totalRisk = roundEight(this._totalRisk - (existing.risk_usdt || 0));
     }
     this.trades.delete(symbol);
+    this.clearInFlight(symbol);
+    this.setEntering(symbol, false);
     this.closingSymbols.delete(symbol);
     this.rrSequenceIndex.delete(symbol);
     this._activeListCache = null;

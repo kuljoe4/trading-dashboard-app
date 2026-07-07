@@ -12,7 +12,8 @@ import { SessionStateService } from './session_state.service';
 import { SignalEngineService } from './signalEngine';
 import { MonitoringService } from './monitoring.service';
 import { ENGINE_EVENTS } from './events';
-import { BinanceRequestQueue } from '../lib/binanceClientFactory';
+import { BinanceExchangeInfo } from '../models/binance.types';
+import { BinanceRequestQueue, BinanceClientFactory } from '../lib/binanceClientFactory';
 
 interface BinanceKline {
   stream?: string;
@@ -60,6 +61,7 @@ export class MarketFeedService {
     private signalEngine: SignalEngineService,
     private monitoringService: MonitoringService,
     private eventEmitter: EventEmitter2,
+    private binanceClientFactory: BinanceClientFactory,
     @InjectRepository(SettingsEntity)
     private readonly settingsRepository: Repository<SettingsEntity>,
   ) {}
@@ -94,60 +96,7 @@ export class MarketFeedService {
     this.startMiniTickerStream(wsBasePublic);
     this.startMarkTickerStream(wsBasePublic);
 
-    // SRE: Immediate "Cold Start" mitigation.
-    // If the ticker cache is empty (e.g. after Deep Sleep or fresh boot),
-    // we trigger an immediate REST fetch to ensure the bot can start scanning candidates
-    // without waiting for the next WS cycle or the 15s grace period.
-    if (this.tickerCache.getCacheSize() === 0) {
-       this.logger.log(`[MarketFeed] Ticker cache empty on start. Triggering immediate REST seeding...`);
-       this.fetchInitialTickers(restBase).catch(e => this.logger.error(`Initial ticker fetch failed: ${e.message}`));
-    }
-
-    // BOLT: We still keep a delayed check to verify WS is actually flowing and populate if it failed.
-    setTimeout(async () => {
-       try {
-         if (!this.running) return;
-         const size = this.tickerCache.getCacheSize();
-         if (size === 0) {
-            this.logger.warn(`[MarketFeed] Ticker cache still empty after 15s. Retrying REST fetchInitialTickers...`);
-            await this.fetchInitialTickers(restBase);
-         } else {
-            this.logger.log(`[MarketFeed] Market feed operational. Ticker cache size: ${size}.`);
-            this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
-         }
-       } catch (err) {
-         this.logger.error(`Failed during market feed bootstrap check: ${err instanceof Error ? err.message : String(err)}`);
-       }
-    }, 15000);
-
     this.startWatchlistManager(config);
-  }
-
-  private async fetchInitialTickers(restBase: string) {
-    try {
-      this.monitoringService.incrementApiRequests();
-      let data: any[];
-
-      if (this.binanceClient) {
-        const response = await this.binanceClient.restAPI.ticker24hrPriceChangeStatistics();
-        this.updateWeight(response.headers);
-        data = await response.data();
-      } else {
-        const response = await fetch(`${restBase}/fapi/v1/ticker/24hr`);
-        this.updateWeight(response.headers);
-        if (!response.ok) return;
-        data = await response.json() as any[];
-      }
-
-      if (Array.isArray(data)) {
-        this.tickerCache.bulkUpdate(data);
-        this.logger.log(`[MarketFeed] Ticker cache seeded via REST: ${data.length} symbols.`);
-        // Proactively trigger watchlist update now that we have data
-        this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
-      }
-    } catch (err) {
-      this.logger.error(`Failed to fetch initial tickers: ${err instanceof Error ? err.message : String(err)}`);
-    }
   }
 
   public updateWeight(headers: any) {
@@ -155,7 +104,8 @@ export class MarketFeedService {
     const weight = typeof headers.get === 'function' ? headers.get('X-MBX-USED-WEIGHT-1M') : (headers['x-mbx-used-weight-1m'] || headers['X-MBX-USED-WEIGHT-1M']);
     if (weight) {
       const currentWeight = parseInt(weight, 10);
-      this.logger.debug(`Binance Weight Update: ${currentWeight}`);
+      // REDUCE LOG NOISE: No need to log weight for every market feed update
+      // this.logger.debug(`Binance Weight Update: ${currentWeight}`);
       this.sessionState.updateRateLimit(currentWeight);
     }
   }
@@ -207,40 +157,43 @@ export class MarketFeedService {
     try {
       this.monitoringService.incrementApiRequests();
 
-      let data: any;
+      let data: BinanceExchangeInfo | null = null;
       if (this.binanceClient) {
         this.logger.debug(`[MarketFeed] Fetching fresh exchange information from SDK...`);
         const response = await this.binanceClient.restAPI.exchangeInformation();
         this.updateWeight(response.headers);
-        data = await response.data();
+        data = (await response.data()) as BinanceExchangeInfo;
       } else {
         this.logger.debug(`[MarketFeed] Fetching fresh exchange information via fetch...`);
-        const response = await fetch(`${restBase}/fapi/v1/exchangeInfo`);
-        this.updateWeight(response.headers);
+        const response = await this.binanceClientFactory.genericRequest(
+          () => fetch(`${restBase}/fapi/v1/exchangeInfo`, { signal: AbortSignal.timeout(10000) }),
+          'exchangeInformation',
+          true // Metadata is critical for boot
+        );
         if (!response.ok) return;
-        data = await response.json();
+        data = (await response.json()) as BinanceExchangeInfo;
       }
 
       if (data) {
 
         // Dynamic Rate Limit Detection
         if (data && Array.isArray(data.rateLimits)) {
-           const requestWeightLimit = data.rateLimits.find((l: any) => l.rateLimitType === 'REQUEST_WEIGHT' && l.interval === 'MINUTE');
+           const requestWeightLimit = data.rateLimits.find((l) => l.rateLimitType === 'REQUEST_WEIGHT' && l.interval === 'MINUTE');
            if (requestWeightLimit) {
-              const limit = parseInt(requestWeightLimit.limit, 10);
+              const limit = parseInt(String(requestWeightLimit.limit), 10);
               this.sessionState.updateRateLimit(this.sessionState.binanceRateLimit.used_1m, limit);
               // SRE Overwatch: Synchronize dynamic limit to the centralized gateway queue
               BinanceRequestQueue.setWeightLimit(limit);
               this.logger.log(`Dynamic Binance Rate Limit detected: ${limit}/min`);
            }
 
-           const orderLimit10s = data.rateLimits.find((l: any) => l.rateLimitType === 'ORDERS' && l.interval === 'SECOND' && l.intervalNum === 10);
-           const orderLimit1m = data.rateLimits.find((l: any) => l.rateLimitType === 'ORDERS' && l.interval === 'MINUTE');
+           const orderLimit10s = data.rateLimits.find((l) => l.rateLimitType === 'ORDERS' && l.interval === 'SECOND' && l.intervalNum === 10);
+           const orderLimit1m = data.rateLimits.find((l) => l.rateLimitType === 'ORDERS' && l.interval === 'MINUTE');
 
            if (orderLimit10s || orderLimit1m) {
               this.sessionState.updateOrderRateLimits(null, {
-                limit10s: orderLimit10s ? parseInt(orderLimit10s.limit, 10) : undefined,
-                limit1m: orderLimit1m ? parseInt(orderLimit1m.limit, 10) : undefined
+                limit10s: orderLimit10s ? parseInt(String(orderLimit10s.limit), 10) : undefined,
+                limit1m: orderLimit1m ? parseInt(String(orderLimit1m.limit), 10) : undefined
               });
               this.logger.log(`Dynamic Binance Order Limits: 10s=${orderLimit10s?.limit}, 1m=${orderLimit1m?.limit}`);
            }
@@ -262,19 +215,19 @@ export class MarketFeedService {
                 if (s.filters && Array.isArray(s.filters)) {
                   for (const f of s.filters) {
                     if (f.filterType === 'PRICE_FILTER') {
-                      parsed.tickSize = parseFloat(f.tickSize);
+                      parsed.tickSize = parseFloat(String(f.tickSize));
                       parsed.pricePrecision = Math.max(0, Math.round(-Math.log10(parsed.tickSize)));
                     } else if (f.filterType === 'LOT_SIZE') {
-                      parsed.stepSize = parseFloat(f.stepSize);
+                      parsed.stepSize = parseFloat(String(f.stepSize));
                       parsed.qtyPrecision = Math.max(0, Math.round(-Math.log10(parsed.stepSize)));
                     } else if (f.filterType === 'MARKET_LOT_SIZE') {
-                      parsed.marketMaxQty = parseFloat(f.maxQty);
-                      parsed.marketMinQty = parseFloat(f.minQty);
+                      parsed.marketMaxQty = parseFloat(String(f.maxQty));
+                      parsed.marketMinQty = parseFloat(String(f.minQty));
                     } else if (f.filterType === 'PERCENT_PRICE') {
-                      parsed.multiplierUp = parseFloat(f.multiplierUp || '1.1');
-                      parsed.multiplierDown = parseFloat(f.multiplierDown || '0.9');
+                      parsed.multiplierUp = parseFloat(String(f.multiplierUp || '1.1'));
+                      parsed.multiplierDown = parseFloat(String(f.multiplierDown || '0.9'));
                     } else if (f.filterType === 'MIN_NOTIONAL' || f.filterType === 'NOTIONAL') {
-                      parsed.minNotional = parseFloat(f.notional || f.minNotional || '0');
+                      parsed.minNotional = parseFloat(String(f.notional || f.minNotional || '0'));
                     }
                   }
                 }
@@ -378,8 +331,15 @@ export class MarketFeedService {
         // The SDK proxy in binanceClientFactory.ts will correctly route to /public
         ws = await this.binanceClient.websocketStreams.connect({ stream });
       } else {
-        const url = `${wsBase}/${stream}`;
+        const url = `${wsBase.replace(/\/$/, '')}/${stream}`;
         ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+      }
+
+      // Add basic error handler to prevent process crashes from unhandled events
+      if (ws && typeof ws.on === 'function') {
+        ws.on('error', (err: any) => {
+          this.logger.error(`[MarketFeed] WebSocket error on ${stream}: ${err.message || String(err)}`);
+        });
       }
 
       ws.on('error', (err: any) => {
@@ -390,16 +350,22 @@ export class MarketFeedService {
         this.lastMiniTickerMsgTs = Date.now();
         // BOLT: Even in Eco Mode, we must populate the cache if it's currently empty to allow the first watchlist re-evaluation.
         // SRE: During hibernation, we also need fresh data to qualify for wake-up.
-        const cacheEmpty = this.tickerCache.getCacheSize() === 0;
+        const isCacheEmpty = this.tickerCache.getCacheSize() === 0;
         const isHibernating = this.sessionState.hibernating;
         const hibMode = this.sessionState.config?.hibernation_mode || 'adaptive';
         const isLightSleep = isHibernating && hibMode === 'light';
 
-        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0 && !cacheEmpty && !isLightSleep) return;
+        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0 && !isCacheEmpty && !isLightSleep) return;
         try {
           const msg = JSON.parse(data as any);
           let tickers: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
-          if (tickers.length > 0) this.tickerCache.bulkUpdate(tickers);
+          if (tickers.length > 0) {
+            this.tickerCache.bulkUpdate(tickers);
+            if (isCacheEmpty) {
+              this.logger.log(`[MarketFeed] Ticker cache initialized via WS: ${tickers.length} symbols. Triggering watchlist update.`);
+              this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
+            }
+          }
         } catch (err) {
           this.logger.error(`Error processing mini-ticker stream: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -440,8 +406,15 @@ export class MarketFeedService {
         // The SDK proxy in binanceClientFactory.ts will correctly route to /public and add the prefix.
         ws = await this.binanceClient.websocketStreams.connect({ stream });
       } else {
-        const url = `${wsBase}/${stream}`;
+        const url = `${wsBase.replace(/\/$/, '')}/${stream}`;
         ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+      }
+
+      // Add basic error handler to prevent process crashes from unhandled events
+      if (ws && typeof ws.on === 'function') {
+        ws.on('error', (err: any) => {
+          this.logger.error(`[MarketFeed] WebSocket error on ${stream}: ${err.message || String(err)}`);
+        });
       }
 
       ws.on('error', (err: any) => {
@@ -450,18 +423,24 @@ export class MarketFeedService {
 
       ws.on('message', (data: any) => {
         this.lastMarkTickerMsgTs = Date.now();
-        const cacheEmpty = this.tickerCache.getCacheSize() === 0;
+        const isCacheEmpty = this.tickerCache.getCacheSize() === 0;
         const isHibernating = this.sessionState.hibernating;
         const hibMode = this.sessionState.config?.hibernation_mode || 'adaptive';
         const isLightSleep = isHibernating && hibMode === 'light';
 
-        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0 && !cacheEmpty && !isLightSleep) return;
+        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0 && !isCacheEmpty && !isLightSleep) return;
         try {
           const msg = JSON.parse(data as any);
           const updates = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
-          for (const u of updates) {
-            // Field 'p' is Mark Price in !markTicker@arr
-            this.tickerCache.updateTicker(u.s, undefined, undefined, undefined, u.p);
+          if (updates.length > 0) {
+            for (const u of updates) {
+              // Field 'p' is Mark Price in !markTicker@arr
+              this.tickerCache.updateTicker(u.s, undefined, undefined, undefined, u.p);
+            }
+            if (isCacheEmpty) {
+              this.logger.log(`[MarketFeed] Ticker cache (Mark) initialized via WS. Triggering watchlist update.`);
+              this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
+            }
           }
         } catch (err) {
           this.logger.error(`Error processing mark-ticker stream: ${err instanceof Error ? err.message : String(err)}`);
@@ -598,7 +577,7 @@ export class MarketFeedService {
       }
 
       for (const trade of activeTrades) {
-        const t = trade as any;
+        const t = trade;
         if (!newWatchlist.has(t.symbol)) newWatchlist.set(t.symbol, new Set());
         newWatchlist.get(t.symbol)!.add('1m');
         if (config.scan_interval) newWatchlist.get(t.symbol)!.add(config.scan_interval);
@@ -798,8 +777,17 @@ export class MarketFeedService {
       if (task) {
         try {
           await this.backfillKlines(task.symbol, task.interval);
-        } catch (err) {
-          this.logger.error(`Backfill failed for ${task.symbol} ${task.interval}: ${err instanceof Error ? err.message : String(err)}`);
+        } catch (err: any) {
+          const msg = err.message || '';
+          const isBan = msg.includes('banned') || msg.includes('418');
+          const isRateLimit = msg.includes('429');
+
+          if (isBan || isRateLimit) {
+             this.logger.warn(`Critical API issue detected during backfill: ${msg}. Purging ${this.backfillQueue.length} items from backfill queue.`);
+             this.backfillQueue = [];
+             break; // Exit the while loop immediately
+          }
+          this.logger.error(`Backfill failed for ${task.symbol} ${task.interval}: ${msg}`);
         }
 
         // SRE: Adaptive gap between sequential requests to smooth out weight consumption.
@@ -850,7 +838,7 @@ export class MarketFeedService {
     await new Promise(resolve => setTimeout(resolve, Math.random() * ENGINE_CONSTANTS.BACKFILL_MAX_JITTER_MS));
     try {
       this.monitoringService.incrementApiRequests();
-      let klines: any[];
+      let klines: any[][];
 
       if (this.binanceClient) {
         const response = await this.binanceClient.restAPI.klineCandlestickData({
@@ -859,13 +847,15 @@ export class MarketFeedService {
           limit: this.klineStore.getMaxCandles()
         });
         this.updateWeight(response.headers);
-        klines = await response.data();
+        klines = (await response.data()) as any[][];
       } else {
         const url = `${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${this.klineStore.getMaxCandles()}`;
-        const response = await fetch(url);
-        this.updateWeight(response.headers);
+        const response = await this.binanceClientFactory.genericRequest(
+          () => fetch(url, { signal: AbortSignal.timeout(10000) }),
+          'klineCandlestickData'
+        );
         if (!response.ok) return;
-        klines = await response.json() as any[];
+        klines = (await response.json()) as any[][];
       }
 
       if (Array.isArray(klines)) await this.klineStore.seedFromRest(symbol, interval, klines);

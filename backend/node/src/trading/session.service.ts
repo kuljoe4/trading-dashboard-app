@@ -32,7 +32,7 @@ import { ConfigValidationException } from "../lib/exceptions";
 import { BinanceClientFactory } from "../lib/binanceClientFactory";
 import { AnalyticsService } from "../engine/analytics.service";
 import { MarketFeedService } from "../engine/market_feed.service";
-import { updateLogLevels } from "../lib/logger";
+import { updateLogLevels, sanitize, formatValidationErrors } from "../lib/logger";
 import { roundEight } from "../lib/math";
 import { CONFIG_LIMITS, EXIT_REASONS, ENGINE_CONSTANTS } from "../models/constants";
 
@@ -47,6 +47,16 @@ export class SessionService implements OnModuleInit {
 
   private analyticsCache: { data: any; ts: number } | null = null;
   private readonly CACHE_TTL_MS = 60000; // 1 minute
+
+  // DATA-CONSISTENCY: Fields that cannot be modified while a session is active
+  private static readonly IMMUTABLE_SESSION_FIELDS = [
+    'trading_mode',
+    'paper_mode',
+    'paper_starting_balance',
+    'testnet_starting_balance',
+    'live_starting_balance',
+  ];
+
   // SENTINEL: In-memory tracking to prevent database-heavy count() and log spamming
   private logRateLimits = new Map<string, { count: number; resetAt: number }>();
   private sessionLogCounts = new Map<string, number>();
@@ -156,7 +166,10 @@ export class SessionService implements OnModuleInit {
     this.logger.log("Cleaning up stale running sessions...");
     const updateResult = await this.sessionRepository.update(
       { running: true },
-      { running: false },
+      {
+        running: false,
+        endTime: new Date()
+      },
     );
     if (updateResult.affected && updateResult.affected > 0) {
       this.logger.verbose(
@@ -205,27 +218,19 @@ export class SessionService implements OnModuleInit {
             if (session) {
               const mode =
                 session.tradingMode || (session.paperMode ? "paper" : "live");
-              let realizedPnl: number;
 
-              if (mode === "paper") {
-                const startingBalance =
-                  session.config?.paper_starting_balance || 10000;
-                realizedPnl = roundEight(balance - startingBalance);
-              } else {
-                // Live/Testnet: Sum all trades (including OPEN) for this session using optimized DB aggregation
-                // This ensures that fees and funding from active trades are reflected in totalPnl immediately
-                // and prevents corruption from external deposits/withdrawals.
-                const aggregation = await queryRunner.manager
-                  .createQueryBuilder(TradeEntity, "trade")
-                  .select("SUM(trade.pnl)", "sum")
-                  .where("trade.sessionId = :sessionId", { sessionId })
-                  .andWhere("trade.status IN (:...statuses)", {
-                    statuses: [...TERMINAL_STATUSES, "OPEN"],
-                  })
-                  .getRawOne();
+              // DATA-CONSISTENCY: Use trade summation for PnL in ALL modes (including Paper)
+              // to ensure consistency and prevent corruption from external balance adjustments.
+              const aggregation = await queryRunner.manager
+                .createQueryBuilder(TradeEntity, "trade")
+                .select("SUM(trade.pnl)", "sum")
+                .where("trade.sessionId = :sessionId", { sessionId })
+                .andWhere("trade.status IN (:...statuses)", {
+                  statuses: [...TERMINAL_STATUSES, "OPEN"],
+                })
+                .getRawOne();
 
-                realizedPnl = roundEight(Number(aggregation?.sum || 0));
-              }
+              const realizedPnl = roundEight(Number(aggregation?.sum || 0));
 
               await queryRunner.manager.update(SessionEntity, sessionId, {
                 balance,
@@ -357,29 +362,19 @@ export class SessionService implements OnModuleInit {
       await queryRunner.manager.save(TradeEntity, tradeEntity);
 
       // 2. Update Session PnL and Balance
-      // BOLT: Use trade summation for PnL in Live mode to prevent corruption from external deposits/withdrawals.
-      // For Paper mode, balance-based PnL is safe as the engine controls the balance entirely.
-      const mode =
-        session.tradingMode || (session.paperMode ? "paper" : "live");
-      let realizedPnl: number;
+      // DATA-CONSISTENCY: Use trade summation for PnL in ALL modes (including Paper)
+      // to ensure consistency and prevent corruption from manual balance adjustments.
+      // This ensures that fees and funding from active trades are reflected in totalPnl immediately.
+      const aggregation = await queryRunner.manager
+        .createQueryBuilder(TradeEntity, "trade")
+        .select("SUM(trade.pnl)", "sum")
+        .where("trade.sessionId = :sessionId", { sessionId })
+        .andWhere("trade.status IN (:...statuses)", {
+          statuses: [...TERMINAL_STATUSES, "OPEN"],
+        })
+        .getRawOne();
 
-      if (mode === "paper") {
-        const startingBalance = session.config?.paper_starting_balance || 10000;
-        realizedPnl = roundEight(balance - startingBalance);
-      } else {
-        // Live/Testnet: Sum all trades (including OPEN) for this session using optimized DB aggregation
-        // This ensures that fees and funding from active trades are reflected in totalPnl immediately.
-        const aggregation = await queryRunner.manager
-          .createQueryBuilder(TradeEntity, "trade")
-          .select("SUM(trade.pnl)", "sum")
-          .where("trade.sessionId = :sessionId", { sessionId })
-          .andWhere("trade.status IN (:...statuses)", {
-            statuses: [...TERMINAL_STATUSES, "OPEN"],
-          })
-          .getRawOne();
-
-        realizedPnl = roundEight(Number(aggregation?.sum || 0));
-      }
+      const realizedPnl = roundEight(Number(aggregation?.sum || 0));
 
       await queryRunner.manager.update(SessionEntity, sessionId, {
         balance,
@@ -1180,7 +1175,7 @@ export class SessionService implements OnModuleInit {
             this.logger.log(
               `[SRE] Initiating periodic full state reconciliation...`,
             );
-            this.reconcileLiveState(binanceClient).catch((e) =>
+            this.tradingSessionService.reconcileLiveState().catch((e) =>
               this.logger.error(`Periodic reconciliation failed: ${e.message}`),
             );
           }
@@ -1209,108 +1204,45 @@ export class SessionService implements OnModuleInit {
     return { strategyId: this.currentSessionId, status: "started" };
   }
 
-  /**
-   * SRE: Performs a full audit of local state against Binance exchange state.
-   * This is the "TruthFallback" part of the Hybrid Event-Loop architecture.
-   */
-  private async reconcileLiveState(binanceClient: any) {
+  @OnEvent('reconciliation.adopt_positions')
+  async handleAdoptPositions(payload: { positions: any[], orders: any[] }) {
     if (!this.sessionRunning || !this.currentSessionId) return;
 
     const session = await this.sessionRepository.findOne({
       where: { id: this.currentSessionId },
-      select: ["id", "tradingMode", "paperMode"],
+      select: ["id", "tradingMode", "paperMode", "config"],
     });
-    const mode =
-      session?.tradingMode || (session?.paperMode ? "paper" : "live");
 
-    try {
-      this.logger.log(
-        `[SRE] Periodic full state reconciliation started for ${mode.toUpperCase()} session ${this.currentSessionId}`,
-      );
+    if (!session) return;
+    const mode = session.tradingMode || (session.paperMode ? "paper" : "live");
 
-      const allExchangePositions =
-        await this.tradingSessionService.fetchAllPositions();
-      const activeExPositions = allExchangePositions.filter(
-        (p) => Math.abs(parseFloat(p.positionAmt)) > 0,
-      );
-      const activeExMap = new Map(activeExPositions.map((p) => [p.symbol, p]));
+    this.logger.warn(
+      `[Reconciliation] Processing adoption request for ${payload.positions.length} positions.`,
+    );
 
-      // PERF: Fetch all open orders once for the entire reconciliation to save weight
-      const allOpenOrders = await this.orderManager.fetchAllOpenOrders();
+    const imported = await this.adoptExchangePositions(
+      payload.positions,
+      mode,
+      session.config,
+      payload.orders,
+    );
 
-      const localOpenTrades = this.tradingSessionService.getActiveTradesRaw();
-      const localSymbols = new Set(localOpenTrades.map((t) => t.symbol));
+    // Hot-add adopted trades to the running engine
+    for (const t of imported) {
+      const tradeModel = plainToInstance(Trade, t);
+      // BOLT: Use addTrade to ensure PositionTracker correctly initializes milestone state
+      this.tradingSessionService.addTrade(tradeModel as any);
 
-      this.logger.debug(
-        `[Reconciliation] Local symbols: [${Array.from(localSymbols).join(",")}], Exchange symbols: [${Array.from(activeExMap.keys()).join(",")}]`,
-      );
+      this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, {
+        trade: tradeModel,
+      });
+    }
 
-      // 1. Audit Local Trades (Local -> Exchange)
-      for (const trade of localOpenTrades) {
-        // Skip reconciliation trades themselves to avoid loops, and only check truly OPEN trades
-        if (trade.is_reconciliation || trade.status !== "OPEN") continue;
-
-        const exPos = activeExMap.get(trade.symbol);
-        if (!exPos) {
-          const metadata = {
-            id: trade.id,
-            entryPrice: trade.entry_price,
-            qty: trade.qty,
-            entryTs: trade.entry_ts,
-          };
-          this.logger.error(
-            `[Reconciliation] [CRITICAL] Local ${mode.toUpperCase()} trade ${trade.symbol} not found on exchange. Triggering sync close. Meta: ${JSON.stringify(metadata)}`,
-          );
-
-          this.eventEmitter.emit("trade.exchange_close", {
-            symbol: trade.symbol,
-            exitPrice: 0,
-            reason: EXIT_REASONS.EXCHANGE_SYNC,
-            isReconciliation: true,
-          });
-        }
-      }
-
-      // 2. Audit Exchange Positions (Exchange -> Local)
-      const ghostPositions = activeExPositions.filter(
-        (p) => !localSymbols.has(p.symbol),
-      );
-      if (ghostPositions.length > 0) {
-        this.logger.warn(
-          `[Reconciliation] Found ${ghostPositions.length} untracked positions during periodic audit. Adopting...`,
-        );
-        const imported = await this.adoptExchangePositions(
-          ghostPositions,
-          mode,
-          session?.config || null,
-          allOpenOrders,
-        );
-
-        // Hot-add adopted trades to the running engine
-        for (const t of imported) {
-          const tradeModel = plainToInstance(Trade, t);
-          // BOLT: Use addTrade to ensure PositionTracker correctly initializes milestone state
-          this.tradingSessionService.addTrade(tradeModel as any);
-
-          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, {
-            trade: tradeModel,
-          });
-        }
-
-        if (imported.length > 0) {
-          // BOLT: Synchronize active trades state and trigger watchlist update for newly adopted trades
-          this.tradingSessionService.seedActiveTrades(this.tradingSessionService.getActiveTradesRaw());
-          this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
-          this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
-        }
-      }
-      this.logger.log(
-        `[SRE] Periodic reconciliation complete. State verified.`,
-      );
-    } catch (e) {
-      this.logger.error(
-        `[Reconciliation] Periodic logic failed: ${e instanceof Error ? e.message : String(e)}`,
-      );
+    if (imported.length > 0) {
+      // BOLT: Synchronize active trades state and trigger watchlist update for newly adopted trades
+      this.tradingSessionService.seedActiveTrades(this.tradingSessionService.getActiveTradesRaw());
+      this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
+      this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
     }
   }
 
@@ -1450,8 +1382,8 @@ export class SessionService implements OnModuleInit {
             initial_sl: initialSl,
             rr_sequence_index: -1,
             max_rr_achieved: 0,
-          } as any;
-          rrSequenceIndex = this.tradingSessionService.reconcileMilestoneFromSl(tempTrade, slPrice, config as any);
+          } as Trade;
+          rrSequenceIndex = this.tradingSessionService.reconcileMilestoneFromSl(tempTrade, slPrice, config);
           maxRrAchieved = tempTrade.max_rr_achieved;
           this.logger.log(`[Reconciliation] Adopted ${exPos.symbol} reconciled milestone index: ${rrSequenceIndex}, peak RR: ${maxRrAchieved}`);
         }
@@ -1560,6 +1492,16 @@ export class SessionService implements OnModuleInit {
 
       if (!session) throw new NotFoundException("Session not found");
 
+      // DATA-CONSISTENCY: Block modification of immutable fields while session is running
+      if (this.sessionRunning && this.currentSessionId === id) {
+        for (const field of SessionService.IMMUTABLE_SESSION_FIELDS) {
+          const typedPartial = partialConfig as any;
+          if (typedPartial[field] !== undefined && typedPartial[field] !== session.config?.[field]) {
+            throw new BadRequestException(`Cannot modify ${field} while session is running`);
+          }
+        }
+      }
+
       // 1. Merge state instead of overwriting, strictly preserving the live mode and established paper mode
       const mergedConfig = {
         ...(session.config || {}),
@@ -1580,10 +1522,17 @@ export class SessionService implements OnModuleInit {
       const configInstance = plainToInstance(SessionConfig, mergedConfig);
       const errors = await validate(configInstance);
       if (errors.length > 0) {
+        // SENTINEL: Extract non-sensitive metadata from validation errors for reporting
+        const detailedErrors = formatValidationErrors(errors);
+        // SENTINEL: Sanitize validation errors to mask 'value' fields containing sensitive inputs
+        const sanitizedErrors = sanitize(errors);
         this.logger.warn(
-          `Validation failed for merged config: ${JSON.stringify(errors)}`,
+          `Validation failed for merged config: ${JSON.stringify(sanitizedErrors)}`,
         );
-        throw new BadRequestException("Invalid configuration parameters");
+        throw new BadRequestException({
+          message: "Invalid configuration parameters",
+          detail: errors
+        });
       }
 
       this.validateConfig(configInstance);
@@ -1706,7 +1655,10 @@ export class SessionService implements OnModuleInit {
 
     const sessionId = this.currentSessionId;
 
-    await this.sessionRepository.update(sessionId, { running: false });
+    await this.sessionRepository.update(sessionId, {
+      running: false,
+      endTime: new Date()
+    });
 
     // Stop the actual trading engine
     await this.tradingSessionService.stop();
@@ -1975,6 +1927,7 @@ export class SessionService implements OnModuleInit {
       });
       const logRetentionDays = (settings as any)?.log_retention_days || 7;
       const tradeRetentionDays = (settings as any)?.trade_retention_days || 30;
+      const klineRetentionDays = 7;
 
       const logCutoff = new Date(
         Date.now() - logRetentionDays * 24 * 60 * 60 * 1000,
@@ -1996,11 +1949,42 @@ export class SessionService implements OnModuleInit {
         .andWhere("status IN (:...statuses)", { statuses: TERMINAL_STATUSES })
         .execute();
 
+      // SEC-02: Cleanup old kline data to prevent unbounded storage growth
+      const klineCutoff = Date.now() - klineRetentionDays * 24 * 60 * 60 * 1000;
+      const deletedKlines = await this.sessionRepository.manager
+        .createQueryBuilder()
+        .delete()
+        .from("klines")
+        .where("time < :cutoff", { cutoff: klineCutoff })
+        .execute();
+
       // SENTINEL: Also cleanup audit logs periodically
       const auditRetentionDays = (settings as any)?.audit_retention_days || 90;
       const deletedAudit = await this.auditLog.cleanup(auditRetentionDays);
 
-      this.logger.log(`Cleanup completed: ${deletedLogs.affected || 0} logs, ${deletedTrades.affected || 0} trades, and ${deletedAudit || 0} audit entries removed.`);
+      // SENTINEL: Implement memory cleanup for session-specific trackers to prevent memory exhaustion
+      // Iterate through the maps and remove entries for sessions that are no longer running.
+      const runningSessions = await this.sessionRepository.find({ where: { running: true }, select: ['id'] });
+      const runningIds = new Set(runningSessions.map(s => s.id));
+      if (this.currentSessionId) runningIds.add(this.currentSessionId);
+
+      let logRateLimitCleared = 0;
+      for (const sid of this.logRateLimits.keys()) {
+        if (!runningIds.has(sid)) {
+          this.logRateLimits.delete(sid);
+          logRateLimitCleared++;
+        }
+      }
+
+      let sessionLogCountCleared = 0;
+      for (const sid of this.sessionLogCounts.keys()) {
+        if (!runningIds.has(sid)) {
+          this.sessionLogCounts.delete(sid);
+          sessionLogCountCleared++;
+        }
+      }
+
+      this.logger.log(`Cleanup completed: ${deletedLogs.affected || 0} logs, ${deletedTrades.affected || 0} trades, ${deletedKlines.affected || 0} klines, and ${deletedAudit || 0} audit entries removed. Tracker memory cleared for ${logRateLimitCleared + sessionLogCountCleared} stale sessions.`);
     } catch (e: any) {
       this.logger.error(`Data cleanup failed: ${e.message}`);
     }

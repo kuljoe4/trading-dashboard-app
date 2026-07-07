@@ -15,6 +15,12 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditLogService } from '../trading/audit-log.service';
 import { ConfigValidationException } from '../lib/exceptions';
 import { roundEight } from '../lib/math';
+import {
+  BinancePositionMode,
+  BinanceBalanceV3,
+  BinanceListenKeyResponse,
+  BinanceAccountUpdateEvent
+} from '../models/binance.types';
 import { ENGINE_CONSTANTS, EXIT_REASONS } from '../models/constants';
 
 @Injectable()
@@ -62,7 +68,7 @@ export class SessionLifecycleService {
       }
     } catch (e) {}
 
-    this.sessionState.reset(config, hist, curBal, sid);
+    this.sessionState.reset(config, hist, curBal, sid, open);
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
     await this.orderManager.setBinanceClient(bc, mode === 'paper');
 
@@ -99,7 +105,7 @@ export class SessionLifecycleService {
         try {
           this.monitoringService.incrementApiRequests();
           const currentModeRes = await bc.restAPI.getCurrentPositionMode();
-          const currentModeData = await currentModeRes.data();
+          const currentModeData = (await currentModeRes.data()) as BinancePositionMode;
 
           if (currentModeData && currentModeData.dualSidePosition === false) {
             this.logger.debug('Binance position mode is already One-Way.');
@@ -195,7 +201,7 @@ export class SessionLifecycleService {
       await this.progress(`Resuming ${open.length} active trades...`);
       for (const t of open) {
         this.positionTracker.addTrade(t);
-        this.sessionState.updateStatsOnEntry();
+        this.sessionState.updateStatsOnEntry(t.id);
       }
     }
     this.sessionState.setActiveTrades(this.positionTracker.activeList());
@@ -264,11 +270,11 @@ export class SessionLifecycleService {
       // Traceability: Log successful balance fetch
       this.logger.debug(`[Lifecycle] Successfully fetched balance via REST V3.`);
 
-      const data = await res.data() as any;
-      const usdt = Array.isArray(data) ? data.find((b: any) => b.asset === 'USDT') : null;
+      const data = (await res.data()) as BinanceBalanceV3[];
+      const usdt = Array.isArray(data) ? data.find((b) => b.asset === 'USDT') : null;
 
       if (usdt) {
-        return parseFloat(usdt.balance || 0);
+        return parseFloat(String(usdt.balance || '0'));
       }
 
       this.logger.warn(`Could not find USDT balance in Binance response. Data received: ${JSON.stringify(data).substring(0, 200)}`);
@@ -279,10 +285,10 @@ export class SessionLifecycleService {
     }
   }
 
-  public handleAccountUpdate(data: any) {
+  public handleAccountUpdate(data: BinanceAccountUpdateEvent) {
     // Real-time Balance Tracking (Zero Weight)
     if (data.a.B) {
-      const usdt = data.a.B.find((b: any) => b.a === 'USDT');
+      const usdt = data.a.B.find((b) => b.a === 'USDT');
       if (usdt) {
         const nb = parseFloat(usdt.wb);
         const liveBalMsg = `[Lifecycle] Received real-time balance update: ${nb} USDT`;
@@ -306,7 +312,15 @@ export class SessionLifecycleService {
 
         this.logger.debug(`[Lifecycle] Real-time position update for ${symbol}: ${amount} @ ${entryPrice}`);
 
-        const trade = this.sessionState.activeTrades.find(t => t.symbol === symbol);
+        let trade = this.sessionState.activeTrades.find(t => t.symbol === symbol);
+
+        // SRE: Race condition guard - check in-flight entries if not in active list
+        if (!trade && amount !== 0) {
+           trade = this.positionTracker.getInFlightEntry(symbol);
+           if (trade) {
+              this.logger.debug(`[Lifecycle] [Sync] Matched in-flight entry for ${symbol} in ACCOUNT_UPDATE.`);
+           }
+        }
 
         // Real-time Quantity & Price Sync: Update active trade from UDS ACCOUNT_UPDATE
         if (trade && amount !== 0) {
@@ -382,7 +396,7 @@ export class SessionLifecycleService {
       const res = await bc.restAPI.startUserDataStream();
       if (!res || !res.data) throw new Error('Failed to start user data stream: No response from Binance');
 
-      const resData = await res.data() as any;
+      const resData = (await res.data()) as BinanceListenKeyResponse;
       const newListenKey = resData.listenKey;
 
       const oldWs = this.userDataWs;
@@ -431,7 +445,8 @@ export class SessionLifecycleService {
 
       currentWs.on('pong', () => {
         if (this.userDataWs !== currentWs) return;
-        this.logger.debug('[UDS] WebSocket PONG received. Heartbeat confirmed.');
+        // REDUCE LOG NOISE: Silence heartbeat PONGs
+        // this.logger.debug('[UDS] WebSocket PONG received. Heartbeat confirmed.');
         this.monitoringService.recordUdsPing();
       });
 
@@ -450,8 +465,9 @@ export class SessionLifecycleService {
           if (data.e === 'ACCOUNT_UPDATE' && data.a) {
             this.handleAccountUpdate(data);
           } else if (data.e === 'ORDER_TRADE_UPDATE') {
-            const order = data.o;
-            this.logger.log(`[Lifecycle] Order Update: ${order.s} ${order.S} ${order.X} (id=${order.i}, client_id=${order.c})`);
+            // REDUCE LOG NOISE: OrderManagerService already logs this with more detail
+            // const order = data.o;
+            // this.logger.log(`[Lifecycle] Order Update: ${order.s} ${order.S} ${order.X} (id=${order.i}, client_id=${order.c})`);
             this.eventEmitter.emit('binance.order_update', data);
           } else if (data.e === 'listenKeyExpired') {
             this.logger.warn('[Lifecycle] ListenKey expired, restarting user data stream...');
@@ -517,7 +533,10 @@ export class SessionLifecycleService {
            this.startUserDataStream(bc, true).catch(() => {});
         }
         // HEARTBEAT: Explicit debug log for UDS health observability
-        this.logger.debug(`[SRE] UDS Heartbeat: Status=${this.isUdsConnected ? 'CONNECTED' : 'DISCONNECTED'}, LastPing=${lastPing}s, ActiveTrades=${hasActiveTrades}`);
+        // REDUCE LOG NOISE: Downgrade heartbeat to verbose or silence entirely if connected
+        if (!this.isUdsConnected || lastPing > 30) {
+           this.logger.debug(`[SRE] UDS Heartbeat: Status=${this.isUdsConnected ? 'CONNECTED' : 'DISCONNECTED'}, LastPing=${lastPing}s, ActiveTrades=${hasActiveTrades}`);
+        }
       }, 60000);
 
       const startTime = Date.now();

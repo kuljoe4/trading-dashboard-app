@@ -17,6 +17,7 @@ describe('PositionTrackerService', () => {
     mockOrderManager = {
       updateStopLoss: jest.fn().mockImplementation((trade, newSl) => Promise.resolve({ success: true, price: newSl })),
       applyFilters: jest.fn().mockImplementation((symbol, price, qty) => ({ price, qty })),
+      isRatcheting: jest.fn().mockReturnValue(false),
     };
     mockTickerCache = {};
     mockKlineStore = {};
@@ -292,6 +293,7 @@ describe('PositionTrackerService', () => {
       const trade1 = {
         symbol: 'BTCUSDT',
         risk_usdt: 100,
+        status: 'OPEN',
       } as unknown as Trade;
 
       service.addTrade(trade1);
@@ -326,6 +328,7 @@ describe('PositionTrackerService', () => {
       const trade1 = {
         symbol: 'BTCUSDT',
         risk_usdt: 100,
+        status: 'OPEN',
       } as unknown as Trade;
       service.addTrade(trade1);
 

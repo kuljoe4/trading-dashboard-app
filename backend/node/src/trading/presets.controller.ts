@@ -10,6 +10,7 @@ import { SessionConfig } from '../models/SessionConfig';
 import { ApiKeyGuard } from '../lib/api-key.guard';
 import { AuditLogService } from './audit-log.service';
 import { extractIp } from '../lib/throttle';
+import { formatValidationErrors } from '../lib/logger';
 
 @Controller('presets')
 @UseGuards(ApiKeyGuard)
@@ -37,14 +38,7 @@ export class PresetsController {
     const configInstance = plainToInstance(SessionConfig, body.config || {});
     const errors = await validate(configInstance);
     if (errors.length > 0) {
-      const formatErrors = (errs: any[]): any[] => {
-        return errs.map(err => ({
-          property: err.property,
-          constraints: err.constraints,
-          children: err.children?.length ? formatErrors(err.children) : undefined
-        }));
-      };
-      const detailedErrors = formatErrors(errors);
+      const detailedErrors = formatValidationErrors(errors);
       this.logger.warn(`Preset validation failed for "${body.name}": ${JSON.stringify(detailedErrors)}`);
       throw new BadRequestException({
         message: 'Invalid strategy configuration in preset',

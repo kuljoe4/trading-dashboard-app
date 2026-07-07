@@ -90,28 +90,28 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-x-6 gap-y-2 pt-3 border-t border-border/5 justify-start">
-        <div className="flex flex-col items-start min-w-[120px] max-w-[160px]">
+      <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-x-6 gap-y-4 pt-3 border-t border-border/5">
+        <div className="flex flex-col items-start min-w-0">
           <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Execution</span>
           <span className="text-[9px] font-black text-text/70 font-mono truncate w-full">{price(trade.entry_price)} → {price(trade.exit_price)}</span>
         </div>
-        <div className="flex flex-col items-start min-w-[60px]">
+        <div className="flex flex-col items-start min-w-0">
           <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Quantity</span>
           <span className="text-[9px] font-black text-text/70 font-mono">{Number(trade.qty || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
         </div>
-        <div className="flex flex-col items-start min-w-[70px]">
+        <div className="flex flex-col items-start min-w-0">
           <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Peak</span>
           <span className="text-[9px] font-black text-accent font-mono">+{Number(trade.max_rr_achieved || 0).toFixed(2)}R</span>
         </div>
-        <div className="flex flex-col items-start min-w-[80px]">
+        <div className="flex flex-col items-start min-w-0">
           <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Market Context</span>
           <span className={cn("text-[9px] font-black font-mono", pnlClass(trade.entry_daily_change_pct))}>
             {(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} {Math.abs(trade.entry_daily_change_pct || 0).toFixed(2)}%
           </span>
         </div>
-        <div className="flex flex-col items-start min-w-[80px] max-w-[120px]">
-          <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Exit</span>
-          <Tooltip content={trade.exit_signal_reason || trade.exit_reason || 'No detailed reason provided'}>
+        <div className="flex flex-col items-start min-w-0 sm:max-w-[120px] col-span-2 sm:col-span-1">
+          <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Exit Reason</span>
+          <Tooltip content={trade.exit_signal_reason || 'No detailed reason provided'}>
             <span className="text-[8px] font-black text-text/60 uppercase truncate w-full leading-tight cursor-help border-b border-dotted border-dim/20">
               {(() => {
                 const type = trade.exit_signal_type?.replace(/_/g, ' ') || (trade.exit_reason || 'Manual');
@@ -255,12 +255,10 @@ const SessionGroup = React.memo(({ session, trades }) => {
             </div>
             <div className="flex flex-col">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Expectancy</span>
-              <Tooltip content="Expected value per trade based on historical performance">
-                <span className={cn("text-xs font-bold flex items-center gap-1.5 border-b border-dotted border-dim/30", expectancyStatus.color)}>
-                  <expectancyStatus.icon size={12} aria-hidden="true" />
-                  {Number(expectancyStatus.expectancy).toFixed(2)}
-                </span>
-              </Tooltip>
+              <span className={cn("text-xs font-bold flex items-center gap-1.5", expectancyStatus.color)}>
+                <expectancyStatus.icon size={12} aria-hidden="true" />
+                {Number(expectancyStatus.expectancy).toFixed(2)}
+              </span>
             </div>
             <div className="flex flex-col items-end">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Net P&L</span>
@@ -372,8 +370,23 @@ export const HistoryView = () => {
       ])
       updateStats({ tradeHistory: historyRes.data.trades || [] })
       setShowDeleteConfirm(false)
+      updateStats({
+        alerts: [{
+          id: Math.random().toString(36).substring(2, 9),
+          level: 'success',
+          title: 'Records Cleared',
+          message: 'All standalone trade records have been removed.'
+        }]
+      })
     } catch (e) {
-      alert('Failed to delete standalone records')
+      updateStats({
+        alerts: [{
+          id: Math.random().toString(36).substring(2, 9),
+          level: 'error',
+          title: 'Clear Failed',
+          message: 'Could not remove standalone records from the database.'
+        }]
+      })
     } finally {
       setDeletingOrphans(false)
       updateStats({ isSyncing: false })
@@ -501,7 +514,7 @@ export const HistoryView = () => {
             label="Total Performance"
             value={fmtUSD(totalPnl)}
             color={pnlClass(totalPnl)}
-            tooltipText="Net profit/loss including realized fees and funding across all recorded history."
+            tooltipText="Net profit/loss including realized fees and funding across all recorded history for the selected environment."
             subValue={
               <span className={cn("flex items-center gap-1", pnlClass(currentAnalytics?.overallPnlPct))}>
                 <span className="text-[0.8em] opacity-80">{(currentAnalytics?.overallPnlPct || 0) > 0 ? '▴' : (currentAnalytics?.overallPnlPct || 0) < 0 ? '▾' : ''}</span>

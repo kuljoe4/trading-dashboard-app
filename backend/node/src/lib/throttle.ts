@@ -1,3 +1,5 @@
+import { isIP } from 'net';
+
 // SENTINEL: Centralized IP-based failure tracking to prevent brute-force
 const FAILURES = new Map<string, { count: number; lastFailure: number }>();
 const MAX_FAILURES = 10;
@@ -41,6 +43,8 @@ export function recordFailure(ip: string): number {
   return record.count;
 }
 
+import * as net from "net";
+
 export function clearFailures(ip: string): void {
   FAILURES.delete(ip);
 }
@@ -49,11 +53,20 @@ export function extractIp(headers: any, defaultIp: string): string {
   const forwarded = headers?.["x-forwarded-for"];
   if (forwarded) {
     // SENTINEL: Handle both string and array of strings for multiple X-Forwarded-For headers.
+    const rawForwarded = Array.isArray(forwarded) ? (forwarded as string[]).join(",") : (forwarded as string);
+
+    // SENTINEL: Add a sanity length limit to the header to prevent memory exhaustion DoS or ReDoS
+    if (rawForwarded.length > 1024) {
+      return defaultIp;
+    }
+
     // When behind a trusted proxy, the last IP in the chain is the most reliable.
     // The leftmost IP can be spoofed by the client.
-    const rawForwarded = Array.isArray(forwarded) ? forwarded.join(',') : forwarded;
-    const ips = rawForwarded.split(',');
-    return ips[ips.length - 1].trim();
+    const ips = rawForwarded
+      .split(",")
+      .map((s: string) => s.trim())
+      .filter((s: string) => s.length > 0 && net.isIP(s));
+    return ips.length > 0 ? ips[ips.length - 1] : defaultIp;
   }
   return defaultIp;
 }

@@ -15,6 +15,7 @@ import { TradingSessionService } from "./engine/trading_session.service";
 import { EngineBroadcasterService } from "./engine/engine-broadcaster.service";
 import { AuditLogService } from "./trading/audit-log.service";
 import { checkOrigin } from "./lib/origin";
+import "./lib/math"; // BOLT: Load math utilities early to initialize BigInt polyfill
 
 async function bootstrap() {
   const isProduction = process.env.NODE_ENV === "production";
@@ -156,6 +157,8 @@ async function bootstrap() {
   const wss = new WebSocketServer({
     server: httpServer,
     path: "/session/ws",
+    // SENTINEL: Support token-based auth via sub-protocol to avoid leaking keys in URLs/logs
+    handleProtocols: (protocols) => [...protocols][0],
     perMessageDeflate: {
       zlibDeflateOptions: {
         chunkSize: 1024,
@@ -213,13 +216,10 @@ async function bootstrap() {
       const adminKey = configService.get<string>("ADMIN_API_KEY");
       if (adminKey) {
         try {
-          const hostHeader = info.req.headers.host;
-          const host = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
-          const url = new URL(
-            info.req.url || "",
-            `http://${host || 'localhost'}`,
-          );
-          const token = url.searchParams.get("token");
+          // SENTINEL: Extract token from sub-protocol header instead of query params
+          // to prevent sensitive keys from appearing in server access logs or browser history.
+          const protocolHeader = info.req.headers['sec-websocket-protocol'];
+          const token = Array.isArray(protocolHeader) ? protocolHeader[0] : protocolHeader;
 
           // SENTINEL: Validate token length and presence
           if (!token || token.length > 128) {

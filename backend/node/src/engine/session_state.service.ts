@@ -146,8 +146,7 @@ export class SessionStateService {
         entryCount: this.countedGlobalEntries.size,
         hitCount: this.countedGlobalHits.size,
         totalPnl: roundEight(
-          initialHistory
-            .filter(t => t.sessionId === sessionId)
+          [...sessionHistory, ...sessionOpen]
             .reduce((acc, t) => acc + (t.pnl || 0), 0)
         )
     };

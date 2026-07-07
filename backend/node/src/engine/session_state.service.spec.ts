@@ -35,8 +35,8 @@ describe('SessionStateService PnL Restart Consistency', () => {
     // Update reset call to include initialOpen
     service.reset(config, [closedTrade], 10000, sessionId, [openTrade]);
 
-    // FIX: totalPnl should only include closed trades during reset to prevent double-counting
-    // Expected: 10.5
-    expect(service.stats.totalPnl).toBe(10.5);
+    // DATA-07: totalPnl includes realized portion of open trades to match DB aggregation
+    // Expected: 10.5 + (-2.0) = 8.5
+    expect(service.stats.totalPnl).toBe(8.5);
   });
 });

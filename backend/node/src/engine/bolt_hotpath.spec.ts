@@ -18,7 +18,7 @@ describe('Bolt Optimizations: Hot-Path Performance', () => {
 
   describe('PositionTrackerService.activeList() Cache', () => {
     it('should return the same array instance if no changes occurred', () => {
-      const trade1 = { symbol: 'BTCUSDT', risk_usdt: 10 } as Trade;
+      const trade1 = { symbol: 'BTCUSDT', risk_usdt: 10, status: 'OPEN' } as Trade;
       positionTracker.addTrade(trade1);
 
       const list1 = positionTracker.activeList();
@@ -29,11 +29,11 @@ describe('Bolt Optimizations: Hot-Path Performance', () => {
     });
 
     it('should invalidate cache when a trade is added', () => {
-      const trade1 = { symbol: 'BTCUSDT', risk_usdt: 10 } as Trade;
+      const trade1 = { symbol: 'BTCUSDT', risk_usdt: 10, status: 'OPEN' } as Trade;
       positionTracker.addTrade(trade1);
       const list1 = positionTracker.activeList();
 
-      const trade2 = { symbol: 'ETHUSDT', risk_usdt: 5 } as Trade;
+      const trade2 = { symbol: 'ETHUSDT', risk_usdt: 5, status: 'OPEN' } as Trade;
       positionTracker.addTrade(trade2);
       const list2 = positionTracker.activeList();
 
@@ -42,7 +42,7 @@ describe('Bolt Optimizations: Hot-Path Performance', () => {
     });
 
     it('should invalidate cache when a trade is removed', () => {
-      const trade1 = { symbol: 'BTCUSDT', risk_usdt: 10 } as Trade;
+      const trade1 = { symbol: 'BTCUSDT', risk_usdt: 10, status: 'OPEN' } as Trade;
       positionTracker.addTrade(trade1);
       const list1 = positionTracker.activeList();
 
@@ -55,7 +55,7 @@ describe('Bolt Optimizations: Hot-Path Performance', () => {
 
     it('benchmark: activeList allocation savings', () => {
       for (let i = 0; i < 100; i++) {
-        positionTracker.addTrade({ symbol: `SYM${i}`, risk_usdt: 1 } as Trade);
+        positionTracker.addTrade({ symbol: `SYM${i}`, risk_usdt: 1, status: 'OPEN' } as Trade);
       }
 
       const iterations = 100000;

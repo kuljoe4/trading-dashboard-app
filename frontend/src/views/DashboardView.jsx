@@ -260,28 +260,24 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
         </div>
         <div className="text-right shrink-0">
           <div className="flex gap-2 mb-2 relative z-20">
-            <Tooltip content={isExpanded ? "Hide Details" : "View Strategy Details"}>
-              <button
-                onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
-                aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
-                aria-expanded={isExpanded}
-                className={cn(
-                  "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                  isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
-                )}
-              >
-                <Activity size={14} />
-              </button>
-            </Tooltip>
-            <Tooltip content="Edit Strategy">
-              <button
-                onClick={(e) => { e.stopPropagation(); onEdit(); }}
-                className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none"
-                aria-label="Edit strategy configuration"
-              >
-                <Edit3 size={14} />
-              </button>
-            </Tooltip>
+            <button
+              onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
+              aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
+              aria-expanded={isExpanded}
+              className={cn(
+                "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
+              )}
+            >
+              <Activity size={14} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onEdit(); }}
+              className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none"
+              aria-label="Edit strategy configuration"
+            >
+              <Edit3 size={14} />
+            </button>
           </div>
           <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter" style={{ color: pnlColor(s.activePnl) }}>
             {fmtUSD(s.activePnl)}

@@ -119,6 +119,8 @@ npm run dev
 
 Backend defaults to port `3000`. Health check: `http://localhost:3000/health`.
 
+When the backend is shutting down or the database connection is unavailable, critical audit events are persisted to a fallback file at `backend/node/logs/audit-fallback.log`.
+
 ### Frontend
 
 ```bash

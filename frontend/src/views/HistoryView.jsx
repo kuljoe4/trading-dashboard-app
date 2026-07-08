@@ -307,7 +307,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
 const PAGE_SIZE = 10
 
 export const HistoryView = () => {
-  const { tradeHistory, updateStats, sessionSummary, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory } = useTradingStore()
+  const { tradeHistory, updateStats, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory } = useTradingStore()
   const [fullAnalytics, setFullAnalytics] = useState(null)
   const [lifetimeMode, setLifetimeMode] = useState(localStorage.getItem('history_trade_mode') || 'paper')
   const [loading, setLoading] = useState(true)
@@ -317,14 +317,14 @@ export const HistoryView = () => {
 
   const allSessionsWithTrades = useMemo(() => {
     // BOLT: Optimize O(N*M) join to O(N+M) using a lookup object
-    const tradesBySession = tradeHistory.reduce((acc, t) => {
+    const tradesBySession = (tradeHistory || []).filter(Boolean).reduce((acc, t) => {
       if (!t.sessionId) return acc;
       if (!acc[t.sessionId]) acc[t.sessionId] = [];
       acc[t.sessionId].push(t);
       return acc;
     }, {});
 
-    return sessionList.map(session => ({
+    return (sessionList || []).filter(Boolean).map(session => ({
       ...session,
       trades: tradesBySession[session.id] || []
     })).sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
@@ -350,11 +350,11 @@ export const HistoryView = () => {
   }, [allSessionsWithTrades, visibleSessions, lifetimeMode, search]);
 
   const orphans = useMemo(() => {
-    const sessionIds = new Set(sessionList.map(s => s.id))
+    const sessionIds = new Set((sessionList || []).filter(Boolean).map(s => s.id))
     // Only show orphans that are not already matched to sessions in allSessionsWithTrades
     // Actually allSessionsWithTrades already includes trades matched to existing sessions.
     // Orphans are trades whose sessionId is missing or not in our session list.
-    return tradeHistory.filter(t => !t.sessionId || !sessionIds.has(t.sessionId))
+    return (tradeHistory || []).filter(Boolean).filter(t => !t.sessionId || !sessionIds.has(t.sessionId))
   }, [sessionList, tradeHistory])
 
   const [deletingOrphans, setDeletingOrphans] = useState(false)
@@ -631,23 +631,6 @@ export const HistoryView = () => {
           </div>
         </motion.div>
 
-        {sessionSummary && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="p-5 rounded-2xl mb-10 bg-accent/5 border border-accent/20 flex items-center gap-4 shadow-sm"
-          >
-            <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center shrink-0">
-              <Clock size={20} className="text-accent" />
-            </div>
-            <div>
-              <div className="text-[11px] text-accent font-bold uppercase tracking-widest mb-0.5">Session Summary</div>
-              <div className="text-sm font-medium">
-                Last session ended with <span className={cn("font-bold", pnlClass(sessionSummary.totalPnl))}>{fmtUSD(sessionSummary.totalPnl)}</span> across <span className="font-bold text-text">{sessionSummary.tradeCount}</span> positions.
-              </div>
-            </div>
-          </motion.div>
-        )}
 
         <div>
           <SectionLabel className="mb-6">Session-Centric Records</SectionLabel>

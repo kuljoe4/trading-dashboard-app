@@ -211,7 +211,6 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
 
   return (
     <motion.div
-      layout
       whileHover={{ scale: 1.01 }}
       onClick={onClick}
       onKeyDown={handleKeyDown}
@@ -317,7 +316,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
                   style={{ width: `${slPct}%` }}
                 />
               </div>
-              <ScannerPreview scannerResults={scannerResults || []} config={config} onOpen={(e) => { e.stopPropagation(); onOpenScanner(); }} />
+              <ScannerPreview scannerResults={(scannerResults || []).filter(Boolean)} config={config} onOpen={(e) => { e.stopPropagation(); onOpenScanner(); }} />
 
               <div className="mt-6 pt-6 border-t border-border/20">
                  <div className="flex items-center justify-between gap-4">
@@ -867,7 +866,7 @@ export function DashboardView({ initialStrategy }) {
               </a>
             </motion.div>
           )}
-          <div className="fixed top-18 right-4 z-[200] flex flex-col gap-1.5 w-full max-w-[280px] pointer-events-none">
+          <div className="fixed top-[72px] right-4 z-[200] flex flex-col gap-1.5 w-full max-w-[280px] pointer-events-none">
             <AnimatePresence mode="popLayout">
               {alerts && alerts.length > 2 && (
                 <motion.button

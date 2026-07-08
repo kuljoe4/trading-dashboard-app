@@ -7,7 +7,7 @@ import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, Chevron
 import { motion, AnimatePresence } from 'framer-motion'
 import { shallow } from 'zustand/shallow'
 
-const FreshnessIndicator = React.memo(({ lastScanTs }) => {
+const FreshnessIndicator = React.memo(({ ts }) => {
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -15,12 +15,12 @@ const FreshnessIndicator = React.memo(({ lastScanTs }) => {
     return () => clearInterval(timer);
   }, []);
 
-  if (lastScanTs <= 0) return null;
-  const age = Math.max(0, now - lastScanTs);
+  if (!ts || ts <= 0) return null;
+  const age = Math.max(0, now - ts);
 
   return (
     <Tooltip content={`Telemetry timestamped ${formatDuration(age)} ago`}>
-      <div className="w-1.5 h-1.5 rounded-full bg-green/40 cursor-help" />
+      <div className={cn("w-1.5 h-1.5 rounded-full cursor-help transition-colors duration-500", age < 5000 ? "bg-green" : "bg-amber/40")} />
     </Tooltip>
   );
 });
@@ -29,18 +29,36 @@ FreshnessIndicator.displayName = 'FreshnessIndicator';
 const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scannerPaused, hibernating, lastScanTs }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // DEBUG: Track telemetry presence in expanded state to identify synchronization gaps
-  useEffect(() => {
-    if (isExpanded && (!opp.ohlc_history || opp.ohlc_history.length === 0)) {
-      console.warn(`[Scanner Debug] Expanded ${opp.symbol} has no telemetry. Gated: ${scannerPaused}, Hibernating: ${hibernating}, LastScan: ${lastScanTs}`);
-    }
-  }, [isExpanded, opp.symbol, opp.ohlc_history, scannerPaused, hibernating, lastScanTs]);
   const threshold = config?.scan_pct_threshold || 2.0;
   const dir = (opp.dir || opp.direction || '').toLowerCase();
   const isLong = dir ? dir === 'long' : opp.pct >= 0;
   const passing = Math.abs(opp.pct) >= threshold;
   const isSingleMonitor = isMonitored ?? config?.single_symbol_configs?.some(sc => sc.symbol === opp.symbol && sc.enabled);
 
+  const getStatus = () => {
+    if (opp.score > 85 && opp.signalResult?.allFired) return { label: 'Strong Setup', color: 'bg-green/10 text-green border-green/20' };
+    if (opp.signalResult?.allFired) return { label: 'Ready', color: 'bg-accent/10 text-accent border-accent/20' };
+    if (passing) return { label: 'Watching', color: 'bg-amber/10 text-amber border-amber/20' };
+    return { label: 'Waiting', color: 'bg-surface text-dim border-border' };
+  };
+
+  const status = getStatus();
+  const proximity = Math.min(100, (Math.abs(opp.pct) / threshold) * 100).toFixed(0);
+
+  const summarySentence = useMemo(() => {
+    const dirText = isLong ? "Momentum" : "Downward pressure";
+    if (opp.score > 85 && opp.signalResult?.allFired) return `High-confidence ${dirText.toLowerCase()} and trend align perfectly.`;
+    if (opp.signalResult?.allFired) return `${dirText} and trend align, all technical signals have triggered.`;
+    if (passing) return `${dirText} is strong, currently nearing the trigger threshold.`;
+    return `Symbol is stable; awaiting expansion toward ${threshold}% threshold.`;
+  }, [isLong, opp.score, opp.signalResult?.allFired, passing, threshold]);
+
+  // DEBUG: Track telemetry presence in expanded state to identify synchronization gaps
+  useEffect(() => {
+    if (config?.debug_mode && isExpanded && (!opp.ohlc_history || opp.ohlc_history.length === 0)) {
+      console.warn(`[Scanner Debug] Expanded ${opp.symbol} has no telemetry. Gated: ${scannerPaused}, Hibernating: ${hibernating}, LastScan: ${lastScanTs}`);
+    }
+  }, [isExpanded, opp.symbol, opp.ohlc_history, scannerPaused, hibernating, lastScanTs, config?.debug_mode]);
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
@@ -115,15 +133,15 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                <div className="text-[10px] font-black uppercase tracking-widest border-b border-white/10 pb-1">Score Breakdown</div>
                <div className="flex justify-between items-center text-[10px]">
                   <span className="text-dim uppercase font-bold">Momentum</span>
-                  <span className="font-mono text-accent">{opp.score_breakdown?.momentum?.toFixed(1) || '0.0'}</span>
+                  <span className="font-mono text-accent">{(config?.scanner_weights?.momentum * (opp.score_breakdown?.momentum || 0)).toFixed(1)}</span>
                </div>
                <div className="flex justify-between items-center text-[10px]">
                   <span className="text-dim uppercase font-bold">Volatility</span>
-                  <span className="font-mono text-amber">{opp.score_breakdown?.volatility?.toFixed(1) || '0.0'}</span>
+                  <span className="font-mono text-amber">{(config?.scanner_weights?.volatility * (opp.score_breakdown?.volatility || 0)).toFixed(1)}</span>
                </div>
                <div className="flex justify-between items-center text-[10px]">
                   <span className="text-dim uppercase font-bold">Trend</span>
-                  <span className="font-mono text-purple-400">{opp.score_breakdown?.trend?.toFixed(1) || '0.0'}</span>
+                  <span className="font-mono text-purple-400">{(config?.scanner_weights?.trend * (opp.score_breakdown?.trend || 0)).toFixed(1)}</span>
                </div>
                <div className="border-t border-white/10 pt-1 flex justify-between items-center font-black">
                   <span className="text-[9px] uppercase tracking-tighter">Total</span>
@@ -133,9 +151,9 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
           }>
             <div className="flex-1 flex items-center gap-2 cursor-help" aria-label="Score breakdown bar">
               <div className="flex-1 h-1.5 bg-white/5 rounded-full overflow-hidden flex min-w-[40px] border border-white/5">
-                <div className="h-full bg-accent/80" style={{ width: `${opp.score_breakdown?.momentum || 0}%` }} aria-label={`Momentum component: ${opp.score_breakdown?.momentum?.toFixed(1)}%`} />
-                <div className="h-full bg-amber/80" style={{ width: `${opp.score_breakdown?.volatility || 0}%` }} aria-label={`Volatility component: ${opp.score_breakdown?.volatility?.toFixed(1)}%`} />
-                <div className="h-full bg-purple/80" style={{ width: `${opp.score_breakdown?.trend || 0}%` }} aria-label={`Trend component: ${opp.score_breakdown?.trend?.toFixed(1)}%`} />
+                <div className="h-full bg-accent/80" style={{ width: `${(config?.scanner_weights?.momentum || 0.5) * (opp.score_breakdown?.momentum || 0)}%` }} aria-label={`Momentum component: ${opp.score_breakdown?.momentum?.toFixed(1)}%`} />
+                <div className="h-full bg-amber/80" style={{ width: `${(config?.scanner_weights?.volatility || 0.3) * (opp.score_breakdown?.volatility || 0)}%` }} aria-label={`Volatility component: ${opp.score_breakdown?.volatility?.toFixed(1)}%`} />
+                <div className="h-full bg-purple/80" style={{ width: `${(config?.scanner_weights?.trend || 0.2) * (opp.score_breakdown?.trend || 0)}%` }} aria-label={`Trend component: ${opp.score_breakdown?.trend?.toFixed(1)}%`} />
               </div>
               <div className="relative">
                 <span className={cn(
@@ -152,18 +170,16 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
           </Tooltip>
         </div>
         <div className="flex justify-center items-center gap-2">
-          {passing ? (
-            opp.signalResult?.allFired ? (
-              <span className="px-2 py-0.5 rounded bg-green/10 text-green text-[9px] font-black uppercase tracking-tighter border border-green/20">PASS</span>
-            ) : (
-              <span className="px-2 py-0.5 rounded bg-red/10 text-red text-[9px] font-black uppercase tracking-tighter border border-red/20 flex items-center gap-1">
-                REJECT
-              </span>
-            )
-          ) : (
-            <span className="px-2 py-0.5 rounded bg-surface text-dim text-[9px] font-black uppercase tracking-tighter border border-border">WAIT</span>
-          )}
-          <div className="hidden md:block opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="hidden lg:flex items-center gap-1 mr-4">
+             <div className="flex flex-col items-end gap-0.5">
+                <span className="text-[10px] font-bold text-text/90 font-mono leading-none">{proximity}%</span>
+                <span className="text-[7px] text-dim font-black uppercase tracking-widest leading-none">Prox</span>
+             </div>
+          </div>
+          <span className={cn("px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter border min-w-[70px] text-center transition-colors", status.color)}>
+            {status.label}
+          </span>
+          <div className="hidden md:block opacity-0 group-hover:opacity-100 transition-opacity ml-2">
              {isExpanded ? <ChevronUp size={12} className="text-dim" /> : <ChevronDown size={12} className="text-dim" />}
           </div>
         </div>
@@ -179,12 +195,20 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
               opp.score > 85 && "bg-accent/[0.03] border-l-2 border-accent/40 shadow-[inset_10px_0_20px_-10px_rgba(91,111,255,0.1)]"
             )}
           >
-            {opp.score > 85 && (
-              <div className="bg-accent/10 border-b border-accent/20 px-6 py-1.5 flex items-center gap-2">
-                 <Zap size={10} className="text-accent fill-accent animate-pulse" />
-                 <span className="text-[9px] font-black uppercase tracking-[0.2em] text-accent">High Confidence Opportunity Detected</span>
-              </div>
-            )}
+            <div className="bg-white/5 border-b border-white/5 px-6 py-2.5 flex items-center justify-between">
+               <div className="flex items-center gap-3">
+                 <div className={cn("px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border shadow-sm", status.color)}>
+                   {status.label}
+                 </div>
+                 <span className="text-[11px] text-dim font-medium italic opacity-80">{summarySentence}</span>
+               </div>
+               {opp.score > 85 && (
+                 <div className="flex items-center gap-2">
+                    <Zap size={12} className="text-accent fill-accent animate-pulse" />
+                    <span className="text-[9px] font-black uppercase tracking-[0.2em] text-accent">High Authority</span>
+                 </div>
+               )}
+            </div>
             <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-8 border-t border-white/5">
               <div className="flex flex-col gap-4">
                 <div className="text-[10px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-2 px-1">
@@ -269,7 +293,7 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                           <div className="flex flex-col">
                              <div className="flex items-center gap-2 mb-1">
                                 <span className="text-[9px] text-dim font-black uppercase tracking-[0.2em]">Composite Authority</span>
-                                <FreshnessIndicator lastScanTs={lastScanTs} />
+                                <FreshnessIndicator ts={opp.lastUpdate} />
                              </div>
                              <div className="flex items-baseline gap-2">
                                 <span className={cn("text-3xl font-mono font-black tracking-tighter leading-none", opp.score > 85 ? "text-accent shadow-accent/20" : "text-text")}>
@@ -384,15 +408,17 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
   if (isUpdating) lastUpdateRef.current = lastScanTs
 
   const filteredResults = useMemo(() => {
-    if (!search) return scannerResults
+    const results = Array.isArray(scannerResults) ? scannerResults.filter(Boolean) : []
+    if (!search) return results
     const term = search.toLowerCase().trim()
-    return scannerResults.filter(r => r.symbol.toLowerCase().includes(term))
+    return results.filter(r => r.symbol.toLowerCase().includes(term))
   }, [scannerResults, search])
 
   const filteredWindows = useMemo(() => {
-    if (!search) return activeWindows
+    const windows = Array.isArray(activeWindows) ? activeWindows.filter(Boolean) : []
+    if (!search) return windows
     const term = search.toLowerCase().trim()
-    return activeWindows.filter(w => w.symbol.toLowerCase().includes(term))
+    return windows.filter(w => w.symbol.toLowerCase().includes(term))
   }, [activeWindows, search])
 
   // BOLT OPTIMIZATION: Pre-calculate a Set of monitored symbols to avoid O(N*M) lookup in the render loop.
@@ -515,7 +541,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
           <span>Score</span>
         </div>
         <div className="flex justify-center">
-          <span>Pass</span>
+          <span>Status</span>
         </div>
       </div>
 
@@ -527,7 +553,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
           <span>Move</span>
         </div>
         <div className="flex justify-center">
-          <span>Pass</span>
+          <span>Status</span>
         </div>
       </div>
 

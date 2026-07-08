@@ -19,19 +19,18 @@ const Metric = memo(({ label, value }) => (
 ))
 Metric.displayName = 'Metric'
 
-const RRLadder = ({ trade }) => {
+const RRLadder = memo(({ trade }) => {
   const triggers = trade.live_rr_sequence || []
   const exits = trade.exit_rr_sequence || []
   const maxRR = trade.max_rr || 0
   const liveRR = trade.rr || 0
   const risk = Math.abs(trade.entry_price - (trade.initial_sl || trade.sl_price))
   const activeIdx = triggers.reduce((idx, trigger, i) => maxRR >= trigger ? i : idx, -1)
-  const currentExitRR = activeIdx >= 0 ? exits[activeIdx] : null
-  const currentSl = currentExitRR == null
-    ? (trade.initial_sl || trade.sl_price)
-    : trade.direction === 'LONG'
-      ? trade.entry_price + risk * currentExitRR
-      : trade.entry_price - risk * currentExitRR
+
+  // Use authoritative current_sl if available, otherwise fall back to ladder recompute
+  const currentSl = trade.sl_price || (activeIdx >= 0 ?
+    (trade.direction === 'LONG' ? trade.entry_price + risk * exits[activeIdx] : trade.entry_price - risk * exits[activeIdx]) :
+    (trade.initial_sl || trade.sl_price))
 
   const getEstPnl = (price) => {
     if (!price || !trade.entry_price || !trade.qty) return 0
@@ -98,9 +97,9 @@ const RRLadder = ({ trade }) => {
       </div>
     </div>
   )
-}
+})
 
-const ExitMonitor = ({ status, logic, trade }) => {
+const ExitMonitor = memo(({ status, logic, trade }) => {
   if (!status || Object.keys(status).length === 0) return null;
   const entries = Object.entries(status)
   const mark = Number(trade.current_price || trade.mark_price || 0)
@@ -109,36 +108,46 @@ const ExitMonitor = ({ status, logic, trade }) => {
   const qty = Number(trade.qty || 0)
   const riskUsdt = Number(trade.risk_usdt || trade.initial_risk_usdt || 0)
 
-  const allFired = entries.every(([_, s]) => s.fired && s.active)
+  const satisfiedCount = entries.filter(([_, s]) => s.fired && s.active).length
+  const totalCount = entries.length
+  const allFired = satisfiedCount === totalCount
+
+  const getOverallState = () => {
+    if (allFired) return { label: 'Ready to Exit', color: 'text-red', icon: <Zap size={14} className="fill-red" /> };
+    if (satisfiedCount > 0) return { label: 'Risk Building', color: 'text-amber', icon: <Activity size={14} /> };
+    return { label: 'Watching', color: 'text-dim', icon: <ShieldCheck size={14} /> };
+  };
+
+  const overallState = getOverallState();
+  const criteriaMet = logic === 'all' ? allFired : satisfiedCount > 0;
 
   return (
     <div className="bg-surface border border-border rounded-2xl p-4 md:p-6 shadow-sm flex flex-col">
       <div className="flex items-center justify-between mb-4 md:mb-8">
         <div className="flex flex-col gap-1">
-          <SectionLabel className="mb-0">
-            <ShieldCheck size={14} className="text-red" /> Technical Exit Signals
+          <SectionLabel className={cn("mb-0 flex items-center gap-2", criteriaMet ? "text-red" : satisfiedCount > 0 ? "text-amber" : "text-dim")}>
+            {criteriaMet ? <Zap size={14} className="fill-red" /> : satisfiedCount > 0 ? <Activity size={14} /> : <ShieldCheck size={14} />}
+            {criteriaMet ? 'Ready to Exit' : satisfiedCount > 0 ? 'Risk Building' : 'Watching'}
           </SectionLabel>
           <div className="text-[8px] text-dim font-bold uppercase tracking-widest opacity-60">
-            Logic: {logic === 'all' ? 'All-Conditions Consensus' : 'Any-Condition Trigger'}
+            {logic === 'all' ? 'All conditions must align to exit' : 'Any single signal can trigger exit'}
           </div>
         </div>
-        {logic === 'all' && (
-           <div className="flex items-center gap-3">
-              <div className="flex -space-x-1.5">
-                 {entries.map(([key, s]) => (
-                    <div key={key} className={cn(
-                      "w-4 h-4 rounded-full border-2 border-surface flex items-center justify-center transition-all duration-500",
-                      s.fired && s.active ? "bg-green text-white scale-110 shadow-lg shadow-green/20" : "bg-dim/20 text-dim/40"
-                    )}>
-                       {s.fired && s.active ? <CheckCircle2 size={10} /> : <div className="w-1 h-1 rounded-full bg-current" />}
-                    </div>
-                 ))}
-              </div>
-              <span className={cn("text-[9px] font-black uppercase tracking-tighter", allFired ? "text-green" : "text-dim")}>
-                 {entries.filter(([_, s]) => s.fired && s.active).length}/{entries.length} Satisfied
-              </span>
+        <div className="flex items-center gap-3">
+           <div className="flex -space-x-1.5">
+              {entries.map(([key, s]) => (
+                 <div key={key} className={cn(
+                   "w-4 h-4 rounded-full border-2 border-surface flex items-center justify-center transition-all duration-500",
+                   s.fired && s.active ? "bg-green text-white scale-110 shadow-lg shadow-green/20" : "bg-dim/20 text-dim/40"
+                 )}>
+                    {s.fired && s.active ? <CheckCircle2 size={10} /> : <div className="w-1 h-1 rounded-full bg-current" />}
+                 </div>
+              ))}
            </div>
-        )}
+           <span className={cn("text-[9px] font-black uppercase tracking-tighter", satisfiedCount > 0 ? (allFired ? "text-red" : "text-amber") : "text-dim")}>
+              {satisfiedCount}/{totalCount} Active
+           </span>
+        </div>
       </div>
 
       <div className="space-y-4 md:space-y-6 flex-1">
@@ -148,26 +157,33 @@ const ExitMonitor = ({ status, logic, trade }) => {
           const isFired = s.fired && s.active
           const isDelayed = s.remaining_delay > 0
 
-          // BOLT: Clarity Overhaul. "Progress" now means distance to THRESHOLD.
-          // Once THRESHOLD is met, we show "CRITERIA MET" and change color.
-          // If logic='all' and some are not hit, we show "AWAITING CONSENSUS".
           let triggerProgress = 0;
           if (!s.insufficientData) {
-             if (s.threshold_is_price) {
-             // BOLT: Direction-aware proximity math.
-             // 0% = Entry Price, 100% = Threshold.
-             // If price moves past threshold, it stays at 100% (fired).
-             // If price moves back past entry, it stays at 0%.
+             if (s.fired && s.active) {
+                triggerProgress = 100;
+             } else if (s.threshold_is_price) {
              const totalDist = isLong ? (threshold - entryPrice) : (entryPrice - threshold);
              const progressDist = isLong ? (mark - entryPrice) : (entryPrice - mark);
 
                 if (totalDist > 0) {
-                triggerProgress = Math.max(0, Math.min(100, (progressDist / totalDist) * 100));
+                   triggerProgress = Math.max(0, Math.min(100, (progressDist / totalDist) * 100));
+                } else if (s.fired) {
+                   triggerProgress = 100;
                 }
              } else {
                 triggerProgress = Math.max(0, Math.min(100, (Math.abs(value) / threshold) * 100));
              }
           }
+
+          const getSignalStatus = () => {
+            if (isFired) return { label: 'Triggered', color: 'bg-red text-white border-red/20 shadow-lg shadow-red/20', meaning: 'Exit signal is fully active' };
+            if (isDelayed && !isFired) return { label: 'Delayed', color: 'bg-amber/20 text-amber border-amber/30', meaning: 'Waiting for signal confirmation' };
+            if (s.fired) return { label: 'Threshold Met', color: 'bg-amber/20 text-amber border-amber/30', meaning: 'Awaiting consensus from other signals' };
+            if (triggerProgress > 80) return { label: 'Near Trigger', color: 'bg-accent/10 text-accent border-accent/20', meaning: 'Value is approaching exit threshold' };
+            return { label: 'Watching', color: 'bg-background/50 text-dim border-border/40', meaning: 'Monitoring live technical threshold' };
+          };
+
+          const signalStatus = getSignalStatus();
 
           const estExitPrice = s.threshold_is_price ? threshold : null
           const estPnl = (estExitPrice && entryPrice && qty)
@@ -199,13 +215,15 @@ const ExitMonitor = ({ status, logic, trade }) => {
                        <div className="flex items-center gap-2">
                          <span className="text-[12px] md:text-[16px] font-black uppercase tracking-tight truncate">{s.label || key}</span>
                          {isDelayed && !isFired && (
-                           <div className="flex items-center gap-1.5 text-amber bg-amber/10 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-tighter border border-amber/20">
-                              <Clock size={12} /> {Math.ceil(s.remaining_delay)}s
+                           <div className="relative group/delay overflow-hidden flex items-center gap-1.5 text-amber bg-amber/10 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-tighter border border-amber/20">
+                              <div className="absolute inset-0 bg-amber/20 origin-left" style={{ width: `${(s.remaining_delay / (s.config_delay || s.remaining_delay)) * 100}%` }} />
+                              <Clock size={12} className="relative z-10" />
+                              <span className="relative z-10">{Math.ceil(s.remaining_delay)}s</span>
                            </div>
                          )}
                        </div>
                        <span className="text-[10px] md:text-[11px] text-dim font-bold truncate uppercase opacity-80 tracking-tight mt-0.5 md:mt-1">
-                         {isFired ? 'Consolidated signal fired' : isDelayed && !isFired ? 'Waiting for warmup period...' : s.fired ? 'Threshold met - Awaiting consensus' : 'Monitoring live threshold'}
+                         {signalStatus.meaning}
                        </span>
                      </div>
                   </div>
@@ -216,9 +234,9 @@ const ExitMonitor = ({ status, logic, trade }) => {
                      </div>
                      <div className={cn(
                         "text-[9px] md:text-[10px] font-black uppercase tracking-widest px-2 md:px-3 py-1 md:py-1.5 rounded-lg md:rounded-xl border flex items-center gap-2 transition-all duration-500",
-                        isFired ? "bg-red text-white border-red/20 shadow-lg shadow-red/20" : s.fired ? "bg-amber/20 text-amber border-amber/30" : "bg-accent/10 text-accent border-accent/20"
+                        signalStatus.color
                      )}>
-                       {s.insufficientData ? 'Collecting' : isFired ? 'TRIGGER FIRED' : s.fired ? 'CRITERIA MET' : 'AWAITING LEVEL'}
+                       {s.insufficientData ? 'Collecting' : signalStatus.label}
                      </div>
                   </div>
                 </div>
@@ -295,7 +313,7 @@ const ExitMonitor = ({ status, logic, trade }) => {
       </div>
     </div>
   )
-}
+})
 
 export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClosing, confirmClose, setConfirmClose, layout = "grid" }) => {
   const { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qtyFormatted, riskFormatted, slDistPct = 0, slInitialDistPct = 0, enhancedExitSignals } = useMemo(() => {

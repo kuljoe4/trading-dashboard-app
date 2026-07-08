@@ -6,39 +6,48 @@ const toNumber = (v, f = 0) => { const p = Number(v); return Number.isFinite(p) 
 const MAX_LOG_LINES = 500;
 const DEFAULT_LOG_FILTERS = { info: true, warn: true, error: true };
 
-const normalizeOpportunity = (o = {}) => {
-  const m = toNumber(o.pct ?? o.momentum ?? o.percent_change);
-  const d = (o.dir ?? o.direction ?? (m >= 0 ? 'long' : 'short')).toString().toLowerCase();
+const getObjectSource = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
+
+export const normalizeOpportunity = (o = {}) => {
+  if (!o || typeof o !== 'object') return null;
+  const source = getObjectSource(o);
+  const m = toNumber(source.pct ?? source.momentum ?? source.percent_change);
+  const rawDir = source.dir ?? source.direction ?? (m >= 0 ? 'long' : 'short');
+  const d = String(rawDir ?? (m >= 0 ? 'long' : 'short')).toLowerCase();
 
   // SEC: Strict property picking and input sanitization to harden against prototype pollution or malformed WebSocket payloads.
   const res = {
-    symbol: (o.symbol ?? '---').replace(/[^A-Z0-9]/gi, '').substring(0, 20),
+    symbol: String(source.symbol ?? '---').replace(/[^A-Z0-9]/gi, '').substring(0, 20),
     pct: m,
     momentum: m,
     dir: d,
     direction: d,
-    vol: toNumber(o.vol ?? o.volume ?? o.volume_usdt ?? o.volume_24h),
-    score: toNumber(o.score),
-    price: toNumber(o.price),
-    volume_rank: o.volume_rank ? parseInt(String(o.volume_rank), 10) : undefined,
-    history: Array.isArray(o.history) ? o.history.map(v => toNumber(v)) : undefined,
-    ohlc_history: Array.isArray(o.ohlc_history) ? o.ohlc_history.map(c => ({
-      time: toNumber(c.time || c.t),
-      open: toNumber(c.open || c.o),
-      high: toNumber(c.high || c.h),
-      low: toNumber(c.low || c.l),
-      close: toNumber(c.close || c.c),
-      volume: toNumber(c.volume || c.q)
-    })) : undefined,
-    score_breakdown: o.score_breakdown ? {
-      momentum: toNumber(o.score_breakdown.momentum),
-      volatility: toNumber(o.score_breakdown.volatility),
-      trend: toNumber(o.score_breakdown.trend)
+    vol: toNumber(source.vol ?? source.volume ?? source.volume_usdt ?? source.volume_24h),
+    score: toNumber(source.score),
+    price: toNumber(source.price),
+    volume_rank: source.volume_rank ? parseInt(String(source.volume_rank), 10) : undefined,
+    history: Array.isArray(source.history) ? source.history.map(v => toNumber(v)) : undefined,
+    ohlc_history: Array.isArray(source.ohlc_history) ? source.ohlc_history.map(c => {
+      const candle = getObjectSource(c);
+      return {
+        time: toNumber(candle.time ?? candle.t),
+        open: toNumber(candle.open ?? candle.o),
+        high: toNumber(candle.high ?? candle.h),
+        low: toNumber(candle.low ?? candle.l),
+        close: toNumber(candle.close ?? candle.c),
+        volume: toNumber(candle.volume ?? candle.q)
+      };
+    }) : undefined,
+    score_breakdown: source.score_breakdown && typeof source.score_breakdown === 'object' ? {
+      momentum: toNumber(source.score_breakdown.momentum),
+      volatility: toNumber(source.score_breakdown.volatility),
+      trend: toNumber(source.score_breakdown.trend)
     } : undefined,
-    signalResult: o.signalResult ? {
-      allFired: !!o.signalResult.allFired,
-      firedSignals: Array.isArray(o.signalResult.firedSignals) ? o.signalResult.firedSignals.map(s => String(s)) : [],
-      reason: String(o.signalResult.reason || '').substring(0, 200)
+    lastUpdate: source.last_update ?? source.ts ?? Date.now(),
+    signalResult: source.signalResult && typeof source.signalResult === 'object' ? {
+      allFired: !!source.signalResult.allFired,
+      firedSignals: Array.isArray(source.signalResult.firedSignals) ? source.signalResult.firedSignals.map(s => String(s)) : [],
+      reason: String(source.signalResult.reason || '').substring(0, 200)
     } : undefined
   };
 
@@ -106,10 +115,18 @@ const deepMerge = (target, source) => {
   return output;
 };
 
-const normalizeLog = (l = {}) => {
-  const lv = (l.level || l.lv || 'info').toString().toLowerCase();
-  const m = (l.msg || l.message || '').toString().trim();
-  return { ...l, id: l.id || Math.random().toString(36).substring(2, 15), ts: l.ts || l.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), level: ['info', 'warn', 'error'].includes(lv) ? lv : 'info', msg: m };
+export const normalizeLog = (l = {}) => {
+  if (!l || typeof l !== 'object') return null;
+  const source = getObjectSource(l);
+  const lv = (source.level ?? source.lv ?? 'info').toString().toLowerCase();
+  const m = (source.msg ?? source.message ?? '').toString().trim();
+  return {
+    ...source,
+    id: source.id || Math.random().toString(36).substring(2, 15),
+    ts: source.ts || source.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    level: ['info', 'warn', 'error'].includes(lv) ? lv : 'info',
+    msg: m
+  };
 }
 
 const defaultConfig = {
@@ -185,17 +202,22 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
      const now = Date.now();
      const id = Math.random().toString(36).substring(2, 11);
      const newAlert = { id, ts: now, level: 'info', ...alert };
+     let targetId = id;
 
      set(st => {
        const existing = st.alerts.find(a => a.title === newAlert.title && a.message === newAlert.message && (now - a.ts < 5000));
        if (existing) {
+          targetId = existing.id;
           return { alerts: st.alerts.map(a => a.id === existing.id ? { ...a, ts: now, count: (a.count || 1) + 1 } : a) };
        }
        return { alerts: [newAlert, ...st.alerts].slice(0, 10) };
      });
 
+     // BOLT-PERF: Move side effects out of the updater function for better maintainability and pure state transitions.
      setTimeout(() => {
-       set(st => ({ alerts: st.alerts.filter(a => a.id !== id || (Date.now() - a.ts < 10000)) }));
+       set(st => ({
+         alerts: st.alerts.filter(a => a.id !== targetId || (Date.now() - a.ts < 10000))
+       }));
      }, 10000);
   },
   
@@ -235,7 +257,10 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   toggleSidebar: () => { const n = !get().sidebarCollapsed; localStorage.setItem('sidebar_collapsed', n); set({ sidebarCollapsed: n }); },
   setHealthEnabled: (e) => { localStorage.setItem('health_enabled', e); set({ healthEnabled: e }); },
   setStreamingEnabled: (e) => { localStorage.setItem('streaming_enabled', e); set({ streamingEnabled: e }); },
-  toggleLogFilter: (level) => set((st) => ({ logFilters: { ...st.logFilters, [level]: !st.logFilters[level] } })),
+  toggleLogFilter: (level) => set((st) => {
+    const safeFilters = st.logFilters && typeof st.logFilters === 'object' ? st.logFilters : DEFAULT_LOG_FILTERS;
+    return { logFilters: { ...safeFilters, [level]: !safeFilters[level] } };
+  }),
   setSyncing: (s) => set({ isSyncing: s }),
   sync: async () => {
     try {
@@ -306,6 +331,17 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   fetchLifetimeAnalytics: async (m = 'paper') => { set({ isSyncing: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchTradeHistory: async (sid = 'all') => { set({ isSyncing: true }); try { const r = await sessionAPI.history(sid); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
   updateStats: (s) => set((st) => ({ ...st, ...s })),
+  resetPaperBalance: async () => {
+    try {
+      const res = await sessionAPI.resetPaperBalance();
+      set({ balance: res.data.balance });
+      get().addAlert({ level: 'success', title: 'Balance Reset', message: 'Paper trading balance has been reset to default.' });
+    } catch (e) {
+      console.error('Failed to reset paper balance:', e);
+      get().addAlert({ level: 'error', title: 'Reset Failed', message: 'Could not reset paper balance.' });
+    }
+  },
+
   updateConfig: (c) => {
     console.log('[Config Trace] updateConfig called with:', c);
     if (c.trading_mode) {
@@ -372,7 +408,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
           // BOLT: Prevent flickering during config sync
           const nextConfig = d.config ? (st.configSyncing ? st.config : deepMerge(st.config, d.config)) : st.config;
 
-          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, logs: d.logLines?.map(normalizeLog) || st.logs, scannerResults: d.scannerResults?.map(normalizeOpportunity) || st.scannerResults, activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: nextHistory, gateState: d.gateState ?? st.gateState, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, config: nextConfig, tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h, apiStatus: d.apiStatus || st.apiStatus };
+          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, logs: (d.logLines?.map(normalizeLog) || st.logs).filter(Boolean), scannerResults: (d.scannerResults?.map(normalizeOpportunity) || st.scannerResults).filter(Boolean), activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: nextHistory, gateState: d.gateState ?? st.gateState, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, config: nextConfig, tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h, apiStatus: d.apiStatus || st.apiStatus };
         });
       } else if (d.type === 'tick') {
         set((st) => {
@@ -396,7 +432,11 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
             apiStatus: d.apiStatus || st.apiStatus
           };
         });
-      } else if (d.type === 'log') set(st => ({ logs: [normalizeLog(d), ...st.logs].slice(0, MAX_LOG_LINES) }));
+      } else if (d.type === 'log') set(st => {
+        const n = normalizeLog(d);
+        if (!n) return st;
+        return { logs: [n, ...st.logs].slice(0, MAX_LOG_LINES) };
+      });
       else if (d.type === 'scanner') {
         const now = Date.now(); if (now - lsu < 200) return; lsu = now;
         set(st => {
@@ -405,6 +445,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
           return {
             scannerResults: (d.opportunities || []).map(o => {
               const n = normalizeOpportunity(o);
+              if (!n) return null;
               const p = prevMap.get(n.symbol);
               if (!p) return n;
 
@@ -416,11 +457,12 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
                 score_breakdown: n.score_breakdown || p.score_breakdown,
                 signalResult: n.signalResult || p.signalResult
               };
-            }),
+            }).filter(Boolean),
             variantScannerResults: d.variant_opportunities ? d.variant_opportunities.reduce((acc, v) => {
               const prevOppMap = new Map((st.variantScannerResults[v.strategy_label] || []).map(r => [r.symbol, r]));
               acc[v.strategy_label] = v.opportunities.map(o => {
                 const n = normalizeOpportunity(o);
+                if (!n) return null;
                 const p = prevOppMap.get(n.symbol);
                 if (!p) return n;
                 return {
@@ -430,7 +472,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
                   score_breakdown: n.score_breakdown || p.score_breakdown,
                   signalResult: n.signalResult || p.signalResult
                 };
-              });
+              }).filter(Boolean);
               return acc;
             }, {}) : st.variantScannerResults,
             activeWindows: d.activeWindows || st.activeWindows,
@@ -444,22 +486,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
       } else if (d.type === 'gate') set(st => ({ gateState: d.gateState, gateReason: d.reason, hibernating: d.hibernating ?? st.hibernating, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, scannerPaused: d.scannerPaused }));
       else if (d.type === 'api_status') set({ apiStatus: d });
       else if (d.type === 'alert') {
-        const now = Date.now();
-        const newAlert = { id: Math.random().toString(36).substring(2, 11), ts: now, ...d };
-
-        set(st => {
-          // Coalesce logic: If an alert with same title/message exists within last 5s, update its TS and keep it
-          const existing = st.alerts.find(a => a.title === d.title && a.message === d.message && (now - a.ts < 5000));
-          if (existing) {
-             return { alerts: st.alerts.map(a => a.id === existing.id ? { ...a, ts: now, count: (a.count || 1) + 1 } : a) };
-          }
-          return { alerts: [newAlert, ...st.alerts].slice(0, 10) };
-        });
-
-        // Auto-remove alert after 10 seconds of no updates
-        setTimeout(() => {
-          set(st => ({ alerts: st.alerts.filter(a => a.id !== newAlert.id || (Date.now() - a.ts < 10000)) }));
-        }, 10000);
+        get().addAlert(d);
       }
       else if (d.type === 'session_terminated') get().setSessionActive(false, null);
     };

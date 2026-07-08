@@ -2263,10 +2263,16 @@ export class OrderManagerService {
           // to stay within PERCENT_PRICE boundaries.
           const ticker = this.tickerCache.getTicker(symbol);
           const refPrice = ticker?.mark_price || ticker?.price || exitPrice;
-          const filteredExit = this.applyFilters(symbol, refPrice, trade.qty, { skipNotionalCheck: true });
 
-          if (filteredExit.qty <= 0) {
-             this.logger.error(`[${symbol}] [Sync] Filtered close quantity is 0. Falling back to raw quantity.`);
+          // DATA-07: Use pre-parsed filters and ensure we handle epsilon-based step alignment
+          // to avoid leaving "dust" residuals (e.g. 0.1 XRP) on the exchange.
+          const filteredExit = this.applyFilters(symbol, refPrice, trade.qty, {
+            skipNotionalCheck: true,
+            cachedFilters: filters
+          });
+
+          if (filteredExit.qty <= 0 && trade.qty > 0) {
+             this.logger.error(`[${symbol}] [Sync] Filtered close quantity is 0 for non-zero position ${trade.qty}. Falling back to raw quantity.`);
              filteredExit.qty = trade.qty;
           }
 

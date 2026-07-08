@@ -50,8 +50,10 @@ export function floorStep(value: number | string, step: number | string): number
   const s = Number(step);
   if (!s || s === 0 || isNaN(n)) return isNaN(n) ? 0 : n;
 
-  // Perform the raw floor operation
-  const floored = Math.floor(n / s) * s;
+  // SRE: Use a small epsilon to handle float precision issues (e.g. 2693.7 / 0.1 = 26936.999999999996)
+  // that cause Math.floor to round down one full step incorrectly.
+  const epsilon = 1e-10;
+  const floored = Math.floor((n + epsilon) / s) * s;
 
   // Calculate precision from step size (e.g. 0.01 -> 2)
   const precision = Math.log10(1 / s);

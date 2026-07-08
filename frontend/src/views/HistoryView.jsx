@@ -307,7 +307,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
 const PAGE_SIZE = 10
 
 export const HistoryView = () => {
-  const { tradeHistory, updateStats, sessionSummary, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory } = useTradingStore()
+  const { tradeHistory, updateStats, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory } = useTradingStore()
   const [fullAnalytics, setFullAnalytics] = useState(null)
   const [lifetimeMode, setLifetimeMode] = useState(localStorage.getItem('history_trade_mode') || 'paper')
   const [loading, setLoading] = useState(true)
@@ -631,23 +631,6 @@ export const HistoryView = () => {
           </div>
         </motion.div>
 
-        {sessionSummary && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="p-5 rounded-2xl mb-10 bg-accent/5 border border-accent/20 flex items-center gap-4 shadow-sm"
-          >
-            <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center shrink-0">
-              <Clock size={20} className="text-accent" />
-            </div>
-            <div>
-              <div className="text-[11px] text-accent font-bold uppercase tracking-widest mb-0.5">Session Summary</div>
-              <div className="text-sm font-medium">
-                Last session ended with <span className={cn("font-bold", pnlClass(sessionSummary.totalPnl))}>{fmtUSD(sessionSummary.totalPnl)}</span> across <span className="font-bold text-text">{sessionSummary.tradeCount}</span> positions.
-              </div>
-            </div>
-          </motion.div>
-        )}
 
         <div>
           <SectionLabel className="mb-6">Session-Centric Records</SectionLabel>

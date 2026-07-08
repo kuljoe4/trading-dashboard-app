@@ -30,6 +30,7 @@ export class SessionLifecycleService {
   private balancePollInterval: NodeJS.Timeout | null = null;
   private running = false;
   public isUdsConnected = false;
+  private udsReconnectAttempts = 0;
   private userDataWs: any = null;
   private listenKey: string | null = null;
   private listenKeyKeepAlive: NodeJS.Timeout | null = null;
@@ -415,6 +416,7 @@ export class SessionLifecycleService {
       this.listenKey = newListenKey;
       this.userDataWs = await bc.websocketStreams.connect({ stream: this.listenKey });
       this.isUdsConnected = true;
+      this.udsReconnectAttempts = 0;
 
       this.monitoringService.setUdsStatus('CONNECTED');
 
@@ -435,13 +437,28 @@ export class SessionLifecycleService {
         this.isUdsConnected = false;
         this.monitoringService.setUdsStatus('DISCONNECTED');
         if (this.running) {
-          this.logger.warn('User Data Stream closed unexpectedly. Reconnecting...');
+          this.udsReconnectAttempts++;
+
+          if (this.udsReconnectAttempts > 5) {
+             const alertMsg = `CRITICAL: User Data Stream failed to reconnect after ${this.udsReconnectAttempts} attempts. Account monitoring is degraded.`;
+             this.logger.error(alertMsg);
+             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: alertMsg, level: 'error' });
+             this.eventEmitter.emit(ENGINE_EVENTS.ALERT, {
+                level: 'error',
+                title: 'UDS Reconnect Failure',
+                message: 'Account stream is offline after multiple retries. Positions might be unprotected.',
+             });
+          }
+
+          this.logger.warn(`User Data Stream closed unexpectedly. Reconnecting (Attempt ${this.udsReconnectAttempts})...`);
+
           // BOLT: Use exponential backoff for reconnect attempts to avoid hammering during outages
+          const delay = Math.min(30000, 5000 * Math.pow(2, Math.max(0, this.udsReconnectAttempts - 1)));
           setTimeout(() => {
             if (this.running && !this.isUdsConnected) {
               this.startUserDataStream(bc, true).catch(() => {});
             }
-          }, 5000);
+          }, delay);
         }
       });
 

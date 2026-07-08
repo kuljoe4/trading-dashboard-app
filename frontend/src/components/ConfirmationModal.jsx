@@ -49,8 +49,8 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
                   </Dialog.Description>
 
                   <div className="flex gap-3">
-                    <Dialog.Close asChild>
-                      <div className="flex-1">
+                    <div className="flex-1">
+                      <Dialog.Close asChild>
                         <Btn
                           variant="ghost"
                           disabled={loading}
@@ -58,8 +58,8 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
                         >
                           {cancelText}
                         </Btn>
-                      </div>
-                    </Dialog.Close>
+                      </Dialog.Close>
+                    </div>
                     <Btn
                       variant={variant}
                       onClick={(e) => {

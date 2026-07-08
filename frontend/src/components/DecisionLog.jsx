@@ -1,8 +1,9 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { Activity, XCircle, Search, Copy, CheckCircle2, Info, X } from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useTradingStore } from '../store/trading'
 import { cn, CopyButton } from './ui/primitives'
+import { List } from 'react-window'
 
 const HIGHLIGHTS = {
   positive: ['BUY', 'PROFIT', 'TP', 'HIT', 'SUCCESS', 'STARTED', 'ENTER'],
@@ -107,11 +108,11 @@ export const DecisionLog = React.memo(() => {
   const logs = useTradingStore(state => state.logs)
   const logFilters = useTradingStore(state => state.logFilters)
   const toggleLogFilter = useTradingStore(state => state.toggleLogFilter)
-  const scrollRef = React.useRef(null)
-  const [isAtTop, setIsAtTop] = React.useState(true)
+  const listRef = useRef(null)
+  const [isAtTop, setIsAtTop] = useState(true)
   const [search, setSearch] = useState('')
 
-  const visibleLogs = React.useMemo(
+  const visibleLogs = useMemo(
     () => logs.filter((log) => {
       const passLevel = (logFilters || DEFAULT_LOG_FILTERS)[log.level] !== false;
       const passSearch = !search || log.msg.toLowerCase().includes(search.toLowerCase());
@@ -121,22 +122,41 @@ export const DecisionLog = React.memo(() => {
   )
 
   // Audit Item 41: Scroll-lock pattern
-  React.useEffect(() => {
-    if (isAtTop && scrollRef.current) {
-      scrollRef.current.scrollTop = 0
+  useEffect(() => {
+    if (isAtTop && listRef.current) {
+      listRef.current.scrollTo(0)
     }
   }, [visibleLogs, isAtTop])
 
-  const handleScroll = (e) => {
-    const { scrollTop } = e.currentTarget
-    setIsAtTop(scrollTop < 10)
-  }
+  const handleScroll = useCallback(({ scrollOffset }) => {
+    setIsAtTop(scrollOffset < 10)
+  }, [])
 
   const filterButtons = [
     { level: 'info', label: 'Info' },
     { level: 'warn', label: 'Warnings' },
     { level: 'error', label: 'Errors' },
   ]
+
+  const Row = useCallback(({ index, style }) => {
+    const log = visibleLogs[index];
+    if (!log) return null;
+
+    // BOLT: Flexible height support for virtualized rows to handle log wrapping
+    return (
+      <div
+        style={{
+          ...style,
+          height: 'auto',
+          minHeight: '36px',
+          paddingBottom: '2px'
+        }}
+        className="min-w-fit"
+      >
+        <LogEntry log={log} />
+      </div>
+    );
+  }, [visibleLogs]);
 
   return (
     <div className="flex flex-col gap-3 max-h-[500px] overflow-hidden">
@@ -196,16 +216,14 @@ export const DecisionLog = React.memo(() => {
       </div>
 
       <div
-        ref={scrollRef}
-        onScroll={handleScroll}
         aria-live="polite"
-        className="flex-1 flex flex-col gap-1.5 max-h-[340px] overflow-auto relative scrollbar-thin scrollbar-thumb-border hover:scrollbar-thumb-accent/50"
+        className="flex-1 flex flex-col gap-1.5 max-h-[340px] relative"
       >
         {!isAtTop && (
-          <div className="sticky top-2 inset-x-0 z-10 flex justify-center pointer-events-none">
+          <div className="absolute top-2 inset-x-0 z-20 flex justify-center pointer-events-none">
             <button
               onClick={() => {
-                if (scrollRef.current) scrollRef.current.scrollTop = 0
+                if (listRef.current) listRef.current.scrollTo(0)
                 setIsAtTop(true)
               }}
               className="pointer-events-auto bg-accent text-white px-4 py-1.5 rounded-full text-[10px] font-bold shadow-xl border border-white/10 animate-in fade-in zoom-in slide-in-from-top-2 duration-300"
@@ -237,11 +255,17 @@ export const DecisionLog = React.memo(() => {
             )}
           </div>
         ) : (
-          visibleLogs.map((log) => (
-            <div key={log.id} className="min-w-fit">
-              <LogEntry log={log} />
-            </div>
-          ))
+          <List
+            ref={listRef}
+            height={340}
+            itemCount={visibleLogs.length}
+            itemSize={36}
+            width="100%"
+            onScroll={handleScroll}
+            className="scrollbar-thin scrollbar-thumb-border hover:scrollbar-thumb-accent/50 overscroll-contain"
+          >
+            {Row}
+          </List>
         )}
       </div>
     </div>

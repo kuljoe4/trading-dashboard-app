@@ -15,6 +15,7 @@ describe('TradingSessionService Restart PnL Consistency', () => {
       balancePaper: 9999.6,
       setActiveTrades: jest.fn(),
       minimize: jest.fn(),
+      updateStatsOnClose: jest.fn(),
     };
     orderManager = {
       setBinanceClient: jest.fn(),

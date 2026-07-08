@@ -229,36 +229,73 @@ const ExitSignalCard = React.memo(({ signal, active, delayValue, onToggle, onDel
 })
 ExitSignalCard.displayName = 'ExitSignalCard'
 
-const ManualMonitorInput = React.memo(({ onAdd }) => {
+const ManualMonitorInput = React.memo(({ onAdd, scannerResults = [] }) => {
   const [value, setValue] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
 
-  const handleAdd = () => {
-    if (value.trim()) {
-      onAdd(value.trim());
+  const options = useMemo(() => {
+    if (!value) return scannerResults.slice(0, 5);
+    return scannerResults
+      .filter(r => r.symbol.toLowerCase().includes(value.toLowerCase()))
+      .slice(0, 5);
+  }, [value, scannerResults]);
+
+  const handleAdd = (symbol) => {
+    const val = symbol || value;
+    if (val.trim()) {
+      onAdd(val.trim().toUpperCase());
       setValue('');
+      setIsOpen(false);
     }
   };
 
   return (
-    <div className="flex gap-2">
+    <div className="flex gap-2 relative">
       <div className="relative flex-1">
         <input
           type="text"
           placeholder="BTCUSDT"
           value={value}
-          onChange={(e) => setValue(e.target.value.toUpperCase())}
+          onFocus={() => setIsOpen(true)}
+          onChange={(e) => { setValue(e.target.value.toUpperCase()); setIsOpen(true); }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
               handleAdd();
             }
-            if (e.key === 'Escape') setValue('');
+            if (e.key === 'Escape') {
+              setValue('');
+              setIsOpen(false);
+            }
           }}
           className="w-full bg-surface border border-border rounded-xl pl-4 pr-10 py-3 text-sm font-mono focus:border-accent outline-none hover:border-border-hover transition-colors"
         />
-        {value && <button type="button" onClick={() => setValue('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear input"><X size={16} /></button>}
+        {value && <button type="button" onClick={() => { setValue(''); setIsOpen(false); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear input"><X size={16} /></button>}
+
+        <AnimatePresence>
+          {isOpen && options.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="absolute top-full left-0 right-0 mt-2 bg-surface border border-border rounded-xl shadow-xl z-50 overflow-hidden"
+            >
+              {options.map(o => (
+                <button
+                  key={o.symbol}
+                  type="button"
+                  onClick={() => handleAdd(o.symbol)}
+                  className="w-full px-4 py-2.5 text-left text-sm font-mono hover:bg-white/5 transition-colors border-b border-border/50 last:border-0"
+                >
+                  {o.symbol}
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
-      <Btn variant="primary" onClick={handleAdd} className="aspect-square p-0 w-12 h-12 flex items-center justify-center"><Plus size={20} /></Btn>
+      <Btn variant="primary" onClick={() => handleAdd()} className="aspect-square p-0 w-12 h-12 flex items-center justify-center shrink-0"><Plus size={20} /></Btn>
+      {isOpen && <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />}
     </div>
   );
 })
@@ -498,7 +535,10 @@ const flattenConfig = (config) => {
   } catch (e) { return { ...config }; }
 };
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
-  const addAlert = useTradingStore(state => state.addAlert);
+  const { addAlert, scannerResults } = useTradingStore(state => ({
+    addAlert: state.addAlert,
+    scannerResults: state.scannerResults
+  }));
   // UX-MOBILE: Ensure inputs scroll into view when keyboard is active
   const handleInputFocus = React.useCallback((e) => {
     requestAnimationFrame(() => {
@@ -635,6 +675,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setIsDirty(true);
     setCfg(prev => {
       const next = { ...prev, [key]: value };
+      // BOLT: Floating-point precision guard for weights to prevent intermittent sum warnings
+      if (key.startsWith('scanner_weights_')) {
+        const w1 = Number(next.scanner_weights_momentum || 0);
+        const w2 = Number(next.scanner_weights_volatility || 0);
+        const w3 = Number(next.scanner_weights_trend || 0);
+        const total = w1 + w2 + w3;
+        if (Math.abs(total - 100) < 0.01 && total !== 100) {
+           // Auto-adjust trend weight to hit exactly 100 if we are within 0.01 tolerance
+           next.scanner_weights_trend = Number((100 - w1 - w2).toFixed(2));
+        }
+      }
       return next;
     });
   }, []);
@@ -1013,7 +1064,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                  <SectionHeader icon={ShieldCheck} title="Manual Monitors" subtitle="Specific symbols to track" />
                  {(cfg.single_symbol_configs || []).length > 0 && <button type="button" onClick={() => setField('single_symbol_configs', [])} className="text-[10px] font-black uppercase tracking-widest text-red/60 hover:text-red transition-colors flex items-center gap-1.5"><Trash2 size={12} /> Clear All</button>}
                </div>
-               <ManualMonitorInput onAdd={(val) => setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), { symbol: val, enabled: true, follow_schedule: true }])} />
+               <ManualMonitorInput
+                 scannerResults={scannerResults}
+                 onAdd={(val) => setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), { symbol: val, enabled: true, follow_schedule: true }])}
+               />
                <div className="flex flex-wrap gap-2 mt-4">
                  {(cfg.single_symbol_configs || []).length === 0 ? (
                    <p className="text-[10px] text-dim/40 font-bold uppercase tracking-widest p-4 border border-dashed border-border/40 rounded-xl w-full text-center">No symbols tracked manually</p>

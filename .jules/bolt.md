@@ -164,3 +164,7 @@
 ## 2026-07-07 - [Optimization] Centralized Stable Lookback Caching
 **Learning:** Redundant (N)$ structural lookbacks (min/max) across different services (RiskEngine, SignalEngine) create unnecessary CPU load and GC pressure. Centralizing these lookbacks into the data source (KlineStore) with a stable cache based on the last completed candle timestamp converts multiple (N)$ operations into a single (1)$ lookup per tick.
 **Action:** Always centralize technical indicator calculations that depend on completed candles into the primary data service and implement stable caching to eliminate redundant iterations across the engine.
+
+## 2026-07-08 - [Optimization] Zero-Allocation Candle Access in Engulfing Signal
+**Learning:** Even with small lookbacks, using 'slice()' in a high-frequency signal evaluation pass (potentially hundreds of symbols every few seconds) creates significant transient array allocations. This increases GC pressure and reduces overall engine throughput.
+**Action:** Replace 'slice()' with direct index-based iteration over the original data array in technical indicator handlers. Maintain parity with slice() behavior by guarding against negative start indices when refactoring to manual loops.

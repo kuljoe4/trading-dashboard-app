@@ -290,7 +290,8 @@ export class SignalEngineService {
       }
 
       const curr = candles[candles.length - 1];
-      const prevCandles = candles.slice(candles.length - 1 - lookback, candles.length - 1);
+      const endIdx = candles.length - 1;
+      const startIdx = Math.max(0, endIdx - lookback);
 
       const mode = config.engulfing_mode || 'range';
       const volConfirm = config.engulfing_volume_confirm || false;
@@ -305,7 +306,9 @@ export class SignalEngineService {
       let aggregateBodyLow = Infinity;
       let allReverse = true;
 
-      for (const p of prevCandles) {
+      // BOLT OPTIMIZATION: Use direct index-based iteration instead of slice() to avoid transient array allocations
+      for (let i = startIdx; i < endIdx; i++) {
+        const p = candles[i];
         if (p.high > aggregateHigh) aggregateHigh = p.high;
         if (p.low < aggregateLow) aggregateLow = p.low;
 
@@ -324,7 +327,7 @@ export class SignalEngineService {
       
       const bodyEngulfs = currBodyHigh > aggregateBodyHigh && currBodyLow < aggregateBodyLow;
       const rangeEngulfs = curr.high > aggregateHigh && curr.low < aggregateLow;
-      const volumeConfirms = curr.volume > prevCandles[prevCandles.length - 1].volume;
+      const volumeConfirms = curr.volume > candles[endIdx - 1].volume;
 
       let fired = false;
       let reason = '';

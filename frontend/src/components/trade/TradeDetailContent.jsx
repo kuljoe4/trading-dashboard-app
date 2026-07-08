@@ -474,17 +474,19 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                      value: (() => {
                         const type = trade.exit_signal_type?.replace(/_/g, ' ') || (trade.exit_reason || 'Manual');
                         const reason = trade.exit_signal_reason || '';
-                        if (type === 'STOP LOSS' || type === 'SL HIT') {
+                        if (type === 'STOP LOSS' || type === 'SL HIT' || type === 'TRAILING STOP') {
                           if (reason.includes('INITIAL_SL')) return 'Initial Stop Loss';
                           if (reason.includes('RR_sequence_milestone_0')) return 'Breakeven SL';
                           if (reason.includes('RR_sequence_milestone')) {
                             const match = reason.match(/milestone_(\d+)/);
                             return match ? `Ratchet SL (M${match[1]})` : 'Ratchet SL';
                           }
+                          if (type === 'TRAILING STOP') return 'Trailing Stop';
                           return 'Stop Loss';
                         }
                         if (type === 'EXCHANGE MANUAL') return 'Exchange Manual';
                         if (type === 'EXCHANGE FILL') return 'Exchange Fill';
+                        if (type === 'EXCHANGE SYNC') return 'Exchange Sync';
                         return type;
                      })(),
                      color: 'text-accent'

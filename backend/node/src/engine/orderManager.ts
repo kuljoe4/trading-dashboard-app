@@ -2202,18 +2202,19 @@ export class OrderManagerService {
            exitPrice = context.price;
 
            // BOLT: Field Synchronization. Update tooltip reason to match the new authoritative price.
-           if (trade.exit_signal_reason && trade.exit_signal_reason.includes('at')) {
-              trade.exit_signal_reason = trade.exit_signal_reason.replace(/at [\d.]+/, `at ${exitPrice}`);
-           } else if (trade.exit_signal_reason && trade.exit_signal_reason.includes('confirmed by exchange at')) {
-              trade.exit_signal_reason = trade.exit_signal_reason.replace(/confirmed by exchange at [\d.]+/, `confirmed by exchange at ${exitPrice}`);
+           // Handles multiple patterns: "reached SL X", "at X", "confirmed by exchange at X"
+           const pricePattern = /(reached SL |confirmed by exchange at |at )([\d.]+)/;
+           if (trade.exit_signal_reason && pricePattern.test(trade.exit_signal_reason)) {
+              trade.exit_signal_reason = trade.exit_signal_reason.replace(pricePattern, `$1${exitPrice}`);
            } else if (!trade.exit_signal_reason) {
               // If no reason set yet (e.g. EXCHANGE_SYNC), create a descriptive one with the price
-              const label = exitReason.replace(/_/g, ' ');
+              const label = (context.reason || exitReason).replace(/_/g, ' ');
               trade.exit_signal_reason = `${label} at ${exitPrice}`;
            }
         }
 
-        if (exitReason === EXIT_REASONS.EXCHANGE_SYNC && context.reason) {
+        if (context.reason && context.reason !== exitReason) {
+          this.logger.log(`[${symbol}] [Sync] Upgrading exit reason: ${exitReason} -> ${context.reason}`);
           exitReason = context.reason;
           trade.exit_reason = exitReason; // Ensure entity also gets the specific reason
         }
@@ -2494,9 +2495,8 @@ export class OrderManagerService {
 
                   if (context.reason) {
                     exitReason = context.reason;
-                    trade.exit_reason = exitReason;
                   } else {
-                    trade.exit_reason = trade.exit_reason === EXIT_REASONS.EXCHANGE_SYNC ? EXIT_REASONS.EXCHANGE_SYNC_RECOVERY : EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
+                    exitReason = trade.exit_reason === EXIT_REASONS.EXCHANGE_SYNC ? EXIT_REASONS.EXCHANGE_SYNC_RECOVERY : EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
                   }
 
                   if (!options.feesAlreadyAccounted) {
@@ -2644,23 +2644,22 @@ export class OrderManagerService {
 
       trade.pnl = roundEight(Number.isFinite(finalNetPnl) ? finalNetPnl : 0);
 
-      trade.exit_reason = trade.exit_reason || exitReason;
+      trade.exit_reason = exitReason;
 
       // Ensure exit signal type and reason are passed through to persistence
-      if (!trade.exit_signal_type) {
-        if (exitReason.startsWith(EXIT_REASONS.SL_HIT) || exitReason === EXIT_REASONS.AUTO_RECONCILED_SL) trade.exit_signal_type = 'STOP_LOSS';
-        else if (exitReason === EXIT_REASONS.TP_HIT || exitReason === EXIT_REASONS.AUTO_RECONCILED_TP) trade.exit_signal_type = 'TAKE_PROFIT';
-        else if (exitReason === EXIT_REASONS.MANUAL_CLOSE) trade.exit_signal_type = 'MANUAL';
-        else if (exitReason === EXIT_REASONS.EXCHANGE_SL_OR_MANUAL) trade.exit_signal_type = 'EXCHANGE_MANUAL';
-        else if (exitReason === EXIT_REASONS.SESSION_TERMINATED) trade.exit_signal_type = 'SESSION_TERMINATED';
-        else if (exitReason === EXIT_REASONS.EXCHANGE_SYNC || exitReason === EXIT_REASONS.EXCHANGE_SYNC_RECOVERY || exitReason === EXIT_REASONS.AUTO_RECONCILED_EXIT) trade.exit_signal_type = 'EXCHANGE_SYNC';
-        else if (exitReason === EXIT_REASONS.SLIPPAGE_ABORT || exitReason === EXIT_REASONS.ENTRY_AT_OR_PAST_SL || exitReason === EXIT_REASONS.ENTRY_TOO_CLOSE_TO_SL || exitReason === EXIT_REASONS.SL_PLACEMENT_FAILURE) trade.exit_signal_type = 'SAFETY_ABORT';
-        else if (exitReason === EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE) trade.exit_signal_type = 'WATCHDOG_NUCLEAR_CLOSE';
-        else if (exitReason === EXIT_REASONS.EXCHANGE_FILL) trade.exit_signal_type = 'EXCHANGE_FILL';
-        else if (exitReason === EXIT_REASONS.TRAILING_STOP) trade.exit_signal_type = 'TRAILING_STOP';
-        else if (exitReason.startsWith(EXIT_REASONS.SIGNAL)) trade.exit_signal_type = 'SIGNAL';
-        else trade.exit_signal_type = 'SIGNAL';
-      }
+      // SRE: Re-evaluate type based on potentially updated exitReason
+      if (exitReason.startsWith(EXIT_REASONS.SL_HIT) || exitReason === EXIT_REASONS.AUTO_RECONCILED_SL) trade.exit_signal_type = 'STOP_LOSS';
+      else if (exitReason === EXIT_REASONS.TP_HIT || exitReason === EXIT_REASONS.AUTO_RECONCILED_TP) trade.exit_signal_type = 'TAKE_PROFIT';
+      else if (exitReason === EXIT_REASONS.MANUAL_CLOSE) trade.exit_signal_type = 'MANUAL';
+      else if (exitReason === EXIT_REASONS.EXCHANGE_SL_OR_MANUAL) trade.exit_signal_type = 'EXCHANGE_MANUAL';
+      else if (exitReason === EXIT_REASONS.SESSION_TERMINATED) trade.exit_signal_type = 'SESSION_TERMINATED';
+      else if (exitReason === EXIT_REASONS.EXCHANGE_SYNC || exitReason === EXIT_REASONS.EXCHANGE_SYNC_RECOVERY || exitReason === EXIT_REASONS.AUTO_RECONCILED_EXIT) trade.exit_signal_type = 'EXCHANGE_SYNC';
+      else if (exitReason === EXIT_REASONS.SLIPPAGE_ABORT || exitReason === EXIT_REASONS.ENTRY_AT_OR_PAST_SL || exitReason === EXIT_REASONS.ENTRY_TOO_CLOSE_TO_SL || exitReason === EXIT_REASONS.SL_PLACEMENT_FAILURE) trade.exit_signal_type = 'SAFETY_ABORT';
+      else if (exitReason === EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE) trade.exit_signal_type = 'WATCHDOG_NUCLEAR_CLOSE';
+      else if (exitReason === EXIT_REASONS.EXCHANGE_FILL) trade.exit_signal_type = 'EXCHANGE_FILL';
+      else if (exitReason === EXIT_REASONS.TRAILING_STOP) trade.exit_signal_type = 'TRAILING_STOP';
+      else if (exitReason.startsWith(EXIT_REASONS.SIGNAL)) trade.exit_signal_type = 'SIGNAL';
+      else trade.exit_signal_type = trade.exit_signal_type || 'SIGNAL';
 
       // Clean up log throttle on successful close
       this.lastDeferLogTs.delete(symbol);

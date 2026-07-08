@@ -35,6 +35,7 @@ const normalizeOpportunity = (o = {}) => {
       volatility: toNumber(o.score_breakdown.volatility),
       trend: toNumber(o.score_breakdown.trend)
     } : undefined,
+    lastUpdate: o.last_update ?? o.ts ?? Date.now(),
     signalResult: o.signalResult ? {
       allFired: !!o.signalResult.allFired,
       firedSignals: Array.isArray(o.signalResult.firedSignals) ? o.signalResult.firedSignals.map(s => String(s)) : [],
@@ -185,17 +186,22 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
      const now = Date.now();
      const id = Math.random().toString(36).substring(2, 11);
      const newAlert = { id, ts: now, level: 'info', ...alert };
+     let targetId = id;
 
      set(st => {
        const existing = st.alerts.find(a => a.title === newAlert.title && a.message === newAlert.message && (now - a.ts < 5000));
        if (existing) {
+          targetId = existing.id;
           return { alerts: st.alerts.map(a => a.id === existing.id ? { ...a, ts: now, count: (a.count || 1) + 1 } : a) };
        }
        return { alerts: [newAlert, ...st.alerts].slice(0, 10) };
      });
 
+     // BOLT-PERF: Move side effects out of the updater function for better maintainability and pure state transitions.
      setTimeout(() => {
-       set(st => ({ alerts: st.alerts.filter(a => a.id !== id || (Date.now() - a.ts < 10000)) }));
+       set(st => ({
+         alerts: st.alerts.filter(a => a.id !== targetId || (Date.now() - a.ts < 10000))
+       }));
      }, 10000);
   },
   
@@ -306,6 +312,17 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   fetchLifetimeAnalytics: async (m = 'paper') => { set({ isSyncing: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchTradeHistory: async (sid = 'all') => { set({ isSyncing: true }); try { const r = await sessionAPI.history(sid); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
   updateStats: (s) => set((st) => ({ ...st, ...s })),
+  resetPaperBalance: async () => {
+    try {
+      const res = await sessionAPI.resetPaperBalance();
+      set({ balance: res.data.balance });
+      get().addAlert({ level: 'success', title: 'Balance Reset', message: 'Paper trading balance has been reset to default.' });
+    } catch (e) {
+      console.error('Failed to reset paper balance:', e);
+      get().addAlert({ level: 'error', title: 'Reset Failed', message: 'Could not reset paper balance.' });
+    }
+  },
+
   updateConfig: (c) => {
     console.log('[Config Trace] updateConfig called with:', c);
     if (c.trading_mode) {
@@ -444,22 +461,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
       } else if (d.type === 'gate') set(st => ({ gateState: d.gateState, gateReason: d.reason, hibernating: d.hibernating ?? st.hibernating, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, scannerPaused: d.scannerPaused }));
       else if (d.type === 'api_status') set({ apiStatus: d });
       else if (d.type === 'alert') {
-        const now = Date.now();
-        const newAlert = { id: Math.random().toString(36).substring(2, 11), ts: now, ...d };
-
-        set(st => {
-          // Coalesce logic: If an alert with same title/message exists within last 5s, update its TS and keep it
-          const existing = st.alerts.find(a => a.title === d.title && a.message === d.message && (now - a.ts < 5000));
-          if (existing) {
-             return { alerts: st.alerts.map(a => a.id === existing.id ? { ...a, ts: now, count: (a.count || 1) + 1 } : a) };
-          }
-          return { alerts: [newAlert, ...st.alerts].slice(0, 10) };
-        });
-
-        // Auto-remove alert after 10 seconds of no updates
-        setTimeout(() => {
-          set(st => ({ alerts: st.alerts.filter(a => a.id !== newAlert.id || (Date.now() - a.ts < 10000)) }));
-        }, 10000);
+        get().addAlert(d);
       }
       else if (d.type === 'session_terminated') get().setSessionActive(false, null);
     };

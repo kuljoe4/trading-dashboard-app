@@ -7,15 +7,12 @@ export class Kline {
   id: string; // symbol_interval_time
 
   @Column()
-  @Index()
   symbol: string;
 
   @Column()
-  @Index()
   interval: string;
 
   @Column({ type: 'bigint' })
-  @Index()
   time: number;
 
   @Column({ type: 'numeric', precision: 20, scale: 8 })

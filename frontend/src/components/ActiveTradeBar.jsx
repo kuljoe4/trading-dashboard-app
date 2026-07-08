@@ -5,11 +5,12 @@ import { fmtUSD, pnlColor, pnlClass, C, safeNum } from '../lib/theme'
 import { ArrowLeftRight, ChevronRight, XCircle } from 'lucide-react'
 import { cn, Btn } from './ui/primitives'
 import { sessionAPI } from '../api/client'
+import { ConfirmationModal } from './ConfirmationModal'
 
 export const ActiveTradeBar = () => {
   const activeTrades = useTradingStore(state => state.activeTrades)
   const sessionActive = useTradingStore(state => state.sessionActive)
-  const [closing, setClosing] = React.useState(null)
+  const [closingSymbol, setClosingSymbol] = React.useState(null)
 
   if (!sessionActive || activeTrades.length === 0) return null
 
@@ -23,24 +24,14 @@ export const ActiveTradeBar = () => {
     return (sl - entry) * qty * (t.direction === 'LONG' ? 1 : -1)
   }
 
-  const handleClose = async (symbol) => {
-    if (closing === symbol) {
-      try {
-        await sessionAPI.closeTrade(symbol)
-        setClosing(null)
-      } catch (e) {
-        setClosing(null)
-      }
-    } else {
-      setClosing(symbol)
-      // Audit Item 44: Feedback on cancel
-      setTimeout(() => {
-        setClosing(prev => {
-          if (prev === symbol) return 'CANCELLED';
-          return prev;
-        });
-        setTimeout(() => setClosing(null), 1000);
-      }, 3000);
+  const handleClose = async () => {
+    if (!closingSymbol) return
+    try {
+      await sessionAPI.closeTrade(closingSymbol)
+      setClosingSymbol(null)
+    } catch (e) {
+      console.error('Failed to close trade:', e)
+      setClosingSymbol(null)
     }
   }
 
@@ -69,22 +60,19 @@ export const ActiveTradeBar = () => {
             return (
               <div key={t.symbol} className="flex flex-col gap-1">
                 <button
-                  onClick={() => handleClose(t.symbol)}
+                  onClick={() => setClosingSymbol(t.symbol)}
                   role="listitem"
-                  aria-label={closing === t.symbol ? `Confirm closing ${t.symbol} position` : `Close ${t.symbol} position`}
+                  aria-label={`Close ${t.symbol} position`}
                   className={cn(
-                    "px-3 py-2 rounded-xl border text-[10px] font-bold font-mono transition-all flex items-center gap-2 shrink-0 focus-visible:ring-2 focus-visible:ring-red outline-none",
-                    closing === t.symbol ? "bg-red border-red text-white scale-95" :
-                    closing === 'CANCELLED' ? "bg-amber/20 border-amber/40 text-amber" :
-                    "bg-white/5 border-white/10 hover:bg-white/10 hover:border-red/40"
+                    "px-3 py-2 rounded-xl border text-[10px] font-bold font-mono transition-all flex items-center gap-2 shrink-0 focus-visible:ring-2 focus-visible:ring-red outline-none bg-white/5 border-white/10 hover:bg-white/10 hover:border-red/40"
                   )}
                 >
                   <div className="flex items-center gap-1.5">
                     {t.is_reconciliation && <div className="w-1.5 h-1.5 rounded-full bg-amber shadow-[0_0_5px_rgba(245,166,35,0.5)]" />}
                     {t.symbol.replace('USDT', '')}
                   </div>
-                  <span style={{ color: closing === t.symbol ? 'white' : pnlColor(t.pnl) }}>
-                    {closing === t.symbol ? 'CONFIRM' : closing === 'CANCELLED' ? 'CANCELLED' : fmtUSD(t.pnl)}
+                  <span style={{ color: pnlColor(t.pnl) }}>
+                    {fmtUSD(t.pnl)}
                   </span>
                 </button>
                 <div className="flex items-center justify-center px-1">
@@ -97,6 +85,16 @@ export const ActiveTradeBar = () => {
           })}
         </div>
       </div>
+
+      <ConfirmationModal
+        isOpen={!!closingSymbol}
+        onClose={() => setClosingSymbol(null)}
+        onConfirm={handleClose}
+        title="Confirm Liquidation"
+        message={`Are you sure you want to immediately close your ${closingSymbol} position at market price?`}
+        variant="danger"
+        confirmText="Confirm"
+      />
     </motion.div>
   )
 }

@@ -26,12 +26,11 @@ const RRLadder = ({ trade }) => {
   const liveRR = trade.rr || 0
   const risk = Math.abs(trade.entry_price - (trade.initial_sl || trade.sl_price))
   const activeIdx = triggers.reduce((idx, trigger, i) => maxRR >= trigger ? i : idx, -1)
-  const currentExitRR = activeIdx >= 0 ? exits[activeIdx] : null
-  const currentSl = currentExitRR == null
-    ? (trade.initial_sl || trade.sl_price)
-    : trade.direction === 'LONG'
-      ? trade.entry_price + risk * currentExitRR
-      : trade.entry_price - risk * currentExitRR
+
+  // Use authoritative current_sl if available, otherwise fall back to ladder recompute
+  const currentSl = trade.sl_price || (activeIdx >= 0 ?
+    (trade.direction === 'LONG' ? trade.entry_price + risk * exits[activeIdx] : trade.entry_price - risk * exits[activeIdx]) :
+    (trade.initial_sl || trade.sl_price))
 
   const getEstPnl = (price) => {
     if (!price || !trade.entry_price || !trade.qty) return 0
@@ -153,7 +152,9 @@ const ExitMonitor = ({ status, logic, trade }) => {
           // If logic='all' and some are not hit, we show "AWAITING CONSENSUS".
           let triggerProgress = 0;
           if (!s.insufficientData) {
-             if (s.threshold_is_price) {
+             if (s.fired && s.active) {
+                triggerProgress = 100;
+             } else if (s.threshold_is_price) {
              // BOLT: Direction-aware proximity math.
              // 0% = Entry Price, 100% = Threshold.
              // If price moves past threshold, it stays at 100% (fired).
@@ -162,7 +163,9 @@ const ExitMonitor = ({ status, logic, trade }) => {
              const progressDist = isLong ? (mark - entryPrice) : (entryPrice - mark);
 
                 if (totalDist > 0) {
-                triggerProgress = Math.max(0, Math.min(100, (progressDist / totalDist) * 100));
+                   triggerProgress = Math.max(0, Math.min(100, (progressDist / totalDist) * 100));
+                } else if (s.fired) {
+                   triggerProgress = 100;
                 }
              } else {
                 triggerProgress = Math.max(0, Math.min(100, (Math.abs(value) / threshold) * 100));
@@ -199,8 +202,10 @@ const ExitMonitor = ({ status, logic, trade }) => {
                        <div className="flex items-center gap-2">
                          <span className="text-[12px] md:text-[16px] font-black uppercase tracking-tight truncate">{s.label || key}</span>
                          {isDelayed && !isFired && (
-                           <div className="flex items-center gap-1.5 text-amber bg-amber/10 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-tighter border border-amber/20">
-                              <Clock size={12} /> {Math.ceil(s.remaining_delay)}s
+                           <div className="relative group/delay overflow-hidden flex items-center gap-1.5 text-amber bg-amber/10 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-tighter border border-amber/20">
+                              <div className="absolute inset-0 bg-amber/20 origin-left" style={{ width: `${(s.remaining_delay / (s.config_delay || s.remaining_delay)) * 100}%` }} />
+                              <Clock size={12} className="relative z-10" />
+                              <span className="relative z-10">{Math.ceil(s.remaining_delay)}s</span>
                            </div>
                          )}
                        </div>

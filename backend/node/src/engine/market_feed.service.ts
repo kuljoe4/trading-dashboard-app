@@ -570,6 +570,11 @@ export class MarketFeedService {
       if (config.single_symbol_configs) {
         for (const sc of config.single_symbol_configs) {
           if (!sc.enabled) continue;
+          // COMPLIANCE: Extend non-crypto filtering to manual monitors
+          if (this.getSymbolFilters(sc.symbol) === undefined) {
+             this.logger.warn(`Filtering out non-crypto symbol from manual monitor: ${sc.symbol}`);
+             continue;
+          }
           if (!newWatchlist.has(sc.symbol)) newWatchlist.set(sc.symbol, new Set());
           const interval = sc.use_custom_config && sc.custom_config?.scan_interval ? sc.custom_config.scan_interval : config.scan_interval || '1m';
           newWatchlist.get(sc.symbol)!.add(interval);

@@ -7,7 +7,7 @@ import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, Chevron
 import { motion, AnimatePresence } from 'framer-motion'
 import { shallow } from 'zustand/shallow'
 
-const FreshnessIndicator = React.memo(({ lastScanTs }) => {
+const FreshnessIndicator = React.memo(({ ts }) => {
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -15,12 +15,12 @@ const FreshnessIndicator = React.memo(({ lastScanTs }) => {
     return () => clearInterval(timer);
   }, []);
 
-  if (lastScanTs <= 0) return null;
-  const age = Math.max(0, now - lastScanTs);
+  if (!ts || ts <= 0) return null;
+  const age = Math.max(0, now - ts);
 
   return (
     <Tooltip content={`Telemetry timestamped ${formatDuration(age)} ago`}>
-      <div className="w-1.5 h-1.5 rounded-full bg-green/40 cursor-help" />
+      <div className={cn("w-1.5 h-1.5 rounded-full cursor-help transition-colors duration-500", age < 5000 ? "bg-green" : "bg-amber/40")} />
     </Tooltip>
   );
 });
@@ -31,10 +31,10 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
 
   // DEBUG: Track telemetry presence in expanded state to identify synchronization gaps
   useEffect(() => {
-    if (isExpanded && (!opp.ohlc_history || opp.ohlc_history.length === 0)) {
+    if (config?.debug_mode && isExpanded && (!opp.ohlc_history || opp.ohlc_history.length === 0)) {
       console.warn(`[Scanner Debug] Expanded ${opp.symbol} has no telemetry. Gated: ${scannerPaused}, Hibernating: ${hibernating}, LastScan: ${lastScanTs}`);
     }
-  }, [isExpanded, opp.symbol, opp.ohlc_history, scannerPaused, hibernating, lastScanTs]);
+  }, [isExpanded, opp.symbol, opp.ohlc_history, scannerPaused, hibernating, lastScanTs, config?.debug_mode]);
   const threshold = config?.scan_pct_threshold || 2.0;
   const dir = (opp.dir || opp.direction || '').toLowerCase();
   const isLong = dir ? dir === 'long' : opp.pct >= 0;
@@ -115,15 +115,15 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                <div className="text-[10px] font-black uppercase tracking-widest border-b border-white/10 pb-1">Score Breakdown</div>
                <div className="flex justify-between items-center text-[10px]">
                   <span className="text-dim uppercase font-bold">Momentum</span>
-                  <span className="font-mono text-accent">{opp.score_breakdown?.momentum?.toFixed(1) || '0.0'}</span>
+                  <span className="font-mono text-accent">{(config?.scanner_weights?.momentum * (opp.score_breakdown?.momentum || 0)).toFixed(1)}</span>
                </div>
                <div className="flex justify-between items-center text-[10px]">
                   <span className="text-dim uppercase font-bold">Volatility</span>
-                  <span className="font-mono text-amber">{opp.score_breakdown?.volatility?.toFixed(1) || '0.0'}</span>
+                  <span className="font-mono text-amber">{(config?.scanner_weights?.volatility * (opp.score_breakdown?.volatility || 0)).toFixed(1)}</span>
                </div>
                <div className="flex justify-between items-center text-[10px]">
                   <span className="text-dim uppercase font-bold">Trend</span>
-                  <span className="font-mono text-purple-400">{opp.score_breakdown?.trend?.toFixed(1) || '0.0'}</span>
+                  <span className="font-mono text-purple-400">{(config?.scanner_weights?.trend * (opp.score_breakdown?.trend || 0)).toFixed(1)}</span>
                </div>
                <div className="border-t border-white/10 pt-1 flex justify-between items-center font-black">
                   <span className="text-[9px] uppercase tracking-tighter">Total</span>
@@ -133,9 +133,9 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
           }>
             <div className="flex-1 flex items-center gap-2 cursor-help" aria-label="Score breakdown bar">
               <div className="flex-1 h-1.5 bg-white/5 rounded-full overflow-hidden flex min-w-[40px] border border-white/5">
-                <div className="h-full bg-accent/80" style={{ width: `${opp.score_breakdown?.momentum || 0}%` }} aria-label={`Momentum component: ${opp.score_breakdown?.momentum?.toFixed(1)}%`} />
-                <div className="h-full bg-amber/80" style={{ width: `${opp.score_breakdown?.volatility || 0}%` }} aria-label={`Volatility component: ${opp.score_breakdown?.volatility?.toFixed(1)}%`} />
-                <div className="h-full bg-purple/80" style={{ width: `${opp.score_breakdown?.trend || 0}%` }} aria-label={`Trend component: ${opp.score_breakdown?.trend?.toFixed(1)}%`} />
+                <div className="h-full bg-accent/80" style={{ width: `${(config?.scanner_weights?.momentum || 0.5) * (opp.score_breakdown?.momentum || 0)}%` }} aria-label={`Momentum component: ${opp.score_breakdown?.momentum?.toFixed(1)}%`} />
+                <div className="h-full bg-amber/80" style={{ width: `${(config?.scanner_weights?.volatility || 0.3) * (opp.score_breakdown?.volatility || 0)}%` }} aria-label={`Volatility component: ${opp.score_breakdown?.volatility?.toFixed(1)}%`} />
+                <div className="h-full bg-purple/80" style={{ width: `${(config?.scanner_weights?.trend || 0.2) * (opp.score_breakdown?.trend || 0)}%` }} aria-label={`Trend component: ${opp.score_breakdown?.trend?.toFixed(1)}%`} />
               </div>
               <div className="relative">
                 <span className={cn(
@@ -152,12 +152,22 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
           </Tooltip>
         </div>
         <div className="flex justify-center items-center gap-2">
+          <div className="hidden lg:flex items-center gap-1 mr-1">
+             {(config.enabled_signals || []).map(sig => {
+                const fired = opp.signalResult?.firedSignals?.includes(sig);
+                return (
+                   <Tooltip key={sig} content={`${sig.replace(/_/g, ' ')}: ${fired ? 'FIRED' : 'PENDING'}`}>
+                      <div className={cn("w-1.5 h-1.5 rounded-full transition-colors", fired ? "bg-green" : "bg-dim/20")} />
+                   </Tooltip>
+                );
+             })}
+          </div>
           {passing ? (
             opp.signalResult?.allFired ? (
               <span className="px-2 py-0.5 rounded bg-green/10 text-green text-[9px] font-black uppercase tracking-tighter border border-green/20">PASS</span>
             ) : (
-              <span className="px-2 py-0.5 rounded bg-red/10 text-red text-[9px] font-black uppercase tracking-tighter border border-red/20 flex items-center gap-1">
-                REJECT
+              <span className="px-2 py-0.5 rounded bg-amber/10 text-amber text-[9px] font-black uppercase tracking-tighter border border-amber/20 flex items-center gap-1">
+                WAIT SIG
               </span>
             )
           ) : (
@@ -269,7 +279,7 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                           <div className="flex flex-col">
                              <div className="flex items-center gap-2 mb-1">
                                 <span className="text-[9px] text-dim font-black uppercase tracking-[0.2em]">Composite Authority</span>
-                                <FreshnessIndicator lastScanTs={lastScanTs} />
+                                <FreshnessIndicator ts={opp.lastUpdate} />
                              </div>
                              <div className="flex items-baseline gap-2">
                                 <span className={cn("text-3xl font-mono font-black tracking-tighter leading-none", opp.score > 85 ? "text-accent shadow-accent/20" : "text-text")}>

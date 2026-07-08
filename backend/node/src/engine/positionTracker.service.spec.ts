@@ -1,6 +1,7 @@
 import { PositionTrackerService } from './positionTracker';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
+import { ENGINE_EVENTS } from './events';
 
 describe('PositionTrackerService', () => {
   let service: PositionTrackerService;
@@ -18,6 +19,7 @@ describe('PositionTrackerService', () => {
       updateStopLoss: jest.fn().mockImplementation((trade, newSl) => Promise.resolve({ success: true, price: newSl })),
       applyFilters: jest.fn().mockImplementation((symbol, price, qty) => ({ price, qty })),
       isRatcheting: jest.fn().mockReturnValue(false),
+      closeTrade: jest.fn(),
     };
     mockTickerCache = {};
     mockKlineStore = {};
@@ -34,6 +36,31 @@ describe('PositionTrackerService', () => {
       {} as any,
       mockEventEmitter
     );
+  });
+
+  it('logs the finalized trade exit reason after exchange recovery', async () => {
+    mockOrderManager.closeTrade.mockResolvedValue({
+      exitOccurred: true,
+      trade: {
+        symbol: 'BTCUSDT',
+        pnl: 12.34,
+        pnl_pct: 1.23,
+        exit_price: 100,
+        exit_reason: 'SL_HIT_INITIAL_SL',
+      } as Trade,
+    });
+
+    service.addTrade({
+      symbol: 'BTCUSDT',
+      status: 'OPEN',
+      risk_usdt: 10,
+    } as Trade);
+
+    await service.closeTrade('BTCUSDT', 100, 'EXCHANGE_SYNC', {} as SessionConfig, false, true);
+
+    const logCall = mockEventEmitter.emit.mock.calls.find((call: [string, unknown]) => call[0] === ENGINE_EVENTS.LOG_MESSAGE);
+    expect(logCall?.[1]?.msg).toContain('Reason=SL_HIT_INITIAL_SL');
+    expect(logCall?.[1]?.msg).not.toContain('Reason=EXCHANGE_SYNC');
   });
 
   describe('checkRrSequenceAdjustments', () => {

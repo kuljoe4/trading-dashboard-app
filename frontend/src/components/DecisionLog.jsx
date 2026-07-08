@@ -3,7 +3,6 @@ import { Activity, XCircle, Search, Copy, CheckCircle2, Info, X } from 'lucide-r
 import * as Dialog from '@radix-ui/react-dialog'
 import { useTradingStore } from '../store/trading'
 import { cn, CopyButton } from './ui/primitives'
-import { List } from 'react-window'
 
 const HIGHLIGHTS = {
   positive: ['BUY', 'PROFIT', 'TP', 'HIT', 'SUCCESS', 'STARTED', 'ENTER'],
@@ -12,6 +11,7 @@ const HIGHLIGHTS = {
 }
 
 const formatMessage = (msg) => {
+  if (typeof msg !== 'string') return msg == null ? '' : String(msg);
   if (!msg) return msg;
   const words = msg.split(/(\s+)/);
   return words.map((word, i) => {
@@ -25,6 +25,10 @@ const formatMessage = (msg) => {
 
 const LogEntry = React.memo(({ log }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const safeLog = (log && typeof log === 'object') ? log : {};
+  const logLevel = String(safeLog.level ?? 'info').toLowerCase();
+  const logMessage = typeof safeLog.msg === 'string' ? safeLog.msg : String(safeLog.msg ?? '');
+  const logTimestamp = String(safeLog.ts ?? '');
 
   return (
     <>
@@ -37,18 +41,18 @@ const LogEntry = React.memo(({ log }) => {
           className="flex items-center gap-2.5 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-accent/50 rounded-sm"
           aria-label="View log details"
         >
-          <span className="text-dim/60 whitespace-nowrap shrink-0">[{log.ts}]</span>
+          <span className="text-dim/60 whitespace-nowrap shrink-0">[{logTimestamp}]</span>
           <span className={cn(
             "transition-colors whitespace-nowrap min-w-fit",
-            log.level === 'warn' ? "text-amber font-black" :
-            log.level === 'error' ? "text-red font-black" :
+            logLevel === 'warn' ? "text-amber font-black" :
+            logLevel === 'error' ? "text-red font-black" :
             "text-text/90 font-medium"
           )}>
-            {formatMessage(log.msg)}
+            {formatMessage(logMessage)}
           </span>
         </div>
         <CopyButton
-          value={log.msg}
+          value={logMessage}
           className="opacity-0 group-hover/entry:opacity-100 focus-visible:opacity-100 -my-1"
           tooltip="Copy log message"
         />
@@ -62,19 +66,19 @@ const LogEntry = React.memo(({ log }) => {
               <div className="flex items-center gap-3">
                 <div className={cn(
                   "w-10 h-10 rounded-xl flex items-center justify-center border",
-                  log.level === 'error' ? "bg-red/10 border-red/20 text-red" :
-                  log.level === 'warn' ? "bg-amber/10 border-amber/20 text-amber" :
+                  logLevel === 'error' ? "bg-red/10 border-red/20 text-red" :
+                  logLevel === 'warn' ? "bg-amber/10 border-amber/20 text-amber" :
                   "bg-accent/10 border-accent/20 text-accent"
                 )}>
                   <Info size={20} />
                 </div>
                 <div>
                   <Dialog.Title className="text-sm font-black uppercase tracking-widest">Log Detail</Dialog.Title>
-                  <div className="text-[10px] text-dim font-mono font-bold uppercase">{log.ts} • {log.level}</div>
+                  <div className="text-[10px] text-dim font-mono font-bold uppercase">{logTimestamp} • {logLevel}</div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <CopyButton value={log.msg} />
+                <CopyButton value={logMessage} />
                 <Dialog.Close asChild>
                   <button className="p-2 hover:bg-white/5 rounded-lg transition-colors text-dim hover:text-text" aria-label="Close">
                     <X size={18} />
@@ -84,7 +88,7 @@ const LogEntry = React.memo(({ log }) => {
             </div>
 
             <div className="bg-background/40 border border-border/50 rounded-2xl p-4 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap max-h-[40vh] overflow-y-auto">
-              {log.msg}
+              {logMessage}
             </div>
 
             <div className="mt-6 flex justify-end">
@@ -112,13 +116,19 @@ export const DecisionLog = React.memo(() => {
   const [isAtTop, setIsAtTop] = useState(true)
   const [search, setSearch] = useState('')
 
+  const safeLogs = Array.isArray(logs) ? logs : [];
+  const safeLogFilters = logFilters && typeof logFilters === 'object' ? logFilters : DEFAULT_LOG_FILTERS;
+
   const visibleLogs = useMemo(
-    () => logs.filter((log) => {
-      const passLevel = (logFilters || DEFAULT_LOG_FILTERS)[log.level] !== false;
-      const passSearch = !search || log.msg.toLowerCase().includes(search.toLowerCase());
+    () => safeLogs.filter((log) => {
+      const safeLog = log && typeof log === 'object' ? log : {};
+      const logLevel = String(safeLog.level ?? 'info').toLowerCase();
+      const logMessage = typeof safeLog.msg === 'string' ? safeLog.msg : String(safeLog.msg ?? '');
+      const passLevel = (safeLogFilters[logLevel] ?? true) !== false;
+      const passSearch = !search || logMessage.toLowerCase().includes(search.toLowerCase());
       return passLevel && passSearch;
     }),
-    [logs, logFilters, search]
+    [safeLogs, safeLogFilters, search]
   )
 
   // Audit Item 41: Scroll-lock pattern
@@ -128,8 +138,8 @@ export const DecisionLog = React.memo(() => {
     }
   }, [visibleLogs, isAtTop])
 
-  const handleScroll = useCallback(({ scrollOffset }) => {
-    setIsAtTop(scrollOffset < 10)
+  const handleScroll = useCallback((event) => {
+    setIsAtTop(event.currentTarget.scrollTop < 10)
   }, [])
 
   const filterButtons = [
@@ -137,26 +147,6 @@ export const DecisionLog = React.memo(() => {
     { level: 'warn', label: 'Warnings' },
     { level: 'error', label: 'Errors' },
   ]
-
-  const Row = useCallback(({ index, style }) => {
-    const log = visibleLogs[index];
-    if (!log) return null;
-
-    // BOLT: Flexible height support for virtualized rows to handle log wrapping
-    return (
-      <div
-        style={{
-          ...style,
-          height: 'auto',
-          minHeight: '36px',
-          paddingBottom: '2px'
-        }}
-        className="min-w-fit"
-      >
-        <LogEntry log={log} />
-      </div>
-    );
-  }, [visibleLogs]);
 
   return (
     <div className="flex flex-col gap-3 max-h-[500px] overflow-hidden">
@@ -191,7 +181,7 @@ export const DecisionLog = React.memo(() => {
               tooltip="Copy All Visible Logs"
             />
             {filterButtons.map((filter) => {
-              const active = (logFilters || DEFAULT_LOG_FILTERS)[filter.level]
+              const active = (safeLogFilters[filter.level] ?? true)
               return (
                 <button
                   key={filter.level}
@@ -235,13 +225,13 @@ export const DecisionLog = React.memo(() => {
         {visibleLogs.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-center animate-in fade-in duration-500">
             <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center mb-4 text-dim/20">
-              {logs.length === 0 ? <Activity size={24} /> : <XCircle size={24} />}
+              {safeLogs.length === 0 ? <Activity size={24} /> : <XCircle size={24} />}
             </div>
             <div className="text-[13px] text-dim font-bold uppercase tracking-widest">
-              {logs.length === 0 ? 'No logs yet...' : 'No matching results'}
+              {safeLogs.length === 0 ? 'No logs yet...' : 'No matching results'}
             </div>
             <p className="text-[11px] text-dim/60 mt-1 max-w-[200px]">
-              {logs.length === 0
+              {safeLogs.length === 0
                 ? 'System activity will appear here once the engine starts.'
                 : 'Try adjusting your filters to see more activity.'}
             </p>
@@ -255,17 +245,19 @@ export const DecisionLog = React.memo(() => {
             )}
           </div>
         ) : (
-          <List
+          <div
             ref={listRef}
-            height={340}
-            itemCount={visibleLogs.length}
-            itemSize={36}
-            width="100%"
             onScroll={handleScroll}
-            className="scrollbar-thin scrollbar-thumb-border hover:scrollbar-thumb-accent/50 overscroll-contain"
+            className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-border hover:scrollbar-thumb-accent/50 overscroll-contain"
           >
-            {Row}
-          </List>
+            <div className="flex flex-col gap-1.5">
+              {visibleLogs.map((log, index) => (
+                <div key={`${log.ts}-${index}`} className="min-w-fit">
+                  <LogEntry log={log} />
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </div>
     </div>

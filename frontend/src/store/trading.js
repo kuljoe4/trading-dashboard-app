@@ -6,40 +6,47 @@ const toNumber = (v, f = 0) => { const p = Number(v); return Number.isFinite(p) 
 const MAX_LOG_LINES = 500;
 const DEFAULT_LOG_FILTERS = { info: true, warn: true, error: true };
 
-const normalizeOpportunity = (o = {}) => {
-  const m = toNumber(o.pct ?? o.momentum ?? o.percent_change);
-  const d = (o.dir ?? o.direction ?? (m >= 0 ? 'long' : 'short')).toString().toLowerCase();
+const getObjectSource = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
+
+export const normalizeOpportunity = (o = {}) => {
+  const source = getObjectSource(o);
+  const m = toNumber(source.pct ?? source.momentum ?? source.percent_change);
+  const rawDir = source.dir ?? source.direction ?? (m >= 0 ? 'long' : 'short');
+  const d = String(rawDir ?? (m >= 0 ? 'long' : 'short')).toLowerCase();
 
   // SEC: Strict property picking and input sanitization to harden against prototype pollution or malformed WebSocket payloads.
   const res = {
-    symbol: (o.symbol ?? '---').replace(/[^A-Z0-9]/gi, '').substring(0, 20),
+    symbol: String(source.symbol ?? '---').replace(/[^A-Z0-9]/gi, '').substring(0, 20),
     pct: m,
     momentum: m,
     dir: d,
     direction: d,
-    vol: toNumber(o.vol ?? o.volume ?? o.volume_usdt ?? o.volume_24h),
-    score: toNumber(o.score),
-    price: toNumber(o.price),
-    volume_rank: o.volume_rank ? parseInt(String(o.volume_rank), 10) : undefined,
-    history: Array.isArray(o.history) ? o.history.map(v => toNumber(v)) : undefined,
-    ohlc_history: Array.isArray(o.ohlc_history) ? o.ohlc_history.map(c => ({
-      time: toNumber(c.time || c.t),
-      open: toNumber(c.open || c.o),
-      high: toNumber(c.high || c.h),
-      low: toNumber(c.low || c.l),
-      close: toNumber(c.close || c.c),
-      volume: toNumber(c.volume || c.q)
-    })) : undefined,
-    score_breakdown: o.score_breakdown ? {
-      momentum: toNumber(o.score_breakdown.momentum),
-      volatility: toNumber(o.score_breakdown.volatility),
-      trend: toNumber(o.score_breakdown.trend)
+    vol: toNumber(source.vol ?? source.volume ?? source.volume_usdt ?? source.volume_24h),
+    score: toNumber(source.score),
+    price: toNumber(source.price),
+    volume_rank: source.volume_rank ? parseInt(String(source.volume_rank), 10) : undefined,
+    history: Array.isArray(source.history) ? source.history.map(v => toNumber(v)) : undefined,
+    ohlc_history: Array.isArray(source.ohlc_history) ? source.ohlc_history.map(c => {
+      const candle = getObjectSource(c);
+      return {
+        time: toNumber(candle.time ?? candle.t),
+        open: toNumber(candle.open ?? candle.o),
+        high: toNumber(candle.high ?? candle.h),
+        low: toNumber(candle.low ?? candle.l),
+        close: toNumber(candle.close ?? candle.c),
+        volume: toNumber(candle.volume ?? candle.q)
+      };
+    }) : undefined,
+    score_breakdown: source.score_breakdown && typeof source.score_breakdown === 'object' ? {
+      momentum: toNumber(source.score_breakdown.momentum),
+      volatility: toNumber(source.score_breakdown.volatility),
+      trend: toNumber(source.score_breakdown.trend)
     } : undefined,
-    lastUpdate: o.last_update ?? o.ts ?? Date.now(),
-    signalResult: o.signalResult ? {
-      allFired: !!o.signalResult.allFired,
-      firedSignals: Array.isArray(o.signalResult.firedSignals) ? o.signalResult.firedSignals.map(s => String(s)) : [],
-      reason: String(o.signalResult.reason || '').substring(0, 200)
+    lastUpdate: source.last_update ?? source.ts ?? Date.now(),
+    signalResult: source.signalResult && typeof source.signalResult === 'object' ? {
+      allFired: !!source.signalResult.allFired,
+      firedSignals: Array.isArray(source.signalResult.firedSignals) ? source.signalResult.firedSignals.map(s => String(s)) : [],
+      reason: String(source.signalResult.reason || '').substring(0, 200)
     } : undefined
   };
 
@@ -107,10 +114,17 @@ const deepMerge = (target, source) => {
   return output;
 };
 
-const normalizeLog = (l = {}) => {
-  const lv = (l.level || l.lv || 'info').toString().toLowerCase();
-  const m = (l.msg || l.message || '').toString().trim();
-  return { ...l, id: l.id || Math.random().toString(36).substring(2, 15), ts: l.ts || l.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), level: ['info', 'warn', 'error'].includes(lv) ? lv : 'info', msg: m };
+export const normalizeLog = (l = {}) => {
+  const source = getObjectSource(l);
+  const lv = (source.level ?? source.lv ?? 'info').toString().toLowerCase();
+  const m = (source.msg ?? source.message ?? '').toString().trim();
+  return {
+    ...source,
+    id: source.id || Math.random().toString(36).substring(2, 15),
+    ts: source.ts || source.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    level: ['info', 'warn', 'error'].includes(lv) ? lv : 'info',
+    msg: m
+  };
 }
 
 const defaultConfig = {
@@ -241,7 +255,10 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   toggleSidebar: () => { const n = !get().sidebarCollapsed; localStorage.setItem('sidebar_collapsed', n); set({ sidebarCollapsed: n }); },
   setHealthEnabled: (e) => { localStorage.setItem('health_enabled', e); set({ healthEnabled: e }); },
   setStreamingEnabled: (e) => { localStorage.setItem('streaming_enabled', e); set({ streamingEnabled: e }); },
-  toggleLogFilter: (level) => set((st) => ({ logFilters: { ...st.logFilters, [level]: !st.logFilters[level] } })),
+  toggleLogFilter: (level) => set((st) => {
+    const safeFilters = st.logFilters && typeof st.logFilters === 'object' ? st.logFilters : DEFAULT_LOG_FILTERS;
+    return { logFilters: { ...safeFilters, [level]: !safeFilters[level] } };
+  }),
   setSyncing: (s) => set({ isSyncing: s }),
   sync: async () => {
     try {

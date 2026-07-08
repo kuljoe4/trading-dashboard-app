@@ -317,14 +317,14 @@ export const HistoryView = () => {
 
   const allSessionsWithTrades = useMemo(() => {
     // BOLT: Optimize O(N*M) join to O(N+M) using a lookup object
-    const tradesBySession = tradeHistory.reduce((acc, t) => {
+    const tradesBySession = (tradeHistory || []).filter(Boolean).reduce((acc, t) => {
       if (!t.sessionId) return acc;
       if (!acc[t.sessionId]) acc[t.sessionId] = [];
       acc[t.sessionId].push(t);
       return acc;
     }, {});
 
-    return sessionList.map(session => ({
+    return (sessionList || []).filter(Boolean).map(session => ({
       ...session,
       trades: tradesBySession[session.id] || []
     })).sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
@@ -350,11 +350,11 @@ export const HistoryView = () => {
   }, [allSessionsWithTrades, visibleSessions, lifetimeMode, search]);
 
   const orphans = useMemo(() => {
-    const sessionIds = new Set(sessionList.map(s => s.id))
+    const sessionIds = new Set((sessionList || []).filter(Boolean).map(s => s.id))
     // Only show orphans that are not already matched to sessions in allSessionsWithTrades
     // Actually allSessionsWithTrades already includes trades matched to existing sessions.
     // Orphans are trades whose sessionId is missing or not in our session list.
-    return tradeHistory.filter(t => !t.sessionId || !sessionIds.has(t.sessionId))
+    return (tradeHistory || []).filter(Boolean).filter(t => !t.sessionId || !sessionIds.has(t.sessionId))
   }, [sessionList, tradeHistory])
 
   const [deletingOrphans, setDeletingOrphans] = useState(false)

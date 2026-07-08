@@ -104,10 +104,19 @@ export class OrderManagerService {
     let currentOrders = this.sessionState.realTimeOrders.get(symbol) || [];
     if (status === 'FILLED' || status === 'CANCELED' || status === 'EXPIRED' || status === 'REJECTED') {
       // Remove the order from cache if it's in a terminal state
-      currentOrders = currentOrders.filter(o => String(o.orderId) !== orderId && o.clientOrderId !== clientOrderId);
+      // SRE: Robust terminal filtering. Check both orderId and algoId to catch all seeded entry types.
+      currentOrders = currentOrders.filter(o =>
+        (String(o.orderId) !== orderId && String(o.algoId || '') !== orderId) &&
+        o.clientOrderId !== clientOrderId
+      );
     } else {
       // Add or update the order in cache
-      const existingIdx = currentOrders.findIndex(o => String(o.orderId) === orderId || o.clientOrderId === clientOrderId);
+      // SRE: Match by orderId, algoId, or clientOrderId
+      const existingIdx = currentOrders.findIndex(o =>
+        String(o.orderId) === orderId ||
+        String(o.algoId || '') === orderId ||
+        o.clientOrderId === clientOrderId
+      );
       const orderEntry = {
         symbol,
         orderId: parseFloat(orderId),
@@ -1395,10 +1404,13 @@ export class OrderManagerService {
       trade.binance_stop_order_type = orderType;
 
       // BOLT: Proactively seed real-time order cache for SL to ensure watchdog awareness
+      const numericId = parseFloat(stopLossId);
       const slOrderEntry = {
         symbol,
-        orderId: orderType === 'algo' ? 0 : parseFloat(stopLossId),
-        algoId: orderType === 'algo' ? parseFloat(stopLossId) : undefined,
+        // SRE: Standardize orderId to the numeric exchange ID even for algo orders
+        // to ensure reliable terminal status filtering in handleBinanceOrderUpdate.
+        orderId: numericId,
+        algoId: orderType === 'algo' ? numericId : undefined,
         algoType: orderType === 'algo' ? 'CONDITIONAL' : undefined,
         clientOrderId: slOrderParams.newClientOrderId,
         triggerPrice: currentSlPrice,
@@ -1640,6 +1652,14 @@ export class OrderManagerService {
       this.updateWeight(response?.headers);
       const data = typeof response.data === 'function' ? await response.data() : response.data;
       this.logger.log(`Binance ${orderType} order canceled: ${symbol} order_id=${orderId}. Response: ${JSON.stringify(data)}`);
+
+      // SRE: Proactively remove from real-time cache and mark as executed to prevent
+      // the Watchdog from seeing it as an "orphan" during the UDS propagation delay.
+      let currentOrders = this.sessionState.realTimeOrders.get(symbol) || [];
+      const updatedOrders = currentOrders.filter(o => String(o.orderId) !== orderId && String(o.algoId || '') !== orderId);
+      this.sessionState.realTimeOrders.set(symbol, updatedOrders);
+      this.markAsExecuted(symbol, orderId, 'CANCELED');
+
       return true;
     } catch (err) {
       // If order is already filled or canceled, we can ignore the error

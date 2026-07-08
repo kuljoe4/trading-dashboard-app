@@ -67,7 +67,15 @@ export function sanitize(obj: any, visited = new WeakSet<any>(), depth = 0): any
     return obj.map((item) => sanitize(item, visited, depth + 1));
   }
 
-  const sanitized: any = {};
+  // SENTINEL: Handle Error objects by preserving identity and core metadata
+  // while still allowing recursive sanitization of custom properties.
+  const sanitized: any = obj instanceof Error ? {
+    name: obj.name,
+    message: obj.message,
+    stack: obj.stack,
+  } : {};
+
+  // For Errors, we also want to capture any custom properties added to the object
   for (const key in obj) {
     if (Object.prototype.hasOwnProperty.call(obj, key)) {
       const lowerKey = key.toLowerCase();
@@ -75,12 +83,17 @@ export function sanitize(obj: any, visited = new WeakSet<any>(), depth = 0): any
       // variations of sensitive fields, as well as additional security keywords.
       if (
         lowerKey === "value" ||
+        lowerKey === "pass" ||
+        lowerKey === "pwd" ||
         lowerKey.includes("api_key") ||
         lowerKey.includes("apikey") ||
         lowerKey.includes("api-key") ||
+        lowerKey.includes("access_key") ||
+        lowerKey.includes("access-key") ||
         lowerKey.includes("secret") ||
         lowerKey.includes("password") ||
         lowerKey.includes("token") ||
+        lowerKey.includes("jwt") ||
         lowerKey.includes("auth") ||
         lowerKey.includes("credential") ||
         lowerKey.includes("private") ||

@@ -394,15 +394,17 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
   if (isUpdating) lastUpdateRef.current = lastScanTs
 
   const filteredResults = useMemo(() => {
-    if (!search) return scannerResults
+    const results = Array.isArray(scannerResults) ? scannerResults.filter(Boolean) : []
+    if (!search) return results
     const term = search.toLowerCase().trim()
-    return scannerResults.filter(r => r.symbol.toLowerCase().includes(term))
+    return results.filter(r => r.symbol.toLowerCase().includes(term))
   }, [scannerResults, search])
 
   const filteredWindows = useMemo(() => {
-    if (!search) return activeWindows
+    const windows = Array.isArray(activeWindows) ? activeWindows.filter(Boolean) : []
+    if (!search) return windows
     const term = search.toLowerCase().trim()
-    return activeWindows.filter(w => w.symbol.toLowerCase().includes(term))
+    return windows.filter(w => w.symbol.toLowerCase().includes(term))
   }, [activeWindows, search])
 
   // BOLT OPTIMIZATION: Pre-calculate a Set of monitored symbols to avoid O(N*M) lookup in the render loop.

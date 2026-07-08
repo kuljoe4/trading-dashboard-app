@@ -120,7 +120,7 @@ export const DecisionLog = React.memo(() => {
   const safeLogFilters = logFilters && typeof logFilters === 'object' ? logFilters : DEFAULT_LOG_FILTERS;
 
   const visibleLogs = useMemo(
-    () => safeLogs.filter((log) => {
+    () => safeLogs.filter(Boolean).filter((log) => {
       const safeLog = log && typeof log === 'object' ? log : {};
       const logLevel = String(safeLog.level ?? 'info').toLowerCase();
       const logMessage = typeof safeLog.msg === 'string' ? safeLog.msg : String(safeLog.msg ?? '');

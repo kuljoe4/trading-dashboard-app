@@ -316,7 +316,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
                   style={{ width: `${slPct}%` }}
                 />
               </div>
-              <ScannerPreview scannerResults={scannerResults || []} config={config} onOpen={(e) => { e.stopPropagation(); onOpenScanner(); }} />
+              <ScannerPreview scannerResults={(scannerResults || []).filter(Boolean)} config={config} onOpen={(e) => { e.stopPropagation(); onOpenScanner(); }} />
 
               <div className="mt-6 pt-6 border-t border-border/20">
                  <div className="flex items-center justify-between gap-4">

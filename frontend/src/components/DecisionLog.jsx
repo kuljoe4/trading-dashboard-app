@@ -134,7 +134,7 @@ export const DecisionLog = React.memo(() => {
   // Audit Item 41: Scroll-lock pattern
   useEffect(() => {
     if (isAtTop && listRef.current) {
-      listRef.current.scrollTo(0)
+      listRef.current.scrollTo({ top: 0 })
     }
   }, [visibleLogs, isAtTop])
 
@@ -213,7 +213,7 @@ export const DecisionLog = React.memo(() => {
           <div className="absolute top-2 inset-x-0 z-20 flex justify-center pointer-events-none">
             <button
               onClick={() => {
-                if (listRef.current) listRef.current.scrollTo(0)
+                if (listRef.current) listRef.current.scrollTo({ top: 0 })
                 setIsAtTop(true)
               }}
               className="pointer-events-auto bg-accent text-white px-4 py-1.5 rounded-full text-[10px] font-bold shadow-xl border border-white/10 animate-in fade-in zoom-in slide-in-from-top-2 duration-300"

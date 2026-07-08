@@ -1295,6 +1295,10 @@ export class OrderManagerService {
           (standardParams as any).closePosition = true;
           delete (standardParams as any).reduceOnly;
 
+          // COMPLIANCE: 'quantity' MUST be omitted if 'closePosition' is true on Binance FAPI.
+          // Including both results in a rejection (Error -1106) even if the quantity matches the position.
+          delete (standardParams as any).quantity;
+
           try {
             const fallbackRes = await this.binanceClient.restAPI.newOrder(standardParams as any);
             const fallbackData = (await fallbackRes.data()) as BinanceOrderReceipt;

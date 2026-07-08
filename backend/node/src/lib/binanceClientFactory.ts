@@ -93,11 +93,12 @@ export class BinanceClientFactory implements OnModuleInit {
     const originalConnect = client.websocketStreams.connect.bind(client.websocketStreams);
     client.websocketStreams.connect = (async (params: any): Promise<any> => {
       // Citadel: Strictly isolate stream types for zero-collision routing (private, public/hf, market)
-      const stream = params.stream || '';
+      const stream = (params.stream || '').trim();
       const isHF = stream.includes('!');
       const isMarket = stream.includes('@');
+      const isCombined = stream.includes('/');
       // Citadel: Explicitly identify listenKeys (64-char alphanumeric) vs market streams
-      const isPrivate = !isHF && !isMarket && !stream.includes('/') && /^[a-zA-Z0-9]{60,}$/.test(stream);
+      const isPrivate = !isHF && !isMarket && !isCombined && stream.length >= 60;
 
       let gatewayURL = wsURL;
       const urlObj = new URL(wsURL);
@@ -107,15 +108,16 @@ export class BinanceClientFactory implements OnModuleInit {
         else urlObj.pathname = '/ws';
       } else if (isHF) {
         if (!isTestnet) urlObj.pathname = '/public';
-        else urlObj.pathname = stream.includes('/') ? '/stream' : '/ws';
+        else urlObj.pathname = isCombined ? '/stream' : '/ws';
       } else {
         if (!isTestnet) urlObj.pathname = '/market';
-        else urlObj.pathname = stream.includes('/') ? '/stream' : '/ws';
+        else urlObj.pathname = isCombined ? '/stream' : '/ws';
       }
 
       // SRE: Correct construction of the final WebSocket URL for the SDK.
-      // Our gateway ALWAYS expects /stream?streams= format for anonymous market/public streams.
-      const useCombinedFormat = !isPrivate;
+      // Our gateway ALWAYS expects /stream?streams= format for anonymous combined market/public streams.
+      // Single streams should use the /ws/ format to ensure reliable delivery on mainnet.
+      const useCombinedFormat = isCombined;
       if (!isTestnet && useCombinedFormat) {
           urlObj.pathname = urlObj.pathname.replace(/\/$/, '') + '/stream';
           gatewayURL = urlObj.origin + urlObj.pathname;
@@ -125,6 +127,14 @@ export class BinanceClientFactory implements OnModuleInit {
           this.logger.debug(`[BinanceClient] Connecting to gateway (Manual): ${finalUrl.substring(0, 100)}... | isHF=${isHF}`);
 
           const ws = new WebSocket(finalUrl, { handshakeTimeout: 5000 });
+
+          ws.on('message', (data: any) => {
+            if (!(ws as any)._firstMsgReceived) {
+              (ws as any)._firstMsgReceived = true;
+              this.logger.debug(`[BinanceClient] First frame received on Manual gateway: ${params.stream?.substring(0, 30)}...`);
+            }
+          });
+
           // BOLT: Add error handler to prevent unhandled 'error' events from crashing the process (e.g. 400 Bad Request)
           ws.on('error', (err: any) => {
             const msg = err.message || '';
@@ -166,7 +176,16 @@ export class BinanceClientFactory implements OnModuleInit {
       const originalWsURL = (client.websocketStreams as any).wsURL;
       (client.websocketStreams as any).wsURL = gatewayURL;
       try {
-        return await originalConnect(params);
+        const ws = await originalConnect(params);
+        if (ws && typeof ws.on === 'function') {
+          ws.on('message', (data: any) => {
+            if (!(ws as any)._firstMsgReceived) {
+              (ws as any)._firstMsgReceived = true;
+              this.logger.debug(`[BinanceClient] First frame received on ${isPrivate ? 'PRIVATE' : 'SDK'} stream: ${params.stream?.substring(0, 30)}...`);
+            }
+          });
+        }
+        return ws;
       } finally {
         (client.websocketStreams as any).wsURL = originalWsURL;
       }

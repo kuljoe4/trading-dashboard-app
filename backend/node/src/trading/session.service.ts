@@ -1294,6 +1294,14 @@ export class SessionService implements OnModuleInit {
         const qty = Math.abs(amt);
         const positionSide = exPos.positionSide || "BOTH";
 
+        // SRE: Dust Threshold Guard. Ignore ghost positions with negligible notional value (e.g. < 0.10 USDT)
+        // to avoid unnecessary alarms and "Nuclear Options" for residual precision dust.
+        const notional = qty * entryPrice;
+        if (notional < 0.10) {
+          this.logger.debug(`[Reconciliation] Skipping adoption for ${exPos.symbol}: negligible notional value (${notional.toFixed(4)} USDT)`);
+          continue;
+        }
+
         // SRE: Resilience against Hedge Mode leftovers.
         // We only support One-Way mode (BOTH).
         if (positionSide !== "BOTH") {

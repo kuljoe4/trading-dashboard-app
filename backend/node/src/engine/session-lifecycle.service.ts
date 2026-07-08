@@ -15,6 +15,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditLogService } from '../trading/audit-log.service';
 import { ConfigValidationException } from '../lib/exceptions';
 import { roundEight } from '../lib/math';
+import { sanitize } from '../lib/logger';
 import {
   BinancePositionMode,
   BinanceBalanceV3,
@@ -277,7 +278,8 @@ export class SessionLifecycleService {
         return parseFloat(String(usdt.balance || '0'));
       }
 
-      this.logger.warn(`Could not find USDT balance in Binance response. Data received: ${JSON.stringify(data).substring(0, 200)}`);
+      // SENTINEL: Sanitize the raw data before logging to prevent potential credential leakage
+      this.logger.warn(`Could not find USDT balance in Binance response. Data received: ${JSON.stringify(sanitize(data)).substring(0, 200)}`);
       return 0;
     } catch (e: unknown) {
       this.logger.error(`Balance fetch failed: ${e instanceof Error ? e.message : String(e)}`);

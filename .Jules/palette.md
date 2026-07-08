@@ -29,3 +29,7 @@
 ## 2026-06-25 - Standardizing Information Discovery for Technical Jargon
 **Learning:** In technical domains like trading, acronyms and jargon (e.g., "RR", "Move", "Score") can be opaque to new users. Standardizing a discovery pattern using tooltips combined with subtle visual cues (`cursor-help` and `border-b border-dotted`) provides a non-intrusive way to educate users without cluttering the UI. This pattern is particularly effective for table headers and status badges where space is at a premium.
 **Action:** Use Radix UI `Tooltip` for all technical acronyms and status indicators. Apply `cursor-help` and `border-b border-dotted border-dim/30` to text-based triggers to signify discoverable information.
+
+## 2026-07-04 - Stable Sidebar Tooltip Anchoring
+**Learning:** Tying navigation tooltips to volatile hover states (e.g., `isExpanded`) causes them to flicker or fail to appear during the "hover-to-expand" transition. Anchoring them strictly to the underlying `collapsed` state from the store ensures they remain active and reliable for keyboard users and quick-hover interactions in the narrow sidebar.
+**Action:** Use the base `collapsed` state for sidebar tooltip triggers instead of derived hover states to maintain shortcut hint visibility.

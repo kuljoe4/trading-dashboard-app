@@ -309,6 +309,9 @@ export class TradingSessionService implements OnApplicationShutdown {
        // DATA-05: Update appliedPnL to reflect the change received via event
        const prev = this.appliedPnL.get(trade.id) || 0;
        this.appliedPnL.set(trade.id, roundEight(prev + pnlDelta));
+
+       // SRE: Update sessionStats to include realized PnL from active trades (fees/funding)
+       this.sessionState.updateStatsOnClose(false, trade.pnl, false, trade.id);
     }
 
     if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
@@ -682,7 +685,11 @@ export class TradingSessionService implements OnApplicationShutdown {
       // BOLT: Coalesce balance fetches to avoid weight spikes when multiple trades close at once.
       // We accumulate deltas during the debounce window to ensure fallback math is accurate.
       this.pendingDeltasDuringFetch = roundEight(this.pendingDeltasDuringFetch + pnlDelta);
-      if (this.balanceFetchTimeout) return;
+      if (this.balanceFetchTimeout) {
+         // Even if debouncing balance fetch, we must update stats immediately to maintain UI consistency
+         this.sessionState.updateStatsOnClose(false, totalPnl, false, t.id);
+         return;
+      }
 
       this.balanceFetchTimeout = setTimeout(async () => {
         try {
@@ -706,8 +713,15 @@ export class TradingSessionService implements OnApplicationShutdown {
           this.logger.error(`Deferred balance fetch failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       }, 1500); // 1.5s debounce covers most batch closures
+
+      this.sessionState.updateStatsOnClose(false, totalPnl, false, t.id);
       return; // Skip immediate callback as it will fire after debounce
     }
+
+    if (pnlDelta !== 0) {
+      this.sessionState.updateStatsOnClose(false, totalPnl, false, t.id);
+    }
+
     if (this.onBalanceUpdate) this.onBalanceUpdate(this.getBalance(), t.pnl || 0);
   }
   private getBalance(): number { return this.sessionState.getBalance(this.config?.paper_mode ?? true); }

@@ -116,15 +116,17 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
               {(() => {
                 const type = trade.exit_signal_type?.replace(/_/g, ' ') || (trade.exit_reason || 'Manual');
                 const reason = trade.exit_signal_reason || '';
-                if (type === 'STOP LOSS' || type === 'SL HIT') {
+                if (type === 'STOP LOSS' || type === 'SL HIT' || type === 'TRAILING STOP') {
                   if (reason.includes('INITIAL_SL')) return 'Initial SL';
                   if (reason.includes('RR_sequence_milestone_0')) return 'Breakeven';
                   if (reason.includes('RR_sequence_milestone')) {
                     const match = reason.match(/milestone_(\d+)/);
                     return match ? `Ratchet M${match[1]}` : 'Ratchet SL';
                   }
+                  if (type === 'TRAILING STOP') return 'Trailing Stop';
                   return 'Stop Loss';
                 }
+                if (type === 'EXCHANGE SYNC') return 'Exchange Sync';
                 return type;
               })()}
             </span>

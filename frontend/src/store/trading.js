@@ -7,6 +7,7 @@ const MAX_LOG_LINES = 500;
 const DEFAULT_LOG_FILTERS = { info: true, warn: true, error: true };
 
 const normalizeOpportunity = (o = {}) => {
+  if (!o || typeof o !== 'object') return null;
   const m = toNumber(o.pct ?? o.momentum ?? o.percent_change);
   const d = (o.dir ?? o.direction ?? (m >= 0 ? 'long' : 'short')).toString().toLowerCase();
 
@@ -108,6 +109,7 @@ const deepMerge = (target, source) => {
 };
 
 const normalizeLog = (l = {}) => {
+  if (!l || typeof l !== 'object') return null;
   const lv = (l.level || l.lv || 'info').toString().toLowerCase();
   const m = (l.msg || l.message || '').toString().trim();
   return { ...l, id: l.id || Math.random().toString(36).substring(2, 15), ts: l.ts || l.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), level: ['info', 'warn', 'error'].includes(lv) ? lv : 'info', msg: m };
@@ -241,7 +243,10 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   toggleSidebar: () => { const n = !get().sidebarCollapsed; localStorage.setItem('sidebar_collapsed', n); set({ sidebarCollapsed: n }); },
   setHealthEnabled: (e) => { localStorage.setItem('health_enabled', e); set({ healthEnabled: e }); },
   setStreamingEnabled: (e) => { localStorage.setItem('streaming_enabled', e); set({ streamingEnabled: e }); },
-  toggleLogFilter: (level) => set((st) => ({ logFilters: { ...st.logFilters, [level]: !st.logFilters[level] } })),
+  toggleLogFilter: (level) => set((st) => {
+    const currentFilters = st.logFilters || DEFAULT_LOG_FILTERS;
+    return { logFilters: { ...currentFilters, [level]: !currentFilters[level] } };
+  }),
   setSyncing: (s) => set({ isSyncing: s }),
   sync: async () => {
     try {
@@ -389,7 +394,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
           // BOLT: Prevent flickering during config sync
           const nextConfig = d.config ? (st.configSyncing ? st.config : deepMerge(st.config, d.config)) : st.config;
 
-          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, logs: d.logLines?.map(normalizeLog) || st.logs, scannerResults: d.scannerResults?.map(normalizeOpportunity) || st.scannerResults, activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: nextHistory, gateState: d.gateState ?? st.gateState, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, config: nextConfig, tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h, apiStatus: d.apiStatus || st.apiStatus };
+          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, logs: d.logLines?.map(normalizeLog).filter(Boolean) || st.logs, scannerResults: d.scannerResults?.map(normalizeOpportunity).filter(Boolean) || st.scannerResults, activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: nextHistory, gateState: d.gateState ?? st.gateState, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, config: nextConfig, tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h, apiStatus: d.apiStatus || st.apiStatus };
         });
       } else if (d.type === 'tick') {
         set((st) => {
@@ -413,7 +418,10 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
             apiStatus: d.apiStatus || st.apiStatus
           };
         });
-      } else if (d.type === 'log') set(st => ({ logs: [normalizeLog(d), ...st.logs].slice(0, MAX_LOG_LINES) }));
+      } else if (d.type === 'log') {
+        const n = normalizeLog(d);
+        if (n) set(st => ({ logs: [n, ...st.logs].slice(0, MAX_LOG_LINES) }));
+      }
       else if (d.type === 'scanner') {
         const now = Date.now(); if (now - lsu < 200) return; lsu = now;
         set(st => {

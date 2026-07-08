@@ -105,17 +105,18 @@ const LogEntry = React.memo(({ log }) => {
 const DEFAULT_LOG_FILTERS = { info: true, warn: true, error: true };
 
 export const DecisionLog = React.memo(() => {
-  const logs = useTradingStore(state => state.logs)
-  const logFilters = useTradingStore(state => state.logFilters)
+  const logs = useTradingStore(state => state.logs) || []
+  const logFilters = useTradingStore(state => state.logFilters) || DEFAULT_LOG_FILTERS
   const toggleLogFilter = useTradingStore(state => state.toggleLogFilter)
   const listRef = useRef(null)
   const [isAtTop, setIsAtTop] = useState(true)
   const [search, setSearch] = useState('')
 
   const visibleLogs = useMemo(
-    () => logs.filter((log) => {
-      const passLevel = (logFilters || DEFAULT_LOG_FILTERS)[log.level] !== false;
-      const passSearch = !search || log.msg.toLowerCase().includes(search.toLowerCase());
+    () => (logs || []).filter((log) => {
+      if (!log) return false;
+      const passLevel = logFilters[log.level] !== false;
+      const passSearch = !search || (log.msg || '').toLowerCase().includes(search.toLowerCase());
       return passLevel && passSearch;
     }),
     [logs, logFilters, search]
@@ -140,7 +141,7 @@ export const DecisionLog = React.memo(() => {
 
   const Row = useCallback(({ index, style }) => {
     const log = visibleLogs[index];
-    if (!log) return null;
+    if (!log || !log.msg) return null;
 
     // BOLT: Flexible height support for virtualized rows to handle log wrapping
     return (
@@ -186,12 +187,12 @@ export const DecisionLog = React.memo(() => {
         >
           <div className="flex-1 flex gap-2 overflow-x-auto min-w-0">
             <CopyButton
-              value={visibleLogs.map(l => `[${l.ts}] ${l.msg}`).join('\n')}
+              value={(visibleLogs || []).filter(l => l && l.msg).map(l => `[${l.ts}] ${l.msg}`).join('\n')}
               className="bg-surface border border-border"
               tooltip="Copy All Visible Logs"
             />
             {filterButtons.map((filter) => {
-              const active = (logFilters || DEFAULT_LOG_FILTERS)[filter.level]
+              const active = logFilters[filter.level] !== false
               return (
                 <button
                   key={filter.level}

@@ -48,7 +48,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     // Audit Item 33: Log full stack trace for unhandled exceptions
     if (httpStatus >= 500) {
-      this.logger.error(`Unhandled Exception (${httpAdapter.getRequestUrl(ctx.getRequest())}): ${(exception as any)?.stack || exception}`);
+      // SENTINEL: Sanitize the exception object to mask any sensitive data in custom properties
+      const sanitizedException = sanitize(exception);
+      const logBody = (sanitizedException && typeof sanitizedException === 'object')
+        ? (sanitizedException.stack || JSON.stringify(sanitizedException))
+        : String(sanitizedException);
+      this.logger.error(`Unhandled Exception (${httpAdapter.getRequestUrl(ctx.getRequest())}): ${logBody}`);
     } else {
       // SENTINEL: Sanitize detailed messages to prevent accidental leakage of sensitive inputs
       const detailedMessage = typeof message === 'object' ? JSON.stringify(sanitize(message)) : message;

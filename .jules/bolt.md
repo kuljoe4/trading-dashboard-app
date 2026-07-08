@@ -168,3 +168,7 @@
 ## 2026-07-08 - [Optimization] Zero-Allocation Candle Access in Engulfing Signal
 **Learning:** Even with small lookbacks, using 'slice()' in a high-frequency signal evaluation pass (potentially hundreds of symbols every few seconds) creates significant transient array allocations. This increases GC pressure and reduces overall engine throughput.
 **Action:** Replace 'slice()' with direct index-based iteration over the original data array in technical indicator handlers. Maintain parity with slice() behavior by guarding against negative start indices when refactoring to manual loops.
+
+## 2024-05-28 - [UX/Optimization] Decision-Support UI Refactoring
+**Learning:** Dense technical telemetry (raw percentages, condition met/not met) increases cognitive load during high-pressure trading. Shifting from technical labels to plain-language states ("Ready", "Watching", "Risk Building") improves scannability. Memoizing sub-sections of complex trade details prevents full re-renders on every price tick.
+**Action:** Implement plain-language status pills and summary sentences in `ScannerOverlay` and `TradeDetailContent`. Use `React.memo` on deep child components like `RRLadder` and `ExitMonitor` to isolate re-renders from global price updates.

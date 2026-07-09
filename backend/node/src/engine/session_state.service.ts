@@ -104,7 +104,8 @@ export class SessionStateService {
     this.countedStrategyEntries.clear();
     this.countedStrategyHits.clear();
 
-    for (const trade of [...sessionHistory, ...sessionOpen]) {
+    let totalPnlAcc = 0;
+    const processTrade = (trade: Trade) => {
       const label = trade.strategy_label || config.strategy_label || 'Momentum Strategy';
       if (!trade.strategy_label) trade.strategy_label = label;
 
@@ -112,13 +113,16 @@ export class SessionStateService {
         this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
       }
 
+      const pnl = trade.pnl || 0;
+      totalPnlAcc += pnl;
+
       // Populate idempotency maps/sets to prevent double-counting
       if (!trade.is_reconciliation) {
         this.countedGlobalEntries.add(trade.id);
         this.countedStrategyEntries.add(trade.id);
 
         if (trade.status !== 'OPEN') {
-          if ((trade.pnl || 0) > 0) {
+          if (pnl > 0) {
             this.countedGlobalHits.add(trade.id);
             this.countedStrategyHits.add(trade.id);
           }
@@ -126,29 +130,30 @@ export class SessionStateService {
       }
 
       // Realized portion (fees/funding) is tracked even for OPEN trades
-      this.appliedGlobalPnL.set(trade.id, trade.pnl || 0);
-      this.appliedStrategyPnL.set(trade.id, trade.pnl || 0);
-      this.appliedStatsPnL.set(trade.id, trade.pnl || 0);
+      this.appliedGlobalPnL.set(trade.id, pnl);
+      this.appliedStrategyPnL.set(trade.id, pnl);
+      this.appliedStatsPnL.set(trade.id, pnl);
 
       // Populate strategy-specific stats
       const stats = this.cachedClosedTradesStats[label];
       if (trade.status !== 'OPEN') {
-        stats.pnl = roundEight(stats.pnl + (trade.pnl || 0));
+        stats.pnl = roundEight(stats.pnl + pnl);
         if (!trade.is_reconciliation) {
           stats.count++;
-          if ((trade.pnl || 0) > 0) stats.hits++;
+          if (pnl > 0) stats.hits++;
         }
       }
-    }
+    };
+
+    // BOLT: Optimize by using loop fusion and avoiding intermediate array spreads
+    for (let i = 0; i < sessionHistory.length; i++) processTrade(sessionHistory[i]);
+    for (let i = 0; i < sessionOpen.length; i++) processTrade(sessionOpen[i]);
 
     // Finalize session stats
     this.stats = {
         entryCount: this.countedGlobalEntries.size,
         hitCount: this.countedGlobalHits.size,
-        totalPnl: roundEight(
-          [...sessionHistory, ...sessionOpen]
-            .reduce((acc, t) => acc + (t.pnl || 0), 0)
-        )
+        totalPnl: roundEight(totalPnlAcc)
     };
 
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');

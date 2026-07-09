@@ -6,12 +6,15 @@ import { useTradingStore } from './store/trading';
 import api, { sessionAPI, setAdminApiKey, initializeAuth } from './api/client';
 import { useVisibility } from './hooks/useVisibility';
 import { AuthOverlay } from './components/AuthOverlay';
+import { AchievementToast } from './components/AchievementToast';
 import { lazyWithRetry } from './lib/lazy';
 import './index.css';
 
+const LandingView = lazyWithRetry(() => import('./views/LandingView'));
 const DashboardView = lazyWithRetry(() => import('./views/DashboardView').then(m => ({ default: m.DashboardView })));
 const SettingsView = lazyWithRetry(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })));
 const HistoryView = lazyWithRetry(() => import('./views/HistoryView').then(m => ({ default: m.HistoryView })));
+const LeaderboardView = lazyWithRetry(() => import('./views/LeaderboardView'));
 const TradesView = lazyWithRetry(() => import('./views/TradesView'));
 const TradeDetailView = lazyWithRetry(() => import('./views/TradeDetailView'));
 
@@ -137,7 +140,7 @@ const App = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const [view, setView] = useState('cockpit');
+  const [view, setView] = useState('landing');
 
   useEffect(() => {
     const controller = new AbortController();
@@ -173,7 +176,7 @@ const App = () => {
     checkStatus();
 
     const handleHashChange = () => {
-      const fullHash = window.location.hash.replace('#/', '') || 'cockpit';
+      const fullHash = window.location.hash.replace('#/', '') || 'landing';
       const [path, query] = fullHash.split('?');
       setView(path === 'dashboard' ? 'cockpit' : path);
     };
@@ -199,7 +202,9 @@ const App = () => {
     }
 
     switch (view) {
+      case 'landing': return <LandingView />;
       case 'cockpit': return <DashboardView />;
+      case 'leaderboard': return <LeaderboardView />;
       case 'trades': return <TradesView />;
       case 'history': return <HistoryView />;
       case 'settings': return <SettingsView />;
@@ -210,6 +215,10 @@ const App = () => {
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={0}>
       <AuthOverlay />
+      <AchievementToast
+        achievement={null} // Wire to store later
+        onClose={() => {}}
+      />
       <div className="min-h-screen bg-background text-text font-sans selection:bg-accent selection:text-white">
         <Suspense fallback={<LoadingView />}>
           {renderView()}

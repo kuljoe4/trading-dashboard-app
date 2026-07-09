@@ -17,6 +17,7 @@ import {
 import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sidebar, BottomNav } from '../components/Navigation'
+import { UserStatsHeader } from '../components/UserStatsHeader'
 import { lazyWithRetry } from '../lib/lazy'
 
 const TemporalRiskGrid = React.memo(() => {
@@ -803,6 +804,10 @@ export function DashboardView({ initialStrategy }) {
           subTitle="Real-time strategy management & market oversight"
           sticky={true}
         >
+          <div className="flex items-center gap-6">
+            <UserStatsHeader />
+            <div className="h-10 w-px bg-border" />
+          </div>
           <div className="flex gap-3">
             {config.frequency_shaping_enabled && (
               <div className="hidden xl:flex items-center gap-2 px-3 py-1.5 bg-accent/10 border border-accent/20 rounded-xl text-[10px] font-bold text-accent uppercase tracking-widest animate-in fade-in zoom-in duration-500">

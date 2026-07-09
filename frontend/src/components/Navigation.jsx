@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { SystemMetrics } from './SystemMetrics'
-import { LayoutDashboard, Briefcase, History, Settings as SettingsIcon, ChevronLeft, ChevronRight, Zap, Plus } from 'lucide-react'
+import { LayoutDashboard, Briefcase, History, Settings as SettingsIcon, ChevronLeft, ChevronRight, Zap, Plus, Trophy } from 'lucide-react'
 import { useTradingStore } from '../store/trading'
 import { cn, Tooltip } from './ui/primitives'
 
@@ -41,6 +41,7 @@ export const Sidebar = ({ selected }) => {
       <nav className="flex-1 flex flex-col gap-2">
         {[
           { path: '/', label: 'Cockpit', icon: LayoutDashboard, shortcut: '1/C' },
+          { path: '/leaderboard', label: 'Arena', icon: Trophy, shortcut: 'L' },
           { path: '/trades', label: 'Trades', icon: Briefcase, shortcut: '2/T' },
           { path: '/history', label: 'History', icon: History, shortcut: '3/H' },
           { path: '/settings', label: 'Settings', icon: SettingsIcon, shortcut: '4' },
@@ -143,6 +144,7 @@ export const BottomNav = ({ selected }) => {
       <div className="flex justify-around items-center h-16">
         {[
           { path: '/', label: 'Cockpit', icon: LayoutDashboard },
+          { path: '/leaderboard', label: 'Arena', icon: Trophy },
           { path: '/trades', label: 'Trades', icon: Briefcase },
           { path: '/history', label: 'History', icon: History },
           { path: '/settings', label: 'Settings', icon: SettingsIcon },

@@ -12,6 +12,8 @@ import { AuditLog } from './models/entities/AuditLog.entity';
 import { BalanceHistory } from './models/entities/BalanceHistory.entity';
 import { StrategyPreset } from './models/entities/StrategyPreset.entity';
 import { Kline } from './models/entities/Kline.entity';
+import { User, UserProfile } from './models/entities/User.entity';
+import { Follow } from './models/entities/Follow.entity';
 
 @Module({
   imports: [
@@ -24,7 +26,7 @@ import { Kline } from './models/entities/Kline.entity';
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
         url: configService.get<string>('DATABASE_URL'),
-        entities: [Session, TradeEntity, Settings, Log, AuditLog, BalanceHistory, StrategyPreset, Kline],
+        entities: [Session, TradeEntity, Settings, Log, AuditLog, BalanceHistory, StrategyPreset, Kline, User, UserProfile, Follow],
         synchronize: false, // Explicitly disable synchronize in all environments
         // PERFORMANCE: Optimize PostgreSQL for trading workloads (Reduce checkpoint spikes)
         extra: {

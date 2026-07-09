@@ -76,18 +76,6 @@ export class SessionStateService {
   reset(config: SessionConfig, initialHistory: Trade[] = [], currentBalance?: number, sessionId?: string, initialOpen: Trade[] = []) {
     this.config = config;
 
-    // DATA-07: Stats should be session-specific even if we load mode-wide history for risk gating
-    // BOLT OPTIMIZATION: Filter once to avoid redundant traversals and allocations.
-    const sessionTrades: Trade[] = [];
-    if (sessionId) {
-      for (let i = 0; i < initialHistory.length; i++) {
-        if (initialHistory[i].sessionId === sessionId) sessionTrades.push(initialHistory[i]);
-      }
-      for (let i = 0; i < initialOpen.length; i++) {
-        if (initialOpen[i].sessionId === sessionId) sessionTrades.push(initialOpen[i]);
-      }
-    }
-
     this.statsVersion = 0;
     this.closedTrades = initialHistory;
     this.activeTrades = initialOpen;
@@ -155,8 +143,17 @@ export class SessionStateService {
     };
 
     // BOLT: Optimize by using loop fusion and avoiding intermediate array spreads
-    for (let i = 0; i < sessionHistory.length; i++) processTrade(sessionHistory[i]);
-    for (let i = 0; i < sessionOpen.length; i++) processTrade(sessionOpen[i]);
+    // Filter by sessionId during processing to avoid redundant allocations
+    for (let i = 0; i < initialHistory.length; i++) {
+      if (!sessionId || initialHistory[i].sessionId === sessionId) {
+        processTrade(initialHistory[i]);
+      }
+    }
+    for (let i = 0; i < initialOpen.length; i++) {
+      if (!sessionId || initialOpen[i].sessionId === sessionId) {
+        processTrade(initialOpen[i]);
+      }
+    }
 
     // Finalize session stats
     this.stats = {

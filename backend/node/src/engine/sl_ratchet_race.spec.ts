@@ -31,7 +31,9 @@ describe('SL Ratchet Race Conditions & Protection Gaps', () => {
       isOrderRateLimited: jest.fn().mockReturnValue(false),
       hasOrderCapacity: jest.fn().mockReturnValue(true),
       config: { trailing_guard_buffer_pct: 0.1 },
-      realTimeOrders: new Map()
+      realTimeOrders: new Map(),
+      realTimePositions: new Map(),
+      activeTrades: []
     };
     mockAuditLog = { log: jest.fn() };
     mockEventEmitter = { emit: jest.fn() };
@@ -51,16 +53,20 @@ describe('SL Ratchet Race Conditions & Protection Gaps', () => {
       restAPI: {
         cancelOrder: jest.fn().mockResolvedValue({
           data: () => Promise.resolve({ status: 'CANCELED' }),
-          headers: { get: jest.fn() }
+          headers: { get: () => '0' }
         }),
         newAlgoOrder: jest.fn().mockResolvedValue({
           data: () => Promise.resolve({ algoId: 'new-sl-123', status: 'NEW' }),
-          headers: { get: jest.fn() }
+          headers: { get: () => '0' }
         }),
         queryOrder: jest.fn().mockRejectedValue(new Error('Not found')),
         cancelAllOpenOrders: jest.fn().mockResolvedValue({
           data: () => Promise.resolve({}),
-          headers: { get: jest.fn() }
+          headers: { get: () => '0' }
+        }),
+        cancelAlgoOrder: jest.fn().mockResolvedValue({
+          data: () => Promise.resolve({ status: 'CANCELED' }),
+          headers: { get: () => '0' }
         })
       }
     };
@@ -82,7 +88,7 @@ describe('SL Ratchet Race Conditions & Protection Gaps', () => {
     // 1. Mock cancellation of the old SL
     mockBinanceClient.restAPI.cancelOrder.mockResolvedValueOnce({
       data: () => Promise.resolve({ status: 'CANCELED' }),
-      headers: { get: jest.fn() }
+      headers: { get: () => '0' }
     });
 
     // 2. Simulate failure on new SL placement
@@ -91,7 +97,7 @@ describe('SL Ratchet Race Conditions & Protection Gaps', () => {
     // 3. Mock the rollback placement of the OLD SL
     mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValueOnce({
       data: () => Promise.resolve({ algoId: 'rollback-sl-id', status: 'NEW' }),
-      headers: { get: jest.fn() }
+      headers: { get: () => '0' }
     });
 
     const result = await orderManager.updateStopLoss(trade, 95);
@@ -120,7 +126,10 @@ describe('SL Ratchet Race Conditions & Protection Gaps', () => {
     mockBinanceClient.restAPI.cancelOrder.mockImplementation(async () => {
       cancelCalls++;
       await new Promise(resolve => setTimeout(resolve, 100));
-      return { data: () => Promise.resolve({ status: 'CANCELED' }) };
+      return {
+        data: () => Promise.resolve({ status: 'CANCELED' }),
+        headers: { get: () => '0' }
+      };
     });
 
     // Fire two updates rapidly

@@ -54,45 +54,6 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
   const areaAboveD = points.length >= 2 ? `${pathD} L 100 ${zeroY} L 0 ${zeroY} Z` : '';
   const areaBelowD = points.length >= 2 ? `${pathD} L 100 ${zeroY} L 0 ${zeroY} Z` : '';
 
-  const handleInteraction = (clientX) => {
-    if (!containerRef.current || points.length < 2) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const xPct = ((clientX - rect.left) / rect.width) * 100;
-
-    // Find closest point
-    let closest = points[0];
-    let minDiff = Math.abs(points[0].x - xPct);
-
-    for (const p of points) {
-      const diff = Math.abs(p.x - xPct);
-      if (diff < minDiff) {
-        minDiff = diff;
-        closest = p;
-      }
-    }
-
-    setHoverData({ ...closest, clientX: clientX, clientY: rect.top + (closest.y * rect.height / 100) });
-  };
-
-  const handleMouseMove = (e) => handleInteraction(e.clientX);
-  const handleTouchMove = (e) => {
-    if (e.touches && e.touches[0]) {
-      handleInteraction(e.touches[0].clientX);
-    }
-  };
-
-  const handleMouseLeave = () => setHoverData(null);
-
-  if (data.length < 2) {
-    return (
-      <div className={cn("flex flex-col items-center justify-center bg-surface/20 border border-border/40 rounded-2xl border-dashed", hideAxes ? "h-full" : "h-[180px]")}>
-        <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Insufficient Trade Data</span>
-      </div>
-    );
-  }
-
-  const currentPnl = data[data.length - 1]?.pnl ?? 0;
-
   const peaks = useMemo(() => {
     if (points.length < 2) return [];
     let currentMax = -Infinity;
@@ -127,6 +88,45 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
     d += ' Z';
     return d;
   }, [points, peaks]);
+
+  const handleInteraction = (clientX) => {
+    if (!containerRef.current || points.length < 2) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const xPct = ((clientX - rect.left) / rect.width) * 100;
+
+    // Find closest point
+    let closest = points[0];
+    let minDiff = Math.abs(points[0].x - xPct);
+
+    for (const p of points) {
+      const diff = Math.abs(p.x - xPct);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = p;
+      }
+    }
+
+    setHoverData({ ...closest, clientX: clientX, clientY: rect.top + (closest.y * rect.height / 100) });
+  };
+
+  const handleMouseMove = (e) => handleInteraction(e.clientX);
+  const handleTouchMove = (e) => {
+    if (e.touches && e.touches[0]) {
+      handleInteraction(e.touches[0].clientX);
+    }
+  };
+
+  const handleMouseLeave = () => setHoverData(null);
+
+  const currentPnl = data[data.length - 1]?.pnl ?? 0;
+
+  if (data.length < 2) {
+    return (
+      <div className={cn("flex flex-col items-center justify-center bg-surface/20 border border-border/40 rounded-2xl border-dashed", hideAxes ? "h-full" : "h-[180px]")}>
+        <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Insufficient Trade Data</span>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -282,16 +282,8 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
 };
 
 export const TODPerformance = ({ data = [] }) => {
-  if (!data || data.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-[140px] md:h-[120px] bg-surface/20 border border-border/40 rounded-2xl border-dashed">
-        <span className="text-[10px] text-dim font-bold uppercase tracking-widest">No Hourly Data</span>
-      </div>
-    );
-  }
-
-  const validData = data.filter(d => d && typeof d.pnl === 'number');
-  const maxPnl = Math.max(1, ...validData.map(d => Math.abs(d.pnl)));
+  const validData = useMemo(() => data.filter(d => d && typeof d.pnl === 'number'), [data]);
+  const maxPnl = useMemo(() => Math.max(1, ...validData.map(d => Math.abs(d.pnl))), [validData]);
   const [hoverData, setHoverData] = useState(null);
   const [hoverHour, setHoverHour] = useState(null);
   const containerRef = useRef(null);
@@ -304,7 +296,15 @@ export const TODPerformance = ({ data = [] }) => {
       avgPos: pos.length ? pos.reduce((a, b) => a + b, 0) / pos.length : 0,
       avgNeg: neg.length ? neg.reduce((a, b) => a + b, 0) / neg.length : 0
     };
-  }, [data]);
+  }, [validData]);
+
+  if (!data || data.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[140px] md:h-[120px] bg-surface/20 border border-border/40 rounded-2xl border-dashed">
+        <span className="text-[10px] text-dim font-bold uppercase tracking-widest">No Hourly Data</span>
+      </div>
+    );
+  }
 
   const avgPosHeight = (Math.sqrt(avgPos) / Math.sqrt(maxPnl)) * 50;
   const avgNegHeight = (Math.sqrt(avgNeg) / Math.sqrt(maxPnl)) * 50;
@@ -343,7 +343,7 @@ export const TODPerformance = ({ data = [] }) => {
           <div className="h-4">
              {currentHourStats && (
                <span className="text-[9px] text-dim font-mono uppercase">
-                  {(currentHourStats.winRate || 0).toFixed(0)}% Win Rate · {currentHourStats.wins || 0}/{currentHourStats.total || 0} Trades
+                  {Number(currentHourStats.winRate || 0).toFixed(0)}% Win Rate · {currentHourStats.wins || 0}/{currentHourStats.total || 0} Trades
                </span>
              )}
           </div>

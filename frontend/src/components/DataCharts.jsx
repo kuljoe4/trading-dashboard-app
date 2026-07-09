@@ -4,8 +4,6 @@ import { cn } from './ui/utils'
 import { formatDuration } from '../lib/formatters'
 
 export const Sparkline = React.memo(({ data = [], width = 60, height = 24, color = "accent" }) => {
-  if (!data || data.length < 2) return <div style={{ width, height }} />;
-
   // Performance: Use useMemo for heavy geometry calculations
   const pathD = React.useMemo(() => {
     const min = Math.min(...data);
@@ -24,6 +22,8 @@ export const Sparkline = React.memo(({ data = [], width = 60, height = 24, color
   const colorHex = React.useMemo(() =>
     color === 'green' ? '#00e5a0' : color === 'red' ? '#ff4466' : '#5b6fff',
   [color]);
+
+  if (!data || data.length < 2) return <div style={{ width, height }} />;
 
   return (
     <svg width={width} height={height} className="overflow-visible">
@@ -59,13 +59,12 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
     return () => observer.disconnect();
   }, []);
 
-  if (!Array.isArray(data) || data.length < 2) return <div ref={containerRef} style={{ width: '100%', height }} />;
-
   const chartHeight = showOscillator ? height * 0.7 : height;
   const oscillatorHeight = showOscillator ? height * 0.2 : 0;
   const gapBetween = showOscillator ? height * 0.1 : 0;
 
   const { bars, min, max, range, barWidth, gap, thresholdY } = React.useMemo(() => {
+    if (!Array.isArray(data) || data.length < 2) return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0, thresholdY: null };
     // SEC: Validate all data points to prevent Infinity/NaN from breaking SVG layout or causing hangs
     const validData = data.filter(d =>
        Number.isFinite(d.low) && Number.isFinite(d.high) &&
@@ -114,7 +113,7 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
     return { bars, min, max, range, barWidth, gap, thresholdY };
   }, [data, width, chartHeight, threshold, isLong, entryPrice]);
 
-  const oscMax = Math.max(...bars.map(b => Math.abs(b.momentum)), 0.1);
+  const oscMax = useMemo(() => Math.max(...bars.map(b => Math.abs(b.momentum || 0)), 0.1), [bars]);
 
   const handleMouseMove = (e) => {
     if (!containerRef.current) return;
@@ -127,6 +126,8 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
   };
 
   const handleMouseLeave = () => setHoverData(null);
+
+  if (!Array.isArray(data) || data.length < 2) return <div ref={containerRef} style={{ width: '100%', height }} />;
 
   return (
     <div
@@ -277,7 +278,7 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
         <div className="flex justify-between items-center gap-2">
            <span className="text-[8px] text-dim font-black uppercase">Mom</span>
            <span className={cn("text-[10px] font-mono font-bold", hoverData.momentum >= 0 ? "text-green" : "text-red")}>
-             {hoverData.momentum.toFixed(2)}%
+             {Number(hoverData.momentum || 0).toFixed(2)}%
            </span>
         </div>
       </div>

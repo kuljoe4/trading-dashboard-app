@@ -491,18 +491,22 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
               aria-label="Filter scanner symbols"
             />
             {search && (
-              <button
-                onClick={() => setSearch('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors"
-                aria-label="Clear filter"
-              >
-                <XCircle size={14} />
-              </button>
+              <Tooltip content="Clear Filter">
+                <button
+                  onClick={() => setSearch('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors"
+                  aria-label="Clear Filter"
+                >
+                  <XCircle size={14} />
+                </button>
+              </Tooltip>
             )}
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/5 focus-visible:bg-white/5 focus-visible:ring-2 focus-visible:ring-accent outline-none rounded-full transition-colors shrink-0" aria-label="Close scanner">
-            <X size={18} className="text-dim" />
-          </button>
+          <Tooltip content="Close Scanner">
+            <button onClick={onClose} className="p-2 hover:bg-white/5 focus-visible:bg-white/5 focus-visible:ring-2 focus-visible:ring-accent outline-none rounded-full transition-colors shrink-0" aria-label="Close scanner">
+              <X size={18} className="text-dim" />
+            </button>
+          </Tooltip>
         </div>
       </div>
 

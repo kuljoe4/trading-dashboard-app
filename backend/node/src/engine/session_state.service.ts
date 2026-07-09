@@ -77,8 +77,17 @@ export class SessionStateService {
     this.config = config;
 
     // DATA-07: Stats should be session-specific even if we load mode-wide history for risk gating
-    const sessionHistory = sessionId ? initialHistory.filter(t => t.sessionId === sessionId) : [];
-    const sessionOpen = sessionId ? initialOpen.filter(t => t.sessionId === sessionId) : [];
+    // BOLT OPTIMIZATION: Filter once to avoid redundant traversals and allocations.
+    const sessionTrades: Trade[] = [];
+    if (sessionId) {
+      for (let i = 0; i < initialHistory.length; i++) {
+        if (initialHistory[i].sessionId === sessionId) sessionTrades.push(initialHistory[i]);
+      }
+      for (let i = 0; i < initialOpen.length; i++) {
+        if (initialOpen[i].sessionId === sessionId) sessionTrades.push(initialOpen[i]);
+      }
+    }
+
     this.statsVersion = 0;
     this.closedTrades = initialHistory;
     this.activeTrades = initialOpen;

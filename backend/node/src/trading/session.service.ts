@@ -235,7 +235,6 @@ export class SessionService implements OnModuleInit {
               await queryRunner.manager.update(SessionEntity, sessionId, {
                 balance,
                 totalPnl: realizedPnl,
-                peakRr: this.tradingSessionService.getStatus().stats.peakRr || 0,
               });
 
               const updateData: any = {};
@@ -380,7 +379,6 @@ export class SessionService implements OnModuleInit {
       await queryRunner.manager.update(SessionEntity, sessionId, {
         balance,
         totalPnl: realizedPnl,
-        peakRr: this.tradingSessionService.getStatus().stats.peakRr || 0,
       });
 
       // 3. Update Global Settings and record History for all modes
@@ -1166,7 +1164,6 @@ export class SessionService implements OnModuleInit {
       initialHistory as any,
       currentGlobalBalance,
       filteredOpenTrades as any,
-      session as any,
     );
 
     // SRE-02: Periodic Full Reconciliation to catch missed events/sync issues

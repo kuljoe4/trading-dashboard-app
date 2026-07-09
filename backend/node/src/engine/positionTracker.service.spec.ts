@@ -297,9 +297,9 @@ describe('PositionTrackerService', () => {
       expect(trade.current_sl).toBe(90); // No ratchet
     });
 
-    it('keeps risk_usdt fixed to initial risk during ratchets', async () => {
+    it('sets risk_usdt to 0 when SL ratchets to breakeven or better', async () => {
       const trade = {
-        symbol: 'RISK_FIXED',
+        symbol: 'RISK_BE',
         direction: 'LONG',
         entry_price: 100,
         initial_sl: 90,
@@ -307,24 +307,24 @@ describe('PositionTrackerService', () => {
         qty: 10,
         status: 'OPEN',
         max_rr_achieved: 0,
-        risk_usdt: 100, // (100 - 90) * 10
+        risk_usdt: 100,
       } as unknown as Trade;
 
       const config = {
         live_rr_sequence: [1.0],
-        exit_rr_sequence: [0.5], // target 105
+        exit_rr_sequence: [0.0], // target breakeven
       } as SessionConfig;
 
       service.addTrade(trade);
-      const initialTotalRisk = service.totalRisk();
+      expect(service.totalRisk()).toBe(100);
 
-      // Hit milestone 1 (1.0R = 110)
-      await service.checkRrSequenceAdjustments('RISK_FIXED', 110, config);
+      // Hit milestone 1 (1.0R = 110) -> Ratchet to BE (100)
+      await service.checkRrSequenceAdjustments('RISK_BE', 110, config);
 
-      expect(trade.current_sl).toBe(105);
-      // risk_usdt should still be 100, not (100 - 105) * 10 = -50 or (110 - 105) * 10 = 50
-      expect(trade.risk_usdt).toBe(100);
-      expect(service.totalRisk()).toBe(initialTotalRisk);
+      expect(trade.current_sl).toBe(100);
+      // Risk should now be released
+      expect(trade.risk_usdt).toBe(0);
+      expect(service.totalRisk()).toBe(0);
     });
 
     it('caps the SHORT SL adjustment if it is too close to the current market price', async () => {
@@ -374,7 +374,11 @@ describe('PositionTrackerService', () => {
     it('should correctly calculate O(1) total risk including pending risk', () => {
       const trade1 = {
         symbol: 'BTCUSDT',
-        risk_usdt: 100,
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90,
+        current_sl: 90,
+        qty: 10,
         status: 'OPEN',
       } as unknown as Trade;
 
@@ -409,7 +413,11 @@ describe('PositionTrackerService', () => {
     it('should correctly recalculate total risk from map', () => {
       const trade1 = {
         symbol: 'BTCUSDT',
-        risk_usdt: 100,
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90,
+        current_sl: 90,
+        qty: 10,
         status: 'OPEN',
       } as unknown as Trade;
       service.addTrade(trade1);

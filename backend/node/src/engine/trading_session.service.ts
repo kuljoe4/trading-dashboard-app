@@ -140,7 +140,7 @@ export class TradingSessionService implements OnApplicationShutdown {
   setTradeUpdateCallback(cb: (t: Trade, b: number) => Promise<void>) { this.onTradeUpdate = cb; }
   private broadcast(et: string, p: any) { this.broadcastService.broadcast(et, p); }
 
-  async start(config: SessionConfig, bc?: any, sid?: string, hist: Trade[] = [], curBal?: number, open: Trade[] = [], sessionEntity?: any) {
+  async start(config: SessionConfig, bc?: any, sid?: string, hist: Trade[] = [], curBal?: number, open: Trade[] = []) {
     this.running = true;
     this.sessionId = sid || null;
     this.config = config;
@@ -162,7 +162,7 @@ export class TradingSessionService implements OnApplicationShutdown {
     const startMsg = `[Lifecycle] Starting trading engine for session ${this.sessionId} (curBal: ${curBal})`;
     this.logger.log(startMsg);
     this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: startMsg, level: 'info' });
-    await this.sessionLifecycle.start(config, bc, sid, hist, curBal, open, sessionEntity);
+    await this.sessionLifecycle.start(config, bc, sid, hist, curBal, open);
 
     // DATA-07: Recalculate total risk on start to ensure O(1) tracker is in sync with loaded state
     this.positionTracker.recalculateTotalRisk();
@@ -297,9 +297,6 @@ export class TradingSessionService implements OnApplicationShutdown {
   async handleTradeUpdate(payload: { trade: Trade, pnlDelta?: number }) {
     const trade = payload.trade;
     const pnlDelta = payload.pnlDelta ?? 0;
-
-    // BOLT: Track session-wide peak RR
-    this.sessionState.updateSessionPeakRr(trade.max_rr_achieved || 0);
 
     if (pnlDelta !== 0) {
        const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');

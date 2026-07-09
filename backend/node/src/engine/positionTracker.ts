@@ -142,6 +142,9 @@ export class PositionTrackerService {
       this._totalRisk = roundEight(this._totalRisk - (existing.risk_usdt || 0));
     }
 
+    // SRE: Ensure risk is correctly calculated before adding to total
+    this.refreshTradeRisk(trade);
+
     this.trades.set(trade.symbol, trade);
     // DATA-07: Initialize milestone tracker from trade state for persistent state recovery
     this.rrSequenceIndex.set(trade.symbol, trade.rr_sequence_index ?? -1);
@@ -276,9 +279,15 @@ export class PositionTrackerService {
            trade.updated_at = new Date();
            trade.current_sl = finalSl;
 
-           // SRE: Risk Integrity - Keep risk_usdt based on INITIAL SL as per user request.
-           // This ensures risk metrics (total risk, total SL used) reflect the initial capital exposure.
-           // The _totalRisk counter does not need updating here as risk_usdt remains unchanged.
+           // SRE: Live Risk Mitigation.
+           // If new SL is at or beyond breakeven (entry), the risk for this trade effectively becomes 0.
+           // This allows the engine to open new trades as the "locked" capital is released.
+           const prevRisk = trade.risk_usdt || 0;
+           this.refreshTradeRisk(trade);
+           if (prevRisk > 0 && trade.risk_usdt === 0) {
+              this._totalRisk = roundEight(this._totalRisk - prevRisk);
+              this.logger.log(`[Risk Mitigation] ${symbol} reached breakeven. Risk released: ${prevRisk} USDT. New Total Risk: ${this._totalRisk}`);
+           }
 
            this.logSlAdjustment(trade, prevSl, finalSl, currentIndex, !!updateRes.price && updateRes.price !== newSl);
 
@@ -471,6 +480,24 @@ export class PositionTrackerService {
   }
 
   /**
+   * SRE: Internal risk calculation helper.
+   * Enforces the "Breakeven Risk Release" rule: risk is 0 if SL is at or beyond entry.
+   * Otherwise, risk is based on the initial stop distance.
+   */
+  private refreshTradeRisk(trade: Trade): void {
+    const isBreakevenOrBetter = trade.direction === 'LONG'
+      ? trade.current_sl >= trade.entry_price - 0.00000001
+      : trade.current_sl <= trade.entry_price + 0.00000001;
+
+    if (isBreakevenOrBetter) {
+      trade.risk_usdt = 0;
+    } else {
+      const slDistance = Math.abs(trade.entry_price - trade.initial_sl);
+      trade.risk_usdt = roundEight(slDistance * trade.qty);
+    }
+  }
+
+  /**
    * DATA-07: Manual recalculation of total risk to ensure state consistency
    */
   @OnEvent(ENGINE_EVENTS.QUANTITY_SYNC)
@@ -482,9 +509,7 @@ export class PositionTrackerService {
 
       // Update quantity before risk calculation for consistency
       trade.qty = payload.qty;
-      // SRE: Use initial_sl for risk calculation as per user request (Initial Risk Integrity)
-      const slDistance = Math.abs(trade.entry_price - trade.initial_sl);
-      trade.risk_usdt = roundEight(slDistance * trade.qty);
+      this.refreshTradeRisk(trade);
       trade.updated_at = new Date();
 
       this.recalculateTotalRisk();
@@ -498,6 +523,7 @@ export class PositionTrackerService {
   recalculateTotalRisk(): void {
     let activeRisk = 0;
     for (const t of this.trades.values()) {
+      this.refreshTradeRisk(t);
       activeRisk += (t.risk_usdt || 0);
     }
     this._totalRisk = roundEight(activeRisk);

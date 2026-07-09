@@ -164,9 +164,16 @@ export class MaintenanceService {
           if (Math.abs(exAmt - trade.qty) > 0.00000001) {
             this.logger.warn(`[Watchdog] ${trade.symbol} quantity mismatch: Local ${trade.qty} vs Exchange ${exAmt}. Syncing local state.`);
             trade.qty = exAmt;
-            // SRE: Use initial_sl for risk calculation as per user request (Initial Risk Integrity)
-            const risk = Math.abs(trade.entry_price - trade.initial_sl);
-            trade.risk_usdt = roundEight(risk * trade.qty);
+
+            // SRE: Live Risk Mitigation during watchdog sync
+            const isBreakevenOrBetter = trade.direction === 'LONG' ? trade.current_sl >= trade.entry_price : trade.current_sl <= trade.entry_price;
+            if (isBreakevenOrBetter) {
+              trade.risk_usdt = 0;
+            } else {
+              const risk = Math.abs(trade.entry_price - trade.initial_sl);
+              trade.risk_usdt = roundEight(risk * trade.qty);
+            }
+
             trade.updated_at = new Date();
             this.positionTracker.recalculateTotalRisk();
             this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
@@ -199,11 +206,14 @@ export class MaintenanceService {
                   this.logger.log(`[Watchdog] ${trade.symbol} syncing SL price from exchange: ${trade.current_sl} -> ${exSlPrice}`);
                   trade.current_sl = exSlPrice;
 
-                  // SRE: Risk USDT should represent initial risk.
-                  // We update it here ONLY because qty might have changed earlier in the watchdog,
-                  // but we must use initial_sl to keep it relative to entry.
-                  const risk = Math.abs(trade.entry_price - trade.initial_sl);
-                  trade.risk_usdt = roundEight(risk * trade.qty);
+                  // SRE: Live Risk Mitigation during SL sync
+                  const isBreakevenOrBetter = trade.direction === 'LONG' ? trade.current_sl >= trade.entry_price : trade.current_sl <= trade.entry_price;
+                  if (isBreakevenOrBetter) {
+                    trade.risk_usdt = 0;
+                  } else {
+                    const risk = Math.abs(trade.entry_price - trade.initial_sl);
+                    trade.risk_usdt = roundEight(risk * trade.qty);
+                  }
 
                   // SRE: Reconcile rr_sequence_index based on adopted SL price
                   this.positionTracker.reconcileMilestoneFromSl(trade, exSlPrice, tradeConfig);

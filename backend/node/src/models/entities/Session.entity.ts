@@ -21,9 +21,6 @@ export class Session {
   @Column('decimal', { precision: 20, scale: 8, default: 0 })
   totalPnl: number;
 
-  @Column('decimal', { precision: 10, scale: 4, default: 0 })
-  peakRr: number;
-
   @Column({ type: 'varchar', nullable: true })
   strategyLabel: string | null;
 

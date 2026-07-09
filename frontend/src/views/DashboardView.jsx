@@ -522,7 +522,7 @@ export function DashboardView({ initialStrategy }) {
     updateConfig, patchConfig, gateState, gateReason, hibernating, agreementRequired,
     scannerPaused, sessionList, fetchSessions, wsStatus,
     updateStats, analytics,
-    sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount, peakRr,
+    sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
     healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
@@ -555,7 +555,6 @@ export function DashboardView({ initialStrategy }) {
     isEcoMode: state.isEcoMode,
     entryCount: state.entryCount,
     hitCount: state.hitCount,
-    peakRr: state.peakRr,
     healthEnabled: state.healthEnabled,
     isSyncing: state.isSyncing,
     setSyncing: state.setSyncing,
@@ -602,6 +601,8 @@ export function DashboardView({ initialStrategy }) {
   const totalActivePnl = useMemo(() =>
     Object.values(activePnlMap).reduce((acc, val) => acc + val, 0)
   , [activePnlMap]);
+
+  const maxRR = useMemo(() => activeTrades.reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
 
   const monitoredSymbolsSet = useMemo(() => {
     const set = new Set();
@@ -1008,9 +1009,9 @@ export function DashboardView({ initialStrategy }) {
               />
               <StatCard
                 label="Peak RR"
-                value={`+${Number(peakRr || 0).toFixed(2)}`}
+                value={`+${Number(maxRR || 0).toFixed(2)}`}
                 color="text-accent"
-                tooltipText="Maximum Reward-to-Risk ratio achieved across all trades in this session."
+                tooltipText="Maximum Reward-to-Risk ratio achieved during this trading session."
               />
             </div>
           </motion.div>

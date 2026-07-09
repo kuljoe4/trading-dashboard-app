@@ -49,10 +49,19 @@ describe('SL Ratchet Race Conditions & Protection Gaps', () => {
 
     mockBinanceClient = {
       restAPI: {
-        cancelOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ status: 'CANCELED' }) }),
-        newAlgoOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ algoId: 'new-sl-123', status: 'NEW' }) }),
+        cancelOrder: jest.fn().mockResolvedValue({
+          data: () => Promise.resolve({ status: 'CANCELED' }),
+          headers: { get: jest.fn() }
+        }),
+        newAlgoOrder: jest.fn().mockResolvedValue({
+          data: () => Promise.resolve({ algoId: 'new-sl-123', status: 'NEW' }),
+          headers: { get: jest.fn() }
+        }),
         queryOrder: jest.fn().mockRejectedValue(new Error('Not found')),
-        cancelAllOpenOrders: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}) })
+        cancelAllOpenOrders: jest.fn().mockResolvedValue({
+          data: () => Promise.resolve({}),
+          headers: { get: jest.fn() }
+        })
       }
     };
     orderManager.setBinanceClient(mockBinanceClient, false);
@@ -71,13 +80,19 @@ describe('SL Ratchet Race Conditions & Protection Gaps', () => {
     } as any as Trade;
 
     // 1. Mock cancellation of the old SL
-    mockBinanceClient.restAPI.cancelOrder.mockResolvedValueOnce({ data: () => Promise.resolve({ status: 'CANCELED' }) });
+    mockBinanceClient.restAPI.cancelOrder.mockResolvedValueOnce({
+      data: () => Promise.resolve({ status: 'CANCELED' }),
+      headers: { get: jest.fn() }
+    });
 
     // 2. Simulate failure on new SL placement
     mockBinanceClient.restAPI.newAlgoOrder.mockRejectedValueOnce(new Error('PERCENT_PRICE rejection'));
 
     // 3. Mock the rollback placement of the OLD SL
-    mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValueOnce({ data: () => Promise.resolve({ algoId: 'rollback-sl-id', status: 'NEW' }) });
+    mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValueOnce({
+      data: () => Promise.resolve({ algoId: 'rollback-sl-id', status: 'NEW' }),
+      headers: { get: jest.fn() }
+    });
 
     const result = await orderManager.updateStopLoss(trade, 95);
 

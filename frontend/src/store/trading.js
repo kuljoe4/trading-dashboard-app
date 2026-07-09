@@ -46,7 +46,22 @@ export const normalizeOpportunity = (o = {}) => {
     lastUpdate: source.last_update ?? source.ts ?? Date.now(),
     signalResult: source.signalResult && typeof source.signalResult === 'object' ? {
       allFired: !!source.signalResult.allFired,
-      firedSignals: Array.isArray(source.signalResult.firedSignals) ? source.signalResult.firedSignals.map(s => String(s)) : [],
+      firedSignals: Array.isArray(source.signalResult.firedSignals) ? source.signalResult.firedSignals.map(s => toNumber(s)) : [],
+      signals: source.signalResult.signals && typeof source.signalResult.signals === 'object' ? Object.entries(source.signalResult.signals).reduce((acc, [key, s]) => {
+        acc[key] = {
+          ...s,
+          label: String(s.label || key),
+          value: toNumber(s.value),
+          threshold: toNumber(s.threshold),
+          unit: String(s.unit || ''),
+          fired: !!s.fired,
+          active: !!s.active,
+          remaining_delay: toNumber(s.remaining_delay),
+          config_delay: toNumber(s.config_delay),
+          insufficientData: !!s.insufficientData
+        };
+        return acc;
+      }, {}) : {},
       reason: String(source.signalResult.reason || '').substring(0, 200)
     } : undefined
   };

@@ -176,13 +176,23 @@ export class PositionTrackerService {
       : trade.entry_price - currentPrice;
     const liveRr = reward / risk;
 
+    // BOLT: Update peak RR on every tick to ensure high-fidelity analytics.
+    // We only emit TRADE_UPDATED if it changes significantly (0.1 R) to avoid DB pressure.
+    const oldMaxRr = trade.max_rr_achieved || 0;
+    if (liveRr > oldMaxRr) {
+      trade.max_rr_achieved = liveRr;
+      if (liveRr - oldMaxRr >= 0.1) {
+        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+      }
+    }
+
     // Find highest milestone crossed by max_rr
     let currentIndex = -1;
     const liveRrSequence = config.live_rr_sequence || [];
     const exitRrSequence = config.exit_rr_sequence || [];
 
     for (let i = 0; i < liveRrSequence.length; i++) {
-      if (Math.max(trade.max_rr_achieved, liveRr) >= liveRrSequence[i]) {
+      if (trade.max_rr_achieved >= liveRrSequence[i]) {
         currentIndex = i;
       }
     }
@@ -253,7 +263,6 @@ export class PositionTrackerService {
 
       if (shouldUpdate) {
         const prevSl = trade.current_sl;
-        const prevRisk = trade.risk_usdt || 0;
 
         // Acknowledge-then-Update: Update exchange first in live mode
         const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
@@ -264,15 +273,13 @@ export class PositionTrackerService {
            // Acknowledge-then-Commit: Only update local state after exchange confirmation
            this.rrSequenceIndex.set(symbol, currentIndex);
            trade.rr_sequence_index = currentIndex;
-           trade.max_rr_achieved = Math.max(trade.max_rr_achieved, liveRr);
            trade.updated_at = new Date();
            trade.current_sl = finalSl;
 
-           // Recalculate risk USDT
-           const slDistance = Math.abs(trade.entry_price - trade.current_sl);
-           trade.risk_usdt = roundEight(slDistance * trade.qty);
+           // SRE: Risk Integrity - Keep risk_usdt based on INITIAL SL as per user request.
+           // This ensures risk metrics (total risk, total SL used) reflect the initial capital exposure.
+           // The _totalRisk counter does not need updating here as risk_usdt remains unchanged.
 
-           this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
            this.logSlAdjustment(trade, prevSl, finalSl, currentIndex, !!updateRes.price && updateRes.price !== newSl);
 
            // Notify of trade state change for persistence
@@ -475,7 +482,8 @@ export class PositionTrackerService {
 
       // Update quantity before risk calculation for consistency
       trade.qty = payload.qty;
-      const slDistance = Math.abs(trade.entry_price - trade.current_sl);
+      // SRE: Use initial_sl for risk calculation as per user request (Initial Risk Integrity)
+      const slDistance = Math.abs(trade.entry_price - trade.initial_sl);
       trade.risk_usdt = roundEight(slDistance * trade.qty);
       trade.updated_at = new Date();
 

@@ -272,6 +272,61 @@ describe('PositionTrackerService', () => {
       expect(mockOrderManager.updateStopLoss).toHaveBeenCalledWith(trade4, expect.closeTo(110.06697, 5), 90);
     });
 
+    it('updates max_rr_achieved on every tick even without milestones', async () => {
+      const trade = {
+        symbol: 'RR_TEST',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90,
+        current_sl: 90,
+        status: 'OPEN',
+        max_rr_achieved: 0,
+      } as unknown as Trade;
+
+      const config = {
+        live_rr_sequence: [2.0],
+        exit_rr_sequence: [1.0],
+      } as SessionConfig;
+
+      service.addTrade(trade);
+
+      // Price at 1.5R (115). No milestone hit (requires 2.0R).
+      await service.checkRrSequenceAdjustments('RR_TEST', 115, config);
+
+      expect(trade.max_rr_achieved).toBe(1.5);
+      expect(trade.current_sl).toBe(90); // No ratchet
+    });
+
+    it('keeps risk_usdt fixed to initial risk during ratchets', async () => {
+      const trade = {
+        symbol: 'RISK_FIXED',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90,
+        current_sl: 90,
+        qty: 10,
+        status: 'OPEN',
+        max_rr_achieved: 0,
+        risk_usdt: 100, // (100 - 90) * 10
+      } as unknown as Trade;
+
+      const config = {
+        live_rr_sequence: [1.0],
+        exit_rr_sequence: [0.5], // target 105
+      } as SessionConfig;
+
+      service.addTrade(trade);
+      const initialTotalRisk = service.totalRisk();
+
+      // Hit milestone 1 (1.0R = 110)
+      await service.checkRrSequenceAdjustments('RISK_FIXED', 110, config);
+
+      expect(trade.current_sl).toBe(105);
+      // risk_usdt should still be 100, not (100 - 105) * 10 = -50 or (110 - 105) * 10 = 50
+      expect(trade.risk_usdt).toBe(100);
+      expect(service.totalRisk()).toBe(initialTotalRisk);
+    });
+
     it('caps the SHORT SL adjustment if it is too close to the current market price', async () => {
       const trade = {
         symbol: 'SHORTY',
@@ -368,6 +423,30 @@ describe('PositionTrackerService', () => {
 
       service.recalculateTotalRisk();
       expect(service.totalRisk()).toBe(150);
+    });
+
+    it('updates risk_usdt on quantity sync using initial_sl', () => {
+       const trade = {
+         symbol: 'QTY_SYNC_TEST',
+         direction: 'LONG',
+         entry_price: 100,
+         initial_sl: 80, // 20 points risk
+         current_sl: 95, // Ratcheted to almost entry
+         qty: 10,
+         status: 'OPEN',
+         risk_usdt: 200,
+       } as unknown as Trade;
+
+       service.addTrade(trade);
+       expect(service.totalRisk()).toBe(200);
+
+       // Qty halved to 5. Risk should be (100 - 80) * 5 = 100.
+       // If it wrongly used current_sl (95), risk would be (100 - 95) * 5 = 25.
+       service.handleQuantitySync({ symbol: 'QTY_SYNC_TEST', qty: 5 });
+
+       expect(trade.qty).toBe(5);
+       expect(trade.risk_usdt).toBe(100);
+       expect(service.totalRisk()).toBe(100);
     });
   });
 });

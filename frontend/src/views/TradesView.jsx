@@ -13,7 +13,7 @@ import { lazyWithRetry } from '../lib/lazy'
 const TradeDetailModal = lazyWithRetry(() => import('../components/TradeDetailModal').then(m => ({ default: m.TradeDetailModal })))
 
 const TradesView = () => {
-  const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled } = useTradingStore()
+  const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled, peakRr } = useTradingStore()
   const [selectedTradeId, setSelectedTradeId] = useState(null)
 
   const selectedTrade = activeTrades.find(t => t.id === selectedTradeId || t.symbol === selectedTradeId)
@@ -62,6 +62,7 @@ const TradesView = () => {
           );
         })()}
         <StatCard label="Active Risk" value={`${totalRiskPct.toFixed(2)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
+        <StatCard label="Peak RR" value={`+${Number(peakRr || 0).toFixed(2)}`} color="text-accent" />
         <StatCard label="Positions" value={activeTrades.length.toString()} color="text-accent" />
       </div>
 

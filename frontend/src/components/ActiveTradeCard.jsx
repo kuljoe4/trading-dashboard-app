@@ -5,7 +5,7 @@ import { sessionAPI } from '../api/client'
 import { ShieldCheck } from 'lucide-react'
 import { motion } from 'framer-motion'
 
-export const ActiveTradeCard = ({ trade, config, onTradeClose, onClick }) => {
+export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClick }) => {
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()

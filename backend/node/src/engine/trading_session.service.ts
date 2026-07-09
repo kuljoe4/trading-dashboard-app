@@ -332,8 +332,13 @@ export class TradingSessionService implements OnApplicationShutdown {
       this.sessionState.isAdaptiveTightened = riskResult.isAdaptiveTightened || false;
     } else if (!riskResult.canEnter) {
       // If gating is due to risk (not just symbol max trades), update gateState
+      // BOLT: Only update gateState if the reason is NOT a per-symbol limit.
+      // Per-symbol limits should not trigger a global 'gated' UI state.
       if (!riskResult.reason.includes('Max open trades for')) {
         this.sessionState.gateState = this.gatingService.mapGateState(riskResult.reason);
+      } else {
+        // If it was gated but now it's only a per-symbol limit, clear the global gateState
+        this.sessionState.gateState = null;
       }
       this.sessionState.isAdaptiveTightened = riskResult.isAdaptiveTightened || false;
     } else {

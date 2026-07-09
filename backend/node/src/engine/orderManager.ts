@@ -1607,6 +1607,8 @@ export class OrderManagerService {
 
            if (rollbackResult && rollbackResult.orderId && rollbackResult.orderId !== '') {
               this.logger.log(`[SL Ratchet] Rollback successful for ${trade.symbol}. Position is protected at ${rollbackResult.price}.`);
+              // CHRONOS: Sync local state with rollback ID to maintain watchdog consistency
+              trade.binance_stop_order_id = rollbackResult.orderId;
            } else {
               throw new Error('Rollback placement returned empty');
            }

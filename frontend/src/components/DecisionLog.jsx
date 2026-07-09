@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { Activity, XCircle, Search, Copy, CheckCircle2, Info, X } from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useTradingStore } from '../store/trading'
-import { cn, CopyButton } from './ui/primitives'
+import { cn, CopyButton, Tooltip } from './ui/primitives'
 
 const HIGHLIGHTS = {
   positive: ['BUY', 'PROFIT', 'TP', 'HIT', 'SUCCESS', 'STARTED', 'ENTER'],
@@ -79,11 +79,13 @@ const LogEntry = React.memo(({ log }) => {
               </div>
               <div className="flex items-center gap-2">
                 <CopyButton value={logMessage} />
-                <Dialog.Close asChild>
-                  <button className="p-2 hover:bg-white/5 rounded-lg transition-colors text-dim hover:text-text" aria-label="Close">
-                    <X size={18} />
-                  </button>
-                </Dialog.Close>
+                <Tooltip content="Close">
+                  <Dialog.Close asChild>
+                    <button className="p-2 hover:bg-white/5 rounded-lg transition-colors text-dim hover:text-text" aria-label="Close">
+                      <X size={18} />
+                    </button>
+                  </Dialog.Close>
+                </Tooltip>
               </div>
             </div>
 
@@ -163,9 +165,11 @@ export const DecisionLog = React.memo(() => {
             className="w-full bg-surface border border-border rounded-xl pl-10 pr-4 py-2 text-[11px] font-bold focus:border-accent focus:outline-accent outline-offset-1 transition-all"
           />
           {search && (
-            <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear search">
-              <XCircle size={14} />
-            </button>
+              <Tooltip content="Clear Search">
+                <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear Search">
+                  <XCircle size={16} />
+                </button>
+              </Tooltip>
           )}
         </div>
 

@@ -268,24 +268,28 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
         </div>
         <div className="text-right shrink-0">
           <div className="flex gap-2 mb-2 relative z-20">
-            <button
-              onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
-              aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
-              aria-expanded={isExpanded}
-              className={cn(
-                "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
-              )}
-            >
-              <Activity size={14} />
-            </button>
-            <button
-              onClick={handleEditClick}
-              className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none"
-              aria-label="Edit strategy configuration"
-            >
-              <Edit3 size={14} />
-            </button>
+            <Tooltip content={isExpanded ? "Hide Details" : "Show Details"}>
+              <button
+                onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
+                aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
+                aria-expanded={isExpanded}
+                className={cn(
+                  "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                  isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
+                )}
+              >
+                <Activity size={14} />
+              </button>
+            </Tooltip>
+            <Tooltip content="Edit Strategy">
+              <button
+                onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none"
+                aria-label="Edit strategy configuration"
+              >
+                <Edit3 size={14} />
+              </button>
+            </Tooltip>
           </div>
           <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter" style={{ color: pnlColor(s.activePnl) }}>
             {fmtUSD(s.activePnl)}
@@ -849,21 +853,23 @@ export function DashboardView({ initialStrategy }) {
               </div>
             )}
 
-            <button
-              onClick={() => setThrottled(!isThrottled)}
-              aria-label={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}
-              className={cn(
-                "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                isThrottled
-                  ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
-                  : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
-              )}
-            >
-              <Leaf size={18} fill={isThrottled ? "currentColor" : "none"} />
-              <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest">
-                {isThrottled ? "Eco Active" : "Eco Mode"}
-              </span>
-            </button>
+            <Tooltip content={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}>
+              <button
+                onClick={() => setThrottled(!isThrottled)}
+                aria-label={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}
+                className={cn(
+                  "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                  isThrottled
+                    ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
+                    : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
+                )}
+              >
+                <Leaf size={18} fill={isThrottled ? "currentColor" : "none"} />
+                <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest">
+                  {isThrottled ? "Eco Active" : "Eco Mode"}
+                </span>
+              </button>
+            </Tooltip>
 
             {sessionActive && (
               <Btn

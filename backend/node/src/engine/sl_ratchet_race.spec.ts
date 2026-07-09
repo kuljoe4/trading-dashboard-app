@@ -30,7 +30,8 @@ describe('SL Ratchet Race Conditions & Protection Gaps', () => {
       isRateLimited: jest.fn().mockReturnValue(false),
       isOrderRateLimited: jest.fn().mockReturnValue(false),
       hasOrderCapacity: jest.fn().mockReturnValue(true),
-      config: { trailing_guard_buffer_pct: 0.1 }
+      config: { trailing_guard_buffer_pct: 0.1 },
+      realTimeOrders: new Map()
     };
     mockAuditLog = { log: jest.fn() };
     mockEventEmitter = { emit: jest.fn() };

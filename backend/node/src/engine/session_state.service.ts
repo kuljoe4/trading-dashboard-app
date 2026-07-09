@@ -77,8 +77,17 @@ export class SessionStateService {
     this.config = config;
 
     // DATA-07: Stats should be session-specific even if we load mode-wide history for risk gating
-    const sessionHistory = sessionId ? initialHistory.filter(t => t.sessionId === sessionId) : [];
-    const sessionOpen = sessionId ? initialOpen.filter(t => t.sessionId === sessionId) : [];
+    // BOLT OPTIMIZATION: Filter once to avoid redundant traversals and allocations.
+    const sessionTrades: Trade[] = [];
+    if (sessionId) {
+      for (let i = 0; i < initialHistory.length; i++) {
+        if (initialHistory[i].sessionId === sessionId) sessionTrades.push(initialHistory[i]);
+      }
+      for (let i = 0; i < initialOpen.length; i++) {
+        if (initialOpen[i].sessionId === sessionId) sessionTrades.push(initialOpen[i]);
+      }
+    }
+
     this.statsVersion = 0;
     this.closedTrades = initialHistory;
     this.activeTrades = initialOpen;
@@ -104,7 +113,15 @@ export class SessionStateService {
     this.countedStrategyEntries.clear();
     this.countedStrategyHits.clear();
 
-    for (const trade of [...sessionHistory, ...sessionOpen]) {
+    let runningTotalPnl = 0;
+
+    // BOLT OPTIMIZATION: Single-pass loop over pre-filtered trades to compute ALL stats including totalPnL.
+    // This eliminates redundant spread allocations and a secondary O(N) reduce pass.
+    for (let i = 0; i < sessionTrades.length; i++) {
+      const trade = sessionTrades[i];
+      const tradePnl = trade.pnl || 0;
+      runningTotalPnl += tradePnl;
+
       const label = trade.strategy_label || config.strategy_label || 'Momentum Strategy';
       if (!trade.strategy_label) trade.strategy_label = label;
 
@@ -118,7 +135,7 @@ export class SessionStateService {
         this.countedStrategyEntries.add(trade.id);
 
         if (trade.status !== 'OPEN') {
-          if ((trade.pnl || 0) > 0) {
+          if (tradePnl > 0) {
             this.countedGlobalHits.add(trade.id);
             this.countedStrategyHits.add(trade.id);
           }
@@ -126,17 +143,17 @@ export class SessionStateService {
       }
 
       // Realized portion (fees/funding) is tracked even for OPEN trades
-      this.appliedGlobalPnL.set(trade.id, trade.pnl || 0);
-      this.appliedStrategyPnL.set(trade.id, trade.pnl || 0);
-      this.appliedStatsPnL.set(trade.id, trade.pnl || 0);
+      this.appliedGlobalPnL.set(trade.id, tradePnl);
+      this.appliedStrategyPnL.set(trade.id, tradePnl);
+      this.appliedStatsPnL.set(trade.id, tradePnl);
 
       // Populate strategy-specific stats
       const stats = this.cachedClosedTradesStats[label];
       if (trade.status !== 'OPEN') {
-        stats.pnl = roundEight(stats.pnl + (trade.pnl || 0));
+        stats.pnl = roundEight(stats.pnl + tradePnl);
         if (!trade.is_reconciliation) {
           stats.count++;
-          if ((trade.pnl || 0) > 0) stats.hits++;
+          if (tradePnl > 0) stats.hits++;
         }
       }
     }
@@ -145,10 +162,7 @@ export class SessionStateService {
     this.stats = {
         entryCount: this.countedGlobalEntries.size,
         hitCount: this.countedGlobalHits.size,
-        totalPnl: roundEight(
-          [...sessionHistory, ...sessionOpen]
-            .reduce((acc, t) => acc + (t.pnl || 0), 0)
-        )
+        totalPnl: roundEight(runningTotalPnl)
     };
 
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');

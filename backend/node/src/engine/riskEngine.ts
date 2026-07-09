@@ -54,9 +54,16 @@ export class RiskEngineService {
       return { canEnter: false, reason: `Max open trades for ${symbol} (${maxOpenTradesPerSymbol}) reached` };
     }
 
-    const totalRiskPct = (totalSlUsed / balance) * 100;
-    if (totalRiskPct >= maxTotalRiskPct) {
-      return { canEnter: false, reason: `Total risk ${Number(totalRiskPct || 0).toFixed(2)}% >= max ${maxTotalRiskPct}%` };
+    const riskPerTrade = config.risk_pct_per_trade ?? 1.0;
+    const totalRiskPct = balance > 0 ? (totalSlUsed / balance) * 100 : 0;
+
+    // SRE: Tight Gating. Ensure prospective total risk (current + next entry) does not exceed ceiling.
+    // This prevents a 2% limit from being breached by a new 1% entry when currently at 1.5%.
+    if (totalRiskPct + riskPerTrade > maxTotalRiskPct + 0.0001) {
+      return {
+        canEnter: false,
+        reason: `Risk ceiling reached: ${totalRiskPct.toFixed(2)}% + ${riskPerTrade}% prospective > ${maxTotalRiskPct}% max`
+      };
     }
 
     if (totalSlUsed >= totalSlGuardUsdt) {

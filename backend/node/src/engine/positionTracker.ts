@@ -142,6 +142,9 @@ export class PositionTrackerService {
       this._totalRisk = roundEight(this._totalRisk - (existing.risk_usdt || 0));
     }
 
+    // SRE: Ensure risk is correctly calculated before adding to total
+    this.refreshTradeRisk(trade);
+
     this.trades.set(trade.symbol, trade);
     // DATA-07: Initialize milestone tracker from trade state for persistent state recovery
     this.rrSequenceIndex.set(trade.symbol, trade.rr_sequence_index ?? -1);
@@ -176,13 +179,23 @@ export class PositionTrackerService {
       : trade.entry_price - currentPrice;
     const liveRr = reward / risk;
 
+    // BOLT: Update peak RR on every tick to ensure high-fidelity analytics.
+    // We only emit TRADE_UPDATED if it changes significantly (0.1 R) to avoid DB pressure.
+    const oldMaxRr = trade.max_rr_achieved || 0;
+    if (liveRr > oldMaxRr) {
+      trade.max_rr_achieved = liveRr;
+      if (liveRr - oldMaxRr >= 0.1) {
+        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+      }
+    }
+
     // Find highest milestone crossed by max_rr
     let currentIndex = -1;
     const liveRrSequence = config.live_rr_sequence || [];
     const exitRrSequence = config.exit_rr_sequence || [];
 
     for (let i = 0; i < liveRrSequence.length; i++) {
-      if (Math.max(trade.max_rr_achieved, liveRr) >= liveRrSequence[i]) {
+      if (trade.max_rr_achieved >= liveRrSequence[i]) {
         currentIndex = i;
       }
     }
@@ -253,7 +266,6 @@ export class PositionTrackerService {
 
       if (shouldUpdate) {
         const prevSl = trade.current_sl;
-        const prevRisk = trade.risk_usdt || 0;
 
         // Acknowledge-then-Update: Update exchange first in live mode
         const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
@@ -264,15 +276,19 @@ export class PositionTrackerService {
            // Acknowledge-then-Commit: Only update local state after exchange confirmation
            this.rrSequenceIndex.set(symbol, currentIndex);
            trade.rr_sequence_index = currentIndex;
-           trade.max_rr_achieved = Math.max(trade.max_rr_achieved, liveRr);
            trade.updated_at = new Date();
            trade.current_sl = finalSl;
 
-           // Recalculate risk USDT
-           const slDistance = Math.abs(trade.entry_price - trade.current_sl);
-           trade.risk_usdt = roundEight(slDistance * trade.qty);
+           // SRE: Live Risk Mitigation.
+           // If new SL is at or beyond breakeven (entry), the risk for this trade effectively becomes 0.
+           // This allows the engine to open new trades as the "locked" capital is released.
+           const prevRisk = trade.risk_usdt || 0;
+           this.refreshTradeRisk(trade);
+           if (prevRisk > 0 && trade.risk_usdt === 0) {
+              this._totalRisk = roundEight(this._totalRisk - prevRisk);
+              this.logger.log(`[Risk Mitigation] ${symbol} reached breakeven. Risk released: ${prevRisk} USDT. New Total Risk: ${this._totalRisk}`);
+           }
 
-           this._totalRisk = roundEight(this._totalRisk + (trade.risk_usdt - prevRisk));
            this.logSlAdjustment(trade, prevSl, finalSl, currentIndex, !!updateRes.price && updateRes.price !== newSl);
 
            // Notify of trade state change for persistence
@@ -464,6 +480,24 @@ export class PositionTrackerService {
   }
 
   /**
+   * SRE: Internal risk calculation helper.
+   * Enforces the "Breakeven Risk Release" rule: risk is 0 if SL is at or beyond entry.
+   * Otherwise, risk is based on the initial stop distance.
+   */
+  private refreshTradeRisk(trade: Trade): void {
+    const isBreakevenOrBetter = trade.direction === 'LONG'
+      ? trade.current_sl >= trade.entry_price - 0.00000001
+      : trade.current_sl <= trade.entry_price + 0.00000001;
+
+    if (isBreakevenOrBetter) {
+      trade.risk_usdt = 0;
+    } else {
+      const slDistance = Math.abs(trade.entry_price - trade.initial_sl);
+      trade.risk_usdt = roundEight(slDistance * trade.qty);
+    }
+  }
+
+  /**
    * DATA-07: Manual recalculation of total risk to ensure state consistency
    */
   @OnEvent(ENGINE_EVENTS.QUANTITY_SYNC)
@@ -475,8 +509,7 @@ export class PositionTrackerService {
 
       // Update quantity before risk calculation for consistency
       trade.qty = payload.qty;
-      const slDistance = Math.abs(trade.entry_price - trade.current_sl);
-      trade.risk_usdt = roundEight(slDistance * trade.qty);
+      this.refreshTradeRisk(trade);
       trade.updated_at = new Date();
 
       this.recalculateTotalRisk();
@@ -490,6 +523,7 @@ export class PositionTrackerService {
   recalculateTotalRisk(): void {
     let activeRisk = 0;
     for (const t of this.trades.values()) {
+      this.refreshTradeRisk(t);
       activeRisk += (t.risk_usdt || 0);
     }
     this._totalRisk = roundEight(activeRisk);

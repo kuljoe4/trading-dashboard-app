@@ -18,9 +18,10 @@ import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sidebar, BottomNav } from '../components/Navigation'
 import { lazyWithRetry } from '../lib/lazy'
+import { ConfirmationModal } from '../components/ConfirmationModal'
 
 const TemporalRiskGrid = React.memo(() => {
-  const { config, gateState, gateReason, isAdaptiveTightened, configSyncing, patchConfig, tradesInPeriod, maxTradesPeriod, tradesIn24h, maxTrades24h } = useTradingStore(state => ({
+  const { config, gateState, gateReason, isAdaptiveTightened, configSyncing, patchConfig, tradesInPeriod, maxTradesPeriod, tradesIn24h, maxTrades24h, effectivePeriodMs } = useTradingStore(state => ({
     config: state.config,
     gateState: state.gateState,
     gateReason: state.gateReason,
@@ -30,7 +31,8 @@ const TemporalRiskGrid = React.memo(() => {
     tradesInPeriod: state.tradesInPeriod,
     maxTradesPeriod: state.maxTradesPeriod,
     tradesIn24h: state.tradesIn24h,
-    maxTrades24h: state.maxTrades24h
+    maxTrades24h: state.maxTrades24h,
+    effectivePeriodMs: state.effectivePeriodMs
   }), shallow);
 
   const timeMatch = gateReason?.match(/~(\d+)(m|h)/);
@@ -114,7 +116,7 @@ const TemporalRiskGrid = React.memo(() => {
 const DecisionLog = lazyWithRetry(() => import('../components/DecisionLog').then(module => ({ default: module.DecisionLog })))
 const ConfigModal = lazyWithRetry(() => import('../components/ConfigModal').then(module => ({ default: module.ConfigModal })))
 const ScannerOverlay = lazyWithRetry(() => import('../components/ScannerOverlay').then(module => ({ default: module.ScannerOverlay })))
-import { ConfirmationModal } from '../components/ConfirmationModal'
+const EquityCurve = lazyWithRetry(() => import('../components/Analytics').then(module => ({ default: module.EquityCurve })))
 const StrategyDetailView = lazyWithRetry(() => import('./StrategyDetailView'))
 
 const LoadingFallback = () => (
@@ -1118,7 +1120,9 @@ export function DashboardView({ initialStrategy }) {
                   </div>
                 </div>
                 <div className="h-[80px] w-full overflow-hidden">
-                  <EquityCurve data={analytics?.cumulativePnL || []} height={80} hideAxes={true} />
+                  <Suspense fallback={<div className="h-full w-full bg-surface/10 animate-pulse" />}>
+                    <EquityCurve data={analytics?.cumulativePnL || []} height={80} hideAxes={true} />
+                  </Suspense>
                 </div>
               </div>
 

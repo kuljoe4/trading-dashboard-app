@@ -41,6 +41,7 @@ export class SessionStateService {
     entryCount: 0,
     hitCount: 0,
     totalPnl: 0,
+    peakRr: 0,
   };
   public statsVersion = 0;
   public gateState: string | null = null;
@@ -149,11 +150,20 @@ export class SessionStateService {
     for (let i = 0; i < sessionHistory.length; i++) processTrade(sessionHistory[i]);
     for (let i = 0; i < sessionOpen.length; i++) processTrade(sessionOpen[i]);
 
+    // BOLT: Session Peak RR initialization.
+    // We derive this from the highest peak achieved by any trade in the current session history or active set.
+    let maxRrAcc = 0;
+    for (const t of [...sessionHistory, ...sessionOpen]) {
+      const rr = t.max_rr_achieved || 0;
+      if (rr > maxRrAcc) maxRrAcc = rr;
+    }
+
     // Finalize session stats
     this.stats = {
         entryCount: this.countedGlobalEntries.size,
         hitCount: this.countedGlobalHits.size,
-        totalPnl: roundEight(totalPnlAcc)
+        totalPnl: roundEight(totalPnlAcc),
+        peakRr: maxRrAcc
     };
 
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
@@ -341,6 +351,13 @@ export class SessionStateService {
       this.stats.entryCount++;
     }
     this.statsVersion++;
+  }
+
+  updateSessionPeakRr(rr: number) {
+    if (rr > this.stats.peakRr) {
+      this.stats.peakRr = rr;
+      this.statsVersion++;
+    }
   }
 
   updateStatsOnClose(isWin: boolean, pnl: number = 0, isReconciliation: boolean = false, tradeId?: string) {

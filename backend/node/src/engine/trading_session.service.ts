@@ -298,6 +298,9 @@ export class TradingSessionService implements OnApplicationShutdown {
     const trade = payload.trade;
     const pnlDelta = payload.pnlDelta ?? 0;
 
+    // BOLT: Track session-wide peak RR
+    this.sessionState.updateSessionPeakRr(trade.max_rr_achieved || 0);
+
     if (pnlDelta !== 0) {
        const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
        if (mode === 'paper') {

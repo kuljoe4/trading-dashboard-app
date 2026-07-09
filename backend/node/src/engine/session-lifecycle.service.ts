@@ -58,7 +58,7 @@ export class SessionLifecycleService {
     this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Lifecycle] ${msg}`, level });
   }
 
-  async start(config: SessionConfig, bc?: any, sid?: string, hist: Trade[] = [], curBal?: number, open: Trade[] = []) {
+  async start(config: SessionConfig, bc?: any, sid?: string, hist: Trade[] = [], curBal?: number, open: Trade[] = [], sessionEntity?: any) {
     this.running = true;
     await this.progress('Starting session initialization...');
 
@@ -70,7 +70,7 @@ export class SessionLifecycleService {
       }
     } catch (e) {}
 
-    this.sessionState.reset(config, hist, curBal, sid, open);
+    this.sessionState.reset(config, hist, curBal, sid, open, sessionEntity);
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
     await this.orderManager.setBinanceClient(bc, mode === 'paper');
 

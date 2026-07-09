@@ -74,7 +74,7 @@ export class SessionStateService {
   // SRE: Entry Pipeline Lock to prevent concurrent entry evaluations and dispatches
   public entryInProgress = false;
 
-  reset(config: SessionConfig, initialHistory: Trade[] = [], currentBalance?: number, sessionId?: string, initialOpen: Trade[] = []) {
+  reset(config: SessionConfig, initialHistory: Trade[] = [], currentBalance?: number, sessionId?: string, initialOpen: Trade[] = [], sessionEntity?: any) {
     this.config = config;
 
     // DATA-07: Stats should be session-specific even if we load mode-wide history for risk gating
@@ -163,7 +163,7 @@ export class SessionStateService {
         entryCount: this.countedGlobalEntries.size,
         hitCount: this.countedGlobalHits.size,
         totalPnl: roundEight(totalPnlAcc),
-        peakRr: maxRrAcc
+        peakRr: Math.max(maxRrAcc, sessionEntity?.peakRr || 0)
     };
 
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');

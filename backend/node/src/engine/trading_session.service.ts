@@ -140,7 +140,7 @@ export class TradingSessionService implements OnApplicationShutdown {
   setTradeUpdateCallback(cb: (t: Trade, b: number) => Promise<void>) { this.onTradeUpdate = cb; }
   private broadcast(et: string, p: any) { this.broadcastService.broadcast(et, p); }
 
-  async start(config: SessionConfig, bc?: any, sid?: string, hist: Trade[] = [], curBal?: number, open: Trade[] = []) {
+  async start(config: SessionConfig, bc?: any, sid?: string, hist: Trade[] = [], curBal?: number, open: Trade[] = [], sessionEntity?: any) {
     this.running = true;
     this.sessionId = sid || null;
     this.config = config;
@@ -162,7 +162,7 @@ export class TradingSessionService implements OnApplicationShutdown {
     const startMsg = `[Lifecycle] Starting trading engine for session ${this.sessionId} (curBal: ${curBal})`;
     this.logger.log(startMsg);
     this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: startMsg, level: 'info' });
-    await this.sessionLifecycle.start(config, bc, sid, hist, curBal, open);
+    await this.sessionLifecycle.start(config, bc, sid, hist, curBal, open, sessionEntity);
 
     // DATA-07: Recalculate total risk on start to ensure O(1) tracker is in sync with loaded state
     this.positionTracker.recalculateTotalRisk();

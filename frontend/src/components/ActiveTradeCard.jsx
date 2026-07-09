@@ -146,5 +146,5 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
       </div>
     </motion.div>
   )
-}
+})
 

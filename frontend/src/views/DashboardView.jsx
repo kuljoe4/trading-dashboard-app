@@ -18,9 +18,10 @@ import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sidebar, BottomNav } from '../components/Navigation'
 import { lazyWithRetry } from '../lib/lazy'
+import { ConfirmationModal } from '../components/ConfirmationModal'
 
 const TemporalRiskGrid = React.memo(() => {
-  const { config, gateState, gateReason, isAdaptiveTightened, configSyncing, patchConfig, tradesInPeriod, maxTradesPeriod, tradesIn24h, maxTrades24h } = useTradingStore(state => ({
+  const { config, gateState, gateReason, isAdaptiveTightened, configSyncing, patchConfig, tradesInPeriod, maxTradesPeriod, tradesIn24h, maxTrades24h, effectivePeriodMs } = useTradingStore(state => ({
     config: state.config,
     gateState: state.gateState,
     gateReason: state.gateReason,
@@ -30,7 +31,8 @@ const TemporalRiskGrid = React.memo(() => {
     tradesInPeriod: state.tradesInPeriod,
     maxTradesPeriod: state.maxTradesPeriod,
     tradesIn24h: state.tradesIn24h,
-    maxTrades24h: state.maxTrades24h
+    maxTrades24h: state.maxTrades24h,
+    effectivePeriodMs: state.effectivePeriodMs
   }), shallow);
 
   const timeMatch = gateReason?.match(/~(\d+)(m|h)/);
@@ -53,7 +55,7 @@ const TemporalRiskGrid = React.memo(() => {
 
       <InteractiveLimitCard
         label="Window"
-        subValue="Sliding"
+        subValue={effectivePeriodMs ? `Effective: ${Math.round(effectivePeriodMs / 60000)}m` : "Sliding"}
         tooltip="Duration of the sliding window for frequency limits."
         value={config.trades_period_min || 60}
         unit="m"
@@ -114,7 +116,7 @@ const TemporalRiskGrid = React.memo(() => {
 const DecisionLog = lazyWithRetry(() => import('../components/DecisionLog').then(module => ({ default: module.DecisionLog })))
 const ConfigModal = lazyWithRetry(() => import('../components/ConfigModal').then(module => ({ default: module.ConfigModal })))
 const ScannerOverlay = lazyWithRetry(() => import('../components/ScannerOverlay').then(module => ({ default: module.ScannerOverlay })))
-import { ConfirmationModal } from '../components/ConfirmationModal'
+const EquityCurve = lazyWithRetry(() => import('../components/Analytics').then(module => ({ default: module.EquityCurve })))
 const StrategyDetailView = lazyWithRetry(() => import('./StrategyDetailView'))
 
 const LoadingFallback = () => (
@@ -197,22 +199,31 @@ const BanBanner = ({ apiStatus }) => {
 };
 
 // --- Strategy Card ---
-const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner, className }) => {
+const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner, isMonitored, className }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
+  const handleCardClick = React.useCallback(() => {
+    onClick(s.strategy_label);
+  }, [onClick, s.strategy_label]);
+
+  const handleEditClick = React.useCallback((e) => {
+    e.stopPropagation();
+    onEdit(s.strategy_label);
+  }, [onEdit, s.strategy_label]);
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      onClick();
+      handleCardClick();
     }
   }
 
   return (
     <motion.div
       whileHover={{ scale: 1.01 }}
-      onClick={onClick}
+      onClick={handleCardClick}
       onKeyDown={handleKeyDown}
       role="button"
       tabIndex={0}
@@ -249,34 +260,38 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
                 {config.scan_interval} · {config.scan_pct_threshold}%
               </span>
             </div>
-            {(config.single_symbol_configs || []).filter(sc => sc.enabled).length > 0 && (
+            {isMonitored && (
               <div className="flex items-center gap-2 whitespace-nowrap overflow-hidden">
                 <ShieldCheck size={12} className="text-accent shrink-0" />
-                <span className="truncate">{config.single_symbol_configs.filter(sc => sc.enabled).length} Symbol Monitors Active</span>
+                <span className="truncate">Symbol Monitor Active</span>
               </div>
             )}
           </div>
         </div>
         <div className="text-right shrink-0">
           <div className="flex gap-2 mb-2 relative z-20">
-            <button
-              onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
-              aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
-              aria-expanded={isExpanded}
-              className={cn(
-                "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
-              )}
-            >
-              <Activity size={14} />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onEdit(); }}
-              className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none"
-              aria-label="Edit strategy configuration"
-            >
-              <Edit3 size={14} />
-            </button>
+            <Tooltip content={isExpanded ? "Hide Details" : "Show Details"}>
+              <button
+                onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
+                aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
+                aria-expanded={isExpanded}
+                className={cn(
+                  "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                  isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
+                )}
+              >
+                <Activity size={14} />
+              </button>
+            </Tooltip>
+            <Tooltip content="Edit Strategy">
+              <button
+                onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none"
+                aria-label="Edit strategy configuration"
+              >
+                <Edit3 size={14} />
+              </button>
+            </Tooltip>
           </div>
           <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter" style={{ color: pnlColor(s.activePnl) }}>
             {fmtUSD(s.activePnl)}
@@ -346,7 +361,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
   );
 })
 
-const GateBanner = ({ gateState, scannerPaused, reason, hibernating, activeTradesCount }) => {
+const GateBanner = React.memo(({ gateState, scannerPaused, reason, hibernating, activeTradesCount }) => {
   if (!gateState && !scannerPaused) return null
 
   const messages = {
@@ -396,9 +411,10 @@ const GateBanner = ({ gateState, scannerPaused, reason, hibernating, activeTrade
       )}
     </motion.div>
   )
-}
+})
+GateBanner.displayName = 'GateBanner'
 
-const ScannerPreview = ({ scannerResults, config, onOpen }) => {
+const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) => {
   const { activeTrades } = useTradingStore(state => ({ activeTrades: state.activeTrades }), shallow);
   const threshold = config.scan_pct_threshold || 2
   const top = scannerResults.slice(0, 5)
@@ -491,7 +507,8 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
       </div>
     </div>
   )
-}
+})
+ScannerPreview.displayName = 'ScannerPreview'
 
 export function DashboardView({ initialStrategy }) {
   const [selected, setSelected] = useState(initialStrategy || null)
@@ -512,7 +529,7 @@ export function DashboardView({ initialStrategy }) {
     scannerPaused, sessionList, fetchSessions, wsStatus,
     updateStats, analytics,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
-    healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus
+    healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -531,7 +548,7 @@ export function DashboardView({ initialStrategy }) {
     hibernating: state.hibernating,
     agreementRequired: state.agreementRequired,
     scannerPaused: state.scannerPaused,
-            alerts: state.alerts,
+    alerts: state.alerts,
     updateStats: state.updateStats,
     sessionList: state.sessionList,
     fetchSessions: state.fetchSessions,
@@ -550,7 +567,8 @@ export function DashboardView({ initialStrategy }) {
     configSyncing: state.configSyncing,
     isAdaptiveTightened: state.isAdaptiveTightened,
     apiStatus: state.apiStatus,
-    analytics: state.analytics
+    analytics: state.analytics,
+    effectivePeriodMs: state.effectivePeriodMs
   }), shallow)
 
   useEffect(() => {
@@ -591,6 +609,16 @@ export function DashboardView({ initialStrategy }) {
     Object.values(activePnlMap).reduce((acc, val) => acc + val, 0)
   , [activePnlMap]);
 
+  const maxRR = useMemo(() => activeTrades.reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
+
+  const monitoredSymbolsSet = useMemo(() => {
+    const set = new Set();
+    config.single_symbol_configs?.forEach(sc => {
+      if (sc.enabled) set.add(sc.symbol);
+    });
+    return set;
+  }, [config.single_symbol_configs]);
+
 
   const [loading, setLoading] = useState(false)
 
@@ -601,8 +629,6 @@ export function DashboardView({ initialStrategy }) {
     }
     return () => clearTimeout(timer);
   }, [confirmStop]);
-
-  const maxRR = useMemo(() => activeTrades.reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
 
   useEffect(() => {
     // Legacy support for scanner-only focus if not handled by hook
@@ -621,7 +647,7 @@ export function DashboardView({ initialStrategy }) {
 
   const addAlert = useTradingStore(state => state.addAlert);
 
-  async function handleConfigSave(newConfig) {
+  const handleConfigSave = React.useCallback(async (newConfig) => {
     setLoading(true)
     setSyncing(true)
     useTradingStore.setState({ configSyncing: true }); // Enable global sync protection
@@ -658,9 +684,9 @@ export function DashboardView({ initialStrategy }) {
       setIsEditMode(false)
       setEditingVariantIndex(null)
     }
-  }
+  }, [config, isEditMode, strategyId, editingVariantIndex, updateConfig, setSessionActive, addAlert, fetchSessions, setSyncing]);
 
-  async function togglePause() {
+  const togglePause = React.useCallback(async () => {
     try {
       await sessionAPI.pause(!sessionPaused)
       addAlert({
@@ -672,9 +698,9 @@ export function DashboardView({ initialStrategy }) {
       console.error('Pause toggle failed:', e)
       addAlert({ level: 'error', title: 'Action Failed', message: 'Could not toggle session pause state.' });
     }
-  }
+  }, [sessionPaused, addAlert]);
 
-  async function handleResumeLast() {
+  const handleResumeLast = React.useCallback(async () => {
     if (!lastSession) return;
     setLoading(true);
     setSyncing(true);
@@ -688,9 +714,9 @@ export function DashboardView({ initialStrategy }) {
       setLoading(false);
       setSyncing(false);
     }
-  }
+  }, [lastSession, setSessionActive, addAlert, setSyncing]);
 
-  async function handleStop() {
+  const handleStop = React.useCallback(async () => {
     setLoading(true)
     setSyncing(true)
     try {
@@ -707,9 +733,9 @@ export function DashboardView({ initialStrategy }) {
       setSyncing(false)
       setConfirmStop(false)
     }
-  }
+  }, [setSessionActive, addAlert, fetchSessions, setSyncing]);
 
-  async function handleDeleteSession() {
+  const handleDeleteSession = React.useCallback(async () => {
     if (!sessionToDelete) return
     setLoading(true)
     setSyncing(true)
@@ -732,7 +758,26 @@ export function DashboardView({ initialStrategy }) {
       setSyncing(false)
       setSessionToDelete(null)
     }
-  }
+  }, [sessionToDelete, addAlert, fetchSessions, setSyncing]);
+
+  const handleOpenScanner = React.useCallback(() => setShowScanner(true), []);
+  const handleEditPrimary = React.useCallback(() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }, [config]);
+  const handleSelectPrimary = React.useCallback(() => setSelected(currentStrategy.strategy_label), [currentStrategy.strategy_label]);
+
+  const handleEditVariant = React.useCallback((label) => {
+    const idx = config.strategy_variants?.findIndex(v => v.strategy_label === label);
+    if (idx !== -1) {
+      const variantConfig = { ...config, ...config.strategy_variants[idx] };
+      setIsEditMode(true);
+      setSelectedConfig(variantConfig);
+      setEditingVariantIndex(idx);
+      setShowConfig(true);
+    }
+  }, [config]);
+
+  const handleSelectVariant = React.useCallback((label) => {
+    setSelected(label);
+  }, []);
 
   if (selected) {
     const strategyData = {
@@ -811,21 +856,23 @@ export function DashboardView({ initialStrategy }) {
               </div>
             )}
 
-            <button
-              onClick={() => setThrottled(!isThrottled)}
-              aria-label={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}
-              className={cn(
-                "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                isThrottled
-                  ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
-                  : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
-              )}
-            >
-              <Leaf size={18} fill={isThrottled ? "currentColor" : "none"} />
-              <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest">
-                {isThrottled ? "Eco Active" : "Eco Mode"}
-              </span>
-            </button>
+            <Tooltip content={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}>
+              <button
+                onClick={() => setThrottled(!isThrottled)}
+                aria-label={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}
+                className={cn(
+                  "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                  isThrottled
+                    ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
+                    : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
+                )}
+              >
+                <Leaf size={18} fill={isThrottled ? "currentColor" : "none"} />
+                <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest">
+                  {isThrottled ? "Eco Active" : "Eco Mode"}
+                </span>
+              </button>
+            </Tooltip>
 
             {sessionActive && (
               <Btn
@@ -1044,35 +1091,73 @@ export function DashboardView({ initialStrategy }) {
                    View Full Analytics <ChevronRight size={12} />
                  </button>
                  <span className="text-[9px] text-dim font-black uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50">
-                    Updated Live
+                    {analytics?.cumulativePnL?.length ? `As of ${new Date(analytics.cumulativePnL[analytics.cumulativePnL.length - 1].ts).toLocaleTimeString()}` : 'Updated Live'}
                  </span>
                </div>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-              <StatCard
-                label="7D ROI Trend"
-                value={analytics?.roiTrends ? `${analytics.roiTrends.sevenDay >= 0 ? '+' : ''}${analytics.roiTrends.sevenDay}%` : '---'}
-                color={analytics?.roiTrends ? pnlClass(analytics.roiTrends.sevenDay) : "text-dim"}
-                tooltipText="Percentage return on account equity over the last 7 days."
-              />
-              <StatCard
-                label="4W ROI Trend"
-                value={analytics?.roiTrends ? `${analytics.roiTrends.fourWeek >= 0 ? '+' : ''}${analytics.roiTrends.fourWeek}%` : '---'}
-                color={analytics?.roiTrends ? pnlClass(analytics.roiTrends.fourWeek) : "text-dim"}
-                tooltipText="Percentage return on account equity over the last 28 days."
-              />
-              <StatCard
-                label="Profit Factor"
-                value={analytics ? Number(analytics.profitFactor || 0).toFixed(2) : '---'}
-                color={analytics ? "text-accent" : "text-dim"}
-                tooltipText="Ratio of gross profit to gross loss. > 1.0 is profitable."
-              />
-              <StatCard
-                label="Sharpe Ratio"
-                value={analytics ? Number(analytics.sharpeRatio || 0).toFixed(2) : '---'}
-                color={analytics ? "text-accent" : "text-dim"}
-                tooltipText="Risk-adjusted return. Higher is better."
-              />
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Left Column: Equity Story */}
+              <div className="lg:col-span-2 bg-surface border border-border/40 rounded-2xl p-5 md:p-6 shadow-sm flex flex-col gap-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col gap-1">
+                    <div className="text-[10px] text-dim font-black uppercase tracking-widest">Equity Narrative</div>
+                    <div className="text-xs font-bold text-text">Lifetime Performance Curve</div>
+                  </div>
+                  <div className="flex gap-4">
+                     <div className="flex flex-col items-end">
+                        <span className="text-[9px] text-dim font-black uppercase tracking-widest">7D ROI</span>
+                        <span className={cn("text-xs font-bold font-mono", analytics?.roiTrends ? pnlClass(analytics.roiTrends.sevenDay) : "text-dim")}>
+                          {analytics?.roiTrends ? `${analytics.roiTrends.sevenDay >= 0 ? '+' : ''}${analytics.roiTrends.sevenDay}%` : '---'}
+                        </span>
+                     </div>
+                     <div className="flex flex-col items-end">
+                        <span className="text-[9px] text-dim font-black uppercase tracking-widest">4W ROI</span>
+                        <span className={cn("text-xs font-bold font-mono", analytics?.roiTrends ? pnlClass(analytics.roiTrends.fourWeek) : "text-dim")}>
+                          {analytics?.roiTrends ? `${analytics.roiTrends.fourWeek >= 0 ? '+' : ''}${analytics.roiTrends.fourWeek}%` : '---'}
+                        </span>
+                     </div>
+                  </div>
+                </div>
+                <div className="h-[80px] w-full overflow-hidden">
+                  <Suspense fallback={<div className="h-full w-full bg-surface/10 animate-pulse" />}>
+                    <EquityCurve data={analytics?.cumulativePnL || []} height={80} hideAxes={true} />
+                  </Suspense>
+                </div>
+              </div>
+
+              {/* Right Column: Key Stats Grid */}
+              <div className="grid grid-cols-2 gap-3 md:gap-4">
+                 <div className="flex flex-col gap-3">
+                    <StatCard
+                      label="Returns"
+                      value={analytics ? `${Number(analytics.overallWinRate || 0).toFixed(1)}%` : '---'}
+                      subValue="Win Rate"
+                      tooltipText="Percentage of closed trades that resulted in a profit."
+                    />
+                    <StatCard
+                      label="Max DD"
+                      value={analytics ? `${Number(analytics.maxDrawdownPct || 0).toFixed(1)}%` : '---'}
+                      color="text-red"
+                      subValue="Drawdown"
+                      tooltipText="Maximum observed peak-to-trough decline in equity."
+                    />
+                 </div>
+                 <div className="flex flex-col gap-3">
+                    <StatCard
+                      label="Risk Edge"
+                      value={analytics ? Number(analytics.profitFactor || 0).toFixed(2) : '---'}
+                      subValue="Profit Factor"
+                      tooltipText="Ratio of gross profit to gross loss. > 1.0 is profitable."
+                    />
+                    <StatCard
+                      label="Efficiency"
+                      value={analytics ? Number(analytics.sharpeRatio || 0).toFixed(2) : '---'}
+                      subValue="Sharpe Ratio"
+                      tooltipText="Risk-adjusted return. Higher is better."
+                    />
+                 </div>
+              </div>
             </div>
           </motion.div>
         )}
@@ -1106,9 +1191,10 @@ export function DashboardView({ initialStrategy }) {
                             config={config}
                             paused={sessionPaused}
                             onPause={togglePause}
-                            onOpenScanner={() => setShowScanner(true)}
-                            onEdit={() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }}
-                            onClick={() => setSelected(currentStrategy.strategy_label)}
+                            onOpenScanner={handleOpenScanner}
+                            onEdit={handleEditPrimary}
+                            onClick={handleSelectPrimary}
+                            isMonitored={monitoredSymbolsSet.has(currentStrategy.strategy_label)}
                             className={cn(totalCards % 2 !== 0 && "md:col-span-2")}
                           />
                           {activeVariants.map((variant, i) => {
@@ -1127,9 +1213,10 @@ export function DashboardView({ initialStrategy }) {
                                 config={variantConfig}
                                 paused={sessionPaused}
                                 onPause={togglePause}
-                                onOpenScanner={() => setShowScanner(true)}
-                                onEdit={() => { setIsEditMode(true); setSelectedConfig(variantConfig); setEditingVariantIndex(i); setShowConfig(true); }}
-                                onClick={() => setSelected(label)}
+                                onOpenScanner={handleOpenScanner}
+                                onEdit={handleEditVariant}
+                                onClick={handleSelectVariant}
+                                isMonitored={monitoredSymbolsSet.has(label)}
                               />
                             );
                           })}

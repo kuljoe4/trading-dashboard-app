@@ -163,23 +163,24 @@ const SessionGroup = React.memo(({ session, trades }) => {
 
   const metrics = useMemo(() => {
     if (session.analytics) {
+      const analytics = session.analytics;
       return {
-        ...session.analytics,
-        winLossRatio: session.analytics.avgWinLossRatio,
-        winLossRatioStr: session.analytics.avgWinLossRatio.toFixed(2),
-        pnlPct: session.analytics.overallPnlPct,
+        ...analytics,
+        winLossRatio: analytics.avgWinLossRatio || 0,
+        winLossRatioStr: Number(analytics.avgWinLossRatio || 0).toFixed(2),
+        pnlPct: analytics.overallPnlPct || 0,
         expectancyStatus: getExpectancyStatus(session.analytics.overallWinRate / 100, session.analytics.avgWinLossRatio),
         sharpeStatus: getSharpeStatus(session.analytics.sharpeRatio),
         sortinoStatus: getSortinoStatus(session.analytics.sortinoRatio),
         curve: session.analytics.cumulativePnL
       };
     }
-    const m = calculatePerformanceMetrics(trades);
+    const m = calculatePerformanceMetrics(trades, session.balance);
     const losses = trades.length - m.wins;
     const avgWin = m.wins > 0 ? m.grossProfit / m.wins : 0;
     const avgLoss = losses > 0 ? m.grossLoss / losses : 0;
-    const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss) : 0;
-    const winLossRatioStr = avgLoss > 0 ? winLossRatio.toFixed(2) : '∞';
+    const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss) : (m.wins > 0 ? 100 : 0);
+    const winLossRatioStr = avgLoss > 0 ? Number(winLossRatio).toFixed(2) : (m.wins > 0 ? '∞' : '0.00');
     const startingBalance = Number(session.balance) - Number(session.totalPnl);
     const pnlPct = startingBalance > 0 ? (m.totalPnl / startingBalance) * 100 : 0;
 
@@ -195,7 +196,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
     };
   }, [trades, session]);
 
-  const { wins, winRate, winLossRatioStr, expectancyStatus, totalPnl: pnl, curve } = metrics;
+  const { wins, winRate, winLossRatioStr, expectancyStatus, totalPnl: pnl, curve, maxWinStreak, maxLossStreak, avgDuration } = metrics;
   const label = strategyLabel(session);
 
   return (
@@ -256,10 +257,17 @@ const SessionGroup = React.memo(({ session, trades }) => {
               <span className="text-xs font-bold font-mono text-accent">{winLossRatioStr}</span>
             </div>
             <div className="flex flex-col">
-              <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Expectancy</span>
-              <span className={cn("text-xs font-bold flex items-center gap-1.5", expectancyStatus.color)}>
-                <expectancyStatus.icon size={12} aria-hidden="true" />
-                {Number(expectancyStatus.expectancy).toFixed(2)}
+              <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Avg Time</span>
+              <span className="text-xs font-bold text-text">
+                {avgDuration ? (avgDuration / 60000).toFixed(1) + 'm' : '---'}
+              </span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Streaks</span>
+              <span className="text-xs font-bold flex items-center gap-1.5">
+                <span className="text-green">{maxWinStreak || 0}W</span>
+                <span className="opacity-20">/</span>
+                <span className="text-red">{maxLossStreak || 0}L</span>
               </span>
             </div>
             <div className="flex flex-col items-end">
@@ -330,9 +338,11 @@ export const HistoryView = () => {
     })).sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
   }, [sessionList, tradeHistory])
 
+  const [sortBy, setSortBy] = useState('time'); // 'time', 'pnl', 'winrate'
+
   const sessionsToRender = useMemo(() => {
     const term = search.toLowerCase().trim()
-    return allSessionsWithTrades
+    let filtered = allSessionsWithTrades
       .filter(s => {
         // Mode filter
         const sessionMode = s.paperMode ? 'paper' : (s.config?.trading_mode || 'live');
@@ -345,9 +355,20 @@ export const HistoryView = () => {
         const matchesSymbol = s.trades?.some(t => t.symbol?.toLowerCase().includes(term));
         const matchesId = s.id.toLowerCase().includes(term);
         return matchesLabel || matchesSymbol || matchesId;
-      })
-      .slice(0, visibleSessions);
-  }, [allSessionsWithTrades, visibleSessions, lifetimeMode, search]);
+      });
+
+    if (sortBy === 'pnl') {
+      filtered.sort((a, b) => Number(b.totalPnl || 0) - Number(a.totalPnl || 0));
+    } else if (sortBy === 'winrate') {
+      filtered.sort((a, b) => {
+        const wrA = a.analytics?.overallWinRate || calculatePerformanceMetrics(a.trades).winRate;
+        const wrB = b.analytics?.overallWinRate || calculatePerformanceMetrics(b.trades).winRate;
+        return wrB - wrA;
+      });
+    }
+
+    return filtered.slice(0, visibleSessions);
+  }, [allSessionsWithTrades, visibleSessions, lifetimeMode, search, sortBy]);
 
   const orphans = useMemo(() => {
     const sessionIds = new Set((sessionList || []).filter(Boolean).map(s => s.id))
@@ -462,9 +483,11 @@ export const HistoryView = () => {
                  className="bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-[11px] font-bold focus:border-accent outline-none transition-all w-[180px] lg:w-[240px]"
                />
                {search && (
-                 <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear search">
-                   <XCircle size={14} />
-                 </button>
+                 <Tooltip content="Clear Search">
+                  <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear Search">
+                    <XCircle size={14} />
+                  </button>
+                 </Tooltip>
                )}
              </div>
              <span className="text-[9px] text-dim font-bold uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50 whitespace-nowrap">
@@ -485,13 +508,15 @@ export const HistoryView = () => {
             className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-3 text-xs font-bold focus:border-accent outline-none transition-all"
           />
           {search && (
-            <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear search">
-              <XCircle size={16} />
-            </button>
+            <Tooltip content="Clear Search">
+              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear Search">
+                <XCircle size={16} />
+              </button>
+            </Tooltip>
           )}
         </div>
 
-        <div className="flex flex-col md:flex-row md:items-center gap-4 mb-8">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
           <div className="flex items-center gap-2 p-1 bg-surface border border-border rounded-xl w-fit">
             {['paper', 'testnet', 'live'].map(m => (
               <button
@@ -508,6 +533,28 @@ export const HistoryView = () => {
                 {m}
               </button>
             ))}
+          </div>
+
+          <div className="flex items-center gap-4">
+             <span className="text-[10px] text-dim font-black uppercase tracking-widest">Sort Sessions</span>
+             <div className="flex items-center gap-1.5 p-1 bg-surface border border-border rounded-xl">
+                {[
+                  { id: 'time', label: 'Recent' },
+                  { id: 'pnl', label: 'Best PnL' },
+                  { id: 'winrate', label: 'Win Rate' }
+                ].map(opt => (
+                  <button
+                    key={opt.id}
+                    onClick={() => setSortBy(opt.id)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all",
+                      sortBy === opt.id ? "bg-accent/10 text-accent" : "text-dim hover:text-text"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+             </div>
           </div>
         </div>
 
@@ -596,23 +643,14 @@ export const HistoryView = () => {
           />
           <StatCard label="Profit Factor" value={Number(currentAnalytics?.profitFactor || 0).toFixed(2)} color="text-accent" />
           <StatCard
-            label="Expectancy"
-            value={Number(lifetimeExpectancyStatus.expectancy).toFixed(2)}
-            color={lifetimeExpectancyStatus.color}
+            label="Max Streaks"
+            value={`${currentAnalytics?.maxWinStreak || 0}W / ${currentAnalytics?.maxLossStreak || 0}L`}
+            color="text-accent"
             subValue={
-              <Tooltip content={
-                <div className="flex flex-col gap-2">
-                  <span className="font-bold">{lifetimeExpectancyStatus.description}</span>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[9px]">
-                    {lifetimeExpectancyStatus.tiers.map(t => <span key={t.label}>{t.label}: {t.range}</span>)}
-                  </div>
-                </div>
-              }>
-                <span className="flex items-center gap-1 cursor-pointer">
-                  {lifetimeExpectancyStatus.label}
-                  <Info size={10} className="opacity-50" />
-                </span>
-              </Tooltip>
+              <span className="flex items-center gap-1.5">
+                <Clock size={10} />
+                Avg: {currentAnalytics?.avgDuration ? (currentAnalytics.avgDuration / 60000).toFixed(1) + 'm' : '---'}
+              </span>
             }
           />
         </div>

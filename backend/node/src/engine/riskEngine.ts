@@ -54,9 +54,16 @@ export class RiskEngineService {
       return { canEnter: false, reason: `Max open trades for ${symbol} (${maxOpenTradesPerSymbol}) reached` };
     }
 
-    const totalRiskPct = (totalSlUsed / balance) * 100;
-    if (totalRiskPct >= maxTotalRiskPct) {
-      return { canEnter: false, reason: `Total risk ${Number(totalRiskPct || 0).toFixed(2)}% >= max ${maxTotalRiskPct}%` };
+    const riskPerTrade = config.risk_pct_per_trade ?? 1.0;
+    const totalRiskPct = balance > 0 ? (totalSlUsed / balance) * 100 : 0;
+
+    // SRE: Tight Gating. Ensure prospective total risk (current + next entry) does not exceed ceiling.
+    // This prevents a 2% limit from being breached by a new 1% entry when currently at 1.5%.
+    if (totalRiskPct + riskPerTrade > maxTotalRiskPct + 0.0001) {
+      return {
+        canEnter: false,
+        reason: `Risk ceiling reached: ${totalRiskPct.toFixed(2)}% + ${riskPerTrade}% prospective > ${maxTotalRiskPct}% max`
+      };
     }
 
     if (totalSlUsed >= totalSlGuardUsdt) {
@@ -90,6 +97,8 @@ export class RiskEngineService {
     mostRecentTradeTs?: number;
     oldestTradeIn24hTs?: number;
     oldestTradeInPeriodTs?: number;
+    effectivePeriodMs?: number;
+    jitterFactor?: number;
   } {
     const maxTradesPeriod = config.max_trades_per_period || 0;
     const periodMinBase = config.trades_period_min || 60;
@@ -134,16 +143,32 @@ export class RiskEngineService {
     // Apply stable jitter to the period window to prevent "stampeding".
     // SRE: Floor effectiveMostRecentTs to 10s to ensure jitter is stable across high-frequency loop iterations (Issue 3)
     // BOLT: Market-Aware Jitter incorporates symbol-specific offset to prevent cross-symbol stampeding.
-    const symbolHash = symbol.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const jitterSeed = (Math.floor(effectiveMostRecentTs / 10000) * 10000) + symbolHash;
+    // SRE: Replaced character-sum with FNV-1a for better distribution and order sensitivity.
+    let symbolHash = 0x811c9dc5;
+    for (let i = 0; i < symbol.length; i++) {
+      symbolHash ^= symbol.charCodeAt(i);
+      symbolHash = Math.imul(symbolHash, 0x01000193);
+    }
+    symbolHash = symbolHash >>> 0;
+
+    const jitterSeed = (Math.floor(effectiveMostRecentTs / 10000) * 10000) + (symbolHash % 10000);
 
     // PERFORMANCE: Market-aware scaling. High quality signals (high score) reduce jitter for faster entry.
     const effectiveJitterPct = (config.trades_jitter_market_aware && marketScore !== undefined)
       ? jitterPct * Math.max(0, 1 - (marketScore / 100))
       : jitterPct;
 
+    // SRE: Replaced Math.sin with a 32-bit mix hash for stable deterministic jitter on large integers.
+    const getHash = (n: number) => {
+      let h = n >>> 0;
+      h = Math.imul(h ^ (h >>> 16), 0x21f0aaad);
+      h = Math.imul(h ^ (h >>> 15), 0x735a2d97);
+      h = h ^ (h >>> 15);
+      return (h >>> 0) / 4294967296;
+    };
+
     const jitterFactor = effectiveJitterPct > 0
-      ? 1 + ((Math.abs(Math.sin(jitterSeed)) * effectiveJitterPct) / 100)
+      ? 1 + (getHash(jitterSeed) * effectiveJitterPct) / 100
       : 1;
 
     const effectivePeriodMs = periodMinBase * 60 * 1000 * jitterFactor;
@@ -291,7 +316,9 @@ export class RiskEngineService {
             maxTrades24h,
             mostRecentTradeTs,
             oldestTradeIn24hTs,
-            oldestTradeInPeriodTs
+          oldestTradeInPeriodTs,
+          effectivePeriodMs,
+          jitterFactor
           };
         }
       }
@@ -318,7 +345,9 @@ export class RiskEngineService {
           maxTrades24h,
           mostRecentTradeTs,
           oldestTradeIn24hTs,
-          oldestTradeInPeriodTs
+          oldestTradeInPeriodTs,
+          effectivePeriodMs,
+          jitterFactor
         };
       }
     }
@@ -338,7 +367,9 @@ export class RiskEngineService {
         maxTrades24h,
         mostRecentTradeTs,
         oldestTradeIn24hTs,
-        oldestTradeInPeriodTs
+        oldestTradeInPeriodTs,
+        effectivePeriodMs,
+        jitterFactor
       };
     }
 
@@ -356,7 +387,9 @@ export class RiskEngineService {
         maxTrades24h,
         mostRecentTradeTs,
         oldestTradeIn24hTs,
-        oldestTradeInPeriodTs
+        oldestTradeInPeriodTs,
+        effectivePeriodMs,
+        jitterFactor
       };
     }
 
@@ -370,7 +403,9 @@ export class RiskEngineService {
       maxTrades24h,
       mostRecentTradeTs,
       oldestTradeIn24hTs,
-      oldestTradeInPeriodTs
+      oldestTradeInPeriodTs,
+      effectivePeriodMs,
+      jitterFactor
     };
   }
 

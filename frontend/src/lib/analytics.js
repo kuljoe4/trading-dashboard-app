@@ -1,7 +1,8 @@
 import { TrendingUp, TrendingDown, Target, AlertTriangle, ShieldCheck, Zap } from 'lucide-react'
 
 export const getExpectancyStatus = (wr, wl) => {
-  const expectancy = (wr * wl) - (1 - wr);
+  const wlSafe = wl === Infinity || isNaN(wl) ? 100 : wl;
+  const expectancy = (wr * wlSafe) - (1 - wr);
 
   const tiers = [
     { label: 'Excellent', range: '> 0.50' },
@@ -47,44 +48,95 @@ export const getSharpeStatus = (sharpe) => {
  * BOLT OPTIMIZATION: Single-pass calculation of all performance metrics.
  * Eliminates redundant iterations and temporary array allocations.
  */
-export const calculatePerformanceMetrics = (trades = []) => {
+/**
+ * BOLT OPTIMIZATION: Unified performance metrics calculation.
+ * Aligned with backend AnalyticsService to use percentage returns for Sharpe/Sortino.
+ * This ensures consistency across session and lifetime views.
+ */
+export const calculatePerformanceMetrics = (trades = [], sessionBalance) => {
   const count = trades.length;
   if (count === 0) return { sharpe: 0, sortino: 0, profitFactor: 0, winRate: 0, wins: 0, totalPnl: 0, grossProfit: 0, grossLoss: 0 };
 
-  let sumPnL = 0;
-  let sumSquaredPnL = 0;
-  let downsideSumSquaredPnL = 0;
+  // Sort trades by exit time to replicate rolling balance correctly
+  const sorted = [...trades].sort((a, b) => {
+    const tsA = new Date(a.exit_ts || a.createdAt).getTime();
+    const tsB = new Date(b.exit_ts || b.createdAt).getTime();
+    return tsA - tsB;
+  });
+
+  let totalNetPnL = 0;
+  for (let i = 0; i < count; i++) totalNetPnL += Number(trades[i].pnl || 0);
+
+  // If sessionBalance is not provided, we estimate it backwards from total PnL
+  // This matches the backend's effectiveStartingBalance logic.
+  let rollingBalance = sessionBalance ? Math.max(1, sessionBalance - totalNetPnL) : 10000;
+
+  let sumReturnPct = 0;
+  let sumSquaredReturnPct = 0;
+  let downsideSumSquaredReturnPct = 0;
   let wins = 0;
   let grossProfit = 0;
   let grossLoss = 0;
+  let sumPnL = 0;
 
   for (let i = 0; i < count; i++) {
-    const pnl = Number(trades[i].pnl || 0);
+    const pnl = Number(sorted[i].pnl || 0);
     sumPnL += pnl;
-    sumSquaredPnL += pnl * pnl;
+
+    const tradeReturnPct = rollingBalance > 0 ? (pnl / rollingBalance) * 100 : 0;
+    rollingBalance = Math.max(1, rollingBalance + pnl);
+
+    sumReturnPct += tradeReturnPct;
+    sumSquaredReturnPct += tradeReturnPct * tradeReturnPct;
 
     if (pnl > 0) {
       wins++;
       grossProfit += pnl;
     } else if (pnl < 0) {
       grossLoss += Math.abs(pnl);
-      downsideSumSquaredPnL += pnl * pnl;
+      downsideSumSquaredReturnPct += tradeReturnPct * tradeReturnPct;
     }
   }
 
-  const mean = sumPnL / count;
+  // Calculate streaks and duration
+  let maxWinStreak = 0;
+  let maxLossStreak = 0;
+  let currentWinStreak = 0;
+  let currentLossStreak = 0;
+  let totalDurationMs = 0;
+
+  for (let i = 0; i < count; i++) {
+    const t = sorted[i];
+    const pnl = Number(t.pnl || 0);
+    const entryTs = new Date(t.entry_ts || t.createdAt).getTime();
+    const exitTs = new Date(t.exit_ts || t.createdAt).getTime();
+
+    if (entryTs && exitTs) totalDurationMs += (exitTs - entryTs);
+
+    if (pnl > 0) {
+      currentWinStreak++;
+      currentLossStreak = 0;
+      if (currentWinStreak > maxWinStreak) maxWinStreak = currentWinStreak;
+    } else if (pnl < 0) {
+      currentLossStreak++;
+      currentWinStreak = 0;
+      if (currentLossStreak > maxLossStreak) maxLossStreak = currentLossStreak;
+    }
+  }
+
+  const meanReturn = sumReturnPct / count;
   const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 100 : 0);
 
   let sharpe = 0;
   let sortino = 0;
 
   if (count > 1) {
-    const variance = Math.max(0, (sumSquaredPnL / count) - (mean * mean));
+    const variance = Math.max(0, (sumSquaredReturnPct / count) - (meanReturn * meanReturn));
     const stdDev = Math.sqrt(variance);
-    const downsideStdDev = Math.sqrt(downsideSumSquaredPnL / count);
+    const downsideStdDev = Math.sqrt(downsideSumSquaredReturnPct / count);
 
-    if (stdDev > 0) sharpe = mean / stdDev;
-    if (downsideStdDev > 0) sortino = mean / downsideStdDev;
+    if (stdDev > 0) sharpe = meanReturn / stdDev;
+    if (downsideStdDev > 0) sortino = meanReturn / downsideStdDev;
   }
 
   return {
@@ -95,7 +147,10 @@ export const calculatePerformanceMetrics = (trades = []) => {
     wins,
     totalPnl: sumPnL,
     grossProfit,
-    grossLoss
+    grossLoss,
+    maxWinStreak,
+    maxLossStreak,
+    avgDuration: count > 0 ? Math.round(totalDurationMs / count) : 0
   };
 };
 

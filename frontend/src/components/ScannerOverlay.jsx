@@ -2,8 +2,9 @@ import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { fmtVol } from '../lib/theme'
 import { formatDuration } from '../lib/formatters'
 import { PulseDot, Sparkline, cn, CopyButton, Tooltip, CandlestickChart } from './ui/primitives'
+import { SignalGauge } from './ui/SignalGauge'
 import { useTradingStore } from '../store/trading'
-import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock } from 'lucide-react'
+import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { shallow } from 'zustand/shallow'
 
@@ -43,7 +44,7 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
   };
 
   const status = getStatus();
-  const proximity = Math.min(100, (Math.abs(opp.pct) / threshold) * 100).toFixed(0);
+  const proximity = Number(Math.min(100, (Math.abs(opp.pct || 0) / (threshold || 1)) * 100)).toFixed(0);
 
   const summarySentence = useMemo(() => {
     const dirText = isLong ? "Momentum" : "Downward pressure";
@@ -52,6 +53,9 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
     if (passing) return `${dirText} is strong, currently nearing the trigger threshold.`;
     return `Symbol is stable; awaiting expansion toward ${threshold}% threshold.`;
   }, [isLong, opp.score, opp.signalResult?.allFired, passing, threshold]);
+
+  const signalStatus = opp.signalResult || {};
+  const checklistSignals = opp.signalResult?.signals || {};
 
   // DEBUG: Track telemetry presence in expanded state to identify synchronization gaps
   useEffect(() => {
@@ -127,21 +131,21 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
           <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={40} height={16} />
         </div>
         <span className="text-[11px] text-dim font-mono text-right md:block hidden">{fmtVol(opp.vol)}</span>
-        <div className="md:flex items-center gap-2 px-2 overflow-hidden hidden" role="region" aria-label={`Opportunity score for ${opp.symbol}: ${opp.score.toFixed(1)}`}>
+        <div className="md:flex items-center gap-2 px-2 overflow-hidden hidden" role="region" aria-label={`Opportunity score for ${opp.symbol}: ${Number(opp.score || 0).toFixed(1)}`}>
           <Tooltip content={
             <div className="flex flex-col gap-2 p-1 min-w-[120px]">
                <div className="text-[10px] font-black uppercase tracking-widest border-b border-white/10 pb-1">Score Breakdown</div>
                <div className="flex justify-between items-center text-[10px]">
                   <span className="text-dim uppercase font-bold">Momentum</span>
-                  <span className="font-mono text-accent">{(config?.scanner_weights?.momentum * (opp.score_breakdown?.momentum || 0)).toFixed(1)}</span>
+                  <span className="font-mono text-accent">{Number((config?.scanner_weights?.momentum || 0) * (opp.score_breakdown?.momentum || 0)).toFixed(1)}</span>
                </div>
                <div className="flex justify-between items-center text-[10px]">
                   <span className="text-dim uppercase font-bold">Volatility</span>
-                  <span className="font-mono text-amber">{(config?.scanner_weights?.volatility * (opp.score_breakdown?.volatility || 0)).toFixed(1)}</span>
+                  <span className="font-mono text-amber">{Number((config?.scanner_weights?.volatility || 0) * (opp.score_breakdown?.volatility || 0)).toFixed(1)}</span>
                </div>
                <div className="flex justify-between items-center text-[10px]">
                   <span className="text-dim uppercase font-bold">Trend</span>
-                  <span className="font-mono text-purple-400">{(config?.scanner_weights?.trend * (opp.score_breakdown?.trend || 0)).toFixed(1)}</span>
+                  <span className="font-mono text-purple-400">{Number((config?.scanner_weights?.trend || 0) * (opp.score_breakdown?.trend || 0)).toFixed(1)}</span>
                </div>
                <div className="border-t border-white/10 pt-1 flex justify-between items-center font-black">
                   <span className="text-[9px] uppercase tracking-tighter">Total</span>
@@ -151,9 +155,9 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
           }>
             <div className="flex-1 flex items-center gap-2 cursor-help" aria-label="Score breakdown bar">
               <div className="flex-1 h-1.5 bg-white/5 rounded-full overflow-hidden flex min-w-[40px] border border-white/5">
-                <div className="h-full bg-accent/80" style={{ width: `${(config?.scanner_weights?.momentum || 0.5) * (opp.score_breakdown?.momentum || 0)}%` }} aria-label={`Momentum component: ${opp.score_breakdown?.momentum?.toFixed(1)}%`} />
-                <div className="h-full bg-amber/80" style={{ width: `${(config?.scanner_weights?.volatility || 0.3) * (opp.score_breakdown?.volatility || 0)}%` }} aria-label={`Volatility component: ${opp.score_breakdown?.volatility?.toFixed(1)}%`} />
-                <div className="h-full bg-purple/80" style={{ width: `${(config?.scanner_weights?.trend || 0.2) * (opp.score_breakdown?.trend || 0)}%` }} aria-label={`Trend component: ${opp.score_breakdown?.trend?.toFixed(1)}%`} />
+                <div className="h-full bg-accent/80" style={{ width: `${(config?.scanner_weights?.momentum || 0.5) * (opp.score_breakdown?.momentum || 0)}%` }} aria-label={`Momentum component: ${Number(opp.score_breakdown?.momentum || 0).toFixed(1)}%`} />
+                <div className="h-full bg-amber/80" style={{ width: `${(config?.scanner_weights?.volatility || 0.3) * (opp.score_breakdown?.volatility || 0)}%` }} aria-label={`Volatility component: ${Number(opp.score_breakdown?.volatility || 0).toFixed(1)}%`} />
+                <div className="h-full bg-purple/80" style={{ width: `${(config?.scanner_weights?.trend || 0.2) * (opp.score_breakdown?.trend || 0)}%` }} aria-label={`Trend component: ${Number(opp.score_breakdown?.trend || 0).toFixed(1)}%`} />
               </div>
               <div className="relative">
                 <span className={cn(
@@ -209,40 +213,48 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                  </div>
                )}
             </div>
-            <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-8 border-t border-white/5">
+            <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-8 border-t border-white/5">
+              {/* Panel 1: Timeline & Overlays */}
               <div className="flex flex-col gap-4">
                 <div className="text-[10px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-2 px-1">
-                   <Activity size={12} className="text-accent" /> Signal Visualization
+                   <Activity size={12} className="text-accent" /> Timeline & Overlays
                 </div>
-                <div className="bg-surface/50 border border-border rounded-2xl p-5 flex items-center justify-center min-h-[180px] relative overflow-hidden group/viz">
+                <div className="bg-surface/50 border border-border rounded-2xl p-5 flex items-center justify-center min-h-[300px] relative overflow-hidden group/viz">
                    <div className="absolute inset-0 opacity-[0.03] pointer-events-none group-hover/viz:opacity-[0.05] transition-opacity" style={{ backgroundImage: 'radial-gradient(var(--color-accent) 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
                    {Array.isArray(opp.ohlc_history) && opp.ohlc_history.length >= 2 ? (
                      <div className="w-full flex flex-col items-center relative z-10">
-                        <CandlestickChart data={opp.ohlc_history} width={360} height={140} />
+                        <CandlestickChart
+                          data={opp.ohlc_history}
+                          height={200}
+                          threshold={threshold}
+                          isLong={isLong}
+                          entryPrice={opp.price}
+                          signals={opp.ohlc_history.filter(d => signalStatus.firedSignals?.includes(d.time))}
+                        />
                         <div className="flex justify-between w-full mt-6 px-2">
                            <div className="flex flex-col">
                               <span className="text-[9px] text-dim uppercase font-black tracking-widest mb-1">Entry Level</span>
                               <span className="text-sm font-mono font-black text-text/90">${opp.price.toLocaleString()}</span>
                            </div>
-                           <div className="flex flex-col items-end">
-                              <span className="text-[9px] text-dim uppercase font-black tracking-widest mb-1">Delta</span>
-                              <span className={cn("text-sm font-mono font-black", isLong ? "text-green" : "text-red")}>
-                                {isLong ? "▲" : "▼"} {Number(Math.abs(opp.pct || 0)).toFixed(2)}%
-                              </span>
+                           <div className="flex items-center gap-6">
+                              <div className="flex flex-col items-end">
+                                <span className="text-[9px] text-dim uppercase font-black tracking-widest mb-1">Threshold</span>
+                                <span className="text-sm font-mono font-black text-amber">${(opp.price * (1 + (isLong ? threshold : -threshold) / 100)).toLocaleString()}</span>
+                              </div>
+                              <div className="flex flex-col items-end">
+                                <span className="text-[9px] text-dim uppercase font-black tracking-widest mb-1">Delta</span>
+                                <span className={cn("text-sm font-mono font-black", isLong ? "text-green" : "text-red")}>
+                                  {isLong ? "▲" : "▼"} {Number(Math.abs(opp.pct || 0)).toFixed(2)}%
+                                </span>
+                              </div>
                            </div>
                         </div>
                      </div>
                    ) : (
-                     <div className="flex flex-col items-center gap-4 py-4">
+                     <div className="flex flex-col items-center justify-center gap-4 py-4 w-full">
                         <div className="relative">
                           <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shadow-inner">
                              {hibernating ? <Zap size={28} className="text-amber/40 animate-pulse" /> : <Activity size={28} className="text-dim/20 animate-pulse" />}
-                          </div>
-                          <div className={cn(
-                            "absolute -top-1 -right-1 w-4 h-4 rounded-full border-2 border-surface flex items-center justify-center",
-                            hibernating ? "bg-amber" : scannerPaused ? "bg-red" : "bg-accent"
-                          )}>
-                            <div className="w-1 h-1 rounded-full bg-white animate-ping" />
                           </div>
                         </div>
                         <div className="flex flex-col items-center gap-1.5">
@@ -258,119 +270,107 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                 </div>
               </div>
 
+              {/* Panel 2: Decision Funnel */}
               <div className="flex flex-col gap-4">
                  <div className="text-[10px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-2 px-1">
-                   <LayoutGrid size={12} className="text-accent" /> Intelligence Score
+                   <LayoutGrid size={12} className="text-accent" /> Decision Funnel
                  </div>
-                 <div className="bg-surface/50 border border-border rounded-2xl p-6 flex flex-col gap-5 relative overflow-hidden group/scoring shadow-sm" role="group" aria-label="Detailed score breakdown">
-                    <div className="absolute -top-4 -right-4 p-8 opacity-[0.03] group-hover/scoring:opacity-10 transition-opacity">
-                       <TrendingUp size={120} className="text-accent" />
-                    </div>
-
-                    <div className="space-y-6 relative z-10">
+                 <div className="bg-surface/50 border border-border rounded-2xl p-6 flex flex-col gap-6 relative overflow-hidden group/scoring shadow-sm">
+                    {/* Score Bars Section */}
+                    <div className="grid grid-cols-3 gap-4 pb-6 border-b border-white/5">
                        {[
                          { label: 'Momentum', value: opp.score_breakdown?.momentum, color: 'bg-accent', text: 'text-accent' },
                          { label: 'Volatility', value: opp.score_breakdown?.volatility, color: 'bg-amber', text: 'text-amber' },
-                         { label: 'Trend Strength', value: opp.score_breakdown?.trend, color: 'bg-purple-400', text: 'text-purple-400' }
+                         { label: 'Trend', value: opp.score_breakdown?.trend, color: 'bg-purple-400', text: 'text-purple-400' }
                        ].map((metric) => (
-                        <div key={metric.label} className="space-y-2.5">
-                          <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest">
+                        <div key={metric.label} className="space-y-1.5">
+                          <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
                              <span className="text-dim/80">{metric.label}</span>
-                             <span className={cn(metric.text)}>{metric.value?.toFixed(1) || '0.0'}%</span>
+                             <span className={cn(metric.text)}>{Number(metric.value || 0).toFixed(0)}%</span>
                           </div>
-                          <div className="h-2 bg-background/80 rounded-full overflow-hidden border border-white/5 shadow-inner">
+                          <div className="h-1.5 bg-background/80 rounded-full overflow-hidden border border-white/5">
                              <motion.div
                                initial={{ width: 0 }}
                                animate={{ width: `${metric.value || 0}%` }}
-                               transition={{ type: "spring", stiffness: 50, damping: 20 }}
-                               className={cn("h-full shadow-[0_0_12px_rgba(var(--accent-rgb),0.3)]", metric.color)}
+                               className={cn("h-full", metric.color)}
                              />
                           </div>
                         </div>
                        ))}
-
-                       <div className="pt-4 mt-2 border-t border-border/40 flex justify-between items-end">
-                          <div className="flex flex-col">
-                             <div className="flex items-center gap-2 mb-1">
-                                <span className="text-[9px] text-dim font-black uppercase tracking-[0.2em]">Composite Authority</span>
-                                <FreshnessIndicator ts={opp.lastUpdate} />
-                             </div>
-                             <div className="flex items-baseline gap-2">
-                                <span className={cn("text-3xl font-mono font-black tracking-tighter leading-none", opp.score > 85 ? "text-accent shadow-accent/20" : "text-text")}>
-                                   {opp.score.toFixed(1)}
-                                </span>
-                                <span className="text-[10px] text-dim font-bold uppercase tracking-widest opacity-40">/ 100</span>
-                             </div>
-                          </div>
-                          <div className="flex flex-col items-end gap-1">
-                             <div className="text-[8px] text-dim/60 font-black uppercase tracking-tighter">Engine Logic Weighting</div>
-                             <div className="px-2 py-1 rounded-md bg-background border border-border/50 font-mono text-[9px] font-bold text-text/60">
-                                {config.scanner_weights ? `${(config.scanner_weights.momentum*100).toFixed(0)}:${(config.scanner_weights.volatility*100).toFixed(0)}:${(config.scanner_weights.trend*100).toFixed(0)}` : '50:30:20'}
-                             </div>
-                          </div>
-                       </div>
-                    </div>
-                 </div>
-              </div>
-
-              <div className="flex flex-col gap-4">
-                 <div className="text-[10px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-2 px-1">
-                   <ShieldCheck size={12} className="text-accent" /> Security Audit
-                 </div>
-                 <div className="bg-surface/50 border border-border rounded-2xl p-6 flex flex-col gap-6 h-full relative overflow-hidden group/audit">
-                    <div className={cn(
-                      "absolute top-0 right-0 w-32 h-32 blur-3xl opacity-[0.05] transition-opacity group-hover/audit:opacity-[0.08]",
-                      opp.signalResult?.allFired ? "bg-green" : "bg-red"
-                    )} />
-
-                    <div className="flex items-center gap-4 relative z-10">
-                       <div className={cn(
-                         "w-12 h-12 rounded-2xl flex items-center justify-center border shadow-2xl transition-transform duration-500 group-hover/audit:scale-110",
-                         opp.signalResult?.allFired ? "bg-green text-white border-green/30 shadow-green/20" : "bg-red text-white border-red/30 shadow-red/20"
-                       )}>
-                         {opp.signalResult?.allFired ? <CheckCircle2 size={24} /> : <AlertCircle size={24} />}
-                       </div>
-                       <div className="flex flex-col gap-0.5">
-                          <div className="text-[13px] font-black uppercase tracking-tight">
-                             {opp.signalResult?.allFired ? 'Authorization Passed' : 'Authorization Denied'}
-                          </div>
-                          <div className="text-[9px] text-dim font-black uppercase tracking-widest opacity-60">
-                             Engine Integrity Verified
-                          </div>
-                       </div>
                     </div>
 
-                    <div className="space-y-4 relative z-10">
-                       <div className="p-4 bg-background/50 rounded-xl border border-border/40 flex flex-col gap-3">
-                          <div className="flex justify-between items-center text-[10px] font-bold">
-                             <div className="flex items-center gap-2">
-                               <div className="w-1.5 h-1.5 rounded-full bg-green shadow-[0_0_6px_rgba(34,197,94,0.6)]" />
-                               <span className="text-dim uppercase tracking-widest">Velocity Threshold</span>
-                             </div>
-                             <span className="text-text font-mono">OK (≥{threshold}%)</span>
-                          </div>
-                          <div className="h-px bg-border/20" />
-                          <div className="flex justify-between items-center text-[10px] font-bold">
-                             <div className="flex items-center gap-2">
-                               <div className={cn("w-1.5 h-1.5 rounded-full shadow-[0_0_6px_rgba(255,255,255,0.2)]", opp.signalResult?.allFired ? "bg-green" : "bg-red")} />
-                               <span className="text-dim uppercase tracking-widest">Pattern Recognition</span>
-                             </div>
-                             <span className={cn("uppercase tracking-widest font-black", opp.signalResult?.allFired ? "text-green" : "text-red")}>
-                                {opp.signalResult?.allFired ? 'Patterns Verified' : 'Rejected'}
-                             </span>
-                          </div>
-                       </div>
-
-                       {!opp.signalResult?.allFired && (
-                         <div className="bg-red/10 border border-red/20 rounded-xl p-4 animate-in fade-in slide-in-from-top-1 duration-500">
-                            <div className="flex items-center gap-2 text-[9px] text-red font-black uppercase tracking-widest mb-2">
-                               <XCircle size={12} /> Rejection Analysis
-                            </div>
-                            <div className="text-[11px] text-red-400/90 font-bold leading-relaxed italic pr-2 border-l-2 border-red/30 pl-3">
-                               "{opp.signalResult?.reason || 'Critical authorization failure detected'}"
-                            </div>
+                    {/* Signal Checklist */}
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                         <div className="text-[10px] font-black text-dim uppercase tracking-widest">Technical Checklist</div>
+                         <div className={cn(
+                           "px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter border",
+                           opp.signalResult?.allFired ? "bg-green/10 text-green border-green/20" : "bg-red/10 text-red border-red/20"
+                         )}>
+                            {opp.signalResult?.allFired ? 'All Signals Fired' : 'Awaiting Signals'}
                          </div>
-                       )}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <SignalGauge
+                          label="Velocity"
+                          value={Math.abs(opp.pct)}
+                          threshold={threshold}
+                          unit="%"
+                          fired={passing}
+                          active={true}
+                          type="entry"
+                        />
+                        {Object.entries(checklistSignals).map(([key, s]) => (
+                          <SignalGauge
+                            key={key}
+                            label={s.label || key}
+                            value={s.value}
+                            threshold={s.threshold}
+                            unit={s.unit}
+                            fired={s.fired}
+                            active={s.active}
+                            remainingDelay={s.remaining_delay}
+                            configDelay={s.config_delay}
+                            insufficientData={s.insufficientData}
+                            type="entry"
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Final Verdict */}
+                    <div className="mt-auto pt-6 border-t border-white/5 flex items-center justify-between">
+                       <div className="flex items-center gap-4">
+                          <div className={cn(
+                            "w-12 h-12 rounded-2xl flex items-center justify-center border transition-transform duration-500",
+                            opp.signalResult?.allFired ? "bg-green text-white border-green/30" : "bg-red text-white border-red/30"
+                          )}>
+                            {opp.signalResult?.allFired ? <CheckCircle2 size={24} /> : <AlertCircle size={24} />}
+                          </div>
+                          <div className="flex flex-col gap-0.5">
+                             <div className="text-[13px] font-black uppercase tracking-tight">
+                                {opp.signalResult?.allFired ? 'Signal Authorized' : 'Signal Denied'}
+                             </div>
+                             {!opp.signalResult?.allFired && (
+                               <div className="text-[10px] text-red-400/90 font-bold italic">
+                                  {opp.signalResult?.reason || 'Critical logic mismatch'}
+                               </div>
+                             )}
+                          </div>
+                       </div>
+                       <div className="flex flex-col items-end">
+                          <div className="flex items-center gap-2 mb-1">
+                             <span className="text-[9px] text-dim font-black uppercase tracking-[0.2em]">Composite Score</span>
+                             <FreshnessIndicator ts={opp.lastUpdate} />
+                          </div>
+                          <div className="flex items-baseline gap-2">
+                             <span className={cn("text-2xl font-mono font-black tracking-tighter", opp.score > 85 ? "text-accent" : "text-text")}>
+                                {Number(opp.score || 0).toFixed(1)}
+                             </span>
+                             <span className="text-[10px] text-dim font-bold uppercase tracking-widest opacity-40">/ 100</span>
+                          </div>
+                       </div>
                     </div>
                  </div>
               </div>
@@ -443,8 +443,16 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                    <span className="absolute inset-0 rounded-full border border-green animate-ping opacity-20 scale-150" />
                  )}
               </div>
-              <span className="text-[15px] font-black tracking-tight hidden sm:inline uppercase">Live Scanner</span>
-              <div className="h-4 w-px bg-border/40 hidden sm:block mx-1" />
+                <div className="flex flex-col">
+                  <span className="text-[15px] font-black tracking-tight hidden sm:inline uppercase">Live Scanner</span>
+                  <div className="flex items-center gap-2 opacity-60">
+                    <div className="text-[8px] text-dim font-black uppercase tracking-tighter">Engine Logic Weighting</div>
+                    <div className="px-1.5 py-0.5 rounded bg-background border border-border/50 font-mono text-[8px] font-bold text-text/60">
+                      {config.scanner_weights ? `${Number((config.scanner_weights.momentum || 0)*100).toFixed(0)}:${Number((config.scanner_weights.volatility || 0)*100).toFixed(0)}:${Number((config.scanner_weights.trend || 0)*100).toFixed(0)}` : '50:30:20'}
+                    </div>
+                  </div>
+                </div>
+                <div className="h-8 w-px bg-border/40 hidden sm:block mx-1" />
               {hibernating ? (
                 <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber/10 border border-amber/20 shadow-lg shadow-amber/5">
                   <span className="w-1 h-1 rounded-full bg-amber animate-pulse" />
@@ -491,18 +499,22 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
               aria-label="Filter scanner symbols"
             />
             {search && (
-              <button
-                onClick={() => setSearch('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors"
-                aria-label="Clear filter"
-              >
-                <XCircle size={14} />
-              </button>
+              <Tooltip content="Clear Filter">
+                <button
+                  onClick={() => setSearch('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors"
+                  aria-label="Clear Filter"
+                >
+                  <XCircle size={14} />
+                </button>
+              </Tooltip>
             )}
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/5 focus-visible:bg-white/5 focus-visible:ring-2 focus-visible:ring-accent outline-none rounded-full transition-colors shrink-0" aria-label="Close scanner">
-            <X size={18} className="text-dim" />
-          </button>
+          <Tooltip content="Close Scanner">
+            <button onClick={onClose} className="p-2 hover:bg-white/5 focus-visible:bg-white/5 focus-visible:ring-2 focus-visible:ring-accent outline-none rounded-full transition-colors shrink-0" aria-label="Close scanner">
+              <X size={18} className="text-dim" />
+            </button>
+          </Tooltip>
         </div>
       </div>
 

@@ -425,6 +425,8 @@ export class EngineBroadcasterService {
       maxTradesPeriod: this.lastRiskResult?.maxTradesPeriod,
       tradesIn24h: this.lastRiskResult?.tradesIn24h,
       maxTrades24h: this.lastRiskResult?.maxTrades24h,
+      effectivePeriodMs: this.lastRiskResult?.effectivePeriodMs,
+      jitterFactor: this.lastRiskResult?.jitterFactor,
       hibernating: this.sessionState.hibernating,
       isAdaptiveTightened: this.sessionState.isAdaptiveTightened,
       paused: this.sessionState.paused,

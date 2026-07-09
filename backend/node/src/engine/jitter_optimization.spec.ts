@@ -6,6 +6,24 @@ describe('RiskEngineService - Market-Aware Jitter', () => {
   let service: RiskEngineService;
   let mockConfig: SessionConfig;
 
+  // Replicate the hash logic from RiskEngineService
+  const getHash = (n: number) => {
+    let h = n >>> 0;
+    h = Math.imul(h ^ (h >>> 16), 0x21f0aaad);
+    h = Math.imul(h ^ (h >>> 15), 0x735a2d97);
+    h = h ^ (h >>> 15);
+    return (h >>> 0) / 4294967296;
+  };
+
+  const getSymbolHash = (symbol: string) => {
+    let symbolHash = 0x811c9dc5;
+    for (let i = 0; i < symbol.length; i++) {
+      symbolHash ^= symbol.charCodeAt(i);
+      symbolHash = Math.imul(symbolHash, 0x01000193);
+    }
+    return symbolHash >>> 0;
+  };
+
   beforeEach(() => {
     service = new RiskEngineService();
     mockConfig = new SessionConfig();
@@ -29,22 +47,19 @@ describe('RiskEngineService - Market-Aware Jitter', () => {
     expect(result.canEnter).toBe(true);
   });
 
-  it('should apply full jitter when score is 0 and market_aware is enabled', () => {
+  it('should apply deterministic jitter when score is 0 and market_aware is enabled', () => {
     mockConfig.trades_jitter_market_aware = true;
     const now = Date.now();
     // 61 minutes ago.
     const lastTradeTs = now - 61 * 60 * 1000;
     const closed: Trade[] = [{ entry_ts: new Date(lastTradeTs) } as Trade];
 
-    // With 0 score, jitter is 100%. Effective period = 60m * (1 + randomFactor).
-    // Unless sin(seed) is 0, effectivePeriod will be > 60m.
-    // For BTCUSDT at a stable timestamp, sin is likely not 0.
     const result = service.canEnter([], closed, 10000, 'BTCUSDT', mockConfig, 0, 0, 0);
 
     // Check if jitter made the period longer than 61m
-    const symbolHash = 'BTCUSDT'.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const jitterSeed = (Math.floor(lastTradeTs / 10000) * 10000) + symbolHash;
-    const jitterFactor = 1 + (Math.abs(Math.sin(jitterSeed))); // jitterPct is 100
+    const symbolHash = getSymbolHash('BTCUSDT');
+    const jitterSeed = (Math.floor(lastTradeTs / 10000) * 10000) + (symbolHash % 10000);
+    const jitterFactor = 1 + getHash(jitterSeed); // jitterPct is 100
     const effectivePeriodMs = 60 * 60 * 1000 * jitterFactor;
 
     if ((now - lastTradeTs) < effectivePeriodMs) {
@@ -65,14 +80,14 @@ describe('RiskEngineService - Market-Aware Jitter', () => {
 
     // One might be blocked, one might be allowed because their jitter factors differ
     // based on the symbol hash.
-    const hashBTC = 'BTCUSDT'.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const hashETH = 'ETHUSDT'.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const hashBTC = getSymbolHash('BTCUSDT');
+    const hashETH = getSymbolHash('ETHUSDT');
 
-    const seedBTC = (Math.floor(lastTradeTs / 10000) * 10000) + hashBTC;
-    const seedETH = (Math.floor(lastTradeTs / 10000) * 10000) + hashETH;
+    const seedBTC = (Math.floor(lastTradeTs / 10000) * 10000) + (hashBTC % 10000);
+    const seedETH = (Math.floor(lastTradeTs / 10000) * 10000) + (hashETH % 10000);
 
-    const factorBTC = 1 + (Math.abs(Math.sin(seedBTC)));
-    const factorETH = 1 + (Math.abs(Math.sin(seedETH)));
+    const factorBTC = 1 + getHash(seedBTC);
+    const factorETH = 1 + getHash(seedETH);
 
     expect(factorBTC).not.toBe(factorETH);
 
@@ -96,9 +111,9 @@ describe('RiskEngineService - Market-Aware Jitter', () => {
     // marketScore is undefined
     const result = service.canEnter([], closed, 10000, 'BTCUSDT', mockConfig, 0);
 
-    const symbolHash = 'BTCUSDT'.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const jitterSeed = (Math.floor(lastTradeTs / 10000) * 10000) + symbolHash;
-    const jitterFactor = 1 + (Math.abs(Math.sin(jitterSeed)));
+    const symbolHash = getSymbolHash('BTCUSDT');
+    const jitterSeed = (Math.floor(lastTradeTs / 10000) * 10000) + (symbolHash % 10000);
+    const jitterFactor = 1 + getHash(jitterSeed);
     const effectivePeriodMs = 60 * 60 * 1000 * jitterFactor;
 
     expect(result.canEnter).toBe((now - lastTradeTs) >= effectivePeriodMs);

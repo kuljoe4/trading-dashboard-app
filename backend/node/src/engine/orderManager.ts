@@ -482,9 +482,9 @@ export class OrderManagerService {
   private updateWeight(headers: any) {
     if (headers && this.sessionState) {
       // Handle both native Headers and plain objects
-      const weight = (headers && typeof headers.get === 'function')
+      const weight = (typeof headers.get === 'function')
         ? headers.get('X-MBX-USED-WEIGHT-1M')
-        : (headers ? (headers['x-mbx-used-weight-1m'] || headers['X-MBX-USED-WEIGHT-1M']) : null);
+        : (headers['x-mbx-used-weight-1m'] || headers['X-MBX-USED-WEIGHT-1M']);
 
       if (weight) {
         const currentWeight = parseInt(weight, 10);

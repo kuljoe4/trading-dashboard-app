@@ -2,7 +2,7 @@ import React from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X, AlertTriangle } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { cn, Btn, VisuallyHidden } from './ui/primitives'
+import { cn, Btn, VisuallyHidden, Tooltip } from './ui/primitives'
 
 export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = "Confirm", cancelText = "Cancel", variant = "danger", loading = false }) => {
   return (
@@ -33,14 +33,16 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
                     )}>
                       <AlertTriangle size={20} />
                     </div>
-                    <Dialog.Close asChild>
-                      <button
-                        className="text-dim hover:text-text p-2 hover:bg-white/5 rounded-xl transition-all active:scale-90 outline-none"
-                        aria-label="Close"
-                      >
-                        <X size={20} />
-                      </button>
-                    </Dialog.Close>
+                    <Tooltip content="Close">
+                      <Dialog.Close asChild>
+                        <button
+                          className="text-dim hover:text-text p-2 hover:bg-white/5 rounded-xl transition-all active:scale-90 outline-none"
+                          aria-label="Close"
+                        >
+                          <X size={20} />
+                        </button>
+                      </Dialog.Close>
+                    </Tooltip>
                   </div>
 
                   <Dialog.Title className="text-lg font-bold mb-2">{title}</Dialog.Title>

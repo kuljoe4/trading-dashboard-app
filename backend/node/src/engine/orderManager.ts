@@ -507,7 +507,7 @@ export class OrderManagerService {
   private updateWeight(headers: any) {
     if (headers && this.sessionState) {
       // Handle both native Headers and plain objects
-      const weight = (headers && typeof headers.get === 'function')
+      const weight = (typeof headers.get === 'function')
         ? headers.get('X-MBX-USED-WEIGHT-1M')
         : (headers ? (headers['x-mbx-used-weight-1m'] || headers['X-MBX-USED-WEIGHT-1M'] || headers['X-Mbx-Used-Weight-1m'] || headers['x-mbx-used-weight-1m'] || headers['get']) : null);
 
@@ -1632,6 +1632,7 @@ export class OrderManagerService {
 
            if (rollbackResult && rollbackResult.orderId && rollbackResult.orderId !== '') {
               this.logger.log(`[SL Ratchet] Rollback successful for ${trade.symbol}. Position is protected at ${rollbackResult.price}.`);
+              // CHRONOS: Sync local state with rollback ID to maintain watchdog consistency
               trade.binance_stop_order_id = rollbackResult.orderId;
            } else {
               throw new Error('Rollback placement returned empty');

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { settingsAPI, setAdminApiKey } from '../api/client'
-import { SectionLabel, Btn, StatCard, cn, ViewHeader } from '../components/ui/primitives'
+import { SectionLabel, Btn, StatCard, cn, ViewHeader, Tooltip } from '../components/ui/primitives'
 import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap, Eye, EyeOff, RotateCcw, Bug, X } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
@@ -165,23 +165,27 @@ export function SettingsView() {
                     />
                     <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 text-dim">
                       {adminApiKey && (
+                        <Tooltip content="Clear Key">
+                          <button
+                            type="button"
+                            onClick={() => setAdminApiKeyValue('')}
+                            aria-label="Clear Admin API Key"
+                            className="hover:text-red transition-colors"
+                          >
+                            <X size={18} />
+                          </button>
+                        </Tooltip>
+                      )}
+                      <Tooltip content={showAdminKey ? "Hide Key" : "Show Key"}>
                         <button
                           type="button"
-                          onClick={() => setAdminApiKeyValue('')}
-                          aria-label="Clear Admin API Key"
-                          className="hover:text-red transition-colors"
+                          onClick={() => setShowAdminKey(!showAdminKey)}
+                          aria-label={showAdminKey ? "Hide key" : "Show key"}
+                          className="hover:text-accent transition-colors"
                         >
-                          <X size={18} />
+                          {showAdminKey ? <EyeOff size={18} /> : <Eye size={18} />}
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setShowAdminKey(!showAdminKey)}
-                        aria-label={showAdminKey ? "Hide key" : "Show key"}
-                        className="hover:text-accent transition-colors"
-                      >
-                        {showAdminKey ? <EyeOff size={18} /> : <Eye size={18} />}
-                      </button>
+                      </Tooltip>
                     </div>
                   </div>
                 </div>

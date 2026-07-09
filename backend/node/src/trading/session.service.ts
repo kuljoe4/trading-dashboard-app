@@ -1424,7 +1424,7 @@ export class SessionService implements OnModuleInit {
           binance_stop_order_id: slId,
           binance_stop_order_type: slType as any,
           pnl: 0,
-          risk_usdt: roundEight(Math.abs(entryPrice - (slPrice || initialSl)) * qty),
+          risk_usdt: roundEight(Math.abs(entryPrice - initialSl) * qty),
           initial_risk_usdt: roundEight(Math.abs(entryPrice - initialSl) * qty),
           mark_price: parseFloat(exPos.markPrice || "0") || entryPrice,
           last_price: entryPrice,
@@ -1539,7 +1539,7 @@ export class SessionService implements OnModuleInit {
         );
         throw new BadRequestException({
           message: "Invalid configuration parameters",
-          detail: errors
+          detail: detailedErrors
         });
       }
 

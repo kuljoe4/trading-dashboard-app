@@ -270,7 +270,11 @@ const ManualMonitorInput = React.memo(({ onAdd, scannerResults = [] }) => {
           }}
           className="w-full bg-surface border border-border rounded-xl pl-4 pr-10 py-3 text-sm font-mono focus:border-accent outline-none hover:border-border-hover transition-colors"
         />
-        {value && <button type="button" onClick={() => { setValue(''); setIsOpen(false); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear input"><X size={16} /></button>}
+        {value && (
+          <Tooltip content="Clear Input">
+            <button type="button" onClick={() => { setValue(''); setIsOpen(false); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear Input"><X size={16} /></button>
+          </Tooltip>
+        )}
 
         <AnimatePresence>
           {isOpen && options.length > 0 && (
@@ -475,22 +479,26 @@ const PresetItem = React.memo(({ preset, isLoaded, isDirty, onLoad, onToggleVari
       </button>
 
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={(e) => onToggleVariant(e, preset)}
-          aria-label={isVariant ? `Remove ${preset.name} from variants` : `Add ${preset.name} as variant`}
-          className={cn("p-2 rounded-lg transition-all active:scale-95", isVariant ? "bg-accent/10 text-accent border border-accent/20" : "bg-surface border border-border text-dim hover:text-accent hover:border-accent/20")}
-        >
-          {isVariant ? <XCircle size={16} /> : <Plus size={16} />}
-        </button>
-        <button
-          type="button"
-          onClick={(e) => onDelete(e, preset.name)}
-          aria-label={`Delete preset ${preset.name}`}
-          className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"
-        >
-          <Trash2 size={16} />
-        </button>
+        <Tooltip content={isVariant ? "Remove Variant" : "Add as Variant"}>
+          <button
+            type="button"
+            onClick={(e) => onToggleVariant(e, preset)}
+            aria-label={isVariant ? `Remove ${preset.name} from variants` : `Add ${preset.name} as variant`}
+            className={cn("p-2 rounded-lg transition-all active:scale-95", isVariant ? "bg-accent/10 text-accent border border-accent/20" : "bg-surface border border-border text-dim hover:text-accent hover:border-accent/20")}
+          >
+            {isVariant ? <XCircle size={16} /> : <Plus size={16} />}
+          </button>
+        </Tooltip>
+        <Tooltip content="Delete Preset">
+          <button
+            type="button"
+            onClick={(e) => onDelete(e, preset.name)}
+            aria-label={`Delete preset ${preset.name}`}
+            className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"
+          >
+            <Trash2 size={16} />
+          </button>
+        </Tooltip>
       </div>
     </div>
   );
@@ -952,7 +960,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                <span className="truncate">Orchestration Center</span>
              </div>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close configuration" className="p-2 hover:bg-white/5 rounded-full transition-colors shrink-0"><X size={18} className="text-dim" /></button>
+          <Tooltip content="Close Configuration">
+            <button type="button" onClick={onClose} aria-label="Close Configuration" className="p-2 hover:bg-white/5 rounded-full transition-colors shrink-0"><X size={18} className="text-dim" /></button>
+          </Tooltip>
         </div>
         <SectionTabs section={section} onSectionChange={setSection} errors={errors} />
       </div>
@@ -1343,13 +1353,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                         }} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus:border-accent outline-none pr-7" />
                         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
                       </div>
-                      <button type="button" onClick={() => {
-                        const nextL = [...(cfg.live_rr_sequence || [])];
-                        const nextE = [...(cfg.exit_rr_sequence || [])];
-                        nextL.splice(i, 1);
-                        nextE.splice(i, 1);
-                        setCfg(prev => ({ ...prev, live_rr_sequence: nextL, exit_rr_sequence: nextE }));
-                      }} aria-label="Remove milestone" className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"><Trash2 size={16} /></button>
+                      <Tooltip content="Remove Milestone">
+                        <button type="button" onClick={() => {
+                          const nextL = [...(cfg.live_rr_sequence || [])];
+                          const nextE = [...(cfg.exit_rr_sequence || [])];
+                          nextL.splice(i, 1);
+                          nextE.splice(i, 1);
+                          setCfg(prev => ({ ...prev, live_rr_sequence: nextL, exit_rr_sequence: nextE }));
+                        }} aria-label="Remove Milestone" className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"><Trash2 size={16} /></button>
+                      </Tooltip>
                     </div>
                   ))}
                   <button type="button" onClick={() => {
@@ -1514,7 +1526,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                        <input type="text" value={w.start} onChange={(e) => { const wins = [...(cfg.trading_windows || [])]; wins[i].start = e.target.value; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs font-mono text-center focus:border-accent outline-none" />
                        <span className="text-dim/40 font-mono text-[10px]">to</span>
                        <input type="text" value={w.end} onChange={(e) => { const wins = [...(cfg.trading_windows || [])]; wins[i].end = e.target.value; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs font-mono text-center focus:border-accent outline-none" />
-                       <button type="button" onClick={() => setField('trading_windows', cfg.trading_windows.filter((_, idx) => idx !== i))} aria-label="Remove window" className="p-2 text-dim hover:text-red transition-colors"><Trash2 size={16} /></button>
+                       <Tooltip content="Remove Window">
+                        <button type="button" onClick={() => setField('trading_windows', cfg.trading_windows.filter((_, idx) => idx !== i))} aria-label="Remove Window" className="p-2 text-dim hover:text-red transition-colors"><Trash2 size={16} /></button>
+                       </Tooltip>
                      </div>
                    ))}
                    <button type="button" onClick={() => setField('trading_windows', [...(cfg.trading_windows || []), { start: '09:00', end: '17:00' }])} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all flex items-center justify-center gap-2"><Plus size={14} /> Add Window</button>

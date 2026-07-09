@@ -197,22 +197,31 @@ const BanBanner = ({ apiStatus }) => {
 };
 
 // --- Strategy Card ---
-const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner, className }) => {
+const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner, isMonitored, className }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
+  const handleCardClick = React.useCallback(() => {
+    onClick(s.strategy_label);
+  }, [onClick, s.strategy_label]);
+
+  const handleEditClick = React.useCallback((e) => {
+    e.stopPropagation();
+    onEdit(s.strategy_label);
+  }, [onEdit, s.strategy_label]);
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      onClick();
+      handleCardClick();
     }
   }
 
   return (
     <motion.div
       whileHover={{ scale: 1.01 }}
-      onClick={onClick}
+      onClick={handleCardClick}
       onKeyDown={handleKeyDown}
       role="button"
       tabIndex={0}
@@ -249,34 +258,38 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
                 {config.scan_interval} · {config.scan_pct_threshold}%
               </span>
             </div>
-            {(config.single_symbol_configs || []).filter(sc => sc.enabled).length > 0 && (
+            {isMonitored && (
               <div className="flex items-center gap-2 whitespace-nowrap overflow-hidden">
                 <ShieldCheck size={12} className="text-accent shrink-0" />
-                <span className="truncate">{config.single_symbol_configs.filter(sc => sc.enabled).length} Symbol Monitors Active</span>
+                <span className="truncate">Symbol Monitor Active</span>
               </div>
             )}
           </div>
         </div>
         <div className="text-right shrink-0">
           <div className="flex gap-2 mb-2 relative z-20">
-            <button
-              onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
-              aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
-              aria-expanded={isExpanded}
-              className={cn(
-                "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
-              )}
-            >
-              <Activity size={14} />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onEdit(); }}
-              className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none"
-              aria-label="Edit strategy configuration"
-            >
-              <Edit3 size={14} />
-            </button>
+            <Tooltip content={isExpanded ? "Hide Details" : "Show Details"}>
+              <button
+                onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
+                aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
+                aria-expanded={isExpanded}
+                className={cn(
+                  "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                  isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
+                )}
+              >
+                <Activity size={14} />
+              </button>
+            </Tooltip>
+            <Tooltip content="Edit Strategy">
+              <button
+                onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none"
+                aria-label="Edit strategy configuration"
+              >
+                <Edit3 size={14} />
+              </button>
+            </Tooltip>
           </div>
           <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter" style={{ color: pnlColor(s.activePnl) }}>
             {fmtUSD(s.activePnl)}
@@ -346,7 +359,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
   );
 })
 
-const GateBanner = ({ gateState, scannerPaused, reason, hibernating, activeTradesCount }) => {
+const GateBanner = React.memo(({ gateState, scannerPaused, reason, hibernating, activeTradesCount }) => {
   if (!gateState && !scannerPaused) return null
 
   const messages = {
@@ -396,9 +409,10 @@ const GateBanner = ({ gateState, scannerPaused, reason, hibernating, activeTrade
       )}
     </motion.div>
   )
-}
+})
+GateBanner.displayName = 'GateBanner'
 
-const ScannerPreview = ({ scannerResults, config, onOpen }) => {
+const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) => {
   const { activeTrades } = useTradingStore(state => ({ activeTrades: state.activeTrades }), shallow);
   const threshold = config.scan_pct_threshold || 2
   const top = scannerResults.slice(0, 5)
@@ -491,7 +505,8 @@ const ScannerPreview = ({ scannerResults, config, onOpen }) => {
       </div>
     </div>
   )
-}
+})
+ScannerPreview.displayName = 'ScannerPreview'
 
 export function DashboardView({ initialStrategy }) {
   const [selected, setSelected] = useState(initialStrategy || null)
@@ -531,7 +546,7 @@ export function DashboardView({ initialStrategy }) {
     hibernating: state.hibernating,
     agreementRequired: state.agreementRequired,
     scannerPaused: state.scannerPaused,
-            alerts: state.alerts,
+    alerts: state.alerts,
     updateStats: state.updateStats,
     sessionList: state.sessionList,
     fetchSessions: state.fetchSessions,
@@ -591,6 +606,16 @@ export function DashboardView({ initialStrategy }) {
     Object.values(activePnlMap).reduce((acc, val) => acc + val, 0)
   , [activePnlMap]);
 
+  const maxRR = useMemo(() => activeTrades.reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
+
+  const monitoredSymbolsSet = useMemo(() => {
+    const set = new Set();
+    config.single_symbol_configs?.forEach(sc => {
+      if (sc.enabled) set.add(sc.symbol);
+    });
+    return set;
+  }, [config.single_symbol_configs]);
+
 
   const [loading, setLoading] = useState(false)
 
@@ -601,8 +626,6 @@ export function DashboardView({ initialStrategy }) {
     }
     return () => clearTimeout(timer);
   }, [confirmStop]);
-
-  const maxRR = useMemo(() => activeTrades.reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
 
   useEffect(() => {
     // Legacy support for scanner-only focus if not handled by hook
@@ -621,7 +644,7 @@ export function DashboardView({ initialStrategy }) {
 
   const addAlert = useTradingStore(state => state.addAlert);
 
-  async function handleConfigSave(newConfig) {
+  const handleConfigSave = React.useCallback(async (newConfig) => {
     setLoading(true)
     setSyncing(true)
     useTradingStore.setState({ configSyncing: true }); // Enable global sync protection
@@ -658,9 +681,9 @@ export function DashboardView({ initialStrategy }) {
       setIsEditMode(false)
       setEditingVariantIndex(null)
     }
-  }
+  }, [config, isEditMode, strategyId, editingVariantIndex, updateConfig, setSessionActive, addAlert, fetchSessions, setSyncing]);
 
-  async function togglePause() {
+  const togglePause = React.useCallback(async () => {
     try {
       await sessionAPI.pause(!sessionPaused)
       addAlert({
@@ -672,9 +695,9 @@ export function DashboardView({ initialStrategy }) {
       console.error('Pause toggle failed:', e)
       addAlert({ level: 'error', title: 'Action Failed', message: 'Could not toggle session pause state.' });
     }
-  }
+  }, [sessionPaused, addAlert]);
 
-  async function handleResumeLast() {
+  const handleResumeLast = React.useCallback(async () => {
     if (!lastSession) return;
     setLoading(true);
     setSyncing(true);
@@ -688,9 +711,9 @@ export function DashboardView({ initialStrategy }) {
       setLoading(false);
       setSyncing(false);
     }
-  }
+  }, [lastSession, setSessionActive, addAlert, setSyncing]);
 
-  async function handleStop() {
+  const handleStop = React.useCallback(async () => {
     setLoading(true)
     setSyncing(true)
     try {
@@ -707,9 +730,9 @@ export function DashboardView({ initialStrategy }) {
       setSyncing(false)
       setConfirmStop(false)
     }
-  }
+  }, [setSessionActive, addAlert, fetchSessions, setSyncing]);
 
-  async function handleDeleteSession() {
+  const handleDeleteSession = React.useCallback(async () => {
     if (!sessionToDelete) return
     setLoading(true)
     setSyncing(true)
@@ -732,7 +755,26 @@ export function DashboardView({ initialStrategy }) {
       setSyncing(false)
       setSessionToDelete(null)
     }
-  }
+  }, [sessionToDelete, addAlert, fetchSessions, setSyncing]);
+
+  const handleOpenScanner = React.useCallback(() => setShowScanner(true), []);
+  const handleEditPrimary = React.useCallback(() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }, [config]);
+  const handleSelectPrimary = React.useCallback(() => setSelected(currentStrategy.strategy_label), [currentStrategy.strategy_label]);
+
+  const handleEditVariant = React.useCallback((label) => {
+    const idx = config.strategy_variants?.findIndex(v => v.strategy_label === label);
+    if (idx !== -1) {
+      const variantConfig = { ...config, ...config.strategy_variants[idx] };
+      setIsEditMode(true);
+      setSelectedConfig(variantConfig);
+      setEditingVariantIndex(idx);
+      setShowConfig(true);
+    }
+  }, [config]);
+
+  const handleSelectVariant = React.useCallback((label) => {
+    setSelected(label);
+  }, []);
 
   if (selected) {
     const strategyData = {
@@ -811,21 +853,23 @@ export function DashboardView({ initialStrategy }) {
               </div>
             )}
 
-            <button
-              onClick={() => setThrottled(!isThrottled)}
-              aria-label={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}
-              className={cn(
-                "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                isThrottled
-                  ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
-                  : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
-              )}
-            >
-              <Leaf size={18} fill={isThrottled ? "currentColor" : "none"} />
-              <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest">
-                {isThrottled ? "Eco Active" : "Eco Mode"}
-              </span>
-            </button>
+            <Tooltip content={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}>
+              <button
+                onClick={() => setThrottled(!isThrottled)}
+                aria-label={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}
+                className={cn(
+                  "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                  isThrottled
+                    ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
+                    : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
+                )}
+              >
+                <Leaf size={18} fill={isThrottled ? "currentColor" : "none"} />
+                <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest">
+                  {isThrottled ? "Eco Active" : "Eco Mode"}
+                </span>
+              </button>
+            </Tooltip>
 
             {sessionActive && (
               <Btn
@@ -1106,9 +1150,10 @@ export function DashboardView({ initialStrategy }) {
                             config={config}
                             paused={sessionPaused}
                             onPause={togglePause}
-                            onOpenScanner={() => setShowScanner(true)}
-                            onEdit={() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }}
-                            onClick={() => setSelected(currentStrategy.strategy_label)}
+                            onOpenScanner={handleOpenScanner}
+                            onEdit={handleEditPrimary}
+                            onClick={handleSelectPrimary}
+                            isMonitored={monitoredSymbolsSet.has(currentStrategy.strategy_label)}
                             className={cn(totalCards % 2 !== 0 && "md:col-span-2")}
                           />
                           {activeVariants.map((variant, i) => {
@@ -1127,9 +1172,10 @@ export function DashboardView({ initialStrategy }) {
                                 config={variantConfig}
                                 paused={sessionPaused}
                                 onPause={togglePause}
-                                onOpenScanner={() => setShowScanner(true)}
-                                onEdit={() => { setIsEditMode(true); setSelectedConfig(variantConfig); setEditingVariantIndex(i); setShowConfig(true); }}
-                                onClick={() => setSelected(label)}
+                                onOpenScanner={handleOpenScanner}
+                                onEdit={handleEditVariant}
+                                onClick={handleSelectVariant}
+                                isMonitored={monitoredSymbolsSet.has(label)}
                               />
                             );
                           })}

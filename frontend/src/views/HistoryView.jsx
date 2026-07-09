@@ -462,9 +462,11 @@ export const HistoryView = () => {
                  className="bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-[11px] font-bold focus:border-accent outline-none transition-all w-[180px] lg:w-[240px]"
                />
                {search && (
-                 <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear search">
-                   <XCircle size={14} />
-                 </button>
+                 <Tooltip content="Clear Search">
+                  <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear Search">
+                    <XCircle size={14} />
+                  </button>
+                 </Tooltip>
                )}
              </div>
              <span className="text-[9px] text-dim font-bold uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50 whitespace-nowrap">
@@ -485,9 +487,11 @@ export const HistoryView = () => {
             className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-3 text-xs font-bold focus:border-accent outline-none transition-all"
           />
           {search && (
-            <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear search">
-              <XCircle size={16} />
-            </button>
+            <Tooltip content="Clear Search">
+              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear Search">
+                <XCircle size={16} />
+              </button>
+            </Tooltip>
           )}
         </div>
 

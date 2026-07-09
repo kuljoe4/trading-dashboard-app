@@ -53,6 +53,9 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      // SENTINEL: Prevent information leakage in default validation error responses.
+      // Target object and input values are excluded from the output.
+      validationError: { target: false, value: false },
     }),
   );
 

@@ -296,21 +296,25 @@ export class TradingSessionService implements OnApplicationShutdown {
   @OnEvent(ENGINE_EVENTS.TRADE_UPDATED)
   async handleTradeUpdate(payload: { trade: Trade, pnlDelta?: number }) {
     const trade = payload.trade;
-    const pnlDelta = payload.pnlDelta ?? 0;
+
+    // DATA-05: Delta-based balance updates to prevent double-counting
+    // Use provided delta, or calculate from appliedPnL if available.
+    const currentPnl = trade.pnl || 0;
+    const prevApplied = this.appliedPnL.get(trade.id) || 0;
+    const pnlDelta = payload.pnlDelta ?? roundEight(currentPnl - prevApplied);
 
     if (pnlDelta !== 0) {
        const mode = this.config?.trading_mode || (this.config?.paper_mode ? 'paper' : 'live');
        if (mode === 'paper') {
          this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + pnlDelta);
        } else {
-         // Live balance is updated via polling/websocket, but we can apply delta as fallback
+         // Live balance is updated via polling/websocket, but we apply delta to maintain local sync
          this.sessionState.balanceLive = roundEight(this.sessionState.balanceLive + pnlDelta);
        }
-       // DATA-05: Update appliedPnL to reflect the change received via event
-       const prev = this.appliedPnL.get(trade.id) || 0;
-       this.appliedPnL.set(trade.id, roundEight(prev + pnlDelta));
+       // Update appliedPnL to reflect the change
+       this.appliedPnL.set(trade.id, roundEight(prevApplied + pnlDelta));
 
-       // SRE: Update sessionStats to include realized PnL from active trades (fees/funding)
+       // SRE: Update sessionStats to include realized PnL from active trades (fees/funding/partial hits)
        this.sessionState.updateStatsOnClose(false, trade.pnl, false, trade.id);
     }
 

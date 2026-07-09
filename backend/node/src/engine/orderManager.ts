@@ -184,16 +184,28 @@ export class OrderManagerService {
         const commission = parseFloat(order.n || '0');
         const tradeExecutionId = order.t ? String(order.t) : null;
 
-        // CHRONOS: Accumulate authoritative commission from exchange slice
+        const rp = parseFloat(order.rp || '0');
+
+        // CHRONOS: Handle realized profit and commissions for all executions
         // DEDUPLICATION: Use tradeExecutionId to prevent double-counting between REST and UDS
-         if (commission > 0 && tradeExecutionId) {
-           if (!isDuplicateTrade) {
+        if (!isDuplicateTrade && tradeExecutionId) {
+           let pnlChanged = false;
+           if (commission > 0) {
               trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + commission);
+              // trade.pnl is net of fees, so we subtract commission as it's realized
+              trade.pnl = roundEight((Number(trade.pnl) || 0) - commission);
+              pnlChanged = true;
+           }
+           if (rp !== 0) {
+              trade.pnl = roundEight((Number(trade.pnl) || 0) + rp);
+              pnlChanged = true;
+           }
+
+           if (pnlChanged) {
               this.tradeExecutionCache.set(tradeExecutionId, Date.now());
-              this.logger.debug(`[${tradeIdShort8}] [UDS] Accumulated commission for ${symbol}: ${commission}. Total: ${trade.realized_fee}`);
+              this.logger.debug(`[${tradeIdShort8}] [UDS] PnL Update: Fee=+${commission}, RP=${rp}. Total Net PnL=${trade.pnl}, Total Fee=${trade.realized_fee}`);
+              this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
               this.cleanupExecutionCache();
-           } else {
-              this.logger.debug(`[${tradeIdShort8}] [UDS] Dropping duplicate commission for execution ${tradeExecutionId}`);
            }
         }
 
@@ -291,11 +303,24 @@ export class OrderManagerService {
            }
         }
         else if (side !== (trade.direction === 'LONG' ? 'BUY' : 'SELL')) {
+           // CHRONOS: Only close locally for recognized exit orders or closePosition: true.
+           // This prevents ghost positions if an external order partially fills.
+           const filledQty = parseFloat(order.z || '0');
+           const isRecognizedExit =
+             (trade.binance_close_order_id === orderId) ||
+             (order.cp === true) ||
+             (clientOrderId && (clientOrderId.startsWith('cls-') || clientOrderId.startsWith('tp-') || clientOrderId.startsWith('sig-')));
+
            if (status === 'FILLED') {
+             if (!isRecognizedExit) {
+               this.logger.warn(`[${tradeIdShort8}] [UDS] External or partial opposite-side order FILLED for ${symbol} but not recognized as authoritative engine exit. Ignoring to prevent ghost position. (Order ID: ${orderId}, Qty: ${filledQty}/${trade.qty})`);
+               return;
+             }
+
              // RESTORE: Set trade.qty to total order size for correct PnL calculation on final fill
              trade.qty = parseFloat(order.q || '0');
 
-             this.logger.log(`[${tradeIdShort8}] Non-entry order FILLED for ${symbol} (${side}). Closing trade locally.`);
+             this.logger.log(`[${tradeIdShort8}] Recognized exit order FILLED for ${symbol} (${side}). Closing trade locally.`);
              let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
 
              if (exitPrice === 0) {
@@ -484,7 +509,7 @@ export class OrderManagerService {
       // Handle both native Headers and plain objects
       const weight = (headers && typeof headers.get === 'function')
         ? headers.get('X-MBX-USED-WEIGHT-1M')
-        : (headers ? (headers['x-mbx-used-weight-1m'] || headers['X-MBX-USED-WEIGHT-1M']) : null);
+        : (headers ? (headers['x-mbx-used-weight-1m'] || headers['X-MBX-USED-WEIGHT-1M'] || headers['X-Mbx-Used-Weight-1m'] || headers['x-mbx-used-weight-1m'] || headers['get']) : null);
 
       if (weight) {
         const currentWeight = parseInt(weight, 10);
@@ -1607,6 +1632,7 @@ export class OrderManagerService {
 
            if (rollbackResult && rollbackResult.orderId && rollbackResult.orderId !== '') {
               this.logger.log(`[SL Ratchet] Rollback successful for ${trade.symbol}. Position is protected at ${rollbackResult.price}.`);
+              trade.binance_stop_order_id = rollbackResult.orderId;
            } else {
               throw new Error('Rollback placement returned empty');
            }

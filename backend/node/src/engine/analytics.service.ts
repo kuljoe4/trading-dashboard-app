@@ -25,6 +25,9 @@ export interface AnalyticsResult {
   profitFactor: number;
   sharpeRatio: number;
   sortinoRatio: number;
+  maxWinStreak: number;
+  maxLossStreak: number;
+  avgDuration: number;
   roiTrends: {
     sevenDay: number;
     fourWeek: number;
@@ -82,11 +85,20 @@ export class AnalyticsService {
     let sevenDayPnL = 0;
     let fourWeekPnL = 0;
 
-    // Performance Engineering: If currentBalance is provided, anchor the entire history
-    // to the current account power to ensure scale-invariant drawdown and performance.
-    const effectiveStartingBalance = (currentBalance && currentBalance > 0)
-      ? Math.max(1, currentBalance - totalNetPnL)
-      : startingBalance;
+    let maxWinStreak = 0;
+    let maxLossStreak = 0;
+    let currentWinStreak = 0;
+    let currentLossStreak = 0;
+    let totalDurationMs = 0;
+
+    // Performance Engineering: Ensure a stable anchor for ROI calculations.
+    // If startingBalance is provided (e.g. from session config), use it.
+    // Otherwise, fallback to the recomputed balance logic.
+    // NOTE: anchoring to (currentBalance - totalNetPnL) is susceptible to drift
+    // if the user adds/removes funds. We prioritize startingBalance if available.
+    const effectiveStartingBalance = startingBalance > 0
+      ? startingBalance
+      : ((currentBalance && currentBalance > 0) ? Math.max(1, currentBalance - totalNetPnL) : 10000);
 
     let rollingBalance = effectiveStartingBalance;
     const cumulativePnL: { ts: string; pnl: number }[] = new Array(totalTrades);
@@ -140,11 +152,24 @@ export class AnalyticsService {
         totalWins += 1;
         grossProfit += pnl;
         grossProfitPct += tradeReturnPct;
+
+        currentWinStreak++;
+        currentLossStreak = 0;
+        if (currentWinStreak > maxWinStreak) maxWinStreak = currentWinStreak;
       } else if (pnl < 0) {
         totalLosses += 1;
         grossLoss += Math.abs(pnl);
         grossLossPct += Math.abs(tradeReturnPct);
         downsideSumSquaredReturnPct += tradeReturnPct * tradeReturnPct;
+
+        currentLossStreak++;
+        currentWinStreak = 0;
+        if (currentLossStreak > maxLossStreak) maxLossStreak = currentLossStreak;
+      }
+
+      const entryTs = t.entry_ts;
+      if (entryTs) {
+        totalDurationMs += exitTsMs - entryTs.getTime();
       }
     }
 
@@ -207,6 +232,9 @@ export class AnalyticsService {
       profitFactor: roundTo(profitFactor, 2),
       sharpeRatio: roundTo(sharpeRatio, 2),
       sortinoRatio: roundTo(sortinoRatio, 2),
+      maxWinStreak,
+      maxLossStreak,
+      avgDuration: totalTrades > 0 ? Math.round(totalDurationMs / totalTrades) : 0,
       roiTrends: {
         sevenDay: roundTo(roiTrends.sevenDay, 2),
         fourWeek: roundTo(roiTrends.fourWeek, 2),

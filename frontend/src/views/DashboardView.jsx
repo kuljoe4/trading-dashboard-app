@@ -53,7 +53,7 @@ const TemporalRiskGrid = React.memo(() => {
 
       <InteractiveLimitCard
         label="Window"
-        subValue="Sliding"
+        subValue={effectivePeriodMs ? `Effective: ${Math.round(effectivePeriodMs / 60000)}m` : "Sliding"}
         tooltip="Duration of the sliding window for frequency limits."
         value={config.trades_period_min || 60}
         unit="m"
@@ -527,7 +527,7 @@ export function DashboardView({ initialStrategy }) {
     scannerPaused, sessionList, fetchSessions, wsStatus,
     updateStats, analytics,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
-    healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus
+    healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -565,7 +565,8 @@ export function DashboardView({ initialStrategy }) {
     configSyncing: state.configSyncing,
     isAdaptiveTightened: state.isAdaptiveTightened,
     apiStatus: state.apiStatus,
-    analytics: state.analytics
+    analytics: state.analytics,
+    effectivePeriodMs: state.effectivePeriodMs
   }), shallow)
 
   useEffect(() => {
@@ -1088,35 +1089,71 @@ export function DashboardView({ initialStrategy }) {
                    View Full Analytics <ChevronRight size={12} />
                  </button>
                  <span className="text-[9px] text-dim font-black uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50">
-                    Updated Live
+                    {analytics?.cumulativePnL?.length ? `As of ${new Date(analytics.cumulativePnL[analytics.cumulativePnL.length - 1].ts).toLocaleTimeString()}` : 'Updated Live'}
                  </span>
                </div>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-              <StatCard
-                label="7D ROI Trend"
-                value={analytics?.roiTrends ? `${analytics.roiTrends.sevenDay >= 0 ? '+' : ''}${analytics.roiTrends.sevenDay}%` : '---'}
-                color={analytics?.roiTrends ? pnlClass(analytics.roiTrends.sevenDay) : "text-dim"}
-                tooltipText="Percentage return on account equity over the last 7 days."
-              />
-              <StatCard
-                label="4W ROI Trend"
-                value={analytics?.roiTrends ? `${analytics.roiTrends.fourWeek >= 0 ? '+' : ''}${analytics.roiTrends.fourWeek}%` : '---'}
-                color={analytics?.roiTrends ? pnlClass(analytics.roiTrends.fourWeek) : "text-dim"}
-                tooltipText="Percentage return on account equity over the last 28 days."
-              />
-              <StatCard
-                label="Profit Factor"
-                value={analytics ? Number(analytics.profitFactor || 0).toFixed(2) : '---'}
-                color={analytics ? "text-accent" : "text-dim"}
-                tooltipText="Ratio of gross profit to gross loss. > 1.0 is profitable."
-              />
-              <StatCard
-                label="Sharpe Ratio"
-                value={analytics ? Number(analytics.sharpeRatio || 0).toFixed(2) : '---'}
-                color={analytics ? "text-accent" : "text-dim"}
-                tooltipText="Risk-adjusted return. Higher is better."
-              />
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Left Column: Equity Story */}
+              <div className="lg:col-span-2 bg-surface border border-border/40 rounded-2xl p-5 md:p-6 shadow-sm flex flex-col gap-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col gap-1">
+                    <div className="text-[10px] text-dim font-black uppercase tracking-widest">Equity Narrative</div>
+                    <div className="text-xs font-bold text-text">Lifetime Performance Curve</div>
+                  </div>
+                  <div className="flex gap-4">
+                     <div className="flex flex-col items-end">
+                        <span className="text-[9px] text-dim font-black uppercase tracking-widest">7D ROI</span>
+                        <span className={cn("text-xs font-bold font-mono", analytics?.roiTrends ? pnlClass(analytics.roiTrends.sevenDay) : "text-dim")}>
+                          {analytics?.roiTrends ? `${analytics.roiTrends.sevenDay >= 0 ? '+' : ''}${analytics.roiTrends.sevenDay}%` : '---'}
+                        </span>
+                     </div>
+                     <div className="flex flex-col items-end">
+                        <span className="text-[9px] text-dim font-black uppercase tracking-widest">4W ROI</span>
+                        <span className={cn("text-xs font-bold font-mono", analytics?.roiTrends ? pnlClass(analytics.roiTrends.fourWeek) : "text-dim")}>
+                          {analytics?.roiTrends ? `${analytics.roiTrends.fourWeek >= 0 ? '+' : ''}${analytics.roiTrends.fourWeek}%` : '---'}
+                        </span>
+                     </div>
+                  </div>
+                </div>
+                <div className="h-[80px] w-full overflow-hidden">
+                  <EquityCurve data={analytics?.cumulativePnL || []} height={80} hideAxes={true} />
+                </div>
+              </div>
+
+              {/* Right Column: Key Stats Grid */}
+              <div className="grid grid-cols-2 gap-3 md:gap-4">
+                 <div className="flex flex-col gap-3">
+                    <StatCard
+                      label="Returns"
+                      value={analytics ? `${Number(analytics.overallWinRate || 0).toFixed(1)}%` : '---'}
+                      subValue="Win Rate"
+                      tooltipText="Percentage of closed trades that resulted in a profit."
+                    />
+                    <StatCard
+                      label="Max DD"
+                      value={analytics ? `${Number(analytics.maxDrawdownPct || 0).toFixed(1)}%` : '---'}
+                      color="text-red"
+                      subValue="Drawdown"
+                      tooltipText="Maximum observed peak-to-trough decline in equity."
+                    />
+                 </div>
+                 <div className="flex flex-col gap-3">
+                    <StatCard
+                      label="Risk Edge"
+                      value={analytics ? Number(analytics.profitFactor || 0).toFixed(2) : '---'}
+                      subValue="Profit Factor"
+                      tooltipText="Ratio of gross profit to gross loss. > 1.0 is profitable."
+                    />
+                    <StatCard
+                      label="Efficiency"
+                      value={analytics ? Number(analytics.sharpeRatio || 0).toFixed(2) : '---'}
+                      subValue="Sharpe Ratio"
+                      tooltipText="Risk-adjusted return. Higher is better."
+                    />
+                 </div>
+              </div>
             </div>
           </motion.div>
         )}

@@ -16,7 +16,7 @@ const downsample = (data, threshold = 100) => {
   return result;
 };
 
-export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) => {
+export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hideAxes = false }) => {
   const gradientId = useId().replace(/:/g, '')
   const glowId = `${gradientId}-glow`
   const containerRef = useRef(null);
@@ -85,7 +85,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
 
   if (data.length < 2) {
     return (
-      <div className="flex flex-col items-center justify-center h-[180px] bg-surface/20 border border-border/40 rounded-2xl border-dashed">
+      <div className={cn("flex flex-col items-center justify-center bg-surface/20 border border-border/40 rounded-2xl border-dashed", hideAxes ? "h-full" : "h-[180px]")}>
         <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Insufficient Trade Data</span>
       </div>
     );
@@ -93,10 +93,45 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
 
   const currentPnl = data[data.length - 1]?.pnl ?? 0;
 
+  const peaks = useMemo(() => {
+    if (points.length < 2) return [];
+    let currentMax = -Infinity;
+    return points.map(p => {
+        // Remember Y is inverted, so max PnL is MIN Y
+        if (currentMax === -Infinity || p.y < currentMax) {
+            currentMax = p.y;
+        }
+        return { x: p.x, y: currentMax };
+    });
+  }, [points]);
+
+  const peakPathD = useMemo(() => {
+    if (peaks.length < 2) return '';
+    let d = `M ${peaks[0].x} ${peaks[0].y}`;
+    for (let i = 1; i < peaks.length; i++) {
+        d += ` L ${peaks[i].x} ${peaks[i].y}`;
+    }
+    return d;
+  }, [peaks]);
+
+  const drawdownPathD = useMemo(() => {
+    if (points.length < 2 || peaks.length < 2) return '';
+    // Combine peak path and equity path to form a closed area for shading
+    let d = `M ${points[0].x} ${points[0].y}`;
+    for (let i = 1; i < points.length; i++) {
+        d += ` L ${points[i].x} ${points[i].y}`;
+    }
+    for (let i = peaks.length - 1; i >= 0; i--) {
+        d += ` L ${peaks[i].x} ${peaks[i].y}`;
+    }
+    d += ' Z';
+    return d;
+  }, [points, peaks]);
+
   return (
     <div
       ref={containerRef}
-      className="relative group cursor-crosshair select-none touch-none"
+      className="relative group cursor-crosshair select-none touch-none w-full h-full"
       role="img"
       aria-label={`Cumulative profit and loss chart, latest value ${fmtUSD(currentPnl)}.`}
       onMouseMove={handleMouseMove}
@@ -106,39 +141,41 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
       onTouchEnd={handleMouseLeave}
     >
       {/* Header Info - Moved above chart plot to prevent overlap */}
-      <div className="flex items-start justify-between mb-6 min-h-[64px]">
-        <div className="flex flex-col gap-0.5">
-          <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Cumulative P&L</span>
-          <span className={cn("text-2xl font-bold font-mono tracking-tighter", currentPnl >= 0 ? "text-green" : "text-red")}>
-            {fmtUSD(hoverData ? hoverData.pnl : currentPnl)}
-          </span>
-          <div className="h-4"> {/* Fix CLS by pre-allocating space for date */}
-            {hoverData?.ts && (
-              <span className="text-[9px] text-dim font-mono uppercase mt-1">
-                {new Date(hoverData.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-              </span>
-            )}
+      {!hideAxes && (
+        <div className="flex items-start justify-between mb-6 min-h-[64px]">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Cumulative P&L</span>
+            <span className={cn("text-2xl font-bold font-mono tracking-tighter", currentPnl >= 0 ? "text-green" : "text-red")}>
+              {fmtUSD(hoverData ? hoverData.pnl : currentPnl)}
+            </span>
+            <div className="h-4"> {/* Fix CLS by pre-allocating space for date */}
+              {hoverData?.ts && (
+                <span className="text-[9px] text-dim font-mono uppercase mt-1">
+                  {new Date(hoverData.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </span>
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* High/Low Markers - Improved Contrast & Visibility */}
-        <div className="flex flex-col items-end gap-1.5 pt-1">
-          <div className="flex items-center gap-2">
-             <span className="text-[9px] text-dim font-bold uppercase tracking-tight">High</span>
-             <span className="text-[11px] text-text font-bold font-mono">{fmtUSD(viewMax)}</span>
-          </div>
-          <div className="flex items-center gap-2">
-             <span className="text-[9px] text-dim font-bold uppercase tracking-tight">Low</span>
-             <span className="text-[11px] text-text font-bold font-mono">{fmtUSD(viewMin)}</span>
+          {/* High/Low Markers - Improved Contrast & Visibility */}
+          <div className="flex flex-col items-end gap-1.5 pt-1">
+            <div className="flex items-center gap-2">
+               <span className="text-[9px] text-dim font-bold uppercase tracking-tight">High</span>
+               <span className="text-[11px] text-text font-bold font-mono">{fmtUSD(viewMax)}</span>
+            </div>
+            <div className="flex items-center gap-2">
+               <span className="text-[9px] text-dim font-bold uppercase tracking-tight">Low</span>
+               <span className="text-[11px] text-text font-bold font-mono">{fmtUSD(viewMin)}</span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <svg
         viewBox="0 0 100 100"
         preserveAspectRatio="none"
-        className="w-full overflow-visible"
-        style={{ height: `${height}px` }}
+        className={cn("w-full overflow-visible", hideAxes ? "mt-0" : "mt-2")}
+        style={{ height: hideAxes ? '100%' : `${height}px` }}
       >
         <defs>
           <linearGradient id={`${gradientId}-area-above`} x1="0" y1="0" x2="0" y2="1">
@@ -169,7 +206,17 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
         <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" className="text-border/5" strokeWidth="0.1" />
 
         {/* Zero Baseline */}
-        <line x1="0" y1={zeroY} x2="100" y2={zeroY} stroke="currentColor" className="text-border/20" strokeWidth="0.3" strokeDasharray="1,2" />
+        {!hideAxes && (
+          <line x1="0" y1={zeroY} x2="100" y2={zeroY} stroke="currentColor" className="text-border/20" strokeWidth="0.3" strokeDasharray="1,2" />
+        )}
+
+        {/* Drawdown Shading */}
+        <path d={drawdownPathD} fill="var(--color-red)" fillOpacity="0.05" />
+
+        {/* Peak Watermark */}
+        {!hideAxes && (
+           <path d={peakPathD} fill="none" stroke="var(--color-accent)" strokeWidth="0.1" strokeDasharray="1,2" opacity="0.2" />
+        )}
 
         {/* Areas */}
         <path d={areaAboveD} fill={`url(#${gradientId}-area-above)`} clipPath={`url(#${gradientId}-clip-above)`} className="transition-all duration-700" />

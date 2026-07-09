@@ -9,6 +9,8 @@ import { AuditLog as AuditLogEntity } from '../models/entities/AuditLog.entity';
 import { BalanceHistory as BalanceHistoryEntity } from '../models/entities/BalanceHistory.entity';
 import { StrategyPreset as StrategyPresetEntity } from '../models/entities/StrategyPreset.entity';
 import { Kline as KlineEntity } from '../models/entities/Kline.entity';
+import { User as UserEntity, UserProfile as UserProfileEntity } from '../models/entities/User.entity';
+import { Follow as FollowEntity } from '../models/entities/Follow.entity';
 import { SignalEngineService } from '../engine/signalEngine';
 import { RiskEngineService } from '../engine/riskEngine';
 import { PositionTrackerService } from '../engine/positionTracker';
@@ -24,10 +26,14 @@ import { BroadcastService } from '../engine/broadcast.service';
 import { SessionStateService } from '../engine/session_state.service';
 import { SessionService } from './session.service';
 import { AuditLogService } from './audit-log.service';
+import { GamificationService } from './gamification.service';
 import { SessionController } from './session.controller';
 import { SettingsController } from './settings.controller';
 import { MonitoringController } from './monitoring.controller';
 import { PresetsController } from './presets.controller';
+import { SocialController } from './social.controller';
+import { SocialFollowingService } from './social-following.service';
+import { PushNotificationService } from './push-notification.service';
 import { ApiKeyGuard } from '../lib/api-key.guard';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { MonitoringService } from '../engine/monitoring.service';
@@ -40,9 +46,21 @@ import { MaintenanceService } from '../engine/maintenance.service';
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([SessionEntity, TradeEntity, LogEntity, SettingsEntity, AuditLogEntity, BalanceHistoryEntity, StrategyPresetEntity, KlineEntity]),
+    TypeOrmModule.forFeature([
+      SessionEntity,
+      TradeEntity,
+      LogEntity,
+      SettingsEntity,
+      AuditLogEntity,
+      BalanceHistoryEntity,
+      StrategyPresetEntity,
+      KlineEntity,
+      UserEntity,
+      UserProfileEntity,
+      FollowEntity
+    ]),
   ],
-  controllers: [SessionController, SettingsController, MonitoringController, PresetsController],
+  controllers: [SessionController, SettingsController, MonitoringController, PresetsController, SocialController],
   providers: [
     SignalEngineService,
     RiskEngineService,
@@ -59,6 +77,9 @@ import { MaintenanceService } from '../engine/maintenance.service';
     SessionStateService,
     SessionService,
     AuditLogService,
+    GamificationService,
+    SocialFollowingService,
+    PushNotificationService,
     MonitoringService,
     AnalyticsService,
     VariantAnalyticsService,

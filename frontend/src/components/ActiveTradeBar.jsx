@@ -7,7 +7,7 @@ import { cn, Btn } from './ui/primitives'
 import { sessionAPI } from '../api/client'
 import { ConfirmationModal } from './ConfirmationModal'
 
-export const ActiveTradeBar = () => {
+export const ActiveTradeBar = React.memo(() => {
   const activeTrades = useTradingStore(state => state.activeTrades)
   const sessionActive = useTradingStore(state => state.sessionActive)
   const [closingSymbol, setClosingSymbol] = React.useState(null)

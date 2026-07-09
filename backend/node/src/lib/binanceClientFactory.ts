@@ -27,6 +27,26 @@ export class BinanceClientFactory implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
+    // SRE: Proactive Clock Synchronization Check (Citadel Vector 6).
+    // Drift of >1000ms makes signed requests invalid or vulnerable to replay.
+    try {
+      const start = Date.now();
+      const response = await fetch(`${DERIVATIVES_TRADING_USDS_FUTURES_REST_API_PROD_URL}/fapi/v1/time`);
+      const data = (await response.json()) as { serverTime: number };
+      const end = Date.now();
+      const serverTime = data.serverTime;
+      const localTime = (start + end) / 2;
+      const drift = Math.abs(localTime - serverTime);
+
+      if (drift > 1000) {
+        this.logger.fatal(`[CRITICAL] System clock drift detected: ${drift.toFixed(0)}ms. Execution at risk. [Weight: 1]`);
+      } else {
+        this.logger.log(`[Clock] System synchronized with Binance engine. Drift: ${drift.toFixed(0)}ms [Weight: 1]`);
+      }
+    } catch (e) {
+      this.logger.warn(`[Clock] Failed to verify system time synchronization: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
     // SRE: Load persistent ban status on startup to prevent immediate retry cycles after crash/restart
     try {
       const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
@@ -97,7 +117,8 @@ export class BinanceClientFactory implements OnModuleInit {
       const isHF = stream.includes('!');
       const isMarket = stream.includes('@');
       const isCombined = stream.includes('/');
-      // Citadel: Explicitly identify listenKeys (64-char alphanumeric) vs market streams
+      // Citadel: Strictly isolate listenKeys (64-char alphanumeric) vs market streams.
+      // Strictly isolated by length and absence of market indicators (@, !, /).
       const isPrivate = !isHF && !isMarket && !isCombined && stream.length >= 60;
 
       let gatewayURL = wsURL;
@@ -126,7 +147,8 @@ export class BinanceClientFactory implements OnModuleInit {
           const finalUrl = `${gatewayURL}?streams=${params.stream}`;
           this.logger.debug(`[BinanceClient] Connecting to gateway (Manual): ${finalUrl.substring(0, 100)}... | isHF=${isHF}`);
 
-          const ws = new WebSocket(finalUrl, { handshakeTimeout: 5000 });
+          // BOLT: Increased handshakeTimeout to 15s to prevent silent drops during high-latency periods.
+          const ws = new WebSocket(finalUrl, { handshakeTimeout: 15000 });
 
           ws.on('message', (data: any) => {
             if (!(ws as any)._firstMsgReceived) {
@@ -425,8 +447,9 @@ export class BinanceRequestQueue {
         // Tier 3: OPERATIONAL (80%) - State audits and trade history
         const isOperational = ['queryOrder', 'accountTradeList', 'positionInformationV3'].includes(item.label);
 
-        // Tier 4: BACKGROUND (50%) - Non-essential backfills and deep-scans
-        const isBackground = ['ticker24hrPriceChangeStatistics', 'klineCandlestickData'].includes(item.label);
+        // Tier 4: BACKGROUND (50%) - Non-essential backfills and deep-scans.
+        // BOLT: Removed ticker24hrPriceChangeStatistics to eliminate risk of 40-weight fallback loops.
+        const isBackground = ['klineCandlestickData'].includes(item.label);
 
         let shed = false;
         let shedReason = '';

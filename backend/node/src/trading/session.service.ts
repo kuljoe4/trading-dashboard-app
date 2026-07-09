@@ -1539,7 +1539,7 @@ export class SessionService implements OnModuleInit {
         );
         throw new BadRequestException({
           message: "Invalid configuration parameters",
-          detail: errors
+          detail: detailedErrors
         });
       }
 

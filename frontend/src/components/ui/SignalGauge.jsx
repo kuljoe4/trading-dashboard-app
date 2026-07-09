@@ -90,7 +90,7 @@ export const SignalGauge = React.memo(({
         </div>
         <div className="flex flex-col items-end">
           <div className={cn("text-lg font-mono font-black tracking-tighter leading-none", isFired ? "text-red" : fired ? "text-amber" : "text-text")}>
-            {insufficientData ? '---' : numValue.toFixed(numValue >= 100 ? 2 : 4)}
+            {insufficientData ? '---' : Number(numValue).toFixed(numValue >= 100 ? 2 : 4)}
             <span className="text-[10px] ml-1 opacity-40 font-bold">{unit}</span>
           </div>
           <div className={cn("mt-1.5 px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest border", status.color)}>
@@ -103,7 +103,7 @@ export const SignalGauge = React.memo(({
         <div className="flex justify-between items-end px-1">
           <span className="text-[9px] font-black text-dim uppercase tracking-widest">Convergence</span>
           <span className={cn("text-[10px] font-mono font-black", fired ? "text-green" : "text-text/80")}>
-            {insufficientData ? '0.0' : progress.toFixed(1)}%
+            {insufficientData ? '0.0' : Number(progress).toFixed(1)}%
           </span>
         </div>
         <div className="h-2 bg-background/80 rounded-full overflow-hidden relative border border-white/5">
@@ -126,14 +126,14 @@ export const SignalGauge = React.memo(({
               <div className="flex items-center gap-1.5">
                 <span className="opacity-40">Est. PnL:</span>
                 <span className={cn("font-mono", estPnl >= 0 ? "text-green" : "text-red")}>
-                  {estPnl >= 0 ? '+' : '-'}${Math.abs(estPnl).toFixed(2)}
+                  {estPnl >= 0 ? '+' : '-'}${Number(Math.abs(estPnl)).toFixed(2)}
                 </span>
               </div>
             )}
             {estRr !== null && (
               <div className="flex items-center gap-1.5">
                 <span className="opacity-40">Est. RR:</span>
-                <span className="font-mono text-text/80">{estRr.toFixed(2)}R</span>
+                <span className="font-mono text-text/80">{Number(estRr).toFixed(2)}R</span>
               </div>
             )}
           </div>

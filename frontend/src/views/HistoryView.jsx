@@ -163,11 +163,12 @@ const SessionGroup = React.memo(({ session, trades }) => {
 
   const metrics = useMemo(() => {
     if (session.analytics) {
+      const analytics = session.analytics;
       return {
-        ...session.analytics,
-        winLossRatio: session.analytics.avgWinLossRatio,
-        winLossRatioStr: session.analytics.avgWinLossRatio.toFixed(2),
-        pnlPct: session.analytics.overallPnlPct,
+        ...analytics,
+        winLossRatio: analytics.avgWinLossRatio || 0,
+        winLossRatioStr: Number(analytics.avgWinLossRatio || 0).toFixed(2),
+        pnlPct: analytics.overallPnlPct || 0,
         expectancyStatus: getExpectancyStatus(session.analytics.overallWinRate / 100, session.analytics.avgWinLossRatio),
         sharpeStatus: getSharpeStatus(session.analytics.sharpeRatio),
         sortinoStatus: getSortinoStatus(session.analytics.sortinoRatio),
@@ -179,7 +180,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
     const avgWin = m.wins > 0 ? m.grossProfit / m.wins : 0;
     const avgLoss = losses > 0 ? m.grossLoss / losses : 0;
     const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss) : (m.wins > 0 ? 100 : 0);
-    const winLossRatioStr = avgLoss > 0 ? winLossRatio.toFixed(2) : (m.wins > 0 ? '∞' : '0.00');
+    const winLossRatioStr = avgLoss > 0 ? Number(winLossRatio).toFixed(2) : (m.wins > 0 ? '∞' : '0.00');
     const startingBalance = Number(session.balance) - Number(session.totalPnl);
     const pnlPct = startingBalance > 0 ? (m.totalPnl / startingBalance) * 100 : 0;
 

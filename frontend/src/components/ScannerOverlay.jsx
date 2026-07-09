@@ -44,7 +44,7 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
   };
 
   const status = getStatus();
-  const proximity = Math.min(100, (Math.abs(opp.pct) / threshold) * 100).toFixed(0);
+  const proximity = Number(Math.min(100, (Math.abs(opp.pct || 0) / (threshold || 1)) * 100)).toFixed(0);
 
   const summarySentence = useMemo(() => {
     const dirText = isLong ? "Momentum" : "Downward pressure";
@@ -131,21 +131,21 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
           <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={40} height={16} />
         </div>
         <span className="text-[11px] text-dim font-mono text-right md:block hidden">{fmtVol(opp.vol)}</span>
-        <div className="md:flex items-center gap-2 px-2 overflow-hidden hidden" role="region" aria-label={`Opportunity score for ${opp.symbol}: ${opp.score.toFixed(1)}`}>
+        <div className="md:flex items-center gap-2 px-2 overflow-hidden hidden" role="region" aria-label={`Opportunity score for ${opp.symbol}: ${Number(opp.score || 0).toFixed(1)}`}>
           <Tooltip content={
             <div className="flex flex-col gap-2 p-1 min-w-[120px]">
                <div className="text-[10px] font-black uppercase tracking-widest border-b border-white/10 pb-1">Score Breakdown</div>
                <div className="flex justify-between items-center text-[10px]">
                   <span className="text-dim uppercase font-bold">Momentum</span>
-                  <span className="font-mono text-accent">{(config?.scanner_weights?.momentum * (opp.score_breakdown?.momentum || 0)).toFixed(1)}</span>
+                  <span className="font-mono text-accent">{Number((config?.scanner_weights?.momentum || 0) * (opp.score_breakdown?.momentum || 0)).toFixed(1)}</span>
                </div>
                <div className="flex justify-between items-center text-[10px]">
                   <span className="text-dim uppercase font-bold">Volatility</span>
-                  <span className="font-mono text-amber">{(config?.scanner_weights?.volatility * (opp.score_breakdown?.volatility || 0)).toFixed(1)}</span>
+                  <span className="font-mono text-amber">{Number((config?.scanner_weights?.volatility || 0) * (opp.score_breakdown?.volatility || 0)).toFixed(1)}</span>
                </div>
                <div className="flex justify-between items-center text-[10px]">
                   <span className="text-dim uppercase font-bold">Trend</span>
-                  <span className="font-mono text-purple-400">{(config?.scanner_weights?.trend * (opp.score_breakdown?.trend || 0)).toFixed(1)}</span>
+                  <span className="font-mono text-purple-400">{Number((config?.scanner_weights?.trend || 0) * (opp.score_breakdown?.trend || 0)).toFixed(1)}</span>
                </div>
                <div className="border-t border-white/10 pt-1 flex justify-between items-center font-black">
                   <span className="text-[9px] uppercase tracking-tighter">Total</span>
@@ -155,9 +155,9 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
           }>
             <div className="flex-1 flex items-center gap-2 cursor-help" aria-label="Score breakdown bar">
               <div className="flex-1 h-1.5 bg-white/5 rounded-full overflow-hidden flex min-w-[40px] border border-white/5">
-                <div className="h-full bg-accent/80" style={{ width: `${(config?.scanner_weights?.momentum || 0.5) * (opp.score_breakdown?.momentum || 0)}%` }} aria-label={`Momentum component: ${opp.score_breakdown?.momentum?.toFixed(1)}%`} />
-                <div className="h-full bg-amber/80" style={{ width: `${(config?.scanner_weights?.volatility || 0.3) * (opp.score_breakdown?.volatility || 0)}%` }} aria-label={`Volatility component: ${opp.score_breakdown?.volatility?.toFixed(1)}%`} />
-                <div className="h-full bg-purple/80" style={{ width: `${(config?.scanner_weights?.trend || 0.2) * (opp.score_breakdown?.trend || 0)}%` }} aria-label={`Trend component: ${opp.score_breakdown?.trend?.toFixed(1)}%`} />
+                <div className="h-full bg-accent/80" style={{ width: `${(config?.scanner_weights?.momentum || 0.5) * (opp.score_breakdown?.momentum || 0)}%` }} aria-label={`Momentum component: ${Number(opp.score_breakdown?.momentum || 0).toFixed(1)}%`} />
+                <div className="h-full bg-amber/80" style={{ width: `${(config?.scanner_weights?.volatility || 0.3) * (opp.score_breakdown?.volatility || 0)}%` }} aria-label={`Volatility component: ${Number(opp.score_breakdown?.volatility || 0).toFixed(1)}%`} />
+                <div className="h-full bg-purple/80" style={{ width: `${(config?.scanner_weights?.trend || 0.2) * (opp.score_breakdown?.trend || 0)}%` }} aria-label={`Trend component: ${Number(opp.score_breakdown?.trend || 0).toFixed(1)}%`} />
               </div>
               <div className="relative">
                 <span className={cn(
@@ -286,7 +286,7 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                         <div key={metric.label} className="space-y-1.5">
                           <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
                              <span className="text-dim/80">{metric.label}</span>
-                             <span className={cn(metric.text)}>{metric.value?.toFixed(0)}%</span>
+                             <span className={cn(metric.text)}>{Number(metric.value || 0).toFixed(0)}%</span>
                           </div>
                           <div className="h-1.5 bg-background/80 rounded-full overflow-hidden border border-white/5">
                              <motion.div
@@ -366,7 +366,7 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                           </div>
                           <div className="flex items-baseline gap-2">
                              <span className={cn("text-2xl font-mono font-black tracking-tighter", opp.score > 85 ? "text-accent" : "text-text")}>
-                                {opp.score.toFixed(1)}
+                                {Number(opp.score || 0).toFixed(1)}
                              </span>
                              <span className="text-[10px] text-dim font-bold uppercase tracking-widest opacity-40">/ 100</span>
                           </div>
@@ -448,7 +448,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                   <div className="flex items-center gap-2 opacity-60">
                     <div className="text-[8px] text-dim font-black uppercase tracking-tighter">Engine Logic Weighting</div>
                     <div className="px-1.5 py-0.5 rounded bg-background border border-border/50 font-mono text-[8px] font-bold text-text/60">
-                      {config.scanner_weights ? `${(config.scanner_weights.momentum*100).toFixed(0)}:${(config.scanner_weights.volatility*100).toFixed(0)}:${(config.scanner_weights.trend*100).toFixed(0)}` : '50:30:20'}
+                      {config.scanner_weights ? `${Number((config.scanner_weights.momentum || 0)*100).toFixed(0)}:${Number((config.scanner_weights.volatility || 0)*100).toFixed(0)}:${Number((config.scanner_weights.trend || 0)*100).toFixed(0)}` : '50:30:20'}
                     </div>
                   </div>
                 </div>

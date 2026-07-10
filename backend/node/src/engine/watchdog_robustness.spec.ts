@@ -28,6 +28,7 @@ describe('Watchdog Robustness', () => {
               if (Number(slPrice) === 50000) trade.rr_sequence_index = 0;
               return trade.rr_sequence_index;
             }),
+            refreshTradeRisk: jest.fn(),
           },
         },
         {

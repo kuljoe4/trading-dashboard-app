@@ -64,11 +64,17 @@ describe('Chronos: Data Integrity and PnL Synchronization', () => {
     sessionState = module.get<SessionStateService>(SessionStateService);
     eventEmitter = module.get<EventEmitter2>(EventEmitter2);
 
-    (orderManager as any).paperMode = false;
+    (orderManager as any).paperMode = true;
     (orderManager as any).takerFeeRate = 0.0004;
 
+    sessionState.balancePaper = 10000;
     sessionState.balanceLive = 10000;
     sessionState.stats.totalPnl = 0;
+
+    (tradingSession as any).config = {
+      paper_mode: true,
+      trading_mode: 'paper'
+    };
   });
 
   it('should accumulate realized profit (rp) from UDS and sync to session balance', async () => {
@@ -134,7 +140,7 @@ describe('Chronos: Data Integrity and PnL Synchronization', () => {
     // Total PnL should be 70.
     // Balance should be 10090.
     expect(sessionState.stats.totalPnl).toBe(70);
-    expect(sessionState.balanceLive).toBe(10090);
+    expect(sessionState.balancePaper).toBe(10090);
   });
 
   it('should NOT close trade locally on partial external fills (Ghost Position Protection)', async () => {

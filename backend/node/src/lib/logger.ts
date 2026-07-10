@@ -102,7 +102,17 @@ export function sanitize(obj: any, visited = new WeakSet<any>(), depth = 0): any
         lowerKey.includes("passphrase") ||
         lowerKey.includes("cookie") ||
         lowerKey.includes("session") ||
-        lowerKey.includes("signature")
+        lowerKey.includes("signature") ||
+        lowerKey.includes("salt") ||
+        lowerKey.includes("hash") ||
+        lowerKey.includes("master") ||
+        lowerKey.includes("pkey") ||
+        lowerKey.includes("cert") ||
+        lowerKey.includes("otp") ||
+        lowerKey.includes("pin") ||
+        lowerKey.includes("ssn") ||
+        lowerKey.includes("cvv") ||
+        lowerKey.includes("creditcard")
       ) {
         sanitized[key] = "[MASKED]";
       } else {

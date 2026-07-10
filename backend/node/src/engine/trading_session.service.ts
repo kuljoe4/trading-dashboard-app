@@ -308,8 +308,10 @@ export class TradingSessionService implements OnApplicationShutdown {
        if (mode === 'paper') {
          this.sessionState.balancePaper = roundEight(this.sessionState.balancePaper + pnlDelta);
        } else {
-         // Live balance is updated via polling/websocket, but we apply delta to maintain local sync
-         this.sessionState.balanceLive = roundEight(this.sessionState.balanceLive + pnlDelta);
+         // CHRONOS: Stop applying PnL delta to balanceLive in real-time.
+         // ACCOUNT_UPDATE provides the authoritative absolute wallet balance (Zero Weight).
+         // Applying deltas here risks double-counting if the UDS event arrived first.
+         this.logger.debug(`[PnL Integrity] Skipping delta application to balanceLive for ${trade.symbol}. Authoritative UDS will sync absolute balance.`);
        }
        // Update appliedPnL to reflect the change
        this.appliedPnL.set(trade.id, roundEight(prevApplied + pnlDelta));

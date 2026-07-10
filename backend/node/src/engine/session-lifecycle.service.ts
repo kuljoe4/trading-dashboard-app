@@ -288,19 +288,77 @@ export class SessionLifecycleService {
     }
   }
 
+  /**
+   * CHRONOS: Attributes net funding fee impact to active trades.
+   * Logic: If symbols are present in P[], attribute bc proportionately to notional.
+   * If P[] is empty (Cross Margin), attribute to all active USDT-margined trades.
+   */
+  private attributeFundingFee(totalDelta: number, positions: any[]) {
+     const activeTrades = this.positionTracker.activeList();
+     if (activeTrades.length === 0) return;
+
+     let targetTrades = activeTrades;
+
+     // If symbols provided in P[], only attribute to those symbols
+     if (positions && positions.length > 0) {
+        const symbols = new Set(positions.map(p => p.s));
+        targetTrades = activeTrades.filter(t => symbols.has(t.symbol));
+     }
+
+     if (targetTrades.length === 0) return;
+
+     // Proportionate Attribution by Notional Value (Absolute)
+     const notionals = targetTrades.map(t => Math.abs(t.qty * t.entry_price));
+     const totalNotional = notionals.reduce((a, b) => a + b, 0);
+
+     if (totalNotional === 0) return;
+
+     for (let i = 0; i < targetTrades.length; i++) {
+        const trade = targetTrades[i];
+        const share = notionals[i] / totalNotional;
+        const delta = roundEight(totalDelta * share);
+
+        if (delta !== 0) {
+           // Binance funding 'bc' is positive for credit, negative for debit.
+           // trade.funding_fee is cost (positive = paid, negative = received).
+           const cost = -delta;
+           trade.funding_fee = roundEight((Number(trade.funding_fee) || 0) + cost);
+           trade.pnl = roundEight((Number(trade.pnl) || 0) + delta);
+
+           this.logger.log(`[Chronos] Attributed funding fee to ${trade.symbol}: ${cost} USDT (Total: ${trade.funding_fee})`);
+
+           // Emit update to trigger session stats reconciliation (appliedPnL delta)
+           this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, {
+              trade,
+              pnlDelta: delta
+           });
+        }
+     }
+  }
+
   public handleAccountUpdate(data: BinanceAccountUpdateEvent) {
+    const reason = data.a.m;
+
     // Real-time Balance Tracking (Zero Weight)
     if (data.a.B) {
       const usdt = data.a.B.find((b) => b.a === 'USDT');
       if (usdt) {
         const nb = parseFloat(usdt.wb);
-        const liveBalMsg = `[Lifecycle] Received real-time balance update: ${nb} USDT`;
+        const bc = parseFloat(usdt.bc || '0');
+        const liveBalMsg = `[Lifecycle] Received real-time balance update: ${nb} USDT (Reason: ${reason}, Delta: ${bc})`;
         this.logger.log(liveBalMsg);
         this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: liveBalMsg, level: 'info' });
         this.sessionState.balanceLive = nb;
         this.sessionState.balancePaper = nb;
         this.sessionState.lastExchangeBalance = nb;
         this.sessionState.lastUdsBalanceUpdate = Date.now();
+
+        // CHRONOS: Handle Authoritative Funding Fee Attribution
+        // When reason is FUNDING_FEE, the 'bc' field contains the net funding impact.
+        // We attribute this to active trades to ensure PnL and session stats remain accurate.
+        if (reason === 'FUNDING_FEE' && bc !== 0) {
+           this.attributeFundingFee(bc, data.a.P || []);
+        }
       }
     }
     // Real-time Position Tracking (Zero Weight)

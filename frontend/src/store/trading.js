@@ -188,6 +188,7 @@ const defaultConfig = {
   main_loop_interval_ms: CONFIG_LIMITS.MAIN_LOOP_DEFAULT,
   slippage_warning_threshold: CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT || 0.001,
   auto_scale_min_notional: true,
+  hibernation_mode: 'adaptive',
   debug_mode: false,
   scanner_weights: {
     momentum: 0.5,

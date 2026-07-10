@@ -361,7 +361,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
   );
 })
 
-const GateBanner = React.memo(({ gateState, scannerPaused, reason, hibernating, activeTradesCount }) => {
+const GateBanner = React.memo(({ gateState, scannerPaused, reason, hibernating, hibernationMode, activeTradesCount }) => {
   if (!gateState && !scannerPaused) return null
 
   const messages = {
@@ -387,14 +387,19 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, hibernating, 
       )}
     >
       <div className="flex items-center gap-3">
-        {hibernating ? <Zap size={16} className="text-accent animate-pulse opacity-50" /> : gateState === 'sleeping' ? <Pause size={16} className="animate-pulse" /> : <XCircle size={16} className={scannerPaused ? "animate-pulse" : ""} />}
-        <span className="uppercase tracking-widest">{messages[gateState] || 'Risk gate active.'}</span>
+        {hibernating ? <Zap size={16} className={cn("animate-pulse opacity-50", hibernationMode === 'light' ? "text-accent" : "text-amber")} /> : gateState === 'sleeping' ? <Pause size={16} className="animate-pulse" /> : <XCircle size={16} className={scannerPaused ? "animate-pulse" : ""} />}
+        <span className="uppercase tracking-widest">
+          {hibernating ? (hibernationMode === 'light' ? 'Light Sleep Active' : 'Deep Sleep Active') : (messages[gateState] || 'Risk gate active.')}
+        </span>
         {hibernating ? (
           <div
-            className="ml-auto bg-accent/20 px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border border-accent/40 text-accent"
-            title="Deep Sleep (Hibernation) Active: All market data connections closed to save maximum CPU/Memory. Engine will wake up automatically when limit expires."
+            className={cn(
+              "ml-auto px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border",
+              hibernationMode === 'light' ? "bg-accent/10 border-accent/20 text-accent" : "bg-amber/20 border-amber/40 text-amber"
+            )}
+            title={hibernationMode === 'light' ? "Light Sleep Active: Market streams kept active for fast resumption." : "Deep Sleep (Hibernation) Active: All market data connections closed to save maximum CPU/Memory. Engine will wake up automatically when limit expires."}
           >
-            <Zap size={10} fill="currentColor" /> DEEP SLEEP
+            <Zap size={10} fill="currentColor" className={hibernationMode === 'light' ? "text-accent" : "text-amber"} /> {hibernationMode === 'light' ? 'LIGHT SLEEP' : 'DEEP SLEEP'}
           </div>
         ) : isGatedIdle && (
           <Tooltip content="Resource Suppression Active: Market feed and scanner are throttled to save CPU/Memory while idle.">
@@ -525,7 +530,7 @@ export function DashboardView({ initialStrategy }) {
   const {
     sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
     totalSlUsed, activeTrades, alerts, config, setSessionActive,
-    updateConfig, patchConfig, gateState, gateReason, hibernating, agreementRequired,
+    updateConfig, patchConfig, gateState, gateReason, hibernating, hibernationMode, agreementRequired,
     scannerPaused, sessionList, fetchSessions, wsStatus,
     updateStats, analytics,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
@@ -546,6 +551,7 @@ export function DashboardView({ initialStrategy }) {
     gateState: state.gateState,
     gateReason: state.gateReason,
     hibernating: state.hibernating,
+    hibernationMode: state.hibernationMode,
     agreementRequired: state.agreementRequired,
     scannerPaused: state.scannerPaused,
     alerts: state.alerts,
@@ -986,6 +992,7 @@ export function DashboardView({ initialStrategy }) {
             scannerPaused={scannerPaused}
             reason={gateReason}
             hibernating={hibernating}
+            hibernationMode={hibernationMode}
             activeTradesCount={activeTrades.length}
           />
         </div>

@@ -43,7 +43,7 @@ export const Sparkline = React.memo(({ data = [], width = 60, height = 24, color
  * BOLT: High-performance SVG-based Candlestick chart.
  * Handles OHLC data with zero external dependencies and minimal memory footprint.
  */
-export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 100, height = 50, signals = [], threshold, isLong, entryPrice, showOscillator = true }) => {
+export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 100, height = 50, signals = [], threshold, isLong, entryPrice, showOscillator = true, decisionMarkers = [] }) => {
   const containerRef = useRef(null);
   const [width, setWidth] = useState(initialWidth);
   const [hoverData, setHoverData] = useState(null);
@@ -111,7 +111,7 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
     const thresholdY = thresholdPrice ? chartHeight - ((thresholdPrice - min) / range) * chartHeight : null;
 
     return { bars, min, max, range, barWidth, gap, thresholdY };
-  }, [data, width, chartHeight, threshold, isLong, entryPrice]);
+  }, [data, width, chartHeight, threshold, isLong, entryPrice, decisionMarkers]);
 
   const oscMax = React.useMemo(() => Math.max(...bars.map(b => Math.abs(b.momentum || 0)), 0.1), [bars]);
 
@@ -167,6 +167,7 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
         {bars.map((bar, i) => {
           const color = bar.isUp ? '#00e5a0' : '#ff4466';
           const hasSignal = signals.some(s => s.time === bar.timestamp);
+          const marker = decisionMarkers.find(m => m.index === i || m.time === bar.timestamp);
 
           return (
             <g key={i}>
@@ -191,7 +192,28 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
                 strokeWidth="1"
                 rx="0.5"
               />
-              {/* Signal Highlight */}
+              {/* Decision / Signal Highlight */}
+              {marker && (
+                <g>
+                  <rect
+                    x={bar.x - 2}
+                    y={-6}
+                    width={barWidth + 4}
+                    height={chartHeight + 12}
+                    fill={marker.color || '#5b6fff'}
+                    opacity="0.08"
+                    rx="4"
+                  />
+                  <text
+                    x={bar.wickX}
+                    y={bar.isUp ? Math.max(8, bar.yHigh - 8) : Math.min(chartHeight - 2, bar.yLow + 10)}
+                    textAnchor="middle"
+                    className="fill-white text-[8px] font-black uppercase"
+                  >
+                    {marker.label}
+                  </text>
+                </g>
+              )}
               {hasSignal && (
                 <circle
                   cx={bar.wickX}

@@ -27,6 +27,47 @@ const FreshnessIndicator = React.memo(({ ts }) => {
 });
 FreshnessIndicator.displayName = 'FreshnessIndicator';
 
+
+const buildCloseEngulfMarkers = (ohlc = [], direction = 'long', lookback = 2) => {
+  if (!Array.isArray(ohlc) || ohlc.length < lookback + 2) return [];
+  const signalIdx = ohlc.length - 2;
+  const startIdx = Math.max(0, signalIdx - lookback);
+  const prev = ohlc.slice(startIdx, signalIdx);
+  if (prev.length < lookback) return [];
+  const isLong = direction === 'long';
+  const reverseOk = prev.every(c => isLong ? Number(c.close) < Number(c.open) : Number(c.close) > Number(c.open));
+  const rangeLevel = isLong
+    ? Math.max(...prev.map(c => Number(c.high)))
+    : Math.min(...prev.map(c => Number(c.low)));
+  const signal = ohlc[signalIdx];
+  const closeCleared = isLong ? Number(signal.close) > rangeLevel : Number(signal.close) < rangeLevel;
+  const impulseOk = isLong ? Number(signal.close) > Number(signal.open) : Number(signal.close) < Number(signal.open);
+
+  return [
+    ...prev.map((_, offset) => ({ index: startIdx + offset, label: `R${offset + 1}`, color: '#64748b' })),
+    { index: signalIdx, label: reverseOk && impulseOk && closeCleared ? 'CONF' : 'WAIT', color: reverseOk && impulseOk && closeCleared ? '#00e5a0' : '#f5a623' },
+    { index: ohlc.length - 1, label: 'ENTRY', color: '#5b6fff' },
+  ];
+};
+
+const FunnelStep = ({ label, detail, complete, icon: Icon }) => (
+  <div className={cn(
+    "relative flex items-start gap-3 rounded-2xl border p-3 transition-colors",
+    complete ? "bg-green/5 border-green/20" : "bg-background/30 border-border/70"
+  )}>
+    <div className={cn(
+      "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border",
+      complete ? "bg-green/10 border-green/30 text-green" : "bg-surface border-border text-dim"
+    )}>
+      <Icon size={15} />
+    </div>
+    <div className="min-w-0">
+      <div className="text-[10px] font-black uppercase tracking-[0.18em] text-text/90">{label}</div>
+      <div className="mt-1 text-[10px] font-semibold leading-snug text-dim">{detail}</div>
+    </div>
+  </div>
+);
+
 const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scannerPaused, hibernating, hibernationMode, lastScanTs }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -56,6 +97,14 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
 
   const signalStatus = opp.signalResult || {};
   const checklistSignals = opp.signalResult?.signals || {};
+  const closeEngulfEnabled = config?.engulfing_mode === 'close_range' && (config?.enabled_signals || []).includes('engulfing');
+  const decisionMarkers = closeEngulfEnabled ? buildCloseEngulfMarkers(opp.ohlc_history, dir, config?.engulfing_lookback || 2) : [];
+  const engulfSignal = checklistSignals.engulfing;
+  const funnelSteps = [
+    { label: 'Momentum Scan', detail: `${Number(Math.abs(opp.pct || 0)).toFixed(2)}% move vs ${Number(threshold || 0).toFixed(2)}% threshold`, complete: passing, icon: TrendingUp },
+    { label: 'Closed Engulf', detail: closeEngulfEnabled ? `Last closed candle close must clear ${config?.engulfing_lookback || 2} reverse candle ${isLong ? 'highs' : 'lows'}.` : 'Uses configured technical entry signals.', complete: closeEngulfEnabled ? !!engulfSignal?.fired : !!opp.signalResult?.allFired, icon: Activity },
+    { label: 'Authorization', detail: opp.signalResult?.reason || 'Waiting for signal engine decision.', complete: !!opp.signalResult?.allFired, icon: ShieldCheck },
+  ];
 
   // DEBUG: Track telemetry presence in expanded state to identify synchronization gaps
   useEffect(() => {
@@ -230,6 +279,7 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                           isLong={isLong}
                           entryPrice={opp.price}
                           signals={opp.ohlc_history.filter(d => signalStatus.firedSignals?.includes(d.time))}
+                          decisionMarkers={decisionMarkers}
                         />
                         <div className="flex justify-between w-full mt-6 px-2">
                            <div className="flex flex-col">
@@ -297,6 +347,13 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                           </div>
                         </div>
                        ))}
+                    </div>
+
+                    {/* Decision path */}
+                    <div className="grid grid-cols-1 gap-3">
+                      {funnelSteps.map((step) => (
+                        <FunnelStep key={step.label} {...step} />
+                      ))}
                     </div>
 
                     {/* Signal Checklist */}

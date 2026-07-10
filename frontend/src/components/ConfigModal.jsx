@@ -1129,11 +1129,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   <div className="bg-accent/5 p-4 rounded-2xl border border-accent/20">
                     <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em] mb-4">Engulfing Expert Parameters</div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <Tooltip content="Body: Open/Close must engulf previous Open/Close. Range: High/Low must engulf. Strict: Both must engulf.">
+                      <Tooltip content="Body: Open/Close must engulf previous Open/Close. Range: High/Low must engulf. Strict: Both must engulf. Close > H/L waits for a closed confirmation candle whose close clears the prior lookback high/low, then enters on the next live candle.">
                         {renderField('Engulfing Mode', 'engulfing_mode', 'text', [
                           { value: 'range', label: 'Range (H/L)' },
                           { value: 'body', label: 'Body (O/C)' },
-                          { value: 'strict', label: 'Strict (Both)' }
+                          { value: 'strict', label: 'Strict (Both)' },
+                          { value: 'close_range', label: 'Close > H/L (Closed)' }
                         ])}
                       </Tooltip>
                       <Tooltip content="Is Opportunity: Signal fires on the momentum candle itself. After Opportunity: Signal must fire on the NEXT candle after momentum.">

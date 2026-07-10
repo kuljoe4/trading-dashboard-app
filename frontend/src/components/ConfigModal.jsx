@@ -1592,6 +1592,31 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
             </CollapsibleSection>
 
+            <CollapsibleSection id="adv_billing" icon={ShieldCheck} title="Service Tier" subtitle="Account level and feature access">
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { id: 'basic', label: 'Basic', desc: 'Limited insights' },
+                  { id: 'premium', label: 'Premium', desc: 'Full authorization data' }
+                ].map(tier => (
+                  <button
+                    key={tier.id}
+                    type="button"
+                    onClick={() => setField('tier', tier.id)}
+                    className={cn(
+                      "p-4 rounded-xl border-2 text-left transition-all relative group",
+                      cfg.tier === tier.id ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover"
+                    )}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={cn("text-[10px] font-black uppercase tracking-tighter", cfg.tier === tier.id ? "text-accent" : "text-text")}>{tier.label}</span>
+                      {cfg.tier === tier.id && <CheckCircle2 size={14} className="text-accent" />}
+                    </div>
+                    <p className="text-[9px] text-dim font-bold uppercase tracking-tight leading-tight">{tier.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </CollapsibleSection>
+
             <CollapsibleSection id="adv_hibernation" icon={Clock} title="Hibernation Management" subtitle="Gated idle resource strategy">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
                 {[

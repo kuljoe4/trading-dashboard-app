@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight } from 'lucide-react'
-import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge } from './ui/primitives'
+import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy } from 'lucide-react'
+import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton } from './ui/primitives'
 import { RiskSummary } from './RiskSummary'
 import * as Switch from '@radix-ui/react-switch'
 import { ConfirmationModal } from './ConfirmationModal'
@@ -535,6 +535,7 @@ const flattenConfig = (config) => {
       hibernation_grace_period_sec: config.hibernation_grace_period_sec || 30,
       sl_out_of_bounds_action: config.sl_out_of_bounds_action || 'clamp',
       scanner_signal_depth: config.scanner_signal_depth || 10,
+      auto_scale_min_notional: config.auto_scale_min_notional !== undefined ? config.auto_scale_min_notional : true,
       engulfing_mode: config.engulfing_mode || 'range',
       engulfing_timing: config.engulfing_timing || 'is_opportunity',
       engulfing_volume_confirm: !!config.engulfing_volume_confirm,
@@ -1701,6 +1702,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         <div className="flex-1 flex gap-2">
            <Btn variant="ghost" onClick={onClose} className="flex-1">Cancel</Btn>
            {isDirty && <Btn variant="ghost" onClick={resetToLastSaved} className="text-red hover:bg-red/5">Reset</Btn>}
+           <Tooltip content="Copy Configuration to Clipboard">
+             <CopyButton
+                value={JSON.stringify(buildConfigToSave(), null, 2)}
+                className="w-12 h-12 flex items-center justify-center border border-border rounded-xl hover:bg-white/5 transition-all"
+             />
+           </Tooltip>
         </div>
         <Btn variant="primary" loading={loading} onClick={() => {
           if (validate(cfg)) {

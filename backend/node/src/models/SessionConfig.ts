@@ -383,6 +383,10 @@ export class SessionConfig {
   @IsOptional()
   hibernation_mode?: 'deep' | 'light' | 'adaptive' = 'adaptive';
 
+  @IsEnum(['basic', 'premium'])
+  @IsOptional()
+  tier?: 'basic' | 'premium' = 'premium';
+
   @IsNumber()
   @Min(5)
   @Max(3600)

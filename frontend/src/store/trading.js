@@ -1,5 +1,5 @@
 import { createWithEqualityFn } from 'zustand/traditional'
-import { sessionAPI, normalizeUrl } from '../api/client'
+import { sessionAPI, telemetryAPI, normalizeUrl } from '../api/client'
 import { CONFIG_LIMITS, ENGINE_CONSTANTS } from '../constants/configLimits'
 
 const toNumber = (v, f = 0) => { const p = Number(v); return Number.isFinite(p) ? p : f; }
@@ -189,6 +189,7 @@ const defaultConfig = {
   slippage_warning_threshold: CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT || 0.001,
   auto_scale_min_notional: true,
   hibernation_mode: 'adaptive',
+  tier: 'premium',
   debug_mode: false,
   scanner_weights: {
     momentum: 0.5,
@@ -215,6 +216,16 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   healthEnabled: localStorage.getItem('health_enabled') !== 'false',
   streamingEnabled: localStorage.getItem('streaming_enabled') !== 'false',
   isThrottled: false, entryCount: 0, hitCount: 0,
+
+  trackEvent: async (event, details = {}, resourceId = null) => {
+    try {
+      const sid = resourceId || get().strategyId;
+      await telemetryAPI.track(event, details, sid);
+    } catch (e) {
+      // Silently fail telemetry to not disrupt UX
+      console.debug('[Telemetry] Failed to track event:', event, e.message);
+    }
+  },
 
   addAlert: (alert) => {
      const now = Date.now();

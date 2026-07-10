@@ -28,6 +28,9 @@ import { SessionController } from './session.controller';
 import { SettingsController } from './settings.controller';
 import { MonitoringController } from './monitoring.controller';
 import { PresetsController } from './presets.controller';
+import { TelemetryController } from './telemetry.controller';
+import { NarrativeController } from './narrative.controller';
+import { NarrativeService } from './narrative.service';
 import { ApiKeyGuard } from '../lib/api-key.guard';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { MonitoringService } from '../engine/monitoring.service';
@@ -42,7 +45,7 @@ import { MaintenanceService } from '../engine/maintenance.service';
     ConfigModule,
     TypeOrmModule.forFeature([SessionEntity, TradeEntity, LogEntity, SettingsEntity, AuditLogEntity, BalanceHistoryEntity, StrategyPresetEntity, KlineEntity]),
   ],
-  controllers: [SessionController, SettingsController, MonitoringController, PresetsController],
+  controllers: [SessionController, SettingsController, MonitoringController, PresetsController, TelemetryController, NarrativeController],
   providers: [
     SignalEngineService,
     RiskEngineService,
@@ -59,6 +62,7 @@ import { MaintenanceService } from '../engine/maintenance.service';
     SessionStateService,
     SessionService,
     AuditLogService,
+    NarrativeService,
     MonitoringService,
     AnalyticsService,
     VariantAnalyticsService,

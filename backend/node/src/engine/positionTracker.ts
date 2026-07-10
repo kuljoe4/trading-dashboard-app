@@ -480,14 +480,18 @@ export class PositionTrackerService {
   }
 
   /**
-   * SRE: Internal risk calculation helper.
+   * SRE: Risk calculation helper.
    * Enforces the "Breakeven Risk Release" rule: risk is 0 if SL is at or beyond entry.
    * Otherwise, risk is based on the initial stop distance.
    */
-  private refreshTradeRisk(trade: Trade): void {
+  public refreshTradeRisk(trade: Trade): void {
+    // SRE: Increased tolerance for breakeven detection (0.01% or 0.00000001)
+    // to handle exchange-side rounding/flooring that might place SL 1 tick below entry.
+    const tolerance = Math.max(0.00000001, trade.entry_price * 0.0001);
+
     const isBreakevenOrBetter = trade.direction === 'LONG'
-      ? trade.current_sl >= trade.entry_price - 0.00000001
-      : trade.current_sl <= trade.entry_price + 0.00000001;
+      ? trade.current_sl >= trade.entry_price - tolerance
+      : trade.current_sl <= trade.entry_price + tolerance;
 
     if (isBreakevenOrBetter) {
       trade.risk_usdt = 0;

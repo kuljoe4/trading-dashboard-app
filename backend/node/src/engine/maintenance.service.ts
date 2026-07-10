@@ -167,13 +167,7 @@ export class MaintenanceService {
             trade.qty = exAmt;
 
             // SRE: Live Risk Mitigation during watchdog sync
-            const isBreakevenOrBetter = trade.direction === 'LONG' ? trade.current_sl >= trade.entry_price : trade.current_sl <= trade.entry_price;
-            if (isBreakevenOrBetter) {
-              trade.risk_usdt = 0;
-            } else {
-              const risk = Math.abs(trade.entry_price - trade.initial_sl);
-              trade.risk_usdt = roundEight(risk * trade.qty);
-            }
+            this.positionTracker.refreshTradeRisk(trade);
 
             trade.updated_at = new Date();
             this.positionTracker.recalculateTotalRisk();
@@ -208,13 +202,7 @@ export class MaintenanceService {
                   trade.current_sl = exSlPrice;
 
                   // SRE: Live Risk Mitigation during SL sync
-                  const isBreakevenOrBetter = trade.direction === 'LONG' ? trade.current_sl >= trade.entry_price : trade.current_sl <= trade.entry_price;
-                  if (isBreakevenOrBetter) {
-                    trade.risk_usdt = 0;
-                  } else {
-                    const risk = Math.abs(trade.entry_price - trade.initial_sl);
-                    trade.risk_usdt = roundEight(risk * trade.qty);
-                  }
+                  this.positionTracker.refreshTradeRisk(trade);
 
                   // SRE: Reconcile rr_sequence_index based on adopted SL price
                   this.positionTracker.reconcileMilestoneFromSl(trade, exSlPrice, tradeConfig);

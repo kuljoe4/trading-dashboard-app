@@ -596,8 +596,9 @@ export class OrderManagerService {
     const tickSize = filters.tickSize;
     if (tickSize > 0) {
       const rounding = options.priceRounding || 'round';
-      if (rounding === 'floor') finalPrice = roundEight(Math.floor(price / tickSize) * tickSize);
-      else if (rounding === 'ceil') finalPrice = roundEight(Math.ceil(price / tickSize) * tickSize);
+      const epsilon = 1e-10;
+      if (rounding === 'floor') finalPrice = roundEight(Math.floor((price + epsilon) / tickSize) * tickSize);
+      else if (rounding === 'ceil') finalPrice = roundEight(Math.ceil((price - epsilon) / tickSize) * tickSize);
       else finalPrice = roundEight(Math.round(price / tickSize) * tickSize);
     }
 

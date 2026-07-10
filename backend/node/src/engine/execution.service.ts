@@ -219,7 +219,26 @@ export class ExecutionService {
         if (!price) continue;
 
         const lookback = this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
-        const slResult = this.riskEngine.computeSl(price, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig, lookback.minLow, lookback.maxHigh, opp.symbol);
+
+        // Extract engulfing pattern details if available
+        const engulfingDetail = signalResult.details?.engulfing;
+        const patternLow = engulfingDetail?.pattern_low;
+        const patternHigh = engulfingDetail?.pattern_high;
+        const bodyLow = engulfingDetail?.body_low;
+        const bodyHigh = engulfingDetail?.body_high;
+
+        const slResult = this.riskEngine.computeSl(
+          price,
+          opp.direction.toUpperCase() as 'LONG' | 'SHORT',
+          symbolConfig,
+          lookback.minLow,
+          lookback.maxHigh,
+          opp.symbol,
+          patternLow,
+          patternHigh,
+          bodyLow,
+          bodyHigh
+        );
 
         if (slResult.rejected) {
            this.logger.log(`${opp.symbol}: Entry skipped - ${slResult.reason}`);

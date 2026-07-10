@@ -419,7 +419,11 @@ export class RiskEngineService {
     config: SessionConfig,
     minLow?: number,
     maxHigh?: number,
-    symbol?: string
+    symbol?: string,
+    patternLow?: number,
+    patternHigh?: number,
+    bodyLow?: number,
+    bodyHigh?: number
   ): { slPrice: number; rejected: boolean; reason?: string } {
     if (config.sl_type === 'pct') {
       // Simple percentage-based SL
@@ -489,6 +493,63 @@ export class RiskEngineService {
         Min: ${minPct}% (${Number(minDistance || 0).toFixed(5)}), Max: ${maxPct}% (${Number(maxDistance || 0).toFixed(5)})
         Action: ${action.toUpperCase()}, Result: ${clampType} -> Dist: ${Number(finalDistance || 0).toFixed(5)}
         Final SL: ${Number(slPrice || 0).toFixed(5)}`);
+
+      return { slPrice, rejected, reason };
+    }
+
+    if (config.sl_type === 'engulfing_boundary') {
+      // Use Body boundary for 'body' or 'close_body' modes, otherwise Range.
+      // NOTE: We still prefer the absolute 'outer' boundary (Range) for protection if it's a structural play,
+      // but if the user chose body mode, they might prefer the 'body' boundary.
+      // For now, we prioritize Range (patternLow/High) as it's the more conservative structural stop.
+      // However, we check if the specific mode-based data is available.
+
+      const mode = config.engulfing_mode || 'range';
+      const useBody = mode === 'body' || mode === 'close_body';
+
+      let structuralSl = direction === 'LONG' ? patternLow : patternHigh;
+
+      // If we specifically want body-based or if range is missing but body is present
+      if ((useBody && (direction === 'LONG' ? bodyLow : bodyHigh) !== undefined) || (structuralSl === undefined && (direction === 'LONG' ? bodyLow : bodyHigh) !== undefined)) {
+        structuralSl = direction === 'LONG' ? bodyLow : bodyHigh;
+      }
+
+      if (structuralSl === undefined || structuralSl <= 0) {
+        this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} Engulfing boundary unavailable. Falling back to Pct SL.`);
+        return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, undefined, undefined, symbol);
+      }
+
+      const minPct = config.sl_min_pct ?? 0.3;
+      const maxPct = config.sl_max_pct ?? 3.0;
+      const action = config.sl_out_of_bounds_action || 'clamp';
+      const minDistance = entryPrice * (minPct / 100);
+      const maxDistance = entryPrice * (maxPct / 100);
+
+      const rawDistance = Math.abs(entryPrice - structuralSl);
+      const rawDistPct = (rawDistance / entryPrice) * 100;
+
+      let finalDistance = rawDistance;
+      let rejected = false;
+      let reason: string | undefined;
+
+      if (rawDistance < minDistance) {
+        if (action === 'reject') {
+          rejected = true;
+          reason = `Engulfing SL dist ${rawDistPct.toFixed(2)}% below min ${minPct}%`;
+        } else {
+          finalDistance = minDistance;
+        }
+      } else if (rawDistance > maxDistance) {
+        if (action === 'reject') {
+          rejected = true;
+          reason = `Engulfing SL dist ${rawDistPct.toFixed(2)}% above max ${maxPct}%`;
+        } else {
+          finalDistance = maxDistance;
+        }
+      }
+
+      const slPrice = direction === 'LONG' ? entryPrice - finalDistance : entryPrice + finalDistance;
+      this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Engulfing SL: ${Number(slPrice || 0).toFixed(5)} (dist: ${((finalDistance/entryPrice)*100).toFixed(2)}%)`);
 
       return { slPrice, rejected, reason };
     }

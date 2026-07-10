@@ -12,6 +12,10 @@ interface SignalDetail {
   description: string;
   insufficientData?: boolean;
   threshold_is_price?: boolean;
+  pattern_low?: number;
+  pattern_high?: number;
+  body_low?: number;
+  body_high?: number;
 }
 
 @Injectable()
@@ -286,13 +290,13 @@ export class SignalEngineService {
       const lookback = Math.max(config.engulfing_lookback || 1, 1);
       const mode = config.engulfing_mode || 'range';
       const volConfirm = config.engulfing_volume_confirm || false;
-      const closeOnlyMode = mode === 'close_range';
+      const closeOnlyMode = mode === 'close_range' || mode === 'close_body';
 
       if (candles.length < lookback + (closeOnlyMode ? 2 : 1)) {
         return { fired: false, value: 0, threshold: 0, unit: 'bool', metric: 'Engulfing', description: closeOnlyMode ? 'Waiting for closed confirmation candle' : 'Insufficient data', insufficientData: true };
       }
 
-      // Closed close-range mode intentionally ignores the actively forming candle.
+      // Closed close-only modes intentionally ignore the actively forming candle.
       // The signal candle is the last completed candle, and entry happens on the next/live candle.
       const signalIdx = closeOnlyMode ? candles.length - 2 : candles.length - 1;
       const curr = candles[signalIdx];
@@ -335,11 +339,14 @@ export class SignalEngineService {
       const bodyEngulfs = currBodyHigh > aggregateBodyHigh && currBodyLow < aggregateBodyLow;
       const rangeEngulfs = curr.high > aggregateHigh && curr.low < aggregateLow;
       const closeRangeEngulfs = side === 'SHORT' ? curr.close < aggregateLow : curr.close > aggregateHigh;
+      const closeBodyEngulfs = side === 'SHORT' ? curr.close < aggregateBodyLow : curr.close > aggregateBodyHigh;
       const volumeConfirms = curr.volume > candles[Math.max(startIdx, endIdx - 1)].volume;
 
       let fired = false;
       let reason = '';
-      let threshold = side === 'SHORT' ? aggregateLow : aggregateHigh;
+      let threshold = mode === 'close_body'
+        ? (side === 'SHORT' ? aggregateBodyLow : aggregateBodyHigh)
+        : (side === 'SHORT' ? aggregateLow : aggregateHigh);
 
       if (side === 'LONG') {
         if (!isBullish) {
@@ -353,12 +360,17 @@ export class SignalEngineService {
           else if (mode === 'range') fired = rangeEngulfs;
           else if (mode === 'strict') fired = bodyEngulfs && rangeEngulfs;
           else if (mode === 'close_range') fired = closeRangeEngulfs;
+          else if (mode === 'close_body') fired = closeBodyEngulfs;
 
           if (fired && volConfirm && !volumeConfirms) {
             fired = false;
             reason = 'Insufficient volume confirmation';
           } else if (!fired) {
-            reason = mode === 'body' ? 'Body did not engulf' : mode === 'range' ? 'Range did not engulf' : mode === 'strict' ? 'Strict engulfing failed' : `Close did not clear prior ${lookback}-candle high`;
+            reason = mode === 'body' ? 'Body did not engulf' :
+                     mode === 'range' ? 'Range did not engulf' :
+                     mode === 'strict' ? 'Strict engulfing failed' :
+                     mode === 'close_body' ? `Close did not clear prior ${lookback}-candle body high` :
+                     `Close did not clear prior ${lookback}-candle high`;
           }
         }
       } else if (side === 'SHORT') {
@@ -373,12 +385,17 @@ export class SignalEngineService {
           else if (mode === 'range') fired = rangeEngulfs;
           else if (mode === 'strict') fired = bodyEngulfs && rangeEngulfs;
           else if (mode === 'close_range') fired = closeRangeEngulfs;
+          else if (mode === 'close_body') fired = closeBodyEngulfs;
 
           if (fired && volConfirm && !volumeConfirms) {
             fired = false;
             reason = 'Insufficient volume confirmation';
           } else if (!fired) {
-            reason = mode === 'body' ? 'Body did not engulf' : mode === 'range' ? 'Range did not engulf' : mode === 'strict' ? 'Strict engulfing failed' : `Close did not clear prior ${lookback}-candle low`;
+            reason = mode === 'body' ? 'Body did not engulf' :
+                     mode === 'range' ? 'Range did not engulf' :
+                     mode === 'strict' ? 'Strict engulfing failed' :
+                     mode === 'close_body' ? `Close did not clear prior ${lookback}-candle body low` :
+                     `Close did not clear prior ${lookback}-candle low`;
           }
         }
       } else {
@@ -386,6 +403,7 @@ export class SignalEngineService {
         if (mode === 'body') fired = bodyEngulfs;
         else if (mode === 'range') fired = rangeEngulfs;
         else if (mode === 'close_range') fired = curr.close > aggregateHigh || curr.close < aggregateLow;
+        else if (mode === 'close_body') fired = curr.close > aggregateBodyHigh || curr.close < aggregateBodyLow;
         else fired = bodyEngulfs && rangeEngulfs;
 
         if (fired && volConfirm && !volumeConfirms) fired = false;
@@ -401,6 +419,10 @@ export class SignalEngineService {
           ? (closeOnlyMode ? `Closed candle close-engulfed ${lookback} reverse candles` : `Engulfing pattern (${mode}) detected`)
           : (reason || 'No engulfing pattern'),
         threshold_is_price: closeOnlyMode,
+        pattern_low: aggregateLow !== Infinity ? aggregateLow : undefined,
+        pattern_high: aggregateHigh !== -Infinity ? aggregateHigh : undefined,
+        body_low: aggregateBodyLow !== Infinity ? aggregateBodyLow : undefined,
+        body_high: aggregateBodyHigh !== -Infinity ? aggregateBodyHigh : undefined,
       };
     } catch (error) {
       this.logger.debug(`Engulfing signal error: ${error instanceof Error ? error.message : String(error)}`);

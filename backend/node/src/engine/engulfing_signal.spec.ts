@@ -222,4 +222,69 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
     });
   });
 
+  describe('Consecutive Requirement & Pattern Boundaries', () => {
+    it('should REJECT if the reverse sequence is interrupted by a same-direction candle', () => {
+      const candles = [
+        createCandle(105, 106, 102, 103), // Bearish
+        createCandle(101, 104, 101, 103), // Bullish (INTERRUPTION)
+        createCandle(103, 104, 100, 101), // Bearish
+        createCandle(100, 110, 95, 108),  // Bullish (Signal)
+      ];
+      mockKlineStore.getRawCandles.mockReturnValue(candles);
+      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'range', engulfing_lookback: 2 };
+
+      const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
+      expect(result.allFired).toBe(false);
+      expect(result.details?.engulfing.description).toBe('Previous 2 candles not bearish');
+    });
+
+    it('should return correct pattern_low and pattern_high for the engulfed sequence', () => {
+      const candles = [
+        createCandle(105, 108, 102, 103), // Bearish (High: 108, Low: 102)
+        createCandle(103, 106, 100, 101), // Bearish (High: 106, Low: 100)
+        createCandle(100, 110, 95, 109),  // Bullish (Engulfs both)
+      ];
+      mockKlineStore.getRawCandles.mockReturnValue(candles);
+      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'range', engulfing_lookback: 2 };
+
+      const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
+      expect(result.allFired).toBe(true);
+      expect(result.details?.engulfing.pattern_low).toBe(100);
+      expect(result.details?.engulfing.pattern_high).toBe(108);
+    });
+  });
+
+  describe('Close > Body (Closed) Engulfing', () => {
+    it('should fire LONG on next candle when a closed candle closes above prior 2 bearish bodies', () => {
+      const candles = [
+        createCandle(105, 106, 102, 103), // Bearish (Body High: 105)
+        createCandle(103, 104, 100, 101), // Bearish (Body High: 103)
+        createCandle(101, 107, 100, 105.5),// Bullish (Signal, Closes at 105.5 > Aggregate Body High 105)
+        createCandle(105.5, 106, 105.3, 105.8), // Live
+      ];
+      mockKlineStore.getRawCandles.mockReturnValue(candles);
+      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'close_body', engulfing_lookback: 2 };
+
+      const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
+      expect(result.allFired).toBe(true);
+      expect(result.details?.engulfing.value).toBe(105.5);
+      expect(result.details?.engulfing.threshold).toBe(105);
+    });
+
+    it('should REJECT LONG if closed candle closes below prior body high even if it clears wicks', () => {
+      const candles = [
+        createCandle(105, 110, 102, 103), // Bearish (Body High: 105, Range High: 110)
+        createCandle(103, 104, 100, 101), // Bearish
+        createCandle(101, 112, 100, 104.5),// Signal (Closes at 104.5 < Body High 105)
+        createCandle(104.5, 105, 104.2, 104.8), // Live
+      ];
+      mockKlineStore.getRawCandles.mockReturnValue(candles);
+      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'close_body', engulfing_lookback: 2 };
+
+      const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
+      expect(result.allFired).toBe(false);
+      expect(result.details?.engulfing.description).toBe('Close did not clear prior 2-candle body high');
+    });
+  });
+
 });

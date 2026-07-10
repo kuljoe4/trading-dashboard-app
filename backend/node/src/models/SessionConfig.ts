@@ -138,9 +138,9 @@ export class SessionConfig {
   })
   signal_params?: Record<string, any>;
 
-  @IsEnum(['range', 'body', 'strict', 'close_range'])
+  @IsEnum(['range', 'body', 'strict', 'close_range', 'close_body'])
   @IsOptional()
-  engulfing_mode?: 'range' | 'body' | 'strict' | 'close_range' = 'range';
+  engulfing_mode?: 'range' | 'body' | 'strict' | 'close_range' | 'close_body' = 'range';
 
   @IsEnum(['is_opportunity', 'after_opportunity'])
   @IsOptional()
@@ -157,9 +157,9 @@ export class SessionConfig {
   engulfing_lookback?: number = 1;
 
   // Stop Loss Configuration
-  @IsEnum(['pct', 'lookback_low/high'])
+  @IsEnum(['pct', 'lookback_low/high', 'engulfing_boundary'])
   @IsOptional()
-  sl_type?: 'pct' | 'lookback_low/high' = "pct";
+  sl_type?: 'pct' | 'lookback_low/high' | 'engulfing_boundary' = "pct";
 
   @IsNumber()
   @Min(CONFIG_LIMITS.SL_DISTANCE_MIN)

@@ -1134,7 +1134,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                           { value: 'range', label: 'Range (H/L)' },
                           { value: 'body', label: 'Body (O/C)' },
                           { value: 'strict', label: 'Strict (Both)' },
-                          { value: 'close_range', label: 'Close > H/L (Closed)' }
+                          { value: 'close_range', label: 'Close > H/L (Closed)' },
+                          { value: 'close_body', label: 'Close > Body (Closed)' }
                         ])}
                       </Tooltip>
                       <Tooltip content="Is Opportunity: Signal fires on the momentum candle itself. After Opportunity: Signal must fire on the NEXT candle after momentum.">
@@ -1379,7 +1380,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                 {renderField('Strategy Type', 'sl_type', 'text', [
                   { value: 'pct', label: 'Fixed Percentage' },
-                  {value: 'lookback_low/high', label: 'High/Low Stop' }
+                  { value: 'lookback_low/high', label: 'High/Low Stop' },
+                  { value: 'engulfing_boundary', label: 'Engulfing Boundary' }
                 ])}
                 {renderField('Out of Bounds', 'sl_out_of_bounds_action', 'text', [
                   { value: 'clamp', label: 'Clamp to Limits' },

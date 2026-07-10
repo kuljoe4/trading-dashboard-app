@@ -93,6 +93,7 @@ export class MaintenanceService {
       };
 
       const uniqueSymbols = Array.from(new Set(tradesToAudit.map(t => t.symbol)));
+      const processedOrphans = new Set<string>();
 
       if (useBulkAudit) {
         this.logger.log(`[Watchdog] Performing bulk audit for ${tradesToAudit.length} trades...`);
@@ -238,6 +239,11 @@ export class MaintenanceService {
 
           for (const orphan of orphans) {
              const orphanId = this.getOrderId(orphan);
+             if (processedOrphans.has(orphanId)) continue;
+             processedOrphans.add(orphanId);
+
+             // SRE: Anti-Spam Guard. Use a local set during the watchdog pass to avoid
+             // redundant cancel attempts if multiple local trades share the same orphan.
              this.logger.warn(`[Watchdog] ${trade.symbol} found orphan SL order ${orphanId}. Cancelling for state integrity.`);
              await this.orderManager.cancelBinanceOrder(
                 trade.symbol,

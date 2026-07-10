@@ -428,6 +428,7 @@ export class EngineBroadcasterService {
       effectivePeriodMs: this.lastRiskResult?.effectivePeriodMs,
       jitterFactor: this.lastRiskResult?.jitterFactor,
       hibernating: this.sessionState.hibernating,
+      hibernation_mode: config.hibernation_mode || 'adaptive',
       isAdaptiveTightened: this.sessionState.isAdaptiveTightened,
       paused: this.sessionState.paused,
       scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused,

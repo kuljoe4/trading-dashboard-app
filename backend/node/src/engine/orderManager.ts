@@ -308,8 +308,9 @@ export class OrderManagerService {
            const filledQty = parseFloat(order.z || '0');
            const isRecognizedExit =
              (trade.binance_close_order_id === orderId) ||
+             (trade.binance_stop_order_id === orderId) ||
              (order.cp === true) ||
-             (clientOrderId && (clientOrderId.startsWith('cls-') || clientOrderId.startsWith('tp-') || clientOrderId.startsWith('sig-')));
+             (clientOrderId && (clientOrderId.startsWith('cls-') || clientOrderId.startsWith('tp-') || clientOrderId.startsWith('sig-') || clientOrderId.startsWith('sl-')));
 
            if (status === 'FILLED') {
              if (!isRecognizedExit) {
@@ -1209,7 +1210,7 @@ export class OrderManagerService {
         quantity: Number(trade.qty || 0).toFixed(qtyPrecision),
         triggerPrice: Number(currentSlPrice || 0).toFixed(pricePrecision),
         workingType: 'MARK_PRICE',
-        newClientOrderId: `sl-${trade.id.substring(0, 8)}`,
+        clientAlgoId: `sl-${trade.id.substring(0, 8)}`,
         reduceOnly: true,
         priceProtect: true
       };
@@ -1230,12 +1231,12 @@ export class OrderManagerService {
             this.logger.warn(`[${symbol}] SL placement failed. Code: ${code}, Message: ${msg}, Raw: ${JSON.stringify(orderData)}`);
 
           // Handle Duplicate Order ID specifically to recover state after timeout
-          if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
-            this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId on SL retry. Recovering SL state...`);
+          if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId') || msg.includes('Duplicate clientAlgoId')) {
+            this.logger.log(`[${symbol}] [Sync] Detected duplicate clientAlgoId on SL retry. Recovering SL state...`);
             // Algo orders might need a different query endpoint or different parameters
-            const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
-            const queryData = (await queryRes.data()) as BinanceOrderReceipt;
-            if (queryData && queryData.orderId) {
+            const queryRes = await (this.binanceClient.restAPI as any).queryAlgoOrder({ symbol, clientAlgoId: slOrderParams.clientAlgoId });
+            const queryData = (await queryRes.data()) as BinanceAlgoOrderReceipt;
+            if (queryData && (queryData.orderId || queryData.algoId)) {
               this.logger.log(`[${symbol}] [Sync] Successfully recovered existing SL order state: ${queryData.orderId}`);
               stopLossId = String(queryData.orderId);
             } else {
@@ -1321,6 +1322,9 @@ export class OrderManagerService {
           this.logger.warn(`[${symbol}] Algo Order API not supported or failed. Falling back to standard STOP_MARKET...`);
           const standardParams = { ...slOrderParams };
           delete standardParams.algoType;
+          delete (standardParams as any).clientAlgoId;
+          standardParams.newClientOrderId = `sl-${trade.id.substring(0, 8)}`;
+
           standardParams.type = 'STOP_MARKET';
           // COMPLIANCE: Standard API uses stopPrice, while Algo API used triggerPrice
           (standardParams as any).stopPrice = standardParams.triggerPrice;
@@ -1406,10 +1410,16 @@ export class OrderManagerService {
              feesAlreadyAccounted: false
           });
           return { orderId: 'TRIGGERED_LOCALLY', price: trade.entry_price };
-        } else if (msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
-          this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId (via exception) on SL retry. Recovering SL state...`);
-          const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
-          const queryData = (await queryRes.data()) as BinanceOrderReceipt;
+        } else if (msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId') || msg.includes('Duplicate clientAlgoId')) {
+          this.logger.log(`[${symbol}] [Sync] Detected duplicate client ID (via exception) on SL retry. Recovering SL state...`);
+          let queryData;
+          if (slOrderParams.clientAlgoId) {
+             const queryRes = await (this.binanceClient.restAPI as any).queryAlgoOrder({ symbol, clientAlgoId: slOrderParams.clientAlgoId });
+             queryData = await queryRes.data();
+          } else {
+             const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
+             queryData = await queryRes.data();
+          }
           if (queryData && queryData.orderId) {
             this.logger.log(`[${symbol}] [Sync] Successfully recovered existing SL order state: ${queryData.orderId}`);
             stopLossId = String(queryData.orderId);
@@ -1437,7 +1447,7 @@ export class OrderManagerService {
         orderId: numericId,
         algoId: orderType === 'algo' ? numericId : undefined,
         algoType: orderType === 'algo' ? 'CONDITIONAL' : undefined,
-        clientOrderId: slOrderParams.newClientOrderId,
+        clientOrderId: orderType === 'algo' ? slOrderParams.clientAlgoId : slOrderParams.newClientOrderId,
         triggerPrice: currentSlPrice,
         stopPrice: currentSlPrice,
         origQty: trade.qty,
@@ -1454,7 +1464,8 @@ export class OrderManagerService {
 
       // Accuracy: Ensure local tracking reflects the final price used for placement
       if (trade.current_sl !== currentSlPrice) {
-         this.logger.log(`[${trade.symbol}] Syncing local SL to adaptive placement price: ${trade.current_sl} -> ${currentSlPrice.toFixed(5)}`);
+         const label = adaptiveAttempts > 0 ? 'adaptive placement' : 'filter rounding';
+         this.logger.log(`[${trade.symbol}] Syncing local SL to ${label} price: ${trade.current_sl} -> ${currentSlPrice.toFixed(5)}`);
          trade.current_sl = currentSlPrice;
       }
 
@@ -1589,13 +1600,23 @@ export class OrderManagerService {
       let exchangeState: any = null;
 
       try {
+        // SRE: Query by both clientOrderId and clientAlgoId (Binance SDK/API variance)
         const queryRes = await this.binanceClient.restAPI.queryOrder({
           symbol: trade.symbol,
           origClientOrderId: deterministicClientId
         });
         exchangeState = await queryRes.data();
       } catch (e: any) {
-        this.logger.debug(`[SL] No existing order with ID ${deterministicClientId} found via query.`);
+        // Fallback for algo orders which might use clientAlgoId
+        try {
+           const queryRes = await (this.binanceClient.restAPI as any).queryAlgoOrder({
+             symbol: trade.symbol,
+             clientAlgoId: deterministicClientId
+           });
+           exchangeState = await queryRes.data();
+        } catch (algoErr) {
+           this.logger.debug(`[SL] No existing order with ID ${deterministicClientId} found via query.`);
+        }
       }
 
       if (exchangeState && exchangeState.orderId) {
@@ -1694,6 +1715,14 @@ export class OrderManagerService {
       const upperMsg = errMsg.toUpperCase();
       if (upperMsg.includes('ORDER HAS BEEN FILLED') || upperMsg.includes('UNKNOWN_ORDER') || upperMsg.includes('UNKNOWN ORDER')) {
         this.logger.debug(`Order ${orderId} already closed: ${errMsg}`);
+
+        // SRE: Even if it failed with UNKNOWN_ORDER, we must purge it from local cache
+        // to prevent infinite retry loops in the Watchdog.
+        let currentOrders = this.sessionState.realTimeOrders.get(symbol) || [];
+        const updatedOrders = currentOrders.filter(o => String(o.orderId) !== orderId && String(o.algoId || '') !== orderId);
+        this.sessionState.realTimeOrders.set(symbol, updatedOrders);
+        this.markAsExecuted(symbol, orderId, 'CANCELED');
+
         return true;
       }
       this.logger.warn(`Failed to cancel Binance order ${orderId}: ${errMsg}`);

@@ -170,4 +170,56 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
       expect(result.allFired).toBe(true);
     });
   });
+
+  describe('Closed Close-Range Engulfing', () => {
+    it('should fire LONG on the next/live candle after a bullish closed candle closes above 2 bearish candle highs', () => {
+      const candles = [
+        createCandle(100, 103, 99, 102),   // A bullish context candle
+        createCandle(105, 106, 101, 102),  // B bearish
+        createCandle(102, 104, 100, 101),  // C bearish
+        createCandle(101, 107, 100, 106.5),// F closed bullish; close clears B/C high 106
+        createCandle(106.5, 106.8, 106.2, 106.4), // live/next candle where entry may occur
+      ];
+      mockKlineStore.getRawCandles.mockReturnValue(candles);
+      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'close_range', engulfing_lookback: 2 };
+
+      const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
+      expect(result.allFired).toBe(true);
+      expect(result.details?.engulfing.metric).toBe('Close Engulf');
+      expect(result.details?.engulfing.value).toBe(106.5);
+      expect(result.details?.engulfing.threshold).toBe(106);
+    });
+
+    it('should not fire LONG when the closed confirmation candle only wicks above the prior highs', () => {
+      const candles = [
+        createCandle(105, 106, 101, 102),
+        createCandle(102, 104, 100, 101),
+        createCandle(101, 108, 100, 105.5), // high clears, close does not
+        createCandle(105.5, 105.8, 105.2, 105.4),
+      ];
+      mockKlineStore.getRawCandles.mockReturnValue(candles);
+      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'close_range', engulfing_lookback: 2 };
+
+      const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
+      expect(result.allFired).toBe(false);
+      expect(result.details?.engulfing.description).toBe('Close did not clear prior 2-candle high');
+    });
+
+    it('should fire SHORT on the next/live candle after a bearish closed candle closes below 2 bullish candle lows', () => {
+      const candles = [
+        createCandle(100, 105, 99, 103),
+        createCandle(103, 106, 102, 105),
+        createCandle(105, 106, 98, 98.5),
+        createCandle(98.5, 99.2, 98.3, 98.8),
+      ];
+      mockKlineStore.getRawCandles.mockReturnValue(candles);
+      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'close_range', engulfing_lookback: 2 };
+
+      const result = service.checkEntry('BTCUSDT', config as any, '1m', 'SHORT');
+      expect(result.allFired).toBe(true);
+      expect(result.details?.engulfing.value).toBe(98.5);
+      expect(result.details?.engulfing.threshold).toBe(99);
+    });
+  });
+
 });

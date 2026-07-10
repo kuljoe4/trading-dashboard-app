@@ -596,6 +596,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       tradingMode: mode,
       balance: this.getBalance(),
       config: this.config,
+      hibernation_mode: this.config?.hibernation_mode || 'adaptive',
       gateState: this.sessionState.gateState,
       isAdaptiveTightened: this.sessionState.isAdaptiveTightened,
       scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused,

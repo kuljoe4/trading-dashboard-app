@@ -25,9 +25,16 @@ const LoadingView = () => (
 );
 
 const App = () => {
+  const store = useTradingStore();
   const { 
     setSessionActive, updateStats, setThrottled, sync, debugToolsEnabled
-  } = useTradingStore();
+  } = store;
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.useTradingStore = useTradingStore;
+    }
+  }, []);
 
   const isHidden = useVisibility();
 

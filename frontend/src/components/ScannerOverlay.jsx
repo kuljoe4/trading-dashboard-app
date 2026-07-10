@@ -27,7 +27,7 @@ const FreshnessIndicator = React.memo(({ ts }) => {
 });
 FreshnessIndicator.displayName = 'FreshnessIndicator';
 
-const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scannerPaused, hibernating, lastScanTs }) => {
+const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scannerPaused, hibernating, hibernationMode, lastScanTs }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const threshold = config?.scan_pct_threshold || 2.0;
@@ -259,10 +259,10 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                         </div>
                         <div className="flex flex-col items-center gap-1.5">
                           <div className="text-[11px] text-dim font-black uppercase tracking-[0.2em] animate-pulse text-center leading-none">
-                             {hibernating ? "Deep Sleep" : scannerPaused ? "Scanner Gated" : "Synchronizing"}
+                             {hibernating ? (hibernationMode === 'light' ? 'Light Sleep' : 'Deep Sleep') : scannerPaused ? "Scanner Gated" : "Synchronizing"}
                           </div>
                           <p className="text-[9px] text-dim/40 font-bold uppercase tracking-tight text-center">
-                            {hibernating ? "Market telemetry paused to save resources" : scannerPaused ? "Awaiting next valid window" : "Establishing authoritative data link..."}
+                            {hibernating ? (hibernationMode === 'light' ? "Market streams active, telemetry paused" : "Market telemetry paused to save resources") : scannerPaused ? "Awaiting next valid window" : "Establishing authoritative data link..."}
                           </p>
                         </div>
                      </div>
@@ -383,7 +383,7 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
 });
 
 export const ScannerOverlay = React.memo(({ onClose }) => {
-  const { scannerResults, activeWindows, config, scannerPaused, gateState, lastScanTs, hibernating, activeTrades } = useTradingStore(state => ({
+  const { scannerResults, activeWindows, config, scannerPaused, gateState, lastScanTs, hibernating, hibernationMode, activeTrades } = useTradingStore(state => ({
     scannerResults: state.scannerResults,
     activeWindows: state.activeWindows,
     config: state.config,
@@ -391,6 +391,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
     gateState: state.gateState,
     lastScanTs: state.lastScanTs,
     hibernating: state.hibernating,
+    hibernationMode: state.hibernationMode,
     activeTrades: state.activeTrades
   }), shallow)
   const threshold = config.scan_pct_threshold || 2.0
@@ -438,7 +439,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
           <div className="flex flex-col">
             <div className="flex items-center gap-2.5">
               <div className="relative flex items-center justify-center w-5 h-5">
-                 <PulseDot color={hibernating ? "bg-amber" : scannerPaused ? "bg-red" : "bg-green"} />
+                 <PulseDot color={hibernating ? (hibernationMode === 'light' ? "bg-accent" : "bg-amber") : scannerPaused ? "bg-red" : "bg-green"} />
                  {!hibernating && !scannerPaused && (
                    <span className="absolute inset-0 rounded-full border border-green animate-ping opacity-20 scale-150" />
                  )}
@@ -454,9 +455,14 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                 </div>
                 <div className="h-8 w-px bg-border/40 hidden sm:block mx-1" />
               {hibernating ? (
-                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber/10 border border-amber/20 shadow-lg shadow-amber/5">
-                  <span className="w-1 h-1 rounded-full bg-amber animate-pulse" />
-                  <span className="text-[9px] text-amber font-black uppercase tracking-widest">Deep Sleep</span>
+                <div className={cn(
+                  "flex items-center gap-1.5 px-2 py-0.5 rounded-full border shadow-lg",
+                  hibernationMode === 'light' ? "bg-accent/10 border-accent/20 shadow-accent/5" : "bg-amber/10 border-amber/20 shadow-amber/5"
+                )}>
+                  <span className={cn("w-1 h-1 rounded-full animate-pulse", hibernationMode === 'light' ? "bg-accent" : "bg-amber")} />
+                  <span className={cn("text-[9px] font-black uppercase tracking-widest", hibernationMode === 'light' ? "text-accent" : "text-amber")}>
+                    {hibernationMode === 'light' ? 'Light Sleep' : 'Deep Sleep'}
+                  </span>
                 </div>
               ) : scannerPaused ? (
                 <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red/10 border border-red/20 shadow-lg shadow-red/5">
@@ -600,6 +606,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
               isMonitored={monitoredSymbols.has(opp.symbol)}
               scannerPaused={scannerPaused}
               hibernating={hibernating}
+              hibernationMode={hibernationMode}
               lastScanTs={lastScanTs}
             />
           ))

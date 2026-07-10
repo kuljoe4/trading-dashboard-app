@@ -113,7 +113,7 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
     return { bars, min, max, range, barWidth, gap, thresholdY };
   }, [data, width, chartHeight, threshold, isLong, entryPrice]);
 
-  const oscMax = useMemo(() => Math.max(...bars.map(b => Math.abs(b.momentum || 0)), 0.1), [bars]);
+  const oscMax = React.useMemo(() => Math.max(...bars.map(b => Math.abs(b.momentum || 0)), 0.1), [bars]);
 
   const handleMouseMove = (e) => {
     if (!containerRef.current) return;

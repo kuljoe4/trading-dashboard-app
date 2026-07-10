@@ -208,6 +208,14 @@ export const createSessionAPI = (apiInstance = api) => ({
 
 export const sessionAPI = createSessionAPI()
 
+export const telemetryAPI = {
+  track: (event, details, resourceId) => api.post('/telemetry/event', { event, details, resourceId }),
+}
+
+export const narrativeAPI = {
+  get: (sessionId) => api.get(`/narrative/${sessionId}`),
+}
+
 export const settingsAPI = {
   getKeys: () => api.get('/settings/keys'),
   validateKeys: (keys) => api.post('/settings/keys/validate', keys),

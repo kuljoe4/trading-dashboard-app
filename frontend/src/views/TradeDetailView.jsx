@@ -10,7 +10,7 @@ import { TradeDetailContent } from '../components/trade/TradeDetailContent'
 import { formatDuration } from '../lib/formatters'
 
 const TradeDetailView = ({ tradeId }) => {
-  const { activeTrades, wsStatus, updateStats } = useTradingStore()
+  const { activeTrades, wsStatus, updateStats, trackEvent } = useTradingStore()
   const trade = activeTrades.find(t => t.id === tradeId || t.symbol === tradeId)
   const [now, setNow] = useState(Date.now())
 
@@ -30,6 +30,7 @@ const TradeDetailView = ({ tradeId }) => {
 
   useEffect(() => {
     if (tradeId) {
+      trackEvent('trade_detail_view', { tradeId });
       // REST Hydration: Fetch immediate state to avoid waiting for tick
       sessionAPI.getTrade(tradeId).then(res => {
          if (res.data) {

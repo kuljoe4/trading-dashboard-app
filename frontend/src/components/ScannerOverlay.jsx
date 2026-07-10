@@ -4,7 +4,7 @@ import { formatDuration } from '../lib/formatters'
 import { PulseDot, Sparkline, cn, CopyButton, Tooltip, CandlestickChart } from './ui/primitives'
 import { SignalGauge } from './ui/SignalGauge'
 import { useTradingStore } from '../store/trading'
-import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert } from 'lucide-react'
+import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert, Lock } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { shallow } from 'zustand/shallow'
 
@@ -29,6 +29,8 @@ FreshnessIndicator.displayName = 'FreshnessIndicator';
 
 const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scannerPaused, hibernating, hibernationMode, lastScanTs }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const trackEvent = useTradingStore(state => state.trackEvent);
+  const isPremium = config?.tier === 'premium';
 
   const threshold = config?.scan_pct_threshold || 2.0;
   const dir = (opp.dir || opp.direction || '').toLowerCase();
@@ -62,7 +64,10 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
     if (config?.debug_mode && isExpanded && (!opp.ohlc_history || opp.ohlc_history.length === 0)) {
       console.warn(`[Scanner Debug] Expanded ${opp.symbol} has no telemetry. Gated: ${scannerPaused}, Hibernating: ${hibernating}, LastScan: ${lastScanTs}`);
     }
-  }, [isExpanded, opp.symbol, opp.ohlc_history, scannerPaused, hibernating, lastScanTs, config?.debug_mode]);
+    if (isExpanded && !isPremium) {
+       trackEvent('paywall_view', { symbol: opp.symbol });
+    }
+  }, [isExpanded, opp.symbol, opp.ohlc_history, scannerPaused, hibernating, lastScanTs, config?.debug_mode, isPremium, trackEvent]);
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
@@ -271,11 +276,27 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
               </div>
 
               {/* Panel 2: Decision Funnel */}
-              <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-4 relative">
                  <div className="text-[10px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-2 px-1">
                    <LayoutGrid size={12} className="text-accent" /> Decision Funnel
                  </div>
                  <div className="bg-surface/50 border border-border rounded-2xl p-6 flex flex-col gap-6 relative overflow-hidden group/scoring shadow-sm">
+                    {!isPremium && isExpanded && (
+                      <div
+                         className="absolute inset-0 z-20 backdrop-blur-md bg-background/40 flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-700"
+                      >
+                         <div className="w-12 h-12 rounded-full bg-accent/20 border border-accent/30 flex items-center justify-center mb-4">
+                            <Lock size={20} className="text-accent" />
+                         </div>
+                         <h4 className="text-sm font-black uppercase tracking-tight mb-2">Signal Insights Locked</h4>
+                         <p className="text-[10px] text-dim font-bold uppercase leading-relaxed mb-6">
+                            Upgrade to Premium to unlock the full technical decision funnel and authorization logic.
+                         </p>
+                         <button className="px-6 py-2.5 bg-accent text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-accent/90 transition-all shadow-lg active:scale-95">
+                            Unlock Full Access
+                         </button>
+                      </div>
+                    )}
                     {/* Score Bars Section */}
                     <div className="grid grid-cols-3 gap-4 pb-6 border-b border-white/5">
                        {[

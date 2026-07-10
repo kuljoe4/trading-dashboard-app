@@ -15,6 +15,7 @@ import {
   Briefcase, TrendingUp, ArrowRight, AlertCircle, CheckCircle2, Info, Loader2
 } from 'lucide-react'
 import { Drawer } from 'vaul'
+import { narrativeAPI } from '../api/client'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sidebar, BottomNav } from '../components/Navigation'
 import { lazyWithRetry } from '../lib/lazy'
@@ -117,6 +118,37 @@ const DecisionLog = lazyWithRetry(() => import('../components/DecisionLog').then
 const ConfigModal = lazyWithRetry(() => import('../components/ConfigModal').then(module => ({ default: module.ConfigModal })))
 const ScannerOverlay = lazyWithRetry(() => import('../components/ScannerOverlay').then(module => ({ default: module.ScannerOverlay })))
 const EquityCurve = lazyWithRetry(() => import('../components/Analytics').then(module => ({ default: module.EquityCurve })))
+const SessionNarrative = React.memo(({ sessionId }) => {
+  const [narrative, setNarrative] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    setLoading(true);
+    narrativeAPI.get(sessionId)
+      .then(res => setNarrative(res.data.narrative || []))
+      .catch(() => setNarrative(['Failed to load session insights.']))
+      .finally(() => setLoading(false));
+  }, [sessionId]);
+
+  if (loading) return (
+    <div className="flex flex-col gap-2 animate-pulse">
+       <div className="h-3 w-3/4 bg-white/5 rounded" />
+       <div className="h-3 w-1/2 bg-white/5 rounded" />
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col gap-2">
+      {narrative.slice(-3).map((line, i) => (
+        <div key={i} className="text-[10px] text-dim font-bold uppercase tracking-tight line-clamp-1 border-l border-accent/20 pl-2">
+          {line}
+        </div>
+      ))}
+    </div>
+  );
+});
+
 const StrategyDetailView = lazyWithRetry(() => import('./StrategyDetailView'))
 
 const LoadingFallback = () => (
@@ -532,7 +564,7 @@ export function DashboardView({ initialStrategy }) {
     totalSlUsed, activeTrades, alerts, config, setSessionActive,
     updateConfig, patchConfig, gateState, gateReason, hibernating, hibernationMode, agreementRequired,
     scannerPaused, sessionList, fetchSessions, wsStatus,
-    updateStats, analytics,
+    updateStats, analytics, trackEvent,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
     healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs
   } = useTradingStore(state => ({
@@ -574,6 +606,7 @@ export function DashboardView({ initialStrategy }) {
     isAdaptiveTightened: state.isAdaptiveTightened,
     apiStatus: state.apiStatus,
     analytics: state.analytics,
+    trackEvent: state.trackEvent,
     effectivePeriodMs: state.effectivePeriodMs
   }), shallow)
 
@@ -668,11 +701,14 @@ export function DashboardView({ initialStrategy }) {
       if (isEditMode && strategyId) {
         await sessionAPI.update(strategyId, finalConfig)
         updateConfig(finalConfig)
+        trackEvent('config_update', { label: finalConfig.strategy_label });
         addAlert({ level: 'success', title: 'Config Updated', message: 'Strategy parameters synchronized with the engine.' });
       } else {
         updateConfig(finalConfig)
         const res = await sessionAPI.start(finalConfig, finalConfig.paper_mode)
-        setSessionActive(true, res.data.strategyId || res.data.strategy_id)
+        const newSid = res.data.strategyId || res.data.strategy_id;
+        setSessionActive(true, newSid)
+        trackEvent('session_start', { label: finalConfig.strategy_label, mode: finalConfig.trading_mode || 'paper' }, newSid);
         addAlert({ level: 'success', title: 'Session Started', message: `Engine active with "${finalConfig.strategy_label}".` });
       }
       setShowConfig(false)
@@ -712,7 +748,9 @@ export function DashboardView({ initialStrategy }) {
     setSyncing(true);
     try {
       const res = await sessionAPI.start(lastSession.config, lastSession.paperMode, lastSession.id);
-      setSessionActive(true, res.data.strategyId || res.data.strategy_id);
+      const newSid = res.data.strategyId || res.data.strategy_id;
+      setSessionActive(true, newSid);
+      trackEvent('session_resume', { label: lastSession.config.strategy_label }, newSid);
       addAlert({ level: 'success', title: 'Session Resumed', message: `Restored previous session "${lastSession.config.strategy_label}".` });
     } catch (e) {
       addAlert({ level: 'error', title: 'Resume Failed', message: 'Could not restore previous session state.' });
@@ -726,6 +764,7 @@ export function DashboardView({ initialStrategy }) {
     setLoading(true)
     setSyncing(true)
     try {
+      trackEvent('session_stop_request', { activeTrades: activeTrades.length, totalPnl });
       await sessionAPI.stop()
       setSessionActive(false, null)
       addAlert({ level: 'info', title: 'Session Terminated', message: 'Engine stopped and all positions closed at market.' });
@@ -746,6 +785,7 @@ export function DashboardView({ initialStrategy }) {
     setLoading(true)
     setSyncing(true)
     try {
+      trackEvent('session_delete', { sessionId: sessionToDelete });
       await sessionAPI.delete(sessionToDelete)
       addAlert({
         level: 'success',
@@ -766,7 +806,10 @@ export function DashboardView({ initialStrategy }) {
     }
   }, [sessionToDelete, addAlert, fetchSessions, setSyncing]);
 
-  const handleOpenScanner = React.useCallback(() => setShowScanner(true), []);
+  const handleOpenScanner = React.useCallback(() => {
+    setShowScanner(true);
+    trackEvent('scanner_open');
+  }, [trackEvent]);
   const handleEditPrimary = React.useCallback(() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }, [config]);
   const handleSelectPrimary = React.useCallback(() => setSelected(currentStrategy.strategy_label), [currentStrategy.strategy_label]);
 
@@ -1105,11 +1148,11 @@ export function DashboardView({ initialStrategy }) {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Left Column: Equity Story */}
-              <div className="lg:col-span-2 bg-surface border border-border/40 rounded-2xl p-5 md:p-6 shadow-sm flex flex-col gap-6">
+              <div className="lg:col-span-2 bg-surface border border-border/40 rounded-2xl p-5 md:p-6 shadow-sm flex flex-col gap-6 relative group/narrative">
                 <div className="flex items-center justify-between">
                   <div className="flex flex-col gap-1">
-                    <div className="text-[10px] text-dim font-black uppercase tracking-widest">Equity Narrative</div>
-                    <div className="text-xs font-bold text-text">Lifetime Performance Curve</div>
+                    <div className="text-[10px] text-dim font-black uppercase tracking-widest">Session Insights</div>
+                    <SessionNarrative sessionId={strategyId} />
                   </div>
                   <div className="flex gap-4">
                      <div className="flex flex-col items-end">

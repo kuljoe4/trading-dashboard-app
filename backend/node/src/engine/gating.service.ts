@@ -14,6 +14,9 @@ import { PositionTrackerService } from './positionTracker';
 export class GatingService {
   private readonly logger = new Logger(GatingService.name);
 
+  // BOLT OPTIMIZATION: Cache for pre-parsed trading windows to avoid redundant string manipulation and parsing in the hot path.
+  private readonly tradingWindowCache = new WeakMap<SessionConfig, { start: number; end: number }[]>();
+
   constructor(
     private readonly sessionState: SessionStateService,
     private readonly momentumScanner: MomentumScannerService,
@@ -37,15 +40,35 @@ export class GatingService {
 
   public isInsideTradingWindow(config: SessionConfig): boolean {
     if (!config?.trading_windows?.length) return true;
+
+    // BOLT OPTIMIZATION: Check for cached parsed windows first
+    let parsedWindows = this.tradingWindowCache.get(config);
+    if (!parsedWindows) {
+      parsedWindows = config.trading_windows.map(window => ({
+        start: parseInt(window.start.replace(':', ''), 10),
+        end: parseInt(window.end.replace(':', ''), 10)
+      }));
+      this.tradingWindowCache.set(config, parsedWindows);
+    }
+
     const now = new Date();
     const currentTime = now.getUTCHours() * 100 + now.getUTCMinutes();
-    return config.trading_windows.some(window => {
-      const start = parseInt(window.start.replace(':', ''), 10);
-      const end = parseInt(window.end.replace(':', ''), 10);
-      return start <= end
-        ? (currentTime >= start && currentTime <= end)
-        : (currentTime >= start || currentTime <= end);
-    });
+
+    // BOLT OPTIMIZATION: Use manual for loop to avoid iterator overhead and function call overhead from .some()
+    for (let i = 0; i < parsedWindows.length; i++) {
+      const window = parsedWindows[i];
+      const start = window.start;
+      const end = window.end;
+
+      if (start <= end) {
+        if (currentTime >= start && currentTime <= end) return true;
+      } else {
+        // Overnight window
+        if (currentTime >= start || currentTime <= end) return true;
+      }
+    }
+
+    return false;
   }
 
   public async enterHibernation(reason: string, config: SessionConfig, activeTrades: any[]) {

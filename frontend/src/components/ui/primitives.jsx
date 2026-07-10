@@ -84,13 +84,15 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
               <div className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse shrink-0" />
             )}
           </div>
-          <button
-            onClick={(e) => { e.stopPropagation(); setIsLocked(!isLocked); }}
-            className={cn("p-1 rounded-md transition-colors shrink-0 mt-0.5", isLocked ? "text-dim/40 hover:text-dim" : "text-accent")}
-            aria-label={isLocked ? "Unlock controls" : "Lock controls"}
-          >
-            {isLocked ? <Lock size={10} /> : <Unlock size={10} />}
-          </button>
+          <Tooltip content={isLocked ? "Unlock Controls" : "Lock Controls"}>
+            <button
+              onClick={(e) => { e.stopPropagation(); setIsLocked(!isLocked); }}
+              className={cn("p-1 rounded-md transition-colors shrink-0 mt-0.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none", isLocked ? "text-dim/40 hover:text-dim" : "text-accent")}
+              aria-label={isLocked ? "Unlock controls" : "Lock controls"}
+            >
+              {isLocked ? <Lock size={10} /> : <Unlock size={10} />}
+            </button>
+          </Tooltip>
         </div>
         <div className="flex items-center w-full gap-2">
           <div className="flex flex-col flex-grow min-w-0">
@@ -222,7 +224,7 @@ export const Btn = React.forwardRef(({ children, variant = "primary", onClick, c
       onClick={onClick}
       disabled={disabled || loading}
       className={cn(
-        "px-5 py-2.5 rounded-xl font-bold text-[13px] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-95",
+        "px-5 py-2.5 rounded-xl font-bold text-[13px] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
         variants[variant],
         className
       )}

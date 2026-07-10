@@ -1,10 +1,25 @@
-import React from 'react'
+import React, { useRef, useEffect, useId } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X, AlertTriangle } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn, Btn, VisuallyHidden, Tooltip } from './ui/primitives'
 
 export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = "Confirm", cancelText = "Cancel", variant = "danger", loading = false }) => {
+  const cancelBtnRef = useRef(null);
+  const titleId = useId();
+  const descriptionId = useId();
+
+  // UX: Safe-by-default focus strategy. Auto-focus the non-destructive action (Cancel)
+  // to prevent accidental data loss from rapid 'Enter' key presses.
+  useEffect(() => {
+    if (isOpen) {
+      const timer = setTimeout(() => {
+        cancelBtnRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
+
   return (
     <Dialog.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <AnimatePresence>
@@ -20,6 +35,9 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
             </Dialog.Overlay>
             <Dialog.Content asChild>
               <motion.div
+                role="alertdialog"
+                aria-labelledby={titleId}
+                aria-describedby={descriptionId}
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
@@ -45,8 +63,8 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
                     </Tooltip>
                   </div>
 
-                  <Dialog.Title className="text-lg font-bold mb-2">{title}</Dialog.Title>
-                  <Dialog.Description className="text-sm text-dim leading-relaxed mb-6">
+                  <Dialog.Title id={titleId} className="text-lg font-bold mb-2">{title}</Dialog.Title>
+                  <Dialog.Description id={descriptionId} className="text-sm text-dim leading-relaxed mb-6">
                     {message}
                   </Dialog.Description>
 
@@ -54,6 +72,7 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
                     <div className="flex-1">
                       <Dialog.Close asChild>
                         <Btn
+                          ref={cancelBtnRef}
                           variant="ghost"
                           disabled={loading}
                           className="w-full"

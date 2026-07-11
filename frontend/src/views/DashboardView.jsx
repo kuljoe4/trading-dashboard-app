@@ -21,7 +21,7 @@ import { lazyWithRetry } from '../lib/lazy'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 
 const TemporalRiskGrid = React.memo(() => {
-  const { config, gateState, gateReason, isAdaptiveTightened, configSyncing, patchConfig, tradesInPeriod, maxTradesPeriod, tradesIn24h, maxTrades24h, effectivePeriodMs } = useTradingStore(state => ({
+  const { config, gateState, gateReason, isAdaptiveTightened, configSyncing, patchConfig, tradesInPeriod, maxTradesPeriod, tradesIn24h, maxTrades24h, effectivePeriodMs, nextSlotTs } = useTradingStore(state => ({
     config: state.config,
     gateState: state.gateState,
     gateReason: state.gateReason,
@@ -32,17 +32,27 @@ const TemporalRiskGrid = React.memo(() => {
     maxTradesPeriod: state.maxTradesPeriod,
     tradesIn24h: state.tradesIn24h,
     maxTrades24h: state.maxTrades24h,
-    effectivePeriodMs: state.effectivePeriodMs
+    effectivePeriodMs: state.effectivePeriodMs,
+    nextSlotTs: state.nextSlotTs
   }), shallow);
 
-  const timeMatch = gateReason?.match(/~(\d+)(m|h)/);
-  const waitTime = timeMatch ? `${timeMatch[1]}${timeMatch[2]}` : null;
+  const [now, setNow] = React.useState(Date.now());
+  React.useEffect(() => {
+    if (!nextSlotTs) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [nextSlotTs]);
+
+  const nextSlotSec = nextSlotTs ? Math.max(0, Math.ceil((nextSlotTs - now) / 1000)) : null;
+  const waitTime = nextSlotSec !== null
+    ? (nextSlotSec > 60 ? `${Math.ceil(nextSlotSec / 60)}m` : `${nextSlotSec}s`)
+    : null;
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4 mb-8 lg:mb-10">
       <InteractiveLimitCard
         label="Period Limit"
-        subValue={gateState === 'max_trades_period' ? `Wait ~${waitTime}` : (isAdaptiveTightened ? 'x0.5 Applied' : (tradesInPeriod !== undefined ? `${Math.max(0, (maxTradesPeriod || config.max_trades_per_period) - tradesInPeriod)} Remaining` : null))}
+        subValue={gateState === 'max_trades_period' ? (waitTime ? `Wait ~${waitTime}` : 'Wait...') : (isAdaptiveTightened ? 'x0.5 Applied' : (tradesInPeriod !== undefined ? `${Math.max(0, (maxTradesPeriod || config.max_trades_per_period) - tradesInPeriod)} Remaining` : null))}
         tooltip="Maximum trades allowed within the sliding period window."
         value={config.max_trades_per_period || 0}
         min={0}
@@ -551,7 +561,8 @@ export function DashboardView({ initialStrategy }) {
     scannerPaused, sessionList, fetchSessions, wsStatus,
     updateStats, analytics,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
-    healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs, isSyncingOnResume
+    healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs, isSyncingOnResume,
+    nextSlotTs
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -592,7 +603,8 @@ export function DashboardView({ initialStrategy }) {
     apiStatus: state.apiStatus,
     analytics: state.analytics,
     effectivePeriodMs: state.effectivePeriodMs,
-    isSyncingOnResume: state.isSyncingOnResume
+    isSyncingOnResume: state.isSyncingOnResume,
+    nextSlotTs: state.nextSlotTs
   }), shallow)
 
   useEffect(() => {

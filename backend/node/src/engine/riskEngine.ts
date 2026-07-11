@@ -97,6 +97,7 @@ export class RiskEngineService {
     mostRecentTradeTs?: number;
     oldestTradeIn24hTs?: number;
     oldestTradeInPeriodTs?: number;
+    nextSlotTs?: number;
     effectivePeriodMs?: number;
     jitterFactor?: number;
   } {
@@ -376,7 +377,8 @@ export class RiskEngineService {
 
     // 3. Rolling 24h Limit
     if (maxTrades24h > 0 && tradesIn24h >= maxTrades24h) {
-      const nextSlotMs = oldestTradeIn24hTs + (24 * 60 * 60 * 1000) - now;
+      const nextSlotTs = oldestTradeIn24hTs + (24 * 60 * 60 * 1000);
+      const nextSlotMs = nextSlotTs - now;
       const nextSlotHours = Number(nextSlotMs / (60 * 60 * 1000)).toFixed(1);
       return {
         canEnter: false,
@@ -389,6 +391,7 @@ export class RiskEngineService {
         mostRecentTradeTs,
         oldestTradeIn24hTs,
         oldestTradeInPeriodTs,
+        nextSlotTs,
         effectivePeriodMs,
         jitterFactor
       };

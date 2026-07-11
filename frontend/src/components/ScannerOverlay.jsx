@@ -74,7 +74,7 @@ const FunnelStep = ({ label, detail, complete, icon: Icon }) => (
   </div>
 );
 
-const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scannerPaused, hibernating, hibernationMode, lastScanTs }) => {
+const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scannerPaused, hibernating, hibernationMode }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const threshold = config?.scan_pct_threshold || 2.0;
@@ -111,7 +111,7 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
   // Prioritizes structural streak extremes if configured, falls back to pct-based distance.
   const chartSl = useMemo(() => {
     if (config?.sl_type === 'streak_extreme' || config?.sl_type === 'engulfing_boundary') {
-       return engulfSignal?.slPrice;
+       return engulfSignal?.slPrice || (isLong ? engulfSignal?.pattern_low : engulfSignal?.pattern_high);
     }
     if (config?.sl_type === 'lookback_low/high') {
        return checklistSignals.breakout_hl?.slPrice;
@@ -123,18 +123,19 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
     return null;
   }, [config, opp.price, isLong, engulfSignal, checklistSignals.breakout_hl]);
 
+  const closeEngulfEnabled = engulfingEnabled && config?.signal_params?.engulfing_mode?.startsWith('close');
   const funnelSteps = [
     { label: 'Momentum Scan', detail: `${Number(Math.abs(opp.pct || 0)).toFixed(2)}% move vs ${Number(threshold || 0).toFixed(2)}% threshold`, complete: passing, icon: TrendingUp },
-    { label: 'Closed Engulf', detail: closeEngulfEnabled ? `Last closed candle close must clear ${config?.engulfing_lookback || 2} reverse candle ${isLong ? 'highs' : 'lows'}.` : 'Uses configured technical entry signals.', complete: closeEngulfEnabled ? !!engulfSignal?.fired : !!opp.signalResult?.allFired, icon: Activity },
+    { label: 'Signal Context', detail: closeEngulfEnabled ? `Last closed candle close must clear ${config?.engulfing_lookback || 2} reverse candle ${isLong ? 'highs' : 'lows'}.` : 'Uses configured technical entry signals.', complete: closeEngulfEnabled ? !!engulfSignal?.fired : !!opp.signalResult?.allFired, icon: Activity },
     { label: 'Authorization', detail: opp.signalResult?.reason || 'Waiting for signal engine decision.', complete: !!opp.signalResult?.allFired, icon: ShieldCheck },
   ];
 
   // DEBUG: Track telemetry presence in expanded state to identify synchronization gaps
   useEffect(() => {
     if (config?.debug_mode && isExpanded && (!opp.ohlc_history || opp.ohlc_history.length === 0)) {
-      console.warn(`[Scanner Debug] Expanded ${opp.symbol} has no telemetry. Gated: ${scannerPaused}, Hibernating: ${hibernating}, LastScan: ${lastScanTs}`);
+      console.warn(`[Scanner Debug] Expanded ${opp.symbol} has no telemetry. Gated: ${scannerPaused}, Hibernating: ${hibernating}`);
     }
-  }, [isExpanded, opp.symbol, opp.ohlc_history, scannerPaused, hibernating, lastScanTs, config?.debug_mode]);
+  }, [isExpanded, opp.symbol, opp.ohlc_history, scannerPaused, hibernating, config?.debug_mode]);
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
@@ -174,7 +175,7 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
              <CopyButton value={opp.symbol} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ml-1" />
            </div>
            <div className="flex items-center gap-1.5 mt-0.5">
-            {activeTrades.some(t => t.symbol === opp.symbol) && (
+            {isInPosition && (
               <div className="flex items-center gap-1">
                  <Zap size={10} className="text-green fill-green/20" />
                  <span className="text-[8px] font-bold text-green uppercase tracking-tighter">In Pos</span>
@@ -464,16 +465,16 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
 });
 
 export const ScannerOverlay = React.memo(({ onClose }) => {
-  const { scannerResults, activeWindows, config, scannerPaused, gateState, lastScanTs, hibernating, hibernationMode, activeTrades } = useTradingStore(state => ({
+  const { scannerResults, activeWindows, config, scannerPaused, lastScanTs, hibernating, hibernationMode, activeTradeSymbols, isResuming } = useTradingStore(state => ({
     scannerResults: state.scannerResults,
     activeWindows: state.activeWindows,
     config: state.config,
     scannerPaused: state.scannerPaused,
-    gateState: state.gateState,
     lastScanTs: state.lastScanTs,
     hibernating: state.hibernating,
     hibernationMode: state.hibernationMode,
-    activeTrades: state.activeTrades
+    activeTradeSymbols: state.activeTrades.map(t => t.symbol),
+    isResuming: state.isThrottled || state.wsStatus !== 'live'
   }), shallow)
   const threshold = config.scan_pct_threshold || 2.0
   const [search, setSearch] = useState('')
@@ -520,13 +521,16 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
           <div className="flex flex-col">
             <div className="flex items-center gap-2.5">
               <div className="relative flex items-center justify-center w-5 h-5">
-                 <PulseDot color={hibernating ? (hibernationMode === 'light' ? "bg-accent" : "bg-amber") : scannerPaused ? "bg-red" : "bg-green"} />
-                 {!hibernating && !scannerPaused && (
+                 <PulseDot color={isResuming ? "bg-accent" : hibernating ? (hibernationMode === 'light' ? "bg-accent" : "bg-amber") : scannerPaused ? "bg-red" : "bg-green"} />
+                 {!hibernating && !scannerPaused && !isResuming && (
                    <span className="absolute inset-0 rounded-full border border-green animate-ping opacity-20 scale-150" />
+                 )}
+                 {isResuming && (
+                   <span className="absolute inset-0 rounded-full border border-accent animate-ping opacity-20 scale-150" />
                  )}
               </div>
                 <div className="flex flex-col">
-                  <span className="text-[15px] font-black tracking-tight hidden sm:inline uppercase">Live Scanner</span>
+                  <span className="text-[15px] font-black tracking-tight hidden sm:inline uppercase">{isResuming ? 'Resuming Feed...' : 'Live Scanner'}</span>
                   <div className="flex items-center gap-2 opacity-60">
                     <div className="text-[8px] text-dim font-black uppercase tracking-tighter">Engine Logic Weighting</div>
                     <div className="px-1.5 py-0.5 rounded bg-background border border-border/50 font-mono text-[8px] font-bold text-text/60">
@@ -535,7 +539,12 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                   </div>
                 </div>
                 <div className="h-8 w-px bg-border/40 hidden sm:block mx-1" />
-              {hibernating ? (
+              {isResuming ? (
+                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-accent/10 border border-accent/20 shadow-lg shadow-accent/5">
+                  <RefreshCw size={10} className="text-accent animate-spin" />
+                  <span className="text-[9px] text-accent font-black uppercase tracking-widest">Resuming</span>
+                </div>
+              ) : hibernating ? (
                 <div className={cn(
                   "flex items-center gap-1.5 px-2 py-0.5 rounded-full border shadow-lg",
                   hibernationMode === 'light' ? "bg-accent/10 border-accent/20 shadow-accent/5" : "bg-amber/10 border-amber/20 shadow-amber/5"
@@ -683,12 +692,11 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
               opp={opp}
               i={i}
               config={config}
-              activeTrades={activeTrades}
+              isInPosition={activeTradeSymbols.includes(opp.symbol)}
               isMonitored={monitoredSymbols.has(opp.symbol)}
               scannerPaused={scannerPaused}
               hibernating={hibernating}
               hibernationMode={hibernationMode}
-              lastScanTs={lastScanTs}
             />
           ))
         )}

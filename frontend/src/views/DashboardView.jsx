@@ -361,8 +361,8 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
   );
 })
 
-const GateBanner = React.memo(({ gateState, scannerPaused, reason, hibernating, hibernationMode, activeTradesCount }) => {
-  if (!gateState && !scannerPaused) return null
+const GateBanner = React.memo(({ gateState, scannerPaused, reason, hibernating, hibernationMode, activeTradesCount, isResuming }) => {
+  if (!gateState && !scannerPaused && !isResuming) return null
 
   const messages = {
     max_trades: 'Maximum open trades reached. Entry gated.',
@@ -382,14 +382,15 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, hibernating, 
       animate={{ opacity: 1, y: 0 }}
       className={cn(
         "p-4 rounded-xl mb-6 text-xs font-bold border flex flex-col gap-2 shadow-sm transition-colors",
+        isResuming ? "bg-accent/10 border-accent/30 text-accent" :
         scannerPaused ? "bg-red/10 border-red/20 text-red" : "bg-amber/10 border-amber/20 text-amber",
-        (hibernating || isGatedIdle) && "bg-accent/5 border-accent/20 text-accent/80"
+        (!isResuming && (hibernating || isGatedIdle)) && "bg-accent/5 border-accent/20 text-accent/80"
       )}
     >
       <div className="flex items-center gap-3">
-        {hibernating ? <Zap size={16} className={cn("animate-pulse opacity-50", hibernationMode === 'light' ? "text-accent" : "text-amber")} /> : gateState === 'sleeping' ? <Pause size={16} className="animate-pulse" /> : <XCircle size={16} className={scannerPaused ? "animate-pulse" : ""} />}
+        {isResuming ? <RefreshCw size={16} className="animate-spin" /> : hibernating ? <Zap size={16} className={cn("animate-pulse opacity-50", hibernationMode === 'light' ? "text-accent" : "text-amber")} /> : gateState === 'sleeping' ? <Pause size={16} className="animate-pulse" /> : <XCircle size={16} className={scannerPaused ? "animate-pulse" : ""} />}
         <span className="uppercase tracking-widest">
-          {hibernating ? (hibernationMode === 'light' ? 'Light Sleep Active' : 'Deep Sleep Active') : (messages[gateState] || 'Risk gate active.')}
+          {isResuming ? 'Resuming Data Feed...' : hibernating ? (hibernationMode === 'light' ? 'Light Sleep Active' : 'Deep Sleep Active') : (messages[gateState] || 'Risk gate active.')}
         </span>
         {hibernating ? (
           <div
@@ -994,6 +995,7 @@ export function DashboardView({ initialStrategy }) {
             hibernating={hibernating}
             hibernationMode={hibernationMode}
             activeTradesCount={activeTrades.length}
+            isResuming={isThrottled || wsStatus !== 'live'}
           />
         </div>
 

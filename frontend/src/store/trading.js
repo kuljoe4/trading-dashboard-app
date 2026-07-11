@@ -61,7 +61,11 @@ export const normalizeOpportunity = (o = {}) => {
             insufficientData: !!s.insufficientData,
             streak_start_ts: s.streak_start_ts ? toNumber(s.streak_start_ts) : undefined,
             streak_end_ts: s.streak_end_ts ? toNumber(s.streak_end_ts) : undefined,
-            slPrice: s.slPrice ? toNumber(s.slPrice) : undefined
+            slPrice: s.slPrice ? toNumber(s.slPrice) : undefined,
+            pattern_low: s.pattern_low ? toNumber(s.pattern_low) : undefined,
+            pattern_high: s.pattern_high ? toNumber(s.pattern_high) : undefined,
+            body_low: s.body_low ? toNumber(s.body_low) : undefined,
+            body_high: s.body_high ? toNumber(s.body_high) : undefined
         };
         return acc;
       }, {}) : {},

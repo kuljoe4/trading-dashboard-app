@@ -135,10 +135,9 @@ describe('Real-time Quantity Synchronization', () => {
     sessionLifecycle.handleAccountUpdate(payload as any);
 
     const trade = sessionState.activeTrades[0];
-    // In actual implementation, quantity decrease is IGNORED during ACCOUNT_UPDATE if not in closing state
-    // to prevent race conditions with external SL hits.
-    expect(trade.qty).toBe(1.0);
-    expect(emitSpy).not.toHaveBeenCalledWith(ENGINE_EVENTS.QUANTITY_SYNC, { symbol: 'BTCUSDT', qty: 0.3 });
+    // CHRONOS: Authoritative synchronization should happen even if not in closing state
+    expect(trade.qty).toBe(0.3);
+    expect(emitSpy).toHaveBeenCalledWith(ENGINE_EVENTS.QUANTITY_SYNC, { symbol: 'BTCUSDT', qty: 0.3 });
   });
 
   it('should synchronize trade.qty from UDS ACCOUNT_UPDATE when in closing state', async () => {

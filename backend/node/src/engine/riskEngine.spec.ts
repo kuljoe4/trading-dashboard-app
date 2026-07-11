@@ -72,6 +72,7 @@ describe('RiskEngineService - Frequency Limits', () => {
     mockConfig.trades_jitter_pct = 50; // 50% jitter
     mockConfig.max_trades_per_period = 1;
     mockConfig.trades_period_min = 60;
+    const symbol = 'BTCUSDT';
 
     const now = Date.now();
     const lastTradeTs = now - 75 * 60 * 1000;
@@ -79,11 +80,27 @@ describe('RiskEngineService - Frequency Limits', () => {
       { entry_ts: new Date(lastTradeTs) } as Trade
     ];
 
-    const result = service.canEnter([], closed, 10000, 'BTCUSDT', mockConfig, 0);
+    const result = service.canEnter([], closed, 10000, symbol, mockConfig, 0);
 
-    const symbolHash = 'BTCUSDT'.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const jitterSeed = (Math.floor(lastTradeTs / 10000) * 10000) + symbolHash;
-    const jitterFactor = 1 + ((Math.abs(Math.sin(jitterSeed)) * 50) / 100);
+    // Re-calculate jitter using the NEW logic from RiskEngine
+    let symbolHash = 0x811c9dc5;
+    for (let i = 0; i < symbol.length; i++) {
+      symbolHash ^= symbol.charCodeAt(i);
+      symbolHash = Math.imul(symbolHash, 0x01000193);
+    }
+    symbolHash = symbolHash >>> 0;
+
+    const jitterSeed = (Math.floor(lastTradeTs / 10000) * 10000) + (symbolHash % 10000);
+
+    const getHash = (n: number) => {
+      let h = n >>> 0;
+      h = Math.imul(h ^ (h >>> 16), 0x21f0aaad);
+      h = Math.imul(h ^ (h >>> 15), 0x735a2d97);
+      h = h ^ (h >>> 15);
+      return (h >>> 0) / 4294967296;
+    };
+
+    const jitterFactor = 1 + (getHash(jitterSeed) * 50) / 100;
     const effectivePeriodMs = 60 * 60 * 1000 * jitterFactor;
     const isInside = (now - lastTradeTs) < effectivePeriodMs;
 
@@ -92,6 +109,24 @@ describe('RiskEngineService - Frequency Limits', () => {
       expect(result.reason).toContain('Max trades per period reached');
       expect(result.reason).toContain(`${Math.round(effectivePeriodMs / 60000)}m`);
     }
+  });
+
+  it('should bypass jitter for DUMMY symbol (global gating stability)', () => {
+    mockConfig.trades_jitter_pct = 50;
+    mockConfig.max_trades_per_period = 1;
+    mockConfig.trades_period_min = 60;
+
+    const now = Date.now();
+    const lastTradeTs = now - 75 * 60 * 1000;
+    const closed: Trade[] = [
+      { entry_ts: new Date(lastTradeTs) } as Trade
+    ];
+
+    // For DUMMY symbol, jitter should be 1.0.
+    // Since 75m > 60m, it should allow entry.
+    const result = service.canEnter([], closed, 10000, 'DUMMY', mockConfig, 0);
+    expect(result.canEnter).toBe(true);
+    expect(result.jitterFactor).toBe(1);
   });
 
   describe('EnteringCount Safety', () => {

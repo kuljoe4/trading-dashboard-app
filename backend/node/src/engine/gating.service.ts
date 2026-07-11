@@ -39,6 +39,12 @@ export class GatingService {
   }
 
   public isInsideTradingWindow(config: SessionConfig): boolean {
+    // BOLT: Global Ban Guard. Treat an active IP ban as an "out-of-window" period
+    // to trigger hibernation and minimize redundant evaluation load.
+    if (!config.paper_mode && this.sessionState.isBanned()) {
+      return false;
+    }
+
     if (!config?.trading_windows?.length) return true;
 
     // BOLT OPTIMIZATION: Check for cached parsed windows first

@@ -167,7 +167,9 @@ export class RiskEngineService {
       return (h >>> 0) / 4294967296;
     };
 
-    const jitterFactor = effectiveJitterPct > 0
+    // BOLT: Stability Guard. Global gating checks (symbol=DUMMY) must not apply jitter
+    // to ensure the UI state and high-level evaluation are stable.
+    const jitterFactor = (effectiveJitterPct > 0 && symbol !== 'DUMMY')
       ? 1 + (getHash(jitterSeed) * effectiveJitterPct) / 100
       : 1;
 

@@ -914,9 +914,9 @@ export class OrderManagerService {
 
           // DATA-CONSISTENCY: Fallback for 0 price responses.
           // BOLT: Prioritize UDS. If UDS is connected, it will provide the entry price via ACCOUNT_UPDATE.
-          // We only call queryOrder (Weight 1) if absoluteEntryPrice is still 0 after a 500ms debounce to allow UDS arrival.
+          // We only call queryOrder (Weight 1) if absoluteEntryPrice is still 0 after a 2000ms debounce to allow UDS arrival.
           if (absoluteEntryPrice === 0 && trade.binance_order_id) {
-             await new Promise(resolve => setTimeout(resolve, 500));
+             await new Promise(resolve => setTimeout(resolve, 2000));
 
              if (this.sessionState.realTimePositions.has(symbol)) {
                 absoluteEntryPrice = this.sessionState.realTimePositions.get(symbol)!.entryPrice;

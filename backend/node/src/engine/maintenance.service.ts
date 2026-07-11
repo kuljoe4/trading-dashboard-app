@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
+import { SessionStateService } from './session_state.service';
 import { PositionTrackerService } from './positionTracker';
 import { OrderManagerService } from './orderManager';
 import { TickerCacheService } from './ticker_cache.service';
@@ -21,6 +22,7 @@ export class MaintenanceService {
     private readonly positionTracker: PositionTrackerService,
     private readonly orderManager: OrderManagerService,
     private readonly tickerCache: TickerCacheService,
+    private readonly sessionState: SessionStateService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -52,6 +54,11 @@ export class MaintenanceService {
 
   async protectionWatchdog(running: boolean, config: SessionConfig | null, targetSymbol?: string) {
     if (!running || !config || config.paper_mode) return;
+
+    // BOLT: Global Ban Guard. Skip audit if system is banned to avoid REST weight and noise.
+    if (this.sessionState.isBanned()) {
+      return;
+    }
 
     if (!targetSymbol && this.isProcessingWatchdog) return;
     if (!targetSymbol) this.isProcessingWatchdog = true;

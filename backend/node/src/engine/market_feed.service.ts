@@ -750,7 +750,14 @@ export class MarketFeedService {
 
     // STRATEGY: Sequential backfill to avoid rate-limit bursts
     while (this.backfillQueue.length > 0 && this.running) {
-      // SRE: Highly aggressive rate limit for background tasks (50% of limit threshold)
+      // BOLT: Global Ban Guard. Abort background backfills immediately if banned.
+      if (this.sessionState.isBanned()) {
+        this.logger.warn(`Backfill queue aborted: Active IP ban detected.`);
+        this.backfillQueue = [];
+        break;
+      }
+
+      // SRE: Highly aggressive rate limit for background tasks (even tighter shedding for backfills)
       // This preserves weight for critical entry/exit operations.
       const rateLimit = this.sessionState.getBinanceRateLimit();
       const usedWeight = Number(rateLimit.used_weight_1m || 0);
@@ -760,7 +767,8 @@ export class MarketFeedService {
       const usageRatio = (limit > 0) ? (usedWeight / limit) : 0;
       const safeUsageRatio = Number.isFinite(usageRatio) ? usageRatio : 0;
 
-      const pauseThreshold = Math.floor(limit * 0.5);
+      // BOLT: Even tighter shedding for backfills to ensure entries/exits always have budget.
+      const pauseThreshold = Math.floor(limit * 0.4);
 
       if (usedWeight > pauseThreshold) {
         // SRE: Window Awareness Fallback. If we are > 50% and near the end of the minute,

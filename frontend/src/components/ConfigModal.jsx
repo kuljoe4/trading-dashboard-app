@@ -540,6 +540,8 @@ const flattenConfig = (config) => {
       engulfing_timing: config.engulfing_timing || 'is_opportunity',
       engulfing_volume_confirm: !!config.engulfing_volume_confirm,
       engulfing_lookback: config.engulfing_lookback || 1,
+      engulfing_streak: config.engulfing_streak || 1,
+      engulfing_sequential: config.engulfing_sequential !== false,
     };
   } catch (e) { return { ...config }; }
 };
@@ -747,7 +749,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
       'scanner_signal_depth',
-      'engulfing_lookback',
+      'engulfing_lookback', 'engulfing_streak',
       'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
@@ -1144,9 +1146,20 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                           { value: 'after_opportunity', label: 'After Opportunity' }
                         ])}
                       </Tooltip>
-                      <Tooltip content="Lookback: Number of previous candles to engulf. Set > 1 for 'Reverse Engulfing' where one candle swallows multiple previous opposite bars.">
-                        {renderField('Engulfing Lookback', 'engulfing_lookback', 'number', null, { min: 1, max: 10 })}
+                      <Tooltip content="Maximum search window: Number of previous candles to scan for a reversal streak.">
+                        {renderField('Search Window', 'engulfing_lookback', 'number', null, { min: 1, max: 20 })}
                       </Tooltip>
+                      <Tooltip content="Required streak: Number of consecutive reversal candles to find within the window.">
+                        {renderField('Required Streak', 'engulfing_streak', 'number', null, { min: 1, max: 10 })}
+                      </Tooltip>
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[10px] text-dim font-black tracking-widest uppercase">Sequential</label>
+                          <Tooltip content="If enabled, the reversal streak MUST be immediately adjacent to the signal candle. If disabled, finds the NEAREST streak within the window.">
+                            <Toggle value={cfg.engulfing_sequential !== false} onChange={(v) => setField('engulfing_sequential', v)} />
+                          </Tooltip>
+                        </div>
+                      </div>
                       <div className="flex flex-col gap-1.5">
                         <div className="flex justify-between items-center">
                           <label className="text-[10px] text-dim font-black tracking-widest uppercase">Vol Confirmation</label>
@@ -1381,7 +1394,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 {renderField('Strategy Type', 'sl_type', 'text', [
                   { value: 'pct', label: 'Fixed Percentage' },
                   { value: 'lookback_low/high', label: 'High/Low Stop' },
-                  { value: 'engulfing_boundary', label: 'Engulfing Boundary' }
+                  { value: 'streak_extreme', label: 'Streak Extreme' }
                 ])}
                 {renderField('Out of Bounds', 'sl_out_of_bounds_action', 'text', [
                   { value: 'clamp', label: 'Clamp to Limits' },

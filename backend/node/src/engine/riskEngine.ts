@@ -497,7 +497,7 @@ export class RiskEngineService {
       return { slPrice, rejected, reason };
     }
 
-    if (config.sl_type === 'engulfing_boundary') {
+    if (config.sl_type === 'engulfing_boundary' || config.sl_type === 'streak_extreme') {
       // Use Body boundary for 'body' or 'close_body' modes, otherwise Range.
       // NOTE: We still prefer the absolute 'outer' boundary (Range) for protection if it's a structural play,
       // but if the user chose body mode, they might prefer the 'body' boundary.

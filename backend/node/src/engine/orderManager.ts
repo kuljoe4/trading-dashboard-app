@@ -510,7 +510,7 @@ export class OrderManagerService {
       // Handle both native Headers and plain objects
       const weight = (typeof headers.get === 'function')
         ? headers.get('X-MBX-USED-WEIGHT-1M')
-        : (headers ? (headers['x-mbx-used-weight-1m'] || headers['X-MBX-USED-WEIGHT-1M'] || headers['X-Mbx-Used-Weight-1m'] || headers['x-mbx-used-weight-1m'] || headers['get']) : null);
+        : (headers ? (headers['x-mbx-used-weight-1m'] || headers['X-MBX-USED-WEIGHT-1M'] || headers['X-Mbx-Used-Weight-1m'] || headers['x-mbx-used-weight-1m']) : null);
 
       if (weight) {
         const currentWeight = parseInt(weight, 10);
@@ -696,6 +696,12 @@ export class OrderManagerService {
 
     // Zero-CPU Rate Limiter Guard
     if (!this.paperMode) {
+      if (this.sessionState.isBanned()) {
+        const until = this.sessionState.apiStatus.banUntil ? new Date(this.sessionState.apiStatus.banUntil).toLocaleTimeString() : 'unknown';
+        this.logger.warn(`Binance IP ban active. Blocking entry for ${symbol} until ${until}.`);
+        return { status: ExecutionStatus.CIRCUIT_OPEN, error: 'IP ban protection active' };
+      }
+
       if (this.sessionState.isRateLimited(0.92)) {
         const currentWeight = this.sessionState.binanceRateLimit.used_1m;
         this.logger.warn(`Approaching Binance rate limit (${currentWeight}). Blocking entry for ${symbol}.`);

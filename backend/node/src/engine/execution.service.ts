@@ -120,12 +120,24 @@ export class ExecutionService {
     }
   }
 
+  private lastBanLogTs = 0;
   async processEntries(opportunities: any[], config: SessionConfig, strategyLabel: string, onTradeUpdate?: (t: Trade, b: number) => Promise<void>) {
     const symbolConfigs = config.single_symbol_configs;
     const symbolConfigMap = (symbolConfigs && symbolConfigs.length > 0) ? new Map(symbolConfigs.map(sc => [sc.symbol, sc])) : null;
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);
 
     const now = Date.now();
+
+    // BOLT: Global Ban Guard. If the system is banned, skip processing all entries
+    // to save CPU and avoid redundant signal/risk evaluations.
+    if (!config.paper_mode && this.sessionState.isBanned()) {
+      if (now - this.lastBanLogTs > 60000) {
+        this.logger.warn(`Execution pipeline gated: Active IP ban detected. Resuming in ${Math.ceil((this.sessionState.apiStatus.banUntil! - now) / 1000)}s.`);
+        this.lastBanLogTs = now;
+      }
+      return;
+    }
+
     const maxOpportunities = Math.min(opportunities.length, config.scanner_signal_depth || 10);
 
     // BOLT: Sequential processing of opportunities ensures that RiskEngine spacing
@@ -315,17 +327,25 @@ export class ExecutionService {
             });
           } else {
             // Entry failed but didn't throw (e.g. ORDER_REJECTED)
-            const cooldownMinutes = 5;
             const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
-            this.entryCooldowns.set(`${mode}:${opp.symbol}`, Date.now() + cooldownMinutes * 60 * 1000);
-            this.logger.warn(`${opp.symbol}: Entry failed (${mode}) with status ${result.status}. Cooling down for ${cooldownMinutes}m. Error: ${result.error}`);
 
-            this.broadcastService.broadcast('alert', {
-              level: 'warn',
-              title: 'Entry Failed',
-              message: `${opp.symbol}: ${result.error || 'Order rejected by exchange'}. Skipping for ${cooldownMinutes}m.`,
-              symbol: opp.symbol
-            });
+            // BOLT: Only apply symbol-specific cooldown if it wasn't a global circuit breaker trip (e.g. ban/weight)
+            const isCircuitOpen = result.status === ExecutionStatus.CIRCUIT_OPEN;
+            const cooldownMinutes = isCircuitOpen ? 0 : 5;
+
+            if (cooldownMinutes > 0) {
+              this.entryCooldowns.set(`${mode}:${opp.symbol}`, Date.now() + cooldownMinutes * 60 * 1000);
+              this.logger.warn(`${opp.symbol}: Entry failed (${mode}) with status ${result.status}. Cooling down for ${cooldownMinutes}m. Error: ${result.error}`);
+
+              this.broadcastService.broadcast('alert', {
+                level: 'warn',
+                title: 'Entry Failed',
+                message: `${opp.symbol}: ${result.error || 'Order rejected by exchange'}. Skipping for ${cooldownMinutes}m.`,
+                symbol: opp.symbol
+              });
+            } else {
+              this.logger.warn(`${opp.symbol}: Entry blocked (${mode}) due to global circuit breaker (${result.status}). Error: ${result.error}`);
+            }
           }
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);

@@ -106,6 +106,23 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
   const engulfingEnabled = (config?.enabled_signals || []).includes('engulfing');
   const decisionMarkers = engulfingEnabled ? buildAuthoritativeMarkers(opp.ohlc_history, signalStatus) : [];
   const engulfSignal = checklistSignals.engulfing;
+
+  // BOLT: Determine the prospective Stop Loss price for visualization on the chart.
+  // Prioritizes structural streak extremes if configured, falls back to pct-based distance.
+  const chartSl = useMemo(() => {
+    if (config?.sl_type === 'streak_extreme' || config?.sl_type === 'engulfing_boundary') {
+       return engulfSignal?.slPrice;
+    }
+    if (config?.sl_type === 'lookback_low/high') {
+       return checklistSignals.breakout_hl?.slPrice;
+    }
+    if (config?.sl_type === 'pct') {
+       const dist = opp.price * ((config.sl_distance_pct || 0.8) / 100);
+       return isLong ? opp.price - dist : opp.price + dist;
+    }
+    return null;
+  }, [config, opp.price, isLong, engulfSignal, checklistSignals.breakout_hl]);
+
   const funnelSteps = [
     { label: 'Momentum Scan', detail: `${Number(Math.abs(opp.pct || 0)).toFixed(2)}% move vs ${Number(threshold || 0).toFixed(2)}% threshold`, complete: passing, icon: TrendingUp },
     { label: 'Closed Engulf', detail: closeEngulfEnabled ? `Last closed candle close must clear ${config?.engulfing_lookback || 2} reverse candle ${isLong ? 'highs' : 'lows'}.` : 'Uses configured technical entry signals.', complete: closeEngulfEnabled ? !!engulfSignal?.fired : !!opp.signalResult?.allFired, icon: Activity },
@@ -286,7 +303,7 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                           entryPrice={opp.price}
                           signals={opp.ohlc_history.filter(d => signalStatus.firedSignals?.includes(d.time))}
                           decisionMarkers={decisionMarkers}
-                          slPrice={checklistSignals.engulfing?.slPrice}
+                          slPrice={chartSl}
                         />
                         <div className="flex justify-between w-full mt-6 px-2">
                            <div className="flex flex-col">

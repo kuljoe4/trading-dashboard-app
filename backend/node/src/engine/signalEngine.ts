@@ -279,6 +279,7 @@ export class SignalEngineService {
         ? `Price breached ${isLong ? 'LOW' : 'HIGH'} of ${lookback} periods`
         : `Monitoring ${lookback} period ${isLong ? 'Low' : 'High'} level`,
       threshold_is_price: true,
+      slPrice: roundTo(target, 4),
     };
   }
 

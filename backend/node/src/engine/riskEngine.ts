@@ -447,8 +447,7 @@ export class RiskEngineService {
       const minDistance = entryPrice * (minPct / 100);
       const maxDistance = entryPrice * (maxPct / 100);
 
-      let structuralSl: number;
-      let rawDistance: number;
+      let structuralSl: number;      let rawDistance: number;
 
       if (direction === 'LONG') {
         structuralSl = minLow;
@@ -567,14 +566,14 @@ export class RiskEngineService {
     direction: 'LONG' | 'SHORT',
     config: SessionConfig,
     symbol?: string
-  ): number {
+  ): { qty: number; rejected?: boolean; reason?: string } {
     this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Size Check: Balance=${balance}, Entry=${entryPrice}, SL=${slPrice}, Dist=${Number(Math.abs(entryPrice - slPrice) || 0).toFixed(5)}`);
-    if (balance <= 0 || entryPrice <= 0) return 0;
+    if (balance <= 0 || entryPrice <= 0) return { qty: 0 };
 
     const riskAmount = balance * ((config.risk_pct_per_trade ?? 1.0) / 100);
     const slDistance = Math.abs(entryPrice - slPrice);
     
-    if (slDistance <= 0) return 0;
+    if (slDistance <= 0) return { qty: 0 };
 
     // qty = risk_amount / (sl_distance)
     // For futures, adjust based on entry_price as well
@@ -595,20 +594,41 @@ export class RiskEngineService {
          const scaledQty = roundEight(MIN_NOTIONAL_SCALED / entryPrice);
          const scaledRisk = Math.abs(entryPrice - slPrice) * scaledQty;
 
-         if (scaledRisk > riskAmount * 3.0) {
-            this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} setup rejected: Auto-scaling would cause ${ Number(scaledRisk/riskAmount).toFixed(1) }x risk overshoot (Max 3x).`);
-            return 0;
+         const overshootRatio = scaledRisk / riskAmount;
+         const MAX_OVERSHOOT = 3.0;
+
+         if (overshootRatio > MAX_OVERSHOOT) {
+            const reason = `Min notional $${MIN_NOTIONAL_SCALED} forces ${overshootRatio.toFixed(1)}x risk overshoot (Max ${MAX_OVERSHOOT}x).`;
+            this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} setup rejected: ${reason}`);
+            return { qty: 0, rejected: true, reason };
          }
 
          this.logger.debug(`[RiskEngine] Scaled qty up to meet MIN_NOTIONAL (${Number(currentNotional || 0).toFixed(2)} -> ${MIN_NOTIONAL_SCALED})`);
          qty = scaledQty;
       }
-    } else if (currentNotional < MIN_NOTIONAL) {
-       this.logger.warn(`[RiskEngine] Trade setup discarded: notional ${Number(currentNotional || 0).toFixed(2)} is below minimum ${MIN_NOTIONAL} USDT.`);
-       return 0;
+    } else {
+       // SRE: Risk Hardening Logic (User Requirement 2)
+       // This is only enabled when auto-scaling is DISABLED.
+       const hardeningEnabled = config.risk_hardening_enabled ?? false;
+       if (hardeningEnabled) {
+          const maxRiskPct = config.max_single_trade_risk_pct ?? 20.0;
+          const currentRiskPct = (qty * Math.abs(entryPrice - slPrice) / balance) * 100;
+
+          if (currentRiskPct > maxRiskPct) {
+             const reason = `Setup forces ${currentRiskPct.toFixed(1)}% account risk (Max ${maxRiskPct}% via Hardening). Account too small for setup.`;
+             this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} setup rejected: ${reason}`);
+             return { qty: 0, rejected: true, reason };
+          }
+       }
+
+       if (currentNotional < MIN_NOTIONAL) {
+          const reason = `Trade notional ${Number(currentNotional || 0).toFixed(2)} is below minimum ${MIN_NOTIONAL} USDT.`;
+          this.logger.warn(`[RiskEngine] Trade setup discarded: ${reason}`);
+          return { qty: 0, rejected: true, reason };
+       }
     }
 
-    return qty;
+    return { qty };
   }
 
   /**

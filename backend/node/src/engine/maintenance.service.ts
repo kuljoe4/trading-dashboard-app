@@ -53,6 +53,10 @@ export class MaintenanceService {
   async protectionWatchdog(running: boolean, config: SessionConfig | null, targetSymbol?: string) {
     if (!running || !config || config.paper_mode) return;
 
+    // SRE: Immunity check. If we are currently banned, don't try to audit
+    // as it will just trigger more connection-attempt penalties.
+    if (this.orderManager.isBanned()) return;
+
     if (!targetSymbol && this.isProcessingWatchdog) return;
     if (!targetSymbol) this.isProcessingWatchdog = true;
 
@@ -321,6 +325,9 @@ export class MaintenanceService {
    */
   async reconcileLiveState(running: boolean, config: SessionConfig | null) {
     if (!running || !config || config.paper_mode || this.isProcessingFullReconciliation) return;
+
+    // SRE: Immunity check for ban status
+    if (this.orderManager.isBanned()) return;
 
     this.isProcessingFullReconciliation = true;
     try {

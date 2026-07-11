@@ -49,7 +49,7 @@ describe('Chronos Authoritative Synchronization', () => {
         SessionStateService,
         EventEmitter2,
         { provide: SignalEngineService, useValue: { checkEntry: jest.fn() } },
-        { provide: RiskEngineService, useValue: { canEnter: jest.fn(), computeSl: jest.fn(), computePositionSize: jest.fn(), computeTp: jest.fn() } },
+        { provide: RiskEngineService, useValue: { canEnter: jest.fn(), computeSl: jest.fn(), computePositionSize: jest.fn().mockReturnValue({ qty: 1 }), computeTp: jest.fn() } },
         { provide: MarketFeedService, useValue: { getSymbolFilters: () => ({ tickSize: 0.01, stepSize: 0.01, qtyPrecision: 2, pricePrecision: 2 }) } },
         { provide: TickerCacheService, useValue: { getPrice: () => 100, getTicker: () => ({ price: 100 }) } },
         { provide: KlineStoreService, useValue: { getRawCandles: () => [] } },

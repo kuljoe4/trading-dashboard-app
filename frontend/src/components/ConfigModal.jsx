@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy } from 'lucide-react'
+import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton } from './ui/primitives'
 import { RiskSummary } from './RiskSummary'
 import * as Switch from '@radix-ui/react-switch'
@@ -546,10 +546,14 @@ const flattenConfig = (config) => {
   } catch (e) { return { ...config }; }
 };
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
-  const { addAlert, scannerResults } = useTradingStore(state => ({
+  const { addAlert, scannerResults, isThrottled, wsStatus } = useTradingStore(state => ({
     addAlert: state.addAlert,
-    scannerResults: state.scannerResults
+    scannerResults: state.scannerResults,
+    isThrottled: state.isThrottled,
+    wsStatus: state.wsStatus
   }));
+
+  const isResuming = isThrottled || wsStatus !== 'live';
   // UX-MOBILE: Ensure inputs scroll into view when keyboard is active
   const handleInputFocus = React.useCallback((e) => {
     requestAnimationFrame(() => {
@@ -950,7 +954,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                {isDirty && <span className="w-2 h-2 rounded-full bg-accent animate-pulse shrink-0" />}
              </div>
              <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2 truncate">
-               {isDirty ? (
+               {isResuming ? (
+                 <span className="text-accent flex items-center gap-1.5 shrink-0">
+                   <RefreshCw size={10} className="animate-spin" /> Resuming Feed...
+                 </span>
+               ) : isDirty ? (
                  <span className="text-accent flex items-center gap-1.5 shrink-0">
                    <Activity size={10} className="animate-pulse" /> Unsaved Changes
                  </span>

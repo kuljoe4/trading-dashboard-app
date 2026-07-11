@@ -4,7 +4,7 @@ import { formatDuration } from '../lib/formatters'
 import { PulseDot, Sparkline, cn, CopyButton, Tooltip, CandlestickChart } from './ui/primitives'
 import { SignalGauge } from './ui/SignalGauge'
 import { useTradingStore } from '../store/trading'
-import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert } from 'lucide-react'
+import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert, RefreshCw } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { shallow } from 'zustand/shallow'
 

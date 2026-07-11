@@ -7,12 +7,20 @@ import { cn, Btn } from './ui/primitives'
 import { sessionAPI } from '../api/client'
 import { ConfirmationModal } from './ConfirmationModal'
 
+import { RefreshCw } from 'lucide-react'
+
 export const ActiveTradeBar = React.memo(() => {
-  const activeTrades = useTradingStore(state => state.activeTrades)
-  const sessionActive = useTradingStore(state => state.sessionActive)
+  const { activeTrades, sessionActive, isThrottled, wsStatus } = useTradingStore(state => ({
+    activeTrades: state.activeTrades,
+    sessionActive: state.sessionActive,
+    isThrottled: state.isThrottled,
+    wsStatus: state.wsStatus
+  }))
   const [closingSymbol, setClosingSymbol] = React.useState(null)
 
   if (!sessionActive || activeTrades.length === 0) return null
+
+  const isResuming = isThrottled || wsStatus !== 'live'
 
   const totalPnl = activeTrades.reduce((sum, t) => sum + safeNum(t.pnl), 0)
 
@@ -41,14 +49,25 @@ export const ActiveTradeBar = React.memo(() => {
       animate={{ y: 0 }}
       className="fixed bottom-20 lg:bottom-6 left-1/2 -translate-x-1/2 z-[45] w-[95%] max-w-[800px]"
     >
-      <div className="bg-surface/90 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center justify-between gap-6">
+      <div className={cn(
+        "bg-surface/90 backdrop-blur-xl border rounded-2xl p-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center justify-between gap-6 transition-colors duration-500 overflow-hidden relative",
+        isResuming ? "border-accent/30 shadow-[0_0_30px_rgba(91,111,255,0.1)]" : "border-white/10"
+      )}>
+        {isResuming && (
+           <div className="absolute inset-0 bg-accent/[0.03] animate-pulse pointer-events-none" />
+        )}
         <div className="flex items-center gap-4">
-          <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center text-accent">
-            <ArrowLeftRight size={20} />
+          <div className={cn(
+            "w-10 h-10 rounded-full flex items-center justify-center transition-colors",
+            isResuming ? "bg-accent text-white animate-pulse" : "bg-accent/20 text-accent"
+          )}>
+            {isResuming ? <RefreshCw size={20} className="animate-spin" /> : <ArrowLeftRight size={20} />}
           </div>
           <div>
-            <div className="text-[10px] text-dim font-bold uppercase tracking-widest">Active Positions</div>
-            <div className="text-sm font-bold flex items-center gap-2">
+            <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2">
+               {isResuming ? 'Resuming Feed...' : 'Active Positions'}
+            </div>
+            <div className={cn("text-sm font-bold flex items-center gap-2 transition-all", isResuming && "opacity-40 blur-[1px]")}>
               {activeTrades.length} Trades · <span style={{ color: pnlColor(totalPnl) }}>{fmtUSD(totalPnl)}</span>
             </div>
           </div>

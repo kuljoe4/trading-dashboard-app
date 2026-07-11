@@ -31,7 +31,13 @@ export class BinanceClientFactory implements OnModuleInit {
     // Drift of >1000ms makes signed requests invalid or vulnerable to replay.
     try {
       const start = Date.now();
-      const response = await fetch(`${DERIVATIVES_TRADING_USDS_FUTURES_REST_API_PROD_URL}/fapi/v1/time`);
+      // SENTINEL: Add timeout to prevent startup hang if Binance API is unresponsive
+      const response = await fetch(`${DERIVATIVES_TRADING_USDS_FUTURES_REST_API_PROD_URL}/fapi/v1/time`, {
+        signal: AbortSignal.timeout(5000)
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
       const data = (await response.json()) as { serverTime: number };
       const end = Date.now();
       const serverTime = data.serverTime;

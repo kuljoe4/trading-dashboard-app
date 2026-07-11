@@ -263,12 +263,13 @@ export const PaperBadge = () => (
 )
 
 export const EcoBadge = () => {
-  const { wsStatus, isThrottled } = useTradingStore(state => ({
+  const { wsStatus, isThrottled, isSyncingOnResume } = useTradingStore(state => ({
     wsStatus: state.wsStatus,
-    isThrottled: state.isThrottled
-  }), (a, b) => a.wsStatus === b.wsStatus && a.isThrottled === b.isThrottled);
+    isThrottled: state.isThrottled,
+    isSyncingOnResume: state.isSyncingOnResume
+  }), (a, b) => a.wsStatus === b.wsStatus && a.isThrottled === b.isThrottled && a.isSyncingOnResume === b.isSyncingOnResume);
 
-  const isResuming = isThrottled || wsStatus !== 'live';
+  const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
 
   return (
     <span className={cn(
@@ -422,9 +423,9 @@ export const VisuallyHidden = ({ children }) => (
 )
 
 export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = true, backAction, isResuming: propsResuming }) => {
-  const { config, wsStatus, isThrottled, isEcoMode } = useTradingStore()
+  const { config, wsStatus, isThrottled, isEcoMode, isSyncingOnResume } = useTradingStore()
   const tradingMode = config.trading_mode || 'paper'
-  const isResuming = propsResuming ?? (isThrottled || wsStatus !== 'live')
+  const isResuming = propsResuming ?? (isThrottled || wsStatus !== 'live' || isSyncingOnResume)
 
   return (
     <div className={cn(

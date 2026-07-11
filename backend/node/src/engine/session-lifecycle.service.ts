@@ -633,8 +633,15 @@ export class SessionLifecycleService {
         try {
           this.monitoringService.incrementApiRequests();
           await bc.restAPI.keepaliveUserDataStream();
-        } catch (err) {
-            this.logger.debug(`Error keeping alive user data stream: ${err instanceof Error ? err.message : String(err)}`);
+        } catch (err: any) {
+            const msg = err.message || '';
+            // BOLT: Suppress "IP banned" errors during keepalive as they are expected during a ban
+            // and handled by the centralized request queue.
+            if (msg.includes('IP banned')) {
+               this.logger.debug(`Keepalive suppressed during active IP ban.`);
+            } else {
+               this.logger.debug(`Error keeping alive user data stream: ${msg}`);
+            }
         }
       }, ENGINE_CONSTANTS.USER_DATA_KEEPALIVE_MS);
     } catch (e) {

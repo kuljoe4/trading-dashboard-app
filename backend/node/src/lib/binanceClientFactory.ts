@@ -229,8 +229,8 @@ export class BinanceClientFactory implements OnModuleInit {
           const label = prop.toString();
           return (...args: any[]) => {
             // SRE: Detect emergency close orders to provide high-priority execution path
-            let isEmergency = false;
-            if (['newOrder', 'newAlgoOrder'].includes(label) && args[0]) {
+            let isEmergency = ['startUserDataStream', 'keepaliveUserDataStream', 'closeUserDataStream'].includes(label);
+            if (!isEmergency && ['newOrder', 'newAlgoOrder'].includes(label) && args[0]) {
                isEmergency = args[0].reduceOnly === true || args[0].closePosition === true;
             }
 
@@ -297,11 +297,16 @@ export class BinanceRequestQueue {
     return Math.floor(now / 60000) > Math.floor(BinanceRequestQueue.windowStartTs / 60000);
   }
 
+  private lastRolloverLogTs = 0;
   private executeRollover(now: number) {
     // SRE: Critical rollover logic. Resets counter at clock minute boundaries (00s).
     // BOLT: Also ensure ban cooldown has elapsed before allowing weight to reset and requests to resume.
     if (now < BinanceRequestQueue.lastRequestTs) {
-      this.logger.debug(`[BinanceQueue] Rollover skipped: Still in mandatory cooldown for ${Math.ceil((BinanceRequestQueue.lastRequestTs - now) / 1000)}s`);
+      // BOLT: Throttle rollover skip logs to once per minute to reduce noise during long bans
+      if (now - this.lastRolloverLogTs > 60000) {
+        this.logger.debug(`[BinanceQueue] Rollover skipped: Still in mandatory cooldown for ${Math.ceil((BinanceRequestQueue.lastRequestTs - now) / 1000)}s`);
+        this.lastRolloverLogTs = now;
+      }
       return;
     }
 
@@ -344,16 +349,19 @@ export class BinanceRequestQueue {
   }
 
   async add<T>(fn: () => Promise<T>, label: string, isEmergency = false): Promise<T> {
+    // BOLT: Automatically identify infrastructure calls as emergency
+    const effectiveIsEmergency = isEmergency || ['startUserDataStream', 'keepaliveUserDataStream', 'closeUserDataStream'].includes(label);
+
     // SRE: Critical guard - immediately reject non-emergency requests if currently in a hard ban cooldown.
     // This prevents building up a massive queue that bursts immediately after the cooldown expires.
     const now = Date.now();
-    if (now < BinanceRequestQueue.lastRequestTs && !isEmergency) {
+    if (now < BinanceRequestQueue.lastRequestTs && !effectiveIsEmergency) {
        const remaining = Math.ceil((BinanceRequestQueue.lastRequestTs - now) / 1000);
        return Promise.reject(new Error(`IP banned: Too many requests. Resuming in ${remaining}s.`));
     }
 
     return new Promise((resolve, reject) => {
-      this.queue.push({ fn, label, isEmergency, resolve, reject });
+      this.queue.push({ fn, label, isEmergency: effectiveIsEmergency, resolve, reject });
       this.process();
     });
   }
@@ -500,6 +508,11 @@ export class BinanceRequestQueue {
           // CITADEL FAIL-FAST: Detected critical IP reputation threats (429, 418, -1003)
           if (isBan || isRateLimit) {
             this.logger.fatal(`[CRITICAL] API request failed with ${isBan ? 'BAN' : 'RATE_LIMIT'} status (${msg}). Entering Terminal Lock.`);
+
+            // BOLT: Ensure wasBanned recovery logic in executeRollover works by setting sentinel weight
+            if (isBan) {
+               BinanceRequestQueue.currentWeight1m = 9999;
+            }
 
             // RESEARCH-01: Instead of process.exit(1), implement a long sleep to break boot loops and allow UI visibility.
             // Exiting causes Railway to immediately restart, leading to a "hammering" effect that can prolong bans.

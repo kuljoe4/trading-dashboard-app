@@ -304,21 +304,39 @@ export class OrderManagerService {
         }
         else if (side !== (trade.direction === 'LONG' ? 'BUY' : 'SELL')) {
            // CHRONOS: Only close locally for recognized exit orders or closePosition: true.
-           // This prevents ghost positions if an external order partially fills.
-           const filledQty = parseFloat(order.z || '0');
            const isRecognizedExit =
              (trade.binance_close_order_id === orderId) ||
              (trade.binance_stop_order_id === orderId) ||
              (order.cp === true) ||
              (clientOrderId && (clientOrderId.startsWith('cls-') || clientOrderId.startsWith('tp-') || clientOrderId.startsWith('sig-') || clientOrderId.startsWith('sl-')));
 
-           if (status === 'FILLED') {
+           if (status === 'FILLED' || status === 'PARTIALLY_FILLED') {
              if (!isRecognizedExit) {
-               this.logger.warn(`[${tradeIdShort8}] [UDS] External or partial opposite-side order FILLED for ${symbol} but not recognized as authoritative engine exit. Ignoring to prevent ghost position. (Order ID: ${orderId}, Qty: ${filledQty}/${trade.qty})`);
-               return;
-             }
+               // SYNC: Update trade.qty by subtracting the fill amount of this slice
+               const lastFillQty = parseFloat(order.l || '0');
+               if (lastFillQty > 0) {
+                 const newQty = roundEight(trade.qty - lastFillQty);
+                 this.logger.warn(`[${tradeIdShort8}] [UDS] External opposite-side fill for ${symbol}: -${lastFillQty}. New qty: ${newQty}. (Order ID: ${orderId})`);
+                 trade.qty = Math.max(0, newQty);
 
+                 this.sessionState.realTimePositions.set(symbol, {
+                    amount: trade.qty,
+                    entryPrice: trade.entry_price
+                 });
+                 this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: trade.qty });
+               }
+
+               // If the order has cp: true, it IS an authoritative close even if unrecognized
+               if (order.cp !== true) {
+                 this.logger.debug(`[${tradeIdShort8}] [UDS] Unrecognized external order ${status}. Qty synced, waiting for ACCOUNT_UPDATE for terminal reconciliation.`);
+                 return;
+               }
+             }
+           }
+
+           if (status === 'FILLED') {
              // RESTORE: Set trade.qty to total order size for correct PnL calculation on final fill
+             // For recognized exits, order.q should match the full position being closed.
              trade.qty = parseFloat(order.q || '0');
 
              this.logger.log(`[${tradeIdShort8}] Recognized exit order FILLED for ${symbol} (${side}). Closing trade locally.`);
@@ -358,11 +376,11 @@ export class OrderManagerService {
                orderId, // DATA-ACCURACY: Pass orderId to allow authoritative recovery
                feesAlreadyAccounted: true // CHRONOS: Signal that commissions were already handled via UDS 'n' events
              });
-           } else if (status === 'PARTIALLY_FILLED') {
+           } else if (status === 'PARTIALLY_FILLED' && isRecognizedExit) {
              // SYNC: Update trade.qty to remaining exchange quantity (q - z)
              const remainingQty = parseFloat(order.q || '0') - parseFloat(order.z || '0');
              if (remainingQty > 0) {
-                this.logger.log(`[${tradeIdShort8}] [Sync] Partial exit fill for ${symbol}: ${order.z}/${order.q}. Updating remaining qty to ${remainingQty}`);
+                this.logger.log(`[${tradeIdShort8}] [Sync] Partial recognized exit fill for ${symbol}: ${order.z}/${order.q}. Updating remaining qty to ${remainingQty}`);
                 trade.qty = remainingQty;
 
                 // Update real-time position cache
@@ -1028,10 +1046,18 @@ export class OrderManagerService {
                 this.positionTracker.clearInFlight(symbol);
                 return { status: ExecutionStatus.SL_FAILED, data: trade, unwindPerformed: true, error: slError };
               } else {
-                throw new Error(`Emergency unwind failed after SL error: ${slError}`);
+                // CHRONOS: If unwind fails, the trade is STILL OPEN on exchange.
+                // We must add it to tracking so the Watchdog can find and protect/close it.
+                this.logger.error(`[${symbol}] Emergency unwind failed after SL error. Adding trade to tracking for Watchdog recovery.`);
+                this.positionTracker.addTrade(trade);
+                this.positionTracker.clearInFlight(symbol);
+                return { status: ExecutionStatus.SL_FAILED, data: trade, error: slError };
               }
             } catch (unwindErr) {
               this.logger.error(`CRITICAL: Emergency unwind failed for ${symbol}: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);
+              // CHRONOS: Same here, ensure it is tracked before throwing.
+              this.positionTracker.addTrade(trade);
+              this.positionTracker.clearInFlight(symbol);
               throw new ExchangeExecutionException(`SL placement failed (${slError}) and emergency unwind also failed for ${symbol}`);
             }
           }
@@ -2720,22 +2746,34 @@ export class OrderManagerService {
       trade.exit_price = exitPrice;
       trade.exit_ts = new Date();
 
-      // BOLT: Final PnL calculation using the finalized exitPrice (potentially from fills)
-      const finalPnlPoints = trade.direction === 'LONG'
-        ? exitPrice - trade.entry_price
-        : trade.entry_price - exitPrice;
+      if (!paperMode && options.feesAlreadyAccounted) {
+         // CHRONOS: Authoritative PnL preservation.
+         // In Live mode, if we are closing based on UDS events, trade.pnl already
+         // contains the sum of all 'rp' and 'n' (commission) slices from the exchange.
+         this.logger.debug(`[PnL Integrity] Using authoritative accumulated PnL for ${symbol}: ${trade.pnl}`);
 
-      const finalGrossPnl = finalPnlPoints * (trade.qty || 0);
-      const finalNetPnl = finalGrossPnl - (trade.realized_fee || 0) - (trade.funding_fee || 0);
+         // Still update pnl_pct for dashboard consistency
+         const notional = trade.entry_price * (trade.qty || 0);
+         const finalPnlPct = (notional !== 0) ? (trade.pnl / notional) * 100 : 0;
+         trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
+      } else {
+         // BOLT: Final PnL calculation using the finalized exitPrice (potentially from fills)
+         const finalPnlPoints = trade.direction === 'LONG'
+           ? exitPrice - trade.entry_price
+           : trade.entry_price - exitPrice;
 
-      // DATA-CONSISTENCY: pnl_pct now reflects Net PnL relative to notional value
-      const notional = trade.entry_price * (trade.qty || 0);
-      const finalPnlPct = (notional !== 0) ? (finalNetPnl / notional) * 100 : 0;
-      trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
+         const finalGrossPnl = finalPnlPoints * (trade.qty || 0);
+         const finalNetPnl = finalGrossPnl - (trade.realized_fee || 0) - (trade.funding_fee || 0);
 
-      this.logger.log(`[PnL Calculation] ${symbol}: ${trade.direction} Exit=${exitPrice}, Entry=${trade.entry_price}, Qty=${trade.qty}, Gross=${Number(finalGrossPnl || 0).toFixed(4)}, Fee=${Number(trade.realized_fee || 0).toFixed(4)}, Net=${Number(finalNetPnl || 0).toFixed(4)}`);
+         // DATA-CONSISTENCY: pnl_pct now reflects Net PnL relative to notional value
+         const notional = trade.entry_price * (trade.qty || 0);
+         const finalPnlPct = (notional !== 0) ? (finalNetPnl / notional) * 100 : 0;
+         trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
 
-      trade.pnl = roundEight(Number.isFinite(finalNetPnl) ? finalNetPnl : 0);
+         this.logger.log(`[PnL Calculation] ${symbol}: ${trade.direction} Exit=${exitPrice}, Entry=${trade.entry_price}, Qty=${trade.qty}, Gross=${Number(finalGrossPnl || 0).toFixed(4)}, Fee=${Number(trade.realized_fee || 0).toFixed(4)}, Net=${Number(finalNetPnl || 0).toFixed(4)}`);
+
+         trade.pnl = roundEight(Number.isFinite(finalNetPnl) ? finalNetPnl : 0);
+      }
 
       trade.exit_reason = exitReason;
 

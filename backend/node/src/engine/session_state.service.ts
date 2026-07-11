@@ -133,8 +133,11 @@ export class SessionStateService {
 
       // Populate strategy-specific stats
       const stats = this.cachedClosedTradesStats[label];
+      // CHRONOS: Realized portion (fees/funding) is tracked even for OPEN trades to ensure
+      // consistency with global stats and prevent PnL leakage upon session resume.
+      stats.pnl = roundEight(stats.pnl + pnl);
+
       if (trade.status !== 'OPEN') {
-        stats.pnl = roundEight(stats.pnl + pnl);
         if (!trade.is_reconciliation) {
           stats.count++;
           if (pnl > 0) stats.hits++;

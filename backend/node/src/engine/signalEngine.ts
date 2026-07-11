@@ -16,6 +16,11 @@ interface SignalDetail {
   pattern_high?: number;
   body_low?: number;
   body_high?: number;
+  streak_start?: number;
+  streak_end?: number;
+  streak_start_ts?: number;
+  streak_end_ts?: number;
+  slPrice?: number;
 }
 
 @Injectable()
@@ -288,6 +293,8 @@ export class SignalEngineService {
     try {
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
       const lookback = Math.max(config.engulfing_lookback || 1, 1);
+      const streakReq = Math.min(Math.max(config.engulfing_streak || lookback, 1), lookback);
+      const sequential = config.engulfing_sequential !== false;
       const mode = config.engulfing_mode || 'range';
       const volConfirm = config.engulfing_volume_confirm || false;
       const closeOnlyMode = mode === 'close_range' || mode === 'close_body';
@@ -300,25 +307,66 @@ export class SignalEngineService {
       // The signal candle is the last completed candle, and entry happens on the next/live candle.
       const signalIdx = closeOnlyMode ? candles.length - 2 : candles.length - 1;
       const curr = candles[signalIdx];
-      const endIdx = signalIdx;
-      const startIdx = Math.max(0, endIdx - lookback);
+      const searchStartIdx = Math.max(0, signalIdx - lookback);
 
-      if (endIdx - startIdx < lookback) {
-        return { fired: false, value: 0, threshold: 0, unit: 'bool', metric: 'Engulfing', description: 'Insufficient lookback candles', insufficientData: true };
+      let foundStreakStart = -1;
+      let foundStreakEnd = -1;
+
+      // NEAREST N SEARCH: Identify the contiguous reversal cluster within search window
+      if (sequential) {
+        const sStart = signalIdx - streakReq;
+        if (sStart >= searchStartIdx) {
+          let allReverse = true;
+          for (let i = sStart; i < signalIdx; i++) {
+            const p = candles[i];
+            const isReverse = side === 'LONG' ? p.close < p.open : p.close > p.open;
+            if (!isReverse) { allReverse = false; break; }
+          }
+          if (allReverse) {
+            foundStreakStart = sStart;
+            foundStreakEnd = signalIdx;
+          }
+        }
+      } else {
+        // Search backwards from the signal candle for the nearest streak of streakReq
+        for (let end = signalIdx; end >= searchStartIdx + streakReq; end--) {
+          let allReverse = true;
+          for (let i = end - streakReq; i < end; i++) {
+            const p = candles[i];
+            const isReverse = side === 'LONG' ? p.close < p.open : p.close > p.open;
+            if (!isReverse) { allReverse = false; break; }
+          }
+          if (allReverse) {
+            foundStreakStart = end - streakReq;
+            foundStreakEnd = end;
+            break;
+          }
+        }
+      }
+
+      if (foundStreakStart === -1) {
+        return {
+          fired: false,
+          value: 0,
+          threshold: 0,
+          unit: 'bool',
+          metric: 'Engulfing',
+          description: sequential
+            ? `Previous ${streakReq} candles not ${side === 'LONG' ? 'bearish' : 'bullish'}`
+            : `No ${streakReq}-candle ${side === 'LONG' ? 'bearish' : 'bullish'} streak found in last ${lookback} candles`
+        };
       }
 
       const isBullish = curr.close > curr.open;
       const isBearish = curr.close < curr.open;
 
-      // Calculate aggregate range and body of the lookback period
+      // Calculate aggregate range and body of the FOUND streak only
       let aggregateHigh = -Infinity;
       let aggregateLow = Infinity;
       let aggregateBodyHigh = -Infinity;
       let aggregateBodyLow = Infinity;
-      let allReverse = true;
 
-      // BOLT OPTIMIZATION: Use direct index-based iteration instead of slice() to avoid transient array allocations
-      for (let i = startIdx; i < endIdx; i++) {
+      for (let i = foundStreakStart; i < foundStreakEnd; i++) {
         const p = candles[i];
         if (p.high > aggregateHigh) aggregateHigh = p.high;
         if (p.low < aggregateLow) aggregateLow = p.low;
@@ -327,10 +375,6 @@ export class SignalEngineService {
         const bL = Math.min(p.open, p.close);
         if (bH > aggregateBodyHigh) aggregateBodyHigh = bH;
         if (bL < aggregateBodyLow) aggregateBodyLow = bL;
-
-        // Directional check: for LONG entry, all previous must be Bearish (Reverse Engulfing)
-        if (side === 'LONG' && p.close > p.open) allReverse = false;
-        if (side === 'SHORT' && p.close < p.open) allReverse = false;
       }
 
       const currBodyHigh = Math.max(curr.open, curr.close);
@@ -340,7 +384,9 @@ export class SignalEngineService {
       const rangeEngulfs = curr.high > aggregateHigh && curr.low < aggregateLow;
       const closeRangeEngulfs = side === 'SHORT' ? curr.close < aggregateLow : curr.close > aggregateHigh;
       const closeBodyEngulfs = side === 'SHORT' ? curr.close < aggregateBodyLow : curr.close > aggregateBodyHigh;
-      const volumeConfirms = curr.volume > candles[Math.max(startIdx, endIdx - 1)].volume;
+
+      // Volume confirmation always compares signal candle against the one immediately preceding it
+      const volumeConfirms = curr.volume > candles[signalIdx - 1].volume;
 
       let fired = false;
       let reason = '';
@@ -352,9 +398,6 @@ export class SignalEngineService {
         if (!isBullish) {
           fired = false;
           reason = 'Not a bullish candle';
-        } else if (!allReverse) {
-          fired = false;
-          reason = `Previous ${lookback} candles not bearish`;
         } else {
           if (mode === 'body') fired = bodyEngulfs;
           else if (mode === 'range') fired = rangeEngulfs;
@@ -369,17 +412,14 @@ export class SignalEngineService {
             reason = mode === 'body' ? 'Body did not engulf' :
                      mode === 'range' ? 'Range did not engulf' :
                      mode === 'strict' ? 'Strict engulfing failed' :
-                     mode === 'close_body' ? `Close did not clear prior ${lookback}-candle body high` :
-                     `Close did not clear prior ${lookback}-candle high`;
+                     mode === 'close_body' ? `Close did not clear prior ${streakReq}-candle body high` :
+                     `Close did not clear prior ${streakReq}-candle high`;
           }
         }
       } else if (side === 'SHORT') {
         if (!isBearish) {
           fired = false;
           reason = 'Not a bearish candle';
-        } else if (!allReverse) {
-          fired = false;
-          reason = `Previous ${lookback} candles not bullish`;
         } else {
           if (mode === 'body') fired = bodyEngulfs;
           else if (mode === 'range') fired = rangeEngulfs;
@@ -394,8 +434,8 @@ export class SignalEngineService {
             reason = mode === 'body' ? 'Body did not engulf' :
                      mode === 'range' ? 'Range did not engulf' :
                      mode === 'strict' ? 'Strict engulfing failed' :
-                     mode === 'close_body' ? `Close did not clear prior ${lookback}-candle body low` :
-                     `Close did not clear prior ${lookback}-candle low`;
+                     mode === 'close_body' ? `Close did not clear prior ${streakReq}-candle body low` :
+                     `Close did not clear prior ${streakReq}-candle low`;
           }
         }
       } else {
@@ -409,6 +449,9 @@ export class SignalEngineService {
         if (fired && volConfirm && !volumeConfirms) fired = false;
       }
 
+      // Provide a predictive SL price for UI visualization
+      const predictedSl = side === 'LONG' ? aggregateLow : aggregateHigh;
+
       return {
         fired,
         value: closeOnlyMode ? curr.close : (fired ? 1 : 0),
@@ -416,13 +459,18 @@ export class SignalEngineService {
         unit: closeOnlyMode ? 'price' : 'bool',
         metric: closeOnlyMode ? 'Close Engulf' : 'Engulfing',
         description: fired
-          ? (closeOnlyMode ? `Closed candle close-engulfed ${lookback} reverse candles` : `Engulfing pattern (${mode}) detected`)
+          ? (closeOnlyMode ? `Closed candle close-engulfed ${streakReq}-candle streak` : `Engulfing pattern (${mode}) detected`)
           : (reason || 'No engulfing pattern'),
         threshold_is_price: closeOnlyMode,
         pattern_low: aggregateLow !== Infinity ? aggregateLow : undefined,
         pattern_high: aggregateHigh !== -Infinity ? aggregateHigh : undefined,
         body_low: aggregateBodyLow !== Infinity ? aggregateBodyLow : undefined,
         body_high: aggregateBodyHigh !== -Infinity ? aggregateBodyHigh : undefined,
+        streak_start: foundStreakStart,
+        streak_end: foundStreakEnd,
+        streak_start_ts: candles[foundStreakStart]?.time,
+        streak_end_ts: candles[foundStreakEnd - 1]?.time,
+        slPrice: predictedSl !== Infinity && predictedSl !== -Infinity ? predictedSl : undefined,
       };
     } catch (error) {
       this.logger.debug(`Engulfing signal error: ${error instanceof Error ? error.message : String(error)}`);

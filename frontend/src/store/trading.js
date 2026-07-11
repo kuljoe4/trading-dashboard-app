@@ -58,7 +58,10 @@ export const normalizeOpportunity = (o = {}) => {
           active: s.active !== false,
           remaining_delay: toNumber(s.remaining_delay),
           config_delay: toNumber(s.config_delay),
-          insufficientData: !!s.insufficientData
+            insufficientData: !!s.insufficientData,
+            streak_start_ts: s.streak_start_ts ? toNumber(s.streak_start_ts) : undefined,
+            streak_end_ts: s.streak_end_ts ? toNumber(s.streak_end_ts) : undefined,
+            slPrice: s.slPrice ? toNumber(s.slPrice) : undefined
         };
         return acc;
       }, {}) : {},

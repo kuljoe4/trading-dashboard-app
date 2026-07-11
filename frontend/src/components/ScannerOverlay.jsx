@@ -28,26 +28,32 @@ const FreshnessIndicator = React.memo(({ ts }) => {
 FreshnessIndicator.displayName = 'FreshnessIndicator';
 
 
-const buildCloseEngulfMarkers = (ohlc = [], direction = 'long', lookback = 2) => {
-  if (!Array.isArray(ohlc) || ohlc.length < lookback + 2) return [];
-  const signalIdx = ohlc.length - 2;
-  const startIdx = Math.max(0, signalIdx - lookback);
-  const prev = ohlc.slice(startIdx, signalIdx);
-  if (prev.length < lookback) return [];
-  const isLong = direction === 'long';
-  const reverseOk = prev.every(c => isLong ? Number(c.close) < Number(c.open) : Number(c.close) > Number(c.open));
-  const rangeLevel = isLong
-    ? Math.max(...prev.map(c => Number(c.high)))
-    : Math.min(...prev.map(c => Number(c.low)));
-  const signal = ohlc[signalIdx];
-  const closeCleared = isLong ? Number(signal.close) > rangeLevel : Number(signal.close) < rangeLevel;
-  const impulseOk = isLong ? Number(signal.close) > Number(signal.open) : Number(signal.close) < Number(signal.open);
+const buildAuthoritativeMarkers = (ohlc = [], signalResult = {}) => {
+  if (!Array.isArray(ohlc) || !signalResult) return [];
+  const engulfing = signalResult.details?.engulfing;
+  if (!engulfing || engulfing.streak_start_ts === undefined) return [];
 
-  return [
-    ...prev.map((_, offset) => ({ index: startIdx + offset, label: `R${offset + 1}`, color: '#64748b' })),
-    { index: signalIdx, label: reverseOk && impulseOk && closeCleared ? 'CONF' : 'WAIT', color: reverseOk && impulseOk && closeCleared ? '#00e5a0' : '#f5a623' },
-    { index: ohlc.length - 1, label: 'ENTRY', color: '#5b6fff' },
-  ];
+  const markers = [];
+  const startTs = engulfing.streak_start_ts;
+  const endTs = engulfing.streak_end_ts;
+
+  let sCount = 1;
+  ohlc.forEach((candle, idx) => {
+    const ts = candle.time || candle.t;
+    if (ts >= startTs && ts <= endTs) {
+      markers.push({ index: idx, label: `S${sCount++}`, color: '#64748b' });
+    }
+  });
+
+  if (signalResult.fired) {
+     const signalCandleTs = engulfing.unit === 'price' ? ohlc[ohlc.length - 2]?.time : ohlc[ohlc.length - 1]?.time;
+     const sigIdx = ohlc.findIndex(c => (c.time || c.t) === signalCandleTs);
+     if (sigIdx !== -1) {
+        markers.push({ index: sigIdx, label: 'CONF', color: '#00e5a0' });
+     }
+  }
+
+  return markers;
 };
 
 const FunnelStep = ({ label, detail, complete, icon: Icon }) => (
@@ -97,8 +103,8 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
 
   const signalStatus = opp.signalResult || {};
   const checklistSignals = opp.signalResult?.signals || {};
-  const closeEngulfEnabled = config?.engulfing_mode === 'close_range' && (config?.enabled_signals || []).includes('engulfing');
-  const decisionMarkers = closeEngulfEnabled ? buildCloseEngulfMarkers(opp.ohlc_history, dir, config?.engulfing_lookback || 2) : [];
+  const engulfingEnabled = (config?.enabled_signals || []).includes('engulfing');
+  const decisionMarkers = engulfingEnabled ? buildAuthoritativeMarkers(opp.ohlc_history, signalStatus) : [];
   const engulfSignal = checklistSignals.engulfing;
   const funnelSteps = [
     { label: 'Momentum Scan', detail: `${Number(Math.abs(opp.pct || 0)).toFixed(2)}% move vs ${Number(threshold || 0).toFixed(2)}% threshold`, complete: passing, icon: TrendingUp },
@@ -280,6 +286,7 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                           entryPrice={opp.price}
                           signals={opp.ohlc_history.filter(d => signalStatus.firedSignals?.includes(d.time))}
                           decisionMarkers={decisionMarkers}
+                          slPrice={checklistSignals.engulfing?.slPrice}
                         />
                         <div className="flex justify-between w-full mt-6 px-2">
                            <div className="flex flex-col">

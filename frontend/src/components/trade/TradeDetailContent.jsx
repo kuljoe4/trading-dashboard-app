@@ -181,37 +181,51 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
                   )}
                 </div>
                 <div className="flex items-center gap-2 font-mono">
-                  <span className="text-dim/60">Mark: {mark.toFixed(2)}</span>
+                  <span className="text-dim/60">Mark: {price(mark)}</span>
                   <ArrowRight size={10} className="text-dim/40" />
-                  <span className={isFired ? "text-red" : "text-text"}>{threshold.toFixed(2)}</span>
+                  <span className={isFired ? "text-red" : "text-text"}>{price(threshold)}</span>
                 </div>
               </div>
 
-              {/* Two-line convergence strip */}
-              <div className="relative h-6 bg-background/40 rounded-lg overflow-hidden border border-white/5 flex items-center px-2">
-                <div className="absolute inset-y-0 left-0 bg-accent/10 transition-all duration-700" style={{ width: `${s.progress}%` }} />
+              {/* Enhanced Convergence Bar (SignalGauge Style) */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-end px-1">
+                   <div className="flex items-center gap-2">
+                      <div className={cn(
+                        "w-1.5 h-1.5 rounded-full",
+                        isFired ? "bg-red animate-pulse" : s.fired ? "bg-amber" : "bg-accent"
+                      )} />
+                      <span className="text-[9px] font-black text-dim uppercase tracking-widest">Convergence</span>
+                   </div>
+                   <span className={cn(
+                      "text-[10px] font-mono font-black",
+                      isFired ? "text-red" : s.fired ? "text-amber" : "text-accent"
+                    )}>{s.progress.toFixed(1)}%</span>
+                </div>
 
-                <div className="relative w-full flex items-center justify-between z-10">
-                  <div className="flex items-center gap-2">
-                    <div className={cn(
-                      "w-2 h-2 rounded-full",
-                      isFired ? "bg-red animate-pulse" : s.fired ? "bg-amber" : "bg-accent"
-                    )} />
-                    <span className="text-[10px] font-mono font-bold text-text/80">{s.progress.toFixed(1)}%</span>
-                  </div>
+                <div className="h-2 bg-background/80 rounded-full overflow-hidden relative border border-white/5 shadow-inner">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${s.progress}%` }}
+                    transition={{ type: "spring", stiffness: 40, damping: 20 }}
+                    className={cn(
+                      "absolute top-0 left-0 h-full rounded-full transition-colors duration-700",
+                      isFired ? "bg-red shadow-[0_0_8px_rgba(255,68,102,0.4)]" : s.fired ? "bg-amber" : "bg-accent"
+                    )}
+                  />
+                </div>
 
-                  {estPnl !== null && (
+                {estPnl !== null && (
+                  <div className="flex justify-between items-center px-1">
+                    <span className="text-[8px] text-dim/60 font-bold uppercase tracking-tighter">Est. Outcome</span>
                     <div className={cn(
-                      "text-[9px] font-mono font-black px-1.5 py-0.5 rounded bg-background/80 border border-white/5",
+                      "text-[9px] font-mono font-black",
                       estPnl >= 0 ? "text-green" : "text-red"
                     )}>
                       {estPnl >= 0 ? '+' : ''}{fmtUSD(estPnl)} ({estRr?.toFixed(1)}R)
                     </div>
-                  )}
-                </div>
-
-                {/* Ghost trailing effect if gap is closing (simulated for UI) */}
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-pulse-slow pointer-events-none" />
+                  </div>
+                )}
               </div>
             </div>
           )
@@ -243,7 +257,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
     const initialSl = Number(trade.initial_sl || trade.sl_price || 0)
     const tp = Number(trade.tp_price || trade.tp || 0)
 
-    const pnlPct = trade.pnl_pct ?? (entry ? ((mark - entry) / entry) * 100 * (isLong ? 1 : -1) : 0)
+    const pnlPct = mark > 0 ? (trade.pnl_pct ?? (entry ? ((mark - entry) / entry) * 100 * (isLong ? 1 : -1) : 0)) : 0
 
     let progress = 50
     if (entry && mark && sl) {

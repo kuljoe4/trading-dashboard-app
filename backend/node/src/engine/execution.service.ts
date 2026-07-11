@@ -166,7 +166,8 @@ export class ExecutionService {
 
         // "After Opportunity" timing check:
         // If timing is 'after_opportunity', the momentum event must have happened in the PREVIOUS candle.
-        if (symbolConfig.engulfing_timing === 'after_opportunity') {
+        // GATED: Only apply if engulfing is actually enabled.
+        if (symbolConfig.engulfing_timing === 'after_opportunity' && symbolConfig.enabled_signals?.includes('engulfing')) {
            const candles = this.klineStore.getRawCandles(opp.symbol, symbolConfig.scan_interval || '1m');
            if (candles.length < 2) continue;
 
@@ -186,13 +187,17 @@ export class ExecutionService {
 
         // BOLT OPTIMIZATION: Enable minimal mode (6th arg) to trigger early-return in signal engine.
         // This avoids expensive metadata/description construction during the high-frequency entry scan.
-        const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', true);
+        let signalResult = this.signalEngine.checkEntry(opp.symbol, symbolConfig, symbolConfig.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', true);
         if (!signalResult.allFired) {
           if (signalResult.reason.includes('warm-up')) {
             this.logger.debug(`${opp.symbol}: Entry blocked - ${signalResult.reason}`);
           }
           continue;
         }
+
+        // If signal fired, re-check with minimal=false to get technical details (e.g. engulfing boundaries)
+        // required for structural Stop Loss calculations and full telemetry.
+        signalResult = this.signalEngine.checkEntry(opp.symbol, symbolConfig, symbolConfig.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', false);
 
         this.monitoringService.setLoopStage('RISK_CHECK', opp.symbol);
         const activeTrades = this.positionTracker.activeList();

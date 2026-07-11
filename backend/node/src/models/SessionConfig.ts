@@ -152,14 +152,24 @@ export class SessionConfig {
 
   @IsNumber()
   @Min(1)
-  @Max(10)
+  @Max(20)
   @IsOptional()
   engulfing_lookback?: number = 1;
 
-  // Stop Loss Configuration
-  @IsEnum(['pct', 'lookback_low/high', 'engulfing_boundary'])
+  @IsNumber()
+  @Min(1)
+  @Max(10)
   @IsOptional()
-  sl_type?: 'pct' | 'lookback_low/high' | 'engulfing_boundary' = "pct";
+  engulfing_streak?: number = 1;
+
+  @IsBoolean()
+  @IsOptional()
+  engulfing_sequential?: boolean = true;
+
+  // Stop Loss Configuration
+  @IsEnum(['pct', 'lookback_low/high', 'engulfing_boundary', 'streak_extreme'])
+  @IsOptional()
+  sl_type?: 'pct' | 'lookback_low/high' | 'engulfing_boundary' | 'streak_extreme' = "pct";
 
   @IsNumber()
   @Min(CONFIG_LIMITS.SL_DISTANCE_MIN)

@@ -5,9 +5,16 @@
 export const price = (value) => {
   if (value == null || Number.isNaN(Number(value))) return '---';
   const n = Number(value);
-  if (n >= 100) return `$${n.toFixed(2)}`;
-  // For small prices, show more precision but trim trailing zeros
-  return `$${n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}`;
+  if (n === 0) return '$0.00';
+  if (n >= 100) return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (n >= 1) return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
+
+  // For small prices (e.g. 0.00024), dynamically adjust precision to show at least 4 significant digits
+  // but cap at 8 to avoid floating point noise.
+  const magnitude = Math.floor(Math.log10(Math.abs(n)));
+  const precision = Math.min(8, Math.max(4, Math.abs(magnitude) + 4));
+
+  return `$${n.toFixed(precision).replace(/0+$/, '').replace(/\.$/, '')}`;
 };
 
 /**

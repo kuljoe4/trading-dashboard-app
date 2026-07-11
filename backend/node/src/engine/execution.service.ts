@@ -274,12 +274,30 @@ export class ExecutionService {
         });
         slPrice = slFiltered.price;
 
-        const qty = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig, opp.symbol);
+        const sizeResult = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig, opp.symbol);
 
-        if (qty <= 0) {
-          this.logger.debug(`${opp.symbol}: Position size is 0 after SL filtering. SL: ${slPrice}, Entry: ${price}`);
+        if (sizeResult.qty <= 0) {
+          if (sizeResult.rejected) {
+             this.logger.log(`${opp.symbol}: Entry skipped - ${sizeResult.reason}`);
+             this.broadcastService.broadcast('gate', {
+               gateState: 'risk_rejected',
+               reason: sizeResult.reason,
+               scannerPaused: false
+             });
+
+             // Telemetry for oversized risk rejections
+             this.broadcastService.broadcast('trade_event', {
+                event: 'entry_rejected',
+                symbol: opp.symbol,
+                reason: sizeResult.reason,
+                details: { balance, price, sl: slPrice }
+             });
+          } else {
+             this.logger.debug(`${opp.symbol}: Position size is 0 after SL filtering. SL: ${slPrice}, Entry: ${price}`);
+          }
           continue;
         }
+        const qty = sizeResult.qty;
         const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig);
 
         const reservedRisk = roundEight(Math.abs(price - slPrice) * qty);

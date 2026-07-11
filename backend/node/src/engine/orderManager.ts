@@ -458,6 +458,10 @@ export class OrderManagerService {
     return this.sessionState.getBinanceRateLimit();
   }
 
+  public isBanned(): boolean {
+    return this.sessionState.isBanned();
+  }
+
   async setBinanceClient(client: DerivativesTradingUsdsFutures | null, paperMode = true) {
     const isFirstCall = this.binanceClient === null;
     const isNewClient = !isFirstCall && this.binanceClient !== client;
@@ -1595,6 +1599,9 @@ export class OrderManagerService {
        return { success: false };
     }
 
+    // SRE: Immunity check. If we are currently banned, don't try to ratchet
+    if (this.sessionState.isBanned()) return { success: false };
+
     // LOCK: Prevent Watchdog from interfering during the cancel/replace window
     this.ratchetLocks.set(trade.symbol, true);
 
@@ -2395,6 +2402,15 @@ export class OrderManagerService {
           while (attempts < MAX_CLOSE_ATTEMPTS) {
             attempts++;
             try {
+              // SRE: Fix -2022 ReduceOnly Conflict.
+              // Proactively cancel the tracked Stop Loss order before MARKET close
+              // to clear the exchange's reduce-only capacity for this position.
+              if (trade.binance_stop_order_id) {
+                 this.logger.debug(`[${symbol}] [Sync] Proactively cancelling SL ${trade.binance_stop_order_id} before MARKET close to clear reduce-only capacity.`);
+                 await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type || 'standard');
+                 trade.binance_stop_order_id = undefined;
+              }
+
               const response = await this.binanceClient.restAPI.newOrder({
                 symbol,
                 side: closeDirection,
@@ -2426,11 +2442,7 @@ export class OrderManagerService {
                 }
 
                 if (msg.includes('ReduceOnly') || msg.includes('conflict') || msg.includes('-2022')) {
-                   this.logger.warn(`[${symbol}] MARKET close conflicted. Flushing orders and retrying (Attempt ${attempts})...`);
-                   if (trade.binance_stop_order_id) {
-                     await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type as any);
-                     trade.binance_stop_order_id = undefined;
-                   }
+                   this.logger.warn(`[${symbol}] MARKET close conflicted (ReduceOnly). Flushing all symbol orders and retrying (Attempt ${attempts})...`);
                    await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol });
                    continue;
                 }

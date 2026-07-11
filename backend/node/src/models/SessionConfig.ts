@@ -313,6 +313,16 @@ export class SessionConfig {
   @IsOptional()
   auto_scale_min_notional?: boolean = true;
 
+  @IsBoolean()
+  @IsOptional()
+  risk_hardening_enabled?: boolean = false;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0.1)
+  @Max(100.0)
+  max_single_trade_risk_pct?: number = 20.0;
+
   // Balance & Mode Configuration
   @IsBoolean()
   @IsOptional()

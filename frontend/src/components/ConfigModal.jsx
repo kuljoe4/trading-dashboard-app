@@ -536,6 +536,8 @@ const flattenConfig = (config) => {
       sl_out_of_bounds_action: config.sl_out_of_bounds_action || 'clamp',
       scanner_signal_depth: config.scanner_signal_depth || 10,
       auto_scale_min_notional: config.auto_scale_min_notional !== undefined ? config.auto_scale_min_notional : true,
+      risk_hardening_enabled: !!config.risk_hardening_enabled,
+      max_single_trade_risk_pct: config.max_single_trade_risk_pct !== undefined ? config.max_single_trade_risk_pct : 20.0,
       engulfing_mode: config.engulfing_mode || 'range',
       engulfing_timing: config.engulfing_timing || 'is_opportunity',
       engulfing_volume_confirm: !!config.engulfing_volume_confirm,
@@ -749,6 +751,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     // Ensure numeric values where expected
     const numericFields = [
       'risk_pct_per_trade', 'max_total_risk_pct', 'max_open_trades', 'total_sl_guard_usdt',
+      'max_single_trade_risk_pct',
       'scan_pct_threshold', 'scan_lookback', 'scan_min_volume_usdt', 'watchlist_size',
       'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
@@ -1322,6 +1325,44 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                         Status: {cfg.auto_scale_min_notional === false ? "❌ Scaling disabled, risk of rejection" : (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05 ? "⚠️ Scaling up to meet exchange minimum" : "✅ Threshold met, using precise sizing"}
                       </p>
                     </div>
+                  </div>
+                </div>
+
+                <div className={cn(
+                  "p-4 border rounded-2xl flex flex-col justify-center gap-1",
+                  cfg.auto_scale_min_notional === false && cfg.risk_hardening_enabled
+                    ? "bg-red/5 border-red/20 shadow-[0_0_20px_rgba(239,68,68,0.05)]"
+                    : "bg-background/40 border-border/40",
+                  cfg.auto_scale_min_notional !== false && "opacity-40 grayscale grayscale-[50%]"
+                )}>
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] text-dim uppercase font-bold tracking-widest">Risk Hardening</span>
+                      <div className="w-1 h-1 rounded-full bg-dim/30" />
+                      <span className="text-[8px] text-red font-bold uppercase tracking-tight">Small Account Guard</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Toggle
+                        value={cfg.risk_hardening_enabled === true}
+                        onChange={(v) => setField('risk_hardening_enabled', v)}
+                        color="bg-red"
+                      />
+                      <Tooltip content="When Auto-Scaling is DISABLED, risk hardening protects small accounts from entering positions where the exchange's $5.00 minimum forces risk to exceed a safe percentage of your balance.">
+                        <ShieldCheck size={10} className="text-dim cursor-help" />
+                      </Tooltip>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2 mt-1">
+                    <div className={cn(cfg.risk_hardening_enabled ? "block" : "hidden")}>
+                      {renderField('Max Single Trade Risk (%)', 'max_single_trade_risk_pct', 'number', null, { min: 0.1, max: 100, step: 0.5 })}
+                    </div>
+                    <p className="text-[8px] text-dim/60 italic leading-tight">
+                      {cfg.auto_scale_min_notional !== false
+                        ? "Only available when Auto-Scale is OFF."
+                        : cfg.risk_hardening_enabled
+                        ? `Trades will be REJECTED if they force > ${cfg.max_single_trade_risk_pct}% account risk.`
+                        : "Account at risk of oversized exposure on small balances."}
+                    </p>
                   </div>
                 </div>
               </div>

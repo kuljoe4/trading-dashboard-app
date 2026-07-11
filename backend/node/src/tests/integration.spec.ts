@@ -59,7 +59,7 @@ describe('Trade Lifecycle Integration', () => {
       canEnter: jest.fn().mockReturnValue({ canEnter: true }),
       computeSl: jest.fn().mockReturnValue({ slPrice: 49000, rejected: false }),
       computeTp: jest.fn().mockReturnValue(52000),
-      computePositionSize: jest.fn().mockReturnValue(0.1),
+      computePositionSize: jest.fn().mockReturnValue({ qty: 0.1 }),
     };
 
     mockPositionTracker = {

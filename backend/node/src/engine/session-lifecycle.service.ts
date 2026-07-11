@@ -433,6 +433,9 @@ export class SessionLifecycleService {
   public async startUserDataStream(bc: any, isReconnect = false, isTransition = false) {
     if (!bc || !this.running) return;
 
+    // SRE: Immunity check. If we are currently banned, don't try to start UDS
+    if (this.sessionState.isBanned()) return;
+
     if (this.isUdsStarting) {
       this.logger.debug('[UDS] Connection attempt already in progress. Skipping.');
       return;

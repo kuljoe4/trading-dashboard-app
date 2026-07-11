@@ -118,105 +118,90 @@ export class BinanceClientFactory implements OnModuleInit {
     // /private (for listenKey), /market (for anonymous market streams), and /public (HF data)
     const originalConnect = client.websocketStreams.connect.bind(client.websocketStreams);
     client.websocketStreams.connect = (async (params: any): Promise<any> => {
-      // Citadel: Strictly isolate stream types for zero-collision routing (private, public/hf, market)
+      // SRE: Gate all WebSocket connection attempts through the centralized queue
+      // to respect IP reputation and ban status.
       const stream = (params.stream || '').trim();
       const isHF = stream.includes('!');
       const isMarket = stream.includes('@');
       const isCombined = stream.includes('/');
       // Citadel: Strictly isolate listenKeys (64-char alphanumeric) vs market streams.
-      // Strictly isolated by length and absence of market indicators (@, !, /).
       const isPrivate = !isHF && !isMarket && !isCombined && stream.length >= 60;
 
-      let gatewayURL = wsURL;
-      const urlObj = new URL(wsURL);
+      // Emergency: Only User Data Stream (private) is considered emergency
+      const isEmergency = isPrivate;
 
-      if (isPrivate) {
-        if (!isTestnet) urlObj.pathname = '/private';
-        else urlObj.pathname = '/ws';
-      } else if (isHF) {
-        if (!isTestnet) urlObj.pathname = '/public';
-        else urlObj.pathname = isCombined ? '/stream' : '/ws';
-      } else {
-        if (!isTestnet) urlObj.pathname = '/market';
-        else urlObj.pathname = isCombined ? '/stream' : '/ws';
-      }
+      return queue.add(async () => {
+        let gatewayURL = wsURL;
+        const urlObj = new URL(wsURL);
 
-      // SRE: Correct construction of the final WebSocket URL for the SDK.
-      // Our gateway ALWAYS expects /stream?streams= format for anonymous combined market/public streams.
-      // Single streams should use the /ws/ format to ensure reliable delivery on mainnet.
-      const useCombinedFormat = isCombined;
-      if (!isTestnet && useCombinedFormat) {
-          urlObj.pathname = urlObj.pathname.replace(/\/$/, '') + '/stream';
-          gatewayURL = urlObj.origin + urlObj.pathname;
-
-          // BOLT: Manual construction to bypass SDK logic and ensure /stream?streams= is used.
-          const finalUrl = `${gatewayURL}?streams=${params.stream}`;
-          this.logger.debug(`[BinanceClient] Connecting to gateway (Manual): ${finalUrl.substring(0, 100)}... | isHF=${isHF}`);
-
-          // BOLT: Increased handshakeTimeout to 15s to prevent silent drops during high-latency periods.
-          const ws = new WebSocket(finalUrl, { handshakeTimeout: 15000 });
-
-          ws.on('message', (data: any) => {
-            if (!(ws as any)._firstMsgReceived) {
-              (ws as any)._firstMsgReceived = true;
-              this.logger.debug(`[BinanceClient] First frame received on Manual gateway: ${params.stream?.substring(0, 30)}...`);
-            }
-          });
-
-          // BOLT: Add error handler to prevent unhandled 'error' events from crashing the process (e.g. 400 Bad Request)
-          ws.on('error', (err: any) => {
-            const msg = err.message || '';
-            this.logger.error(`[BinanceClient] WebSocket error for ${params.stream}: ${msg}`);
-
-            // CITADEL FAIL-FAST: Detected critical IP reputation threats (429, 418)
-            if (msg.includes('429') || msg.includes('418')) {
-              this.logger.fatal(`[CRITICAL] WebSocket handshake failed with rate-limit/ban status (${msg}). Entering Terminal Lock.`);
-
-              // SRE: Attempt to extract absolute ban timestamp from message: "banned until (\d+)"
-              const banMatch = msg.match(/banned until (\d+)/i);
-              const until = banMatch ? parseInt(banMatch[1], 10) : Date.now() + (24 * 60 * 60 * 1000);
-
-              // RESEARCH-01: Instead of process.exit(1), implement a long sleep to break boot loops and allow UI visibility.
-              // Lock the REST queue until the absolute exchange timestamp to ensure zero egress traffic.
-              BinanceRequestQueue.setCooldownUntil(until);
-
-              // SRE Overwatch: Persist ban status to DB to survive restarts
-              this.settingsRepository.update('default', {
-                api_ban_until: until,
-                api_ban_reason: msg
-              }).catch(err => this.logger.error(`Failed to persist ban status (WS): ${err.message}`));
-
-              this.eventEmitter.emit('binance.api_limit_reached', {
-                type: 'BAN',
-                message: msg,
-                until
-              });
-            }
-          });
-          // SDK expected interface: disconnect() method
-          (ws as any).disconnect = () => (ws as any).terminate();
-          return ws as any;
-      }
-
-      gatewayURL = urlObj.origin + urlObj.pathname;
-      this.logger.debug(`[BinanceClient] Routing WS connection to gateway: ${gatewayURL} | isPrivate=${isPrivate} | isHF=${isHF} | stream=${params.stream?.substring(0, 30)}...`);
-
-      const originalWsURL = (client.websocketStreams as any).wsURL;
-      (client.websocketStreams as any).wsURL = gatewayURL;
-      try {
-        const ws = await originalConnect(params);
-        if (ws && typeof ws.on === 'function') {
-          ws.on('message', (data: any) => {
-            if (!(ws as any)._firstMsgReceived) {
-              (ws as any)._firstMsgReceived = true;
-              this.logger.debug(`[BinanceClient] First frame received on ${isPrivate ? 'PRIVATE' : 'SDK'} stream: ${params.stream?.substring(0, 30)}...`);
-            }
-          });
+        if (isPrivate) {
+          if (!isTestnet) urlObj.pathname = '/private';
+          else urlObj.pathname = '/ws';
+        } else if (isHF) {
+          if (!isTestnet) urlObj.pathname = '/public';
+          else urlObj.pathname = isCombined ? '/stream' : '/ws';
+        } else {
+          if (!isTestnet) urlObj.pathname = '/market';
+          else urlObj.pathname = isCombined ? '/stream' : '/ws';
         }
-        return ws;
-      } finally {
-        (client.websocketStreams as any).wsURL = originalWsURL;
-      }
+
+        // SRE: Correct construction of the final WebSocket URL for the SDK.
+        const useCombinedFormat = isCombined;
+        if (!isTestnet && useCombinedFormat) {
+            urlObj.pathname = urlObj.pathname.replace(/\/$/, '') + '/stream';
+            gatewayURL = urlObj.origin + urlObj.pathname;
+
+            // BOLT: Manual construction to bypass SDK logic and ensure /stream?streams= is used.
+            const finalUrl = `${gatewayURL}?streams=${params.stream}`;
+            this.logger.debug(`[BinanceClient] Connecting to gateway (Manual): ${finalUrl.substring(0, 100)}... | isHF=${isHF}`);
+
+            const ws = new WebSocket(finalUrl, { handshakeTimeout: 15000 });
+
+            ws.on('message', (data: any) => {
+              if (!(ws as any)._firstMsgReceived) {
+                (ws as any)._firstMsgReceived = true;
+                this.logger.debug(`[BinanceClient] First frame received on Manual gateway: ${params.stream?.substring(0, 30)}...`);
+              }
+            });
+
+            ws.on('error', (err: any) => {
+              const msg = err.message || '';
+              this.logger.error(`[BinanceClient] WebSocket error for ${params.stream}: ${msg}`);
+
+              if (msg.includes('429') || msg.includes('418')) {
+                this.logger.fatal(`[CRITICAL] WebSocket handshake failed with rate-limit/ban status (${msg}). Entering Terminal Lock.`);
+                const banMatch = msg.match(/banned until (\d+)/i);
+                const until = banMatch ? parseInt(banMatch[1], 10) : Date.now() + (24 * 60 * 60 * 1000);
+
+                BinanceRequestQueue.setCooldownUntil(until);
+                this.settingsRepository.update('default', { api_ban_until: until, api_ban_reason: msg }).catch(() => {});
+                this.eventEmitter.emit('binance.api_limit_reached', { type: 'BAN', message: msg, until });
+              }
+            });
+            (ws as any).disconnect = () => (ws as any).terminate();
+            return ws as any;
+        }
+
+        gatewayURL = urlObj.origin + urlObj.pathname;
+        this.logger.debug(`[BinanceClient] Routing WS connection to gateway: ${gatewayURL} | isPrivate=${isPrivate} | isHF=${isHF} | stream=${params.stream?.substring(0, 30)}...`);
+
+        const originalWsURL = (client.websocketStreams as any).wsURL;
+        (client.websocketStreams as any).wsURL = gatewayURL;
+        try {
+          const ws = await originalConnect(params);
+          if (ws && typeof ws.on === 'function') {
+            ws.on('message', (data: any) => {
+              if (!(ws as any)._firstMsgReceived) {
+                (ws as any)._firstMsgReceived = true;
+                this.logger.debug(`[BinanceClient] First frame received on ${isPrivate ? 'PRIVATE' : 'SDK'} stream: ${params.stream?.substring(0, 30)}...`);
+              }
+            });
+          }
+          return ws;
+        } finally {
+          (client.websocketStreams as any).wsURL = originalWsURL;
+        }
+      }, `wsConnect:${stream.substring(0, 30)}`, isEmergency);
     }) as any;
 
     // Wrap restAPI with a Throttled Proxy to prevent startup bursts and respect rate limits
@@ -308,11 +293,8 @@ export class BinanceRequestQueue {
     // SRE: Critical rollover logic. Resets counter at clock minute boundaries (00s).
     // BOLT: Also ensure ban cooldown has elapsed before allowing weight to reset and requests to resume.
     if (now < BinanceRequestQueue.lastRequestTs) {
-      // BOLT: Throttle rollover skip logs to once per minute to reduce noise during long bans
-      if (now - this.lastRolloverLogTs > 60000) {
-        this.logger.debug(`[BinanceQueue] Rollover skipped: Still in mandatory cooldown for ${Math.ceil((BinanceRequestQueue.lastRequestTs - now) / 1000)}s`);
-        this.lastRolloverLogTs = now;
-      }
+      // SRE: Silence rollover skip logs entirely during bans to prevent post-ban hammering of the log stream.
+      // The presence of 'Terminal Lock' and 'Cooldown until' logs at ban time is sufficient.
       return;
     }
 

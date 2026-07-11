@@ -81,9 +81,24 @@ describe('RiskEngineService - Frequency Limits', () => {
 
     const result = service.canEnter([], closed, 10000, 'BTCUSDT', mockConfig, 0);
 
-    const symbolHash = 'BTCUSDT'.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    const jitterSeed = (Math.floor(lastTradeTs / 10000) * 10000) + symbolHash;
-    const jitterFactor = 1 + ((Math.abs(Math.sin(jitterSeed)) * 50) / 100);
+    // BOLT: Replicate backend hashing logic (FNV-1a + 32-bit mix hash)
+    const getHash = (n: number) => {
+      let h = n >>> 0;
+      h = Math.imul(h ^ (h >>> 16), 0x21f0aaad);
+      h = Math.imul(h ^ (h >>> 15), 0x735a2d97);
+      h = h ^ (h >>> 15);
+      return (h >>> 0) / 4294967296;
+    };
+
+    let symbolHash = 0x811c9dc5;
+    for (let i = 0; i < 'BTCUSDT'.length; i++) {
+      symbolHash ^= 'BTCUSDT'.charCodeAt(i);
+      symbolHash = Math.imul(symbolHash, 0x01000193);
+    }
+    symbolHash = symbolHash >>> 0;
+
+    const jitterSeed = (Math.floor(lastTradeTs / 10000) * 10000) + (symbolHash % 10000);
+    const jitterFactor = 1 + (getHash(jitterSeed) * 50) / 100;
     const effectivePeriodMs = 60 * 60 * 1000 * jitterFactor;
     const isInside = (now - lastTradeTs) < effectivePeriodMs;
 

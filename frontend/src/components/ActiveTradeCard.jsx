@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react'
 import { cn, Tooltip, CopyButton } from './ui/primitives'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { sessionAPI } from '../api/client'
-import { ShieldCheck } from 'lucide-react'
+import { ShieldCheck, RefreshCw } from 'lucide-react'
 import { motion } from 'framer-motion'
 
-export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClick }) => {
+export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClick, isResuming }) => {
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
@@ -56,9 +56,19 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
       onKeyDown={handleKeyDown}
       role="button"
       tabIndex={0}
-      className="bg-surface border border-border/40 rounded-2xl p-4 md:p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.98] group"
+      className={cn(
+        "bg-surface border border-border/40 rounded-2xl p-4 md:p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.98] group relative overflow-hidden",
+        isResuming && "opacity-80 border-accent/20 bg-accent/[0.01]"
+      )}
       aria-label={`View details for ${trade.symbol} ${trade.direction} trade, ${fmtUSD(trade.pnl)} P&L, ${Number(trade.rr || 0).toFixed(2)} RR`}
     >
+      {isResuming && (
+        <div className="absolute inset-0 bg-accent/5 backdrop-blur-[1px] z-10 flex items-center justify-center pointer-events-none">
+           <div className="bg-background/80 border border-accent/20 px-3 py-1 rounded-full text-[8px] font-black text-accent uppercase tracking-widest flex items-center gap-1.5 shadow-xl animate-in fade-in zoom-in duration-300">
+              <RefreshCw size={10} className="animate-spin" /> Resuming Feed...
+           </div>
+        </div>
+      )}
       <div className="flex items-start justify-between gap-3 min-w-0">
         <div className="flex flex-col gap-1 min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">

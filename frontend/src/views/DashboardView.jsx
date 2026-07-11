@@ -199,7 +199,7 @@ const BanBanner = ({ apiStatus }) => {
 };
 
 // --- Strategy Card ---
-const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner, isMonitored, className }) => {
+const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner, isMonitored, className, isResuming }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
@@ -235,10 +235,17 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
         className
       )}
     >
-      {paused && (
+      {paused && !isResuming && (
         <div className="absolute inset-0 bg-background/40 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
           <div className="bg-amber/10 border border-amber/20 text-amber px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-2xl">
             <Pause size={12} fill="currentColor" /> Session Paused
+          </div>
+        </div>
+      )}
+      {isResuming && (
+        <div className="absolute inset-0 bg-background/40 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
+          <div className="bg-accent/10 border border-accent/20 text-accent px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-2xl">
+            <RefreshCw size={12} className="animate-spin" /> Resuming Feed...
           </div>
         </div>
       )}
@@ -1016,7 +1023,7 @@ export function DashboardView({ initialStrategy }) {
                 value={fmtUSD(totalActivePnl)}
                 color={pnlClass(totalActivePnl)}
                 subValue={`Total: ${fmtUSD(totalPnl)}`}
-                syncing={wsStatus !== 'live'}
+                syncing={isThrottled || wsStatus !== 'live'}
                 tooltipText="Current P&L from open trades vs. total session performance."
               />
               <StatCard
@@ -1205,6 +1212,7 @@ export function DashboardView({ initialStrategy }) {
                             onClick={handleSelectPrimary}
                             isMonitored={monitoredSymbolsSet.has(currentStrategy.strategy_label)}
                             className={cn(totalCards % 2 !== 0 && "md:col-span-2")}
+                            isResuming={isThrottled || wsStatus !== 'live'}
                           />
                           {activeVariants.map((variant, i) => {
                             const label = variant.strategy_label || `Variant ${i + 1}`;
@@ -1226,6 +1234,7 @@ export function DashboardView({ initialStrategy }) {
                                 onEdit={handleEditVariant}
                                 onClick={handleSelectVariant}
                                 isMonitored={monitoredSymbolsSet.has(label)}
+                                isResuming={isThrottled || wsStatus !== 'live'}
                               />
                             );
                           })}

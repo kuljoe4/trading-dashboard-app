@@ -314,8 +314,10 @@ const SessionGroup = React.memo(({ session, trades }) => {
 
 const PAGE_SIZE = 10
 
+import { RefreshCw } from 'lucide-react'
+
 export const HistoryView = () => {
-  const { tradeHistory, updateStats, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory } = useTradingStore()
+  const { tradeHistory, updateStats, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory, isThrottled, wsStatus } = useTradingStore()
   const [fullAnalytics, setFullAnalytics] = useState(null)
   const [lifetimeMode, setLifetimeMode] = useState(localStorage.getItem('history_trade_mode') || 'paper')
   const [loading, setLoading] = useState(true)
@@ -470,6 +472,7 @@ export const HistoryView = () => {
           title="Trade History"
           subTitle="Verified records of all closed positions"
           backAction={() => window.location.hash = '#/'}
+          isResuming={isThrottled || wsStatus !== 'live'}
         >
           <div className="flex items-center gap-3 self-end sm:self-auto">
              <div className="relative group hidden sm:block">

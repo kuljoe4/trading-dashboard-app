@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { cn } from "./utils"
 import * as ProgressPrimitive from "@radix-ui/react-progress"
 import * as TooltipPrimitive from "@radix-ui/react-tooltip"
-import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock, Info } from 'lucide-react'
+import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock, Info, RefreshCw } from 'lucide-react'
 import { Sparkline as SparklineChart, CandlestickChart as CandlestickChartBase } from '../DataCharts'
 import { useTradingStore } from '../../store/trading'
 import { useTooltipContext, Tooltip } from './tooltip'
@@ -421,9 +421,10 @@ export const VisuallyHidden = ({ children }) => (
   </span>
 )
 
-export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = true, backAction }) => {
+export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = true, backAction, isResuming: propsResuming }) => {
   const { config, wsStatus, isThrottled, isEcoMode } = useTradingStore()
   const tradingMode = config.trading_mode || 'paper'
+  const isResuming = propsResuming ?? (isThrottled || wsStatus !== 'live')
 
   return (
     <div className={cn(
@@ -449,7 +450,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
             )}
             <div className="flex flex-col min-w-0">
               <div className="flex items-center gap-2 min-w-0">
-                <h1 className="text-xs md:text-sm font-black tracking-tight truncate uppercase">{title}</h1>
+                <h1 className="text-xs md:text-sm font-black tracking-tight truncate uppercase">{isResuming ? 'Resuming...' : title}</h1>
                 <div className="hidden sm:flex items-center gap-1.5 shrink-0 scale-[0.8] origin-left">
                   {tradingMode === 'paper' && <PaperBadge />}
                   {tradingMode === 'testnet' && <DemoBadge />}
@@ -463,8 +464,8 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                     {subTitle}
                   </p>
                   <div className="hidden lg:flex items-center gap-1.5 shrink-0 opacity-40 scale-[0.8] origin-left">
-                    <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", (wsStatus === 'live' && !isThrottled) ? "text-green" : "text-accent")}>
-                      {wsStatus !== 'live' ? 'Reconnecting' : isThrottled ? 'Resuming Feed...' : 'Connected'}
+                    <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", !isResuming ? "text-green" : "text-accent")}>
+                      {wsStatus !== 'live' ? 'Reconnecting' : isResuming ? 'Resuming Feed...' : 'Connected'}
                     </span>
                     {wsStatus !== 'live' && (
                       <button
@@ -475,7 +476,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                         Retry
                       </button>
                     )}
-                    <PulseDot color={(wsStatus === 'live' && !isThrottled) ? "bg-green" : "bg-accent"} />
+                    <PulseDot color={!isResuming ? "bg-green" : "bg-accent"} />
                     </div>
                 </div>
               )}

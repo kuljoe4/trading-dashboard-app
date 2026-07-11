@@ -542,7 +542,7 @@ export function DashboardView({ initialStrategy }) {
     scannerPaused, sessionList, fetchSessions, wsStatus,
     updateStats, analytics,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
-    healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs
+    healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs, isSyncingOnResume
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -582,7 +582,8 @@ export function DashboardView({ initialStrategy }) {
     isAdaptiveTightened: state.isAdaptiveTightened,
     apiStatus: state.apiStatus,
     analytics: state.analytics,
-    effectivePeriodMs: state.effectivePeriodMs
+    effectivePeriodMs: state.effectivePeriodMs,
+    isSyncingOnResume: state.isSyncingOnResume
   }), shallow)
 
   useEffect(() => {
@@ -818,6 +819,8 @@ export function DashboardView({ initialStrategy }) {
 
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
+  const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
+
   return (
     <div className={cn(
       "min-h-screen transition-all duration-300 relative",
@@ -1002,7 +1005,7 @@ export function DashboardView({ initialStrategy }) {
             hibernating={hibernating}
             hibernationMode={hibernationMode}
             activeTradesCount={activeTrades.length}
-            isResuming={isThrottled || wsStatus !== 'live'}
+            isResuming={isResuming}
           />
         </div>
 
@@ -1023,7 +1026,7 @@ export function DashboardView({ initialStrategy }) {
                 value={fmtUSD(totalActivePnl)}
                 color={pnlClass(totalActivePnl)}
                 subValue={`Total: ${fmtUSD(totalPnl)}`}
-                syncing={isThrottled || wsStatus !== 'live'}
+                syncing={isResuming}
                 tooltipText="Current P&L from open trades vs. total session performance."
               />
               <StatCard

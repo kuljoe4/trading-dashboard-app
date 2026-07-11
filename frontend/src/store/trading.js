@@ -213,7 +213,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   effectivePeriodMs: undefined, jitterFactor: undefined,
   entryCount: 0, hitCount: 0,
   alerts: [],
-  isSyncing: false, configSyncing: false,
+  isSyncing: false, isSyncingOnResume: false, configSyncing: false,
   debugToolsEnabled: localStorage.getItem('debug_tools_enabled') === 'true',
   rateLimit: { used_weight_1m: 0, limit: ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT, used_pct: 0 },
   rateLimitLastSync: new Date().toISOString(),
@@ -291,9 +291,15 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
     try {
       const res = await sessionAPI.status();
       const st = get();
-      if (res.data.running) {
+      const running = !!res.data.running;
+
+      if (running) {
         st.setSessionActive(true, res.data.strategyId || res.data.strategy_id);
+      } else if (st.sessionActive) {
+        // BOLT: Force stop local session if backend reports not running
+        st.setSessionActive(false, null);
       }
+
       set({
         balance: res.data.balance ?? st.balance,
         totalPnl: res.data.totalPnl ?? st.totalPnl,
@@ -307,14 +313,22 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
         tradeHistory: res.data.history || [],
         config: res.data.config ? deepMerge(st.config, res.data.config) : st.config,
         rateLimitLastSync: res.data.rateLimit ? new Date().toISOString() : st.rateLimitLastSync,
+        isSyncingOnResume: false, // Clear resume sync flag on success
       });
     } catch (e) {
       if (e.code === 'ERR_CANCELED') return;
       console.error("Manual sync failed", e);
+      set({ isSyncingOnResume: false });
     }
   },
   setThrottled: (t) => {
-    set({ isThrottled: t });
+    const wasThrottled = get().isThrottled;
+    console.log(`[Store] setThrottled: ${wasThrottled} -> ${t}. isSyncingOnResume will be: ${wasThrottled && !t}`);
+    set({
+      isThrottled: t,
+      isSyncingOnResume: wasThrottled && !t // Set flag when unthrottling
+    });
+
     const ws = get().ws;
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'set_active', active: !t }));
@@ -415,6 +429,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
       if (get().isThrottled) return;
       const d = JSON.parse(e.data);
       if (d.type === 'status' || d.type === 'session') {
+        console.log(`[Store] Received status/session update. Clearing isSyncingOnResume.`);
         set((st) => {
           const stop = d.status === 'stopped' || d.running === false;
           let nt = st.activeTrades; if (stop) nt = []; else if (d.activeTrades) { const m = new Map(st.activeTrades.map(t => [t.symbol, t])); nt = d.activeTrades.map(t => normalizeTrade(t, m.get(t.symbol))).filter(Boolean); }
@@ -433,9 +448,12 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
           // BOLT: Prevent flickering during config sync
           const nextConfig = d.config ? (st.configSyncing ? st.config : deepMerge(st.config, d.config)) : st.config;
 
-          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, logs: (d.logLines?.map(normalizeLog) || st.logs).filter(Boolean), scannerResults: (d.scannerResults?.map(normalizeOpportunity) || st.scannerResults).filter(Boolean), activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: nextHistory, gateState: d.gateState ?? st.gateState, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, config: nextConfig, tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h, effectivePeriodMs: d.effectivePeriodMs, jitterFactor: d.jitterFactor, apiStatus: d.apiStatus || st.apiStatus };
+          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, logs: (d.logLines?.map(normalizeLog) || st.logs).filter(Boolean), scannerResults: (d.scannerResults?.map(normalizeOpportunity) || st.scannerResults).filter(Boolean), activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: nextHistory, gateState: d.gateState ?? st.gateState, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, config: nextConfig, tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h, effectivePeriodMs: d.effectivePeriodMs, jitterFactor: d.jitterFactor, apiStatus: d.apiStatus || st.apiStatus, isSyncingOnResume: false };
         });
       } else if (d.type === 'tick') {
+        if (get().isSyncingOnResume) {
+          console.log(`[Store] Received tick. Clearing isSyncingOnResume.`);
+        }
         set((st) => {
           let nt = st.activeTrades; if (d.trades && Array.isArray(d.trades)) { const m = new Map(st.activeTrades.map(t => [t.id, t])); d.trades.forEach(t => { const p = m.get(t.id); const n = normalizeTrade(t, p); if (n) m.set(t.id, n); }); if (d._heartbeat) { const ids = new Set(d.trades.map(t => t.id)); for (const id of m.keys()) if (!ids.has(id)) m.delete(id); } nt = Array.from(m.values()); }
 
@@ -455,7 +473,8 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
             config: nextConfig,
             tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h,
             effectivePeriodMs: d.effectivePeriodMs, jitterFactor: d.jitterFactor,
-            apiStatus: d.apiStatus || st.apiStatus
+            apiStatus: d.apiStatus || st.apiStatus,
+            isSyncingOnResume: false
           };
         });
       } else if (d.type === 'log') set(st => {

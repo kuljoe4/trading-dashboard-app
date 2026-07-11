@@ -14,9 +14,9 @@ import { EquityCurve } from '../components/Analytics'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 
 const StrategyDetailView = ({ s, onBack }) => {
-  const { config, scannerResults, analytics, wsStatus, isSyncing, isThrottled } = useTradingStore()
+  const { config, scannerResults, analytics, wsStatus, isSyncing, isThrottled, isSyncingOnResume } = useTradingStore()
 
-  const isResuming = isThrottled || wsStatus !== 'live'
+  const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
 
   // Lifecycle-scoped subscription contract
   useResourceFocus('strategy', s.strategy_label);

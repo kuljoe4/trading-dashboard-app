@@ -81,8 +81,10 @@ const App = () => {
   }, []);
 
   useEffect(() => {
+    console.log(`[App] Visibility changed: isHidden=${isHidden}`);
     setThrottled(isHidden);
     if (!isHidden) {
+      console.log(`[App] Tab became visible. Triggering sync.`);
       sync();
     }
   }, [isHidden, setThrottled, sync]);

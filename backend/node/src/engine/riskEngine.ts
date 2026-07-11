@@ -368,6 +368,7 @@ export class RiskEngineService {
         mostRecentTradeTs,
         oldestTradeIn24hTs,
         oldestTradeInPeriodTs,
+        nextSlotTs: oldestTradeInPeriodTs + effectivePeriodMs,
         effectivePeriodMs,
         jitterFactor
       };

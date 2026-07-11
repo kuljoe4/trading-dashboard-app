@@ -368,12 +368,21 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
   );
 })
 
-const GateBanner = React.memo(({ gateState, scannerPaused, reason, hibernating, hibernationMode, activeTradesCount, isResuming }) => {
+const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, hibernating, hibernationMode, activeTradesCount, isResuming }) => {
   if (!gateState && !scannerPaused && !isResuming) return null
+
+  const [now, setNow] = React.useState(Date.now());
+  React.useEffect(() => {
+    if (gateState !== 'max_trades_period' || !nextSlotTs) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [gateState, nextSlotTs]);
+
+  const nextSlotSec = nextSlotTs ? Math.max(0, Math.ceil((nextSlotTs - now) / 1000)) : null;
 
   const messages = {
     max_trades: 'Maximum open trades reached. Entry gated.',
-    max_trades_period: 'Maximum trades for the current period reached. Scanner paused.',
+    max_trades_period: nextSlotSec !== null ? `Maximum trades for the current period reached. Next slot: ${nextSlotSec} sec.` : 'Maximum trades for the current period reached. Scanner paused.',
     sl_guard: 'Session Stop-Loss Guard reached. All entries blocked.',
     risk_pct: 'Total risk limit reached. Entries restricted.',
     tod_risk: 'Historical performance risk for this hour. Entries blocked.',
@@ -1002,6 +1011,7 @@ export function DashboardView({ initialStrategy }) {
             gateState={gateState}
             scannerPaused={scannerPaused}
             reason={gateReason}
+            nextSlotTs={nextSlotTs}
             hibernating={hibernating}
             hibernationMode={hibernationMode}
             activeTradesCount={activeTrades.length}
@@ -1344,10 +1354,10 @@ export function DashboardView({ initialStrategy }) {
           </Drawer.Portal>
         </Drawer.Root>
 
-        <Drawer.Root open={showScanner} onOpenChange={setShowScanner}>
+        <Drawer.Root open={showScanner} onOpenChange={setShowScanner} repositionInputs={false}>
           <Drawer.Portal>
             <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
-            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4svh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto h-[96svh]">
+            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4dvh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto h-auto">
               <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
                 <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
                 <VisuallyHidden>

@@ -27,6 +27,70 @@ const FreshnessIndicator = React.memo(({ ts }) => {
 });
 FreshnessIndicator.displayName = 'FreshnessIndicator';
 
+const ActiveWindowsList = React.memo(({ windows }) => {
+  if (!windows || windows.length === 0) return (
+    <div className="h-0 p-0 opacity-0 border-none transition-all duration-300" />
+  );
+
+  return (
+    <div className="bg-accent/5 border-b border-border overflow-x-auto no-scrollbar shrink-0 transition-all duration-300 ease-in-out h-[42px] p-2.5 opacity-100">
+      <div className="flex gap-4">
+        {windows.map((window) => (
+          <div key={window.symbol} className="flex items-center gap-1.5 px-2 py-1 bg-surface border border-border rounded whitespace-nowrap h-[26px]">
+            <strong className={cn("text-[11px] font-mono", window.direction === 'long' ? "text-green" : "text-red")}>
+              {window.symbol}
+            </strong>
+            <span className="text-[10px] text-dim font-mono">{Math.round(window.remaining_ms / 1000)}s</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});
+ActiveWindowsList.displayName = 'ActiveWindowsList';
+
+const ScanStatus = React.memo(({ lastScanTs, intervalSec = 5, isUpdating }) => {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const scanAge = lastScanTs > 0 ? Math.max(0, now - lastScanTs) : null;
+  const nextSlotSec = Math.max(0, intervalSec - Math.floor((scanAge || 0) / 1000));
+
+  return (
+    <div className="flex items-center gap-2.5 mt-1">
+      {lastScanTs > 0 && (
+        <>
+          <div className="flex items-center gap-1.5">
+            <Clock size={10} className="text-dim/40" />
+            <span className={cn(
+              "text-[9px] text-dim font-bold uppercase tracking-wider transition-colors duration-500",
+              scanAge < 5000 && "text-green"
+            )}>
+              {scanAge < 2000 ? 'Just now' : `${formatDuration(scanAge)} ago`}
+            </span>
+          </div>
+          <div className="w-1 h-1 rounded-full bg-border/40" />
+          <div className="flex items-center gap-1.5">
+            <RefreshCw size={10} className={cn("text-dim/40", nextSlotSec <= 1 && "animate-spin text-accent/60")} />
+            <span className={cn(
+              "text-[9px] font-black uppercase tracking-widest tabular-nums",
+              nextSlotSec <= 1 ? "text-accent" : "text-dim/60"
+            )}>
+              Next slot: {nextSlotSec} sec
+            </span>
+          </div>
+          {isUpdating && <div className="w-1 h-1 rounded-full bg-green animate-ping" />}
+        </>
+      )}
+    </div>
+  );
+});
+ScanStatus.displayName = 'ScanStatus';
+
 
 const buildAuthoritativeMarkers = (ohlc = [], signalResult = {}) => {
   if (!Array.isArray(ohlc) || !signalResult) return [];
@@ -56,7 +120,7 @@ const buildAuthoritativeMarkers = (ohlc = [], signalResult = {}) => {
   return markers;
 };
 
-const FunnelStep = ({ label, detail, complete, icon: Icon }) => (
+const FunnelStep = React.memo(({ label, detail, complete, icon: Icon }) => (
   <div className={cn(
     "relative flex items-start gap-3 rounded-2xl border p-3 transition-colors",
     complete ? "bg-green/5 border-green/20" : "bg-background/30 border-border/70"
@@ -72,7 +136,7 @@ const FunnelStep = ({ label, detail, complete, icon: Icon }) => (
       <div className="mt-1 text-[10px] font-semibold leading-snug text-dim">{detail}</div>
     </div>
   </div>
-);
+));
 
 const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scannerPaused, hibernating, hibernationMode }) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -253,10 +317,10 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
                 <span className="text-[7px] text-dim font-black uppercase tracking-widest leading-none">Prox</span>
              </div>
           </div>
-          <span className={cn("px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter border min-w-[70px] text-center transition-colors", status.color)}>
+          <span className={cn("px-1.5 md:px-2 py-0.5 rounded text-[8px] md:text-[9px] font-black uppercase tracking-tighter border min-w-[60px] md:min-w-[70px] text-center transition-colors", status.color)}>
             {status.label}
           </span>
-          <div className="hidden md:block opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+          <div className="hidden md:block opacity-0 group-hover:opacity-100 transition-opacity ml-1 md:ml-2">
              {isExpanded ? <ChevronUp size={12} className="text-dim" /> : <ChevronDown size={12} className="text-dim" />}
           </div>
         </div>
@@ -272,12 +336,12 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
               opp.score > 85 && "bg-accent/[0.03] border-l-2 border-accent/40 shadow-[inset_10px_0_20px_-10px_rgba(91,111,255,0.1)]"
             )}
           >
-            <div className="bg-white/5 border-b border-white/5 px-6 py-2.5 flex items-center justify-between">
-               <div className="flex items-center gap-3">
-                 <div className={cn("px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border shadow-sm", status.color)}>
+            <div className="bg-white/5 border-b border-white/5 px-4 md:px-6 py-2.5 flex items-center justify-between gap-3">
+               <div className="flex items-center gap-2 md:gap-3 min-w-0">
+                 <div className={cn("px-2 py-0.5 md:px-2.5 md:py-1 rounded-full text-[8px] md:text-[10px] font-black uppercase tracking-widest border shadow-sm shrink-0", status.color)}>
                    {status.label}
                  </div>
-                 <span className="text-[11px] text-dim font-medium italic opacity-80">{summarySentence}</span>
+                 <span className="text-[10px] md:text-[11px] text-dim font-medium italic opacity-80 truncate">{summarySentence}</span>
                </div>
                {opp.score > 85 && (
                  <div className="flex items-center gap-2">
@@ -292,13 +356,13 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
                 <div className="text-[10px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-2 px-1">
                    <Activity size={12} className="text-accent" /> Timeline & Overlays
                 </div>
-                <div className="bg-surface/50 border border-border rounded-2xl p-5 flex items-center justify-center min-h-[300px] relative overflow-hidden group/viz">
+                <div className="bg-surface/50 border border-border rounded-2xl p-4 md:p-5 flex items-center justify-center min-h-[260px] md:min-h-[300px] relative overflow-hidden group/viz">
                    <div className="absolute inset-0 opacity-[0.03] pointer-events-none group-hover/viz:opacity-[0.05] transition-opacity" style={{ backgroundImage: 'radial-gradient(var(--color-accent) 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
                    {Array.isArray(opp.ohlc_history) && opp.ohlc_history.length >= 2 ? (
                      <div className="w-full flex flex-col items-center relative z-10">
                         <CandlestickChart
                           data={opp.ohlc_history}
-                          height={200}
+                          height={180}
                           threshold={threshold}
                           isLong={isLong}
                           entryPrice={opp.price}
@@ -306,19 +370,19 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
                           decisionMarkers={decisionMarkers}
                           slPrice={chartSl}
                         />
-                        <div className="flex justify-between w-full mt-6 px-2">
+                        <div className="flex justify-between w-full mt-4 md:mt-6 px-1 md:px-2">
                            <div className="flex flex-col">
-                              <span className="text-[9px] text-dim uppercase font-black tracking-widest mb-1">Entry Level</span>
-                              <span className="text-sm font-mono font-black text-text/90">${opp.price.toLocaleString()}</span>
+                              <span className="text-[8px] md:text-[9px] text-dim uppercase font-black tracking-widest mb-0.5 md:mb-1">Entry Level</span>
+                              <span className="text-xs md:text-sm font-mono font-black text-text/90">${opp.price.toLocaleString()}</span>
                            </div>
-                           <div className="flex items-center gap-6">
+                           <div className="flex items-center gap-3 md:gap-6">
                               <div className="flex flex-col items-end">
-                                <span className="text-[9px] text-dim uppercase font-black tracking-widest mb-1">Threshold</span>
-                                <span className="text-sm font-mono font-black text-amber">${(opp.price * (1 + (isLong ? threshold : -threshold) / 100)).toLocaleString()}</span>
+                                <span className="text-[8px] md:text-[9px] text-dim uppercase font-black tracking-widest mb-0.5 md:mb-1">Threshold</span>
+                                <span className="text-xs md:text-sm font-mono font-black text-amber">${(opp.price * (1 + (isLong ? threshold : -threshold) / 100)).toLocaleString()}</span>
                               </div>
                               <div className="flex flex-col items-end">
-                                <span className="text-[9px] text-dim uppercase font-black tracking-widest mb-1">Delta</span>
-                                <span className={cn("text-sm font-mono font-black", isLong ? "text-green" : "text-red")}>
+                                <span className="text-[8px] md:text-[9px] text-dim uppercase font-black tracking-widest mb-0.5 md:mb-1">Delta</span>
+                                <span className={cn("text-xs md:text-sm font-mono font-black", isLong ? "text-green" : "text-red")}>
                                   {isLong ? "▲" : "▼"} {Number(Math.abs(opp.pct || 0)).toFixed(2)}%
                                 </span>
                               </div>
@@ -350,20 +414,20 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
                  <div className="text-[10px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-2 px-1">
                    <LayoutGrid size={12} className="text-accent" /> Decision Funnel
                  </div>
-                 <div className="bg-surface/50 border border-border rounded-2xl p-6 flex flex-col gap-6 relative overflow-hidden group/scoring shadow-sm">
+                 <div className="bg-surface/50 border border-border rounded-2xl p-4 md:p-6 flex flex-col gap-4 md:gap-6 relative overflow-hidden group/scoring shadow-sm">
                     {/* Score Bars Section */}
-                    <div className="grid grid-cols-3 gap-4 pb-6 border-b border-white/5">
+                    <div className="grid grid-cols-3 gap-3 md:gap-4 pb-4 md:pb-6 border-b border-white/5">
                        {[
                          { label: 'Momentum', value: opp.score_breakdown?.momentum, color: 'bg-accent', text: 'text-accent' },
                          { label: 'Volatility', value: opp.score_breakdown?.volatility, color: 'bg-amber', text: 'text-amber' },
                          { label: 'Trend', value: opp.score_breakdown?.trend, color: 'bg-purple-400', text: 'text-purple-400' }
                        ].map((metric) => (
-                        <div key={metric.label} className="space-y-1.5">
-                          <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
-                             <span className="text-dim/80">{metric.label}</span>
+                        <div key={metric.label} className="space-y-1 md:space-y-1.5">
+                          <div className="flex justify-between items-center text-[8px] md:text-[9px] font-black uppercase tracking-widest">
+                             <span className="text-dim/80 truncate mr-1">{metric.label}</span>
                              <span className={cn(metric.text)}>{Number(metric.value || 0).toFixed(0)}%</span>
                           </div>
-                          <div className="h-1.5 bg-background/80 rounded-full overflow-hidden border border-white/5">
+                          <div className="h-1 md:h-1.5 bg-background/80 rounded-full overflow-hidden border border-white/5">
                              <motion.div
                                initial={{ width: 0 }}
                                animate={{ width: `${metric.value || 0}%` }}
@@ -422,13 +486,13 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
                     </div>
 
                     {/* Final Verdict */}
-                    <div className="mt-auto pt-6 border-t border-white/5 flex items-center justify-between">
+                    <div className="mt-auto pt-4 md:pt-6 border-t border-white/5 flex items-center justify-between gap-4">
                        <div className="flex items-center gap-4">
                           <div className={cn(
-                            "w-12 h-12 rounded-2xl flex items-center justify-center border transition-transform duration-500",
+                            "w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl flex items-center justify-center border transition-transform duration-500 shrink-0",
                             opp.signalResult?.allFired ? "bg-green text-white border-green/30" : "bg-red text-white border-red/30"
                           )}>
-                            {opp.signalResult?.allFired ? <CheckCircle2 size={24} /> : <AlertCircle size={24} />}
+                            {opp.signalResult?.allFired ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
                           </div>
                           <div className="flex flex-col gap-0.5">
                              <div className="text-[13px] font-black uppercase tracking-tight">
@@ -441,7 +505,7 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
                              )}
                           </div>
                        </div>
-                       <div className="flex flex-col items-end">
+                       <div className="flex flex-col items-end shrink-0">
                           <div className="flex items-center gap-2 mb-1">
                              <span className="text-[9px] text-dim font-black uppercase tracking-[0.2em]">Composite Score</span>
                              <FreshnessIndicator ts={opp.lastUpdate} />
@@ -465,7 +529,7 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
 });
 
 export const ScannerOverlay = React.memo(({ onClose }) => {
-  const { scannerResults, activeWindows, config, scannerPaused, lastScanTs, hibernating, hibernationMode, activeTradeSymbols, isResuming } = useTradingStore(state => ({
+  const { scannerResults, activeWindows, config, scannerPaused, lastScanTs, hibernating, hibernationMode, activeTrades, isResuming } = useTradingStore(state => ({
     scannerResults: state.scannerResults,
     activeWindows: state.activeWindows,
     config: state.config,
@@ -473,22 +537,24 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
     lastScanTs: state.lastScanTs,
     hibernating: state.hibernating,
     hibernationMode: state.hibernationMode,
-    activeTradeSymbols: state.activeTrades.map(t => t.symbol),
-    isResuming: state.isThrottled || state.wsStatus !== 'live'
+    activeTrades: state.activeTrades,
+    isResuming: state.isThrottled || state.wsStatus !== 'live' || state.isSyncingOnResume
   }), shallow)
+
+  const activeTradeSymbols = useMemo(() => new Set(activeTrades.map(t => t.symbol)), [activeTrades])
   const threshold = config.scan_pct_threshold || 2.0
   const [search, setSearch] = useState('')
   const lastUpdateRef = useRef(lastScanTs)
 
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [])
-
-  const scanAge = lastScanTs > 0 ? Math.max(0, now - lastScanTs) : null
   const isUpdating = lastScanTs !== lastUpdateRef.current
   if (isUpdating) lastUpdateRef.current = lastScanTs
+
+  // UX-MOBILE: Ensure search input is visible when focused
+  const handleInputFocus = React.useCallback((e) => {
+    requestAnimationFrame(() => {
+      e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, []);
 
   const filteredResults = useMemo(() => {
     const results = Array.isArray(scannerResults) ? scannerResults.filter(Boolean) : []
@@ -566,18 +632,11 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                 </div>
               )}
             </div>
-            {lastScanTs > 0 && (
-              <div className="flex items-center gap-2 mt-1">
-                <Clock size={10} className="text-dim/40" />
-                <span className={cn(
-                  "text-[9px] text-dim font-bold uppercase tracking-wider transition-colors duration-500",
-                  scanAge < 5000 && "text-green"
-                )}>
-                  {scanAge < 2000 ? 'Just now' : `${formatDuration(scanAge)} ago`}
-                </span>
-                {isUpdating && <div className="w-1 h-1 rounded-full bg-green animate-ping" />}
-              </div>
-            )}
+            <ScanStatus
+              lastScanTs={lastScanTs}
+              intervalSec={config.scan_check_interval_sec || 5}
+              isUpdating={isUpdating}
+            />
           </div>
         </div>
 
@@ -590,6 +649,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
               placeholder="Search symbols... [/]"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              onFocus={handleInputFocus}
               onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
               className="w-full bg-background border border-border rounded-xl pl-9 pr-8 py-1.5 text-[11px] font-bold focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none transition-all"
               aria-label="Filter scanner symbols"
@@ -614,21 +674,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
         </div>
       </div>
 
-      <div className={cn(
-        "bg-accent/5 border-b border-border overflow-x-auto no-scrollbar shrink-0 transition-all duration-300 ease-in-out",
-        filteredWindows.length > 0 ? "h-[42px] p-2.5 opacity-100" : "h-0 p-0 opacity-0 border-none"
-      )}>
-        <div className="flex gap-4">
-          {filteredWindows.map((window) => (
-            <div key={window.symbol} className="flex items-center gap-1.5 px-2 py-1 bg-surface border border-border rounded whitespace-nowrap h-[26px]">
-              <strong className={cn("text-[11px] font-mono", window.direction === 'long' ? "text-green" : "text-red")}>
-                {window.symbol}
-              </strong>
-              <span className="text-[10px] text-dim font-mono">{Math.round(window.remaining_ms / 1000)}s</span>
-            </div>
-          ))}
-        </div>
-      </div>
+      <ActiveWindowsList windows={filteredWindows} />
 
       <div className="grid grid-cols-[30px_100px_1fr_60px_1fr_1fr_50px] items-center px-4 py-2 text-[10px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase h-[36px] shrink-0 md:grid hidden">
         <span>#</span>
@@ -692,7 +738,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
               opp={opp}
               i={i}
               config={config}
-              isInPosition={activeTradeSymbols.includes(opp.symbol)}
+              isInPosition={activeTradeSymbols.has(opp.symbol)}
               isMonitored={monitoredSymbols.has(opp.symbol)}
               scannerPaused={scannerPaused}
               hibernating={hibernating}

@@ -47,10 +47,14 @@ export class MarketFeedService {
   private watchlistInterval: NodeJS.Timeout | null = null;
   private watchlistUpdatePending = false;
   private watchlistUpdateTimeout: NodeJS.Timeout | null = null;
+  private zeroWatchlistCycles = 0;
   private backfillQueue: { symbol: string, interval: string }[] = [];
   private backfillProcessing = false;
   private binanceClient: any = null;
 
+  private globalDiscoveryWs: any = null;
+  private globalDiscoveryTimeout: NodeJS.Timeout | null = null;
+  private globalDiscoveryRetryCount = 0;
   private lastMiniTickerMsgTs = 0;
   private lastMarkTickerMsgTs = 0;
 
@@ -88,8 +92,9 @@ export class MarketFeedService {
     // will now be called before any session start.
     await this.fetchExchangeInfo(restBase);
 
-    // BOLT: Global streams (!miniTicker, !markPrice) are now consolidated
-    // into the combined stream logic to minimize physical socket count.
+    // BOLT: Global streams (!miniTicker, !markPrice) are decoupled
+    // to resolve the discovery bootstrap deadlock.
+    await this.startGlobalDiscovery();
     this.startWatchlistManager(config);
   }
 
@@ -287,6 +292,8 @@ export class MarketFeedService {
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
     if (this.watchlistUpdateTimeout) clearTimeout(this.watchlistUpdateTimeout);
 
+    this.stopGlobalDiscovery();
+
     for (const ws of this.combinedKlineWsList) {
       (ws as any)._isExplicitClose = true;
       this.safeClose(ws);
@@ -304,9 +311,19 @@ export class MarketFeedService {
   private lastStreamHealthCheck = 0;
   private startWatchlistManager(config: SessionConfig) {
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
+    this.zeroWatchlistCycles = 0;
     this.updateWatchlist(config);
     this.watchlistInterval = setInterval(() => {
       this.updateWatchlist(config);
+
+      if (this.activeWatchlist.size === 0) {
+        this.zeroWatchlistCycles++;
+        if (this.zeroWatchlistCycles >= 2) {
+          this.logger.warn(`[MarketFeed] Scanner has 0 symbols after ${this.zeroWatchlistCycles * 2} minutes. Check config.symbols or global_scanner_enabled.`);
+        }
+      } else {
+        this.zeroWatchlistCycles = 0;
+      }
 
       // BOLT: Optimize health check frequency.
       // Although this loop fires every 2 minutes (watchlist refresh), we only
@@ -340,8 +357,18 @@ export class MarketFeedService {
     const silence = lastMsg > 0 ? now - lastMsg : 0;
 
     if (silence > MAX_SILENCE_MS) {
-       this.logger.warn(`[MarketFeed] Market stream silence detected (${Math.round(silence/1000)}s). Force reconnecting everything...`);
-       this.rebuildCombinedKlineStream();
+       this.logger.warn(`[MarketFeed] Market stream silence detected (${Math.round(silence/1000)}s). Force reconnecting...`);
+
+       // SRE: Global discovery health check
+       if (now - this.lastMiniTickerMsgTs > MAX_SILENCE_MS) {
+          this.logger.warn('[MarketFeed] Global discovery stream stalled. Reconnecting...');
+          this.startGlobalDiscovery();
+       }
+
+       // SRE: Watchlist stream health check
+       if (this.activeWatchlist.size > 0) {
+          this.rebuildCombinedKlineStream();
+       }
     }
   }
 
@@ -459,6 +486,119 @@ export class MarketFeedService {
     }
   }
 
+  private async startGlobalDiscovery() {
+    this.stopGlobalDiscovery();
+
+    const streams = ['!miniTicker@arr', '!markPrice@arr@1s'].join('/');
+    const isTestnet = this.sessionState.config?.trading_mode === 'testnet';
+    const wsBaseMarket = isTestnet
+        ? 'wss://fstream.binancefuture.com/stream'
+        : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
+
+    const connect = async () => {
+      if (!this.running) return;
+
+      let ws: any = null;
+
+      const scheduleReconnect = () => {
+        if (this.running && !ws?._isExplicitClose) {
+          this.globalDiscoveryRetryCount++;
+          const jitter = Math.random() * 5000;
+          const delay = Math.min(60000, (ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS * Math.pow(2, Math.max(0, this.globalDiscoveryRetryCount - 1))) + jitter);
+          this.logger.debug(`Global discovery stream will reconnect in ${Math.round(delay)}ms... (Attempt ${this.globalDiscoveryRetryCount})`);
+
+          if (this.globalDiscoveryTimeout) {
+            clearTimeout(this.globalDiscoveryTimeout);
+            this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== this.globalDiscoveryTimeout);
+          }
+
+          this.globalDiscoveryTimeout = setTimeout(() => {
+            this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== this.globalDiscoveryTimeout);
+            this.globalDiscoveryTimeout = null;
+            connect();
+          }, delay);
+          this.subscriptionTasks.push(this.globalDiscoveryTimeout);
+        }
+      };
+
+      try {
+        if (this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
+           this.logger.debug(`[MarketFeed] Connecting to global discovery via SDK`);
+           ws = await this.binanceClient.websocketStreams.connect({ stream: streams });
+        } else {
+           const url = `${wsBaseMarket}?streams=${streams}`;
+           this.logger.debug(`[MarketFeed] Connecting to global discovery stream: ${url.split('?')[0]}`);
+           ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+        }
+        this.globalDiscoveryWs = ws;
+
+        ws.on('message', (data: any) => this.processStreamMessage(data));
+        ws.on('open', () => { this.globalDiscoveryRetryCount = 0; });
+        ws.on('close', () => {
+          if (!ws?._isExplicitClose) scheduleReconnect();
+        });
+        ws.on('error', (err: any) => {
+          this.logger.error(`Global discovery stream error: ${err.message}`);
+        });
+      } catch (err) {
+         this.logger.error(`[MarketFeed] Failed to connect global discovery stream: ${err instanceof Error ? err.message : String(err)}`);
+         scheduleReconnect();
+      }
+    };
+
+    await connect();
+  }
+
+  private stopGlobalDiscovery() {
+    if (this.globalDiscoveryWs) {
+      this.globalDiscoveryWs._isExplicitClose = true;
+      this.safeClose(this.globalDiscoveryWs);
+      this.globalDiscoveryWs = null;
+    }
+    if (this.globalDiscoveryTimeout) {
+      clearTimeout(this.globalDiscoveryTimeout);
+      this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== this.globalDiscoveryTimeout);
+      this.globalDiscoveryTimeout = null;
+    }
+  }
+
+  private processStreamMessage(data: any) {
+    try {
+      const msg: any = JSON.parse(data as any);
+      const stream = msg.stream || '';
+      const payload = msg.data;
+
+      if (stream === '!miniTicker@arr') {
+        this.lastMiniTickerMsgTs = Date.now();
+        const tickers: any[] = Array.isArray(payload) ? payload : [];
+        if (tickers.length > 0) {
+          this.tickerCache.bulkUpdate(tickers);
+        }
+      } else if (stream === '!markPrice@arr@1s') {
+        this.lastMarkTickerMsgTs = Date.now();
+        const updates: any[] = Array.isArray(payload) ? payload : [];
+        for (const u of updates) {
+          this.tickerCache.updateTicker(u.s, undefined, undefined, undefined, u.p);
+        }
+      } else if (stream.includes('@kline')) {
+        const kline = payload.k;
+        if (kline) {
+          this.klineStore.upsertCandle(kline.s, kline.i, kline);
+          this.tickerCache.updateTicker(kline.s, kline.c);
+          if (kline.x && this.onCandleClose) this.onCandleClose(kline.s).catch(() => {});
+        }
+      } else if (stream.includes('@ticker')) {
+        // Seed ticker cache from symbol-specific ticker stream
+        this.tickerCache.updateTicker(payload.s, payload.c, payload.q, payload.o);
+      } else if (stream.includes('@markPrice')) {
+        // Authoritative real-time mark price for PnL
+        this.tickerCache.updateTicker(payload.s, undefined, undefined, undefined, payload.p);
+      }
+    } catch (err) {
+      this.logger.error(`Error processing stream message: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   private async rebuildCombinedKlineStream() {
     for (const ws of this.combinedKlineWsList) {
       (ws as any)._isExplicitClose = true;
@@ -468,11 +608,7 @@ export class MarketFeedService {
 
     const allStreams: string[] = [];
 
-    // BOLT: Always include global momentum and mark price streams in the combined set.
-    // This eliminates the need for separate physical connections to /public.
-    allStreams.push('!miniTicker@arr');
-    allStreams.push('!markPrice@arr@1s');
-
+    // BOLT: Watchlist streams only. Global streams handled by startGlobalDiscovery().
     for (const [symbol, intervals] of this.activeWatchlist) {
       const s = symbol.toLowerCase();
       // BOLT: Subscription Strategy for HF Data (2026)
@@ -489,6 +625,8 @@ export class MarketFeedService {
         allStreams.push(`${s}@kline_${interval}`);
       }
     }
+
+    if (allStreams.length === 0) return;
 
     const CHUNK_SIZE = ENGINE_CONSTANTS.KLINE_STREAM_CHUNK_SIZE || 20;
     const chunks = [];
@@ -534,48 +672,13 @@ export class MarketFeedService {
            return;
         }
 
-        ws.on('message', (data: any) => {
-          try {
-            const msg: any = JSON.parse(data as any);
-            const stream = msg.stream || '';
-            const payload = msg.data;
-
-            if (stream === '!miniTicker@arr') {
-              this.lastMiniTickerMsgTs = Date.now();
-              const tickers: any[] = Array.isArray(payload) ? payload : [];
-              if (tickers.length > 0) {
-                this.tickerCache.bulkUpdate(tickers);
-              }
-            } else if (stream === '!markPrice@arr@1s') {
-              this.lastMarkTickerMsgTs = Date.now();
-              const updates: any[] = Array.isArray(payload) ? payload : [];
-              for (const u of updates) {
-                this.tickerCache.updateTicker(u.s, undefined, undefined, undefined, u.p);
-              }
-            } else if (stream.includes('@kline')) {
-              const kline = payload.k;
-              if (kline) {
-                this.klineStore.upsertCandle(kline.s, kline.i, kline);
-                this.tickerCache.updateTicker(kline.s, kline.c);
-                if (kline.x && this.onCandleClose) this.onCandleClose(kline.s).catch(() => {});
-              }
-            } else if (stream.includes('@ticker')) {
-              // Seed ticker cache from symbol-specific ticker stream
-              this.tickerCache.updateTicker(payload.s, payload.c, payload.q, payload.o);
-            } else if (stream.includes('@markPrice')) {
-              // Authoritative real-time mark price for PnL
-              this.tickerCache.updateTicker(payload.s, undefined, undefined, undefined, payload.p);
-            }
-          } catch (err) {
-            this.logger.error(`Error processing combined kline stream: ${err instanceof Error ? err.message : String(err)}`);
-          }
-        });
+        ws.on('message', (data: any) => this.processStreamMessage(data));
         ws.on('open', () => {
           retryCount = 0;
         });
         ws.on('close', () => {
           this.combinedKlineWsList.delete(ws);
-          scheduleReconnect();
+          if (!(ws as any)._isExplicitClose) scheduleReconnect();
         });
         this.combinedKlineWsList.add(ws);
       };

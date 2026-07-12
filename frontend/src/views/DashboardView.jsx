@@ -466,7 +466,8 @@ const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) => {
       </div>
       <div className="flex-1">
         {top.length === 0 && placeholders.length === 5 ? (
-          <div className="h-full flex items-center justify-center text-dim text-[11px] font-bold uppercase tracking-widest bg-surface/10 animate-pulse">
+          <div className="h-full flex flex-col items-center justify-center text-dim text-[11px] font-bold uppercase tracking-widest bg-surface/10 animate-pulse gap-2">
+            <RefreshCw size={16} className="animate-spin opacity-40" />
             Waiting for market data...
           </div>
         ) : (

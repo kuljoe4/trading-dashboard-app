@@ -1,4 +1,5 @@
 import { createWithEqualityFn } from 'zustand/traditional'
+import { persist, createJSONStorage } from 'zustand/middleware'
 import { sessionAPI, normalizeUrl } from '../api/client'
 import { CONFIG_LIMITS, ENGINE_CONSTANTS } from '../constants/configLimits'
 
@@ -204,7 +205,7 @@ const defaultConfig = {
   },
 };
 
-export const useTradingStore = createWithEqualityFn((set, get) => ({
+export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   sessionActive: false, sessionPaused: false, strategyId: null, balance: 10000, totalPnl: 0, totalRiskPct: 0, totalSlUsed: 0,
   activeTrades: [], logs: [], logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
   gateState: null, gateReason: null, nextSlotTs: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, lastScanTs: 0, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
@@ -304,14 +305,14 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
         balance: res.data.balance ?? st.balance,
         totalPnl: res.data.totalPnl ?? st.totalPnl,
         totalRiskPct: res.data.totalRiskPct ?? st.totalRiskPct,
-        totalSlUsed: res.data.totalSlUsed ?? 0,
-        activeTrades: res.data.activeTrades || [],
-        variantStats: res.data.variant_stats || {},
+        totalSlUsed: res.data.totalSlUsed ?? st.totalSlUsed,
+        activeTrades: (res.data.activeTrades && res.data.activeTrades.length > 0) ? res.data.activeTrades : (running ? st.activeTrades : []),
+        variantStats: res.data.variant_stats || st.variantStats,
         isAdaptiveTightened: res.data.isAdaptiveTightened ?? st.isAdaptiveTightened,
-          nextSlotTs: res.data.nextSlotTs ?? st.nextSlotTs,
-        scannerResults: res.data.scannerResults || [],
-        activeWindows: res.data.activeWindows || [],
-        tradeHistory: res.data.history || [],
+        nextSlotTs: res.data.nextSlotTs ?? st.nextSlotTs,
+        scannerResults: (res.data.scannerResults && res.data.scannerResults.length > 0) ? res.data.scannerResults : st.scannerResults,
+        activeWindows: res.data.activeWindows || st.activeWindows,
+        tradeHistory: (res.data.history && res.data.history.length > 0) ? res.data.history : st.tradeHistory,
         config: res.data.config ? deepMerge(st.config, res.data.config) : st.config,
         rateLimitLastSync: res.data.rateLimit ? new Date().toISOString() : st.rateLimitLastSync,
         isSyncingOnResume: false, // Clear resume sync flag on success
@@ -605,4 +606,33 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
     set({ ws });
   },
   disconnectWS: () => { if (get().ws) { get().ws.close(); set({ ws: null, wsStatus: 'offline' }); } },
+}), {
+  name: 'momentum_trading_store',
+  storage: createJSONStorage(() => localStorage),
+  partialize: (state) => ({
+    // Whitelist only essential data to keep storage size under control and avoid stale session control bits
+    sessionActive: state.sessionActive,
+    strategyId: state.strategyId,
+    balance: state.balance,
+    totalPnl: state.totalPnl,
+    activeTrades: state.activeTrades,
+    totalRiskPct: state.totalRiskPct,
+    totalSlUsed: state.totalSlUsed,
+    config: state.config,
+    tradeHistory: state.tradeHistory,
+    lifetimeAnalytics: state.lifetimeAnalytics,
+    variantStats: state.variantStats,
+    lastScanTs: state.lastScanTs,
+    scannerResults: state.scannerResults,
+    variantScannerResults: state.variantScannerResults
+  }),
+  onRehydrateStorage: () => (state) => {
+    // BOLT: Defensive reset of ephemeral flags on resume
+    if (state) {
+      state.isThrottled = false;
+      state.isSyncingOnResume = false;
+      state.wsStatus = 'offline';
+      state.ws = null;
+    }
+  }
 }))

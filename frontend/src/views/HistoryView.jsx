@@ -472,7 +472,6 @@ export const HistoryView = () => {
           title="Trade History"
           subTitle="Verified records of all closed positions"
           backAction={() => window.location.hash = '#/'}
-          isResuming={isThrottled || wsStatus !== 'live'}
         >
           <div className="flex items-center gap-3 self-end sm:self-auto">
              <div className="relative group hidden sm:block">

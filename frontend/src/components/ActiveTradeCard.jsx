@@ -5,7 +5,7 @@ import { sessionAPI } from '../api/client'
 import { ShieldCheck, RefreshCw } from 'lucide-react'
 import { motion } from 'framer-motion'
 
-export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClick, isResuming }) => {
+export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClick, isResuming, showResumingFeedback }) => {
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
@@ -62,7 +62,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
       )}
       aria-label={`View details for ${trade.symbol} ${trade.direction} trade, ${fmtUSD(trade.pnl)} P&L, ${Number(trade.rr || 0).toFixed(2)} RR`}
     >
-      {isResuming && (
+      {showResumingFeedback && (
         <div className="absolute inset-0 bg-accent/5 backdrop-blur-[1px] z-10 flex items-center justify-center pointer-events-none">
            <div className="bg-background/80 border border-accent/20 px-3 py-1 rounded-full text-[8px] font-black text-accent uppercase tracking-widest flex items-center gap-1.5 shadow-xl animate-in fade-in zoom-in duration-300">
               <RefreshCw size={10} className="animate-spin" /> Resuming Feed...

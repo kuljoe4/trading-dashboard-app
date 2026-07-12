@@ -208,7 +208,7 @@ const defaultConfig = {
 export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   sessionActive: false, sessionPaused: false, strategyId: null, balance: 10000, totalPnl: 0, totalRiskPct: 0, totalSlUsed: 0,
   activeTrades: [], logs: [], logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
-  gateState: null, gateReason: null, nextSlotTs: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, lastScanTs: 0, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
+  gateState: null, gateReason: null, nextSlotTs: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, lastScanTs: 0, lastAuthoritativeUpdateTs: 0, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
   apiStatus: { isBanned: false, isRateLimited: false, banUntil: null, lastErrorMessage: null },
   tradesInPeriod: undefined, maxTradesPeriod: undefined, tradesIn24h: undefined, maxTrades24h: undefined,
   effectivePeriodMs: undefined, jitterFactor: undefined,
@@ -297,30 +297,36 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       if (running) {
         st.setSessionActive(true, res.data.strategyId || res.data.strategy_id);
       } else if (st.sessionActive) {
-        // BOLT: Force stop local session if backend reports not running
-        st.setSessionActive(false, null);
+        // BOLT: Defensive Termination Guard.
+        // If we think we're running but the backend says no, we only stop locally
+        // if we are NOT currently in a 'Resuming' window.
+        // This prevents the UI from wiping during the backend's boot reconciliation.
+        const isResuming = st.isThrottled || st.wsStatus !== 'live' || st.isSyncingOnResume;
+        if (!isResuming) {
+           st.setSessionActive(false, null);
+        }
       }
 
-      set({
-        balance: res.data.balance ?? st.balance,
-        totalPnl: res.data.totalPnl ?? st.totalPnl,
-        totalRiskPct: res.data.totalRiskPct ?? st.totalRiskPct,
-        totalSlUsed: res.data.totalSlUsed ?? st.totalSlUsed,
-        activeTrades: (res.data.activeTrades && res.data.activeTrades.length > 0) ? res.data.activeTrades : (running ? st.activeTrades : []),
-        variantStats: res.data.variant_stats || st.variantStats,
-        isAdaptiveTightened: res.data.isAdaptiveTightened ?? st.isAdaptiveTightened,
-        nextSlotTs: res.data.nextSlotTs ?? st.nextSlotTs,
-        scannerResults: (res.data.scannerResults && res.data.scannerResults.length > 0) ? res.data.scannerResults : st.scannerResults,
-        activeWindows: res.data.activeWindows || st.activeWindows,
-        tradeHistory: (res.data.history && res.data.history.length > 0) ? res.data.history : st.tradeHistory,
-        config: res.data.config ? deepMerge(st.config, res.data.config) : st.config,
-        rateLimitLastSync: res.data.rateLimit ? new Date().toISOString() : st.rateLimitLastSync,
-        isSyncingOnResume: false, // Clear resume sync flag on success
+      // BOLT: Centralize merge logic via updateStats
+      get().updateStats({
+        sessionActive: running,
+        balance: res.data.balance,
+        totalPnl: res.data.totalPnl ?? res.data.total_pnl,
+        totalRiskPct: res.data.totalRiskPct,
+        totalSlUsed: res.data.totalSlUsed,
+        activeTrades: res.data.activeTrades,
+        variantStats: res.data.variant_stats,
+        isAdaptiveTightened: res.data.isAdaptiveTightened,
+        nextSlotTs: res.data.nextSlotTs,
+        scannerResults: res.data.scannerResults,
+        activeWindows: res.data.activeWindows,
+        tradeHistory: res.data.history,
+        config: res.data.config,
+        rateLimitLastSync: res.data.rateLimit ? new Date().toISOString() : undefined,
       });
     } catch (e) {
       if (e.code === 'ERR_CANCELED') return;
       console.error("Manual sync failed", e);
-      set({ isSyncingOnResume: false });
     }
   },
   setThrottled: (t) => {
@@ -373,7 +379,63 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   fetchSessions: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.list(); set({ sessionList: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchLifetimeAnalytics: async (m = 'paper') => { set({ isSyncing: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchTradeHistory: async (sid = 'all') => { set({ isSyncing: true }); try { const r = await sessionAPI.history(sid); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
-  updateStats: (s) => set((st) => ({ ...st, ...s })),
+  updateStats: (s) => set((st) => {
+    // BOLT: Session Stickiness Logic.
+    // We defensively protect the session state and critical metrics during 'Resuming' windows.
+    // This handles the '0-then-catchup' bug when returning to a backgrounded tab/desktop.
+    const age = Date.now() - (st.lastAuthoritativeUpdateTs || 0);
+    const isResuming = st.isThrottled || st.wsStatus !== 'live' || st.isSyncingOnResume || (age > 15000 && st.sessionActive);
+    const sessionCurrentlyActive = st.sessionActive;
+
+    // Handle key variations
+    const nextPnl = s.totalPnl ?? s.total_pnl;
+
+    const merged = { ...st, ...s };
+    if (nextPnl !== undefined) merged.totalPnl = nextPnl;
+
+    if (isResuming && sessionCurrentlyActive) {
+       // 1. Session Persistence Guard: ignore sessionActive: false unless backend explicitly says 'stopped'
+       if (s.sessionActive === false && s.status !== 'stopped' && s.running !== false) {
+          merged.sessionActive = true;
+       }
+
+       // 2. Metric Persistence: prevent flickering to 0 while backend reconciles
+       if (nextPnl === 0 && st.totalPnl !== 0) merged.totalPnl = st.totalPnl;
+       if (s.balance === 0 && st.balance !== 0) merged.balance = st.balance;
+       if (s.totalRiskPct === 0 && st.totalRiskPct !== 0) merged.totalRiskPct = st.totalRiskPct;
+       if (s.totalSlUsed === 0 && st.totalSlUsed !== 0) merged.totalSlUsed = st.totalSlUsed;
+
+       // 3. Collection Persistence: hold trades/scanner results until non-empty data arrives
+       if (s.activeTrades && s.activeTrades.length > 0) {
+         merged.activeTrades = s.activeTrades.map(t => normalizeTrade(t, st.activeTrades.find(x => x.symbol === t.symbol))).filter(Boolean);
+       } else if (st.activeTrades.length > 0) {
+         merged.activeTrades = st.activeTrades;
+       }
+
+       if (s.scannerResults && s.scannerResults.length > 0) {
+         merged.scannerResults = s.scannerResults.map(o => normalizeOpportunity(o)).filter(Boolean);
+       } else if (st.scannerResults.length > 0) {
+         merged.scannerResults = st.scannerResults;
+       }
+
+       if (s.tradeHistory && s.tradeHistory.length > 0) {
+         merged.tradeHistory = s.tradeHistory.map(t => normalizeTrade(t)).filter(Boolean);
+       } else if (st.tradeHistory.length > 0) {
+         merged.tradeHistory = st.tradeHistory;
+       }
+    } else {
+       // Normal merge with normalization when NOT in resumption window
+       if (s.activeTrades) merged.activeTrades = s.activeTrades.map(t => normalizeTrade(t, st.activeTrades.find(x => x.symbol === t.symbol))).filter(Boolean);
+       if (s.scannerResults) merged.scannerResults = s.scannerResults.map(o => normalizeOpportunity(o)).filter(Boolean);
+       if (s.tradeHistory) merged.tradeHistory = s.tradeHistory.map(t => normalizeTrade(t)).filter(Boolean);
+    }
+
+    if (s.config) merged.config = deepMerge(st.config, s.config);
+
+    merged.lastAuthoritativeUpdateTs = Date.now();
+
+    return merged;
+  }),
   resetPaperBalance: async () => {
     try {
       const res = await sessionAPI.resetPaperBalance();
@@ -446,7 +508,17 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         }
         set((st) => {
           const stop = d.status === 'stopped' || d.running === false;
-          let nt = st.activeTrades; if (stop) nt = []; else if (d.activeTrades) { const m = new Map(st.activeTrades.map(t => [t.symbol, t])); nt = d.activeTrades.map(t => normalizeTrade(t, m.get(t.symbol))).filter(Boolean); }
+          const isResuming = st.isSyncingOnResume;
+
+          let nt = st.activeTrades;
+          if (stop) nt = [];
+          else if (d.activeTrades && d.activeTrades.length > 0) {
+            const m = new Map(st.activeTrades.map(t => [t.symbol, t]));
+            nt = d.activeTrades.map(t => normalizeTrade(t, m.get(t.symbol))).filter(Boolean);
+          } else if (isResuming && st.activeTrades.length > 0) {
+            // Anti-flicker: preserve trades during resume if broadcast is empty
+            nt = st.activeTrades;
+          }
 
           // BOLT: Smart history merging to prevent flickering or data loss.
           // We only update history if the backend provides a non-empty list.
@@ -462,12 +534,15 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           // BOLT: Prevent flickering during config sync
           const nextConfig = d.config ? (st.configSyncing ? st.config : deepMerge(st.config, d.config)) : st.config;
 
+          const nextPnl = d.totalPnl ?? d.total_pnl;
+          const totalPnl = (isResuming && nextPnl === 0 && st.totalPnl !== 0) ? st.totalPnl : (nextPnl ?? st.totalPnl);
+
           return {
             sessionActive: d.running ?? d.status === 'started',
             sessionPaused: d.paused ?? st.sessionPaused,
             strategyId: d.strategyId || st.strategyId,
             balance: d.balance ?? st.balance,
-            totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl,
+            totalPnl,
             totalRiskPct: d.totalRiskPct ?? st.totalRiskPct,
             totalSlUsed: d.totalSlUsed ?? st.totalSlUsed,
             entryCount: d.stats?.entryCount ?? st.entryCount,
@@ -501,7 +576,16 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           console.log(`[Store] Received tick. Clearing isSyncingOnResume.`);
         }
         set((st) => {
-          let nt = st.activeTrades; if (d.trades && Array.isArray(d.trades)) { const m = new Map(st.activeTrades.map(t => [t.id, t])); d.trades.forEach(t => { const p = m.get(t.id); const n = normalizeTrade(t, p); if (n) m.set(t.id, n); }); if (d._heartbeat) { const ids = new Set(d.trades.map(t => t.id)); for (const id of m.keys()) if (!ids.has(id)) m.delete(id); } nt = Array.from(m.values()); }
+          const isResuming = st.isSyncingOnResume;
+          let nt = st.activeTrades;
+          if (d.trades && Array.isArray(d.trades) && d.trades.length > 0) {
+            const m = new Map(st.activeTrades.map(t => [t.id, t]));
+            d.trades.forEach(t => { const p = m.get(t.id); const n = normalizeTrade(t, p); if (n) m.set(t.id, n); });
+            if (d._heartbeat) { const ids = new Set(d.trades.map(t => t.id)); for (const id of m.keys()) if (!ids.has(id)) m.delete(id); }
+            nt = Array.from(m.values());
+          } else if (isResuming && st.activeTrades.length > 0) {
+            nt = st.activeTrades;
+          }
 
           // BOLT: Prevent flickering during config sync. If local state is in-flight, ignore config updates from ticks.
           let nextConfig = st.config;
@@ -514,8 +598,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             }
           }
 
+          const nextPnl = d.total_pnl;
+          const totalPnl = (isResuming && nextPnl === 0 && st.totalPnl !== 0) ? st.totalPnl : (nextPnl ?? st.totalPnl);
+
           return {
-            balance: d.balance ?? st.balance, totalPnl: d.total_pnl ?? st.totalPnl, totalRiskPct: d.total_risk_pct ?? st.totalRiskPct, totalSlUsed: d.total_sl_used ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, variantStats: d.variant_stats || st.variantStats, activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, nextSlotTs: d.nextSlotTs ?? st.nextSlotTs, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics,
+            balance: d.balance ?? st.balance, totalPnl, totalRiskPct: d.total_risk_pct ?? st.totalRiskPct, totalSlUsed: d.total_sl_used ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, variantStats: d.variant_stats || st.variantStats, activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, nextSlotTs: d.nextSlotTs ?? st.nextSlotTs, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics,
             config: nextConfig,
             tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h,
             effectivePeriodMs: d.effectivePeriodMs, jitterFactor: d.jitterFactor,
@@ -623,16 +710,26 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     lifetimeAnalytics: state.lifetimeAnalytics,
     variantStats: state.variantStats,
     lastScanTs: state.lastScanTs,
+    lastAuthoritativeUpdateTs: state.lastAuthoritativeUpdateTs,
     scannerResults: state.scannerResults,
-    variantScannerResults: state.variantScannerResults
+    variantScannerResults: state.variantScannerResults,
+    analytics: state.analytics
   }),
+  version: 1,
   onRehydrateStorage: () => (state) => {
     // BOLT: Defensive reset of ephemeral flags on resume
     if (state) {
       state.isThrottled = false;
-      state.isSyncingOnResume = false;
+      // Start in resuming state if session was active to trigger anti-flicker
+      state.isSyncingOnResume = !!state.sessionActive;
       state.wsStatus = 'offline';
       state.ws = null;
+
+      // BOLT: If last update was long ago, force a sync window even if not explicit
+      const age = Date.now() - (state.lastAuthoritativeUpdateTs || 0);
+      if (age > 15000 && state.sessionActive) {
+         state.isSyncingOnResume = true;
+      }
     }
   }
 }))

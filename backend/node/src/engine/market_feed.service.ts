@@ -48,6 +48,7 @@ export class MarketFeedService {
   private watchlistUpdatePending = false;
   private watchlistUpdateTimeout: NodeJS.Timeout | null = null;
   private zeroWatchlistCycles = 0;
+  private hasSuccessfullyBuiltWatchlist = false;
   private backfillQueue: { symbol: string, interval: string }[] = [];
   private backfillProcessing = false;
   private binanceClient: any = null;
@@ -57,6 +58,8 @@ export class MarketFeedService {
   private globalDiscoveryRetryCount = 0;
   private lastMiniTickerMsgTs = 0;
   private lastMarkTickerMsgTs = 0;
+  private globalDiscoveryOpenedAt = 0;
+  private hasEverReceivedData = false;
 
   constructor(
     private tickerCache: TickerCacheService,
@@ -96,6 +99,25 @@ export class MarketFeedService {
     // to resolve the discovery bootstrap deadlock.
     await this.startGlobalDiscovery();
     this.startWatchlistManager(config);
+
+    // SRE: Startup Self-Test (Citadel Protocol 2026)
+    // Assert TickerCache is seeded within 15s or alert loudly.
+    if (mode !== 'paper') {
+       setTimeout(() => {
+          if (this.running && this.tickerCache.getCacheSize() === 0) {
+             const alertMsg = `CRITICAL: Market Feed Startup Failure - TickerCache remains empty after 15s. Scanner is offline. Mode=${mode}`;
+             this.logger.error(alertMsg);
+             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: alertMsg, level: 'error' });
+             this.eventEmitter.emit(ENGINE_EVENTS.ALERT, {
+                level: 'error',
+                title: 'Market Feed Failure',
+                message: 'No ticker data received from Binance. Check network and API status.',
+             });
+          } else if (this.running) {
+             this.logger.log(`[MarketFeed] Startup Self-Test passed: ${this.tickerCache.getCacheSize()} symbols seeded.`);
+          }
+       }, 15000);
+    }
   }
 
   public updateWeight(headers: any) {
@@ -350,6 +372,20 @@ export class MarketFeedService {
     if (this.sessionState.isBanned()) return;
 
     const now = Date.now();
+
+    // FAIL-FAST: Detect if global discovery socket is open but never received any data
+    if (!this.hasEverReceivedData && this.globalDiscoveryOpenedAt > 0 && (now - this.globalDiscoveryOpenedAt > 60000)) {
+      const mode = this.sessionState.config?.trading_mode || (this.sessionState.config?.paper_mode ? 'paper' : 'live');
+      this.logger.error(`[MarketFeed] CRITICAL: Global discovery socket open but zero messages received in 60s. Mode=${mode}. Check network/firewall.`);
+      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+        msg: `[MarketFeed] CRITICAL: No market data received after 60s. Scanner is offline. Mode=${mode}`,
+        level: 'error'
+      });
+      // Force reconnect
+      this.startGlobalDiscovery();
+      return;
+    }
+
     // BOLT: Widened health check threshold for combined stream
     const MAX_SILENCE_MS = 7 * 60 * 1000; // 7 minutes
 
@@ -465,7 +501,13 @@ export class MarketFeedService {
         }
       }
 
-      if (changed) {
+      // BOLT: Force rebuild if we have never successfully built a non-empty watchlist
+      // to resolve the cold-start bootstrap deadlock where the first pass might fail
+      // due to transiently empty TickerCache.
+      const forceRebuild = !this.hasSuccessfullyBuiltWatchlist && newWatchlist.size > 0;
+
+      if (changed || forceRebuild) {
+        if (newWatchlist.size > 0) this.hasSuccessfullyBuiltWatchlist = true;
         const prevWatchlist = this.activeWatchlist;
         this.activeWatchlist = newWatchlist;
         await this.rebuildCombinedKlineStream();
@@ -522,18 +564,26 @@ export class MarketFeedService {
       };
 
       try {
+        let usedSdk = false;
+        let url: string | null = null;
+
         if (this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
            this.logger.debug(`[MarketFeed] Connecting to global discovery via SDK`);
            ws = await this.binanceClient.websocketStreams.connect({ stream: streams });
+           usedSdk = true;
         } else {
-           const url = `${wsBaseMarket}?streams=${streams}`;
-           this.logger.debug(`[MarketFeed] Connecting to global discovery stream: ${url.split('?')[0]}`);
+           url = `${wsBaseMarket}?streams=${streams}`;
+           this.logger.log(`[MarketFeed] Connecting to global discovery stream: ${url}`);
            ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
         }
         this.globalDiscoveryWs = ws;
 
         ws.on('message', (data: any) => this.processStreamMessage(data));
-        ws.on('open', () => { this.globalDiscoveryRetryCount = 0; });
+        ws.on('open', () => {
+          this.logger.log(`[MarketFeed] Global discovery socket OPEN via ${usedSdk ? 'SDK' : 'raw-ws'} (${url ?? 'sdk-managed'})`);
+          this.globalDiscoveryRetryCount = 0;
+          this.globalDiscoveryOpenedAt = Date.now();
+        });
         ws.on('close', () => {
           if (!ws?._isExplicitClose) scheduleReconnect();
         });
@@ -564,6 +614,7 @@ export class MarketFeedService {
 
   private processStreamMessage(data: any) {
     try {
+      this.hasEverReceivedData = true;
       const msg: any = JSON.parse(data as any);
       const stream = msg.stream || '';
       const payload = msg.data;

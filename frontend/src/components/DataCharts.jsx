@@ -67,6 +67,7 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
   const gapBetween = showOscillator ? height * 0.1 : 0;
 
   const { bars, min, max, range, barWidth, gap, thresholdY, slY } = React.useMemo(() => {
+    try {
     const safeData = Array.isArray(data) ? data : [];
     if (safeData.length < 2) return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0, thresholdY: null, slY: null };
     // SEC: Validate all data points to prevent Infinity/NaN from breaking SVG layout or causing hangs
@@ -75,33 +76,47 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
        Number.isFinite(d.open) && Number.isFinite(d.close)
     );
 
-    if (validData.length < 2) return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0 };
+    if (validData.length < 2) return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0, thresholdY: null, slY: null };
+
+    // BOLT: Local declarations for min/max to avoid TDZ (Temporal Dead Zone) from destructuring.
+    // Also initialize from data extremes to ensure correct initial scale.
+    let dMin = Infinity;
+    let dMax = -Infinity;
+
+    for (let i = 0; i < validData.length; i++) {
+      if (validData[i].low < dMin) dMin = validData[i].low;
+      if (validData[i].high > dMax) dMax = validData[i].high;
+    }
 
     const thresholdPrice = entryPrice ? entryPrice * (1 + (isLong ? threshold : -threshold) / 100) : null;
 
     if (thresholdPrice !== null) {
-      if (thresholdPrice < min) min = thresholdPrice;
-      if (thresholdPrice > max) max = thresholdPrice;
+      if (thresholdPrice < dMin) dMin = thresholdPrice;
+      if (thresholdPrice > dMax) dMax = thresholdPrice;
     }
     if (entryPrice !== null) {
-      if (entryPrice < min) min = entryPrice;
-      if (entryPrice > max) max = entryPrice;
+      if (entryPrice < dMin) dMin = entryPrice;
+      if (entryPrice > dMax) dMax = entryPrice;
     }
     if (slPrice !== null) {
-      if (slPrice < min) min = slPrice;
-      if (slPrice > max) max = slPrice;
+      if (slPrice < dMin) dMin = slPrice;
+      if (slPrice > dMax) dMax = slPrice;
     }
 
-    const range = (max - min) || 1;
-    const barWidth = (width / data.length) * 0.7;
-    const gap = (width / data.length) * 0.3;
+    // Safety fallback for empty/invalid data ranges
+    if (dMin === Infinity) dMin = 0;
+    if (dMax === -Infinity) dMax = 1;
+
+    const dRange = (dMax - dMin) || 1;
+    const bWidth = (width / data.length) * 0.7;
+    const bGap = (width / data.length) * 0.3;
 
     const bars = validData.map((d, i) => {
-      const x = i * (width / validData.length) + gap / 2;
-      const yHigh = chartHeight - ((d.high - min) / range) * chartHeight;
-      const yLow = chartHeight - ((d.low - min) / range) * chartHeight;
-      const yOpen = chartHeight - ((d.open - min) / range) * chartHeight;
-      const yClose = chartHeight - ((d.close - min) / range) * chartHeight;
+      const x = i * (width / validData.length) + bGap / 2;
+      const yHigh = chartHeight - ((d.high - dMin) / dRange) * chartHeight;
+      const yLow = chartHeight - ((d.low - dMin) / dRange) * chartHeight;
+      const yOpen = chartHeight - ((d.open - dMin) / dRange) * chartHeight;
+      const yClose = chartHeight - ((d.close - dMin) / dRange) * chartHeight;
 
       // Simple momentum oscillator calculation (pct change from 3 bars ago)
       const prevPrice = validData[Math.max(0, i - 3)]?.close || d.open;
@@ -109,7 +124,7 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
 
       return {
         x,
-        wickX: x + barWidth / 2,
+        wickX: x + bWidth / 2,
         yHigh,
         yLow,
         yBodyTop: Math.min(yOpen, yClose),
@@ -120,16 +135,20 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
       };
     });
 
-    const thresholdY = thresholdPrice ? chartHeight - ((thresholdPrice - min) / range) * chartHeight : null;
-    const slY = slPrice ? chartHeight - ((slPrice - min) / range) * chartHeight : null;
+    const thresholdY = thresholdPrice ? chartHeight - ((thresholdPrice - dMin) / dRange) * chartHeight : null;
+    const slY = slPrice ? chartHeight - ((slPrice - dMin) / dRange) * chartHeight : null;
 
-    return { bars, min, max, range, barWidth, gap, thresholdY, slY };
+    return { bars, min: dMin, max: dMax, range: dRange, barWidth: bWidth, gap: bGap, thresholdY, slY };
+    } catch (err) {
+      console.error('[CandlestickChart] Geometry calculation failed', err);
+      return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0, thresholdY: null, slY: null };
+    }
   }, [data, width, chartHeight, threshold, isLong, entryPrice, decisionMarkers, slPrice]);
 
   const oscMax = React.useMemo(() => {
     // BOLT: Zero-allocation max calculation for high-frequency oscillator lane
     let m = 0.1;
-    for (let i = 0; i < bars.length; i++) {
+    for (let i = 0; i < (bars || []).length; i++) {
       const v = Math.abs(bars[i].momentum || 0);
       if (v > m) m = v;
     }
@@ -209,7 +228,7 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
 
       {/* Main Chart */}
       <g>
-        {bars.map((bar, i) => {
+        {(bars || []).map((bar, i) => {
           const color = bar.isUp ? '#00e5a0' : '#ff4466';
           const hasSignal = signals.some(s => s.time === bar.timestamp);
           const marker = decisionMarkers.find(m => m.index === i || m.time === bar.timestamp);
@@ -276,7 +295,7 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
       {showOscillator && (
         <g transform={`translate(0, ${chartHeight + gapBetween})`}>
           <line x1="0" y1={oscillatorHeight / 2} x2={width} y2={oscillatorHeight / 2} stroke="currentColor" opacity="0.1" strokeWidth="1" />
-          {bars.map((bar, i) => {
+          {(bars || []).map((bar, i) => {
             const h = (Math.abs(bar.momentum) / oscMax) * (oscillatorHeight / 2);
             const isPos = bar.momentum >= 0;
             return (
@@ -296,8 +315,8 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
 
       {/* X-Axis Labels (Relative Time) */}
       <g transform={`translate(0, ${height})`}>
-        {[0, Math.floor(bars.length / 2), bars.length - 1].map((idx) => {
-          const bar = bars[idx];
+        {[0, Math.floor((bars || []).length / 2), (bars || []).length - 1].map((idx) => {
+          const bar = (bars || [])[idx];
           if (!bar) return null;
           const age = Date.now() - (bar.timestamp || Date.now());
           return (
@@ -306,7 +325,7 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
               x={bar.wickX}
               y={12}
               className="fill-dim text-[8px] font-bold font-mono uppercase"
-              textAnchor={idx === 0 ? "start" : idx === bars.length - 1 ? "end" : "middle"}
+              textAnchor={idx === 0 ? "start" : idx === (bars || []).length - 1 ? "end" : "middle"}
             >
               {formatDuration(age)} ago
             </text>

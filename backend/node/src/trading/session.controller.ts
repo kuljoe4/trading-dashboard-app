@@ -76,6 +76,14 @@ export class SessionController {
 
   @Get('trade/:id')
   async getTrade(@Param('id') id: string) {
+    // SENTINEL: Input validation to ensure 'id' is a valid UUID or Binance symbol format.
+    // Prevents potential probing attacks or malformed input issues.
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    const isSymbol = /^[A-Z0-9]{3,20}$/.test(id);
+
+    if (!isUuid && !isSymbol) {
+      throw new BadRequestException('Invalid trade ID or symbol format');
+    }
     return this.sessionService.getTrade(id);
   }
 

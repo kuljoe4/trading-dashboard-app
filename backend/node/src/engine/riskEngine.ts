@@ -116,7 +116,7 @@ export class RiskEngineService {
     let mostRecentTradeTs = enteringCount > 0 ? now : 0;
     for (let i = 0; i < activeTrades.length; i++) {
       const t = activeTrades[i];
-      if (t.is_reconciliation) continue;
+      // Include all trades with a valid entry_ts in spacing calculation
       const entryRaw = t.entry_ts;
       if (entryRaw) {
         const ts = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
@@ -124,12 +124,12 @@ export class RiskEngineService {
       }
     }
 
-    // BOLT: Find absolute most recent organic trade across ALL closed trades (Issue 3)
+    // Find absolute most recent organic trade across ALL closed trades.
     // We scan the top slice of closed trades to ensure we don't miss a recent one
     // if the list isn't perfectly sorted by entry time.
     for (let i = 0; i < Math.min(closedTrades.length, 20); i++) {
       const t = closedTrades[i];
-      if (t.is_reconciliation) continue;
+      // Include all trades with a valid entry_ts in spacing calculation
       const entryRaw = t.entry_ts;
       if (entryRaw) {
         const ts = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
@@ -186,10 +186,7 @@ export class RiskEngineService {
     // BOLT: Manual iteration for O(1) memory overhead.
     // Assuming closedTrades are sorted descending (most recent first).
     const processTrade = (t: Trade, isClosed: boolean): boolean => {
-      // GATING: Reconciliation trades should still count towards rolling windows if they
-      // represent an organic entry (Issue 3). We only skip if no entry_ts is present.
-      if (t.is_reconciliation && !t.entry_ts) return true;
-
+      // Include all trades with a valid entry_ts in rolling window counts
       const entryRaw = t.entry_ts;
       if (!entryRaw) return true;
       const entryTs = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
@@ -251,10 +248,7 @@ export class RiskEngineService {
 
       // Create a temporary processing function for closed trades to populate closedBase
       const processClosed = (t: Trade): boolean => {
-        // GATING: Reconciliation trades should still count towards rolling windows if they
-        // represent an organic entry (Issue 3).
-        if (t.is_reconciliation && !t.entry_ts) return true;
-
+        // Include all trades with a valid entry_ts in rolling window counts
         const entryRaw = t.entry_ts;
         if (!entryRaw) return true;
         const entryTs = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();

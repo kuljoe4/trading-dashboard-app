@@ -10,19 +10,21 @@ import { ConfirmationModal } from './ConfirmationModal'
 import { RefreshCw } from 'lucide-react'
 
 export const ActiveTradeBar = React.memo(() => {
-  const { activeTrades, sessionActive, isThrottled, wsStatus } = useTradingStore(state => ({
+  const { activeTrades, sessionActive, isThrottled, wsStatus, isSyncingOnResume } = useTradingStore(state => ({
     activeTrades: state.activeTrades,
     sessionActive: state.sessionActive,
     isThrottled: state.isThrottled,
-    wsStatus: state.wsStatus
+    wsStatus: state.wsStatus,
+    isSyncingOnResume: state.isSyncingOnResume
   }))
   const [closingSymbol, setClosingSymbol] = React.useState(null)
 
   if (!sessionActive || activeTrades.length === 0) return null
 
-  const isResuming = isThrottled || wsStatus !== 'live'
+  const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
+  const showResumingFeedback = sessionActive && isResuming
 
-  const totalPnl = activeTrades.reduce((sum, t) => sum + safeNum(t.pnl), 0)
+  const totalPnl = (activeTrades || []).reduce((sum, t) => sum + safeNum(t.pnl), 0)
 
   const getEstSlPnl = (t) => {
     const sl = Number(t.sl_price || 0)
@@ -51,30 +53,30 @@ export const ActiveTradeBar = React.memo(() => {
     >
       <div className={cn(
         "bg-surface/90 backdrop-blur-xl border rounded-2xl p-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center justify-between gap-6 transition-colors duration-500 overflow-hidden relative",
-        isResuming ? "border-accent/30 shadow-[0_0_30px_rgba(91,111,255,0.1)]" : "border-white/10"
+        showResumingFeedback ? "border-accent/30 shadow-[0_0_30px_rgba(91,111,255,0.1)]" : "border-white/10"
       )}>
-        {isResuming && (
+        {showResumingFeedback && (
            <div className="absolute inset-0 bg-accent/[0.03] animate-pulse pointer-events-none" />
         )}
         <div className="flex items-center gap-4">
           <div className={cn(
             "w-10 h-10 rounded-full flex items-center justify-center transition-colors",
-            isResuming ? "bg-accent text-white animate-pulse" : "bg-accent/20 text-accent"
+            showResumingFeedback ? "bg-accent text-white animate-pulse" : "bg-accent/20 text-accent"
           )}>
-            {isResuming ? <RefreshCw size={20} className="animate-spin" /> : <ArrowLeftRight size={20} />}
+            {showResumingFeedback ? <RefreshCw size={20} className="animate-spin" /> : <ArrowLeftRight size={20} />}
           </div>
           <div>
             <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2">
-               {isResuming ? 'Resuming Feed...' : 'Active Positions'}
+               {showResumingFeedback ? 'Resuming Feed...' : 'Active Positions'}
             </div>
-            <div className={cn("text-sm font-bold flex items-center gap-2 transition-all", isResuming && "opacity-40 blur-[1px]")}>
+            <div className={cn("text-sm font-bold flex items-center gap-2 transition-all", showResumingFeedback && "opacity-40 blur-[1px]")}>
               {activeTrades.length} Trades · <span style={{ color: pnlColor(totalPnl) }}>{fmtUSD(totalPnl)}</span>
             </div>
           </div>
         </div>
 
         <div className="flex-1 overflow-x-auto no-scrollbar flex gap-2" role="list">
-          {activeTrades.map(t => {
+          {(activeTrades || []).map(t => {
             const slPnl = getEstSlPnl(t)
             return (
               <div key={t.symbol} className="flex flex-col gap-1">

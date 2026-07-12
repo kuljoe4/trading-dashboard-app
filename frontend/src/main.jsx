@@ -30,10 +30,25 @@ const App = () => {
     setSessionActive, updateStats, setThrottled, sync, debugToolsEnabled
   } = store;
 
+  const [hydrated, setHydrated] = useState(useTradingStore.persist.hasHydrated());
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       window.useTradingStore = useTradingStore;
     }
+
+    // BOLT: Critical hydration guard to prevent 0-data flicker on cold starts
+    const unsub = useTradingStore.persist.onFinishHydration(() => {
+      console.log("[App] Hydration finished");
+      setHydrated(true);
+    });
+
+    // Safety check: if hydration finished before effect mounted
+    if (useTradingStore.persist.hasHydrated()) {
+      setHydrated(true);
+    }
+
+    return () => unsub();
   }, []);
 
   const isHidden = useVisibility();
@@ -81,13 +96,16 @@ const App = () => {
   }, []);
 
   useEffect(() => {
+    if (!hydrated) return;
+
     console.log(`[App] Visibility changed: isHidden=${isHidden}`);
-    setThrottled(isHidden);
+    // Sync BEFORE setThrottled to ensure data is updated as soon as unthrottling starts
     if (!isHidden) {
       console.log(`[App] Tab became visible. Triggering sync.`);
       sync();
     }
-  }, [isHidden, setThrottled, sync]);
+    setThrottled(isHidden);
+  }, [isHidden, hydrated, setThrottled, sync]);
 
   useEffect(() => {
     let script = null;
@@ -149,6 +167,8 @@ const App = () => {
   const [view, setView] = useState('cockpit');
 
   useEffect(() => {
+    if (!hydrated) return;
+
     const controller = new AbortController();
 
     async function checkStatus() {
@@ -157,21 +177,30 @@ const App = () => {
         if (controller.signal.aborted) return;
 
         const currentState = useTradingStore.getState();
-        if (res.data.running) {
+        const running = !!res.data.running;
+
+        if (running) {
           setSessionActive(true, res.data.strategyId || res.data.strategy_id);
+        } else if (currentState.sessionActive) {
+          // BOLT: Defensive Termination Guard.
+          // Only force clear if the backend is DEFINITIVELY stopped.
+          // If the backend request failed or returned empty but we were running, we trust our persisted state
+          // until the next polling cycle or WebSocket heartbeat confirm otherwise.
+          if (res.data.status === 'stopped' || res.data.running === false) {
+             console.log("[App] Backend confirmed session stopped. Clearing local session state.");
+             setSessionActive(false, null);
+          }
         }
+
         updateStats({
-          balance: res.data.balance ?? currentState.balance,
-          totalPnl: res.data.totalPnl ?? currentState.totalPnl,
-          totalRiskPct: res.data.totalRiskPct ?? currentState.totalRiskPct,
-          totalSlUsed: res.data.totalSlUsed ?? 0,
-          activeTrades: res.data.activeTrades || [],
-          variantStats: res.data.variant_stats || {},
-          scannerResults: res.data.scannerResults || [],
-          activeWindows: res.data.activeWindows || [],
-          tradeHistory: res.data.history || [],
-          config: res.data.config ? { ...currentState.config, ...res.data.config } : currentState.config,
-          apiStatus: res.data.apiStatus || currentState.apiStatus,
+          ...res.data,
+          sessionActive: running,
+          activeTrades: res.data.activeTrades,
+          variantStats: res.data.variant_stats,
+          scannerResults: res.data.scannerResults,
+          activeWindows: res.data.activeWindows,
+          tradeHistory: res.data.history,
+          config: res.data.config,
         });
       } catch (e) {
         if (!controller.signal.aborted && e.name !== 'CanceledError' && e.code !== 'ERR_CANCELED') {
@@ -196,6 +225,8 @@ const App = () => {
   }, [setSessionActive, updateStats]);
 
   const renderView = () => {
+    if (!hydrated) return <LoadingView />;
+
     if (view.startsWith('trade/')) {
       const id = view.replace('trade/', '');
       return <TradeDetailView tradeId={id} />;

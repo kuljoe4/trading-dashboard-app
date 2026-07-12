@@ -1,7 +1,7 @@
 import React, { useState, lazy, Suspense } from 'react'
 import { useTradingStore } from '../store/trading'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
-import { SectionLabel, StatCard, cn, ViewHeader } from '../components/ui/primitives'
+import { SectionLabel, StatCard, cn, ViewHeader, Btn } from '../components/ui/primitives'
 import { fmtUSD, pnlClass, safeNum } from '../lib/theme'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Briefcase, Zap } from 'lucide-react'
@@ -13,12 +13,13 @@ import { lazyWithRetry } from '../lib/lazy'
 const TradeDetailModal = lazyWithRetry(() => import('../components/TradeDetailModal').then(m => ({ default: m.TradeDetailModal })))
 
 const TradesView = () => {
-  const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled, peakRr, isThrottled, wsStatus, isSyncingOnResume } = useTradingStore()
+  const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled, peakRr, isThrottled, wsStatus, isSyncingOnResume, sessionActive } = useTradingStore()
   const [selectedTradeId, setSelectedTradeId] = useState(null)
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
+  const showResumingFeedback = sessionActive && isResuming
 
-  const selectedTrade = activeTrades.find(t => t.id === selectedTradeId || t.symbol === selectedTradeId)
+  const selectedTrade = (activeTrades || []).find(t => t.id === selectedTradeId || t.symbol === selectedTradeId)
 
   // Lifecycle-scoped subscription contract
   useResourceFocus('global_trades');
@@ -53,7 +54,7 @@ const TradesView = () => {
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 mb-8 lg:mb-12">
         {(() => {
-          const activePnl = activeTrades.reduce((acc, t) => acc + safeNum(t.pnl), 0);
+          const activePnl = (activeTrades || []).reduce((acc, t) => acc + safeNum(t.pnl), 0);
           return (
             <StatCard
               label="Active P&L"
@@ -71,19 +72,27 @@ const TradesView = () => {
       <div className="space-y-6">
         <SectionLabel>Live Tactical Map</SectionLabel>
 
-        {activeTrades.length === 0 ? (
+        {(!activeTrades || activeTrades.length === 0) ? (
           <div className="bg-surface/20 border border-border border-dashed rounded-3xl p-20 flex flex-col items-center justify-center text-center">
             <div className="w-16 h-16 rounded-full bg-surface border border-border flex items-center justify-center mb-6 text-dim/20">
               <Zap size={32} />
             </div>
             <h3 className="text-lg font-bold mb-2">No Active Trades</h3>
-            <p className="text-dim text-sm max-w-xs mx-auto">
+            <p className="text-dim text-sm max-w-xs mx-auto mb-8">
               The engine is currently scanning for opportunities. New positions will appear here in real-time.
             </p>
+            <Btn
+              variant="primary"
+              onClick={() => window.dispatchEvent(new Event('toggle-scanner'))}
+              icon={Zap}
+              className="px-8"
+            >
+              Open Live Scanner
+            </Btn>
           </div>
         ) : (
           <AnimatePresence mode="popLayout">
-            {activeTrades.map((trade, idx) => (
+            {(activeTrades || []).map((trade, idx) => (
               <motion.div
                 key={trade.id || trade.symbol}
                 initial={{ opacity: 0, y: 20 }}
@@ -91,7 +100,7 @@ const TradesView = () => {
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ delay: idx * 0.05 }}
               >
-                <ActiveTradeCard trade={trade} config={config} onClick={() => setSelectedTradeId(trade.id || trade.symbol)} isResuming={isResuming} />
+                <ActiveTradeCard trade={trade} config={config} onClick={() => setSelectedTradeId(trade.id || trade.symbol)} isResuming={isResuming} showResumingFeedback={showResumingFeedback} />
               </motion.div>
             ))}
           </AnimatePresence>

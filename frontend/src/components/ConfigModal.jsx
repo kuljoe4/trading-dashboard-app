@@ -548,14 +548,17 @@ const flattenConfig = (config) => {
   } catch (e) { return { ...config }; }
 };
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
-  const { addAlert, scannerResults, isThrottled, wsStatus } = useTradingStore(state => ({
+  const { addAlert, scannerResults, isThrottled, wsStatus, isSyncingOnResume, sessionActive } = useTradingStore(state => ({
     addAlert: state.addAlert,
     scannerResults: state.scannerResults,
     isThrottled: state.isThrottled,
-    wsStatus: state.wsStatus
+    wsStatus: state.wsStatus,
+    isSyncingOnResume: state.isSyncingOnResume,
+    sessionActive: state.sessionActive
   }));
 
-  const isResuming = isThrottled || wsStatus !== 'live';
+  const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
+  const showResumingFeedback = sessionActive && isResuming;
   // UX-MOBILE: Ensure inputs scroll into view when keyboard is active
   const handleInputFocus = React.useCallback((e) => {
     requestAnimationFrame(() => {
@@ -957,7 +960,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                {isDirty && <span className="w-2 h-2 rounded-full bg-accent animate-pulse shrink-0" />}
              </div>
              <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2 truncate">
-               {isResuming ? (
+               {showResumingFeedback ? (
                  <span className="text-accent flex items-center gap-1.5 shrink-0">
                    <RefreshCw size={10} className="animate-spin" /> Resuming Feed...
                  </span>

@@ -209,7 +209,7 @@ const BanBanner = ({ apiStatus }) => {
 };
 
 // --- Strategy Card ---
-const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner, isMonitored, className, isResuming }) => {
+const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner, isMonitored, className, isResuming, showResumingFeedback }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
@@ -252,7 +252,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
           </div>
         </div>
       )}
-      {isResuming && (
+      {showResumingFeedback && (
         <div className="absolute inset-0 bg-background/40 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
           <div className="bg-accent/10 border border-accent/20 text-accent px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-2xl">
             <RefreshCw size={12} className="animate-spin" /> Resuming Feed...
@@ -378,8 +378,8 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
   );
 })
 
-const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, hibernating, hibernationMode, activeTradesCount, isResuming }) => {
-  if (!gateState && !scannerPaused && !isResuming) return null
+const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, hibernating, hibernationMode, activeTradesCount = 0, showResumingFeedback }) => {
+  if (!gateState && !scannerPaused && !showResumingFeedback) return null
 
   const [now, setNow] = React.useState(Date.now());
   React.useEffect(() => {
@@ -408,15 +408,15 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
       animate={{ opacity: 1, y: 0 }}
       className={cn(
         "p-4 rounded-xl mb-6 text-xs font-bold border flex flex-col gap-2 shadow-sm transition-colors",
-        isResuming ? "bg-accent/10 border-accent/30 text-accent" :
+        showResumingFeedback ? "bg-accent/10 border-accent/30 text-accent" :
         scannerPaused ? "bg-red/10 border-red/20 text-red" : "bg-amber/10 border-amber/20 text-amber",
-        (!isResuming && (hibernating || isGatedIdle)) && "bg-accent/5 border-accent/20 text-accent/80"
+        (!showResumingFeedback && (hibernating || isGatedIdle)) && "bg-accent/5 border-accent/20 text-accent/80"
       )}
     >
       <div className="flex items-center gap-3">
-        {isResuming ? <RefreshCw size={16} className="animate-spin" /> : hibernating ? <Zap size={16} className={cn("animate-pulse opacity-50", hibernationMode === 'light' ? "text-accent" : "text-amber")} /> : gateState === 'sleeping' ? <Pause size={16} className="animate-pulse" /> : <XCircle size={16} className={scannerPaused ? "animate-pulse" : ""} />}
+        {showResumingFeedback ? <RefreshCw size={16} className="animate-spin" /> : hibernating ? <Zap size={16} className={cn("animate-pulse opacity-50", hibernationMode === 'light' ? "text-accent" : "text-amber")} /> : gateState === 'sleeping' ? <Pause size={16} className="animate-pulse" /> : <XCircle size={16} className={scannerPaused ? "animate-pulse" : ""} />}
         <span className="uppercase tracking-widest">
-          {isResuming ? 'Resuming Data Feed...' : hibernating ? (hibernationMode === 'light' ? 'Light Sleep Active' : 'Deep Sleep Active') : (messages[gateState] || 'Risk gate active.')}
+          {showResumingFeedback ? 'Resuming Data Feed...' : hibernating ? (hibernationMode === 'light' ? 'Light Sleep Active' : 'Deep Sleep Active') : (messages[gateState] || 'Risk gate active.')}
         </span>
         {hibernating ? (
           <div
@@ -447,7 +447,7 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
 GateBanner.displayName = 'GateBanner'
 
 const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) => {
-  const { activeTrades } = useTradingStore(state => ({ activeTrades: state.activeTrades }), shallow);
+  const { activeTrades } = useTradingStore(state => ({ activeTrades: state.activeTrades || [] }), shallow);
   const threshold = config.scan_pct_threshold || 2
   const top = scannerResults.slice(0, 5)
   // Pre-allocate 5 slots to prevent layout shift
@@ -466,7 +466,8 @@ const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) => {
       </div>
       <div className="flex-1">
         {top.length === 0 && placeholders.length === 5 ? (
-          <div className="h-full flex items-center justify-center text-dim text-[11px] font-bold uppercase tracking-widest bg-surface/10 animate-pulse">
+          <div className="h-full flex flex-col items-center justify-center text-dim text-[11px] font-bold uppercase tracking-widest bg-surface/10 animate-pulse gap-2">
+            <RefreshCw size={16} className="animate-spin opacity-40" />
             Waiting for market data...
           </div>
         ) : (
@@ -500,7 +501,7 @@ const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) => {
                       <em className={cn("text-xs font-bold font-mono text-right", colorClass)}>
                         {opp.pct >= 0 ? '+' : ''}{Number(opp.pct || 0).toFixed(2)}%
                       </em>
-                      {activeTrades.some(t => t.symbol === opp.symbol) && (
+                      {(activeTrades || []).some(t => t.symbol === opp.symbol) && (
                         <div className="flex items-center gap-1 opacity-60">
                            <Zap size={8} className="text-green fill-green/20" />
                            <span className="text-[7px] font-black text-green uppercase tracking-tighter">In Pos</span>
@@ -633,7 +634,7 @@ export function DashboardView({ initialStrategy }) {
       const label = v.strategy_label || 'Variant';
       map[label] = 0;
     });
-    activeTrades.forEach(t => {
+    (activeTrades || []).forEach(t => {
       if (t && map[t.strategy_label] !== undefined) {
         map[t.strategy_label] += safeNum(t.pnl);
       }
@@ -642,14 +643,14 @@ export function DashboardView({ initialStrategy }) {
   }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
 
   const totalActivePnl = useMemo(() =>
-    Object.values(activePnlMap).reduce((acc, val) => acc + val, 0)
+    Object.values(activePnlMap || {}).reduce((acc, val) => acc + val, 0)
   , [activePnlMap]);
 
-  const maxRR = useMemo(() => activeTrades.reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
+  const maxRR = useMemo(() => (activeTrades || []).reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
 
   const monitoredSymbolsSet = useMemo(() => {
     const set = new Set();
-    config.single_symbol_configs?.forEach(sc => {
+    (config.single_symbol_configs || []).forEach(sc => {
       if (sc.enabled) set.add(sc.symbol);
     });
     return set;
@@ -841,6 +842,7 @@ export function DashboardView({ initialStrategy }) {
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
+  const showResumingFeedback = sessionActive && isResuming;
 
   return (
     <div className={cn(
@@ -1027,7 +1029,7 @@ export function DashboardView({ initialStrategy }) {
             hibernating={hibernating}
             hibernationMode={hibernationMode}
             activeTradesCount={activeTrades.length}
-            isResuming={isResuming}
+            showResumingFeedback={showResumingFeedback}
           />
         </div>
 
@@ -1237,7 +1239,8 @@ export function DashboardView({ initialStrategy }) {
                             onClick={handleSelectPrimary}
                             isMonitored={monitoredSymbolsSet.has(currentStrategy.strategy_label)}
                             className={cn(totalCards % 2 !== 0 && "md:col-span-2")}
-                            isResuming={isThrottled || wsStatus !== 'live'}
+                            isResuming={isResuming}
+                            showResumingFeedback={showResumingFeedback}
                           />
                           {activeVariants.map((variant, i) => {
                             const label = variant.strategy_label || `Variant ${i + 1}`;
@@ -1259,7 +1262,8 @@ export function DashboardView({ initialStrategy }) {
                                 onEdit={handleEditVariant}
                                 onClick={handleSelectVariant}
                                 isMonitored={monitoredSymbolsSet.has(label)}
-                                isResuming={isThrottled || wsStatus !== 'live'}
+                                isResuming={isResuming}
+                                showResumingFeedback={showResumingFeedback}
                               />
                             );
                           })}

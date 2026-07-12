@@ -1373,7 +1373,7 @@ export class SessionService implements OnModuleInit {
                 this.logger.log(`[Reconciliation] Found exhaustive ghost SL for ${exPos.symbol}: ${slId} @ ${slPrice}`);
               }
             } catch (freshErr) {
-              this.logger.debug(`[Reconciliation] Exhaustive algo check failed for ${exPos.symbol}: ${freshErr.message}`);
+              this.logger.debug(`[Reconciliation] Exhaustive algo check failed for ${exPos.symbol}: ${freshErr instanceof Error ? freshErr.message : String(freshErr)}`);
             }
           }
 

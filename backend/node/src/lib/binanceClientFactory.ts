@@ -126,7 +126,7 @@ export class BinanceClientFactory implements OnModuleInit {
       const isCombined = stream.includes('/');
 
       // CITADEL: Robust Path Detection.
-      // Aggregate streams (starting with '!') and combined streams (containing '/')
+      // Combined streams (containing '/') or single aggregate streams (starting with '!')
       // must use the /stream endpoint for maximum production gateway compatibility.
       const useStreamEndpoint = isCombined || isHF;
 
@@ -151,7 +151,7 @@ export class BinanceClientFactory implements OnModuleInit {
 
         // BOLT: Use manual construction for all combined/HF streams OR any Live stream
         // to bypass SDK multiplexing bugs and ensure consistent handshake headers.
-        if (isCombined || isHF || !isTestnet) {
+        if (params.forceRaw || isCombined || isHF || !isTestnet) {
             const finalUrl = useStreamEndpoint
                 ? `${gatewayURL}?streams=${params.stream}`
                 : `${gatewayURL}/${params.stream}`;

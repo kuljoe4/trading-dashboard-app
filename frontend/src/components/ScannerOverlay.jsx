@@ -102,7 +102,7 @@ const buildAuthoritativeMarkers = (ohlc = [], signalResult = {}) => {
   const endTs = engulfing.streak_end_ts;
 
   let sCount = 1;
-  ohlc.forEach((candle, idx) => {
+  (ohlc || []).forEach((candle, idx) => {
     const ts = candle.time || candle.t;
     if (ts >= startTs && ts <= endTs) {
       markers.push({ index: idx, label: `S${sCount++}`, color: '#64748b' });
@@ -547,7 +547,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
   const showResumingFeedback = sessionActive && isResuming;
 
-  const activeTradeSymbols = useMemo(() => new Set(activeTrades.map(t => t.symbol)), [activeTrades])
+  const activeTradeSymbols = useMemo(() => new Set((activeTrades || []).map(t => t.symbol)), [activeTrades])
   const threshold = config.scan_pct_threshold || 2.0
   const [search, setSearch] = useState('')
   const lastUpdateRef = useRef(lastScanTs)
@@ -580,7 +580,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
   // Reduces complexity from O(N*M) to O(N+M), improving render performance when many symbols are monitored.
   const monitoredSymbols = useMemo(() => {
     const set = new Set();
-    config?.single_symbol_configs?.forEach(sc => {
+    (config?.single_symbol_configs || []).forEach(sc => {
       if (sc.enabled) set.add(sc.symbol);
     });
     return set;

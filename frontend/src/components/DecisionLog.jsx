@@ -186,11 +186,11 @@ export const DecisionLog = React.memo(() => {
         >
           <div className="flex-1 flex gap-2 overflow-x-auto min-w-0">
             <CopyButton
-              value={visibleLogs.map(l => `[${l.ts}] ${l.msg}`).join('\n')}
+              value={(visibleLogs || []).map(l => `[${l.ts}] ${l.msg}`).join('\n')}
               className="bg-surface border border-border"
               tooltip="Copy All Visible Logs"
             />
-            {filterButtons.map((filter) => {
+            {(filterButtons || []).map((filter) => {
               const active = (safeLogFilters[filter.level] ?? true)
               return (
                 <button
@@ -261,7 +261,7 @@ export const DecisionLog = React.memo(() => {
             className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-border hover:scrollbar-thumb-accent/50 overscroll-contain"
           >
             <div className="flex flex-col gap-1.5">
-              {visibleLogs.map((log) => (
+              {(visibleLogs || []).map((log) => (
                 /* BOLT: Use stable log.id as key to reduce reconciliation cost from O(N) to O(1) when prepending */
                 <div key={log.id} className="min-w-fit">
                   <LogEntry log={log} />

@@ -379,7 +379,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   fetchSessions: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.list(); set({ sessionList: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchLifetimeAnalytics: async (m = 'paper') => { set({ isSyncing: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchTradeHistory: async (sid = 'all') => { set({ isSyncing: true }); try { const r = await sessionAPI.history(sid); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
-  updateStats: (s) => set((st) => {
+  updateStats: (updates) => set((st) => {
     // BOLT: Session Stickiness Logic.
     // We defensively protect the session state and critical metrics during 'Resuming' windows.
     // This handles the '0-then-catchup' bug when returning to a backgrounded tab/desktop.
@@ -387,50 +387,58 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     const isResuming = st.isThrottled || st.wsStatus !== 'live' || st.isSyncingOnResume || (age > 15000 && st.sessionActive);
     const sessionCurrentlyActive = st.sessionActive;
 
-    // Handle key variations
-    const nextPnl = s.totalPnl ?? s.total_pnl;
+    // SEC: Defensive Merge Pattern. Never overwrite store keys with undefined.
+    const merged = { ...st };
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value !== undefined) merged[key] = value;
+    });
 
-    const merged = { ...st, ...s };
+    // Handle key variations
+    const nextPnl = updates.totalPnl ?? updates.total_pnl;
     if (nextPnl !== undefined) merged.totalPnl = nextPnl;
+
+    const currentActiveTrades = Array.isArray(st.activeTrades) ? st.activeTrades : [];
+    const currentScannerResults = Array.isArray(st.scannerResults) ? st.scannerResults : [];
+    const currentTradeHistory = Array.isArray(st.tradeHistory) ? st.tradeHistory : [];
 
     if (isResuming && sessionCurrentlyActive) {
        // 1. Session Persistence Guard: ignore sessionActive: false unless backend explicitly says 'stopped'
-       if (s.sessionActive === false && s.status !== 'stopped' && s.running !== false) {
+       if (updates.sessionActive === false && updates.status !== 'stopped' && updates.running !== false) {
           merged.sessionActive = true;
        }
 
        // 2. Metric Persistence: prevent flickering to 0 while backend reconciles
        if (nextPnl === 0 && st.totalPnl !== 0) merged.totalPnl = st.totalPnl;
-       if (s.balance === 0 && st.balance !== 0) merged.balance = st.balance;
-       if (s.totalRiskPct === 0 && st.totalRiskPct !== 0) merged.totalRiskPct = st.totalRiskPct;
-       if (s.totalSlUsed === 0 && st.totalSlUsed !== 0) merged.totalSlUsed = st.totalSlUsed;
+       if (updates.balance === 0 && st.balance !== 0) merged.balance = st.balance;
+       if (updates.totalRiskPct === 0 && st.totalRiskPct !== 0) merged.totalRiskPct = st.totalRiskPct;
+       if (updates.totalSlUsed === 0 && st.totalSlUsed !== 0) merged.totalSlUsed = st.totalSlUsed;
 
        // 3. Collection Persistence: hold trades/scanner results until non-empty data arrives
-       if (s.activeTrades && s.activeTrades.length > 0) {
-         merged.activeTrades = s.activeTrades.map(t => normalizeTrade(t, st.activeTrades.find(x => x.symbol === t.symbol))).filter(Boolean);
-       } else if (st.activeTrades.length > 0) {
-         merged.activeTrades = st.activeTrades;
+       if (Array.isArray(updates.activeTrades) && updates.activeTrades.length > 0) {
+         merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, currentActiveTrades.find(x => x.symbol === t.symbol))).filter(Boolean);
+       } else if (currentActiveTrades.length > 0) {
+         merged.activeTrades = currentActiveTrades;
        }
 
-       if (s.scannerResults && s.scannerResults.length > 0) {
-         merged.scannerResults = s.scannerResults.map(o => normalizeOpportunity(o)).filter(Boolean);
-       } else if (st.scannerResults.length > 0) {
-         merged.scannerResults = st.scannerResults;
+       if (Array.isArray(updates.scannerResults) && updates.scannerResults.length > 0) {
+         merged.scannerResults = updates.scannerResults.map(o => normalizeOpportunity(o)).filter(Boolean);
+       } else if (currentScannerResults.length > 0) {
+         merged.scannerResults = currentScannerResults;
        }
 
-       if (s.tradeHistory && s.tradeHistory.length > 0) {
-         merged.tradeHistory = s.tradeHistory.map(t => normalizeTrade(t)).filter(Boolean);
-       } else if (st.tradeHistory.length > 0) {
-         merged.tradeHistory = st.tradeHistory;
+       if (Array.isArray(updates.tradeHistory) && updates.tradeHistory.length > 0) {
+         merged.tradeHistory = updates.tradeHistory.map(t => normalizeTrade(t)).filter(Boolean);
+       } else if (currentTradeHistory.length > 0) {
+         merged.tradeHistory = currentTradeHistory;
        }
     } else {
        // Normal merge with normalization when NOT in resumption window
-       if (s.activeTrades) merged.activeTrades = s.activeTrades.map(t => normalizeTrade(t, st.activeTrades.find(x => x.symbol === t.symbol))).filter(Boolean);
-       if (s.scannerResults) merged.scannerResults = s.scannerResults.map(o => normalizeOpportunity(o)).filter(Boolean);
-       if (s.tradeHistory) merged.tradeHistory = s.tradeHistory.map(t => normalizeTrade(t)).filter(Boolean);
+       if (Array.isArray(updates.activeTrades)) merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, currentActiveTrades.find(x => x.symbol === t.symbol))).filter(Boolean);
+       if (Array.isArray(updates.scannerResults)) merged.scannerResults = updates.scannerResults.map(o => normalizeOpportunity(o)).filter(Boolean);
+       if (Array.isArray(updates.tradeHistory)) merged.tradeHistory = updates.tradeHistory.map(t => normalizeTrade(t)).filter(Boolean);
     }
 
-    if (s.config) merged.config = deepMerge(st.config, s.config);
+    if (updates.config) merged.config = deepMerge(st.config, updates.config);
 
     merged.lastAuthoritativeUpdateTs = Date.now();
 
@@ -509,24 +517,26 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         set((st) => {
           const stop = d.status === 'stopped' || d.running === false;
           const isResuming = st.isSyncingOnResume;
+          const currentActiveTrades = Array.isArray(st.activeTrades) ? st.activeTrades : [];
+          const currentTradeHistory = Array.isArray(st.tradeHistory) ? st.tradeHistory : [];
 
-          let nt = st.activeTrades;
+          let nt = currentActiveTrades;
           if (stop) nt = [];
-          else if (d.activeTrades && d.activeTrades.length > 0) {
-            const m = new Map(st.activeTrades.map(t => [t.symbol, t]));
+          else if (Array.isArray(d.activeTrades) && d.activeTrades.length > 0) {
+            const m = new Map(currentActiveTrades.map(t => [t.symbol, t]));
             nt = d.activeTrades.map(t => normalizeTrade(t, m.get(t.symbol))).filter(Boolean);
-          } else if (isResuming && st.activeTrades.length > 0) {
+          } else if (isResuming && currentActiveTrades.length > 0) {
             // Anti-flicker: preserve trades during resume if broadcast is empty
-            nt = st.activeTrades;
+            nt = currentActiveTrades;
           }
 
           // BOLT: Smart history merging to prevent flickering or data loss.
           // We only update history if the backend provides a non-empty list.
           // This allows session-specific updates without wiping global history.
-          let nextHistory = st.tradeHistory;
+          let nextHistory = currentTradeHistory;
           if (d.history && Array.isArray(d.history) && d.history.length > 0) {
             const incoming = d.history.map(t => normalizeTrade(t)).filter(Boolean);
-            const m = new Map(st.tradeHistory.map(t => [t.id, t]));
+            const m = new Map(currentTradeHistory.map(t => [t.id, t]));
             incoming.forEach(t => m.set(t.id, t));
             nextHistory = Array.from(m.values()).sort((a, b) => new Date(b.exit_ts || b.createdAt).getTime() - new Date(a.exit_ts || a.createdAt).getTime());
           }
@@ -548,9 +558,9 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             entryCount: d.stats?.entryCount ?? st.entryCount,
             hitCount: d.stats?.hitCount ?? st.hitCount,
             activeTrades: nt,
-            logs: (d.logLines?.map(normalizeLog) || st.logs).filter(Boolean),
-            scannerResults: (d.scannerResults?.map(normalizeOpportunity) || st.scannerResults).filter(Boolean),
-            activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows,
+            logs: (d.logLines?.map(normalizeLog) || st.logs || []).filter(Boolean),
+            scannerResults: (d.scannerResults?.map(normalizeOpportunity) || st.scannerResults || []).filter(Boolean),
+            activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows || [],
             tradeHistory: nextHistory,
             gateState: d.gateState ?? st.gateState,
             nextSlotTs: d.nextSlotTs ?? st.nextSlotTs,
@@ -577,14 +587,15 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         }
         set((st) => {
           const isResuming = st.isSyncingOnResume;
-          let nt = st.activeTrades;
-          if (d.trades && Array.isArray(d.trades) && d.trades.length > 0) {
-            const m = new Map(st.activeTrades.map(t => [t.id, t]));
+          const currentActiveTrades = Array.isArray(st.activeTrades) ? st.activeTrades : [];
+          let nt = currentActiveTrades;
+          if (Array.isArray(d.trades) && d.trades.length > 0) {
+            const m = new Map(currentActiveTrades.map(t => [t.id, t]));
             d.trades.forEach(t => { const p = m.get(t.id); const n = normalizeTrade(t, p); if (n) m.set(t.id, n); });
             if (d._heartbeat) { const ids = new Set(d.trades.map(t => t.id)); for (const id of m.keys()) if (!ids.has(id)) m.delete(id); }
             nt = Array.from(m.values());
-          } else if (isResuming && st.activeTrades.length > 0) {
-            nt = st.activeTrades;
+          } else if (isResuming && currentActiveTrades.length > 0) {
+            nt = currentActiveTrades;
           }
 
           // BOLT: Prevent flickering during config sync. If local state is in-flight, ignore config updates from ticks.
@@ -621,8 +632,9 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           console.log(`[Store] Received scanner update. Clearing isSyncingOnResume.`);
         }
         set(st => {
+          const currentScannerResults = Array.isArray(st.scannerResults) ? st.scannerResults : [];
           // BOLT OPTIMIZATION: Use Map for O(1) lookup during normalization to achieve O(N+M) complexity.
-          const prevMap = new Map(st.scannerResults.map(r => [r.symbol, r]));
+          const prevMap = new Map(currentScannerResults.map(r => [r.symbol, r]));
           return {
             isSyncingOnResume: false,
             scannerResults: (d.opportunities || []).map(o => {
@@ -724,6 +736,13 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       state.isSyncingOnResume = !!state.sessionActive;
       state.wsStatus = 'offline';
       state.ws = null;
+
+      // Force collections to arrays to avoid TypeError: B is undefined
+      state.activeTrades = Array.isArray(state.activeTrades) ? state.activeTrades : [];
+      state.scannerResults = Array.isArray(state.scannerResults) ? state.scannerResults : [];
+      state.tradeHistory = Array.isArray(state.tradeHistory) ? state.tradeHistory : [];
+      state.logs = Array.isArray(state.logs) ? state.logs : [];
+      state.alerts = Array.isArray(state.alerts) ? state.alerts : [];
 
       // BOLT: If last update was long ago, force a sync window even if not explicit
       const age = Date.now() - (state.lastAuthoritativeUpdateTs || 0);

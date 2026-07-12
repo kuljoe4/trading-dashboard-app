@@ -23,7 +23,8 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
   const [hoverData, setHoverData] = useState(null);
 
   const { points, viewMin, viewMax, viewRange } = useMemo(() => {
-    const downsampled = downsample(data).filter(d => d && typeof d.pnl === 'number');
+    const safeData = Array.isArray(data) ? data : [];
+    const downsampled = downsample(safeData).filter(d => d && typeof d.pnl === 'number');
     if (!downsampled || downsampled.length < 2) return { points: [], viewMin: 0, viewMax: 0.1, viewRange: 0.1 };
 
     const values = downsampled.map(d => d.pnl);
@@ -118,9 +119,10 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
 
   const handleMouseLeave = () => setHoverData(null);
 
-  const currentPnl = data[data.length - 1]?.pnl ?? 0;
+  const safeData = Array.isArray(data) ? data : [];
+  const currentPnl = safeData[safeData.length - 1]?.pnl ?? 0;
 
-  if (data.length < 2) {
+  if (safeData.length < 2) {
     return (
       <div className={cn("flex flex-col items-center justify-center bg-surface/20 border border-border/40 rounded-2xl border-dashed", hideAxes ? "h-full" : "h-[180px]")}>
         <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Insufficient Trade Data</span>
@@ -282,7 +284,8 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
 };
 
 export const TODPerformance = ({ data = [] }) => {
-  const validData = useMemo(() => data.filter(d => d && typeof d.pnl === 'number'), [data]);
+  const safeData = Array.isArray(data) ? data : [];
+  const validData = useMemo(() => safeData.filter(d => d && typeof d.pnl === 'number'), [safeData]);
   const maxPnl = useMemo(() => Math.max(1, ...validData.map(d => Math.abs(d.pnl))), [validData]);
   const [hoverData, setHoverData] = useState(null);
   const [hoverHour, setHoverHour] = useState(null);
@@ -310,11 +313,11 @@ export const TODPerformance = ({ data = [] }) => {
   const avgNegHeight = (Math.sqrt(avgNeg) / Math.sqrt(maxPnl)) * 50;
 
   const handleInteraction = (clientX) => {
-    if (!containerRef.current || !data.length) return;
+    if (!containerRef.current || !validData.length) return;
     const rect = containerRef.current.getBoundingClientRect();
     const xPct = (clientX - rect.left) / rect.width;
-    const hourIndex = Math.min(Math.floor(xPct * data.length), data.length - 1);
-    const item = data[hourIndex];
+    const hourIndex = Math.min(Math.floor(xPct * validData.length), validData.length - 1);
+    const item = validData[hourIndex];
     
     // Calculate y position for pointer (center of the bar)
     const isPos = item.pnl >= 0;
@@ -324,10 +327,10 @@ export const TODPerformance = ({ data = [] }) => {
     const yPct = isPos ? (50 - heightPct / 2) : (50 + heightPct / 2);
 
     setHoverHour(item);
-    setHoverData({ x: (hourIndex + 0.5) * (100 / data.length), y: yPct });
+    setHoverData({ x: (hourIndex + 0.5) * (100 / validData.length), y: yPct });
   };
 
-  const currentHourStats = hoverHour || data.find(h => h.hour === new Date().getHours()) || data[0] || { pnl: 0, hour: 0, winRate: 0, wins: 0, total: 0 };
+  const currentHourStats = hoverHour || validData.find(h => h.hour === new Date().getHours()) || validData[0] || { pnl: 0, hour: 0, winRate: 0, wins: 0, total: 0 };
 
   return (
     <div className="space-y-6" role="region" aria-label="Time of day performance histogram">

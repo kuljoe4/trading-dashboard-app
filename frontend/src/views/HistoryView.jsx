@@ -24,8 +24,9 @@ const price = (value) => {
 const strategyLabel = (item = {}) => item.strategy_label || item.strategyLabel || item.config?.strategy_label || item.strategy_config?.strategy_label || 'Momentum Strategy'
 
 const buildCurve = (trades = []) => {
+  const safeTrades = Array.isArray(trades) ? trades : [];
   let pnl = 0
-  return [...trades].reverse().map((trade) => {
+  return [...safeTrades].reverse().map((trade) => {
     pnl += safeNum(trade.pnl)
     return { ts: trade.exit_ts || trade.entry_ts || trade.createdAt, pnl }
   })
@@ -295,7 +296,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
                 </div>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {trades.length === 0 ? (
+                {(!trades || trades.length === 0) ? (
                   <div className="col-span-full py-12 text-center text-[11px] text-dim font-black uppercase tracking-[0.2em] opacity-40">No trades recorded for this session</div>
                 ) : (
                   trades.map((trade) => (

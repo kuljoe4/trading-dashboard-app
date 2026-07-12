@@ -50,7 +50,7 @@ const RRLadder = memo(({ trade }) => {
       </div>
 
       <div className="flex gap-4 overflow-x-auto no-scrollbar mb-4 md:mb-8 pb-2">
-        {triggers.map((trigger, i) => {
+        {(triggers || []).map((trigger, i) => {
           const done = maxRR >= trigger
           const current = i === activeIdx
           return (
@@ -110,7 +110,7 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
 
   // Sort entries by proximity (triggerProgress descending)
   const entries = useMemo(() => {
-    return Object.entries(status).map(([key, s]) => {
+    return Object.entries(status || {}).map(([key, s]) => {
       const value = Number(s.value) || 0;
       const threshold = Number(s.threshold) || 1;
       let progress = 0;
@@ -455,13 +455,13 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               </div>
             </div>
 
-            {trade.sl_adjustments?.length > 0 && (
+            {(trade.sl_adjustments || []).length > 0 && (
               <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
                 <SectionLabel className="mb-6">
                   <ShieldCheck size={14} className="text-accent" /> Risk Mitigation Log
                 </SectionLabel>
                 <div className="space-y-2">
-                  {trade.sl_adjustments.slice(-3).reverse().map((adj, i) => (
+                  {(trade.sl_adjustments || []).slice(-3).reverse().map((adj, i) => (
                     <div key={i} className="flex items-center justify-between text-[10px] bg-white/[0.02] border border-white/[0.05] p-4 rounded-2xl group/adj hover:border-accent/30 transition-colors">
                       <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-2">

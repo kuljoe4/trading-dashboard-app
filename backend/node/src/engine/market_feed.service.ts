@@ -61,6 +61,8 @@ export class MarketFeedService {
   private globalDiscoveryOpenedAt = 0;
   private hasEverReceivedData = false;
   private _globalDiscoveryConfirmed = false;
+  private forceRawDiscovery = false;
+  private consecutiveDiscoveryFailures = 0;
 
   constructor(
     private tickerCache: TickerCacheService,
@@ -380,7 +382,15 @@ export class MarketFeedService {
     // FAIL-FAST: Detect if global discovery socket is open but never received any data
     if (!this._globalDiscoveryConfirmed && this.globalDiscoveryOpenedAt > 0 && (now - this.globalDiscoveryOpenedAt > 60000)) {
       const mode = this.sessionState.config?.trading_mode || (this.sessionState.config?.paper_mode ? 'paper' : 'live');
-      this.logger.error(`[MarketFeed] CRITICAL: Global discovery socket open but zero messages received in 60s. Mode=${mode}. Check network/firewall.`);
+      this.consecutiveDiscoveryFailures++;
+
+      // CIRCUIT BREAKER: After 3 consecutive silent failures, switch to the raw WebSocket path.
+      if (this.consecutiveDiscoveryFailures >= 3) {
+        this.logger.fatal(`[MarketFeed] CIRCUIT BREAKER: Discovery has failed 3 times via primary method. Forcing raw WebSocket fallback.`);
+        this.forceRawDiscovery = true;
+      }
+
+      this.logger.error(`[MarketFeed] CRITICAL: Global discovery socket open but zero messages received in 60s. Mode=${mode}. Failure #${this.consecutiveDiscoveryFailures}`);
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
         msg: `[MarketFeed] CRITICAL: No market data received after 60s. Scanner is offline. Mode=${mode}`,
         level: 'error'
@@ -580,26 +590,37 @@ export class MarketFeedService {
 
         try {
           let usedSdk = false;
-          let url: string | null = null;
           const isCombined = streamName.includes('/');
 
-          if (this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
+          // CIRCUIT BREAKER: If primary connection has failed repeatedly, force the raw WebSocket path.
+          const forceRaw = this.forceRawDiscovery;
+
+          if (!forceRaw && this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
              this.logger.debug(`[MarketFeed] Connecting to discovery (${streamName}) via SDK`);
              ws = await this.binanceClient.websocketStreams.connect({ stream: streamName });
              usedSdk = true;
+          } else if (this.binanceClient) {
+             this.logger.log(`[MarketFeed] Connecting to discovery stream (ForceRaw=${forceRaw}): ${streamName}`);
+             ws = await this.binanceClient.websocketStreams.connect({ stream: streamName, forceRaw: true });
           } else {
-             // For single streams on Live, ensure /ws/ is used. Combined uses /stream?.
+             // Fallback for bootstrap before client is initialized
              const base = isCombined ? wsBaseMarket : wsBaseMarket.replace(/\/stream$/, '/ws');
-             url = isCombined ? `${base}?streams=${streamName}` : `${base}/${streamName}`;
-
-             this.logger.log(`[MarketFeed] Connecting to discovery stream: ${url}`);
-             ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+             const url = isCombined ? `${base}?streams=${streamName}` : `${base}/${streamName}`;
+             this.logger.log(`[MarketFeed] Connecting to discovery stream (Bootstrap Raw): ${url}`);
+             ws = new WebSocket(url, {
+               handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS,
+               perMessageDeflate: false,
+               headers: isTestnet ? {} : {
+                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                 'Origin': 'https://www.binance.com'
+               }
+             });
           }
           this.globalDiscoveryWsList.add(ws);
 
           ws.on('message', (data: any) => this.processStreamMessage(data, streamName));
           ws.on('open', () => {
-            this.logger.log(`[MarketFeed] Discovery socket OPEN: ${streamName} via ${usedSdk ? 'SDK' : 'raw-ws'} (${url ?? 'sdk-managed'})`);
+            this.logger.log(`[MarketFeed] Discovery socket OPEN: ${streamName} via ${usedSdk ? 'SDK' : 'raw-ws'}`);
             this.globalDiscoveryRetryCount = 0;
             this.globalDiscoveryOpenedAt = Date.now();
             this._globalDiscoveryConfirmed = false;
@@ -640,6 +661,7 @@ export class MarketFeedService {
   private processStreamMessage(data: any, defaultStream?: string) {
     try {
       this._globalDiscoveryConfirmed = true;
+      this.consecutiveDiscoveryFailures = 0; // Reset failure counter on successful data
       if (!this.hasEverReceivedData) {
         this.hasEverReceivedData = true;
         this.logger.log(`[MarketFeed] First message received from stream: ${defaultStream || 'unknown'}. Connection healthy.`);
@@ -755,13 +777,13 @@ export class MarketFeedService {
 
         let ws: any;
         try {
-          if (this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
+          const forceRaw = this.forceRawDiscovery;
+          if (!forceRaw && this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
              this.logger.debug(`[MarketFeed] Connecting to combined stream via SDK: ${chunk.length} items`);
              ws = await this.binanceClient.websocketStreams.connect({ stream: streams });
           } else {
-             const url = `${wsBaseMarket}?streams=${streams}`;
-             this.logger.debug(`[MarketFeed] Connecting to combined stream: ${url.split('?')[0]}?streams=${chunk.length} items`);
-             ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+             this.logger.debug(`[MarketFeed] Connecting to combined stream (ForceRaw=${forceRaw}): ${chunk.length} items`);
+             ws = await this.binanceClient.websocketStreams.connect({ stream: streams, forceRaw: true });
           }
         } catch (err) {
            this.logger.error(`[MarketFeed] Failed to connect combined stream: ${err instanceof Error ? err.message : String(err)}`);

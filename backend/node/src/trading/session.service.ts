@@ -738,6 +738,13 @@ export class SessionService implements OnModuleInit {
       );
     }
 
+    // CHRONOS: Start User Data Stream buffering BEFORE any REST snapshot reconciliation
+    // to eliminate the blind spot where exchange activity during startup is missed.
+    if (binanceClient && mode !== 'paper') {
+       await this.tradingSessionService.startUds(binanceClient);
+       this.tradingSessionService.startBuffering();
+    }
+
     // DATA-07: Ensure exchange filters are loaded BEFORE reconciliation to avoid "Symbol not found" errors
     try {
       const isTestnet = mode === "testnet";
@@ -1165,6 +1172,12 @@ export class SessionService implements OnModuleInit {
       currentGlobalBalance,
       filteredOpenTrades as any,
     );
+
+    // CHRONOS: Replay buffered events AFTER engine is fully initialized
+    // to ensure any activity during the REST snapshot phase is incorporated.
+    if (mode !== 'paper') {
+      await this.tradingSessionService.replayBuffer();
+    }
 
     // SRE-02: Periodic Full Reconciliation to catch missed events/sync issues
     if (mode !== "paper") {

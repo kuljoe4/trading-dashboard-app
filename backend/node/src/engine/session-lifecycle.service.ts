@@ -38,6 +38,10 @@ export class SessionLifecycleService {
   private lastModeSync = 0;
   private isUdsStarting = false;
 
+  // CHRONOS: Event buffering during session startup reconciliation
+  private eventBuffer: any[] = [];
+  private isBuffering = false;
+
   constructor(
     private readonly sessionState: SessionStateService,
     @Inject(forwardRef(() => OrderManagerService))
@@ -336,6 +340,41 @@ export class SessionLifecycleService {
      }
   }
 
+  /**
+   * CHRONOS: Buffer control for startup reconciliation.
+   */
+  public startBuffering() {
+    this.logger.log('[Chronos] UDS Event Buffering engaged.');
+    this.isBuffering = true;
+    this.eventBuffer = [];
+  }
+
+  public stopBuffering() {
+    this.isBuffering = false;
+  }
+
+  public async replayBuffer() {
+    this.isBuffering = false;
+    if (this.eventBuffer.length === 0) return;
+
+    this.logger.log(`[Chronos] Replaying ${this.eventBuffer.length} buffered UDS events...`);
+    const events = [...this.eventBuffer];
+    this.eventBuffer = [];
+
+    for (const data of events) {
+      try {
+        if (data.e === 'ACCOUNT_UPDATE') {
+          this.handleAccountUpdate(data);
+        } else if (data.e === 'ORDER_TRADE_UPDATE') {
+          this.eventEmitter.emit('binance.order_update', data);
+        }
+      } catch (err) {
+        this.logger.error(`Error replaying buffered event: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    this.logger.log('[Chronos] UDS Buffer replay complete.');
+  }
+
   public handleAccountUpdate(data: BinanceAccountUpdateEvent) {
     const reason = data.a.m;
 
@@ -538,12 +577,20 @@ export class SessionLifecycleService {
           }
 
           if (data.e === 'ACCOUNT_UPDATE' && data.a) {
-            this.handleAccountUpdate(data);
+            if (this.isBuffering) {
+              this.logger.debug(`[Chronos] Buffering ACCOUNT_UPDATE event (Reason: ${data.a.m})`);
+              this.eventBuffer.push(data);
+            } else {
+              this.handleAccountUpdate(data);
+            }
           } else if (data.e === 'ORDER_TRADE_UPDATE') {
-            // REDUCE LOG NOISE: OrderManagerService already logs this with more detail
-            // const order = data.o;
-            // this.logger.log(`[Lifecycle] Order Update: ${order.s} ${order.S} ${order.X} (id=${order.i}, client_id=${order.c})`);
-            this.eventEmitter.emit('binance.order_update', data);
+            if (this.isBuffering) {
+              this.logger.debug(`[Chronos] Buffering ORDER_TRADE_UPDATE event for ${data.o?.s}`);
+              this.eventBuffer.push(data);
+            } else {
+              // REDUCE LOG NOISE: OrderManagerService already logs this with more detail
+              this.eventEmitter.emit('binance.order_update', data);
+            }
           } else if (data.e === 'listenKeyExpired') {
             this.logger.warn('[Lifecycle] ListenKey expired, restarting user data stream...');
             this.startUserDataStream(bc, true).catch(() => {});

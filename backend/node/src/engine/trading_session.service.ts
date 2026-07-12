@@ -762,6 +762,14 @@ export class TradingSessionService implements OnApplicationShutdown {
     await this.sessionLifecycle.startUserDataStream(client);
   }
 
+  startBuffering() {
+    this.sessionLifecycle.startBuffering();
+  }
+
+  async replayBuffer() {
+    await this.sessionLifecycle.replayBuffer();
+  }
+
   /**
    * BOLT OPTIMIZATION: Clears transient caches and state to minimize RAM footprint
    * during Deep Sleep or after session termination.

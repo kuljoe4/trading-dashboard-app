@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy } from 'lucide-react'
+import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton } from './ui/primitives'
 import { RiskSummary } from './RiskSummary'
 import * as Switch from '@radix-ui/react-switch'
@@ -536,18 +536,26 @@ const flattenConfig = (config) => {
       sl_out_of_bounds_action: config.sl_out_of_bounds_action || 'clamp',
       scanner_signal_depth: config.scanner_signal_depth || 10,
       auto_scale_min_notional: config.auto_scale_min_notional !== undefined ? config.auto_scale_min_notional : true,
+      risk_hardening_enabled: !!config.risk_hardening_enabled,
+      max_single_trade_risk_pct: config.max_single_trade_risk_pct !== undefined ? config.max_single_trade_risk_pct : 20.0,
       engulfing_mode: config.engulfing_mode || 'range',
       engulfing_timing: config.engulfing_timing || 'is_opportunity',
       engulfing_volume_confirm: !!config.engulfing_volume_confirm,
       engulfing_lookback: config.engulfing_lookback || 1,
+      engulfing_streak: config.engulfing_streak || 1,
+      engulfing_sequential: config.engulfing_sequential !== false,
     };
   } catch (e) { return { ...config }; }
 };
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
-  const { addAlert, scannerResults } = useTradingStore(state => ({
+  const { addAlert, scannerResults, isThrottled, wsStatus } = useTradingStore(state => ({
     addAlert: state.addAlert,
-    scannerResults: state.scannerResults
+    scannerResults: state.scannerResults,
+    isThrottled: state.isThrottled,
+    wsStatus: state.wsStatus
   }));
+
+  const isResuming = isThrottled || wsStatus !== 'live';
   // UX-MOBILE: Ensure inputs scroll into view when keyboard is active
   const handleInputFocus = React.useCallback((e) => {
     requestAnimationFrame(() => {
@@ -743,11 +751,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     // Ensure numeric values where expected
     const numericFields = [
       'risk_pct_per_trade', 'max_total_risk_pct', 'max_open_trades', 'total_sl_guard_usdt',
+      'max_single_trade_risk_pct',
       'scan_pct_threshold', 'scan_lookback', 'scan_min_volume_usdt', 'watchlist_size',
       'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
       'scanner_signal_depth',
-      'engulfing_lookback',
+      'engulfing_lookback', 'engulfing_streak',
       'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
@@ -948,7 +957,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                {isDirty && <span className="w-2 h-2 rounded-full bg-accent animate-pulse shrink-0" />}
              </div>
              <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2 truncate">
-               {isDirty ? (
+               {isResuming ? (
+                 <span className="text-accent flex items-center gap-1.5 shrink-0">
+                   <RefreshCw size={10} className="animate-spin" /> Resuming Feed...
+                 </span>
+               ) : isDirty ? (
                  <span className="text-accent flex items-center gap-1.5 shrink-0">
                    <Activity size={10} className="animate-pulse" /> Unsaved Changes
                  </span>
@@ -1129,11 +1142,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   <div className="bg-accent/5 p-4 rounded-2xl border border-accent/20">
                     <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em] mb-4">Engulfing Expert Parameters</div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <Tooltip content="Body: Open/Close must engulf previous Open/Close. Range: High/Low must engulf. Strict: Both must engulf.">
+                      <Tooltip content="Body: Open/Close must engulf previous Open/Close. Range: High/Low must engulf. Strict: Both must engulf. Close > H/L waits for a closed confirmation candle whose close clears the prior lookback high/low, then enters on the next live candle.">
                         {renderField('Engulfing Mode', 'engulfing_mode', 'text', [
                           { value: 'range', label: 'Range (H/L)' },
                           { value: 'body', label: 'Body (O/C)' },
-                          { value: 'strict', label: 'Strict (Both)' }
+                          { value: 'strict', label: 'Strict (Both)' },
+                          { value: 'close_range', label: 'Close > H/L (Closed)' },
+                          { value: 'close_body', label: 'Close > Body (Closed)' }
                         ])}
                       </Tooltip>
                       <Tooltip content="Is Opportunity: Signal fires on the momentum candle itself. After Opportunity: Signal must fire on the NEXT candle after momentum.">
@@ -1142,9 +1157,20 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                           { value: 'after_opportunity', label: 'After Opportunity' }
                         ])}
                       </Tooltip>
-                      <Tooltip content="Lookback: Number of previous candles to engulf. Set > 1 for 'Reverse Engulfing' where one candle swallows multiple previous opposite bars.">
-                        {renderField('Engulfing Lookback', 'engulfing_lookback', 'number', null, { min: 1, max: 10 })}
+                      <Tooltip content="Maximum search window: Number of previous candles to scan for a reversal streak.">
+                        {renderField('Search Window', 'engulfing_lookback', 'number', null, { min: 1, max: 20 })}
                       </Tooltip>
+                      <Tooltip content="Required streak: Number of consecutive reversal candles to find within the window.">
+                        {renderField('Required Streak', 'engulfing_streak', 'number', null, { min: 1, max: 10 })}
+                      </Tooltip>
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[10px] text-dim font-black tracking-widest uppercase">Sequential</label>
+                          <Tooltip content="If enabled, the reversal streak MUST be immediately adjacent to the signal candle. If disabled, finds the NEAREST streak within the window.">
+                            <Toggle value={cfg.engulfing_sequential !== false} onChange={(v) => setField('engulfing_sequential', v)} />
+                          </Tooltip>
+                        </div>
+                      </div>
                       <div className="flex flex-col gap-1.5">
                         <div className="flex justify-between items-center">
                           <label className="text-[10px] text-dim font-black tracking-widest uppercase">Vol Confirmation</label>
@@ -1301,6 +1327,44 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     </div>
                   </div>
                 </div>
+
+                <div className={cn(
+                  "p-4 border rounded-2xl flex flex-col justify-center gap-1",
+                  cfg.auto_scale_min_notional === false && cfg.risk_hardening_enabled
+                    ? "bg-red/5 border-red/20 shadow-[0_0_20px_rgba(239,68,68,0.05)]"
+                    : "bg-background/40 border-border/40",
+                  cfg.auto_scale_min_notional !== false && "opacity-40 grayscale grayscale-[50%]"
+                )}>
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] text-dim uppercase font-bold tracking-widest">Risk Hardening</span>
+                      <div className="w-1 h-1 rounded-full bg-dim/30" />
+                      <span className="text-[8px] text-red font-bold uppercase tracking-tight">Small Account Guard</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Toggle
+                        value={cfg.risk_hardening_enabled === true}
+                        onChange={(v) => setField('risk_hardening_enabled', v)}
+                        color="bg-red"
+                      />
+                      <Tooltip content="When Auto-Scaling is DISABLED, risk hardening protects small accounts from entering positions where the exchange's $5.00 minimum forces risk to exceed a safe percentage of your balance.">
+                        <ShieldCheck size={10} className="text-dim cursor-help" />
+                      </Tooltip>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2 mt-1">
+                    <div className={cn(cfg.risk_hardening_enabled ? "block" : "hidden")}>
+                      {renderField('Max Single Trade Risk (%)', 'max_single_trade_risk_pct', 'number', null, { min: 0.1, max: 100, step: 0.5 })}
+                    </div>
+                    <p className="text-[8px] text-dim/60 italic leading-tight">
+                      {cfg.auto_scale_min_notional !== false
+                        ? "Only available when Auto-Scale is OFF."
+                        : cfg.risk_hardening_enabled
+                        ? `Trades will be REJECTED if they force > ${cfg.max_single_trade_risk_pct}% account risk.`
+                        : "Account at risk of oversized exposure on small balances."}
+                    </p>
+                  </div>
+                </div>
               </div>
 
               <div className="mt-4 p-4 bg-surface/50 border border-border/40 rounded-xl space-y-3">
@@ -1378,7 +1442,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                 {renderField('Strategy Type', 'sl_type', 'text', [
                   { value: 'pct', label: 'Fixed Percentage' },
-                  {value: 'lookback_low/high', label: 'High/Low Stop' }
+                  { value: 'lookback_low/high', label: 'High/Low Stop' },
+                  { value: 'streak_extreme', label: 'Streak Extreme' }
                 ])}
                 {renderField('Out of Bounds', 'sl_out_of_bounds_action', 'text', [
                   { value: 'clamp', label: 'Clamp to Limits' },

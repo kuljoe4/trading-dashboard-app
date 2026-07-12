@@ -5,12 +5,19 @@ import { cn, CopyButton, VisuallyHidden, Tooltip } from './ui/primitives'
 import { formatDuration } from '../lib/formatters'
 import { TradeDetailContent } from './trade/TradeDetailContent'
 import { useTradingStore } from '../store/trading'
+import { RefreshCw } from 'lucide-react'
 
 export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) => {
   const [now, setNow] = useState(Date.now())
   const [isClosing, setIsClosing] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
-  const addAlert = useTradingStore(state => state.addAlert);
+  const { addAlert, isThrottled, wsStatus } = useTradingStore(state => ({
+    addAlert: state.addAlert,
+    isThrottled: state.isThrottled,
+    wsStatus: state.wsStatus
+  }));
+
+  const isResuming = isThrottled || wsStatus !== 'live';
 
   useEffect(() => {
     if (!isOpen) return
@@ -69,13 +76,21 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
                   <CopyButton value={trade.symbol} className="opacity-40 hover:opacity-100" />
                 </div>
                 <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em]">
-                  <span className={cn("px-2 py-0.5 rounded-full", isLong ? 'bg-green/10 text-green' : 'bg-red/10 text-red')}>
-                    {trade.direction}
-                  </span>
-                  <span className="text-dim/30">•</span>
-                  <span className="text-dim flex items-center gap-1.5">
-                    <Clock size={12} className="text-accent" /> {duration}
-                  </span>
+                  {isResuming ? (
+                    <span className="text-accent flex items-center gap-1.5">
+                      <RefreshCw size={12} className="animate-spin" /> Resuming Feed...
+                    </span>
+                  ) : (
+                    <>
+                      <span className={cn("px-2 py-0.5 rounded-full", isLong ? 'bg-green/10 text-green' : 'bg-red/10 text-red')}>
+                        {trade.direction}
+                      </span>
+                      <span className="text-dim/30">•</span>
+                      <span className="text-dim flex items-center gap-1.5">
+                        <Clock size={12} className="text-accent" /> {duration}
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

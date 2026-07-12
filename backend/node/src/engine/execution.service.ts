@@ -120,12 +120,24 @@ export class ExecutionService {
     }
   }
 
+  private lastBanLogTs = 0;
   async processEntries(opportunities: any[], config: SessionConfig, strategyLabel: string, onTradeUpdate?: (t: Trade, b: number) => Promise<void>) {
     const symbolConfigs = config.single_symbol_configs;
     const symbolConfigMap = (symbolConfigs && symbolConfigs.length > 0) ? new Map(symbolConfigs.map(sc => [sc.symbol, sc])) : null;
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);
 
     const now = Date.now();
+
+    // BOLT: Global Ban Guard. If the system is banned, skip processing all entries
+    // to save CPU and avoid redundant signal/risk evaluations.
+    if (!config.paper_mode && this.sessionState.isBanned()) {
+      if (now - this.lastBanLogTs > 60000) {
+        this.logger.warn(`Execution pipeline gated: Active IP ban detected. Resuming in ${Math.ceil((this.sessionState.apiStatus.banUntil! - now) / 1000)}s.`);
+        this.lastBanLogTs = now;
+      }
+      return;
+    }
+
     const maxOpportunities = Math.min(opportunities.length, config.scanner_signal_depth || 10);
 
     // BOLT: Sequential processing of opportunities ensures that RiskEngine spacing
@@ -166,7 +178,8 @@ export class ExecutionService {
 
         // "After Opportunity" timing check:
         // If timing is 'after_opportunity', the momentum event must have happened in the PREVIOUS candle.
-        if (symbolConfig.engulfing_timing === 'after_opportunity') {
+        // GATED: Only apply if engulfing is actually enabled.
+        if (symbolConfig.engulfing_timing === 'after_opportunity' && symbolConfig.enabled_signals?.includes('engulfing')) {
            const candles = this.klineStore.getRawCandles(opp.symbol, symbolConfig.scan_interval || '1m');
            if (candles.length < 2) continue;
 
@@ -186,13 +199,17 @@ export class ExecutionService {
 
         // BOLT OPTIMIZATION: Enable minimal mode (6th arg) to trigger early-return in signal engine.
         // This avoids expensive metadata/description construction during the high-frequency entry scan.
-        const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', true);
+        let signalResult = this.signalEngine.checkEntry(opp.symbol, symbolConfig, symbolConfig.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', true);
         if (!signalResult.allFired) {
           if (signalResult.reason.includes('warm-up')) {
             this.logger.debug(`${opp.symbol}: Entry blocked - ${signalResult.reason}`);
           }
           continue;
         }
+
+        // If signal fired, re-check with minimal=false to get technical details (e.g. engulfing boundaries)
+        // required for structural Stop Loss calculations and full telemetry.
+        signalResult = this.signalEngine.checkEntry(opp.symbol, symbolConfig, symbolConfig.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', false);
 
         this.monitoringService.setLoopStage('RISK_CHECK', opp.symbol);
         const activeTrades = this.positionTracker.activeList();
@@ -219,7 +236,26 @@ export class ExecutionService {
         if (!price) continue;
 
         const lookback = this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
-        const slResult = this.riskEngine.computeSl(price, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig, lookback.minLow, lookback.maxHigh, opp.symbol);
+
+        // Extract engulfing pattern details if available
+        const engulfingDetail = signalResult.details?.engulfing;
+        const patternLow = engulfingDetail?.pattern_low;
+        const patternHigh = engulfingDetail?.pattern_high;
+        const bodyLow = engulfingDetail?.body_low;
+        const bodyHigh = engulfingDetail?.body_high;
+
+        const slResult = this.riskEngine.computeSl(
+          price,
+          opp.direction.toUpperCase() as 'LONG' | 'SHORT',
+          symbolConfig,
+          lookback.minLow,
+          lookback.maxHigh,
+          opp.symbol,
+          patternLow,
+          patternHigh,
+          bodyLow,
+          bodyHigh
+        );
 
         if (slResult.rejected) {
            this.logger.log(`${opp.symbol}: Entry skipped - ${slResult.reason}`);
@@ -238,12 +274,30 @@ export class ExecutionService {
         });
         slPrice = slFiltered.price;
 
-        const qty = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig, opp.symbol);
+        const sizeResult = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig, opp.symbol);
 
-        if (qty <= 0) {
-          this.logger.debug(`${opp.symbol}: Position size is 0 after SL filtering. SL: ${slPrice}, Entry: ${price}`);
+        if (sizeResult.qty <= 0) {
+          if (sizeResult.rejected) {
+             this.logger.log(`${opp.symbol}: Entry skipped - ${sizeResult.reason}`);
+             this.broadcastService.broadcast('gate', {
+               gateState: 'risk_rejected',
+               reason: sizeResult.reason,
+               scannerPaused: false
+             });
+
+             // Telemetry for oversized risk rejections
+             this.broadcastService.broadcast('trade_event', {
+                event: 'entry_rejected',
+                symbol: opp.symbol,
+                reason: sizeResult.reason,
+                details: { balance, price, sl: slPrice }
+             });
+          } else {
+             this.logger.debug(`${opp.symbol}: Position size is 0 after SL filtering. SL: ${slPrice}, Entry: ${price}`);
+          }
           continue;
         }
+        const qty = sizeResult.qty;
         const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig);
 
         const reservedRisk = roundEight(Math.abs(price - slPrice) * qty);
@@ -296,17 +350,25 @@ export class ExecutionService {
             });
           } else {
             // Entry failed but didn't throw (e.g. ORDER_REJECTED)
-            const cooldownMinutes = 5;
             const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
-            this.entryCooldowns.set(`${mode}:${opp.symbol}`, Date.now() + cooldownMinutes * 60 * 1000);
-            this.logger.warn(`${opp.symbol}: Entry failed (${mode}) with status ${result.status}. Cooling down for ${cooldownMinutes}m. Error: ${result.error}`);
 
-            this.broadcastService.broadcast('alert', {
-              level: 'warn',
-              title: 'Entry Failed',
-              message: `${opp.symbol}: ${result.error || 'Order rejected by exchange'}. Skipping for ${cooldownMinutes}m.`,
-              symbol: opp.symbol
-            });
+            // BOLT: Only apply symbol-specific cooldown if it wasn't a global circuit breaker trip (e.g. ban/weight)
+            const isCircuitOpen = result.status === ExecutionStatus.CIRCUIT_OPEN;
+            const cooldownMinutes = isCircuitOpen ? 0 : 5;
+
+            if (cooldownMinutes > 0) {
+              this.entryCooldowns.set(`${mode}:${opp.symbol}`, Date.now() + cooldownMinutes * 60 * 1000);
+              this.logger.warn(`${opp.symbol}: Entry failed (${mode}) with status ${result.status}. Cooling down for ${cooldownMinutes}m. Error: ${result.error}`);
+
+              this.broadcastService.broadcast('alert', {
+                level: 'warn',
+                title: 'Entry Failed',
+                message: `${opp.symbol}: ${result.error || 'Order rejected by exchange'}. Skipping for ${cooldownMinutes}m.`,
+                symbol: opp.symbol
+              });
+            } else {
+              this.logger.warn(`${opp.symbol}: Entry blocked (${mode}) due to global circuit breaker (${result.status}). Error: ${result.error}`);
+            }
           }
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);

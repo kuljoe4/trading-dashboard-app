@@ -396,17 +396,12 @@ export class SessionLifecycleService {
 
           // Authoritative Quantity Sync
           if (Math.abs(trade.qty - absoluteAmount) > 0.00000001) {
-            // SRE: Race condition guard - ignore quantity decreases if we are likely in an external SL fill sequence
-            // A quantity decrease without a local 'closing' flag usually means an exchange-side order (like SL) is filling.
-            // We must wait for the authoritative ORDER_TRADE_UPDATE (FILLED) event to close the trade with the correct qty.
-            const isDecrease = absoluteAmount < trade.qty;
-            if (isDecrease && !this.positionTracker.isClosing(symbol) && !this.orderManager.isRatcheting(symbol)) {
-               this.logger.debug(`[${tradeIdShort8}] [Sync] Ignoring quantity decrease for ${symbol} (${trade.qty} -> ${absoluteAmount}) - likely external SL fill.`);
-            } else {
-               this.logger.log(`[${tradeIdShort8}] [Sync] Updating quantity from ACCOUNT_UPDATE for ${symbol}: ${trade.qty} -> ${absoluteAmount}`);
-               trade.qty = absoluteAmount;
-               this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: absoluteAmount });
-            }
+            // CHRONOS: Authoritative sync is mandatory.
+            // We no longer ignore quantity decreases outside of 'closing' state,
+            // as this creates ghost positions when users manually reduce positions on exchange.
+            this.logger.log(`[${tradeIdShort8}] [Sync] Updating quantity from ACCOUNT_UPDATE for ${symbol}: ${trade.qty} -> ${absoluteAmount}`);
+            trade.qty = absoluteAmount;
+            this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: absoluteAmount });
           }
         }
 
@@ -437,6 +432,9 @@ export class SessionLifecycleService {
 
   public async startUserDataStream(bc: any, isReconnect = false, isTransition = false) {
     if (!bc || !this.running) return;
+
+    // SRE: Immunity check. If we are currently banned, don't try to start UDS
+    if (this.sessionState.isBanned()) return;
 
     if (this.isUdsStarting) {
       this.logger.debug('[UDS] Connection attempt already in progress. Skipping.');
@@ -633,8 +631,15 @@ export class SessionLifecycleService {
         try {
           this.monitoringService.incrementApiRequests();
           await bc.restAPI.keepaliveUserDataStream();
-        } catch (err) {
-            this.logger.debug(`Error keeping alive user data stream: ${err instanceof Error ? err.message : String(err)}`);
+        } catch (err: any) {
+            const msg = err.message || '';
+            // BOLT: Suppress "IP banned" errors during keepalive as they are expected during a ban
+            // and handled by the centralized request queue.
+            if (msg.includes('IP banned')) {
+               this.logger.debug(`Keepalive suppressed during active IP ban.`);
+            } else {
+               this.logger.debug(`Error keeping alive user data stream: ${msg}`);
+            }
         }
       }, ENGINE_CONSTANTS.USER_DATA_KEEPALIVE_MS);
     } catch (e) {

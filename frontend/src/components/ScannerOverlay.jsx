@@ -4,7 +4,7 @@ import { formatDuration } from '../lib/formatters'
 import { PulseDot, Sparkline, cn, CopyButton, Tooltip, CandlestickChart } from './ui/primitives'
 import { SignalGauge } from './ui/SignalGauge'
 import { useTradingStore } from '../store/trading'
-import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert } from 'lucide-react'
+import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert, RefreshCw } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { shallow } from 'zustand/shallow'
 
@@ -27,7 +27,118 @@ const FreshnessIndicator = React.memo(({ ts }) => {
 });
 FreshnessIndicator.displayName = 'FreshnessIndicator';
 
-const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scannerPaused, hibernating, hibernationMode, lastScanTs }) => {
+const ActiveWindowsList = React.memo(({ windows }) => {
+  if (!windows || windows.length === 0) return (
+    <div className="h-0 p-0 opacity-0 border-none transition-all duration-300" />
+  );
+
+  return (
+    <div className="bg-accent/5 border-b border-border overflow-x-auto no-scrollbar shrink-0 transition-all duration-300 ease-in-out h-[42px] p-2.5 opacity-100">
+      <div className="flex gap-4">
+        {windows.map((window) => (
+          <div key={window.symbol} className="flex items-center gap-1.5 px-2 py-1 bg-surface border border-border rounded whitespace-nowrap h-[26px]">
+            <strong className={cn("text-[11px] font-mono", window.direction === 'long' ? "text-green" : "text-red")}>
+              {window.symbol}
+            </strong>
+            <span className="text-[10px] text-dim font-mono">{Math.round(window.remaining_ms / 1000)}s</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});
+ActiveWindowsList.displayName = 'ActiveWindowsList';
+
+const ScanStatus = React.memo(({ lastScanTs, intervalSec = 5, isUpdating }) => {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const scanAge = lastScanTs > 0 ? Math.max(0, now - lastScanTs) : null;
+  const nextSlotSec = Math.max(0, intervalSec - Math.floor((scanAge || 0) / 1000));
+
+  return (
+    <div className="flex items-center gap-2.5 mt-1">
+      {lastScanTs > 0 && (
+        <>
+          <div className="flex items-center gap-1.5">
+            <Clock size={10} className="text-dim/40" />
+            <span className={cn(
+              "text-[9px] text-dim font-bold uppercase tracking-wider transition-colors duration-500",
+              scanAge < 5000 && "text-green"
+            )}>
+              {scanAge < 2000 ? 'Just now' : `${formatDuration(scanAge)} ago`}
+            </span>
+          </div>
+          <div className="w-1 h-1 rounded-full bg-border/40" />
+          <div className="flex items-center gap-1.5">
+            <RefreshCw size={10} className={cn("text-dim/40", nextSlotSec <= 1 && "animate-spin text-accent/60")} />
+            <span className={cn(
+              "text-[9px] font-black uppercase tracking-widest tabular-nums",
+              nextSlotSec <= 1 ? "text-accent" : "text-dim/60"
+            )}>
+              Next slot: {nextSlotSec} sec
+            </span>
+          </div>
+          {isUpdating && <div className="w-1 h-1 rounded-full bg-green animate-ping" />}
+        </>
+      )}
+    </div>
+  );
+});
+ScanStatus.displayName = 'ScanStatus';
+
+
+const buildAuthoritativeMarkers = (ohlc = [], signalResult = {}) => {
+  if (!Array.isArray(ohlc) || !signalResult) return [];
+  const engulfing = signalResult.details?.engulfing;
+  if (!engulfing || engulfing.streak_start_ts === undefined) return [];
+
+  const markers = [];
+  const startTs = engulfing.streak_start_ts;
+  const endTs = engulfing.streak_end_ts;
+
+  let sCount = 1;
+  ohlc.forEach((candle, idx) => {
+    const ts = candle.time || candle.t;
+    if (ts >= startTs && ts <= endTs) {
+      markers.push({ index: idx, label: `S${sCount++}`, color: '#64748b' });
+    }
+  });
+
+  if (signalResult.fired) {
+     const signalCandleTs = engulfing.unit === 'price' ? ohlc[ohlc.length - 2]?.time : ohlc[ohlc.length - 1]?.time;
+     const sigIdx = ohlc.findIndex(c => (c.time || c.t) === signalCandleTs);
+     if (sigIdx !== -1) {
+        markers.push({ index: sigIdx, label: 'CONF', color: '#00e5a0' });
+     }
+  }
+
+  return markers;
+};
+
+const FunnelStep = React.memo(({ label, detail, complete, icon: Icon }) => (
+  <div className={cn(
+    "relative flex items-start gap-3 rounded-2xl border p-3 transition-colors",
+    complete ? "bg-green/5 border-green/20" : "bg-background/30 border-border/70"
+  )}>
+    <div className={cn(
+      "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border",
+      complete ? "bg-green/10 border-green/30 text-green" : "bg-surface border-border text-dim"
+    )}>
+      <Icon size={15} />
+    </div>
+    <div className="min-w-0">
+      <div className="text-[10px] font-black uppercase tracking-[0.18em] text-text/90">{label}</div>
+      <div className="mt-1 text-[10px] font-semibold leading-snug text-dim">{detail}</div>
+    </div>
+  </div>
+));
+
+const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scannerPaused, hibernating, hibernationMode }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const threshold = config?.scan_pct_threshold || 2.0;
@@ -56,13 +167,39 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
 
   const signalStatus = opp.signalResult || {};
   const checklistSignals = opp.signalResult?.signals || {};
+  const engulfingEnabled = (config?.enabled_signals || []).includes('engulfing');
+  const decisionMarkers = engulfingEnabled ? buildAuthoritativeMarkers(opp.ohlc_history, signalStatus) : [];
+  const engulfSignal = checklistSignals.engulfing;
+
+  // BOLT: Determine the prospective Stop Loss price for visualization on the chart.
+  // Prioritizes structural streak extremes if configured, falls back to pct-based distance.
+  const chartSl = useMemo(() => {
+    if (config?.sl_type === 'streak_extreme' || config?.sl_type === 'engulfing_boundary') {
+       return engulfSignal?.slPrice || (isLong ? engulfSignal?.pattern_low : engulfSignal?.pattern_high);
+    }
+    if (config?.sl_type === 'lookback_low/high') {
+       return checklistSignals.breakout_hl?.slPrice;
+    }
+    if (config?.sl_type === 'pct') {
+       const dist = opp.price * ((config.sl_distance_pct || 0.8) / 100);
+       return isLong ? opp.price - dist : opp.price + dist;
+    }
+    return null;
+  }, [config, opp.price, isLong, engulfSignal, checklistSignals.breakout_hl]);
+
+  const closeEngulfEnabled = engulfingEnabled && config?.signal_params?.engulfing_mode?.startsWith('close');
+  const funnelSteps = [
+    { label: 'Momentum Scan', detail: `${Number(Math.abs(opp.pct || 0)).toFixed(2)}% move vs ${Number(threshold || 0).toFixed(2)}% threshold`, complete: passing, icon: TrendingUp },
+    { label: 'Signal Context', detail: closeEngulfEnabled ? `Last closed candle close must clear ${config?.engulfing_lookback || 2} reverse candle ${isLong ? 'highs' : 'lows'}.` : 'Uses configured technical entry signals.', complete: closeEngulfEnabled ? !!engulfSignal?.fired : !!opp.signalResult?.allFired, icon: Activity },
+    { label: 'Authorization', detail: opp.signalResult?.reason || 'Waiting for signal engine decision.', complete: !!opp.signalResult?.allFired, icon: ShieldCheck },
+  ];
 
   // DEBUG: Track telemetry presence in expanded state to identify synchronization gaps
   useEffect(() => {
     if (config?.debug_mode && isExpanded && (!opp.ohlc_history || opp.ohlc_history.length === 0)) {
-      console.warn(`[Scanner Debug] Expanded ${opp.symbol} has no telemetry. Gated: ${scannerPaused}, Hibernating: ${hibernating}, LastScan: ${lastScanTs}`);
+      console.warn(`[Scanner Debug] Expanded ${opp.symbol} has no telemetry. Gated: ${scannerPaused}, Hibernating: ${hibernating}`);
     }
-  }, [isExpanded, opp.symbol, opp.ohlc_history, scannerPaused, hibernating, lastScanTs, config?.debug_mode]);
+  }, [isExpanded, opp.symbol, opp.ohlc_history, scannerPaused, hibernating, config?.debug_mode]);
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
@@ -102,7 +239,7 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
              <CopyButton value={opp.symbol} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ml-1" />
            </div>
            <div className="flex items-center gap-1.5 mt-0.5">
-            {activeTrades.some(t => t.symbol === opp.symbol) && (
+            {isInPosition && (
               <div className="flex items-center gap-1">
                  <Zap size={10} className="text-green fill-green/20" />
                  <span className="text-[8px] font-bold text-green uppercase tracking-tighter">In Pos</span>
@@ -180,10 +317,10 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                 <span className="text-[7px] text-dim font-black uppercase tracking-widest leading-none">Prox</span>
              </div>
           </div>
-          <span className={cn("px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter border min-w-[70px] text-center transition-colors", status.color)}>
+          <span className={cn("px-1.5 md:px-2 py-0.5 rounded text-[8px] md:text-[9px] font-black uppercase tracking-tighter border min-w-[60px] md:min-w-[70px] text-center transition-colors", status.color)}>
             {status.label}
           </span>
-          <div className="hidden md:block opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+          <div className="hidden md:block opacity-0 group-hover:opacity-100 transition-opacity ml-1 md:ml-2">
              {isExpanded ? <ChevronUp size={12} className="text-dim" /> : <ChevronDown size={12} className="text-dim" />}
           </div>
         </div>
@@ -199,12 +336,12 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
               opp.score > 85 && "bg-accent/[0.03] border-l-2 border-accent/40 shadow-[inset_10px_0_20px_-10px_rgba(91,111,255,0.1)]"
             )}
           >
-            <div className="bg-white/5 border-b border-white/5 px-6 py-2.5 flex items-center justify-between">
-               <div className="flex items-center gap-3">
-                 <div className={cn("px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border shadow-sm", status.color)}>
+            <div className="bg-white/5 border-b border-white/5 px-4 md:px-6 py-2.5 flex items-center justify-between gap-3">
+               <div className="flex items-center gap-2 md:gap-3 min-w-0">
+                 <div className={cn("px-2 py-0.5 md:px-2.5 md:py-1 rounded-full text-[8px] md:text-[10px] font-black uppercase tracking-widest border shadow-sm shrink-0", status.color)}>
                    {status.label}
                  </div>
-                 <span className="text-[11px] text-dim font-medium italic opacity-80">{summarySentence}</span>
+                 <span className="text-[10px] md:text-[11px] text-dim font-medium italic opacity-80 truncate">{summarySentence}</span>
                </div>
                {opp.score > 85 && (
                  <div className="flex items-center gap-2">
@@ -219,31 +356,33 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                 <div className="text-[10px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-2 px-1">
                    <Activity size={12} className="text-accent" /> Timeline & Overlays
                 </div>
-                <div className="bg-surface/50 border border-border rounded-2xl p-5 flex items-center justify-center min-h-[300px] relative overflow-hidden group/viz">
+                <div className="bg-surface/50 border border-border rounded-2xl p-4 md:p-5 flex items-center justify-center min-h-[260px] md:min-h-[300px] relative overflow-hidden group/viz">
                    <div className="absolute inset-0 opacity-[0.03] pointer-events-none group-hover/viz:opacity-[0.05] transition-opacity" style={{ backgroundImage: 'radial-gradient(var(--color-accent) 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
                    {Array.isArray(opp.ohlc_history) && opp.ohlc_history.length >= 2 ? (
                      <div className="w-full flex flex-col items-center relative z-10">
                         <CandlestickChart
                           data={opp.ohlc_history}
-                          height={200}
+                          height={180}
                           threshold={threshold}
                           isLong={isLong}
                           entryPrice={opp.price}
                           signals={opp.ohlc_history.filter(d => signalStatus.firedSignals?.includes(d.time))}
+                          decisionMarkers={decisionMarkers}
+                          slPrice={chartSl}
                         />
-                        <div className="flex justify-between w-full mt-6 px-2">
+                        <div className="flex justify-between w-full mt-4 md:mt-6 px-1 md:px-2">
                            <div className="flex flex-col">
-                              <span className="text-[9px] text-dim uppercase font-black tracking-widest mb-1">Entry Level</span>
-                              <span className="text-sm font-mono font-black text-text/90">${opp.price.toLocaleString()}</span>
+                              <span className="text-[8px] md:text-[9px] text-dim uppercase font-black tracking-widest mb-0.5 md:mb-1">Entry Level</span>
+                              <span className="text-xs md:text-sm font-mono font-black text-text/90">${opp.price.toLocaleString()}</span>
                            </div>
-                           <div className="flex items-center gap-6">
+                           <div className="flex items-center gap-3 md:gap-6">
                               <div className="flex flex-col items-end">
-                                <span className="text-[9px] text-dim uppercase font-black tracking-widest mb-1">Threshold</span>
-                                <span className="text-sm font-mono font-black text-amber">${(opp.price * (1 + (isLong ? threshold : -threshold) / 100)).toLocaleString()}</span>
+                                <span className="text-[8px] md:text-[9px] text-dim uppercase font-black tracking-widest mb-0.5 md:mb-1">Threshold</span>
+                                <span className="text-xs md:text-sm font-mono font-black text-amber">${(opp.price * (1 + (isLong ? threshold : -threshold) / 100)).toLocaleString()}</span>
                               </div>
                               <div className="flex flex-col items-end">
-                                <span className="text-[9px] text-dim uppercase font-black tracking-widest mb-1">Delta</span>
-                                <span className={cn("text-sm font-mono font-black", isLong ? "text-green" : "text-red")}>
+                                <span className="text-[8px] md:text-[9px] text-dim uppercase font-black tracking-widest mb-0.5 md:mb-1">Delta</span>
+                                <span className={cn("text-xs md:text-sm font-mono font-black", isLong ? "text-green" : "text-red")}>
                                   {isLong ? "▲" : "▼"} {Number(Math.abs(opp.pct || 0)).toFixed(2)}%
                                 </span>
                               </div>
@@ -275,20 +414,20 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                  <div className="text-[10px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-2 px-1">
                    <LayoutGrid size={12} className="text-accent" /> Decision Funnel
                  </div>
-                 <div className="bg-surface/50 border border-border rounded-2xl p-6 flex flex-col gap-6 relative overflow-hidden group/scoring shadow-sm">
+                 <div className="bg-surface/50 border border-border rounded-2xl p-4 md:p-6 flex flex-col gap-4 md:gap-6 relative overflow-hidden group/scoring shadow-sm">
                     {/* Score Bars Section */}
-                    <div className="grid grid-cols-3 gap-4 pb-6 border-b border-white/5">
+                    <div className="grid grid-cols-3 gap-3 md:gap-4 pb-4 md:pb-6 border-b border-white/5">
                        {[
                          { label: 'Momentum', value: opp.score_breakdown?.momentum, color: 'bg-accent', text: 'text-accent' },
                          { label: 'Volatility', value: opp.score_breakdown?.volatility, color: 'bg-amber', text: 'text-amber' },
                          { label: 'Trend', value: opp.score_breakdown?.trend, color: 'bg-purple-400', text: 'text-purple-400' }
                        ].map((metric) => (
-                        <div key={metric.label} className="space-y-1.5">
-                          <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest">
-                             <span className="text-dim/80">{metric.label}</span>
+                        <div key={metric.label} className="space-y-1 md:space-y-1.5">
+                          <div className="flex justify-between items-center text-[8px] md:text-[9px] font-black uppercase tracking-widest">
+                             <span className="text-dim/80 truncate mr-1">{metric.label}</span>
                              <span className={cn(metric.text)}>{Number(metric.value || 0).toFixed(0)}%</span>
                           </div>
-                          <div className="h-1.5 bg-background/80 rounded-full overflow-hidden border border-white/5">
+                          <div className="h-1 md:h-1.5 bg-background/80 rounded-full overflow-hidden border border-white/5">
                              <motion.div
                                initial={{ width: 0 }}
                                animate={{ width: `${metric.value || 0}%` }}
@@ -297,6 +436,13 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                           </div>
                         </div>
                        ))}
+                    </div>
+
+                    {/* Decision path */}
+                    <div className="grid grid-cols-1 gap-3">
+                      {funnelSteps.map((step) => (
+                        <FunnelStep key={step.label} {...step} />
+                      ))}
                     </div>
 
                     {/* Signal Checklist */}
@@ -340,13 +486,13 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                     </div>
 
                     {/* Final Verdict */}
-                    <div className="mt-auto pt-6 border-t border-white/5 flex items-center justify-between">
+                    <div className="mt-auto pt-4 md:pt-6 border-t border-white/5 flex items-center justify-between gap-4">
                        <div className="flex items-center gap-4">
                           <div className={cn(
-                            "w-12 h-12 rounded-2xl flex items-center justify-center border transition-transform duration-500",
+                            "w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl flex items-center justify-center border transition-transform duration-500 shrink-0",
                             opp.signalResult?.allFired ? "bg-green text-white border-green/30" : "bg-red text-white border-red/30"
                           )}>
-                            {opp.signalResult?.allFired ? <CheckCircle2 size={24} /> : <AlertCircle size={24} />}
+                            {opp.signalResult?.allFired ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
                           </div>
                           <div className="flex flex-col gap-0.5">
                              <div className="text-[13px] font-black uppercase tracking-tight">
@@ -359,7 +505,7 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
                              )}
                           </div>
                        </div>
-                       <div className="flex flex-col items-end">
+                       <div className="flex flex-col items-end shrink-0">
                           <div className="flex items-center gap-2 mb-1">
                              <span className="text-[9px] text-dim font-black uppercase tracking-[0.2em]">Composite Score</span>
                              <FreshnessIndicator ts={opp.lastUpdate} />
@@ -383,30 +529,32 @@ const ScannerRow = React.memo(({ opp, i, config, activeTrades, isMonitored, scan
 });
 
 export const ScannerOverlay = React.memo(({ onClose }) => {
-  const { scannerResults, activeWindows, config, scannerPaused, gateState, lastScanTs, hibernating, hibernationMode, activeTrades } = useTradingStore(state => ({
+  const { scannerResults, activeWindows, config, scannerPaused, lastScanTs, hibernating, hibernationMode, activeTrades, isResuming } = useTradingStore(state => ({
     scannerResults: state.scannerResults,
     activeWindows: state.activeWindows,
     config: state.config,
     scannerPaused: state.scannerPaused,
-    gateState: state.gateState,
     lastScanTs: state.lastScanTs,
     hibernating: state.hibernating,
     hibernationMode: state.hibernationMode,
-    activeTrades: state.activeTrades
+    activeTrades: state.activeTrades,
+    isResuming: state.isThrottled || state.wsStatus !== 'live' || state.isSyncingOnResume
   }), shallow)
+
+  const activeTradeSymbols = useMemo(() => new Set(activeTrades.map(t => t.symbol)), [activeTrades])
   const threshold = config.scan_pct_threshold || 2.0
   const [search, setSearch] = useState('')
   const lastUpdateRef = useRef(lastScanTs)
 
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [])
-
-  const scanAge = lastScanTs > 0 ? Math.max(0, now - lastScanTs) : null
   const isUpdating = lastScanTs !== lastUpdateRef.current
   if (isUpdating) lastUpdateRef.current = lastScanTs
+
+  // UX-MOBILE: Ensure search input is visible when focused
+  const handleInputFocus = React.useCallback((e) => {
+    requestAnimationFrame(() => {
+      e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, []);
 
   const filteredResults = useMemo(() => {
     const results = Array.isArray(scannerResults) ? scannerResults.filter(Boolean) : []
@@ -439,13 +587,16 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
           <div className="flex flex-col">
             <div className="flex items-center gap-2.5">
               <div className="relative flex items-center justify-center w-5 h-5">
-                 <PulseDot color={hibernating ? (hibernationMode === 'light' ? "bg-accent" : "bg-amber") : scannerPaused ? "bg-red" : "bg-green"} />
-                 {!hibernating && !scannerPaused && (
+                 <PulseDot color={isResuming ? "bg-accent" : hibernating ? (hibernationMode === 'light' ? "bg-accent" : "bg-amber") : scannerPaused ? "bg-red" : "bg-green"} />
+                 {!hibernating && !scannerPaused && !isResuming && (
                    <span className="absolute inset-0 rounded-full border border-green animate-ping opacity-20 scale-150" />
+                 )}
+                 {isResuming && (
+                   <span className="absolute inset-0 rounded-full border border-accent animate-ping opacity-20 scale-150" />
                  )}
               </div>
                 <div className="flex flex-col">
-                  <span className="text-[15px] font-black tracking-tight hidden sm:inline uppercase">Live Scanner</span>
+                  <span className="text-[15px] font-black tracking-tight hidden sm:inline uppercase">{isResuming ? 'Resuming Feed...' : 'Live Scanner'}</span>
                   <div className="flex items-center gap-2 opacity-60">
                     <div className="text-[8px] text-dim font-black uppercase tracking-tighter">Engine Logic Weighting</div>
                     <div className="px-1.5 py-0.5 rounded bg-background border border-border/50 font-mono text-[8px] font-bold text-text/60">
@@ -454,7 +605,12 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                   </div>
                 </div>
                 <div className="h-8 w-px bg-border/40 hidden sm:block mx-1" />
-              {hibernating ? (
+              {isResuming ? (
+                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-accent/10 border border-accent/20 shadow-lg shadow-accent/5">
+                  <RefreshCw size={10} className="text-accent animate-spin" />
+                  <span className="text-[9px] text-accent font-black uppercase tracking-widest">Resuming</span>
+                </div>
+              ) : hibernating ? (
                 <div className={cn(
                   "flex items-center gap-1.5 px-2 py-0.5 rounded-full border shadow-lg",
                   hibernationMode === 'light' ? "bg-accent/10 border-accent/20 shadow-accent/5" : "bg-amber/10 border-amber/20 shadow-amber/5"
@@ -476,18 +632,11 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                 </div>
               )}
             </div>
-            {lastScanTs > 0 && (
-              <div className="flex items-center gap-2 mt-1">
-                <Clock size={10} className="text-dim/40" />
-                <span className={cn(
-                  "text-[9px] text-dim font-bold uppercase tracking-wider transition-colors duration-500",
-                  scanAge < 5000 && "text-green"
-                )}>
-                  {scanAge < 2000 ? 'Just now' : `${formatDuration(scanAge)} ago`}
-                </span>
-                {isUpdating && <div className="w-1 h-1 rounded-full bg-green animate-ping" />}
-              </div>
-            )}
+            <ScanStatus
+              lastScanTs={lastScanTs}
+              intervalSec={config.scan_check_interval_sec || 5}
+              isUpdating={isUpdating}
+            />
           </div>
         </div>
 
@@ -500,6 +649,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
               placeholder="Search symbols... [/]"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              onFocus={handleInputFocus}
               onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
               className="w-full bg-background border border-border rounded-xl pl-9 pr-8 py-1.5 text-[11px] font-bold focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none transition-all"
               aria-label="Filter scanner symbols"
@@ -524,21 +674,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
         </div>
       </div>
 
-      <div className={cn(
-        "bg-accent/5 border-b border-border overflow-x-auto no-scrollbar shrink-0 transition-all duration-300 ease-in-out",
-        filteredWindows.length > 0 ? "h-[42px] p-2.5 opacity-100" : "h-0 p-0 opacity-0 border-none"
-      )}>
-        <div className="flex gap-4">
-          {filteredWindows.map((window) => (
-            <div key={window.symbol} className="flex items-center gap-1.5 px-2 py-1 bg-surface border border-border rounded whitespace-nowrap h-[26px]">
-              <strong className={cn("text-[11px] font-mono", window.direction === 'long' ? "text-green" : "text-red")}>
-                {window.symbol}
-              </strong>
-              <span className="text-[10px] text-dim font-mono">{Math.round(window.remaining_ms / 1000)}s</span>
-            </div>
-          ))}
-        </div>
-      </div>
+      <ActiveWindowsList windows={filteredWindows} />
 
       <div className="grid grid-cols-[30px_100px_1fr_60px_1fr_1fr_50px] items-center px-4 py-2 text-[10px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase h-[36px] shrink-0 md:grid hidden">
         <span>#</span>
@@ -602,12 +738,11 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
               opp={opp}
               i={i}
               config={config}
-              activeTrades={activeTrades}
+              isInPosition={activeTradeSymbols.has(opp.symbol)}
               isMonitored={monitoredSymbols.has(opp.symbol)}
               scannerPaused={scannerPaused}
               hibernating={hibernating}
               hibernationMode={hibernationMode}
-              lastScanTs={lastScanTs}
             />
           ))
         )}

@@ -21,7 +21,7 @@ import { lazyWithRetry } from '../lib/lazy'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 
 const TemporalRiskGrid = React.memo(() => {
-  const { config, gateState, gateReason, isAdaptiveTightened, configSyncing, patchConfig, tradesInPeriod, maxTradesPeriod, tradesIn24h, maxTrades24h, effectivePeriodMs } = useTradingStore(state => ({
+  const { config, gateState, gateReason, isAdaptiveTightened, configSyncing, patchConfig, tradesInPeriod, maxTradesPeriod, tradesIn24h, maxTrades24h, effectivePeriodMs, nextSlotTs } = useTradingStore(state => ({
     config: state.config,
     gateState: state.gateState,
     gateReason: state.gateReason,
@@ -32,17 +32,27 @@ const TemporalRiskGrid = React.memo(() => {
     maxTradesPeriod: state.maxTradesPeriod,
     tradesIn24h: state.tradesIn24h,
     maxTrades24h: state.maxTrades24h,
-    effectivePeriodMs: state.effectivePeriodMs
+    effectivePeriodMs: state.effectivePeriodMs,
+    nextSlotTs: state.nextSlotTs
   }), shallow);
 
-  const timeMatch = gateReason?.match(/~(\d+)(m|h)/);
-  const waitTime = timeMatch ? `${timeMatch[1]}${timeMatch[2]}` : null;
+  const [now, setNow] = React.useState(Date.now());
+  React.useEffect(() => {
+    if (!nextSlotTs) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [nextSlotTs]);
+
+  const nextSlotSec = nextSlotTs ? Math.max(0, Math.ceil((nextSlotTs - now) / 1000)) : null;
+  const waitTime = nextSlotSec !== null
+    ? (nextSlotSec > 60 ? `${Math.ceil(nextSlotSec / 60)}m` : `${nextSlotSec}s`)
+    : null;
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4 mb-8 lg:mb-10">
       <InteractiveLimitCard
         label="Period Limit"
-        subValue={gateState === 'max_trades_period' ? `Wait ~${waitTime}` : (isAdaptiveTightened ? 'x0.5 Applied' : (tradesInPeriod !== undefined ? `${Math.max(0, (maxTradesPeriod || config.max_trades_per_period) - tradesInPeriod)} Remaining` : null))}
+        subValue={gateState === 'max_trades_period' ? (waitTime ? `Wait ~${waitTime}` : 'Wait...') : (isAdaptiveTightened ? 'x0.5 Applied' : (tradesInPeriod !== undefined ? `${Math.max(0, (maxTradesPeriod || config.max_trades_per_period) - tradesInPeriod)} Remaining` : null))}
         tooltip="Maximum trades allowed within the sliding period window."
         value={config.max_trades_per_period || 0}
         min={0}
@@ -199,7 +209,7 @@ const BanBanner = ({ apiStatus }) => {
 };
 
 // --- Strategy Card ---
-const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner, isMonitored, className }) => {
+const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner, isMonitored, className, isResuming }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
@@ -235,10 +245,17 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
         className
       )}
     >
-      {paused && (
+      {paused && !isResuming && (
         <div className="absolute inset-0 bg-background/40 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
           <div className="bg-amber/10 border border-amber/20 text-amber px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-2xl">
             <Pause size={12} fill="currentColor" /> Session Paused
+          </div>
+        </div>
+      )}
+      {isResuming && (
+        <div className="absolute inset-0 bg-background/40 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
+          <div className="bg-accent/10 border border-accent/20 text-accent px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-2xl">
+            <RefreshCw size={12} className="animate-spin" /> Resuming Feed...
           </div>
         </div>
       )}
@@ -361,12 +378,21 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
   );
 })
 
-const GateBanner = React.memo(({ gateState, scannerPaused, reason, hibernating, hibernationMode, activeTradesCount }) => {
-  if (!gateState && !scannerPaused) return null
+const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, hibernating, hibernationMode, activeTradesCount, isResuming }) => {
+  if (!gateState && !scannerPaused && !isResuming) return null
+
+  const [now, setNow] = React.useState(Date.now());
+  React.useEffect(() => {
+    if (gateState !== 'max_trades_period' || !nextSlotTs) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [gateState, nextSlotTs]);
+
+  const nextSlotSec = nextSlotTs ? Math.max(0, Math.ceil((nextSlotTs - now) / 1000)) : null;
 
   const messages = {
     max_trades: 'Maximum open trades reached. Entry gated.',
-    max_trades_period: 'Maximum trades for the current period reached. Scanner paused.',
+    max_trades_period: nextSlotSec !== null ? `Maximum trades for the current period reached. Next slot: ${nextSlotSec} sec.` : 'Maximum trades for the current period reached. Scanner paused.',
     sl_guard: 'Session Stop-Loss Guard reached. All entries blocked.',
     risk_pct: 'Total risk limit reached. Entries restricted.',
     tod_risk: 'Historical performance risk for this hour. Entries blocked.',
@@ -382,14 +408,15 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, hibernating, 
       animate={{ opacity: 1, y: 0 }}
       className={cn(
         "p-4 rounded-xl mb-6 text-xs font-bold border flex flex-col gap-2 shadow-sm transition-colors",
+        isResuming ? "bg-accent/10 border-accent/30 text-accent" :
         scannerPaused ? "bg-red/10 border-red/20 text-red" : "bg-amber/10 border-amber/20 text-amber",
-        (hibernating || isGatedIdle) && "bg-accent/5 border-accent/20 text-accent/80"
+        (!isResuming && (hibernating || isGatedIdle)) && "bg-accent/5 border-accent/20 text-accent/80"
       )}
     >
       <div className="flex items-center gap-3">
-        {hibernating ? <Zap size={16} className={cn("animate-pulse opacity-50", hibernationMode === 'light' ? "text-accent" : "text-amber")} /> : gateState === 'sleeping' ? <Pause size={16} className="animate-pulse" /> : <XCircle size={16} className={scannerPaused ? "animate-pulse" : ""} />}
+        {isResuming ? <RefreshCw size={16} className="animate-spin" /> : hibernating ? <Zap size={16} className={cn("animate-pulse opacity-50", hibernationMode === 'light' ? "text-accent" : "text-amber")} /> : gateState === 'sleeping' ? <Pause size={16} className="animate-pulse" /> : <XCircle size={16} className={scannerPaused ? "animate-pulse" : ""} />}
         <span className="uppercase tracking-widest">
-          {hibernating ? (hibernationMode === 'light' ? 'Light Sleep Active' : 'Deep Sleep Active') : (messages[gateState] || 'Risk gate active.')}
+          {isResuming ? 'Resuming Data Feed...' : hibernating ? (hibernationMode === 'light' ? 'Light Sleep Active' : 'Deep Sleep Active') : (messages[gateState] || 'Risk gate active.')}
         </span>
         {hibernating ? (
           <div
@@ -534,7 +561,8 @@ export function DashboardView({ initialStrategy }) {
     scannerPaused, sessionList, fetchSessions, wsStatus,
     updateStats, analytics,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
-    healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs
+    healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs, isSyncingOnResume,
+    nextSlotTs
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -574,7 +602,9 @@ export function DashboardView({ initialStrategy }) {
     isAdaptiveTightened: state.isAdaptiveTightened,
     apiStatus: state.apiStatus,
     analytics: state.analytics,
-    effectivePeriodMs: state.effectivePeriodMs
+    effectivePeriodMs: state.effectivePeriodMs,
+    isSyncingOnResume: state.isSyncingOnResume,
+    nextSlotTs: state.nextSlotTs
   }), shallow)
 
   useEffect(() => {
@@ -810,6 +840,8 @@ export function DashboardView({ initialStrategy }) {
 
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
+  const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
+
   return (
     <div className={cn(
       "min-h-screen transition-all duration-300 relative",
@@ -991,9 +1023,11 @@ export function DashboardView({ initialStrategy }) {
             gateState={gateState}
             scannerPaused={scannerPaused}
             reason={gateReason}
+            nextSlotTs={nextSlotTs}
             hibernating={hibernating}
             hibernationMode={hibernationMode}
             activeTradesCount={activeTrades.length}
+            isResuming={isResuming}
           />
         </div>
 
@@ -1014,7 +1048,7 @@ export function DashboardView({ initialStrategy }) {
                 value={fmtUSD(totalActivePnl)}
                 color={pnlClass(totalActivePnl)}
                 subValue={`Total: ${fmtUSD(totalPnl)}`}
-                syncing={wsStatus !== 'live'}
+                syncing={isResuming}
                 tooltipText="Current P&L from open trades vs. total session performance."
               />
               <StatCard
@@ -1203,6 +1237,7 @@ export function DashboardView({ initialStrategy }) {
                             onClick={handleSelectPrimary}
                             isMonitored={monitoredSymbolsSet.has(currentStrategy.strategy_label)}
                             className={cn(totalCards % 2 !== 0 && "md:col-span-2")}
+                            isResuming={isThrottled || wsStatus !== 'live'}
                           />
                           {activeVariants.map((variant, i) => {
                             const label = variant.strategy_label || `Variant ${i + 1}`;
@@ -1224,6 +1259,7 @@ export function DashboardView({ initialStrategy }) {
                                 onEdit={handleEditVariant}
                                 onClick={handleSelectVariant}
                                 isMonitored={monitoredSymbolsSet.has(label)}
+                                isResuming={isThrottled || wsStatus !== 'live'}
                               />
                             );
                           })}
@@ -1330,10 +1366,10 @@ export function DashboardView({ initialStrategy }) {
           </Drawer.Portal>
         </Drawer.Root>
 
-        <Drawer.Root open={showScanner} onOpenChange={setShowScanner}>
+        <Drawer.Root open={showScanner} onOpenChange={setShowScanner} repositionInputs={false}>
           <Drawer.Portal>
             <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
-            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4svh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto h-[96svh]">
+            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4dvh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto h-auto">
               <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
                 <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
                 <VisuallyHidden>

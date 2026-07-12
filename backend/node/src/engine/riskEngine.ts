@@ -97,6 +97,7 @@ export class RiskEngineService {
     mostRecentTradeTs?: number;
     oldestTradeIn24hTs?: number;
     oldestTradeInPeriodTs?: number;
+    nextSlotTs?: number;
     effectivePeriodMs?: number;
     jitterFactor?: number;
   } {
@@ -368,6 +369,7 @@ export class RiskEngineService {
         mostRecentTradeTs,
         oldestTradeIn24hTs,
         oldestTradeInPeriodTs,
+        nextSlotTs: oldestTradeInPeriodTs + effectivePeriodMs,
         effectivePeriodMs,
         jitterFactor
       };
@@ -375,7 +377,8 @@ export class RiskEngineService {
 
     // 3. Rolling 24h Limit
     if (maxTrades24h > 0 && tradesIn24h >= maxTrades24h) {
-      const nextSlotMs = oldestTradeIn24hTs + (24 * 60 * 60 * 1000) - now;
+      const nextSlotTs = oldestTradeIn24hTs + (24 * 60 * 60 * 1000);
+      const nextSlotMs = nextSlotTs - now;
       const nextSlotHours = Number(nextSlotMs / (60 * 60 * 1000)).toFixed(1);
       return {
         canEnter: false,
@@ -388,6 +391,7 @@ export class RiskEngineService {
         mostRecentTradeTs,
         oldestTradeIn24hTs,
         oldestTradeInPeriodTs,
+        nextSlotTs,
         effectivePeriodMs,
         jitterFactor
       };
@@ -419,7 +423,11 @@ export class RiskEngineService {
     config: SessionConfig,
     minLow?: number,
     maxHigh?: number,
-    symbol?: string
+    symbol?: string,
+    patternLow?: number,
+    patternHigh?: number,
+    bodyLow?: number,
+    bodyHigh?: number
   ): { slPrice: number; rejected: boolean; reason?: string } {
     if (config.sl_type === 'pct') {
       // Simple percentage-based SL
@@ -443,8 +451,7 @@ export class RiskEngineService {
       const minDistance = entryPrice * (minPct / 100);
       const maxDistance = entryPrice * (maxPct / 100);
 
-      let structuralSl: number;
-      let rawDistance: number;
+      let structuralSl: number;      let rawDistance: number;
 
       if (direction === 'LONG') {
         structuralSl = minLow;
@@ -493,6 +500,63 @@ export class RiskEngineService {
       return { slPrice, rejected, reason };
     }
 
+    if (config.sl_type === 'engulfing_boundary' || config.sl_type === 'streak_extreme') {
+      // Use Body boundary for 'body' or 'close_body' modes, otherwise Range.
+      // NOTE: We still prefer the absolute 'outer' boundary (Range) for protection if it's a structural play,
+      // but if the user chose body mode, they might prefer the 'body' boundary.
+      // For now, we prioritize Range (patternLow/High) as it's the more conservative structural stop.
+      // However, we check if the specific mode-based data is available.
+
+      const mode = config.engulfing_mode || 'range';
+      const useBody = mode === 'body' || mode === 'close_body';
+
+      let structuralSl = direction === 'LONG' ? patternLow : patternHigh;
+
+      // If we specifically want body-based or if range is missing but body is present
+      if ((useBody && (direction === 'LONG' ? bodyLow : bodyHigh) !== undefined) || (structuralSl === undefined && (direction === 'LONG' ? bodyLow : bodyHigh) !== undefined)) {
+        structuralSl = direction === 'LONG' ? bodyLow : bodyHigh;
+      }
+
+      if (structuralSl === undefined || structuralSl <= 0) {
+        this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} Engulfing boundary unavailable. Falling back to Pct SL.`);
+        return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, undefined, undefined, symbol);
+      }
+
+      const minPct = config.sl_min_pct ?? 0.3;
+      const maxPct = config.sl_max_pct ?? 3.0;
+      const action = config.sl_out_of_bounds_action || 'clamp';
+      const minDistance = entryPrice * (minPct / 100);
+      const maxDistance = entryPrice * (maxPct / 100);
+
+      const rawDistance = Math.abs(entryPrice - structuralSl);
+      const rawDistPct = (rawDistance / entryPrice) * 100;
+
+      let finalDistance = rawDistance;
+      let rejected = false;
+      let reason: string | undefined;
+
+      if (rawDistance < minDistance) {
+        if (action === 'reject') {
+          rejected = true;
+          reason = `Engulfing SL dist ${rawDistPct.toFixed(2)}% below min ${minPct}%`;
+        } else {
+          finalDistance = minDistance;
+        }
+      } else if (rawDistance > maxDistance) {
+        if (action === 'reject') {
+          rejected = true;
+          reason = `Engulfing SL dist ${rawDistPct.toFixed(2)}% above max ${maxPct}%`;
+        } else {
+          finalDistance = maxDistance;
+        }
+      }
+
+      const slPrice = direction === 'LONG' ? entryPrice - finalDistance : entryPrice + finalDistance;
+      this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Engulfing SL: ${Number(slPrice || 0).toFixed(5)} (dist: ${((finalDistance/entryPrice)*100).toFixed(2)}%)`);
+
+      return { slPrice, rejected, reason };
+    }
+
     throw new ConfigValidationException(`Unknown sl_type: ${config.sl_type}`);
   }
 
@@ -506,14 +570,14 @@ export class RiskEngineService {
     direction: 'LONG' | 'SHORT',
     config: SessionConfig,
     symbol?: string
-  ): number {
+  ): { qty: number; rejected?: boolean; reason?: string } {
     this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Size Check: Balance=${balance}, Entry=${entryPrice}, SL=${slPrice}, Dist=${Number(Math.abs(entryPrice - slPrice) || 0).toFixed(5)}`);
-    if (balance <= 0 || entryPrice <= 0) return 0;
+    if (balance <= 0 || entryPrice <= 0) return { qty: 0 };
 
     const riskAmount = balance * ((config.risk_pct_per_trade ?? 1.0) / 100);
     const slDistance = Math.abs(entryPrice - slPrice);
     
-    if (slDistance <= 0) return 0;
+    if (slDistance <= 0) return { qty: 0 };
 
     // qty = risk_amount / (sl_distance)
     // For futures, adjust based on entry_price as well
@@ -534,20 +598,41 @@ export class RiskEngineService {
          const scaledQty = roundEight(MIN_NOTIONAL_SCALED / entryPrice);
          const scaledRisk = Math.abs(entryPrice - slPrice) * scaledQty;
 
-         if (scaledRisk > riskAmount * 3.0) {
-            this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} setup rejected: Auto-scaling would cause ${ Number(scaledRisk/riskAmount).toFixed(1) }x risk overshoot (Max 3x).`);
-            return 0;
+         const overshootRatio = scaledRisk / riskAmount;
+         const MAX_OVERSHOOT = 3.0;
+
+         if (overshootRatio > MAX_OVERSHOOT) {
+            const reason = `Min notional $${MIN_NOTIONAL_SCALED} forces ${overshootRatio.toFixed(1)}x risk overshoot (Max ${MAX_OVERSHOOT}x).`;
+            this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} setup rejected: ${reason}`);
+            return { qty: 0, rejected: true, reason };
          }
 
          this.logger.debug(`[RiskEngine] Scaled qty up to meet MIN_NOTIONAL (${Number(currentNotional || 0).toFixed(2)} -> ${MIN_NOTIONAL_SCALED})`);
          qty = scaledQty;
       }
-    } else if (currentNotional < MIN_NOTIONAL) {
-       this.logger.warn(`[RiskEngine] Trade setup discarded: notional ${Number(currentNotional || 0).toFixed(2)} is below minimum ${MIN_NOTIONAL} USDT.`);
-       return 0;
+    } else {
+       // SRE: Risk Hardening Logic (User Requirement 2)
+       // This is only enabled when auto-scaling is DISABLED.
+       const hardeningEnabled = config.risk_hardening_enabled ?? false;
+       if (hardeningEnabled) {
+          const maxRiskPct = config.max_single_trade_risk_pct ?? 20.0;
+          const currentRiskPct = (qty * Math.abs(entryPrice - slPrice) / balance) * 100;
+
+          if (currentRiskPct > maxRiskPct) {
+             const reason = `Setup forces ${currentRiskPct.toFixed(1)}% account risk (Max ${maxRiskPct}% via Hardening). Account too small for setup.`;
+             this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} setup rejected: ${reason}`);
+             return { qty: 0, rejected: true, reason };
+          }
+       }
+
+       if (currentNotional < MIN_NOTIONAL) {
+          const reason = `Trade notional ${Number(currentNotional || 0).toFixed(2)} is below minimum ${MIN_NOTIONAL} USDT.`;
+          this.logger.warn(`[RiskEngine] Trade setup discarded: ${reason}`);
+          return { qty: 0, rejected: true, reason };
+       }
     }
 
-    return qty;
+    return { qty };
   }
 
   /**

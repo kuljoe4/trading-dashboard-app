@@ -53,6 +53,10 @@ export class MaintenanceService {
   async protectionWatchdog(running: boolean, config: SessionConfig | null, targetSymbol?: string) {
     if (!running || !config || config.paper_mode) return;
 
+    // SRE: Immunity check. If we are currently banned, don't try to audit
+    // as it will just trigger more connection-attempt penalties.
+    if (this.orderManager.isBanned()) return;
+
     if (!targetSymbol && this.isProcessingWatchdog) return;
     if (!targetSymbol) this.isProcessingWatchdog = true;
 
@@ -167,13 +171,7 @@ export class MaintenanceService {
             trade.qty = exAmt;
 
             // SRE: Live Risk Mitigation during watchdog sync
-            const isBreakevenOrBetter = trade.direction === 'LONG' ? trade.current_sl >= trade.entry_price : trade.current_sl <= trade.entry_price;
-            if (isBreakevenOrBetter) {
-              trade.risk_usdt = 0;
-            } else {
-              const risk = Math.abs(trade.entry_price - trade.initial_sl);
-              trade.risk_usdt = roundEight(risk * trade.qty);
-            }
+            this.positionTracker.refreshTradeRisk(trade);
 
             trade.updated_at = new Date();
             this.positionTracker.recalculateTotalRisk();
@@ -208,13 +206,7 @@ export class MaintenanceService {
                   trade.current_sl = exSlPrice;
 
                   // SRE: Live Risk Mitigation during SL sync
-                  const isBreakevenOrBetter = trade.direction === 'LONG' ? trade.current_sl >= trade.entry_price : trade.current_sl <= trade.entry_price;
-                  if (isBreakevenOrBetter) {
-                    trade.risk_usdt = 0;
-                  } else {
-                    const risk = Math.abs(trade.entry_price - trade.initial_sl);
-                    trade.risk_usdt = roundEight(risk * trade.qty);
-                  }
+                  this.positionTracker.refreshTradeRisk(trade);
 
                   // SRE: Reconcile rr_sequence_index based on adopted SL price
                   this.positionTracker.reconcileMilestoneFromSl(trade, exSlPrice, tradeConfig);
@@ -333,6 +325,9 @@ export class MaintenanceService {
    */
   async reconcileLiveState(running: boolean, config: SessionConfig | null) {
     if (!running || !config || config.paper_mode || this.isProcessingFullReconciliation) return;
+
+    // SRE: Immunity check for ban status
+    if (this.orderManager.isBanned()) return;
 
     this.isProcessingFullReconciliation = true;
     try {

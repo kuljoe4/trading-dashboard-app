@@ -46,8 +46,8 @@ export const normalizeOpportunity = (o = {}) => {
     lastUpdate: source.last_update ?? source.ts ?? Date.now(),
     signalResult: source.signalResult && typeof source.signalResult === 'object' ? {
       allFired: !!source.signalResult.allFired,
-      firedSignals: Array.isArray(source.signalResult.firedSignals) ? source.signalResult.firedSignals.map(s => toNumber(s)) : [],
-      signals: source.signalResult.signals && typeof source.signalResult.signals === 'object' ? Object.entries(source.signalResult.signals).reduce((acc, [key, s]) => {
+      firedSignals: Array.isArray(source.signalResult.firedSignals) ? source.signalResult.firedSignals.map(s => String(s)) : [],
+      signals: (source.signalResult.signals || source.signalResult.details) && typeof (source.signalResult.signals || source.signalResult.details) === 'object' ? Object.entries(source.signalResult.signals || source.signalResult.details).reduce((acc, [key, s]) => {
         acc[key] = {
           ...s,
           label: String(s.label || key),
@@ -55,10 +55,17 @@ export const normalizeOpportunity = (o = {}) => {
           threshold: toNumber(s.threshold),
           unit: String(s.unit || ''),
           fired: !!s.fired,
-          active: !!s.active,
+          active: s.active !== false,
           remaining_delay: toNumber(s.remaining_delay),
           config_delay: toNumber(s.config_delay),
-          insufficientData: !!s.insufficientData
+            insufficientData: !!s.insufficientData,
+            streak_start_ts: s.streak_start_ts ? toNumber(s.streak_start_ts) : undefined,
+            streak_end_ts: s.streak_end_ts ? toNumber(s.streak_end_ts) : undefined,
+            slPrice: s.slPrice ? toNumber(s.slPrice) : undefined,
+            pattern_low: s.pattern_low ? toNumber(s.pattern_low) : undefined,
+            pattern_high: s.pattern_high ? toNumber(s.pattern_high) : undefined,
+            body_low: s.body_low ? toNumber(s.body_low) : undefined,
+            body_high: s.body_high ? toNumber(s.body_high) : undefined
         };
         return acc;
       }, {}) : {},
@@ -200,13 +207,13 @@ const defaultConfig = {
 export const useTradingStore = createWithEqualityFn((set, get) => ({
   sessionActive: false, sessionPaused: false, strategyId: null, balance: 10000, totalPnl: 0, totalRiskPct: 0, totalSlUsed: 0,
   activeTrades: [], logs: [], logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
-  gateState: null, gateReason: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, lastScanTs: 0, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
+  gateState: null, gateReason: null, nextSlotTs: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, lastScanTs: 0, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
   apiStatus: { isBanned: false, isRateLimited: false, banUntil: null, lastErrorMessage: null },
   tradesInPeriod: undefined, maxTradesPeriod: undefined, tradesIn24h: undefined, maxTrades24h: undefined,
   effectivePeriodMs: undefined, jitterFactor: undefined,
   entryCount: 0, hitCount: 0,
   alerts: [],
-  isSyncing: false, configSyncing: false,
+  isSyncing: false, isSyncingOnResume: false, configSyncing: false,
   debugToolsEnabled: localStorage.getItem('debug_tools_enabled') === 'true',
   rateLimit: { used_weight_1m: 0, limit: ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT, used_pct: 0 },
   rateLimitLastSync: new Date().toISOString(),
@@ -284,9 +291,15 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
     try {
       const res = await sessionAPI.status();
       const st = get();
-      if (res.data.running) {
+      const running = !!res.data.running;
+
+      if (running) {
         st.setSessionActive(true, res.data.strategyId || res.data.strategy_id);
+      } else if (st.sessionActive) {
+        // BOLT: Force stop local session if backend reports not running
+        st.setSessionActive(false, null);
       }
+
       set({
         balance: res.data.balance ?? st.balance,
         totalPnl: res.data.totalPnl ?? st.totalPnl,
@@ -295,19 +308,28 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
         activeTrades: res.data.activeTrades || [],
         variantStats: res.data.variant_stats || {},
         isAdaptiveTightened: res.data.isAdaptiveTightened ?? st.isAdaptiveTightened,
+          nextSlotTs: res.data.nextSlotTs ?? st.nextSlotTs,
         scannerResults: res.data.scannerResults || [],
         activeWindows: res.data.activeWindows || [],
         tradeHistory: res.data.history || [],
         config: res.data.config ? deepMerge(st.config, res.data.config) : st.config,
         rateLimitLastSync: res.data.rateLimit ? new Date().toISOString() : st.rateLimitLastSync,
+        isSyncingOnResume: false, // Clear resume sync flag on success
       });
     } catch (e) {
       if (e.code === 'ERR_CANCELED') return;
       console.error("Manual sync failed", e);
+      set({ isSyncingOnResume: false });
     }
   },
   setThrottled: (t) => {
-    set({ isThrottled: t });
+    const wasThrottled = get().isThrottled;
+    console.log(`[Store] setThrottled: ${wasThrottled} -> ${t}. isSyncingOnResume will be: ${wasThrottled && !t}`);
+    set({
+      isThrottled: t,
+      isSyncingOnResume: wasThrottled && !t // Set flag when unthrottling
+    });
+
     const ws = get().ws;
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'set_active', active: !t }));
@@ -408,6 +430,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
       if (get().isThrottled) return;
       const d = JSON.parse(e.data);
       if (d.type === 'status' || d.type === 'session') {
+        console.log(`[Store] Received status/session update. Clearing isSyncingOnResume.`);
         set((st) => {
           const stop = d.status === 'stopped' || d.running === false;
           let nt = st.activeTrades; if (stop) nt = []; else if (d.activeTrades) { const m = new Map(st.activeTrades.map(t => [t.symbol, t])); nt = d.activeTrades.map(t => normalizeTrade(t, m.get(t.symbol))).filter(Boolean); }
@@ -426,9 +449,12 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
           // BOLT: Prevent flickering during config sync
           const nextConfig = d.config ? (st.configSyncing ? st.config : deepMerge(st.config, d.config)) : st.config;
 
-          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, logs: (d.logLines?.map(normalizeLog) || st.logs).filter(Boolean), scannerResults: (d.scannerResults?.map(normalizeOpportunity) || st.scannerResults).filter(Boolean), activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: nextHistory, gateState: d.gateState ?? st.gateState, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, config: nextConfig, tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h, effectivePeriodMs: d.effectivePeriodMs, jitterFactor: d.jitterFactor, apiStatus: d.apiStatus || st.apiStatus };
+          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, logs: (d.logLines?.map(normalizeLog) || st.logs).filter(Boolean), scannerResults: (d.scannerResults?.map(normalizeOpportunity) || st.scannerResults).filter(Boolean), activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: nextHistory, gateState: d.gateState ?? st.gateState, nextSlotTs: d.nextSlotTs ?? st.nextSlotTs, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, config: nextConfig, tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h, effectivePeriodMs: d.effectivePeriodMs, jitterFactor: d.jitterFactor, apiStatus: d.apiStatus || st.apiStatus, isSyncingOnResume: false };
         });
       } else if (d.type === 'tick') {
+        if (get().isSyncingOnResume) {
+          console.log(`[Store] Received tick. Clearing isSyncingOnResume.`);
+        }
         set((st) => {
           let nt = st.activeTrades; if (d.trades && Array.isArray(d.trades)) { const m = new Map(st.activeTrades.map(t => [t.id, t])); d.trades.forEach(t => { const p = m.get(t.id); const n = normalizeTrade(t, p); if (n) m.set(t.id, n); }); if (d._heartbeat) { const ids = new Set(d.trades.map(t => t.id)); for (const id of m.keys()) if (!ids.has(id)) m.delete(id); } nt = Array.from(m.values()); }
 
@@ -444,11 +470,12 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
           }
 
           return {
-            balance: d.balance ?? st.balance, totalPnl: d.total_pnl ?? st.totalPnl, totalRiskPct: d.total_risk_pct ?? st.totalRiskPct, totalSlUsed: d.total_sl_used ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, variantStats: d.variant_stats || st.variantStats, activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics,
+            balance: d.balance ?? st.balance, totalPnl: d.total_pnl ?? st.totalPnl, totalRiskPct: d.total_risk_pct ?? st.totalRiskPct, totalSlUsed: d.total_sl_used ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, variantStats: d.variant_stats || st.variantStats, activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, nextSlotTs: d.nextSlotTs ?? st.nextSlotTs, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics,
             config: nextConfig,
             tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h,
             effectivePeriodMs: d.effectivePeriodMs, jitterFactor: d.jitterFactor,
-            apiStatus: d.apiStatus || st.apiStatus
+            apiStatus: d.apiStatus || st.apiStatus,
+            isSyncingOnResume: false
           };
         });
       } else if (d.type === 'log') set(st => {
@@ -502,7 +529,7 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
       } else if (d.type === 'trade_event') {
         const t = d.trade ? normalizeTrade(d.trade) : null;
         set(st => ({ activeTrades: d.event === 'closed' ? st.activeTrades.filter(x => x.symbol !== d.symbol) : (t ? [...st.activeTrades, t] : st.activeTrades), tradeHistory: d.event === 'closed' && t ? [t, ...st.tradeHistory].slice(0, 50) : st.tradeHistory, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount }));
-      } else if (d.type === 'gate') set(st => ({ gateState: d.gateState, gateReason: d.reason, hibernating: d.hibernating ?? st.hibernating, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, scannerPaused: d.scannerPaused }));
+      } else if (d.type === 'gate') set(st => ({ gateState: d.gateState, gateReason: d.reason, nextSlotTs: d.nextSlotTs ?? st.nextSlotTs, hibernating: d.hibernating ?? st.hibernating, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, scannerPaused: d.scannerPaused }));
       else if (d.type === 'api_status') set({ apiStatus: d });
       else if (d.type === 'alert') {
         get().addAlert(d);

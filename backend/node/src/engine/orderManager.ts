@@ -55,6 +55,9 @@ export class OrderManagerService {
   // SRE: Per-symbol closure locks to prevent concurrent execution races
   private closureLocks: Map<string, boolean> = new Map();
 
+  // Audit Item 13: Per-symbol flush locks to prevent overlapping aggressive cleanups
+  private flushLocks: Map<string, boolean> = new Map();
+
   // BOLT: Per-symbol log throttling for backoff periods
   private lastDeferLogTs: Map<string, number> = new Map();
 
@@ -304,21 +307,39 @@ export class OrderManagerService {
         }
         else if (side !== (trade.direction === 'LONG' ? 'BUY' : 'SELL')) {
            // CHRONOS: Only close locally for recognized exit orders or closePosition: true.
-           // This prevents ghost positions if an external order partially fills.
-           const filledQty = parseFloat(order.z || '0');
            const isRecognizedExit =
              (trade.binance_close_order_id === orderId) ||
              (trade.binance_stop_order_id === orderId) ||
              (order.cp === true) ||
              (clientOrderId && (clientOrderId.startsWith('cls-') || clientOrderId.startsWith('tp-') || clientOrderId.startsWith('sig-') || clientOrderId.startsWith('sl-')));
 
-           if (status === 'FILLED') {
+           if (status === 'FILLED' || status === 'PARTIALLY_FILLED') {
              if (!isRecognizedExit) {
-               this.logger.warn(`[${tradeIdShort8}] [UDS] External or partial opposite-side order FILLED for ${symbol} but not recognized as authoritative engine exit. Ignoring to prevent ghost position. (Order ID: ${orderId}, Qty: ${filledQty}/${trade.qty})`);
-               return;
-             }
+               // SYNC: Update trade.qty by subtracting the fill amount of this slice
+               const lastFillQty = parseFloat(order.l || '0');
+               if (lastFillQty > 0) {
+                 const newQty = roundEight(trade.qty - lastFillQty);
+                 this.logger.warn(`[${tradeIdShort8}] [UDS] External opposite-side fill for ${symbol}: -${lastFillQty}. New qty: ${newQty}. (Order ID: ${orderId})`);
+                 trade.qty = Math.max(0, newQty);
 
+                 this.sessionState.realTimePositions.set(symbol, {
+                    amount: trade.qty,
+                    entryPrice: trade.entry_price
+                 });
+                 this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: trade.qty });
+               }
+
+               // If the order has cp: true, it IS an authoritative close even if unrecognized
+               if (order.cp !== true) {
+                 this.logger.debug(`[${tradeIdShort8}] [UDS] Unrecognized external order ${status}. Qty synced, waiting for ACCOUNT_UPDATE for terminal reconciliation.`);
+                 return;
+               }
+             }
+           }
+
+           if (status === 'FILLED') {
              // RESTORE: Set trade.qty to total order size for correct PnL calculation on final fill
+             // For recognized exits, order.q should match the full position being closed.
              trade.qty = parseFloat(order.q || '0');
 
              this.logger.log(`[${tradeIdShort8}] Recognized exit order FILLED for ${symbol} (${side}). Closing trade locally.`);
@@ -358,11 +379,11 @@ export class OrderManagerService {
                orderId, // DATA-ACCURACY: Pass orderId to allow authoritative recovery
                feesAlreadyAccounted: true // CHRONOS: Signal that commissions were already handled via UDS 'n' events
              });
-           } else if (status === 'PARTIALLY_FILLED') {
+           } else if (status === 'PARTIALLY_FILLED' && isRecognizedExit) {
              // SYNC: Update trade.qty to remaining exchange quantity (q - z)
              const remainingQty = parseFloat(order.q || '0') - parseFloat(order.z || '0');
              if (remainingQty > 0) {
-                this.logger.log(`[${tradeIdShort8}] [Sync] Partial exit fill for ${symbol}: ${order.z}/${order.q}. Updating remaining qty to ${remainingQty}`);
+                this.logger.log(`[${tradeIdShort8}] [Sync] Partial recognized exit fill for ${symbol}: ${order.z}/${order.q}. Updating remaining qty to ${remainingQty}`);
                 trade.qty = remainingQty;
 
                 // Update real-time position cache
@@ -440,6 +461,10 @@ export class OrderManagerService {
     return this.sessionState.getBinanceRateLimit();
   }
 
+  public isBanned(): boolean {
+    return this.sessionState.isBanned();
+  }
+
   async setBinanceClient(client: DerivativesTradingUsdsFutures | null, paperMode = true) {
     const isFirstCall = this.binanceClient === null;
     const isNewClient = !isFirstCall && this.binanceClient !== client;
@@ -510,7 +535,7 @@ export class OrderManagerService {
       // Handle both native Headers and plain objects
       const weight = (typeof headers.get === 'function')
         ? headers.get('X-MBX-USED-WEIGHT-1M')
-        : (headers ? (headers['x-mbx-used-weight-1m'] || headers['X-MBX-USED-WEIGHT-1M'] || headers['X-Mbx-Used-Weight-1m'] || headers['x-mbx-used-weight-1m'] || headers['get']) : null);
+        : (headers ? (headers['x-mbx-used-weight-1m'] || headers['X-MBX-USED-WEIGHT-1M'] || headers['X-Mbx-Used-Weight-1m'] || headers['x-mbx-used-weight-1m']) : null);
 
       if (weight) {
         const currentWeight = parseInt(weight, 10);
@@ -596,8 +621,9 @@ export class OrderManagerService {
     const tickSize = filters.tickSize;
     if (tickSize > 0) {
       const rounding = options.priceRounding || 'round';
-      if (rounding === 'floor') finalPrice = roundEight(Math.floor(price / tickSize) * tickSize);
-      else if (rounding === 'ceil') finalPrice = roundEight(Math.ceil(price / tickSize) * tickSize);
+      const epsilon = 1e-10;
+      if (rounding === 'floor') finalPrice = roundEight(Math.floor((price + epsilon) / tickSize) * tickSize);
+      else if (rounding === 'ceil') finalPrice = roundEight(Math.ceil((price - epsilon) / tickSize) * tickSize);
       else finalPrice = roundEight(Math.round(price / tickSize) * tickSize);
     }
 
@@ -695,6 +721,12 @@ export class OrderManagerService {
 
     // Zero-CPU Rate Limiter Guard
     if (!this.paperMode) {
+      if (this.sessionState.isBanned()) {
+        const until = this.sessionState.apiStatus.banUntil ? new Date(this.sessionState.apiStatus.banUntil).toLocaleTimeString() : 'unknown';
+        this.logger.warn(`Binance IP ban active. Blocking entry for ${symbol} until ${until}.`);
+        return { status: ExecutionStatus.CIRCUIT_OPEN, error: 'IP ban protection active' };
+      }
+
       if (this.sessionState.isRateLimited(0.92)) {
         const currentWeight = this.sessionState.binanceRateLimit.used_1m;
         this.logger.warn(`Approaching Binance rate limit (${currentWeight}). Blocking entry for ${symbol}.`);
@@ -1021,10 +1053,18 @@ export class OrderManagerService {
                 this.positionTracker.clearInFlight(symbol);
                 return { status: ExecutionStatus.SL_FAILED, data: trade, unwindPerformed: true, error: slError };
               } else {
-                throw new Error(`Emergency unwind failed after SL error: ${slError}`);
+                // CHRONOS: If unwind fails, the trade is STILL OPEN on exchange.
+                // We must add it to tracking so the Watchdog can find and protect/close it.
+                this.logger.error(`[${symbol}] Emergency unwind failed after SL error. Adding trade to tracking for Watchdog recovery.`);
+                this.positionTracker.addTrade(trade);
+                this.positionTracker.clearInFlight(symbol);
+                return { status: ExecutionStatus.SL_FAILED, data: trade, error: slError };
               }
             } catch (unwindErr) {
               this.logger.error(`CRITICAL: Emergency unwind failed for ${symbol}: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);
+              // CHRONOS: Same here, ensure it is tracked before throwing.
+              this.positionTracker.addTrade(trade);
+              this.positionTracker.clearInFlight(symbol);
               throw new ExchangeExecutionException(`SL placement failed (${slError}) and emergency unwind also failed for ${symbol}`);
             }
           }
@@ -1492,14 +1532,13 @@ export class OrderManagerService {
 
       // BOLT: Handle existing order conflict. If a closePosition order already exists or max stop orders reached, clear it and retry.
       if ((errMsg.includes('existing') && (errMsg.includes('closePosition') || errMsg.includes('GTE'))) || errMsg.includes('-2027')) {
-         this.logger.warn(`[${trade.symbol}] [Sync] SL conflict detected (${errMsg}). Executing aggressive symbol flush...`);
+         this.logger.warn(`[${trade.symbol}] [Sync] SL conflict detected (${errMsg}). Executing exhaustive symbol flush...`);
          try {
-            // Aggressive symbol flush to clear ANY conflicting orders (Standard or Algo)
-            const flushRes = await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol: trade.symbol });
-            this.updateWeight(flushRes?.headers);
+            // SRE: Use exhaustive flush to clear both standard and algo orders
+            await this.exhaustiveSymbolFlush(trade.symbol);
 
             if (networkAttempts < MAX_NETWORK_ATTEMPTS) {
-              this.logger.log(`[${trade.symbol}] [Sync] Aggressive flush complete. Retrying SL placement (Attempt ${networkAttempts + 1})...`);
+              this.logger.log(`[${trade.symbol}] [Sync] Exhaustive flush complete. Retrying SL placement (Attempt ${networkAttempts + 1})...`);
               continue;
             }
          } catch (cleanupErr) {
@@ -1561,6 +1600,9 @@ export class OrderManagerService {
        this.logger.warn(`[SL Ratchet] Concurrent update blocked for ${trade.symbol}. Ratchet already in progress.`);
        return { success: false };
     }
+
+    // SRE: Immunity check. If we are currently banned, don't try to ratchet
+    if (this.sessionState.isBanned()) return { success: false };
 
     // LOCK: Prevent Watchdog from interfering during the cancel/replace window
     this.ratchetLocks.set(trade.symbol, true);
@@ -1972,6 +2014,55 @@ export class OrderManagerService {
     this.sessionState.realTimePositions.set(symbol, { amount, entryPrice });
   }
 
+  /**
+   * SRE: Exhaustive Symbol Flush.
+   * Cancels BOTH standard and algorithmic orders for a symbol to resolve ReduceOnly capacity conflicts.
+   */
+  public async exhaustiveSymbolFlush(symbol: string) {
+    if (this.paperMode || !this.binanceClient) return;
+
+    if (this.flushLocks.get(symbol)) {
+       this.logger.debug(`[${symbol}] Flush already in progress. skipping.`);
+       return;
+    }
+
+    try {
+      this.flushLocks.set(symbol, true);
+      this.logger.log(`[${symbol}] [Flush] Initiating exhaustive symbol flush...`);
+
+      // 1. Cancel all standard orders
+      try {
+        const res = await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol });
+        this.updateWeight(res?.headers);
+        this.logger.log(`[${symbol}] [Flush] Standard orders cleared.`);
+      } catch (e: any) {
+        this.logger.debug(`[${symbol}] [Flush] No standard orders to clear or failed: ${e.message}`);
+      }
+
+      // 2. Cancel all algo orders
+      try {
+        const algoOrders = await this.fetchOpenAlgoOrders(symbol, { forceFresh: true });
+        if (algoOrders.length > 0) {
+           this.logger.log(`[${symbol}] [Flush] Found ${algoOrders.length} ghost algo orders. Clearing...`);
+           for (const o of algoOrders) {
+              const algoId = String(o.algoId || o.orderId);
+              await this.cancelBinanceOrder(symbol, algoId, 'algo');
+           }
+        }
+      } catch (e: any) {
+        this.logger.debug(`[${symbol}] [Flush] Failed to clear algo orders: ${e.message}`);
+      }
+
+      // 3. Purge real-time caches
+      this.sessionState.realTimeOrders.delete(symbol);
+      this.markAsExecuted(symbol, 'ALL', 'FLUSHED');
+
+      this.logger.log(`[${symbol}] [Flush] Exhaustive flush complete.`);
+    } finally {
+      this.flushLocks.delete(symbol);
+    }
+  }
+
   public async fetchPosition(symbol: string, options: { forceFresh?: boolean } = {}): Promise<BinancePositionV3 | null> {
     // Zero-Weight Path: Prefer local real-time cache from User Data Stream
     if (!options.forceFresh) {
@@ -2356,12 +2447,21 @@ export class OrderManagerService {
           // by querying exchange state to verify if the close order was accepted.
           let orderData: any = null;
           let closeSuccess = false;
-          let attempts = 0;
-          const MAX_CLOSE_ATTEMPTS = 3;
+          let closeAttempts = 0;
+          const MAX_INTERNAL_CLOSE_ATTEMPTS = 3;
 
-          while (attempts < MAX_CLOSE_ATTEMPTS) {
-            attempts++;
+          while (closeAttempts < MAX_INTERNAL_CLOSE_ATTEMPTS) {
+            closeAttempts++;
             try {
+              // SRE: Fix -2022 ReduceOnly Conflict.
+              // Proactively cancel the tracked Stop Loss order before MARKET close
+              // to clear the exchange's reduce-only capacity for this position.
+              if (trade.binance_stop_order_id) {
+                 this.logger.debug(`[${symbol}] [Sync] Proactively cancelling SL ${trade.binance_stop_order_id} before MARKET close to clear reduce-only capacity.`);
+                 await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type || 'standard');
+                 trade.binance_stop_order_id = undefined;
+              }
+
               const response = await this.binanceClient.restAPI.newOrder({
                 symbol,
                 side: closeDirection,
@@ -2392,13 +2492,9 @@ export class OrderManagerService {
                   }
                 }
 
-                if (msg.includes('ReduceOnly') || msg.includes('conflict') || msg.includes('-2022')) {
-                   this.logger.warn(`[${symbol}] MARKET close conflicted. Flushing orders and retrying (Attempt ${attempts})...`);
-                   if (trade.binance_stop_order_id) {
-                     await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type as any);
-                     trade.binance_stop_order_id = undefined;
-                   }
-                   await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol });
+                if (msg.includes('ReduceOnly') || msg.includes('conflict') || msg.includes('-2022') || msg.includes('side does not match')) {
+                   this.logger.warn(`[${symbol}] MARKET close conflicted (ReduceOnly). Executing exhaustive symbol flush and retrying (Attempt ${closeAttempts})...`);
+                   await this.exhaustiveSymbolFlush(symbol);
                    continue;
                 }
 
@@ -2413,9 +2509,9 @@ export class OrderManagerService {
               const errMsg = err.message || '';
               const isNetworkError = errMsg.includes('Network error') || errMsg.includes('timeout') || errMsg.includes('ECONNRESET') || errMsg.includes('ETIMEDOUT');
 
-              if (isNetworkError && attempts < MAX_CLOSE_ATTEMPTS) {
-                this.logger.warn(`[${symbol}] Network error during close. Retrying (Attempt ${attempts + 1})...`);
-                await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
+              if (isNetworkError && closeAttempts < MAX_INTERNAL_CLOSE_ATTEMPTS) {
+                this.logger.warn(`[${symbol}] Network error during close. Retrying (Attempt ${closeAttempts + 1})...`);
+                await new Promise(resolve => setTimeout(resolve, 1000 * closeAttempts));
                 continue;
               }
 
@@ -2429,6 +2525,12 @@ export class OrderManagerService {
                   closeSuccess = true;
                   break;
                 }
+              }
+
+              if (errMsg.includes('ReduceOnly') || errMsg.includes('-2022') || errMsg.includes('side does not match')) {
+                 this.logger.warn(`[${symbol}] MARKET close exception (ReduceOnly). Executing exhaustive symbol flush and retrying (Attempt ${closeAttempts})...`);
+                 await this.exhaustiveSymbolFlush(symbol);
+                 continue;
               }
 
               throw err;
@@ -2713,22 +2815,34 @@ export class OrderManagerService {
       trade.exit_price = exitPrice;
       trade.exit_ts = new Date();
 
-      // BOLT: Final PnL calculation using the finalized exitPrice (potentially from fills)
-      const finalPnlPoints = trade.direction === 'LONG'
-        ? exitPrice - trade.entry_price
-        : trade.entry_price - exitPrice;
+      if (!paperMode && options.feesAlreadyAccounted) {
+         // CHRONOS: Authoritative PnL preservation.
+         // In Live mode, if we are closing based on UDS events, trade.pnl already
+         // contains the sum of all 'rp' and 'n' (commission) slices from the exchange.
+         this.logger.debug(`[PnL Integrity] Using authoritative accumulated PnL for ${symbol}: ${trade.pnl}`);
 
-      const finalGrossPnl = finalPnlPoints * (trade.qty || 0);
-      const finalNetPnl = finalGrossPnl - (trade.realized_fee || 0) - (trade.funding_fee || 0);
+         // Still update pnl_pct for dashboard consistency
+         const notional = trade.entry_price * (trade.qty || 0);
+         const finalPnlPct = (notional !== 0) ? (trade.pnl / notional) * 100 : 0;
+         trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
+      } else {
+         // BOLT: Final PnL calculation using the finalized exitPrice (potentially from fills)
+         const finalPnlPoints = trade.direction === 'LONG'
+           ? exitPrice - trade.entry_price
+           : trade.entry_price - exitPrice;
 
-      // DATA-CONSISTENCY: pnl_pct now reflects Net PnL relative to notional value
-      const notional = trade.entry_price * (trade.qty || 0);
-      const finalPnlPct = (notional !== 0) ? (finalNetPnl / notional) * 100 : 0;
-      trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
+         const finalGrossPnl = finalPnlPoints * (trade.qty || 0);
+         const finalNetPnl = finalGrossPnl - (trade.realized_fee || 0) - (trade.funding_fee || 0);
 
-      this.logger.log(`[PnL Calculation] ${symbol}: ${trade.direction} Exit=${exitPrice}, Entry=${trade.entry_price}, Qty=${trade.qty}, Gross=${Number(finalGrossPnl || 0).toFixed(4)}, Fee=${Number(trade.realized_fee || 0).toFixed(4)}, Net=${Number(finalNetPnl || 0).toFixed(4)}`);
+         // DATA-CONSISTENCY: pnl_pct now reflects Net PnL relative to notional value
+         const notional = trade.entry_price * (trade.qty || 0);
+         const finalPnlPct = (notional !== 0) ? (finalNetPnl / notional) * 100 : 0;
+         trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
 
-      trade.pnl = roundEight(Number.isFinite(finalNetPnl) ? finalNetPnl : 0);
+         this.logger.log(`[PnL Calculation] ${symbol}: ${trade.direction} Exit=${exitPrice}, Entry=${trade.entry_price}, Qty=${trade.qty}, Gross=${Number(finalGrossPnl || 0).toFixed(4)}, Fee=${Number(trade.realized_fee || 0).toFixed(4)}, Net=${Number(finalNetPnl || 0).toFixed(4)}`);
+
+         trade.pnl = roundEight(Number.isFinite(finalNetPnl) ? finalNetPnl : 0);
+      }
 
       trade.exit_reason = exitReason;
 

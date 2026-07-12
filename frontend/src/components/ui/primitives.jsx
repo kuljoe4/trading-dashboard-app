@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { cn } from "./utils"
 import * as ProgressPrimitive from "@radix-ui/react-progress"
 import * as TooltipPrimitive from "@radix-ui/react-tooltip"
-import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock, Info } from 'lucide-react'
+import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock, Info, RefreshCw } from 'lucide-react'
 import { Sparkline as SparklineChart, CandlestickChart as CandlestickChartBase } from '../DataCharts'
 import { useTradingStore } from '../../store/trading'
 import { useTooltipContext, Tooltip } from './tooltip'
@@ -262,12 +262,29 @@ export const PaperBadge = () => (
   </span>
 )
 
-export const EcoBadge = () => (
-  <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5 shadow-[0_0_10px_rgba(0,229,160,0.05)]">
-    <div className="w-1.5 h-1.5 bg-green rounded-full animate-pulse" />
-    ECO
-  </span>
-)
+export const EcoBadge = () => {
+  const { wsStatus, isThrottled, isSyncingOnResume } = useTradingStore(state => ({
+    wsStatus: state.wsStatus,
+    isThrottled: state.isThrottled,
+    isSyncingOnResume: state.isSyncingOnResume
+  }), (a, b) => a.wsStatus === b.wsStatus && a.isThrottled === b.isThrottled && a.isSyncingOnResume === b.isSyncingOnResume);
+
+  const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
+
+  return (
+    <span className={cn(
+      "px-2.5 py-1 rounded-full border text-[10px] font-bold tracking-wider flex items-center gap-1.5 transition-colors",
+      isResuming ? "border-accent/30 bg-accent/10 text-accent shadow-[0_0_15px_rgba(91,111,255,0.1)]" : "border-green/20 bg-green/10 text-green shadow-[0_0_10px_rgba(0,229,160,0.05)]"
+    )}>
+      {isResuming ? (
+        <RefreshCw size={10} className="animate-spin" />
+      ) : (
+        <div className="w-1.5 h-1.5 bg-green rounded-full animate-pulse" />
+      )}
+      {isResuming ? 'RESUMING' : 'ECO'}
+    </span>
+  );
+}
 
 export const DemoBadge = () => (
   <span className="px-2.5 py-1 rounded-full border border-purple/20 bg-purple/10 text-[10px] text-purple font-bold tracking-wider flex items-center gap-1.5">
@@ -405,9 +422,10 @@ export const VisuallyHidden = ({ children }) => (
   </span>
 )
 
-export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = true, backAction }) => {
-  const { config, wsStatus, isThrottled, isEcoMode } = useTradingStore()
+export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = true, backAction, isResuming: propsResuming }) => {
+  const { config, wsStatus, isThrottled, isEcoMode, isSyncingOnResume } = useTradingStore()
   const tradingMode = config.trading_mode || 'paper'
+  const isResuming = propsResuming ?? (isThrottled || wsStatus !== 'live' || isSyncingOnResume)
 
   return (
     <div className={cn(
@@ -433,12 +451,12 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
             )}
             <div className="flex flex-col min-w-0">
               <div className="flex items-center gap-2 min-w-0">
-                <h1 className="text-xs md:text-sm font-black tracking-tight truncate uppercase">{title}</h1>
+                <h1 className="text-xs md:text-sm font-black tracking-tight truncate uppercase">{isResuming ? 'Resuming...' : title}</h1>
                 <div className="hidden sm:flex items-center gap-1.5 shrink-0 scale-[0.8] origin-left">
                   {tradingMode === 'paper' && <PaperBadge />}
                   {tradingMode === 'testnet' && <DemoBadge />}
                   {tradingMode === 'live' && <LiveBadge />}
-                  {(isThrottled || isEcoMode) && <EcoBadge />}
+                  {(isThrottled || isEcoMode || wsStatus !== 'live') && <EcoBadge />}
                 </div>
               </div>
               {subTitle && (
@@ -447,8 +465,8 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                     {subTitle}
                   </p>
                   <div className="hidden lg:flex items-center gap-1.5 shrink-0 opacity-40 scale-[0.8] origin-left">
-                    <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", wsStatus === 'live' ? "text-green" : "text-amber")}>
-                      {wsStatus === 'live' ? 'Connected' : 'Reconnecting'}
+                    <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", !isResuming ? "text-green" : "text-accent")}>
+                      {wsStatus !== 'live' ? 'Reconnecting' : isResuming ? 'Resuming Feed...' : 'Connected'}
                     </span>
                     {wsStatus !== 'live' && (
                       <button
@@ -459,7 +477,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                         Retry
                       </button>
                     )}
-                    <PulseDot color={wsStatus === 'live' ? "bg-green" : "bg-amber"} />
+                    <PulseDot color={!isResuming ? "bg-green" : "bg-accent"} />
                     </div>
                 </div>
               )}

@@ -13,8 +13,10 @@ import { lazyWithRetry } from '../lib/lazy'
 const TradeDetailModal = lazyWithRetry(() => import('../components/TradeDetailModal').then(m => ({ default: m.TradeDetailModal })))
 
 const TradesView = () => {
-  const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled, peakRr } = useTradingStore()
+  const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled, peakRr, isThrottled, wsStatus, isSyncingOnResume } = useTradingStore()
   const [selectedTradeId, setSelectedTradeId] = useState(null)
+
+  const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
 
   const selectedTrade = activeTrades.find(t => t.id === selectedTradeId || t.symbol === selectedTradeId)
 
@@ -89,7 +91,7 @@ const TradesView = () => {
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ delay: idx * 0.05 }}
               >
-                <ActiveTradeCard trade={trade} config={config} onClick={() => setSelectedTradeId(trade.id || trade.symbol)} />
+                <ActiveTradeCard trade={trade} config={config} onClick={() => setSelectedTradeId(trade.id || trade.symbol)} isResuming={isResuming} />
               </motion.div>
             ))}
           </AnimatePresence>

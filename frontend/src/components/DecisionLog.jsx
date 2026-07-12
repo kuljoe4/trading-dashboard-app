@@ -122,14 +122,20 @@ export const DecisionLog = React.memo(() => {
   const safeLogFilters = logFilters && typeof logFilters === 'object' ? logFilters : DEFAULT_LOG_FILTERS;
 
   const visibleLogs = useMemo(
-    () => safeLogs.filter(Boolean).filter((log) => {
-      const safeLog = log && typeof log === 'object' ? log : {};
-      const logLevel = String(safeLog.level ?? 'info').toLowerCase();
-      const logMessage = typeof safeLog.msg === 'string' ? safeLog.msg : String(safeLog.msg ?? '');
-      const passLevel = (safeLogFilters[logLevel] ?? true) !== false;
-      const passSearch = !search || logMessage.toLowerCase().includes(search.toLowerCase());
-      return passLevel && passSearch;
-    }),
+    () => {
+      // BOLT: Single-pass filter and pre-computed search term for O(N) efficiency
+      const term = search ? search.toLowerCase() : null;
+      return safeLogs.filter((log) => {
+        if (!log) return false;
+        // BOLT: Use pre-normalized properties from store but add defensive fallback to prevent crashes
+        const level = log.level || 'info';
+        const msg = typeof log.msg === 'string' ? log.msg : String(log.msg || '');
+
+        if (safeLogFilters[level] === false) return false;
+        if (term && !msg.toLowerCase().includes(term)) return false;
+        return true;
+      });
+    },
     [safeLogs, safeLogFilters, search]
   )
 
@@ -255,8 +261,9 @@ export const DecisionLog = React.memo(() => {
             className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-border hover:scrollbar-thumb-accent/50 overscroll-contain"
           >
             <div className="flex flex-col gap-1.5">
-              {visibleLogs.map((log, index) => (
-                <div key={`${log.ts}-${index}`} className="min-w-fit">
+              {visibleLogs.map((log) => (
+                /* BOLT: Use stable log.id as key to reduce reconciliation cost from O(N) to O(1) when prepending */
+                <div key={log.id} className="min-w-fit">
                   <LogEntry log={log} />
                 </div>
               ))}

@@ -14,7 +14,9 @@ import { EquityCurve } from '../components/Analytics'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 
 const StrategyDetailView = ({ s, onBack }) => {
-  const { config, scannerResults, analytics, wsStatus, isSyncing } = useTradingStore()
+  const { config, scannerResults, analytics, wsStatus, isSyncing, isThrottled, isSyncingOnResume } = useTradingStore()
+
+  const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
 
   // Lifecycle-scoped subscription contract
   useResourceFocus('strategy', s.strategy_label);
@@ -50,7 +52,7 @@ const StrategyDetailView = ({ s, onBack }) => {
           value={fmtUSD(s.activePnl)}
           color={pnlClass(s.activePnl)}
           subValue={analytics === null ? "Syncing..." : `Total: ${fmtUSD(s.totalPnl)}`}
-          syncing={isSyncing || (analytics === null && s.activePnl === 0)}
+          syncing={isResuming || isSyncing || (analytics === null && s.activePnl === 0)}
         />
         <StatCard label="Hit Count" value={(s.entryCount ?? 0).toString()} color="text-accent" />
         <StatCard label="SL Budget" value={`$${Number(s.totalSlUsed || 0).toFixed(0)}`} subValue={`Limit $${config.total_sl_guard_usdt}`} color={s.totalSlUsed > config.total_sl_guard_usdt * 0.7 ? "text-amber" : "text-text"} />

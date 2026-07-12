@@ -138,9 +138,9 @@ export class SessionConfig {
   })
   signal_params?: Record<string, any>;
 
-  @IsEnum(['range', 'body', 'strict'])
+  @IsEnum(['range', 'body', 'strict', 'close_range', 'close_body'])
   @IsOptional()
-  engulfing_mode?: 'range' | 'body' | 'strict' = 'range';
+  engulfing_mode?: 'range' | 'body' | 'strict' | 'close_range' | 'close_body' = 'range';
 
   @IsEnum(['is_opportunity', 'after_opportunity'])
   @IsOptional()
@@ -152,14 +152,24 @@ export class SessionConfig {
 
   @IsNumber()
   @Min(1)
-  @Max(10)
+  @Max(20)
   @IsOptional()
   engulfing_lookback?: number = 1;
 
-  // Stop Loss Configuration
-  @IsEnum(['pct', 'lookback_low/high'])
+  @IsNumber()
+  @Min(1)
+  @Max(10)
   @IsOptional()
-  sl_type?: 'pct' | 'lookback_low/high' = "pct";
+  engulfing_streak?: number = 1;
+
+  @IsBoolean()
+  @IsOptional()
+  engulfing_sequential?: boolean = true;
+
+  // Stop Loss Configuration
+  @IsEnum(['pct', 'lookback_low/high', 'engulfing_boundary', 'streak_extreme'])
+  @IsOptional()
+  sl_type?: 'pct' | 'lookback_low/high' | 'engulfing_boundary' | 'streak_extreme' = "pct";
 
   @IsNumber()
   @Min(CONFIG_LIMITS.SL_DISTANCE_MIN)
@@ -302,6 +312,16 @@ export class SessionConfig {
   @IsBoolean()
   @IsOptional()
   auto_scale_min_notional?: boolean = true;
+
+  @IsBoolean()
+  @IsOptional()
+  risk_hardening_enabled?: boolean = false;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0.1)
+  @Max(100.0)
+  max_single_trade_risk_pct?: number = 20.0;
 
   // Balance & Mode Configuration
   @IsBoolean()

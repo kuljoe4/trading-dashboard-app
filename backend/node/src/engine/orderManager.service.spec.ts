@@ -24,6 +24,8 @@ describe('OrderManagerService', () => {
       {
         isRateLimited: () => false,
         isOrderRateLimited: () => false,
+        isBanned: () => false,
+        apiStatus: { isBanned: false, banUntil: null },
         binanceRateLimit: { used_1m: 0, limit: 2400 },
         updateRateLimit: jest.fn(),
         updateOrderRateLimits: jest.fn(),

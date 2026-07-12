@@ -3,7 +3,7 @@ import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { getExpectancyStatus, getSharpeStatus, getSortinoStatus, calculatePerformanceMetrics } from '../lib/analytics'
 import { sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
-import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader } from '../components/ui/primitives'
+import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader, Btn } from '../components/ui/primitives'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { formatDuration } from '../lib/formatters'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -314,8 +314,10 @@ const SessionGroup = React.memo(({ session, trades }) => {
 
 const PAGE_SIZE = 10
 
+import { RefreshCw } from 'lucide-react'
+
 export const HistoryView = () => {
-  const { tradeHistory, updateStats, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory } = useTradingStore()
+  const { tradeHistory, updateStats, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory, isThrottled, wsStatus } = useTradingStore()
   const [fullAnalytics, setFullAnalytics] = useState(null)
   const [lifetimeMode, setLifetimeMode] = useState(localStorage.getItem('history_trade_mode') || 'paper')
   const [loading, setLoading] = useState(true)
@@ -470,6 +472,7 @@ export const HistoryView = () => {
           title="Trade History"
           subTitle="Verified records of all closed positions"
           backAction={() => window.location.hash = '#/'}
+          isResuming={isThrottled || wsStatus !== 'live'}
         >
           <div className="flex items-center gap-3 self-end sm:self-auto">
              <div className="relative group hidden sm:block">
@@ -723,12 +726,13 @@ export const HistoryView = () => {
                      animate={{ opacity: 1 }}
                      className="py-10 flex justify-center"
                    >
-                      <button
+                      <Btn
+                        variant="ghost"
                         onClick={() => setVisibleSessions(v => v + PAGE_SIZE)}
-                        className="px-8 py-3 bg-surface border border-border rounded-xl text-[11px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent transition-all active:scale-95 shadow-sm"
+                        className="px-8 py-3 h-auto text-[11px] tracking-widest"
                       >
                         Load More Sessions
-                      </button>
+                      </Btn>
                    </motion.div>
                 )}
 
@@ -739,38 +743,44 @@ export const HistoryView = () => {
                     animate={{ opacity: 1, y: 0 }}
                     className="mt-12 bg-surface/30 border border-border rounded-2xl overflow-hidden"
                   >
-                    <div
-                      onClick={() => setOrphansExpanded(!orphansExpanded)}
-                      className="p-5 flex items-center justify-between cursor-pointer hover:bg-surface/50 transition-colors"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center border transition-colors", orphansExpanded ? "bg-accent/10 border-accent/20" : "bg-surface border-border")}>
-                          {orphansExpanded ? <ChevronDown size={20} className="text-accent" /> : <ChevronRight size={20} className="text-dim" />}
-                        </div>
-                        <div>
-                          <div className="text-sm font-bold tracking-tight uppercase">Standalone Records</div>
-                          <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2 mt-1">
-                            <ArrowLeftRight size={10} /> {orphans.length} trades without a valid session
+                    <Tooltip content="Trades not associated with a specific session (e.g. manual trades or orphaned data)">
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={orphansExpanded}
+                        aria-controls="orphans-list"
+                        onClick={() => setOrphansExpanded(!orphansExpanded)}
+                        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setOrphansExpanded(!orphansExpanded))}
+                        className="p-5 flex items-center justify-between cursor-pointer hover:bg-surface/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center border transition-colors", orphansExpanded ? "bg-accent/10 border-accent/20" : "bg-surface border-border")}>
+                            {orphansExpanded ? <ChevronDown size={20} className="text-accent" /> : <ChevronRight size={20} className="text-dim" />}
+                          </div>
+                          <div>
+                            <div className="text-sm font-bold tracking-tight uppercase">Standalone Records</div>
+                            <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2 mt-1">
+                              <ArrowLeftRight size={10} /> {orphans.length} trades without a valid session
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(true); }}
-                        disabled={deletingOrphans}
-                        className="px-4 py-2 bg-red/10 border border-red/20 text-red rounded-lg text-[10px] font-bold hover:bg-red/20 transition-all uppercase tracking-widest flex items-center gap-2 active:scale-95"
-                      >
-                        {deletingOrphans ? (
-                          <div className="w-3 h-3 border-2 border-red border-t-transparent rounded-full animate-spin" />
-                        ) : (
+                        <Btn
+                          variant="danger"
+                          onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(true); }}
+                          loading={deletingOrphans}
+                          className="px-4 py-2 h-auto text-[10px] tracking-widest"
+                          aria-label="Clear all standalone records"
+                        >
                           <Trash2 size={12} />
-                        )}
-                        Clear All
-                      </button>
-                    </div>
+                          Clear All
+                        </Btn>
+                      </div>
+                    </Tooltip>
 
                     <AnimatePresence>
                       {orphansExpanded && (
                         <motion.div
+                          id="orphans-list"
                           initial={{ height: 0, opacity: 0 }}
                           animate={{ height: 'auto', opacity: 1 }}
                           exit={{ height: 0, opacity: 0 }}

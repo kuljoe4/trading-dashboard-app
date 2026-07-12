@@ -43,7 +43,7 @@ export const Sparkline = React.memo(({ data = [], width = 60, height = 24, color
  * BOLT: High-performance SVG-based Candlestick chart.
  * Handles OHLC data with zero external dependencies and minimal memory footprint.
  */
-export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 100, height = 50, signals = [], threshold, isLong, entryPrice, showOscillator = true }) => {
+export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 100, height = 50, signals = [], threshold, isLong, entryPrice, showOscillator = true, decisionMarkers = [], slPrice }) => {
   const containerRef = useRef(null);
   const [width, setWidth] = useState(initialWidth);
   const [hoverData, setHoverData] = useState(null);
@@ -63,8 +63,8 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
   const oscillatorHeight = showOscillator ? height * 0.2 : 0;
   const gapBetween = showOscillator ? height * 0.1 : 0;
 
-  const { bars, min, max, range, barWidth, gap, thresholdY } = React.useMemo(() => {
-    if (!Array.isArray(data) || data.length < 2) return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0, thresholdY: null };
+  const { bars, min, max, range, barWidth, gap, thresholdY, slY } = React.useMemo(() => {
+    if (!Array.isArray(data) || data.length < 2) return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0, thresholdY: null, slY: null };
     // SEC: Validate all data points to prevent Infinity/NaN from breaking SVG layout or causing hangs
     const validData = data.filter(d =>
        Number.isFinite(d.low) && Number.isFinite(d.high) &&
@@ -77,6 +77,7 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
     const prices = validData.flatMap(d => [d.low, d.high]);
     if (thresholdPrice) prices.push(thresholdPrice);
     if (entryPrice) prices.push(entryPrice);
+    if (slPrice) prices.push(slPrice);
 
     const min = Math.min(...prices);
     const max = Math.max(...prices);
@@ -109,9 +110,10 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
     });
 
     const thresholdY = thresholdPrice ? chartHeight - ((thresholdPrice - min) / range) * chartHeight : null;
+    const slY = slPrice ? chartHeight - ((slPrice - min) / range) * chartHeight : null;
 
-    return { bars, min, max, range, barWidth, gap, thresholdY };
-  }, [data, width, chartHeight, threshold, isLong, entryPrice]);
+    return { bars, min, max, range, barWidth, gap, thresholdY, slY };
+  }, [data, width, chartHeight, threshold, isLong, entryPrice, decisionMarkers, slPrice]);
 
   const oscMax = React.useMemo(() => Math.max(...bars.map(b => Math.abs(b.momentum || 0)), 0.1), [bars]);
 
@@ -138,6 +140,30 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
       onMouseLeave={handleMouseLeave}
     >
     <svg width={width} height={height} className="overflow-visible select-none">
+      {/* SL Line */}
+      {slY !== null && (
+        <g>
+          <line
+            x1="0"
+            y1={slY}
+            x2={width}
+            y2={slY}
+            stroke="#ff4466"
+            strokeWidth="1.5"
+            strokeDasharray="2 2"
+            opacity="0.6"
+          />
+          <text
+            x={width + 4}
+            y={slY}
+            className="fill-red text-[8px] font-black font-mono"
+            alignmentBaseline="middle"
+          >
+            SL
+          </text>
+        </g>
+      )}
+
       {/* Threshold Line */}
       {thresholdY !== null && (
         <g>
@@ -167,6 +193,7 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
         {bars.map((bar, i) => {
           const color = bar.isUp ? '#00e5a0' : '#ff4466';
           const hasSignal = signals.some(s => s.time === bar.timestamp);
+          const marker = decisionMarkers.find(m => m.index === i || m.time === bar.timestamp);
 
           return (
             <g key={i}>
@@ -191,7 +218,28 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
                 strokeWidth="1"
                 rx="0.5"
               />
-              {/* Signal Highlight */}
+              {/* Decision / Signal Highlight */}
+              {marker && (
+                <g>
+                  <rect
+                    x={bar.x - 2}
+                    y={-6}
+                    width={barWidth + 4}
+                    height={chartHeight + 12}
+                    fill={marker.color || '#5b6fff'}
+                    opacity="0.08"
+                    rx="4"
+                  />
+                  <text
+                    x={bar.wickX}
+                    y={bar.isUp ? Math.max(8, bar.yHigh - 8) : Math.min(chartHeight - 2, bar.yLow + 10)}
+                    textAnchor="middle"
+                    className="fill-white text-[8px] font-black uppercase"
+                  >
+                    {marker.label}
+                  </text>
+                </g>
+              )}
               {hasSignal && (
                 <circle
                   cx={bar.wickX}

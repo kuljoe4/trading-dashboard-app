@@ -35,9 +35,6 @@ export class MarketFeedService {
   }
   private readonly logger = new Logger(MarketFeedService.name);
   private running = false;
-  private miniTickerWs: any = null;
-  private miniTickerReconnecting = false;
-  private markTickerWs: any = null;
   private combinedKlineWsList: Set<any> = new Set();
   private static cachedExchangeInfo: Map<string, any> = new Map();
   private static cachedRateLimit = 0;
@@ -50,9 +47,16 @@ export class MarketFeedService {
   private watchlistInterval: NodeJS.Timeout | null = null;
   private watchlistUpdatePending = false;
   private watchlistUpdateTimeout: NodeJS.Timeout | null = null;
+  private zeroWatchlistCycles = 0;
   private backfillQueue: { symbol: string, interval: string }[] = [];
   private backfillProcessing = false;
   private binanceClient: any = null;
+
+  private globalDiscoveryWs: any = null;
+  private globalDiscoveryTimeout: NodeJS.Timeout | null = null;
+  private globalDiscoveryRetryCount = 0;
+  private lastMiniTickerMsgTs = 0;
+  private lastMarkTickerMsgTs = 0;
 
   constructor(
     private tickerCache: TickerCacheService,
@@ -70,6 +74,9 @@ export class MarketFeedService {
     this.onCandleClose = cb;
   }
 
+  private startMiniTickerStream() { /* Rebuild handled by watchlist manager */ }
+  private startMarkTickerStream() { /* Rebuild handled by watchlist manager */ }
+
   async start(config: SessionConfig, bc?: any) {
     if (bc) this.binanceClient = bc;
     if (this.running) await this.stop();
@@ -81,21 +88,13 @@ export class MarketFeedService {
         ? 'https://testnet.binancefuture.com' // Corrected Testnet URL
         : ENGINE_CONSTANTS.BINANCE_REST_BASE;
 
-    const wsBasePublic = isTestnet
-        ? 'wss://fstream.binancefuture.com/ws'
-        : (ENGINE_CONSTANTS.BINANCE_WS_PUBLIC.includes('/public') ? ENGINE_CONSTANTS.BINANCE_WS_PUBLIC : `${ENGINE_CONSTANTS.BINANCE_WS_BASE}/public`);
-
-    const wsBaseMarket = isTestnet
-        ? 'wss://fstream.binancefuture.com/stream'
-        : (ENGINE_CONSTANTS.BINANCE_WS_MARKET.includes('/market') ? ENGINE_CONSTANTS.BINANCE_WS_MARKET : `${ENGINE_CONSTANTS.BINANCE_WS_BASE}/market`);
-
     // RESEARCH-02: Optimized Startup. loadFromDb() called via fetchExchangeInfo()
     // will now be called before any session start.
     await this.fetchExchangeInfo(restBase);
 
-    this.startMiniTickerStream(wsBasePublic);
-    this.startMarkTickerStream(wsBasePublic);
-
+    // BOLT: Global streams (!miniTicker, !markPrice) are decoupled
+    // to resolve the discovery bootstrap deadlock.
+    await this.startGlobalDiscovery();
     this.startWatchlistManager(config);
   }
 
@@ -201,6 +200,9 @@ export class MarketFeedService {
 
         if (data && Array.isArray(data.symbols)) {
           MarketFeedService.cachedExchangeInfo.clear();
+          let filteredCryptoCount = 0;
+          let filteredOtherCount = 0;
+
           for (const s of data.symbols) {
             // BOLT: Only include symbols that are actively trading in the target environment
             if (s.status === 'TRADING' || s.status === 'SETTLING') {
@@ -233,14 +235,16 @@ export class MarketFeedService {
                 }
                 MarketFeedService.cachedExchangeInfo.set(s.symbol, parsed);
               } else {
-                this.logger.debug(`Filtering out non-crypto symbol: ${s.symbol} (Type: ${s.underlyingType})`);
+                filteredOtherCount++;
               }
+            } else {
+              filteredCryptoCount++;
             }
           }
           MarketFeedService.lastExchangeInfoFetch = now;
           MarketFeedService.lastExchangeInfoBase = restBase;
           this.exchangeInfo = MarketFeedService.cachedExchangeInfo;
-          this.logger.log(`[MarketFeed] Exchange information cached and persisted: ${this.exchangeInfo.size} symbols.`);
+          this.logger.log(`[MarketFeed] Exchange info: ${this.exchangeInfo.size} symbols cached. (Filtered: ${filteredCryptoCount} inactive, ${filteredOtherCount} non-crypto)`);
 
           // RESEARCH-02: Persist to DB
           const cacheObj: any = {};
@@ -288,15 +292,7 @@ export class MarketFeedService {
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
     if (this.watchlistUpdateTimeout) clearTimeout(this.watchlistUpdateTimeout);
 
-    this.miniTickerReconnecting = true; // Block reconnection during stop
-    if (this.miniTickerWs) {
-      this.safeClose(this.miniTickerWs);
-      this.miniTickerWs = null;
-    }
-    if (this.markTickerWs) {
-      this.safeClose(this.markTickerWs);
-      this.markTickerWs = null;
-    }
+    this.stopGlobalDiscovery();
 
     for (const ws of this.combinedKlineWsList) {
       (ws as any)._isExplicitClose = true;
@@ -312,201 +308,66 @@ export class MarketFeedService {
     this.logger.verbose('MarketFeedService: Resources cleared (Static exchangeInfo preserved)');
   }
 
-  private lastMiniTickerMsgTs = 0;
-  private lastMarkTickerMsgTs = 0;
-  private miniTickerConnectTs = 0;
-  private markTickerConnectTs = 0;
-
-  private startMiniTickerStream(wsBase: string = ENGINE_CONSTANTS.BINANCE_WS_PUBLIC) {
-    let retryCount = 0;
-    const connect = async () => {
-      if (!this.running) return;
-
-      const stream = '!miniTicker@arr';
-      this.logger.log(`[MarketFeed] Connecting to mini-ticker stream: ${stream}`);
-
-      let ws: any;
-      if (this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
-        // SRE: Global streams (!miniTicker) should use the 'stream' parameter without prefixing
-        // The SDK proxy in binanceClientFactory.ts will correctly route to /public
-        ws = await this.binanceClient.websocketStreams.connect({ stream });
-      } else {
-        const url = `${wsBase.replace(/\/$/, '')}/${stream}`;
-        ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
-      }
-
-      // Add basic error handler to prevent process crashes from unhandled events
-      if (ws && typeof ws.on === 'function') {
-        ws.on('error', (err: any) => {
-          this.logger.error(`[MarketFeed] WebSocket error on ${stream}: ${err.message || String(err)}`);
-        });
-      }
-
-      ws.on('error', (err: any) => {
-        this.logger.error(`Mini-ticker stream error: ${err.message || String(err)}`);
-      });
-
-      ws.on('message', (data: any) => {
-        this.lastMiniTickerMsgTs = Date.now();
-        // BOLT: Even in Eco Mode, we must populate the cache if it's currently empty to allow the first watchlist re-evaluation.
-        // SRE: During hibernation, we also need fresh data to qualify for wake-up.
-        const isCacheEmpty = this.tickerCache.getCacheSize() === 0;
-        const isHibernating = this.sessionState.hibernating;
-        const hibMode = this.sessionState.config?.hibernation_mode || 'adaptive';
-        const isLightSleep = isHibernating && hibMode === 'light';
-
-        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0 && !isCacheEmpty && !isLightSleep) return;
-        try {
-          const msg = JSON.parse(data as any);
-          let tickers: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
-          if (tickers.length > 0) {
-            this.tickerCache.bulkUpdate(tickers);
-            if (isCacheEmpty) {
-              this.logger.log(`[MarketFeed] Ticker cache initialized via WS: ${tickers.length} symbols. Triggering watchlist update.`);
-              this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
-            }
-          }
-        } catch (err) {
-          this.logger.error(`Error processing mini-ticker stream: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      });
-      ws.on('open', () => {
-        retryCount = 0;
-        this.miniTickerConnectTs = Date.now();
-      });
-      ws.on('close', () => {
-        this.miniTickerWs = null;
-        if (this.running && !this.miniTickerReconnecting) {
-          retryCount++;
-          const delay = Math.min(30000, ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS * Math.pow(2, Math.max(0, retryCount - 1)));
-          this.logger.debug(`Mini-ticker stream closed. Reconnecting in ${delay}ms... (Attempt ${retryCount})`);
-          const timeout = setTimeout(() => {
-            this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== timeout);
-            connect();
-          }, delay);
-          this.subscriptionTasks.push(timeout);
-        }
-      });
-      this.miniTickerWs = ws;
-    };
-    connect();
-  }
-
-  private startMarkTickerStream(wsBase: string = ENGINE_CONSTANTS.BINANCE_WS_PUBLIC) {
-    let retryCount = 0;
-    const connect = async () => {
-      if (!this.running) return;
-
-      const stream = '!markPrice@arr@1s';
-      this.logger.log(`[MarketFeed] Connecting to mark-ticker stream: ${stream}`);
-
-      let ws: any;
-      if (this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
-        // SRE: Global streams should use the 'stream' parameter without prefixing.
-        // The SDK proxy in binanceClientFactory.ts will correctly route to /public and add the prefix.
-        ws = await this.binanceClient.websocketStreams.connect({ stream });
-      } else {
-        const url = `${wsBase.replace(/\/$/, '')}/${stream}`;
-        ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
-      }
-
-      // Add basic error handler to prevent process crashes from unhandled events
-      if (ws && typeof ws.on === 'function') {
-        ws.on('error', (err: any) => {
-          this.logger.error(`[MarketFeed] WebSocket error on ${stream}: ${err.message || String(err)}`);
-        });
-      }
-
-      ws.on('error', (err: any) => {
-        this.logger.error(`Mark-ticker stream error: ${err.message || String(err)}`);
-      });
-
-      ws.on('message', (data: any) => {
-        this.lastMarkTickerMsgTs = Date.now();
-        const isCacheEmpty = this.tickerCache.getCacheSize() === 0;
-        const isHibernating = this.sessionState.hibernating;
-        const hibMode = this.sessionState.config?.hibernation_mode || 'adaptive';
-        const isLightSleep = isHibernating && hibMode === 'light';
-
-        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0 && !isCacheEmpty && !isLightSleep) return;
-        try {
-          const msg = JSON.parse(data as any);
-          const updates = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
-          if (updates.length > 0) {
-            for (const u of updates) {
-              // Field 'p' is Mark Price in !markTicker@arr
-              this.tickerCache.updateTicker(u.s, undefined, undefined, undefined, u.p);
-            }
-            if (isCacheEmpty) {
-              this.logger.log(`[MarketFeed] Ticker cache (Mark) initialized via WS. Triggering watchlist update.`);
-              this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
-            }
-          }
-        } catch (err) {
-          this.logger.error(`Error processing mark-ticker stream: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      });
-      ws.on('open', () => {
-        retryCount = 0;
-        this.markTickerConnectTs = Date.now();
-      });
-      ws.on('close', () => {
-        this.markTickerWs = null;
-        if (this.running) {
-          retryCount++;
-          const delay = Math.min(30000, ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS * Math.pow(2, Math.max(0, retryCount - 1)));
-          this.logger.debug(`Mark-ticker stream closed. Reconnecting in ${delay}ms... (Attempt ${retryCount})`);
-          this.subscriptionTasks.push(setTimeout(() => connect(), delay));
-        }
-      });
-      this.markTickerWs = ws;
-    };
-    connect();
-  }
-
+  private lastStreamHealthCheck = 0;
   private startWatchlistManager(config: SessionConfig) {
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
+    this.zeroWatchlistCycles = 0;
     this.updateWatchlist(config);
     this.watchlistInterval = setInterval(() => {
       this.updateWatchlist(config);
-      this.checkStreamHealth();
+
+      if (this.activeWatchlist.size === 0) {
+        this.zeroWatchlistCycles++;
+        if (this.zeroWatchlistCycles >= 2) {
+          this.logger.warn(`[MarketFeed] Scanner has 0 symbols after ${this.zeroWatchlistCycles * 2} minutes. Check config.symbols or global_scanner_enabled.`);
+        }
+      } else {
+        this.zeroWatchlistCycles = 0;
+      }
+
+      // BOLT: Optimize health check frequency.
+      // Although this loop fires every 2 minutes (watchlist refresh), we only
+      // evaluate stream health every 5 minutes to avoid excessive reconnection churn
+      // during transient exchange instability.
+      const now = Date.now();
+      if (now - this.lastStreamHealthCheck >= 5 * 60 * 1000) {
+         this.lastStreamHealthCheck = now;
+         this.checkStreamHealth();
+      }
     }, ENGINE_CONSTANTS.WATCHLIST_REFRESH_INTERVAL_MS);
     this.watchlistInterval.unref?.();
   }
 
   /**
    * SRE: Background Stream Health Monitor.
-   * If the global ticker streams (!miniTicker or !markPrice) have not received data
-   * for an extended period, force a reconnection. This is critical for waking up
-   * from hibernation after long periods of exchange silence or silent network drops.
+   * If the combined market stream has not received data for an extended period,
+   * force a reconnection.
    */
   private checkStreamHealth() {
     if (!this.running) return;
 
+    // SRE: Immunity check. If we are currently banned, don't try to reconnect
+    if (this.sessionState.isBanned()) return;
+
     const now = Date.now();
-    const MAX_SILENCE_MS = 5 * 60 * 1000; // 5 minutes
+    // BOLT: Widened health check threshold for combined stream
+    const MAX_SILENCE_MS = 7 * 60 * 1000; // 7 minutes
 
-    // Check Mini-Ticker Stream
-    if (this.miniTickerWs) {
-       const lastMsg = this.lastMiniTickerMsgTs || this.miniTickerConnectTs;
-       if (lastMsg > 0) {
-         const silence = now - lastMsg;
-         if (silence > MAX_SILENCE_MS) {
-            this.logger.warn(`[MarketFeed] Mini-ticker stream silence detected (${Math.round(silence/1000)}s). Force reconnecting...`);
-            this.safeClose(this.miniTickerWs);
-         }
+    const lastMsg = Math.max(this.lastMiniTickerMsgTs, this.lastMarkTickerMsgTs);
+    const silence = lastMsg > 0 ? now - lastMsg : 0;
+
+    if (silence > MAX_SILENCE_MS) {
+       this.logger.warn(`[MarketFeed] Market stream silence detected (${Math.round(silence/1000)}s). Force reconnecting...`);
+
+       // SRE: Global discovery health check
+       if (now - this.lastMiniTickerMsgTs > MAX_SILENCE_MS) {
+          this.logger.warn('[MarketFeed] Global discovery stream stalled. Reconnecting...');
+          this.startGlobalDiscovery();
        }
-    }
 
-    // Check Mark-Price Stream
-    if (this.markTickerWs) {
-       const lastMsg = this.lastMarkTickerMsgTs || this.markTickerConnectTs;
-       if (lastMsg > 0) {
-         const silence = now - lastMsg;
-         if (silence > MAX_SILENCE_MS) {
-            this.logger.warn(`[MarketFeed] Mark-price stream silence detected (${Math.round(silence/1000)}s). Force reconnecting...`);
-            this.safeClose(this.markTickerWs);
-         }
+       // SRE: Watchlist stream health check
+       if (this.activeWatchlist.size > 0) {
+          this.rebuildCombinedKlineStream();
        }
     }
   }
@@ -625,24 +486,138 @@ export class MarketFeedService {
     }
   }
 
+  private async startGlobalDiscovery() {
+    this.stopGlobalDiscovery();
+
+    const streams = ['!miniTicker@arr', '!markPrice@arr@1s'].join('/');
+    const isTestnet = this.sessionState.config?.trading_mode === 'testnet';
+    const wsBaseMarket = isTestnet
+        ? 'wss://fstream.binancefuture.com/stream'
+        : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
+
+    const connect = async () => {
+      if (!this.running) return;
+
+      let ws: any = null;
+
+      const scheduleReconnect = () => {
+        if (this.running && !ws?._isExplicitClose) {
+          this.globalDiscoveryRetryCount++;
+          const jitter = Math.random() * 5000;
+          const delay = Math.min(60000, (ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS * Math.pow(2, Math.max(0, this.globalDiscoveryRetryCount - 1))) + jitter);
+          this.logger.debug(`Global discovery stream will reconnect in ${Math.round(delay)}ms... (Attempt ${this.globalDiscoveryRetryCount})`);
+
+          if (this.globalDiscoveryTimeout) {
+            clearTimeout(this.globalDiscoveryTimeout);
+            this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== this.globalDiscoveryTimeout);
+          }
+
+          this.globalDiscoveryTimeout = setTimeout(() => {
+            this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== this.globalDiscoveryTimeout);
+            this.globalDiscoveryTimeout = null;
+            connect();
+          }, delay);
+          this.subscriptionTasks.push(this.globalDiscoveryTimeout);
+        }
+      };
+
+      try {
+        if (this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
+           this.logger.debug(`[MarketFeed] Connecting to global discovery via SDK`);
+           ws = await this.binanceClient.websocketStreams.connect({ stream: streams });
+        } else {
+           const url = `${wsBaseMarket}?streams=${streams}`;
+           this.logger.debug(`[MarketFeed] Connecting to global discovery stream: ${url.split('?')[0]}`);
+           ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+        }
+        this.globalDiscoveryWs = ws;
+
+        ws.on('message', (data: any) => this.processStreamMessage(data));
+        ws.on('open', () => { this.globalDiscoveryRetryCount = 0; });
+        ws.on('close', () => {
+          if (!ws?._isExplicitClose) scheduleReconnect();
+        });
+        ws.on('error', (err: any) => {
+          this.logger.error(`Global discovery stream error: ${err.message}`);
+        });
+      } catch (err) {
+         this.logger.error(`[MarketFeed] Failed to connect global discovery stream: ${err instanceof Error ? err.message : String(err)}`);
+         scheduleReconnect();
+      }
+    };
+
+    await connect();
+  }
+
+  private stopGlobalDiscovery() {
+    if (this.globalDiscoveryWs) {
+      this.globalDiscoveryWs._isExplicitClose = true;
+      this.safeClose(this.globalDiscoveryWs);
+      this.globalDiscoveryWs = null;
+    }
+    if (this.globalDiscoveryTimeout) {
+      clearTimeout(this.globalDiscoveryTimeout);
+      this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== this.globalDiscoveryTimeout);
+      this.globalDiscoveryTimeout = null;
+    }
+  }
+
+  private processStreamMessage(data: any) {
+    try {
+      const msg: any = JSON.parse(data as any);
+      const stream = msg.stream || '';
+      const payload = msg.data;
+
+      if (stream === '!miniTicker@arr') {
+        this.lastMiniTickerMsgTs = Date.now();
+        const tickers: any[] = Array.isArray(payload) ? payload : [];
+        if (tickers.length > 0) {
+          this.tickerCache.bulkUpdate(tickers);
+        }
+      } else if (stream === '!markPrice@arr@1s') {
+        this.lastMarkTickerMsgTs = Date.now();
+        const updates: any[] = Array.isArray(payload) ? payload : [];
+        for (const u of updates) {
+          this.tickerCache.updateTicker(u.s, undefined, undefined, undefined, u.p);
+        }
+      } else if (stream.includes('@kline')) {
+        const kline = payload.k;
+        if (kline) {
+          this.klineStore.upsertCandle(kline.s, kline.i, kline);
+          this.tickerCache.updateTicker(kline.s, kline.c);
+          if (kline.x && this.onCandleClose) this.onCandleClose(kline.s).catch(() => {});
+        }
+      } else if (stream.includes('@ticker')) {
+        // Seed ticker cache from symbol-specific ticker stream
+        this.tickerCache.updateTicker(payload.s, payload.c, payload.q, payload.o);
+      } else if (stream.includes('@markPrice')) {
+        // Authoritative real-time mark price for PnL
+        this.tickerCache.updateTicker(payload.s, undefined, undefined, undefined, payload.p);
+      }
+    } catch (err) {
+      this.logger.error(`Error processing stream message: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   private async rebuildCombinedKlineStream() {
     for (const ws of this.combinedKlineWsList) {
       (ws as any)._isExplicitClose = true;
       this.safeClose(ws);
     }
     this.combinedKlineWsList.clear();
-    if (this.activeWatchlist.size === 0) return;
 
     const allStreams: string[] = [];
+
+    // BOLT: Watchlist streams only. Global streams handled by startGlobalDiscovery().
     for (const [symbol, intervals] of this.activeWatchlist) {
       const s = symbol.toLowerCase();
       // BOLT: Subscription Strategy for HF Data (2026)
       // 1. @ticker: For general momentum/scanner volume tracking.
-      // 2. @markPrice: High-frequency mark price for real-time PnL accuracy on active positions.
       allStreams.push(`${s}@ticker`);
 
       const isActiveTrade = this.sessionState.activeTrades.some(t => t.symbol === symbol);
       if (isActiveTrade) {
+        // High-frequency mark price for real-time PnL accuracy on active positions.
         allStreams.push(`${s}@markPrice@1s`);
       }
 
@@ -650,6 +625,8 @@ export class MarketFeedService {
         allStreams.push(`${s}@kline_${interval}`);
       }
     }
+
+    if (allStreams.length === 0) return;
 
     const CHUNK_SIZE = ENGINE_CONSTANTS.KLINE_STREAM_CHUNK_SIZE || 20;
     const chunks = [];
@@ -665,54 +642,43 @@ export class MarketFeedService {
       const connect = async () => {
         if (!this.running) return;
 
-        let ws: any;
-        if (this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
-           this.logger.debug(`[MarketFeed] Connecting to combined stream via SDK: ${chunk.length} items`);
-           ws = await this.binanceClient.websocketStreams.connect({ stream: streams });
-        } else {
-           const url = `${wsBaseMarket}?streams=${streams}`;
-           this.logger.debug(`[MarketFeed] Connecting to combined stream: ${url.split('?')[0]}?streams=${chunk.length} items`);
-           ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
-        }
-
-        ws.on('message', (data: any) => {
-          try {
-            const msg: any = JSON.parse(data as any);
-            const stream = msg.stream || '';
-            const payload = msg.data;
-
-            if (stream.includes('@kline')) {
-              const kline = payload.k;
-              if (kline) {
-                this.klineStore.upsertCandle(kline.s, kline.i, kline);
-                this.tickerCache.updateTicker(kline.s, kline.c);
-                if (kline.x && this.onCandleClose) this.onCandleClose(kline.s).catch(() => {});
-              }
-            } else if (stream.includes('@ticker')) {
-              // Seed ticker cache from symbol-specific ticker stream
-              this.tickerCache.updateTicker(payload.s, payload.c, payload.q, payload.o);
-            } else if (stream.includes('@markPrice')) {
-              // Authoritative real-time mark price for PnL
-              this.tickerCache.updateTicker(payload.s, undefined, undefined, undefined, payload.p);
-            }
-          } catch (err) {
-            this.logger.error(`Error processing combined kline stream: ${err instanceof Error ? err.message : String(err)}`);
-          }
-        });
-        ws.on('open', () => {
-          retryCount = 0;
-        });
-        ws.on('close', () => {
-          if (this.running && !(ws as any)._isExplicitClose) {
+        const scheduleReconnect = () => {
+          if (this.running && !(ws as any)?._isExplicitClose) {
             retryCount++;
-            const delay = Math.min(30000, ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS * Math.pow(2, Math.max(0, retryCount - 1)));
-            this.logger.debug(`Combined kline stream closed. Reconnecting in ${delay}ms... (Attempt ${retryCount})`);
+            const jitter = Math.random() * 5000;
+            const delay = Math.min(60000, (ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS * Math.pow(2, Math.max(0, retryCount - 1))) + jitter);
+            this.logger.debug(`Combined kline stream will reconnect in ${Math.round(delay)}ms... (Attempt ${retryCount})`);
             const timeout = setTimeout(() => {
               this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== timeout);
               connect();
             }, delay);
             this.subscriptionTasks.push(timeout);
           }
+        };
+
+        let ws: any;
+        try {
+          if (this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
+             this.logger.debug(`[MarketFeed] Connecting to combined stream via SDK: ${chunk.length} items`);
+             ws = await this.binanceClient.websocketStreams.connect({ stream: streams });
+          } else {
+             const url = `${wsBaseMarket}?streams=${streams}`;
+             this.logger.debug(`[MarketFeed] Connecting to combined stream: ${url.split('?')[0]}?streams=${chunk.length} items`);
+             ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+          }
+        } catch (err) {
+           this.logger.error(`[MarketFeed] Failed to connect combined stream: ${err instanceof Error ? err.message : String(err)}`);
+           scheduleReconnect();
+           return;
+        }
+
+        ws.on('message', (data: any) => this.processStreamMessage(data));
+        ws.on('open', () => {
+          retryCount = 0;
+        });
+        ws.on('close', () => {
+          this.combinedKlineWsList.delete(ws);
+          if (!(ws as any)._isExplicitClose) scheduleReconnect();
         });
         this.combinedKlineWsList.add(ws);
       };

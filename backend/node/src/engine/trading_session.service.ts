@@ -410,14 +410,16 @@ export class TradingSessionService implements OnApplicationShutdown {
         this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
       }
 
-      // BOLT: Throttled broadcast of gating reasons to avoid flooding UI with countdowns
+      // BOLT: Throttled broadcast of gating reasons to avoid flooding UI with countdowns.
+      // Reduced to 5s interval to minimize network egress while gated.
       const now = Date.now();
-      if (this.sessionState.gateState !== prevGateState || (now - this._lastGateBroadcastTs) > 1000) {
+      if (this.sessionState.gateState !== prevGateState || (now - this._lastGateBroadcastTs) > 5000) {
         this._lastGateBroadcastTs = now;
         this.broadcast('gate', {
           gateState: this.sessionState.gateState,
           reason: riskResult.reason,
           isAdaptiveTightened: riskResult.isAdaptiveTightened,
+          nextSlotTs: riskResult.nextSlotTs,
           scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused
         });
       }
@@ -610,6 +612,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       maxTradesPeriod: this.engineBroadcaster.getLastRiskResult()?.maxTradesPeriod,
       tradesIn24h: this.engineBroadcaster.getLastRiskResult()?.tradesIn24h,
       maxTrades24h: this.engineBroadcaster.getLastRiskResult()?.maxTrades24h,
+      nextSlotTs: this.engineBroadcaster.getLastRiskResult()?.nextSlotTs,
     });
   }
 
@@ -811,6 +814,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       maxTradesPeriod: lastRisk?.maxTradesPeriod,
       tradesIn24h: lastRisk?.tradesIn24h,
       maxTrades24h: lastRisk?.maxTrades24h,
+      nextSlotTs: lastRisk?.nextSlotTs,
       apiStatus: this.sessionState.apiStatus,
       scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused,
       history: this.sessionState.closedTrades.slice(0, 50).map((t) => this.engineBroadcaster.serializeTrade(t, this.config!, t.exit_price)),

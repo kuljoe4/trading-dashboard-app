@@ -1,7 +1,7 @@
 import React, { useState, lazy, Suspense } from 'react'
 import { useTradingStore } from '../store/trading'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
-import { SectionLabel, StatCard, cn, ViewHeader } from '../components/ui/primitives'
+import { SectionLabel, StatCard, cn, ViewHeader, Btn } from '../components/ui/primitives'
 import { fmtUSD, pnlClass, safeNum } from '../lib/theme'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Briefcase, Zap } from 'lucide-react'
@@ -77,9 +77,17 @@ const TradesView = () => {
               <Zap size={32} />
             </div>
             <h3 className="text-lg font-bold mb-2">No Active Trades</h3>
-            <p className="text-dim text-sm max-w-xs mx-auto">
+            <p className="text-dim text-sm max-w-xs mx-auto mb-8">
               The engine is currently scanning for opportunities. New positions will appear here in real-time.
             </p>
+            <Btn
+              variant="primary"
+              onClick={() => window.dispatchEvent(new Event('toggle-scanner'))}
+              icon={Zap}
+              className="px-8"
+            >
+              Open Live Scanner
+            </Btn>
           </div>
         ) : (
           <AnimatePresence mode="popLayout">

@@ -644,7 +644,6 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
           <div className="relative group flex-1">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
             <input
-              autoFocus
               type="text"
               placeholder="Search symbols... [/]"
               value={search}

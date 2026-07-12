@@ -51,7 +51,7 @@ export const Sidebar = ({ selected }) => {
               aria-label={`${item.label} [${item.shortcut}]`}
               aria-current={isActive(item.path) ? 'page' : undefined}
               className={cn(
-                "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all relative",
+                "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                 isExpanded ? "flex-row px-4 gap-3" : "justify-center px-0",
                 isActive(item.path) ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:bg-white/5 hover:text-text"
               )}
@@ -74,7 +74,7 @@ export const Sidebar = ({ selected }) => {
             onClick={triggerScanner}
             aria-label="Market Scanner [S]"
             className={cn(
-              "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all text-accent hover:bg-accent/10 relative",
+              "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all text-accent hover:bg-accent/10 relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
               isExpanded ? "flex-row px-4 gap-3" : "justify-center px-0"
             )}
           >
@@ -152,7 +152,7 @@ export const BottomNav = ({ selected }) => {
             onClick={() => window.location.hash = `#${item.path}`}
             aria-current={isActive(item.path) ? 'page' : undefined}
             className={cn(
-              "flex flex-col items-center justify-center w-full h-full gap-1 transition-all",
+              "flex flex-col items-center justify-center w-full h-full gap-1 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
               isActive(item.path) ? "text-accent" : "text-dim hover:text-text"
             )}
           >

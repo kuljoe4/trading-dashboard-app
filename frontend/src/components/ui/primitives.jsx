@@ -112,7 +112,7 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
               onClick={(e) => { e.stopPropagation(); handleAction(onDecrement); }}
               disabled={!isLocked && value <= min}
               className={cn(
-                "w-10 h-10 rounded-lg border flex items-center justify-center transition-all active:scale-90",
+                "w-10 h-10 rounded-lg border flex items-center justify-center transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                 isLocked
                   ? "bg-transparent border-transparent text-dim/20"
                   : "bg-background border-border text-dim hover:text-text hover:border-accent/40 shadow-sm"
@@ -125,7 +125,7 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
               onClick={(e) => { e.stopPropagation(); handleAction(onIncrement); }}
               disabled={!isLocked && value >= max}
               className={cn(
-                "w-10 h-10 rounded-lg border flex items-center justify-center transition-all active:scale-90",
+                "w-10 h-10 rounded-lg border flex items-center justify-center transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                 isLocked
                   ? "bg-transparent border-transparent text-dim/20"
                   : "bg-background border-border text-dim hover:text-text hover:border-accent/40 shadow-sm"
@@ -438,7 +438,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
             <button
               onClick={backAction}
               aria-label="Go back"
-              className="p-1 hover:bg-surface border border-border rounded-lg transition-all active:scale-90 group shrink-0"
+              className="p-1 hover:bg-surface border border-border rounded-lg transition-all active:scale-90 group shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
             >
               <ChevronLeft size={14} className="text-dim group-hover:text-text" />
             </button>
@@ -512,7 +512,7 @@ export const CopyButton = React.memo(({ value, className, tooltip = "Copy", succ
       <button
         onClick={handleCopy}
         className={cn(
-          "p-1.5 rounded-md transition-all active:scale-90",
+          "p-1.5 rounded-md transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
           copied ? "text-green bg-green/10" : "text-dim hover:text-text hover:bg-white/5",
           className
         )}

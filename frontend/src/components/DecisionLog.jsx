@@ -81,7 +81,7 @@ const LogEntry = React.memo(({ log }) => {
                 <CopyButton value={logMessage} />
                 <Tooltip content="Close">
                   <Dialog.Close asChild>
-                    <button className="p-2 hover:bg-white/5 rounded-lg transition-colors text-dim hover:text-text" aria-label="Close">
+                    <button className="p-2 hover:bg-white/5 rounded-lg transition-colors text-dim hover:text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none" aria-label="Close">
                       <X size={18} />
                     </button>
                   </Dialog.Close>
@@ -96,7 +96,7 @@ const LogEntry = React.memo(({ log }) => {
             <div className="mt-6 flex justify-end">
               <button
                 onClick={() => setIsOpen(false)}
-                className="px-6 py-2 bg-surface border border-border rounded-xl text-[10px] font-black uppercase tracking-widest hover:border-accent transition-colors"
+                className="px-6 py-2 bg-surface border border-border rounded-xl text-[10px] font-black uppercase tracking-widest hover:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors"
               >
                 Dismiss
               </button>

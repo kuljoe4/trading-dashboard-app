@@ -53,7 +53,7 @@ export class MarketFeedService {
   private backfillProcessing = false;
   private binanceClient: any = null;
 
-  private globalDiscoveryWs: any = null;
+  private globalDiscoveryWsList: Set<any> = new Set();
   private globalDiscoveryTimeout: NodeJS.Timeout | null = null;
   private globalDiscoveryRetryCount = 0;
   private lastMiniTickerMsgTs = 0;
@@ -102,10 +102,11 @@ export class MarketFeedService {
 
     // SRE: Startup Self-Test (Citadel Protocol 2026)
     // Assert TickerCache is seeded within 15s or alert loudly.
-    if (mode !== 'paper') {
+    const runMode = mode;
+    if (runMode !== 'paper') {
        setTimeout(() => {
           if (this.running && this.tickerCache.getCacheSize() === 0) {
-             const alertMsg = `CRITICAL: Market Feed Startup Failure - TickerCache remains empty after 15s. Scanner is offline. Mode=${mode}`;
+             const alertMsg = `CRITICAL: Market Feed Startup Failure - TickerCache remains empty after 15s. Scanner is offline. Mode=${runMode}`;
              this.logger.error(alertMsg);
              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: alertMsg, level: 'error' });
              this.eventEmitter.emit(ENGINE_EVENTS.ALERT, {
@@ -531,80 +532,93 @@ export class MarketFeedService {
   private async startGlobalDiscovery() {
     this.stopGlobalDiscovery();
 
-    const streams = ['!miniTicker@arr', '!markPrice@arr@1s'].join('/');
     const isTestnet = this.sessionState.config?.trading_mode === 'testnet';
+
+    // BOLT: In Live mode, split discovery into single streams for maximum cluster reliability.
+    // Combined streams with '!' topics can sometimes be flaky on certain production gateways.
+    const streams = isTestnet
+        ? [['!miniTicker@arr', '!markPrice@arr@1s'].join('/')]
+        : ['!miniTicker@arr', '!markPrice@arr@1s'];
+
     const wsBaseMarket = isTestnet
         ? 'wss://fstream.binancefuture.com/stream'
         : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
 
-    const connect = async () => {
-      if (!this.running) return;
+    for (const streamName of streams) {
+      const connect = async () => {
+        if (!this.running) return;
 
-      let ws: any = null;
+        let ws: any = null;
 
-      const scheduleReconnect = () => {
-        if (this.running && !ws?._isExplicitClose) {
-          this.globalDiscoveryRetryCount++;
-          const jitter = Math.random() * 5000;
-          const delay = Math.min(60000, (ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS * Math.pow(2, Math.max(0, this.globalDiscoveryRetryCount - 1))) + jitter);
-          this.logger.debug(`Global discovery stream will reconnect in ${Math.round(delay)}ms... (Attempt ${this.globalDiscoveryRetryCount})`);
+        const scheduleReconnect = () => {
+          if (this.running && !ws?._isExplicitClose) {
+            this.globalDiscoveryRetryCount++;
+            const jitter = Math.random() * 5000;
+            const delay = Math.min(60000, (ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS * Math.pow(2, Math.max(0, this.globalDiscoveryRetryCount - 1))) + jitter);
+            this.logger.debug(`Global discovery stream (${streamName}) will reconnect in ${Math.round(delay)}ms... (Attempt ${this.globalDiscoveryRetryCount})`);
 
-          if (this.globalDiscoveryTimeout) {
-            clearTimeout(this.globalDiscoveryTimeout);
-            this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== this.globalDiscoveryTimeout);
+            if (this.globalDiscoveryTimeout) {
+              clearTimeout(this.globalDiscoveryTimeout);
+              this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== this.globalDiscoveryTimeout);
+            }
+
+            this.globalDiscoveryTimeout = setTimeout(() => {
+              this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== this.globalDiscoveryTimeout);
+              this.globalDiscoveryTimeout = null;
+              connect();
+            }, delay);
+            this.subscriptionTasks.push(this.globalDiscoveryTimeout);
           }
+        };
 
-          this.globalDiscoveryTimeout = setTimeout(() => {
-            this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== this.globalDiscoveryTimeout);
-            this.globalDiscoveryTimeout = null;
-            connect();
-          }, delay);
-          this.subscriptionTasks.push(this.globalDiscoveryTimeout);
+        try {
+          let usedSdk = false;
+          let url: string | null = null;
+          const isCombined = streamName.includes('/');
+
+          if (this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
+             this.logger.debug(`[MarketFeed] Connecting to discovery (${streamName}) via SDK`);
+             ws = await this.binanceClient.websocketStreams.connect({ stream: streamName });
+             usedSdk = true;
+          } else {
+             // For single streams on Live, ensure /ws/ is used. Combined uses /stream?.
+             const base = isCombined ? wsBaseMarket : wsBaseMarket.replace(/\/stream$/, '/ws');
+             url = isCombined ? `${base}?streams=${streamName}` : `${base}/${streamName}`;
+
+             this.logger.log(`[MarketFeed] Connecting to discovery stream: ${url}`);
+             ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
+          }
+          this.globalDiscoveryWsList.add(ws);
+
+          ws.on('message', (data: any) => this.processStreamMessage(data, streamName));
+          ws.on('open', () => {
+            this.logger.log(`[MarketFeed] Discovery socket OPEN: ${streamName} via ${usedSdk ? 'SDK' : 'raw-ws'} (${url ?? 'sdk-managed'})`);
+            this.globalDiscoveryRetryCount = 0;
+            this.globalDiscoveryOpenedAt = Date.now();
+          });
+          ws.on('close', () => {
+            this.globalDiscoveryWsList.delete(ws);
+            if (!ws?._isExplicitClose) scheduleReconnect();
+          });
+          ws.on('error', (err: any) => {
+            this.logger.error(`Discovery stream error (${streamName}): ${err.message}`);
+          });
+        } catch (err) {
+           this.logger.error(`[MarketFeed] Failed to connect discovery stream (${streamName}): ${err instanceof Error ? err.message : String(err)}`);
+           scheduleReconnect();
         }
       };
 
-      try {
-        let usedSdk = false;
-        let url: string | null = null;
-
-        if (this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
-           this.logger.debug(`[MarketFeed] Connecting to global discovery via SDK`);
-           ws = await this.binanceClient.websocketStreams.connect({ stream: streams });
-           usedSdk = true;
-        } else {
-           url = `${wsBaseMarket}?streams=${streams}`;
-           this.logger.log(`[MarketFeed] Connecting to global discovery stream: ${url}`);
-           ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
-        }
-        this.globalDiscoveryWs = ws;
-
-        ws.on('message', (data: any) => this.processStreamMessage(data));
-        ws.on('open', () => {
-          this.logger.log(`[MarketFeed] Global discovery socket OPEN via ${usedSdk ? 'SDK' : 'raw-ws'} (${url ?? 'sdk-managed'})`);
-          this.globalDiscoveryRetryCount = 0;
-          this.globalDiscoveryOpenedAt = Date.now();
-        });
-        ws.on('close', () => {
-          if (!ws?._isExplicitClose) scheduleReconnect();
-        });
-        ws.on('error', (err: any) => {
-          this.logger.error(`Global discovery stream error: ${err.message}`);
-        });
-      } catch (err) {
-         this.logger.error(`[MarketFeed] Failed to connect global discovery stream: ${err instanceof Error ? err.message : String(err)}`);
-         scheduleReconnect();
-      }
-    };
-
-    await connect();
+      await connect();
+    }
   }
 
   private stopGlobalDiscovery() {
-    if (this.globalDiscoveryWs) {
-      this.globalDiscoveryWs._isExplicitClose = true;
-      this.safeClose(this.globalDiscoveryWs);
-      this.globalDiscoveryWs = null;
+    for (const ws of this.globalDiscoveryWsList) {
+      ws._isExplicitClose = true;
+      this.safeClose(ws);
     }
+    this.globalDiscoveryWsList.clear();
     if (this.globalDiscoveryTimeout) {
       clearTimeout(this.globalDiscoveryTimeout);
       this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== this.globalDiscoveryTimeout);
@@ -612,14 +626,21 @@ export class MarketFeedService {
     }
   }
 
-  private processStreamMessage(data: any) {
+  private processStreamMessage(data: any, defaultStream?: string) {
     try {
       this.hasEverReceivedData = true;
-      const msg: any = JSON.parse(data as any);
-      const stream = msg.stream || '';
-      const payload = msg.data;
+      const raw = data.toString();
+      if (this.sessionState.config?.debug_mode) {
+         this.logger.debug(`[MarketFeed] Raw WS: ${raw.substring(0, 100)}...`);
+      }
 
-      if (stream === '!miniTicker@arr') {
+      const msg: any = JSON.parse(raw);
+
+      // SRE: Handle both combined ({stream, data}) and single-stream (raw payload) formats.
+      const stream = msg.stream || defaultStream || '';
+      const payload = msg.data || msg;
+
+      if (stream.includes('!miniTicker@arr')) {
         this.lastMiniTickerMsgTs = Date.now();
         const tickers: any[] = Array.isArray(payload) ? payload : [];
         if (tickers.length > 0) {

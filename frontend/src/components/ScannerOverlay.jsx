@@ -720,7 +720,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
       <div className="flex-1 overflow-y-auto no-scrollbar min-h-0">
         {scannerResults.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-dim gap-3 py-20">
-             <Loader2 size={24} className="animate-spin opacity-20" />
+             <RefreshCw size={24} className="animate-spin opacity-20" />
              <div className="text-[13px] font-bold uppercase tracking-widest opacity-40 italic">Initializing scanner...</div>
           </div>
         ) : filteredResults.length === 0 ? (

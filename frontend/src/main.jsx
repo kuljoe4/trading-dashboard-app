@@ -157,19 +157,25 @@ const App = () => {
         if (controller.signal.aborted) return;
 
         const currentState = useTradingStore.getState();
-        if (res.data.running) {
+        const running = !!res.data.running;
+
+        if (running) {
           setSessionActive(true, res.data.strategyId || res.data.strategy_id);
+        } else if (currentState.sessionActive) {
+          // Force clear if backend says not running but local state says active
+          setSessionActive(false, null);
         }
+
         updateStats({
           balance: res.data.balance ?? currentState.balance,
           totalPnl: res.data.totalPnl ?? currentState.totalPnl,
           totalRiskPct: res.data.totalRiskPct ?? currentState.totalRiskPct,
-          totalSlUsed: res.data.totalSlUsed ?? 0,
-          activeTrades: res.data.activeTrades || [],
-          variantStats: res.data.variant_stats || {},
-          scannerResults: res.data.scannerResults || [],
-          activeWindows: res.data.activeWindows || [],
-          tradeHistory: res.data.history || [],
+          totalSlUsed: res.data.totalSlUsed ?? currentState.totalSlUsed,
+          activeTrades: (res.data.activeTrades && res.data.activeTrades.length > 0) ? res.data.activeTrades : (running ? currentState.activeTrades : []),
+          variantStats: res.data.variant_stats || currentState.variantStats,
+          scannerResults: (res.data.scannerResults && res.data.scannerResults.length > 0) ? res.data.scannerResults : currentState.scannerResults,
+          activeWindows: res.data.activeWindows || currentState.activeWindows,
+          tradeHistory: (res.data.history && res.data.history.length > 0) ? res.data.history : currentState.tradeHistory,
           config: res.data.config ? { ...currentState.config, ...res.data.config } : currentState.config,
           apiStatus: res.data.apiStatus || currentState.apiStatus,
         });

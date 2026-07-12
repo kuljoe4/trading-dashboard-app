@@ -529,7 +529,7 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
 });
 
 export const ScannerOverlay = React.memo(({ onClose }) => {
-  const { scannerResults, activeWindows, config, scannerPaused, lastScanTs, hibernating, hibernationMode, activeTrades, isResuming } = useTradingStore(state => ({
+  const { scannerResults, activeWindows, config, scannerPaused, lastScanTs, hibernating, hibernationMode, activeTrades, sessionActive, isThrottled, wsStatus, isSyncingOnResume } = useTradingStore(state => ({
     scannerResults: state.scannerResults,
     activeWindows: state.activeWindows,
     config: state.config,
@@ -538,8 +538,14 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
     hibernating: state.hibernating,
     hibernationMode: state.hibernationMode,
     activeTrades: state.activeTrades,
-    isResuming: state.isThrottled || state.wsStatus !== 'live' || state.isSyncingOnResume
+    sessionActive: state.sessionActive,
+    isThrottled: state.isThrottled,
+    wsStatus: state.wsStatus,
+    isSyncingOnResume: state.isSyncingOnResume
   }), shallow)
+
+  const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
+  const showResumingFeedback = sessionActive && isResuming;
 
   const activeTradeSymbols = useMemo(() => new Set(activeTrades.map(t => t.symbol)), [activeTrades])
   const threshold = config.scan_pct_threshold || 2.0
@@ -587,16 +593,16 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
           <div className="flex flex-col">
             <div className="flex items-center gap-2.5">
               <div className="relative flex items-center justify-center w-5 h-5">
-                 <PulseDot color={isResuming ? "bg-accent" : hibernating ? (hibernationMode === 'light' ? "bg-accent" : "bg-amber") : scannerPaused ? "bg-red" : "bg-green"} />
-                 {!hibernating && !scannerPaused && !isResuming && (
+                 <PulseDot color={showResumingFeedback ? "bg-accent" : hibernating ? (hibernationMode === 'light' ? "bg-accent" : "bg-amber") : scannerPaused ? "bg-red" : "bg-green"} />
+                 {!hibernating && !scannerPaused && !showResumingFeedback && (
                    <span className="absolute inset-0 rounded-full border border-green animate-ping opacity-20 scale-150" />
                  )}
-                 {isResuming && (
+                 {showResumingFeedback && (
                    <span className="absolute inset-0 rounded-full border border-accent animate-ping opacity-20 scale-150" />
                  )}
               </div>
                 <div className="flex flex-col">
-                  <span className="text-[15px] font-black tracking-tight hidden sm:inline uppercase">{isResuming ? 'Resuming Feed...' : 'Live Scanner'}</span>
+                  <span className="text-[15px] font-black tracking-tight hidden sm:inline uppercase">{showResumingFeedback ? 'Resuming Feed...' : 'Live Scanner'}</span>
                   <div className="flex items-center gap-2 opacity-60">
                     <div className="text-[8px] text-dim font-black uppercase tracking-tighter">Engine Logic Weighting</div>
                     <div className="px-1.5 py-0.5 rounded bg-background border border-border/50 font-mono text-[8px] font-bold text-text/60">
@@ -605,7 +611,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                   </div>
                 </div>
                 <div className="h-8 w-px bg-border/40 hidden sm:block mx-1" />
-              {isResuming ? (
+              {showResumingFeedback ? (
                 <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-accent/10 border border-accent/20 shadow-lg shadow-accent/5">
                   <RefreshCw size={10} className="text-accent animate-spin" />
                   <span className="text-[9px] text-accent font-black uppercase tracking-widest">Resuming</span>

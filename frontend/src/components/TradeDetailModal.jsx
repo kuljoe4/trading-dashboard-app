@@ -11,13 +11,16 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
   const [now, setNow] = useState(Date.now())
   const [isClosing, setIsClosing] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
-  const { addAlert, isThrottled, wsStatus } = useTradingStore(state => ({
+  const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive } = useTradingStore(state => ({
     addAlert: state.addAlert,
     isThrottled: state.isThrottled,
-    wsStatus: state.wsStatus
+    wsStatus: state.wsStatus,
+    isSyncingOnResume: state.isSyncingOnResume,
+    sessionActive: state.sessionActive
   }));
 
-  const isResuming = isThrottled || wsStatus !== 'live';
+  const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
+  const showResumingFeedback = sessionActive && isResuming;
 
   useEffect(() => {
     if (!isOpen) return
@@ -76,7 +79,7 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
                   <CopyButton value={trade.symbol} className="opacity-40 hover:opacity-100" />
                 </div>
                 <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em]">
-                  {isResuming ? (
+                  {showResumingFeedback ? (
                     <span className="text-accent flex items-center gap-1.5">
                       <RefreshCw size={12} className="animate-spin" /> Resuming Feed...
                     </span>

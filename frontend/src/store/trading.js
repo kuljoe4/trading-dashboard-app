@@ -324,10 +324,11 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
   },
   setThrottled: (t) => {
     const wasThrottled = get().isThrottled;
-    console.log(`[Store] setThrottled: ${wasThrottled} -> ${t}. isSyncingOnResume will be: ${wasThrottled && !t}`);
+    const isSyncingOnResume = wasThrottled && !t && get().sessionActive;
+    console.log(`[Store] setThrottled: ${wasThrottled} -> ${t}. isSyncingOnResume will be: ${isSyncingOnResume}`);
     set({
       isThrottled: t,
-      isSyncingOnResume: wasThrottled && !t // Set flag when unthrottling
+      isSyncingOnResume
     });
 
     const ws = get().ws;
@@ -357,7 +358,8 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
         gateReason: null,
         hibernating: false,
         totalRiskPct: 0,
-        totalSlUsed: 0
+        totalSlUsed: 0,
+        isSyncingOnResume: false
       });
       // Fetch fresh history and analytics after termination
       if (wasActive) {
@@ -424,13 +426,23 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
     const ak = localStorage.getItem('MOMENTUM_ADMIN_API_KEY') || import.meta.env.VITE_ADMIN_API_KEY;
     // SENTINEL: Use sub-protocol for auth instead of query parameter to prevent credential leakage in logs
     const ws = new WebSocket(u, ak || []);
-    ws.onopen = () => { set({ wsStatus: 'live', reconnectAttempts: 0 }); ws.send(JSON.stringify({ type: 'set_active', active: !get().isThrottled })); };
+    ws.onopen = () => {
+      const sessionActive = get().sessionActive;
+      set({
+        wsStatus: 'live',
+        reconnectAttempts: 0,
+        isSyncingOnResume: sessionActive // Start sync feedback on reconnect if session is active
+      });
+      ws.send(JSON.stringify({ type: 'set_active', active: !get().isThrottled }));
+    };
     let lsu = 0;
     ws.onmessage = (e) => {
       if (get().isThrottled) return;
       const d = JSON.parse(e.data);
       if (d.type === 'status' || d.type === 'session') {
-        console.log(`[Store] Received status/session update. Clearing isSyncingOnResume.`);
+        if (get().isSyncingOnResume) {
+          console.log(`[Store] Received status/session update. Clearing isSyncingOnResume.`);
+        }
         set((st) => {
           const stop = d.status === 'stopped' || d.running === false;
           let nt = st.activeTrades; if (stop) nt = []; else if (d.activeTrades) { const m = new Map(st.activeTrades.map(t => [t.symbol, t])); nt = d.activeTrades.map(t => normalizeTrade(t, m.get(t.symbol))).filter(Boolean); }
@@ -449,7 +461,39 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
           // BOLT: Prevent flickering during config sync
           const nextConfig = d.config ? (st.configSyncing ? st.config : deepMerge(st.config, d.config)) : st.config;
 
-          return { sessionActive: d.running ?? d.status === 'started', sessionPaused: d.paused ?? st.sessionPaused, strategyId: d.strategyId || st.strategyId, balance: d.balance ?? st.balance, totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl, totalRiskPct: d.totalRiskPct ?? st.totalRiskPct, totalSlUsed: d.totalSlUsed ?? st.totalSlUsed, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, logs: (d.logLines?.map(normalizeLog) || st.logs).filter(Boolean), scannerResults: (d.scannerResults?.map(normalizeOpportunity) || st.scannerResults).filter(Boolean), activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows, tradeHistory: nextHistory, gateState: d.gateState ?? st.gateState, nextSlotTs: d.nextSlotTs ?? st.nextSlotTs, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, config: nextConfig, tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h, effectivePeriodMs: d.effectivePeriodMs, jitterFactor: d.jitterFactor, apiStatus: d.apiStatus || st.apiStatus, isSyncingOnResume: false };
+          return {
+            sessionActive: d.running ?? d.status === 'started',
+            sessionPaused: d.paused ?? st.sessionPaused,
+            strategyId: d.strategyId || st.strategyId,
+            balance: d.balance ?? st.balance,
+            totalPnl: d.totalPnl ?? d.total_pnl ?? st.totalPnl,
+            totalRiskPct: d.totalRiskPct ?? st.totalRiskPct,
+            totalSlUsed: d.totalSlUsed ?? st.totalSlUsed,
+            entryCount: d.stats?.entryCount ?? st.entryCount,
+            hitCount: d.stats?.hitCount ?? st.hitCount,
+            activeTrades: nt,
+            logs: (d.logLines?.map(normalizeLog) || st.logs).filter(Boolean),
+            scannerResults: (d.scannerResults?.map(normalizeOpportunity) || st.scannerResults).filter(Boolean),
+            activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows,
+            tradeHistory: nextHistory,
+            gateState: d.gateState ?? st.gateState,
+            nextSlotTs: d.nextSlotTs ?? st.nextSlotTs,
+            hibernating: d.hibernating ?? st.hibernating,
+            hibernationMode: d.hibernation_mode ?? st.hibernationMode,
+            isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened,
+            agreementRequired: d.agreementRequired ?? st.agreementRequired,
+            scannerPaused: d.scannerPaused ?? st.scannerPaused,
+            lastScanTs: d.last_scan_ts ?? st.lastScanTs,
+            config: nextConfig,
+            tradesInPeriod: d.tradesInPeriod,
+            maxTradesPeriod: d.maxTradesPeriod,
+            tradesIn24h: d.tradesIn24h,
+            maxTrades24h: d.maxTrades24h,
+            effectivePeriodMs: d.effectivePeriodMs,
+            jitterFactor: d.jitterFactor,
+            apiStatus: d.apiStatus || st.apiStatus,
+            isSyncingOnResume: false
+          };
         });
       } else if (d.type === 'tick') {
         if (get().isSyncingOnResume) {
@@ -485,10 +529,14 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
       });
       else if (d.type === 'scanner') {
         const now = Date.now(); if (now - lsu < 200) return; lsu = now;
+        if (get().isSyncingOnResume) {
+          console.log(`[Store] Received scanner update. Clearing isSyncingOnResume.`);
+        }
         set(st => {
           // BOLT OPTIMIZATION: Use Map for O(1) lookup during normalization to achieve O(N+M) complexity.
           const prevMap = new Map(st.scannerResults.map(r => [r.symbol, r]));
           return {
+            isSyncingOnResume: false,
             scannerResults: (d.opportunities || []).map(o => {
               const n = normalizeOpportunity(o);
               if (!n) return null;
@@ -528,8 +576,25 @@ export const useTradingStore = createWithEqualityFn((set, get) => ({
         });
       } else if (d.type === 'trade_event') {
         const t = d.trade ? normalizeTrade(d.trade) : null;
-        set(st => ({ activeTrades: d.event === 'closed' ? st.activeTrades.filter(x => x.symbol !== d.symbol) : (t ? [...st.activeTrades, t] : st.activeTrades), tradeHistory: d.event === 'closed' && t ? [t, ...st.tradeHistory].slice(0, 50) : st.tradeHistory, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount }));
-      } else if (d.type === 'gate') set(st => ({ gateState: d.gateState, gateReason: d.reason, nextSlotTs: d.nextSlotTs ?? st.nextSlotTs, hibernating: d.hibernating ?? st.hibernating, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, scannerPaused: d.scannerPaused }));
+        if (get().isSyncingOnResume) {
+          console.log(`[Store] Received trade_event. Clearing isSyncingOnResume.`);
+        }
+        set(st => ({
+          isSyncingOnResume: false,
+          activeTrades: d.event === 'closed' ? st.activeTrades.filter(x => x.symbol !== d.symbol) : (t ? [...st.activeTrades, t] : st.activeTrades),
+          tradeHistory: d.event === 'closed' && t ? [t, ...st.tradeHistory].slice(0, 50) : st.tradeHistory,
+          entryCount: d.stats?.entryCount ?? st.entryCount,
+          hitCount: d.stats?.hitCount ?? st.hitCount
+        }));
+      } else if (d.type === 'gate') {
+        if (get().isSyncingOnResume) {
+          console.log(`[Store] Received gate update. Clearing isSyncingOnResume.`);
+        }
+        set(st => ({
+          isSyncingOnResume: false,
+          gateState: d.gateState, gateReason: d.reason, nextSlotTs: d.nextSlotTs ?? st.nextSlotTs, hibernating: d.hibernating ?? st.hibernating, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, scannerPaused: d.scannerPaused
+        }));
+      }
       else if (d.type === 'api_status') set({ apiStatus: d });
       else if (d.type === 'alert') {
         get().addAlert(d);

@@ -124,6 +124,12 @@ export class BinanceClientFactory implements OnModuleInit {
       const isHF = stream.includes('!');
       const isMarket = stream.includes('@');
       const isCombined = stream.includes('/');
+
+      // CITADEL: Robust Path Detection.
+      // Aggregate streams (starting with '!') and combined streams (containing '/')
+      // must use the /stream endpoint for maximum production gateway compatibility.
+      const useStreamEndpoint = isCombined || isHF;
+
       // Citadel: Strictly isolate listenKeys (64-char alphanumeric) vs market streams.
       const isPrivate = !isHF && !isMarket && !isCombined && stream.length >= 60;
 
@@ -134,7 +140,7 @@ export class BinanceClientFactory implements OnModuleInit {
         let gatewayURL = wsURL;
         const urlObj = new URL(wsURL);
 
-        if (isCombined) {
+        if (useStreamEndpoint) {
           urlObj.pathname = '/stream';
         } else {
           urlObj.pathname = '/ws';
@@ -145,7 +151,7 @@ export class BinanceClientFactory implements OnModuleInit {
 
         // BOLT: Manual construction for all Live mode streams to ensure precision and bypass SDK path-building bugs
         if (!isTestnet) {
-            const finalUrl = isCombined
+            const finalUrl = useStreamEndpoint
                 ? `${gatewayURL}?streams=${params.stream}`
                 : `${gatewayURL}/${params.stream}`;
 
@@ -479,7 +485,15 @@ export class BinanceRequestQueue {
           // BOLT: Ensure weight is always valid in logs even if header parsing failed
           const currentWeight = (BinanceRequestQueue.currentWeight1m === undefined || isNaN(BinanceRequestQueue.currentWeight1m)) ? 0 : BinanceRequestQueue.currentWeight1m;
           const telemetryLog = `[Telemetry] ${item.label} executed | Weight: ${currentWeight}/${BinanceRequestQueue.weightLimit1m} | Depth: ${this.queue.length} | Latency: ${duration}ms`;
-          this.logger.log(telemetryLog);
+
+          // BOLT: Optimized logging. Only log critical telemetry at LOG level to reduce noise.
+          // Background tasks (klines, ticker, weight resets) stay at DEBUG level.
+          const isBackground = ['klineCandlestickData', 'ticker24hrPriceChangeStatistics', 'exchangeInformation'].includes(item.label);
+          if (isBackground) {
+            this.logger.debug(telemetryLog);
+          } else {
+            this.logger.log(telemetryLog);
+          }
 
           item.resolve(result);
         } catch (error: any) {

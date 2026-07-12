@@ -80,6 +80,8 @@ export class MarketFeedService {
   private startMiniTickerStream() { /* Rebuild handled by watchlist manager */ }
   private startMarkTickerStream() { /* Rebuild handled by watchlist manager */ }
 
+  private lastWatchlistLogTs = 0;
+
   async start(config: SessionConfig, bc?: any) {
     if (bc) this.binanceClient = bc;
     if (this.running) await this.stop();
@@ -523,7 +525,12 @@ export class MarketFeedService {
         this.processBackfillQueue();
       }
 
-      this.logger.log(`[MarketFeed] Watchlist updated: ${this.activeWatchlist.size} symbols monitored.`);
+      // BOLT: Throttled logging for watchlist updates to reduce noise during rapid config changes or trade entries
+      const now = Date.now();
+      if (now - this.lastWatchlistLogTs > 10000 || changed) {
+        this.logger.log(`[MarketFeed] Watchlist updated: ${this.activeWatchlist.size} symbols monitored.`);
+        this.lastWatchlistLogTs = now;
+      }
     } catch (err) {
       this.logger.error(`[MarketFeed] Watchlist update failed: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -534,11 +541,10 @@ export class MarketFeedService {
 
     const isTestnet = this.sessionState.config?.trading_mode === 'testnet';
 
-    // BOLT: In Live mode, split discovery into single streams for maximum cluster reliability.
-    // Combined streams with '!' topics can sometimes be flaky on certain production gateways.
-    const streams = isTestnet
-        ? [['!miniTicker@arr', '!markPrice@arr@1s'].join('/')]
-        : ['!miniTicker@arr', '!markPrice@arr@1s'];
+    // BOLT: Unify discovery streams for both Live and Testnet.
+    // Production testing shows joined streams via /stream are more reliable and
+    // consume fewer socket descriptors than multiple single streams.
+    const streams = [['!miniTicker@arr', '!markPrice@arr@1s'].join('/')];
 
     const wsBaseMarket = isTestnet
         ? 'wss://fstream.binancefuture.com/stream'
@@ -626,12 +632,20 @@ export class MarketFeedService {
     }
   }
 
+  private lastRawWsLogTs = 0;
   private processStreamMessage(data: any, defaultStream?: string) {
     try {
-      this.hasEverReceivedData = true;
+      if (!this.hasEverReceivedData) {
+        this.hasEverReceivedData = true;
+        this.logger.log(`[MarketFeed] First message received from stream: ${defaultStream || 'unknown'}. Connection healthy.`);
+      }
       const raw = data.toString();
       if (this.sessionState.config?.debug_mode) {
-         this.logger.debug(`[MarketFeed] Raw WS: ${raw.substring(0, 100)}...`);
+         const now = Date.now();
+         if (now - this.lastRawWsLogTs > 2000) {
+            this.logger.debug(`[MarketFeed] Raw WS: ${raw.substring(0, 100)}...`);
+            this.lastRawWsLogTs = now;
+         }
       }
 
       const msg: any = JSON.parse(raw);

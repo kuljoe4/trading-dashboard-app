@@ -375,6 +375,7 @@ export class SessionLifecycleService {
     this.logger.log('[Chronos] UDS Buffer replay complete.');
   }
 
+  private lastBalanceLogTs = 0;
   public handleAccountUpdate(data: BinanceAccountUpdateEvent) {
     const reason = data.a.m;
 
@@ -384,9 +385,17 @@ export class SessionLifecycleService {
       if (usdt) {
         const nb = parseFloat(usdt.wb);
         const bc = parseFloat(usdt.bc || '0');
-        const liveBalMsg = `[Lifecycle] Received real-time balance update: ${nb} USDT (Reason: ${reason}, Delta: ${bc})`;
-        this.logger.log(liveBalMsg);
-        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: liveBalMsg, level: 'info' });
+        const now = Date.now();
+
+        // BOLT: Throttled balance logging. Balance updates can be extremely frequent on active accounts.
+        // We only log if it's been 10s or if there's a non-zero balance change (funding/fill).
+        if (bc !== 0 || now - this.lastBalanceLogTs > 10000) {
+          const liveBalMsg = `[Lifecycle] Received real-time balance update: ${nb} USDT (Reason: ${reason}, Delta: ${bc})`;
+          this.logger.log(liveBalMsg);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: liveBalMsg, level: 'info' });
+          this.lastBalanceLogTs = now;
+        }
+
         this.sessionState.balanceLive = nb;
         this.sessionState.balancePaper = nb;
         this.sessionState.lastExchangeBalance = nb;
@@ -655,8 +664,8 @@ export class SessionLifecycleService {
            this.startUserDataStream(bc, true).catch(() => {});
         }
         // HEARTBEAT: Explicit debug log for UDS health observability
-        // REDUCE LOG NOISE: Downgrade heartbeat to verbose or silence entirely if connected
-        if (!this.isUdsConnected || lastPing > 30) {
+        // BOLT: Only log heartbeats at DEBUG level if disconnected or stalled (>60s) to keep logs clean
+        if (!this.isUdsConnected || lastPing > 60) {
            this.logger.debug(`[SRE] UDS Heartbeat: Status=${this.isUdsConnected ? 'CONNECTED' : 'DISCONNECTED'}, LastPing=${lastPing}s, ActiveTrades=${hasActiveTrades}`);
         }
       }, 60000);

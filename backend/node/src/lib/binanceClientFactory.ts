@@ -149,15 +149,34 @@ export class BinanceClientFactory implements OnModuleInit {
         // SRE: Correct construction of the final WebSocket URL for the SDK.
         gatewayURL = urlObj.origin + urlObj.pathname;
 
-        // BOLT: Manual construction for all Live mode streams to ensure precision and bypass SDK path-building bugs
-        if (!isTestnet) {
+        // BOLT: Use manual construction for all combined/HF streams OR any Live stream
+        // to bypass SDK multiplexing bugs and ensure consistent handshake headers.
+        if (isCombined || isHF || !isTestnet) {
             const finalUrl = useStreamEndpoint
                 ? `${gatewayURL}?streams=${params.stream}`
                 : `${gatewayURL}/${params.stream}`;
 
             this.logger.log(`[BinanceClient] Connecting to gateway (Manual): ${finalUrl.substring(0, 100)}... | isHF=${isHF} | isPrivate=${isPrivate}`);
 
-            const ws = new WebSocket(finalUrl, { handshakeTimeout: 15000 });
+            const ws = new WebSocket(finalUrl, {
+              handshakeTimeout: 15000,
+              perMessageDeflate: false,
+              headers: isTestnet ? {} : {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Origin': 'https://www.binance.com'
+              }
+            });
+
+            // SRE: Proactive Keep-Alive (Memory: WebSocket Keep-Alive Standard)
+            const pingInterval = setInterval(() => {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.ping();
+              }
+            }, 20000);
+
+            const cleanup = () => {
+              clearInterval(pingInterval);
+            };
 
             ws.on('message', (data: any) => {
               if (!(ws as any)._firstMsgReceived) {
@@ -179,8 +198,15 @@ export class BinanceClientFactory implements OnModuleInit {
                 this.settingsRepository.update('default', { api_ban_until: until, api_ban_reason: msg }).catch(() => {});
                 this.eventEmitter.emit('binance.api_limit_reached', { type: 'BAN', message: msg, until });
               }
+              cleanup();
             });
-            (ws as any).disconnect = () => (ws as any).terminate();
+
+            ws.on('close', () => cleanup());
+
+            (ws as any).disconnect = () => {
+              cleanup();
+              (ws as any).terminate();
+            };
             return ws as any;
         }
 

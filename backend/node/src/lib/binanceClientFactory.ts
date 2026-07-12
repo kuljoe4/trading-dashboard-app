@@ -134,23 +134,17 @@ export class BinanceClientFactory implements OnModuleInit {
         let gatewayURL = wsURL;
         const urlObj = new URL(wsURL);
 
-        if (isPrivate) {
-          if (!isTestnet) urlObj.pathname = '/private';
-          else urlObj.pathname = '/ws';
-        } else if (isHF) {
-          if (!isTestnet) urlObj.pathname = '/public';
-          else urlObj.pathname = isCombined ? '/stream' : '/ws';
+        if (isCombined) {
+          urlObj.pathname = '/stream';
         } else {
-          if (!isTestnet) urlObj.pathname = '/market';
-          else urlObj.pathname = isCombined ? '/stream' : '/ws';
+          urlObj.pathname = '/ws';
         }
 
         // SRE: Correct construction of the final WebSocket URL for the SDK.
+        gatewayURL = urlObj.origin + urlObj.pathname;
+
         const useCombinedFormat = isCombined;
         if (!isTestnet && useCombinedFormat) {
-            urlObj.pathname = urlObj.pathname.replace(/\/$/, '') + '/stream';
-            gatewayURL = urlObj.origin + urlObj.pathname;
-
             // BOLT: Manual construction to bypass SDK logic and ensure /stream?streams= is used.
             const finalUrl = `${gatewayURL}?streams=${params.stream}`;
             this.logger.debug(`[BinanceClient] Connecting to gateway (Manual): ${finalUrl.substring(0, 100)}... | isHF=${isHF}`);

@@ -375,9 +375,10 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
 
 // --- P&L Bars ---
 export const PnLBars = React.memo(({ trades }) => {
-  if (!trades || trades.length === 0) return <div className="h-[60px] flex items-center justify-center text-[10px] text-dim font-bold uppercase tracking-widest">No Trade Data</div>
+  const safeTrades = Array.isArray(trades) ? trades : [];
+  if (safeTrades.length === 0) return <div className="h-[60px] flex items-center justify-center text-[10px] text-dim font-bold uppercase tracking-widest">No Trade Data</div>
 
-  const max = Math.max(...trades.map(t => Math.abs(t.pnl || 0)), 1);
+  const max = Math.max(...safeTrades.map(t => Math.abs(t.pnl || 0)), 1);
 
   return (
     <div
@@ -388,7 +389,7 @@ export const PnLBars = React.memo(({ trades }) => {
       {/* Zero baseline */}
       <div className="absolute left-0 right-0 h-px bg-border/40 z-0 top-1/2" />
 
-      {trades.map((t, i) => {
+      {safeTrades.map((t, i) => {
         const pnl = t.pnl || 0;
         const isPos = pnl >= 0;
         const absPnl = Math.abs(pnl);

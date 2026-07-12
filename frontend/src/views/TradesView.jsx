@@ -19,7 +19,7 @@ const TradesView = () => {
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
   const showResumingFeedback = sessionActive && isResuming
 
-  const selectedTrade = activeTrades.find(t => t.id === selectedTradeId || t.symbol === selectedTradeId)
+  const selectedTrade = (activeTrades || []).find(t => t.id === selectedTradeId || t.symbol === selectedTradeId)
 
   // Lifecycle-scoped subscription contract
   useResourceFocus('global_trades');
@@ -54,7 +54,7 @@ const TradesView = () => {
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 mb-8 lg:mb-12">
         {(() => {
-          const activePnl = activeTrades.reduce((acc, t) => acc + safeNum(t.pnl), 0);
+          const activePnl = (activeTrades || []).reduce((acc, t) => acc + safeNum(t.pnl), 0);
           return (
             <StatCard
               label="Active P&L"
@@ -72,7 +72,7 @@ const TradesView = () => {
       <div className="space-y-6">
         <SectionLabel>Live Tactical Map</SectionLabel>
 
-        {activeTrades.length === 0 ? (
+        {(!activeTrades || activeTrades.length === 0) ? (
           <div className="bg-surface/20 border border-border border-dashed rounded-3xl p-20 flex flex-col items-center justify-center text-center">
             <div className="w-16 h-16 rounded-full bg-surface border border-border flex items-center justify-center mb-6 text-dim/20">
               <Zap size={32} />
@@ -84,7 +84,7 @@ const TradesView = () => {
           </div>
         ) : (
           <AnimatePresence mode="popLayout">
-            {activeTrades.map((trade, idx) => (
+            {(activeTrades || []).map((trade, idx) => (
               <motion.div
                 key={trade.id || trade.symbol}
                 initial={{ opacity: 0, y: 20 }}

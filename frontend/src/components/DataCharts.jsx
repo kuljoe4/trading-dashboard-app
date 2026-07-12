@@ -6,12 +6,15 @@ import { formatDuration } from '../lib/formatters'
 export const Sparkline = React.memo(({ data = [], width = 60, height = 24, color = "accent" }) => {
   // Performance: Use useMemo for heavy geometry calculations
   const pathD = React.useMemo(() => {
-    const min = Math.min(...data);
-    const max = Math.max(...data);
+    const safeData = Array.isArray(data) ? data : [];
+    if (safeData.length < 2) return "";
+
+    const min = Math.min(...safeData);
+    const max = Math.max(...safeData);
     const range = (max - min) || 1;
 
-    const points = data.map((val, i) => {
-      const x = (i / (data.length - 1)) * width;
+    const points = safeData.map((val, i) => {
+      const x = (i / (safeData.length - 1)) * width;
       const y = height - ((val - min) / range) * height;
       return { x, y };
     });
@@ -64,10 +67,11 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
   const gapBetween = showOscillator ? height * 0.1 : 0;
 
   const { bars, min, max, range, barWidth, gap, thresholdY, slY } = React.useMemo(() => {
-    if (!Array.isArray(data) || data.length < 2) return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0, thresholdY: null, slY: null };
+    const safeData = Array.isArray(data) ? data : [];
+    if (safeData.length < 2) return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0, thresholdY: null, slY: null };
     // SEC: Validate all data points to prevent Infinity/NaN from breaking SVG layout or causing hangs
-    const validData = data.filter(d =>
-       Number.isFinite(d.low) && Number.isFinite(d.high) &&
+    const validData = safeData.filter(d =>
+       d && Number.isFinite(d.low) && Number.isFinite(d.high) &&
        Number.isFinite(d.open) && Number.isFinite(d.close)
     );
 
@@ -85,15 +89,15 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
     const barWidth = (width / data.length) * 0.7;
     const gap = (width / data.length) * 0.3;
 
-    const bars = data.map((d, i) => {
-      const x = i * (width / data.length) + gap / 2;
+    const bars = validData.map((d, i) => {
+      const x = i * (width / validData.length) + gap / 2;
       const yHigh = chartHeight - ((d.high - min) / range) * chartHeight;
       const yLow = chartHeight - ((d.low - min) / range) * chartHeight;
       const yOpen = chartHeight - ((d.open - min) / range) * chartHeight;
       const yClose = chartHeight - ((d.close - min) / range) * chartHeight;
 
       // Simple momentum oscillator calculation (pct change from 3 bars ago)
-      const prevPrice = data[Math.max(0, i - 3)]?.close || d.open;
+      const prevPrice = validData[Math.max(0, i - 3)]?.close || d.open;
       const momentum = ((d.close - prevPrice) / prevPrice) * 100;
 
       return {
@@ -118,11 +122,11 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
   const oscMax = React.useMemo(() => Math.max(...bars.map(b => Math.abs(b.momentum || 0)), 0.1), [bars]);
 
   const handleMouseMove = (e) => {
-    if (!containerRef.current) return;
+    if (!containerRef.current || !Array.isArray(data) || data.length === 0) return;
     const rect = containerRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const barIndex = Math.floor(x / (width / data.length));
-    if (barIndex >= 0 && barIndex < bars.length) {
+    if (barIndex >= 0 && barIndex < (bars || []).length) {
       setHoverData({ ...bars[barIndex], original: data[barIndex], mouseX: x });
     }
   };

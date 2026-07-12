@@ -1357,6 +1357,27 @@ export class SessionService implements OnModuleInit {
           }
 
           if (!slOrder) {
+            this.logger.debug(`[Reconciliation] No SL order found for ghost position ${exPos.symbol} in initial set. Performing exhaustive check...`);
+
+            // SRE: Exhaustive SL Discovery.
+            // Standard fetchOpenOrders (via bulk or symbol) might miss algo orders if not explicitly polled.
+            // We force a fresh algo-specific check to ensure no ghost SLs remain orphaned.
+            try {
+              const freshAlgoOrders = await this.orderManager.fetchOpenAlgoOrders(exPos.symbol, { forceFresh: true });
+              const freshSlOrder = freshAlgoOrders.find((o) => isSl(o) && isReduce(o));
+
+              if (freshSlOrder) {
+                slPrice = parseFloat(freshSlOrder.stopPrice || freshSlOrder.triggerPrice || "0");
+                slId = String(freshSlOrder.algoId || freshSlOrder.orderId);
+                slType = "algo";
+                this.logger.log(`[Reconciliation] Found exhaustive ghost SL for ${exPos.symbol}: ${slId} @ ${slPrice}`);
+              }
+            } catch (freshErr) {
+              this.logger.debug(`[Reconciliation] Exhaustive algo check failed for ${exPos.symbol}: ${freshErr.message}`);
+            }
+          }
+
+          if (!slOrder && !slId) {
             this.logger.debug(`[Reconciliation] No SL order found for ghost position ${exPos.symbol}. Total orders checked for symbol: ${exOrders.length}`);
           }
         } catch (orderErr) {

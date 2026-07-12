@@ -55,6 +55,9 @@ export class OrderManagerService {
   // SRE: Per-symbol closure locks to prevent concurrent execution races
   private closureLocks: Map<string, boolean> = new Map();
 
+  // Audit Item 13: Per-symbol flush locks to prevent overlapping aggressive cleanups
+  private flushLocks: Map<string, boolean> = new Map();
+
   // BOLT: Per-symbol log throttling for backoff periods
   private lastDeferLogTs: Map<string, number> = new Map();
 
@@ -1529,14 +1532,13 @@ export class OrderManagerService {
 
       // BOLT: Handle existing order conflict. If a closePosition order already exists or max stop orders reached, clear it and retry.
       if ((errMsg.includes('existing') && (errMsg.includes('closePosition') || errMsg.includes('GTE'))) || errMsg.includes('-2027')) {
-         this.logger.warn(`[${trade.symbol}] [Sync] SL conflict detected (${errMsg}). Executing aggressive symbol flush...`);
+         this.logger.warn(`[${trade.symbol}] [Sync] SL conflict detected (${errMsg}). Executing exhaustive symbol flush...`);
          try {
-            // Aggressive symbol flush to clear ANY conflicting orders (Standard or Algo)
-            const flushRes = await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol: trade.symbol });
-            this.updateWeight(flushRes?.headers);
+            // SRE: Use exhaustive flush to clear both standard and algo orders
+            await this.exhaustiveSymbolFlush(trade.symbol);
 
             if (networkAttempts < MAX_NETWORK_ATTEMPTS) {
-              this.logger.log(`[${trade.symbol}] [Sync] Aggressive flush complete. Retrying SL placement (Attempt ${networkAttempts + 1})...`);
+              this.logger.log(`[${trade.symbol}] [Sync] Exhaustive flush complete. Retrying SL placement (Attempt ${networkAttempts + 1})...`);
               continue;
             }
          } catch (cleanupErr) {
@@ -2012,6 +2014,55 @@ export class OrderManagerService {
     this.sessionState.realTimePositions.set(symbol, { amount, entryPrice });
   }
 
+  /**
+   * SRE: Exhaustive Symbol Flush.
+   * Cancels BOTH standard and algorithmic orders for a symbol to resolve ReduceOnly capacity conflicts.
+   */
+  public async exhaustiveSymbolFlush(symbol: string) {
+    if (this.paperMode || !this.binanceClient) return;
+
+    if (this.flushLocks.get(symbol)) {
+       this.logger.debug(`[${symbol}] Flush already in progress. skipping.`);
+       return;
+    }
+
+    try {
+      this.flushLocks.set(symbol, true);
+      this.logger.log(`[${symbol}] [Flush] Initiating exhaustive symbol flush...`);
+
+      // 1. Cancel all standard orders
+      try {
+        const res = await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol });
+        this.updateWeight(res?.headers);
+        this.logger.log(`[${symbol}] [Flush] Standard orders cleared.`);
+      } catch (e: any) {
+        this.logger.debug(`[${symbol}] [Flush] No standard orders to clear or failed: ${e.message}`);
+      }
+
+      // 2. Cancel all algo orders
+      try {
+        const algoOrders = await this.fetchOpenAlgoOrders(symbol, { forceFresh: true });
+        if (algoOrders.length > 0) {
+           this.logger.log(`[${symbol}] [Flush] Found ${algoOrders.length} ghost algo orders. Clearing...`);
+           for (const o of algoOrders) {
+              const algoId = String(o.algoId || o.orderId);
+              await this.cancelBinanceOrder(symbol, algoId, 'algo');
+           }
+        }
+      } catch (e: any) {
+        this.logger.debug(`[${symbol}] [Flush] Failed to clear algo orders: ${e.message}`);
+      }
+
+      // 3. Purge real-time caches
+      this.sessionState.realTimeOrders.delete(symbol);
+      this.markAsExecuted(symbol, 'ALL', 'FLUSHED');
+
+      this.logger.log(`[${symbol}] [Flush] Exhaustive flush complete.`);
+    } finally {
+      this.flushLocks.delete(symbol);
+    }
+  }
+
   public async fetchPosition(symbol: string, options: { forceFresh?: boolean } = {}): Promise<BinancePositionV3 | null> {
     // Zero-Weight Path: Prefer local real-time cache from User Data Stream
     if (!options.forceFresh) {
@@ -2396,11 +2447,11 @@ export class OrderManagerService {
           // by querying exchange state to verify if the close order was accepted.
           let orderData: any = null;
           let closeSuccess = false;
-          let attempts = 0;
-          const MAX_CLOSE_ATTEMPTS = 3;
+          let closeAttempts = 0;
+          const MAX_INTERNAL_CLOSE_ATTEMPTS = 3;
 
-          while (attempts < MAX_CLOSE_ATTEMPTS) {
-            attempts++;
+          while (closeAttempts < MAX_INTERNAL_CLOSE_ATTEMPTS) {
+            closeAttempts++;
             try {
               // SRE: Fix -2022 ReduceOnly Conflict.
               // Proactively cancel the tracked Stop Loss order before MARKET close
@@ -2441,9 +2492,9 @@ export class OrderManagerService {
                   }
                 }
 
-                if (msg.includes('ReduceOnly') || msg.includes('conflict') || msg.includes('-2022')) {
-                   this.logger.warn(`[${symbol}] MARKET close conflicted (ReduceOnly). Flushing all symbol orders and retrying (Attempt ${attempts})...`);
-                   await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol });
+                if (msg.includes('ReduceOnly') || msg.includes('conflict') || msg.includes('-2022') || msg.includes('side does not match')) {
+                   this.logger.warn(`[${symbol}] MARKET close conflicted (ReduceOnly). Executing exhaustive symbol flush and retrying (Attempt ${closeAttempts})...`);
+                   await this.exhaustiveSymbolFlush(symbol);
                    continue;
                 }
 
@@ -2458,9 +2509,9 @@ export class OrderManagerService {
               const errMsg = err.message || '';
               const isNetworkError = errMsg.includes('Network error') || errMsg.includes('timeout') || errMsg.includes('ECONNRESET') || errMsg.includes('ETIMEDOUT');
 
-              if (isNetworkError && attempts < MAX_CLOSE_ATTEMPTS) {
-                this.logger.warn(`[${symbol}] Network error during close. Retrying (Attempt ${attempts + 1})...`);
-                await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
+              if (isNetworkError && closeAttempts < MAX_INTERNAL_CLOSE_ATTEMPTS) {
+                this.logger.warn(`[${symbol}] Network error during close. Retrying (Attempt ${closeAttempts + 1})...`);
+                await new Promise(resolve => setTimeout(resolve, 1000 * closeAttempts));
                 continue;
               }
 
@@ -2474,6 +2525,12 @@ export class OrderManagerService {
                   closeSuccess = true;
                   break;
                 }
+              }
+
+              if (errMsg.includes('ReduceOnly') || errMsg.includes('-2022') || errMsg.includes('side does not match')) {
+                 this.logger.warn(`[${symbol}] MARKET close exception (ReduceOnly). Executing exhaustive symbol flush and retrying (Attempt ${closeAttempts})...`);
+                 await this.exhaustiveSymbolFlush(symbol);
+                 continue;
               }
 
               throw err;

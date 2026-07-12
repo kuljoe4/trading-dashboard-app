@@ -155,9 +155,26 @@ export class BinanceClientFactory implements OnModuleInit {
                 ? `${gatewayURL}?streams=${params.stream}`
                 : `${gatewayURL}/${params.stream}`;
 
-            this.logger.log(`[BinanceClient] Connecting to gateway (Manual): ${finalUrl.substring(0, 100)}... | isHF=${isHF} | isPrivate=${isPrivate}`);
+            this.logger.debug(`[BinanceClient] Connecting to gateway (Manual): ${finalUrl.substring(0, 100)}... | isHF=${isHF} | isPrivate=${isPrivate}`);
 
-            const ws = new WebSocket(finalUrl, { handshakeTimeout: 15000 });
+            // CITADEL: Production-hardened WebSocket handshake.
+            // Some production gateways (like Binance) require Origin/User-Agent headers
+            // and can be unstable with perMessageDeflate compression.
+            const ws = new WebSocket(finalUrl, {
+                handshakeTimeout: 15000,
+                perMessageDeflate: false,
+                headers: {
+                    'Origin': 'https://www.binance.com',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                }
+            });
+
+            // SRE: Proactive keep-alive for manual WebSockets to prevent idle timeouts
+            const pingInterval = setInterval(() => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    try { ws.ping(); } catch (e) {}
+                }
+            }, 20000);
 
             ws.on('message', (data: any) => {
               if (!(ws as any)._firstMsgReceived) {
@@ -166,7 +183,12 @@ export class BinanceClientFactory implements OnModuleInit {
               }
             });
 
+            ws.on('close', () => {
+                clearInterval(pingInterval);
+            });
+
             ws.on('error', (err: any) => {
+              clearInterval(pingInterval);
               const msg = err.message || '';
               this.logger.error(`[BinanceClient] WebSocket error for ${params.stream}: ${msg}`);
 
@@ -180,7 +202,10 @@ export class BinanceClientFactory implements OnModuleInit {
                 this.eventEmitter.emit('binance.api_limit_reached', { type: 'BAN', message: msg, until });
               }
             });
-            (ws as any).disconnect = () => (ws as any).terminate();
+            (ws as any).disconnect = () => {
+                clearInterval(pingInterval);
+                (ws as any).terminate();
+            };
             return ws as any;
         }
 

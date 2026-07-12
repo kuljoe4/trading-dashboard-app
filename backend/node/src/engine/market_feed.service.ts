@@ -541,10 +541,13 @@ export class MarketFeedService {
 
     const isTestnet = this.sessionState.config?.trading_mode === 'testnet';
 
-    // BOLT: Unify discovery streams for both Live and Testnet.
-    // Production testing shows joined streams via /stream are more reliable and
-    // consume fewer socket descriptors than multiple single streams.
-    const streams = [['!miniTicker@arr', '!markPrice@arr@1s'].join('/')];
+    // BOLT: Revert to separate streams for discovery topics in Live mode.
+    // While unified streams are cleaner, splitting the aggregate topics
+    // (miniTicker vs markPrice) into dedicated sockets reduces the risk of
+    // a single topic's silence or upgrade issue affecting both.
+    const streams = isTestnet
+        ? [['!miniTicker@arr', '!markPrice@arr@1s'].join('/')]
+        : ['!miniTicker@arr', '!markPrice@arr@1s'];
 
     const wsBaseMarket = isTestnet
         ? 'wss://fstream.binancefuture.com/stream'
@@ -598,9 +601,15 @@ export class MarketFeedService {
 
           ws.on('message', (data: any) => this.processStreamMessage(data, streamName));
           ws.on('open', () => {
-            this.logger.log(`[MarketFeed] Discovery socket OPEN: ${streamName} via ${usedSdk ? 'SDK' : 'raw-ws'} (${url ?? 'sdk-managed'})`);
+            this.logger.debug(`[MarketFeed] Discovery socket OPEN: ${streamName} via ${usedSdk ? 'SDK' : 'raw-ws'} (${url ?? 'sdk-managed'})`);
             this.globalDiscoveryRetryCount = 0;
             this.globalDiscoveryOpenedAt = Date.now();
+          });
+          ws.on('upgrade', (res: any) => {
+            this.logger.debug(`[MarketFeed] Discovery socket UPGRADED: ${streamName} (Status: ${res.statusCode})`);
+          });
+          ws.on('unexpected-response', (req: any, res: any) => {
+            this.logger.error(`[MarketFeed] Discovery socket unexpected response (${streamName}): ${res.statusCode} ${res.statusMessage}`);
           });
           ws.on('close', () => {
             this.globalDiscoveryWsList.delete(ws);

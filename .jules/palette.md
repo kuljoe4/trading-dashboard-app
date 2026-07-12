@@ -57,3 +57,15 @@
 ## 2026-06-28 - Standardized Keyboard Navigation for Custom Tablists
 **Learning:** Custom tab implementations (e.g., using Chips in a flex container) lack the built-in accessibility of dedicated components like Radix Tabs. Users navigating via keyboard expect standard WAI-ARIA arrow-key behavior to cycle through sections.
 **Action:** Implement 'ArrowLeft' and 'ArrowRight' keyboard handlers on custom tablist containers and ensure all interactive tab elements use 'focus-visible' ring styles to provide clear, non-intrusive focus indicators for power users.
+
+## 2026-07-11 - Standardized Actionable Empty States
+**Learning:** Empty states without a clear "next step" create friction and user drop-off. Providing a high-visibility CTA aligned with the primary user intent for that view (e.g., opening the scanner from the trades view) significantly improves flow.
+**Action:** Always include a primary CTA button in empty state containers to guide users toward discovery or creation paths.
+
+## 2026-07-11 - Global Keyboard Focus Consistency
+**Learning:** Over-reliance on `outline-none` for aesthetic reasons frequently breaks keyboard navigation. Standardizing a `focus-visible:ring-accent` pattern ensures accessibility without compromising visual polish for mouse users.
+**Action:** Apply `focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none` to all navigation and utility buttons to ensure full WAI-ARIA compliance.
+
+## 2026-07-12 - Intentional Interaction vs. Intrusive Focus
+**Learning:** Automatic focusing of inputs (autoFocus) can be disruptive, especially in overlays or drawers, as it may trigger virtual keyboards on mobile or hijack physical keyboard focus before the user has oriented themselves. Forcing focus should be reserved for scenarios where the user's primary and immediate intent is 100% known to be data entry.
+**Action:** Default to letting users initiate focus manually or via explicit shortcuts (like the existing [/] shortcut), rather than using `autoFocus` on mount.

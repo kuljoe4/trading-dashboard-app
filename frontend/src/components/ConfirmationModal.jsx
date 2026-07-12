@@ -54,7 +54,7 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
                     <Tooltip content="Close">
                       <Dialog.Close asChild>
                         <button
-                          className="text-dim hover:text-text p-2 hover:bg-white/5 rounded-xl transition-all active:scale-90 outline-none"
+                          className="text-dim hover:text-text p-2 hover:bg-white/5 rounded-xl transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                           aria-label="Close"
                         >
                           <X size={20} />

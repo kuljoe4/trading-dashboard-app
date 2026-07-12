@@ -78,13 +78,20 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
     if (validData.length < 2) return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0 };
 
     const thresholdPrice = entryPrice ? entryPrice * (1 + (isLong ? threshold : -threshold) / 100) : null;
-    const prices = validData.flatMap(d => [d.low, d.high]);
-    if (thresholdPrice) prices.push(thresholdPrice);
-    if (entryPrice) prices.push(entryPrice);
-    if (slPrice) prices.push(slPrice);
 
-    const min = Math.min(...prices);
-    const max = Math.max(...prices);
+    if (thresholdPrice !== null) {
+      if (thresholdPrice < min) min = thresholdPrice;
+      if (thresholdPrice > max) max = thresholdPrice;
+    }
+    if (entryPrice !== null) {
+      if (entryPrice < min) min = entryPrice;
+      if (entryPrice > max) max = entryPrice;
+    }
+    if (slPrice !== null) {
+      if (slPrice < min) min = slPrice;
+      if (slPrice > max) max = slPrice;
+    }
+
     const range = (max - min) || 1;
     const barWidth = (width / data.length) * 0.7;
     const gap = (width / data.length) * 0.3;
@@ -119,7 +126,15 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
     return { bars, min, max, range, barWidth, gap, thresholdY, slY };
   }, [data, width, chartHeight, threshold, isLong, entryPrice, decisionMarkers, slPrice]);
 
-  const oscMax = React.useMemo(() => Math.max(...bars.map(b => Math.abs(b.momentum || 0)), 0.1), [bars]);
+  const oscMax = React.useMemo(() => {
+    // BOLT: Zero-allocation max calculation for high-frequency oscillator lane
+    let m = 0.1;
+    for (let i = 0; i < bars.length; i++) {
+      const v = Math.abs(bars[i].momentum || 0);
+      if (v > m) m = v;
+    }
+    return m;
+  }, [bars]);
 
   const handleMouseMove = (e) => {
     if (!containerRef.current || !Array.isArray(data) || data.length === 0) return;

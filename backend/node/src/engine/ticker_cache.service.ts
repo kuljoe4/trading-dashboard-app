@@ -12,6 +12,7 @@ export interface Ticker {
 export class TickerCacheService {
   private readonly logger = new Logger(TickerCacheService.name);
   private tickers: Map<string, Ticker> = new Map();
+  private hasReceivedFirstData = false;
   private _topByVolumeCache: { [key: string]: { data: Ticker[], timestamp: number } } = {};
   private readonly TOP_VOLUME_CACHE_TTL_MS = 60000;
   private readonly TOP_VOLUME_CACHE_MAX_KEYS = 12;
@@ -43,6 +44,12 @@ export class TickerCacheService {
    */
   updateTicker(symbol: string, price?: string | number, volume?: string | number, open?: string | number, markPrice?: string | number) {
     if (!symbol) return;
+
+    if (!this.hasReceivedFirstData) {
+       this.hasReceivedFirstData = true;
+       this.logger.log(`[TickerCache] First ticker data received for ${symbol}. Bootstrap successful.`);
+    }
+
     const existing = this.tickers.get(symbol);
 
     const p = typeof price === 'string' ? parseFloat(price) : price;

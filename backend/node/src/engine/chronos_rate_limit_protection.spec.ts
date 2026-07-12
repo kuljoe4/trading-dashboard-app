@@ -26,10 +26,13 @@ describe('Chronos: Rate Limit Protection Gap Regression', () => {
           useValue: {
             binanceOrderLimit: { used_10s: 299, limit_10s: 300, used_1m: 500, limit_1m: 1200 },
             isRateLimited: jest.fn().mockReturnValue(false),
-            isOrderRateLimited: jest.fn().mockReturnValue(false), // Current implementation might return false even at 299
+            isOrderRateLimited: jest.fn().mockReturnValue(false),
+            isBanned: jest.fn().mockReturnValue(false),
+            hasOrderCapacity: jest.fn().mockReturnValue(true),
             binanceRateLimit: { used_1m: 100, limit: 2400 },
             realTimeOrders: new Map(),
             realTimePositions: new Map(),
+            apiStatus: { isBanned: false, banUntil: null },
           },
         },
         { provide: SignalEngineService, useValue: {} },

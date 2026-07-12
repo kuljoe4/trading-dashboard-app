@@ -335,12 +335,13 @@ export class BinanceRequestQueue {
     // BOLT: Automatically identify infrastructure calls as emergency
     const effectiveIsEmergency = isEmergency || ['startUserDataStream', 'keepaliveUserDataStream', 'closeUserDataStream'].includes(label);
 
-    // SRE: Critical guard - immediately reject non-emergency requests if currently in a hard ban cooldown.
-    // This prevents building up a massive queue that bursts immediately after the cooldown expires.
+    // SRE: Critical guard - immediately reject ALL requests if currently in a hard ban cooldown.
+    // NO BYPASS allowed for active bans to prevent immediate re-ban on reconnection attempts.
+    // Alignment: "Please use the websocket for live updates to avoid polling the API."
     const now = Date.now();
-    if (now < BinanceRequestQueue.lastRequestTs && !effectiveIsEmergency) {
+    if (now < BinanceRequestQueue.lastRequestTs) {
        const remaining = Math.ceil((BinanceRequestQueue.lastRequestTs - now) / 1000);
-       return Promise.reject(new Error(`IP banned: Too many requests. Resuming in ${remaining}s.`));
+       return Promise.reject(new Error(`IP banned: Terminal Lock. Resuming in ${remaining}s. Please use the websocket for live updates to avoid polling the API.`));
     }
 
     return new Promise((resolve, reject) => {
@@ -446,20 +447,20 @@ export class BinanceRequestQueue {
         let shedReason = '';
 
         if (!isEmergency) {
-           if (usageRatio > 1.0) {
-              shed = true; shedReason = 'Weight limit exceeded (100%+)';
-           } else if (usageRatio > 0.95 && !isCritical) {
-              shed = true; shedReason = 'SRE Tiered Budget (Critical Zone 95%+)';
-           } else if (usageRatio > 0.80 && !isCritical && !isOperational) {
-              shed = true; shedReason = 'SRE Tiered Budget (Operational Zone 80%+)';
-           } else if (usageRatio > 0.50 && isBackground) {
+           if (usageRatio > 0.95) {
+              shed = true; shedReason = 'Weight limit exceeded (95%+)';
+           } else if (usageRatio > 0.90 && !isCritical) {
+              shed = true; shedReason = 'SRE Tiered Budget (Critical Zone 90%+)';
+           } else if (usageRatio > 0.75 && !isCritical && !isOperational) {
+              shed = true; shedReason = 'SRE Tiered Budget (Operational Zone 75%+)';
+           } else if (usageRatio > 0.40 && isBackground) {
               shed = true;
-              shedReason = 'SRE Tiered Budget (Background Zone 50%+)';
+              shedReason = 'SRE Tiered Budget (Background Zone 40%+)';
            }
-        } else if (usageRatio > 1.1) {
+        } else if (usageRatio > 1.05) {
            // Hard ceiling for even emergency orders to protect IP reputation from permanent ban
            shed = true;
-           shedReason = 'Emergency limit exceeded (110%+)';
+           shedReason = 'Emergency limit exceeded (105%+)';
         }
 
         if (shed) {

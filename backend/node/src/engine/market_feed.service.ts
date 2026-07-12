@@ -133,6 +133,9 @@ export class MarketFeedService {
   }
 
   public async fetchExchangeInfo(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
+    // SRE: Immunity check. If we are currently banned, don't try to fetch REST exchange info
+    if (this.sessionState.isBanned()) return;
+
     const now = Date.now();
     // BOLT: Static caching of exchange info for 1 hour to prevent redundant heavy calls (Weight 40) across session restarts
     // RESEARCH-02: Increase TTL to 12 hours for metadata that rarely changes, further reducing weight usage.
@@ -852,6 +855,9 @@ export class MarketFeedService {
   }
 
   private async backfillKlines(symbol: string, interval: string) {
+    // SRE: Immunity check. If we are currently banned, don't try to backfill REST klines
+    if (this.sessionState.isBanned()) return;
+
     const requiredWarmup = this.sessionState.config ? this.signalEngine.getRequiredWarmup(this.sessionState.config) : 100;
 
     // ARCHITECTURAL OPTIMIZATION: Try loading from local DB first to eliminate redundant REST calls.

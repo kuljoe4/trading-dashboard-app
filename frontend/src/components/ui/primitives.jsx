@@ -371,7 +371,12 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
 export const PnLBars = React.memo(({ trades }) => {
   if (!trades || trades.length === 0) return <div className="h-[60px] flex items-center justify-center text-[10px] text-dim font-bold uppercase tracking-widest">No Trade Data</div>
 
-  const max = Math.max(...trades.map(t => Math.abs(t.pnl || 0)), 1);
+  // BOLT: Replace map+spread with single-pass loop to reduce allocation churn in high-frequency history views
+  let max = 1;
+  for (let i = 0; i < trades.length; i++) {
+    const p = Math.abs(trades[i].pnl || 0);
+    if (p > max) max = p;
+  }
 
   return (
     <div

@@ -1532,14 +1532,13 @@ export class OrderManagerService {
 
       // BOLT: Handle existing order conflict. If a closePosition order already exists or max stop orders reached, clear it and retry.
       if ((errMsg.includes('existing') && (errMsg.includes('closePosition') || errMsg.includes('GTE'))) || errMsg.includes('-2027')) {
-         this.logger.warn(`[${trade.symbol}] [Sync] SL conflict detected (${errMsg}). Executing aggressive symbol flush...`);
+         this.logger.warn(`[${trade.symbol}] [Sync] SL conflict detected (${errMsg}). Executing exhaustive symbol flush...`);
          try {
-            // Aggressive symbol flush to clear ANY conflicting orders (Standard or Algo)
-            const flushRes = await this.binanceClient.restAPI.cancelAllOpenOrders({ symbol: trade.symbol });
-            this.updateWeight(flushRes?.headers);
+            // SRE: Use exhaustive flush to clear both standard and algo orders
+            await this.exhaustiveSymbolFlush(trade.symbol);
 
             if (networkAttempts < MAX_NETWORK_ATTEMPTS) {
-              this.logger.log(`[${trade.symbol}] [Sync] Aggressive flush complete. Retrying SL placement (Attempt ${networkAttempts + 1})...`);
+              this.logger.log(`[${trade.symbol}] [Sync] Exhaustive flush complete. Retrying SL placement (Attempt ${networkAttempts + 1})...`);
               continue;
             }
          } catch (cleanupErr) {

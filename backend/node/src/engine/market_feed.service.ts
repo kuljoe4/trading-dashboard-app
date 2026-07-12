@@ -60,6 +60,7 @@ export class MarketFeedService {
   private lastMarkTickerMsgTs = 0;
   private globalDiscoveryOpenedAt = 0;
   private hasEverReceivedData = false;
+  private _globalDiscoveryConfirmed = false;
 
   constructor(
     private tickerCache: TickerCacheService,
@@ -377,7 +378,7 @@ export class MarketFeedService {
     const now = Date.now();
 
     // FAIL-FAST: Detect if global discovery socket is open but never received any data
-    if (!this.hasEverReceivedData && this.globalDiscoveryOpenedAt > 0 && (now - this.globalDiscoveryOpenedAt > 60000)) {
+    if (!this._globalDiscoveryConfirmed && this.globalDiscoveryOpenedAt > 0 && (now - this.globalDiscoveryOpenedAt > 60000)) {
       const mode = this.sessionState.config?.trading_mode || (this.sessionState.config?.paper_mode ? 'paper' : 'live');
       this.logger.error(`[MarketFeed] CRITICAL: Global discovery socket open but zero messages received in 60s. Mode=${mode}. Check network/firewall.`);
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
@@ -601,6 +602,7 @@ export class MarketFeedService {
             this.logger.log(`[MarketFeed] Discovery socket OPEN: ${streamName} via ${usedSdk ? 'SDK' : 'raw-ws'} (${url ?? 'sdk-managed'})`);
             this.globalDiscoveryRetryCount = 0;
             this.globalDiscoveryOpenedAt = Date.now();
+            this._globalDiscoveryConfirmed = false;
           });
           ws.on('close', () => {
             this.globalDiscoveryWsList.delete(ws);
@@ -633,12 +635,21 @@ export class MarketFeedService {
   }
 
   private lastRawWsLogTs = 0;
+  private _firstMsgLogged = false;
+
   private processStreamMessage(data: any, defaultStream?: string) {
     try {
+      this._globalDiscoveryConfirmed = true;
       if (!this.hasEverReceivedData) {
         this.hasEverReceivedData = true;
         this.logger.log(`[MarketFeed] First message received from stream: ${defaultStream || 'unknown'}. Connection healthy.`);
       }
+
+      if (!this._firstMsgLogged) {
+        this._firstMsgLogged = true;
+        this.logger.debug(`[MarketFeed] First discovery message sample: ${String(data).substring(0, 200)}`);
+      }
+
       const raw = data.toString();
       if (this.sessionState.config?.debug_mode) {
          const now = Date.now();

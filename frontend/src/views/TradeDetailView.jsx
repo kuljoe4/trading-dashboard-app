@@ -11,7 +11,7 @@ import { formatDuration } from '../lib/formatters'
 
 const TradeDetailView = ({ tradeId }) => {
   const { activeTrades, wsStatus, updateStats } = useTradingStore()
-  const trade = activeTrades.find(t => t.id === tradeId || t.symbol === tradeId)
+  const trade = (activeTrades || []).find(t => t.id === tradeId || t.symbol === tradeId)
   const [now, setNow] = useState(Date.now())
 
   useEffect(() => {

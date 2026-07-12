@@ -24,7 +24,7 @@ export const ActiveTradeBar = React.memo(() => {
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
   const showResumingFeedback = sessionActive && isResuming
 
-  const totalPnl = activeTrades.reduce((sum, t) => sum + safeNum(t.pnl), 0)
+  const totalPnl = (activeTrades || []).reduce((sum, t) => sum + safeNum(t.pnl), 0)
 
   const getEstSlPnl = (t) => {
     const sl = Number(t.sl_price || 0)
@@ -76,7 +76,7 @@ export const ActiveTradeBar = React.memo(() => {
         </div>
 
         <div className="flex-1 overflow-x-auto no-scrollbar flex gap-2" role="list">
-          {activeTrades.map(t => {
+          {(activeTrades || []).map(t => {
             const slPnl = getEstSlPnl(t)
             return (
               <div key={t.symbol} className="flex flex-col gap-1">

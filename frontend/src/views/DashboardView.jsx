@@ -378,7 +378,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
   );
 })
 
-const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, hibernating, hibernationMode, activeTradesCount, showResumingFeedback }) => {
+const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, hibernating, hibernationMode, activeTradesCount = 0, showResumingFeedback }) => {
   if (!gateState && !scannerPaused && !showResumingFeedback) return null
 
   const [now, setNow] = React.useState(Date.now());
@@ -447,7 +447,7 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
 GateBanner.displayName = 'GateBanner'
 
 const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) => {
-  const { activeTrades } = useTradingStore(state => ({ activeTrades: state.activeTrades }), shallow);
+  const { activeTrades } = useTradingStore(state => ({ activeTrades: state.activeTrades || [] }), shallow);
   const threshold = config.scan_pct_threshold || 2
   const top = scannerResults.slice(0, 5)
   // Pre-allocate 5 slots to prevent layout shift
@@ -501,7 +501,7 @@ const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) => {
                       <em className={cn("text-xs font-bold font-mono text-right", colorClass)}>
                         {opp.pct >= 0 ? '+' : ''}{Number(opp.pct || 0).toFixed(2)}%
                       </em>
-                      {activeTrades.some(t => t.symbol === opp.symbol) && (
+                      {(activeTrades || []).some(t => t.symbol === opp.symbol) && (
                         <div className="flex items-center gap-1 opacity-60">
                            <Zap size={8} className="text-green fill-green/20" />
                            <span className="text-[7px] font-black text-green uppercase tracking-tighter">In Pos</span>
@@ -634,7 +634,7 @@ export function DashboardView({ initialStrategy }) {
       const label = v.strategy_label || 'Variant';
       map[label] = 0;
     });
-    activeTrades.forEach(t => {
+    (activeTrades || []).forEach(t => {
       if (t && map[t.strategy_label] !== undefined) {
         map[t.strategy_label] += safeNum(t.pnl);
       }
@@ -643,14 +643,14 @@ export function DashboardView({ initialStrategy }) {
   }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
 
   const totalActivePnl = useMemo(() =>
-    Object.values(activePnlMap).reduce((acc, val) => acc + val, 0)
+    Object.values(activePnlMap || {}).reduce((acc, val) => acc + val, 0)
   , [activePnlMap]);
 
-  const maxRR = useMemo(() => activeTrades.reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
+  const maxRR = useMemo(() => (activeTrades || []).reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
 
   const monitoredSymbolsSet = useMemo(() => {
     const set = new Set();
-    config.single_symbol_configs?.forEach(sc => {
+    (config.single_symbol_configs || []).forEach(sc => {
       if (sc.enabled) set.add(sc.symbol);
     });
     return set;

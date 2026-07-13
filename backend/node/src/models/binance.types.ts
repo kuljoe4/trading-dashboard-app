@@ -156,6 +156,18 @@ export interface BinanceUserCommissionRate {
   takerCommissionRate: string;
 }
 
+export interface BinanceLeverageBracket {
+  symbol: string;
+  brackets: {
+    bracket: number;
+    initialLeverage: number;
+    notionalCap: number;
+    notionalFloor: number;
+    maintMarginRatio: number;
+    cum: number;
+  }[];
+}
+
 export interface BinanceTrade {
   symbol: string;
   id: number;

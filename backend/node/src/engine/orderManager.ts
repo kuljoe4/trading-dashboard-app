@@ -43,6 +43,8 @@ export class OrderManagerService {
   private paperMode = true;
   private takerFeeRate = 0.0004; // Default taker fee (0.04%)
   private lastFeeFetch = 0;
+  private leverageBrackets: Map<string, any> = new Map();
+  private lastBracketFetch = 0;
 
   private consecutiveFailures = 0;
   private readonly MAX_CONSECUTIVE_FAILURES = 3;
@@ -280,7 +282,7 @@ export class OrderManagerService {
               level: 'info'
             });
 
-            this.eventEmitter.emit('trade.exchange_close', {
+            this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
               symbol,
               exitPrice,
               reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
@@ -385,7 +387,7 @@ export class OrderManagerService {
                }
              }
 
-             this.eventEmitter.emit('trade.exchange_close', {
+             this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
                symbol,
                exitPrice,
                reason,
@@ -712,6 +714,60 @@ export class OrderManagerService {
     return true;
   }
 
+  /**
+   * SRE: Pre-flight Leverage Bracket check.
+   * Ensures the intended position size is within the allowable notional cap
+   * for the symbol's current leverage to avoid Error -4031/4033 rejections.
+   */
+  async checkLeverageBracket(symbol: string, notional: number): Promise<{ isAllowed: boolean; maxNotional?: number }> {
+    if (this.paperMode || !this.binanceClient) return { isAllowed: true };
+
+    try {
+      const now = Date.now();
+      // Cache brackets for 1 hour to minimize REST weight
+      if (this.leverageBrackets.size === 0 || (now - this.lastBracketFetch > 3600000)) {
+         this.logger.debug(`[OrderManager] Fetching fresh leverage brackets...`);
+         const response = await (this.binanceClient.restAPI as any).leverageBracket();
+         this.updateWeight(response.headers);
+         const data = (await response.data()) as any[];
+         if (Array.isArray(data)) {
+            this.leverageBrackets.clear();
+            for (const b of data) {
+               this.leverageBrackets.set(b.symbol, b.brackets);
+            }
+            this.lastBracketFetch = now;
+         }
+      }
+
+      const brackets = this.leverageBrackets.get(symbol);
+      if (!brackets || !Array.isArray(brackets)) return { isAllowed: true };
+
+      // Get current position for the symbol to check total aggregate notional
+      const pos = await this.fetchPosition(symbol, { forceFresh: false });
+      const currentNotional = pos ? Math.abs(parseFloat(pos.notional || '0')) : 0;
+      const totalNotional = currentNotional + notional;
+
+      // Find the relevant bracket. Brackets are usually sorted by leverage descending.
+      // We need to find the one that corresponds to the symbol's ACTIVE leverage on Binance.
+      const currentLeverage = pos ? parseInt(pos.leverage || '1') : 20; // Default 20x if unknown
+
+      // Find the relevant bracket. Brackets are returned in descending order (e.g., 125x, 100x, ..., 1x).
+      // We need to find the one where our current leverage is <= the initialLeverage of the tier.
+      // SRE: Brackets represent the MAX leverage allowed for that notional tier.
+      const activeBracket = [...brackets].reverse().find(b => currentLeverage <= b.initialLeverage) || brackets[0];
+
+      if (activeBracket && totalNotional > activeBracket.notionalCap) {
+         this.logger.warn(`[OrderManager] Leverage Cap Breach for ${symbol}: Total Notional ${totalNotional.toFixed(2)} exceeds cap ${activeBracket.notionalCap} at ${currentLeverage}x leverage.`);
+         return { isAllowed: false, maxNotional: activeBracket.notionalCap };
+      }
+
+      return { isAllowed: true };
+    } catch (err) {
+      this.logger.debug(`[OrderManager] Leverage bracket check failed for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
+      return { isAllowed: true }; // Permissive on failure
+    }
+  }
+
   async enter(
     sessionId: string,
     symbol: string,
@@ -771,6 +827,15 @@ export class OrderManagerService {
       if (qty <= 0) {
         this.logger.warn(`${symbol}: Position size too small after LOT_SIZE filtering.`);
         return { status: ExecutionStatus.ORDER_REJECTED, error: 'Position size too small after LOT_SIZE filtering.' };
+      }
+
+      // SRE: Pre-flight Leverage Bracket check
+      const notional = qty * entryPrice;
+      const bracketCheck = await this.checkLeverageBracket(symbol, notional);
+      if (!bracketCheck.isAllowed) {
+         const error = `Leverage cap breach for ${symbol}: Max allowable notional is ${bracketCheck.maxNotional} USDT.`;
+         this.logger.error(error);
+         return { status: ExecutionStatus.ORDER_REJECTED, error };
       }
 
       // Immediate parameter validation
@@ -1229,7 +1294,7 @@ export class OrderManagerService {
 
         this.logger.warn(`[${trade.id.substring(0, 8)}] ${trade.symbol} SL ${currentSlPrice} already breached by price ${currentMarketPrice}. Adaptive limit reached or not profitable. Closing.`);
         const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
-        this.eventEmitter.emit('trade.exchange_close', {
+        this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
           symbol: trade.symbol,
           exitPrice: currentMarketPrice,
           reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
@@ -1346,7 +1411,7 @@ export class OrderManagerService {
             this.logger.warn(warnMsg);
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: warnMsg, level: 'warn' });
             const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
-            this.eventEmitter.emit('trade.exchange_close', {
+            this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
               symbol,
               exitPrice: this.tickerCache.getPrice(symbol) || currentSlPrice,
               reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
@@ -1359,7 +1424,7 @@ export class OrderManagerService {
             const syncMsg = `[${symbol}] SL REJECTED: Position already closed on exchange (Code: ${code}). Syncing state.`;
             this.logger.log(syncMsg);
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: syncMsg, level: 'info' });
-            this.eventEmitter.emit('trade.exchange_close', {
+            this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
                symbol,
                exitPrice: this.tickerCache.getPrice(symbol) || trade.entry_price,
                reason: EXIT_REASONS.EXCHANGE_SYNC,
@@ -1455,7 +1520,7 @@ export class OrderManagerService {
           this.logger.warn(warnMsg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: warnMsg, level: 'warn' });
           const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
-          this.eventEmitter.emit('trade.exchange_close', {
+          this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
             symbol,
             exitPrice: this.tickerCache.getPrice(symbol) || currentSlPrice,
             reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
@@ -1467,7 +1532,7 @@ export class OrderManagerService {
           const syncMsg = `[${symbol}] SL REJECTED: Position mismatch or closed (Code: ${msg}). Syncing state.`;
           this.logger.log(syncMsg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: syncMsg, level: 'info' });
-          this.eventEmitter.emit('trade.exchange_close', {
+          this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
              symbol,
              exitPrice: this.tickerCache.getPrice(symbol) || trade.entry_price,
              reason: EXIT_REASONS.EXCHANGE_SYNC,
@@ -2383,6 +2448,12 @@ export class OrderManagerService {
          }
       }
 
+      // SRE: Proactively update the last attempt timestamp to prevent watchdog spam
+      // even if the subsequent logic fails or returns early.
+      if (!paperMode && !localOnly) {
+         trade.last_close_attempt_ts = nowTs;
+      }
+
       // BOLT: Authoritative Price Recovery. If this is an external closure (localOnly) or we lack a price,
       // we attempt to fetch the canonical avgPrice from the exchange state.
       if (!paperMode && this.binanceClient && (exitPrice === 0 || localOnly)) {
@@ -2446,10 +2517,10 @@ export class OrderManagerService {
       // BOLT: Support both standard binance_order_id and RECON- prefixed IDs for imported trades
       if (!paperMode && !localOnly && this.binanceClient && hasOrderId) {
         trade.close_attempts = (trade.close_attempts || 0) + 1;
-        trade.last_close_attempt_ts = nowTs;
         // Persistence trigger for every attempt increment
         this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
 
+        let closeSuccess = false;
         try {
           const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
           const filters = this.marketFeed.getSymbolFilters(symbol);
@@ -2485,7 +2556,6 @@ export class OrderManagerService {
           // HARDENING: Idempotent Closure Loop. Handles network timeouts and Duplicate clientOrderId
           // by querying exchange state to verify if the close order was accepted.
           let orderData: any = null;
-          let closeSuccess = false;
           let closeAttempts = 0;
           const MAX_INTERNAL_CLOSE_ATTEMPTS = 3;
 
@@ -2775,11 +2845,8 @@ export class OrderManagerService {
                const tip = `The price is currently outside Binance's protection bands (${typeof deviation === 'number' ? Number(deviation).toFixed(2) : deviation}% deviation). Manual intervention on Binance website is REQUIRED to close this position.`;
                this.logger.error(`${symbol}: Close failed due to price protection/deviation (Attempt ${trade.close_attempts}/${MAX_CLOSE_ATTEMPTS}). ${tip}. Error: [${errCode}] ${errMsg}`);
 
-               // ROLLBACK: Re-place SL if it was cancelled and close failed
-               if (!trade.binance_stop_order_id) {
-                  this.logger.warn(`[${symbol}] PERCENT_PRICE failure. Re-arming protection SL...`);
-                  await this.placeStopLoss(trade, trade.current_sl);
-               }
+               // SRE: Distinct state for illiquid positions
+               trade.illiquid_blocked = true;
 
                if (trade.close_attempts && trade.close_attempts >= MAX_CLOSE_ATTEMPTS) {
                   trade.close_blocked = true;
@@ -2828,12 +2895,6 @@ export class OrderManagerService {
           } else {
                this.logger.warn(`Binance close order failed for ${symbol}. Code: ${errCode}. Error: ${errMsg}`);
 
-               // ROLLBACK: Re-place SL if it was cancelled and close failed
-               if (!trade.binance_stop_order_id) {
-                  this.logger.warn(`[${symbol}] Unknown failure. Re-arming protection SL...`);
-                  await this.placeStopLoss(trade, trade.current_sl);
-               }
-
                if (trade.close_attempts && trade.close_attempts >= MAX_CLOSE_ATTEMPTS) {
                  trade.close_blocked = true;
                  const blockMsg = `CRITICAL: ${symbol} close attempt ceiling reached. Automated closes are now BLOCKED. [${errCode}] ${errMsg}`;
@@ -2843,6 +2904,14 @@ export class OrderManagerService {
 
                this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
                throw err;
+          }
+        } finally {
+          // SRE: Atomicity Guard. If the close sequence was initiated but did not result
+          // in a confirmed success, ensure the position remains protected by re-arming
+          // the SL if it was proactively cancelled.
+          if (!closeSuccess && !localOnly && !trade.binance_stop_order_id && trade.status === 'OPEN' && !this.paperMode) {
+             this.logger.warn(`[${symbol}] Close sequence finished without success. Re-arming protection SL...`);
+             await this.placeStopLoss(trade, trade.current_sl);
           }
         }
       } else if (paperMode) {

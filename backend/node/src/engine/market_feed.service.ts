@@ -590,17 +590,18 @@ export class MarketFeedService {
 
         try {
           let usedSdk = false;
-          const isCombined = streamName.includes('/');
-
           // CIRCUIT BREAKER: If primary connection has failed repeatedly, force the raw WebSocket path.
           const forceRaw = this.forceRawDiscovery;
+          const isCombined = streamName.includes('/');
 
-          if (!forceRaw && this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
+          // BOLT: Multiplexed streams identify as 'isCombined'. For these, always use forceRaw
+          // to route through the manual raw-WS gateway construction, bypassing SDK multiplexing bugs.
+          if (!forceRaw && !isCombined && this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
              this.logger.debug(`[MarketFeed] Connecting to discovery (${streamName}) via SDK`);
              ws = await this.binanceClient.websocketStreams.connect({ stream: streamName });
              usedSdk = true;
           } else if (this.binanceClient) {
-             this.logger.log(`[MarketFeed] Connecting to discovery stream (ForceRaw=${forceRaw}): ${streamName}`);
+             this.logger.log(`[MarketFeed] Connecting to discovery stream (ForceRaw=${forceRaw} | isCombined=${isCombined}): ${streamName}`);
              ws = await this.binanceClient.websocketStreams.connect({ stream: streamName, forceRaw: true });
           } else {
              // Fallback for bootstrap before client is initialized
@@ -778,11 +779,13 @@ export class MarketFeedService {
         let ws: any;
         try {
           const forceRaw = this.forceRawDiscovery;
-          if (!forceRaw && this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
-             this.logger.debug(`[MarketFeed] Connecting to combined stream via SDK: ${chunk.length} items`);
+          // BOLT: Combined streams identified by chunk size > 1. Always use forceRaw
+          // to ensure manual gateway logic is used for multi-stream subscriptions.
+          if (!forceRaw && chunk.length === 1 && this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
+             this.logger.debug(`[MarketFeed] Connecting to stream via SDK: ${chunk.length} items`);
              ws = await this.binanceClient.websocketStreams.connect({ stream: streams });
           } else {
-             this.logger.debug(`[MarketFeed] Connecting to combined stream (ForceRaw=${forceRaw}): ${chunk.length} items`);
+             this.logger.debug(`[MarketFeed] Connecting to combined stream (ForceRaw=${forceRaw} | chunk=${chunk.length}): ${streams}`);
              ws = await this.binanceClient.websocketStreams.connect({ stream: streams, forceRaw: true });
           }
         } catch (err) {

@@ -140,7 +140,24 @@ export class MaintenanceService {
              continue;
           }
 
-          if (trade.close_blocked) continue;
+          if (trade.close_blocked) {
+             const lastAttempt = trade.last_close_attempt_ts || 0;
+             const minutesSinceLastAttempt = (Date.now() - lastAttempt) / 60000;
+
+             // SRE: Rescue stuck trades. If a trade is blocked but hasn't been attempted for 15+ minutes,
+             // trigger a forced nuclear close to attempt recovery.
+             if (minutesSinceLastAttempt >= 15) {
+                this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} has been blocked for ${minutesSinceLastAttempt.toFixed(1)}m. Triggering forced recovery close.`);
+                this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
+                   symbol: trade.symbol,
+                   exitPrice: 0,
+                   reason: EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE,
+                   needsMarketClose: true,
+                   feesAlreadyAccounted: false
+                });
+             }
+             continue;
+          }
 
           // Merge trade-specific config for accurate reconciliation
           const tradeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
@@ -161,7 +178,7 @@ export class MaintenanceService {
 
           if (!pos || Math.abs(parseFloat(pos.positionAmt)) === 0) {
               this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} is active locally but NO position found on Binance. Triggering Sync Closure.`);
-              this.eventEmitter.emit('trade.exchange_close', { symbol: trade.symbol, exitPrice: 0, reason: EXIT_REASONS.EXCHANGE_SYNC, feesAlreadyAccounted: false });
+              this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, { symbol: trade.symbol, exitPrice: 0, reason: EXIT_REASONS.EXCHANGE_SYNC, feesAlreadyAccounted: false });
               continue;
           }
 
@@ -249,7 +266,7 @@ export class MaintenanceService {
             const secondsSinceUpdate = (Date.now() - lastUpdate) / 1000;
             if (secondsSinceUpdate > 120) {
               this.logger.error(`[Watchdog] NUCLEAR OPTION: ${trade.symbol} unprotected for ${secondsSinceUpdate.toFixed(0)}s. Market closing position.`);
-              this.eventEmitter.emit('trade.exchange_close', { symbol: trade.symbol, exitPrice: 0, reason: EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE, feesAlreadyAccounted: false });
+              this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, { symbol: trade.symbol, exitPrice: 0, reason: EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE, feesAlreadyAccounted: false });
               continue;
             }
             this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} missing SL. Re-placing...`);

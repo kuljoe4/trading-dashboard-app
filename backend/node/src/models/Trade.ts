@@ -105,6 +105,8 @@ export class Trade {
 
   is_reconciliation?: boolean;
 
+  illiquid_blocked?: boolean;
+
   _sig_json?: string;
 
   updated_at?: Date;

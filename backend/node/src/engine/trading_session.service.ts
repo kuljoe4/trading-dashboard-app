@@ -900,7 +900,7 @@ export class TradingSessionService implements OnApplicationShutdown {
     this.broadcast('api_status', this.sessionState.apiStatus);
   }
 
-  @OnEvent('trade.exchange_close')
+  @OnEvent(ENGINE_EVENTS.EXCHANGE_CLOSE)
   async handleExchangeClose(payload: { symbol: string, exitPrice: number, reason: string, isReconciliation?: boolean, orderId?: string, feesAlreadyAccounted?: boolean, needsMarketClose?: boolean }) {
     if (!this.running) return;
     const { symbol, exitPrice, reason, isReconciliation, feesAlreadyAccounted, needsMarketClose } = payload;

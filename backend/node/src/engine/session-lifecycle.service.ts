@@ -473,7 +473,7 @@ export class SessionLifecycleService {
           if (trade) {
             const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
             this.logger.log(`[${tradeIdShort8}] [Lifecycle] Zero-weight reconciliation: Position for ${symbol} reached zero on exchange. Triggering local closure.`);
-            this.eventEmitter.emit('trade.exchange_close', {
+            this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
               symbol,
               exitPrice: 0, // Will use ticker fallback
               reason: EXIT_REASONS.EXCHANGE_SYNC,

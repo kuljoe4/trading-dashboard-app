@@ -24,6 +24,7 @@ export class BinanceSubscriptionManager {
   private messageInterval = 100; // 10 messages per second (100ms interval)
   private processQueueInterval: NodeJS.Timeout | null = null;
   private pingInterval: NodeJS.Timeout | null = null;
+  private reconnectTimeout: NodeJS.Timeout | null = null;
   private ackTimeoutMs = 5000;
 
   constructor(
@@ -90,11 +91,14 @@ export class BinanceSubscriptionManager {
 
         // Auto-reconnect logic (only if NOT stopped)
         if (!this.isStopped && this.isConnecting === false) {
-            setTimeout(() => {
+            if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+            this.reconnectTimeout = setTimeout(() => {
+                this.reconnectTimeout = null;
                 if (!this.ws && !this.isConnecting && !this.isStopped) {
                     this.connect().catch(() => {});
                 }
             }, 5000);
+            this.reconnectTimeout.unref?.();
         }
       });
 
@@ -108,6 +112,10 @@ export class BinanceSubscriptionManager {
     this.isStopped = true;
     this.stopQueueProcessor();
     this.stopPingInterval();
+    if (this.reconnectTimeout) {
+        clearTimeout(this.reconnectTimeout);
+        this.reconnectTimeout = null;
+    }
     if (this.ws) {
         this.ws.terminate();
         this.ws = null;
@@ -210,6 +218,7 @@ export class BinanceSubscriptionManager {
     if (now - this.lastMessageSentTs < this.messageInterval) return;
 
     const msg = this.messageQueue.shift();
+    this.logger.log(`[SubscriptionManager] Sending request ${msg.id}: ${msg.method} for ${msg.params.length} streams...`);
     this.ws.send(JSON.stringify(msg));
     this.lastMessageSentTs = now;
 
@@ -222,6 +231,7 @@ export class BinanceSubscriptionManager {
         pending.reject(new Error(`ACK Timeout for request ${msg.id} (${msg.method})`));
       }
     }, this.ackTimeoutMs);
+    timeout.unref?.();
     this.ackTimeouts.set(msg.id, timeout);
   }
 
@@ -232,6 +242,7 @@ export class BinanceSubscriptionManager {
 
       // Handle ACK responses
       if (msg.id !== undefined && (msg.result !== undefined || msg.error !== undefined)) {
+        this.logger.debug(`[SubscriptionManager] Received response for request ${msg.id}: ${msg.error ? 'ERROR' : 'SUCCESS'}`);
         const timeout = this.ackTimeouts.get(msg.id);
         if (timeout) {
           clearTimeout(timeout);
@@ -242,7 +253,9 @@ export class BinanceSubscriptionManager {
         if (pending) {
           this.pendingRequests.delete(msg.id);
           if (msg.error) {
-            pending.reject(new Error(`Binance Error ${msg.error.code}: ${msg.error.msg}`));
+            const errMsg = `Binance Error ${msg.error.code}: ${msg.error.msg}`;
+            this.logger.error(`[SubscriptionManager] Request ${msg.id} failed: ${errMsg}`);
+            pending.reject(new Error(errMsg));
           } else {
             pending.resolve(msg.result);
           }
@@ -255,6 +268,7 @@ export class BinanceSubscriptionManager {
 
     } catch (err) {
       this.logger.error(`Error handling message: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.debug(`Raw message that caused error: ${data.toString()}`);
     }
   }
 

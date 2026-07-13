@@ -539,27 +539,32 @@ export class MarketFeedService {
 
     const mode = this.sessionState.config?.trading_mode || (this.sessionState.config?.paper_mode ? 'paper' : 'live');
     const isTestnet = mode === 'testnet';
-    const wsBaseMarket = isTestnet
-        ? 'wss://fstream.binancefuture.com/stream'
-        : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
+    const wsBase = isTestnet
+        ? 'wss://fstream.binancefuture.com/ws'
+        : 'wss://fstream.binance.com/ws';
 
-    // WebSocket Resilience Protocol: Decouple global discovery streams.
-    // In Live mode, split them into separate connections for maximum isolation.
+    // WebSocket Resilience Protocol (Industry 2026):
+    // For aggregate streams (!), use dedicated connections to /ws/topic
+    // instead of SUBSCRIBE frames to avoid protocol-level silent drops.
     const topics = ['!miniTicker@arr', '!markPrice@arr@1s'];
 
+    const managerPromises = [];
+
     for (const topic of topics) {
-        this.logger.log(`[MarketFeed] Starting discovery manager for: ${topic}`);
+        const url = `${wsBase}/${topic}`;
+        this.logger.log(`[MarketFeed] Starting discovery manager (Raw-WS): ${url}`);
         const manager = new BinanceSubscriptionManager(
-            wsBaseMarket,
+            url,
             {
                 isTestnet,
                 onMessage: (data) => this.processStreamMessage(data, topic)
             }
         );
         this.discoveryManagers.set(topic, manager);
-        await manager.connect();
-        await manager.subscribe([topic]);
+        managerPromises.push(manager.connect());
     }
+
+    await Promise.all(managerPromises);
 
     this.globalDiscoveryOpenedAt = Date.now();
     this._globalDiscoveryConfirmed = false;
@@ -577,11 +582,18 @@ export class MarketFeedService {
 
   private processStreamMessage(msg: any, defaultStream?: string) {
     try {
-      this._globalDiscoveryConfirmed = true;
-      this.consecutiveDiscoveryFailures = 0; // Reset failure counter on successful data
-      if (!this.hasEverReceivedData) {
-        this.hasEverReceivedData = true;
-        this.logger.log(`[MarketFeed] First message received from stream: ${defaultStream || 'unknown'}. Connection healthy.`);
+      // SRE: Handle both combined ({stream, data}) and single-stream (raw payload) formats.
+      const stream = msg.stream || defaultStream || '';
+      const payload = msg.data || msg;
+
+      // Health tracking for discovery streams
+      if (stream.startsWith('!')) {
+          this._globalDiscoveryConfirmed = true;
+          this.consecutiveDiscoveryFailures = 0;
+          if (!this.hasEverReceivedData) {
+              this.hasEverReceivedData = true;
+              this.logger.log(`[MarketFeed] First message received from stream: ${stream}. Connection healthy.`);
+          }
       }
 
       if (!this._firstMsgLogged) {
@@ -597,17 +609,13 @@ export class MarketFeedService {
          }
       }
 
-      // SRE: Handle both combined ({stream, data}) and single-stream (raw payload) formats.
-      const stream = msg.stream || defaultStream || '';
-      const payload = msg.data || msg;
-
       if (stream.includes('!miniTicker@arr')) {
         this.lastMiniTickerMsgTs = Date.now();
         const tickers: any[] = Array.isArray(payload) ? payload : [];
         if (tickers.length > 0) {
           this.tickerCache.bulkUpdate(tickers);
         }
-      } else if (stream === '!markPrice@arr@1s') {
+      } else if (stream.includes('!markPrice@arr')) {
         this.lastMarkTickerMsgTs = Date.now();
         const updates: any[] = Array.isArray(payload) ? payload : [];
         for (const u of updates) {

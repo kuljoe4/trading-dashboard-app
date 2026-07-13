@@ -79,11 +79,12 @@ findings:
     recommendation: "Added amber border/badge for Paper Mode across the dashboard."
 
   - id: UX-009
-    status: improved
+    status: resolved
     severity: medium
     category: information-architecture
     screens:
       - dashboard
+      - strategy-detail
     notes: "StrategyCard and StrategyDetailView feel like different objects. Card should be a zoomable version of the detail."
     recommendation: "Align component architecture so StrategyCard shares sub-components with StrategyDetailView (e.g. Stats, ScannerPreview)."
 
@@ -115,7 +116,7 @@ findings:
     recommendation: "Added aria-valuetext to progress bars and enhanced labels for ConditionWidgets."
 
   - id: UX-013
-    status: open
+    status: resolved
     severity: low
     category: responsive
     screens:
@@ -187,7 +188,7 @@ findings:
     recommendation: "Increased contrast ratio for status badges (text-black on bg-amber)."
 
   - id: UX-021
-    status: open
+    status: resolved
     severity: high
     category: accessibility
     screens:
@@ -196,7 +197,7 @@ findings:
     recommendation: "Increase button size to 44x44px for increment/decrement controls."
 
   - id: UX-022
-    status: open
+    status: resolved
     severity: medium
     category: usability
     screens:
@@ -205,7 +206,7 @@ findings:
     recommendation: "Further split 'Advanced' into 'Environment' and 'System' tabs or use internal sub-sections with clearer separation."
 
   - id: UX-023
-    status: open
+    status: resolved
     severity: medium
     category: consistency
     screens:

@@ -6,7 +6,7 @@ import { useTradingStore } from '../store/trading'
 import { sessionAPI } from '../api/client'
 import { 
   StatCard, InteractiveLimitCard, SectionLabel, Btn, StatusBadge, PaperBadge, EcoBadge, DemoBadge, LiveBadge,
-    ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn, Tooltip, VisuallyHidden, ViewHeader
+    ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn, Tooltip, VisuallyHidden, ViewHeader, MonitoredBadge, InPosBadge
   } from '../components/ui/primitives'
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, LayoutDashboard, History,
@@ -209,7 +209,7 @@ const BanBanner = ({ apiStatus }) => {
 };
 
 // --- Strategy Card ---
-const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner, isMonitored, className, isResuming, showResumingFeedback }) => {
+export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner, isMonitored, className, isResuming, showResumingFeedback }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
@@ -261,7 +261,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
       )}
         <div className="flex justify-between items-start mb-5 md:mb-6 min-w-0 gap-3" aria-live="polite">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-2.5 md:mb-3 flex-wrap">
+          <div className="flex items-center gap-2 mb-2.5 md:mb-3 flex-wrap h-6">
             <StatusBadge status={s.sessionActive} />
             <div className="flex items-center gap-1.5 scale-90 origin-left">
               {tradingMode === 'paper' && <PaperBadge />}
@@ -269,8 +269,8 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
               {tradingMode === 'live' && <LiveBadge />}
             </div>
           </div>
-          <div className="text-sm md:text-lg font-black tracking-tight truncate uppercase">{s.strategy_label}</div>
-          <div className="text-[9px] md:text-[10px] text-dim mt-1.5 font-black uppercase tracking-widest flex flex-col gap-1 overflow-hidden">
+          <div className="text-sm md:text-lg font-black tracking-tight truncate uppercase leading-tight">{s.strategy_label}</div>
+          <div className="text-[9px] md:text-[10px] text-dim mt-1.5 font-black uppercase tracking-widest flex flex-col gap-1 overflow-hidden min-h-[2.5rem] justify-center">
             <div className="flex items-center gap-2 min-w-0 whitespace-nowrap">
               <Zap size={10} className={cn("text-accent shrink-0", config.global_scanner_enabled === false && "text-dim")} />
               <span className={cn("truncate", config.global_scanner_enabled === false && "line-through decoration-red/40 decoration-2")}>
@@ -278,15 +278,12 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
               </span>
             </div>
             {isMonitored && (
-              <div className="flex items-center gap-2 whitespace-nowrap overflow-hidden">
-                <ShieldCheck size={12} className="text-accent shrink-0" />
-                <span className="truncate">Symbol Monitor Active</span>
-              </div>
+              <MonitoredBadge label="Symbol Monitor Active" />
             )}
           </div>
         </div>
         <div className="text-right shrink-0">
-          <div className="flex gap-2 mb-2 relative z-20">
+          <div className="flex gap-2 mb-2 relative z-20 h-8 items-center justify-end">
             <Tooltip content={isExpanded ? "Hide Details" : "Show Details"}>
               <button
                 onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
@@ -310,10 +307,10 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
               </button>
             </Tooltip>
           </div>
-          <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter" style={{ color: pnlColor(s.activePnl) }}>
+          <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter leading-none" style={{ color: pnlColor(s.activePnl) }}>
             {fmtUSD(s.activePnl)}
           </div>
-          <div className="text-[9px] md:text-[10px] text-dim font-black uppercase tracking-widest mt-1.5 flex flex-col items-end gap-0.5">
+          <div className="text-[9px] md:text-[10px] text-dim font-black uppercase tracking-widest mt-1.5 flex flex-col items-end gap-0.5 min-h-[2.5rem] justify-center">
             <div className="flex items-center gap-1.5 whitespace-nowrap">
               <span className="opacity-40">Session:</span>
               <span style={{ color: pnlColor(s.totalPnl) }}>{fmtUSD(s.totalPnl)}</span>
@@ -446,7 +443,7 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
 })
 GateBanner.displayName = 'GateBanner'
 
-const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) => {
+export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) => {
   const { activeTrades } = useTradingStore(state => ({ activeTrades: state.activeTrades || [] }), shallow);
   const threshold = config.scan_pct_threshold || 2
   const top = scannerResults.slice(0, 5)
@@ -497,15 +494,12 @@ const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) => {
                     <div className="flex-1 flex justify-center h-8">
                       <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={48} height={20} />
                     </div>
-                    <div className="flex flex-col items-end w-16">
-                      <em className={cn("text-xs font-bold font-mono text-right", colorClass)}>
+                    <div className="flex flex-col items-end w-16 h-[26px] justify-center">
+                      <em className={cn("text-xs font-bold font-mono text-right leading-none", colorClass)}>
                         {opp.pct >= 0 ? '+' : ''}{Number(opp.pct || 0).toFixed(2)}%
                       </em>
                       {(activeTrades || []).some(t => t.symbol === opp.symbol) && (
-                        <div className="flex items-center gap-1 opacity-60">
-                           <Zap size={8} className="text-green fill-green/20" />
-                           <span className="text-[7px] font-black text-green uppercase tracking-tighter">In Pos</span>
-                        </div>
+                        <InPosBadge className="opacity-60 scale-90 origin-right mt-0.5" />
                       )}
                     </div>
                     <div className="w-12 flex justify-end">

@@ -62,7 +62,7 @@ const TAB_ERROR_MAP = {
   scan_interval: 'scan',
   scan_lookback: 'scan',
   scan_mode: 'scan',
-  trading_mode: 'advanced',
+  trading_mode: 'env',
   risk_pct_per_trade: 'risk',
   max_open_trades: 'risk',
   sl_distance_pct: 'risk',
@@ -385,7 +385,8 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
     { id: 'scan', label: 'Scanner', icon: Search },
     { id: 'strategy', label: 'Strategy', icon: Zap },
     { id: 'risk', label: 'Risk', icon: ShieldCheck },
-    { id: 'advanced', label: 'Advanced', icon: Settings2 },
+    { id: 'env', label: 'Env', icon: Briefcase },
+    { id: 'system', label: 'System', icon: Settings2 },
     { id: 'presets', label: 'Presets', icon: FolderOpen }
   ], []);
 
@@ -1607,11 +1608,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
           </div>
         )}
 
-        {section === 'advanced' && (
+        {section === 'env' && (
           <div
-            id="config-panel-advanced"
+            id="config-panel-env"
             role="tabpanel"
-            aria-labelledby="config-tab-advanced"
+            aria-labelledby="config-tab-env"
             className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
           >
             <CollapsibleSection id="adv_env" icon={Briefcase} title="Execution Environment" subtitle="Target exchange and mode">
@@ -1640,7 +1641,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 {renderField('Live Balance ($)', 'live_starting_balance', 'number', null, { min: 0 })}
               </div>
             </CollapsibleSection>
+          </div>
+        )}
 
+        {section === 'system' && (
+          <div
+            id="config-panel-system"
+            role="tabpanel"
+            aria-labelledby="config-tab-system"
+            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
+          >
             <CollapsibleSection id="adv_perf" icon={Activity} title="Engine Performance" subtitle="Hot and main loop cadences">
               <div className="grid grid-cols-2 gap-6 mb-6">
                 {renderField('Hot Loop (ms)', 'hot_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.HOT_LOOP_MIN })}

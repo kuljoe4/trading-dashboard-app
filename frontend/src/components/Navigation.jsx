@@ -4,6 +4,13 @@ import { LayoutDashboard, Briefcase, History, Settings as SettingsIcon, ChevronL
 import { useTradingStore } from '../store/trading'
 import { cn, Tooltip } from './ui/primitives'
 
+const NAV_ITEMS = [
+  { path: '/', label: 'Cockpit', icon: LayoutDashboard, shortcut: '1/C' },
+  { path: '/trades', label: 'Trades', icon: Briefcase, shortcut: '2/T' },
+  { path: '/history', label: 'History', icon: History, shortcut: '3/H' },
+  { path: '/settings', label: 'Settings', icon: SettingsIcon, shortcut: '4' },
+]
+
 export const Sidebar = ({ selected }) => {
   const { wsStatus, sidebarCollapsed: collapsed, toggleSidebar, monitoring, rateLimit, rateLimitLastSync, gateState, isEcoMode, isSyncing, sessionActive, activeTrades } = useTradingStore()
   const [isHovered, setIsHovered] = React.useState(false)
@@ -39,16 +46,11 @@ export const Sidebar = ({ selected }) => {
       </div>
 
       <nav className="flex-1 flex flex-col gap-2">
-        {[
-          { path: '/', label: 'Cockpit', icon: LayoutDashboard, shortcut: '1/C' },
-          { path: '/trades', label: 'Trades', icon: Briefcase, shortcut: '2/T' },
-          { path: '/history', label: 'History', icon: History, shortcut: '3/H' },
-          { path: '/settings', label: 'Settings', icon: SettingsIcon, shortcut: '4' },
-        ].map(item => (
+        {NAV_ITEMS.map(item => (
           <Tooltip key={item.path} content={collapsed ? `${item.label} [${item.shortcut}]` : null} side="right">
             <button
               onClick={() => window.location.hash = `#${item.path}`}
-              aria-label={`${item.label} [${item.shortcut}]`}
+              aria-label={`${item.label}${item.shortcut ? ` [${item.shortcut}]` : ''}`}
               aria-current={isActive(item.path) ? 'page' : undefined}
               className={cn(
                 "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
@@ -64,7 +66,12 @@ export const Sidebar = ({ selected }) => {
                   </span>
                 )}
               </div>
-              {isExpanded && <span>{item.label}</span>}
+              {isExpanded && (
+                <span className="flex-1 flex items-center justify-between">
+                  <span>{item.label}</span>
+                  <span className="ml-auto text-[10px] font-mono text-dim/50 opacity-0 group-hover:opacity-100 transition-opacity">[{item.shortcut}]</span>
+                </span>
+              )}
             </button>
           </Tooltip>
         ))}
@@ -79,7 +86,12 @@ export const Sidebar = ({ selected }) => {
             )}
           >
             <Zap size={20} className="shrink-0" />
-            {isExpanded && <span>Scanner</span>}
+            {isExpanded && (
+              <span className="flex-1 flex items-center justify-between">
+                <span>Scanner</span>
+                <span className="ml-auto text-[10px] font-mono text-dim/50 opacity-0 group-hover:opacity-100 transition-opacity">[S]</span>
+              </span>
+            )}
           </button>
         </Tooltip>
       </nav>

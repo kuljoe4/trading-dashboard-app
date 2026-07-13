@@ -460,6 +460,10 @@ export class PositionTrackerService {
     this.closingSymbols.delete(symbol);
     this.rrSequenceIndex.delete(symbol);
     this._activeListCache = null;
+
+    // BOLT: Proactively synchronize SessionState to prevent race conditions in UI/UDS handlers
+    this.sessionState.setActiveTrades(Array.from(this.trades.values()));
+
     this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
 
     const finalizedExitPrice = result.trade.exit_price || exitPrice;

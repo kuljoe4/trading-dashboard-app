@@ -5,6 +5,7 @@ import { SessionConfig } from '../models/SessionConfig';
 import { PositionTrackerService } from './positionTracker';
 import { OrderManagerService } from './orderManager';
 import { TickerCacheService } from './ticker_cache.service';
+import { SessionStateService } from './session_state.service';
 import { ENGINE_EVENTS } from './events';
 import { roundEight } from '../lib/math';
 import { EXIT_REASONS } from '../models/constants';
@@ -21,6 +22,7 @@ export class MaintenanceService {
     private readonly positionTracker: PositionTrackerService,
     private readonly orderManager: OrderManagerService,
     private readonly tickerCache: TickerCacheService,
+    private readonly sessionState: SessionStateService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -370,6 +372,37 @@ export class MaintenanceService {
       this.logger.debug(
         `[Reconciliation] Local symbols (inc. in-flight): [${Array.from(localSymbols).join(",")}], Exchange symbols: [${Array.from(activeExMap.keys()).join(",")}]`,
       );
+
+      // 0. Audit Real-time Position Cache (Cache -> Exchange)
+      // This fixes the "Ghost Position" lockout by clearing stale entries in the UDS cache
+      // for symbols that have no local trade but show a non-zero amount.
+      let phantomCount = 0;
+      for (const [symbol, cachedPos] of this.sessionState.realTimePositions.entries()) {
+        if (cachedPos.amount !== 0) {
+          const exPos = activeExMap.get(symbol);
+          if (!exPos || Math.abs(parseFloat(exPos.positionAmt)) === 0) {
+            this.logger.warn(`[Reconciliation] Detected ghost position in cache for ${symbol} (Cache: ${cachedPos.amount}, Exchange: 0). Zeroing cache.`);
+            this.sessionState.realTimePositions.set(symbol, { amount: 0, entryPrice: 0 });
+            phantomCount++;
+          }
+        }
+      }
+
+      // Also ensure cache is up-to-date for all exchange positions
+      for (const [symbol, exPos] of activeExMap.entries()) {
+        const amt = parseFloat(exPos.positionAmt);
+        const ep = parseFloat(exPos.entryPrice);
+        const cached = this.sessionState.realTimePositions.get(symbol);
+
+        if (!cached || Math.abs(cached.amount - amt) > 0.00000001 || Math.abs(cached.entryPrice - ep) > 0.00000001) {
+          this.logger.debug(`[Reconciliation] Updating real-time cache for ${symbol} from exchange truth: ${amt} @ ${ep}`);
+          this.sessionState.realTimePositions.set(symbol, { amount: amt, entryPrice: ep });
+        }
+      }
+
+      if (phantomCount > 0) {
+        this.logger.log(`[Reconciliation] [Audit] ${phantomCount} phantom positions corrected in real-time cache.`);
+      }
 
       // 1. Audit Local Trades (Local -> Exchange)
       for (const trade of localOpenTrades) {

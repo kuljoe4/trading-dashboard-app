@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { cn, Tooltip, CopyButton } from './ui/primitives'
+import { cn, Tooltip, CopyButton, MonitoredBadge } from './ui/primitives'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { sessionAPI } from '../api/client'
 import { ShieldCheck, RefreshCw } from 'lucide-react'
@@ -84,10 +84,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             )}
           </div>
           {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
-            <div className="flex items-center gap-1 whitespace-nowrap overflow-hidden">
-              <ShieldCheck size={10} className="text-accent shrink-0" />
-              <span className="text-[9px] font-black text-accent uppercase tracking-widest opacity-80 truncate">Monitored</span>
-            </div>
+            <MonitoredBadge className="opacity-80" />
           )}
         </div>
 

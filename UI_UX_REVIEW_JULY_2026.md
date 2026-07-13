@@ -10,17 +10,20 @@ The Momentum Engine dashboard remains a benchmark for high-density "operator coc
 ## Review Delta Since Previous Audit (2026-06-29)
 
 ### Resolved Findings
+- **UX-009 (IA - Component Alignment):** `ScannerPreview` is now integrated into `StrategyDetailView`, ensuring information parity with `StrategyCard`.
 - **UX-010 (Interaction - ConfigModal):** The live `RiskSummary` footer is now fully integrated, providing immediate notional and RR feedback during configuration.
+- **UX-013 (Responsive - Scanner Grid):** Scanner grid refactored to flexbox for better narrow viewport resilience.
 - **UX-015 (State Integrity - Delta Updates):** Field preservation in `normalizeTrade` has eliminated the UI flicker previously seen during high-frequency P&L updates.
 - **UX-020 (Accessibility - Badges):** Recon badge contrast has been increased to meet WCAG AA standards (Black on Amber).
+- **UX-021 (Accessibility - P0):** `InteractiveLimitCard` buttons increased to 44x44px for mobile touch safety.
+- **UX-022 (Usability - P2):** "Advanced" config split into "Env" and "System" tabs to reduce cognitive load.
+- **UX-023 (Consistency - P3):** Standardized `MonitoredBadge` implemented across all components.
 
 ### Improved Findings
-- **UX-009 (IA - Strategy Components):** Sub-component sharing between `StrategyCard` and `StrategyDetailView` has improved, though full parity is still in progress.
+- None (All recent major findings resolved).
 
 ### New Findings / Regressions
-- **UX-021 (Accessibility - P0):** `InteractiveLimitCard` increment/decrement buttons are 40px, failing the 44px minimum touch target standard for mobile safety.
-- **UX-022 (Usability - P2):** The "Advanced" tab in `ConfigModal` now contains environment, capital, performance, and hibernation settings, creating a high cognitive load.
-- **UX-023 (Consistency - P3):** "Monitored" badges differ in styling between `ScannerRow` and `StrategyCard`, leading to minor visual drift.
+- None.
 
 ---
 

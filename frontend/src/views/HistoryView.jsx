@@ -681,77 +681,72 @@ export const HistoryView = () => {
             className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 lg:mb-12"
           >
             <div className="md:col-span-3 bg-surface border border-border rounded-3xl p-8 shadow-sm overflow-hidden relative">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-                <div className="lg:col-span-2">
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-10">
+                <div className="lg:col-span-3">
                   <RrOptimizationChart
                     data={currentAnalytics.rrOptimization.curve}
                     recommendedRr={currentAnalytics.rrOptimization.recommendedRr}
                   />
                 </div>
-                <div className="flex flex-col justify-center gap-6">
-                  <div>
-                    <span className="text-[10px] text-dim font-black uppercase tracking-[0.2em] mb-2 block">Optimal Target</span>
-                    <div className="flex items-center gap-3">
-                      <span className="text-3xl font-black font-mono tracking-tighter text-accent">
-                        {currentAnalytics.rrOptimization.recommendedRr.toFixed(1)}R
-                      </span>
-                      <div className={cn(
-                        "px-2 py-1 rounded border text-[9px] font-black uppercase tracking-tight",
-                        getRrRecommendationStatus(currentAnalytics.rrOptimization.recommendedRr).color.replace('text-', 'bg-').replace('text-', 'border-').concat('/10'),
-                        getRrRecommendationStatus(currentAnalytics.rrOptimization.recommendedRr).color
-                      )}>
-                        {getRrRecommendationStatus(currentAnalytics.rrOptimization.recommendedRr).label}
-                      </div>
-                    </div>
+                <div className="lg:col-span-2 flex flex-col gap-6">
+                  <div className="grid grid-cols-1 gap-3">
+                    {[
+                      { id: 'conservative', label: 'Conservative', rr: currentAnalytics.rrOptimization.conservativeRr, desc: 'High Probability' },
+                      { id: 'balanced', label: 'Balanced', rr: currentAnalytics.rrOptimization.balancedRr, desc: 'Optimal PF', active: true },
+                      { id: 'aggressive', label: 'Aggressive', rr: currentAnalytics.rrOptimization.aggressiveRr, desc: 'Max Expectancy' }
+                    ].map(tier => {
+                      const stats = currentAnalytics.rrOptimization.curve.find(c => c.threshold === tier.rr) || {};
+                      const status = getRrRecommendationStatus(tier.rr);
+                      return (
+                        <button
+                          key={tier.id}
+                          onClick={() => {
+                            const config = useTradingStore.getState().config;
+                            const patch = {};
+                            if (config.tp_mode === 'fixed') patch.tp_ratio = tier.rr;
+                            else {
+                              const next = [...(config.exit_rr_sequence || [0, 1, 2])];
+                              next[next.length - 1] = tier.rr;
+                              patch.exit_rr_sequence = next;
+                            }
+                            useTradingStore.getState().updateConfig(patch);
+                            updateStats({
+                              alerts: [{
+                                id: Math.random().toString(36).substring(2, 9),
+                                level: 'success',
+                                title: `${tier.label} RR Set`,
+                                message: `Target ${tier.rr.toFixed(1)}R ready in draft.`
+                              }]
+                            });
+                          }}
+                          className={cn(
+                            "flex items-center justify-between p-3 rounded-2xl border transition-all text-left group/tier relative overflow-hidden",
+                            tier.active ? "bg-accent/5 border-accent/20" : "bg-background/20 border-border/50 hover:border-accent/30 hover:bg-accent/5"
+                          )}
+                        >
+                          {tier.active && <div className="absolute top-0 right-0 px-2 py-0.5 bg-accent text-white text-[7px] font-black uppercase tracking-widest rounded-bl-lg">Balanced Pick</div>}
+                          <div className="flex flex-col">
+                            <span className="text-[9px] text-dim font-black uppercase tracking-widest mb-0.5">{tier.label}</span>
+                            <span className="text-lg font-black font-mono tracking-tighter text-text leading-none">{tier.rr.toFixed(1)}R</span>
+                            <span className="text-[8px] text-dim/60 font-bold uppercase mt-1">{tier.desc}</span>
+                          </div>
+                          <div className="flex flex-col items-end text-right">
+                             <div className="flex items-center gap-1">
+                               <span className="text-[9px] font-black font-mono text-accent">{Number(stats.profitFactor || 0).toFixed(2)}</span>
+                               <span className="text-[7px] text-dim font-bold uppercase">PF</span>
+                             </div>
+                             <div className="flex items-center gap-1">
+                               <span className="text-[9px] font-black font-mono text-text">{Number(stats.winRate || 0).toFixed(0)}%</span>
+                               <span className="text-[7px] text-dim font-bold uppercase">WR</span>
+                             </div>
+                             <div className={cn("mt-2 px-1.5 py-0.5 rounded text-[7px] font-black uppercase border", status.color.replace('text-', 'border-').concat('/20'), status.color)}>
+                               {status.label}
+                             </div>
+                          </div>
+                        </button>
+                      )
+                    })}
                   </div>
-
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center border-b border-border/50 pb-2">
-                      <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Profit Factor</span>
-                      <span className="text-sm font-black font-mono text-accent">{currentAnalytics.rrOptimization.maxProfitFactor.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between items-center border-b border-border/50 pb-2">
-                      <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Expectancy</span>
-                      <span className="text-sm font-black font-mono text-text">{currentAnalytics.rrOptimization.maxExpectancy.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between items-center border-b border-border/50 pb-2">
-                      <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Win Rate</span>
-                      <span className="text-sm font-black font-mono text-text">
-                        {currentAnalytics.rrOptimization.curve.find(c => c.threshold === currentAnalytics.rrOptimization.recommendedRr)?.winRate.toFixed(0)}%
-                      </span>
-                    </div>
-                  </div>
-
-                  <Btn
-                    variant="accent"
-                    className="w-full py-3 h-auto text-[10px] tracking-[0.15em]"
-                    onClick={() => {
-                      const rr = currentAnalytics.rrOptimization.recommendedRr;
-                      const config = useTradingStore.getState().config;
-                      const patch = {};
-
-                      if (config.tp_mode === 'fixed') {
-                        patch.tp_ratio = rr;
-                      } else {
-                        const next = [...(config.exit_rr_sequence || [0, 1, 2])];
-                        next[next.length - 1] = rr;
-                        patch.exit_rr_sequence = next;
-                      }
-
-                      useTradingStore.getState().updateConfig(patch);
-
-                      updateStats({
-                        alerts: [{
-                          id: Math.random().toString(36).substring(2, 9),
-                          level: 'success',
-                          title: 'RR Applied to Draft',
-                          message: `Target ${rr.toFixed(1)}R set in config draft. Open Strategy settings to Apply.`
-                        }]
-                      });
-                    }}
-                  >
-                    Use Recommended RR
-                  </Btn>
                 </div>
               </div>
             </div>
@@ -766,7 +761,7 @@ export const HistoryView = () => {
                 </div>
                 <p className="text-[11px] text-dim leading-relaxed font-medium">
                   Analysis based on <span className="text-text font-bold">{currentAnalytics.rrOptimization.sampleSize}</span> trades.
-                  Recommended RR maximizes the <span className="text-accent font-bold">Profit Factor</span> by simulating exits at historical peak excursions.
+                  Calculated using MFE (Maximum Favorable Excursion) sweep to identify statistical edge.
                 </p>
                 <div className="mt-4 p-3 bg-background/50 rounded-xl border border-border/50">
                   <div className="flex items-center gap-2 text-[9px] text-amber/80 font-bold uppercase mb-1">

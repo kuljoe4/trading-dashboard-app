@@ -43,6 +43,8 @@ describe('BinanceSubscriptionManager', () => {
 
     // Subscribe starts a promise that won't resolve until ACKs are received
     const subPromise = manager.subscribe(streams);
+    // Ensure we catch rejections to prevent unhandled promise rejections if the test fails
+    subPromise.catch(() => {});
 
     // Should have sent one chunk immediately (if queue processor started)
     // Wait for queue processor

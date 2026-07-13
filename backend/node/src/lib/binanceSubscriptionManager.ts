@@ -24,8 +24,11 @@ export class BinanceSubscriptionManager {
   private messageInterval = 100; // 10 messages per second (100ms interval)
   private processQueueInterval: NodeJS.Timeout | null = null;
   private pingInterval: NodeJS.Timeout | null = null;
+  private statsInterval: NodeJS.Timeout | null = null;
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private ackTimeoutMs = 5000;
+  private lastMsgTs = 0;
+  private msgCount = 0;
 
   constructor(
     private readonly wsUrl: string,
@@ -51,11 +54,16 @@ export class BinanceSubscriptionManager {
       });
 
       ws.on('open', () => {
+        if (this.isStopped) {
+            ws.terminate();
+            return;
+        }
         this.ws = ws;
         this.isConnecting = false;
-        this.logger.log('[SubscriptionManager] WebSocket connected.');
+        this.logger.log(`[SubscriptionManager] WebSocket connected to ${this.wsUrl}`);
         this.startQueueProcessor();
         this.startPingInterval();
+        this.startStatsInterval();
 
         // Re-subscribe to existing subscriptions if this is a reconnect
         if (this.activeSubscriptions.size > 0) {
@@ -112,6 +120,7 @@ export class BinanceSubscriptionManager {
     this.isStopped = true;
     this.stopQueueProcessor();
     this.stopPingInterval();
+    this.stopStatsInterval();
     if (this.reconnectTimeout) {
         clearTimeout(this.reconnectTimeout);
         this.reconnectTimeout = null;
@@ -158,6 +167,8 @@ export class BinanceSubscriptionManager {
   }
 
   private async sendRequest(method: SubscriptionRequest['method'], params: string[]): Promise<any> {
+    if (this.isStopped) return Promise.reject(new Error('Stopped'));
+
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       await this.connect();
     }
@@ -210,6 +221,24 @@ export class BinanceSubscriptionManager {
     }
   }
 
+  private startStatsInterval() {
+      if (this.statsInterval) return;
+      this.statsInterval = setInterval(() => {
+          const now = Date.now();
+          const silence = this.lastMsgTs > 0 ? Math.round((now - this.lastMsgTs) / 1000) : 'N/A';
+          this.logger.debug(`[SubscriptionManager] Stats: Received ${this.msgCount} frames. Last msg: ${silence}s ago. Subs: ${this.activeSubscriptions.size}`);
+          this.msgCount = 0;
+      }, 30000);
+      this.statsInterval.unref?.();
+  }
+
+  private stopStatsInterval() {
+      if (this.statsInterval) {
+          clearInterval(this.statsInterval);
+          this.statsInterval = null;
+      }
+  }
+
   private processQueue() {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     if (this.messageQueue.length === 0) return;
@@ -235,10 +264,25 @@ export class BinanceSubscriptionManager {
     this.ackTimeouts.set(msg.id, timeout);
   }
 
+  private _hasReceivedAnyMessage = false;
+
   private handleMessage(data: any) {
     try {
-      const raw = data.toString();
-      const msg = JSON.parse(raw);
+      this.lastMsgTs = Date.now();
+      this.msgCount++;
+
+      // Support for already-parsed payloads or Buffers
+      let msg: any;
+      if (typeof data === 'object' && !Buffer.isBuffer(data)) {
+          msg = data;
+      } else {
+          msg = JSON.parse(data.toString());
+      }
+
+      if (!this._hasReceivedAnyMessage) {
+          this._hasReceivedAnyMessage = true;
+          this.logger.log(`[SubscriptionManager] Received first frame from ${this.wsUrl}: ${JSON.stringify(msg).substring(0, 100)}`);
+      }
 
       // Handle ACK responses
       if (msg.id !== undefined && (msg.result !== undefined || msg.error !== undefined)) {
@@ -278,10 +322,19 @@ export class BinanceSubscriptionManager {
     }
     this.ackTimeouts.clear();
 
-    for (const [id, req] of this.pendingRequests) {
-      req.reject(new Error(reason));
-    }
+    const requests = Array.from(this.pendingRequests.values());
     this.pendingRequests.clear();
+
+    if (requests.length > 0) {
+        this.logger.debug(`[SubscriptionManager] Cleaning up ${requests.length} pending requests. Reason: ${reason}`);
+        for (const req of requests) {
+            try {
+                req.reject(new Error(reason));
+            } catch (e) {
+                // Ignore re-rejection or other errors
+            }
+        }
+    }
   }
 
   public getStatus() {

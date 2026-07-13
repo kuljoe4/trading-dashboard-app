@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
-import { getExpectancyStatus, getSharpeStatus, getSortinoStatus, calculatePerformanceMetrics } from '../lib/analytics'
+import { getExpectancyStatus, getSharpeStatus, getSortinoStatus, getRrRecommendationStatus, calculatePerformanceMetrics } from '../lib/analytics'
 import { sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader, Btn } from '../components/ui/primitives'
@@ -14,6 +14,7 @@ import { lazyWithRetry } from '../lib/lazy'
 // Lazy load heavy analytics components
 const EquityCurve = lazyWithRetry(() => import('../components/Analytics').then(m => ({ default: m.EquityCurve })))
 const TODPerformance = lazyWithRetry(() => import('../components/Analytics').then(m => ({ default: m.TODPerformance })))
+const RrOptimizationChart = lazyWithRetry(() => import('../components/Analytics').then(m => ({ default: m.RrOptimizationChart })))
 
 const price = (value) => {
   if (value == null) return 'None'
@@ -671,6 +672,118 @@ export const HistoryView = () => {
              <TODPerformance data={currentAnalytics?.timeOfDay || []} />
           </div>
         </motion.div>
+
+        {currentAnalytics?.rrOptimization && currentAnalytics.rrOptimization.status === 'OPTIMAL' && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 lg:mb-12"
+          >
+            <div className="md:col-span-3 bg-surface border border-border rounded-3xl p-8 shadow-sm overflow-hidden relative">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+                <div className="lg:col-span-2">
+                  <RrOptimizationChart
+                    data={currentAnalytics.rrOptimization.curve}
+                    recommendedRr={currentAnalytics.rrOptimization.recommendedRr}
+                  />
+                </div>
+                <div className="flex flex-col justify-center gap-6">
+                  <div>
+                    <span className="text-[10px] text-dim font-black uppercase tracking-[0.2em] mb-2 block">Optimal Target</span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-3xl font-black font-mono tracking-tighter text-accent">
+                        {currentAnalytics.rrOptimization.recommendedRr.toFixed(1)}R
+                      </span>
+                      <div className={cn(
+                        "px-2 py-1 rounded border text-[9px] font-black uppercase tracking-tight",
+                        getRrRecommendationStatus(currentAnalytics.rrOptimization.recommendedRr).color.replace('text-', 'bg-').replace('text-', 'border-').concat('/10'),
+                        getRrRecommendationStatus(currentAnalytics.rrOptimization.recommendedRr).color
+                      )}>
+                        {getRrRecommendationStatus(currentAnalytics.rrOptimization.recommendedRr).label}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center border-b border-border/50 pb-2">
+                      <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Profit Factor</span>
+                      <span className="text-sm font-black font-mono text-accent">{currentAnalytics.rrOptimization.maxProfitFactor.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between items-center border-b border-border/50 pb-2">
+                      <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Expectancy</span>
+                      <span className="text-sm font-black font-mono text-text">{currentAnalytics.rrOptimization.maxExpectancy.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between items-center border-b border-border/50 pb-2">
+                      <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Win Rate</span>
+                      <span className="text-sm font-black font-mono text-text">
+                        {currentAnalytics.rrOptimization.curve.find(c => c.threshold === currentAnalytics.rrOptimization.recommendedRr)?.winRate.toFixed(0)}%
+                      </span>
+                    </div>
+                  </div>
+
+                  <Btn
+                    variant="accent"
+                    className="w-full py-3 h-auto text-[10px] tracking-[0.15em]"
+                    onClick={() => {
+                      const rr = currentAnalytics.rrOptimization.recommendedRr;
+                      const config = useTradingStore.getState().config;
+                      const patch = {};
+
+                      if (config.tp_mode === 'fixed') {
+                        patch.tp_ratio = rr;
+                      } else {
+                        const next = [...(config.exit_rr_sequence || [0, 1, 2])];
+                        next[next.length - 1] = rr;
+                        patch.exit_rr_sequence = next;
+                      }
+
+                      useTradingStore.getState().updateConfig(patch);
+
+                      updateStats({
+                        alerts: [{
+                          id: Math.random().toString(36).substring(2, 9),
+                          level: 'success',
+                          title: 'RR Applied to Draft',
+                          message: `Target ${rr.toFixed(1)}R set in config draft. Open Strategy settings to Apply.`
+                        }]
+                      });
+                    }}
+                  >
+                    Use Recommended RR
+                  </Btn>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-surface border border-border rounded-3xl p-6 shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
+                    <Target size={16} />
+                  </div>
+                  <span className="text-[10px] text-dim font-black uppercase tracking-widest">Optimization Meta</span>
+                </div>
+                <p className="text-[11px] text-dim leading-relaxed font-medium">
+                  Analysis based on <span className="text-text font-bold">{currentAnalytics.rrOptimization.sampleSize}</span> trades.
+                  Recommended RR maximizes the <span className="text-accent font-bold">Profit Factor</span> by simulating exits at historical peak excursions.
+                </p>
+                <div className="mt-4 p-3 bg-background/50 rounded-xl border border-border/50">
+                  <div className="flex items-center gap-2 text-[9px] text-amber/80 font-bold uppercase mb-1">
+                    <AlertTriangle size={10} />
+                    <span>Breakeven Note</span>
+                  </div>
+                  <p className="text-[8px] text-dim/80 leading-tight">
+                    Scratches (PnL near 0) are excluded from the win-rate numerator to ensure conservative estimates.
+                  </p>
+                </div>
+              </div>
+              <div className="pt-4 border-t border-border/10">
+                <span className="text-[8px] text-dim/40 font-black uppercase tracking-[0.2em]">Implied historical model · No guarantees</span>
+              </div>
+            </div>
+          </motion.div>
+        )}
 
 
         <div>

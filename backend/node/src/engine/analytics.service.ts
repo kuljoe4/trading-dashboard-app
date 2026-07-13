@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TradeEntity } from '../models/entities/Trade.entity';
 import { roundTo } from '../lib/math';
+import { RrOptimizationResult } from './rr-optimization.service';
 
 export interface AnalyticsResult {
   cumulativePnL: { ts: string; pnl: number }[];
@@ -32,6 +33,7 @@ export interface AnalyticsResult {
     sevenDay: number;
     fourWeek: number;
   };
+  rrOptimization?: RrOptimizationResult;
 }
 
 @Injectable()

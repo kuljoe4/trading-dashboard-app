@@ -173,3 +173,18 @@ export const getSortinoStatus = (sortino) => {
   if (val >= 0.5) return { label: 'Weak', color: 'text-orange', icon: AlertTriangle, description: 'Insufficient protection.', tiers };
   return { label: 'Poor', color: 'text-red', icon: TrendingDown, description: 'High downside risk.', tiers };
 };
+
+export const getRrRecommendationStatus = (rr) => {
+  const val = Number(rr || 0);
+  const tiers = [
+    { label: 'Aggressive', range: '≥ 3.0R' },
+    { label: 'Balanced', range: '1.5R - 3.0R' },
+    { label: 'Conservative', range: '0.8R - 1.5R' },
+    { label: 'Scalp', range: '< 0.8R' }
+  ];
+
+  if (val >= 3.0) return { label: 'Aggressive', color: 'text-purple', icon: Zap, description: 'High reward target.', tiers };
+  if (val >= 1.5) return { label: 'Balanced', color: 'text-blue', icon: Target, description: 'Optimal risk/reward.', tiers };
+  if (val >= 0.8) return { label: 'Conservative', color: 'text-green', icon: ShieldCheck, description: 'High probability target.', tiers };
+  return { label: 'Scalp', color: 'text-amber', icon: TrendingUp, description: 'Quick turnarounds.', tiers };
+};

@@ -82,6 +82,7 @@ describe('SessionService Data Consistency Fixes', () => {
       {} as any, // marketFeed
       { emit: jest.fn() } as any,
       {} as any, // analytics
+      {} as any, // rrOptimization
       {} as any, // binanceClientFactory
       { log: jest.fn() } as any, // auditLog
       { get: jest.fn().mockReturnValue('postgres://user:pass@localhost:5432/db') } as any // configService

@@ -33,6 +33,7 @@ import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { MonitoringService } from '../engine/monitoring.service';
 import { AnalyticsService } from '../engine/analytics.service';
 import { VariantAnalyticsService } from '../engine/variant-analytics.service';
+import { RrOptimizationService } from '../engine/rr-optimization.service';
 import { EngineBroadcasterService } from '../engine/engine-broadcaster.service';
 import { GatingService } from '../engine/gating.service';
 import { MaintenanceService } from '../engine/maintenance.service';
@@ -62,6 +63,7 @@ import { MaintenanceService } from '../engine/maintenance.service';
     MonitoringService,
     AnalyticsService,
     VariantAnalyticsService,
+    RrOptimizationService,
     EngineBroadcasterService,
     GatingService,
     MaintenanceService,
@@ -85,6 +87,7 @@ import { MaintenanceService } from '../engine/maintenance.service';
     MonitoringService,
     AnalyticsService,
     VariantAnalyticsService,
+    RrOptimizationService,
     EngineBroadcasterService,
     GatingService,
     MaintenanceService,

@@ -31,6 +31,7 @@ import { decrypt } from "../lib/crypto";
 import { ConfigValidationException } from "../lib/exceptions";
 import { BinanceClientFactory } from "../lib/binanceClientFactory";
 import { AnalyticsService } from "../engine/analytics.service";
+import { RrOptimizationService } from "../engine/rr-optimization.service";
 import { MarketFeedService } from "../engine/market_feed.service";
 import { updateLogLevels, sanitize, formatValidationErrors } from "../lib/logger";
 import { roundEight } from "../lib/math";
@@ -78,6 +79,7 @@ export class SessionService implements OnModuleInit {
     private marketFeed: MarketFeedService,
     private eventEmitter: EventEmitter2,
     private analyticsService: AnalyticsService,
+    private rrOptimizationService: RrOptimizationService,
     private binanceClientFactory: BinanceClientFactory,
     private readonly auditLog: AuditLogService,
     private configService: ConfigService,
@@ -1889,6 +1891,13 @@ export class SessionService implements OnModuleInit {
       startingBalance,
       currentStatus.balance,
     );
+
+    // BOLT: Add RR optimization data to analytics response
+    try {
+      result.rrOptimization = this.rrOptimizationService.calculateRrOptimization(trades as any);
+    } catch (e) {
+      this.logger.warn(`Failed to calculate RR optimization: ${e instanceof Error ? e.message : String(e)}`);
+    }
     this.analyticsCache = { data: result, ts: now };
     return result;
   }
@@ -2185,6 +2194,13 @@ export class SessionService implements OnModuleInit {
       filteredTrades as any,
       startingBalance,
     );
+
+    // BOLT: Add RR optimization data to lifetime analytics
+    try {
+      analytics.rrOptimization = this.rrOptimizationService.calculateRrOptimization(filteredTrades as any);
+    } catch (e) {
+      this.logger.warn(`Failed to calculate lifetime RR optimization: ${e instanceof Error ? e.message : String(e)}`);
+    }
 
     // 4. Override cumulative PnL with balance history for better accuracy if available
     if (history.length > 0) {

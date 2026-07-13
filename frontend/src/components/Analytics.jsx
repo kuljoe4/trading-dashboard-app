@@ -283,6 +283,89 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
   );
 };
 
+export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
+  const safeData = Array.isArray(data) ? data : [];
+  if (safeData.length < 5) return null;
+
+  const maxPF = Math.max(...safeData.map(d => d.profitFactor));
+  const minPF = 0;
+  const rangePF = maxPF - minPF;
+
+  const pointsPF = safeData.map((d, i) => {
+    const x = (i / (safeData.length - 1)) * 100;
+    const y = 100 - ((d.profitFactor - minPF) / (rangePF || 1)) * 100;
+    return { x, y, ...d };
+  });
+
+  const pathPF = solveSmoothing(pointsPF);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] text-dim font-bold uppercase tracking-widest text-left">RR vs. Profit Factor</span>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold font-mono tracking-tighter text-accent">
+              {recommendedRr.toFixed(1)}R
+            </span>
+            <span className="text-[10px] text-dim font-black uppercase tracking-widest">Recommended Target</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-accent" />
+            <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Profit Factor</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="relative h-[160px] w-full">
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full overflow-visible">
+          <line x1="0" y1="25" x2="100" y2="25" stroke="currentColor" className="text-border/10" strokeWidth="0.1" />
+          <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" className="text-border/10" strokeWidth="0.1" />
+          <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" className="text-border/10" strokeWidth="0.1" />
+
+          {/* Area under PF */}
+          <path
+            d={`${pathPF} L 100 100 L 0 100 Z`}
+            fill="var(--color-accent)"
+            fillOpacity="0.05"
+          />
+
+          {/* PF Line */}
+          <path
+            d={pathPF}
+            fill="none"
+            stroke="var(--color-accent)"
+            strokeWidth="0.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+
+          {/* Vertical line at recommended RR */}
+          {recommendedRr > 0 && (
+            <line
+              x1={((safeData.findIndex(d => d.threshold === recommendedRr) || 0) / (safeData.length - 1)) * 100}
+              y1="0"
+              x2={((safeData.findIndex(d => d.threshold === recommendedRr) || 0) / (safeData.length - 1)) * 100}
+              y2="100"
+              stroke="var(--color-accent)"
+              strokeWidth="0.5"
+              strokeDasharray="1,2"
+              opacity="0.5"
+            />
+          )}
+        </svg>
+
+        <div className="absolute inset-x-0 -bottom-6 flex justify-between">
+          <span className="text-[8px] text-dim font-mono font-bold">{safeData[0].threshold.toFixed(1)}R</span>
+          <span className="text-[8px] text-dim font-mono font-bold">{safeData[safeData.length - 1].threshold.toFixed(1)}R</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const TODPerformance = ({ data = [] }) => {
   const safeData = Array.isArray(data) ? data : [];
   const validData = useMemo(() => safeData.filter(d => d && typeof d.pnl === 'number'), [safeData]);

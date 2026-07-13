@@ -24,7 +24,7 @@ describe('OrderManagerService - Multi-part SL Integrity', () => {
       }),
     };
     mockSessionState = {
-      isRateLimited: jest.fn().mockReturnValue(false),
+      isRateLimited: jest.fn().mockReturnValue(false), isBanned: jest.fn().mockReturnValue(false),
       isOrderRateLimited: jest.fn().mockReturnValue(false),
       binanceRateLimit: { used_1m: 0, limit: 2400 },
       realTimeOrders: new Map(),

@@ -1158,6 +1158,14 @@ export class OrderManagerService {
     const filtered = this.applyFilters(trade.symbol, currentSlPrice, trade.qty, { skipNotionalCheck: true });
     currentSlPrice = filtered.price;
 
+    // DATA-CONSISTENCY: Dust Guard for SL placement.
+    // If quantity is below exchange stepSize, we cannot place a conditional order.
+    // We skip exchange placement to avoid rejection loops; the engine remains responsible for price-based local closure.
+    if (filtered.qty <= 0 && trade.qty > 0) {
+      this.logger.warn(`[${trade.symbol}] [Sync] SL quantity ${trade.qty} is dust. Skipping exchange SL placement.`);
+      return { orderId: 'SKIPPED_DUST', price: currentSlPrice };
+    }
+
     // IMMEDIATE TRIGGER GUARD: Check if current price already breached SL
     let currentMarketPrice = fillPrice;
     if (currentMarketPrice === undefined || currentMarketPrice === 0) {
@@ -2403,9 +2411,23 @@ export class OrderManagerService {
          }
       }
 
+      // DATA-CONSISTENCY: Check for dust before attempting exchange closure.
+      // If the position is smaller than the exchange's minimum step size, any MARKET order will be rejected.
+      // We handle these residual amounts via local-only synchronization to prevent infinite loop rejections.
+      const hasOrderId = trade.binance_order_id && trade.binance_order_id !== '';
+      if (!paperMode && !localOnly && this.binanceClient && hasOrderId) {
+        const filters = this.marketFeed.getSymbolFilters(symbol);
+        if (filters && filters.stepSize > 0) {
+          const epsilon = 1e-10;
+          if (trade.qty < filters.stepSize - epsilon) {
+            this.logger.warn(`[${symbol}] [Sync] Position ${trade.qty} is below stepSize (${filters.stepSize}). Converting to local-only dust synchronization.`);
+            localOnly = true;
+          }
+        }
+      }
+
       // In live mode, place close order with reduce-only for safety
       // BOLT: Support both standard binance_order_id and RECON- prefixed IDs for imported trades
-      const hasOrderId = trade.binance_order_id && trade.binance_order_id !== '';
       if (!paperMode && !localOnly && this.binanceClient && hasOrderId) {
         trade.close_attempts = (trade.close_attempts || 0) + 1;
         trade.last_close_attempt_ts = nowTs;
@@ -2439,10 +2461,11 @@ export class OrderManagerService {
           });
 
           if (filteredExit.qty <= 0 && trade.qty > 0) {
-             this.logger.error(`[${symbol}] [Sync] Filtered close quantity is 0 for non-zero position ${trade.qty}. Falling back to raw quantity.`);
-             filteredExit.qty = trade.qty;
+             this.logger.warn(`[${symbol}] [Sync] Filtered close quantity is 0 for position ${trade.qty}. Handling as local-only dust sync.`);
+             localOnly = true;
           }
 
+          if (!localOnly) {
           // HARDENING: Idempotent Closure Loop. Handles network timeouts and Duplicate clientOrderId
           // by querying exchange state to verify if the close order was accepted.
           let orderData: any = null;
@@ -2644,6 +2667,7 @@ export class OrderManagerService {
                } catch (e) {}
             }
           }
+          } // end if (!localOnly)
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : String(err);
           const upperMsg = errMsg.toUpperCase();

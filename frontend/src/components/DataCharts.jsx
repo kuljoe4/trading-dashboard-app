@@ -9,8 +9,17 @@ export const Sparkline = React.memo(({ data = [], width = 60, height = 24, color
     const safeData = Array.isArray(data) ? data : [];
     if (safeData.length < 2) return "";
 
-    const min = Math.min(...safeData);
-    const max = Math.max(...safeData);
+    // BOLT: Single-pass O(N) loop to find both min and max with zero intermediate allocations.
+    let min = Infinity;
+    let max = -Infinity;
+    for (let i = 0; i < safeData.length; i++) {
+      const val = safeData[i];
+      if (val < min) min = val;
+      if (val > max) max = val;
+    }
+    if (min === Infinity) min = 0;
+    if (max === -Infinity) max = 1;
+
     const range = (max - min) || 1;
 
     const points = safeData.map((val, i) => {

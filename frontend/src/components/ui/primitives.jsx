@@ -378,7 +378,12 @@ export const PnLBars = React.memo(({ trades }) => {
   const safeTrades = Array.isArray(trades) ? trades : [];
   if (safeTrades.length === 0) return <div className="h-[60px] flex items-center justify-center text-[10px] text-dim font-bold uppercase tracking-widest">No Trade Data</div>
 
-  const max = Math.max(...safeTrades.map(t => Math.abs(t.pnl || 0)), 1);
+  // BOLT: Single-pass O(N) loop to find maximum absolute PnL with zero intermediate allocations.
+  let max = 1;
+  for (let i = 0; i < safeTrades.length; i++) {
+    const val = Math.abs(safeTrades[i].pnl || 0);
+    if (val > max) max = val;
+  }
 
   return (
     <div

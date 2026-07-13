@@ -42,7 +42,9 @@ export class MonitoringService {
     // SRE: Monitor User Data Stream (UDS) health to detect event-loop degradation
     const now = Date.now();
     // BOLT/SRE: Increased LAGGING threshold to 180s to align with relaxed stall detection
-    const currentUdsStatus = (this.lastUdsPing > 0 && (now - this.lastUdsPing > 180000)) ? 'LAGGING' : this.udsStatus;
+    // Explicitly check for DISCONNECTED status first to avoid reporting LAGGING when already disconnected
+    const currentUdsStatus = this.udsStatus === 'DISCONNECTED' ? 'DISCONNECTED' :
+      (this.lastUdsPing > 0 && (now - this.lastUdsPing > 180000)) ? 'LAGGING' : this.udsStatus;
 
     return {
       application: {

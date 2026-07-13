@@ -108,7 +108,8 @@ export class GatingService {
       gateState: this.sessionState.gateState,
       hibernation_mode: mode,
       reason: reason,
-      hibernating: true
+      hibernating: true,
+      activeTrades: [] // Explicitly clear in UI broadcast to avoid "stuck trade" visual bug
     });
   }
 

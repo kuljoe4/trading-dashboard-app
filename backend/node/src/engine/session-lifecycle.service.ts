@@ -578,6 +578,8 @@ export class SessionLifecycleService {
         // REDUCE LOG NOISE: Silence heartbeat PONGs
         // this.logger.debug('[UDS] WebSocket PONG received. Heartbeat confirmed.');
         this.monitoringService.recordUdsPing();
+        // CITADEL: Proactively ensure status is CONNECTED upon PONG to recover from transient LAGGING state
+        this.monitoringService.setUdsStatus('CONNECTED');
       });
 
       currentWs.on('message', async (payload: any) => {

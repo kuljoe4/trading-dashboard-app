@@ -33,7 +33,9 @@ describe('PositionTrackerService', () => {
       mockOrderManager,
       mockTickerCache,
       mockKlineStore,
-      {} as any,
+      {
+        setActiveTrades: jest.fn(),
+      } as any,
       mockEventEmitter
     );
   });

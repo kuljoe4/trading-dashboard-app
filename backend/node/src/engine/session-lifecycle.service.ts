@@ -436,6 +436,13 @@ export class SessionLifecycleService {
           const absoluteAmount = Math.abs(amount);
           const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
 
+          // CHRONOS: If this was an in-flight entry, promote it to active status immediately
+          // now that we have exchange-confirmed position data.
+          if (!this.sessionState.activeTrades.find(t => t.id === trade!.id)) {
+             this.logger.log(`[${tradeIdShort8}] [Sync] Promoting in-flight entry for ${symbol} to active list via ACCOUNT_UPDATE.`);
+             this.positionTracker.addTrade(trade);
+          }
+
           // Authoritative Entry Price Sync
           if (entryPrice > 0 && Math.abs(trade.entry_price - entryPrice) > 0.00000001) {
             this.logger.log(`[${tradeIdShort8}] [Sync] Updating entry price from ACCOUNT_UPDATE for ${symbol}: ${trade.entry_price} -> ${entryPrice}`);

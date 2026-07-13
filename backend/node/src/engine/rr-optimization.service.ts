@@ -13,7 +13,10 @@ export interface RrOptimizationPoint {
 }
 
 export interface RrOptimizationResult {
-  recommendedRr: number;
+  recommendedRr: number; // Legacy, same as balanced
+  conservativeRr: number;
+  balancedRr: number;
+  aggressiveRr: number;
   maxProfitFactor: number;
   maxExpectancy: number;
   curve: RrOptimizationPoint[];
@@ -41,6 +44,9 @@ export class RrOptimizationService {
     if (closedTrades.length < 20) {
       return {
         recommendedRr: 0,
+        conservativeRr: 0,
+        balancedRr: 0,
+        aggressiveRr: 0,
         maxProfitFactor: 0,
         maxExpectancy: 0,
         curve: [],
@@ -157,22 +163,44 @@ export class RrOptimizationService {
       });
     }
 
-    let recommendedRr = 0;
+    let balancedRr = 0;
+    let aggressiveRr = 0;
+    let conservativeRr = 0;
     let maxPF = 0;
-    let maxExp = 0;
+    let maxExp = -Infinity;
 
+    // 1. Find Balanced (Max PF) and Aggressive (Max Expectancy)
     for (const point of curve) {
       if (point.profitFactor > maxPF) {
         maxPF = point.profitFactor;
-        recommendedRr = point.threshold;
+        balancedRr = point.threshold;
       }
       if (point.expectancy > maxExp) {
         maxExp = point.expectancy;
+        aggressiveRr = point.threshold;
       }
     }
 
+    // 2. Find Conservative (High Win Rate + Positive PF)
+    // Heuristic: Highest RR where Win Rate >= 60% and PF > 1.1
+    for (let i = curve.length - 1; i >= 0; i--) {
+      const p = curve[i];
+      if (p.winRate >= 60 && p.profitFactor > 1.1) {
+        conservativeRr = p.threshold;
+        break;
+      }
+    }
+    // Fallback if no 60% WR point: use the first point with PF > 1.1
+    if (conservativeRr === 0) {
+      const firstProfitable = curve.find(p => p.profitFactor > 1.1);
+      conservativeRr = firstProfitable ? firstProfitable.threshold : curve[0].threshold;
+    }
+
     return {
-      recommendedRr,
+      recommendedRr: balancedRr,
+      conservativeRr,
+      balancedRr,
+      aggressiveRr,
       maxProfitFactor: roundTo(maxPF, 2),
       maxExpectancy: roundTo(maxExp, 2),
       curve: curve.reverse(),

@@ -51,9 +51,10 @@ describe('OrderManagerService', () => {
         accountTradeList: jest.fn().mockResolvedValue({ data: () => Promise.resolve([]), headers: {} }),
         currentAllOpenOrders: jest.fn().mockResolvedValue({ data: () => Promise.resolve([]), headers: {} }),
         cancelAllOpenOrders: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
+        cancelAllAlgoOpenOrders: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
         newAlgoOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ algoId: '77777', algoStatus: 'NEW' }), headers: {} }),
         cancelAlgoOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
-        leverageBracket: jest.fn().mockResolvedValue({ data: () => Promise.resolve([{ symbol: 'BTCUSDT', brackets: [{ initialLeverage: 20, notionalCap: 1000000 }] }]), headers: {} }),
+        notionalAndLeverageBrackets: jest.fn().mockResolvedValue({ data: () => Promise.resolve([{ symbol: 'BTCUSDT', brackets: [{ initialLeverage: 20, notionalCap: 1000000 }] }]), headers: {} }),
       },
     };
   });

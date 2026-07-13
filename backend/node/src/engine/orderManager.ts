@@ -650,22 +650,31 @@ export class OrderManagerService {
         const maxPrice = markPrice * filters.multiplierUp;
         const minPrice = markPrice * filters.multiplierDown;
 
-        if (finalPrice > maxPrice || finalPrice < minPrice) {
+        // SRE: Safety Buffer for PERCENT_PRICE.
+        // We use a 0.5% internal buffer from the exchange edges to account for markPrice lag.
+        const safetyBuffer = 0.005;
+        const bufferedMax = maxPrice * (1 - safetyBuffer);
+        const bufferedMin = minPrice * (1 + safetyBuffer);
+
+        if (finalPrice > bufferedMax || finalPrice < bufferedMin) {
           if (options.clampToPercentPrice) {
              const prevPrice = finalPrice;
-             finalPrice = Math.min(Math.max(finalPrice, minPrice), maxPrice);
+             finalPrice = Math.min(Math.max(finalPrice, bufferedMin), bufferedMax);
              // Re-apply tick size rounding after clamping
              if (tickSize > 0) {
                finalPrice = roundEight(Math.round(finalPrice / tickSize) * tickSize);
              }
-             this.logger.log(`${symbol}: Price ${prevPrice} clamped to PERCENT_PRICE band edge ${finalPrice} (Mark: ${markPrice})`);
+             this.logger.log(`${symbol}: Price ${prevPrice} clamped to buffered PERCENT_PRICE band edge ${finalPrice} (Mark: ${markPrice})`);
           } else {
             const isStopLossOrTp = !!options.skipNotionalCheck;
 
             if (!isStopLossOrTp) {
-              this.logger.warn(`${symbol}: Price ${finalPrice} outside PERCENT_PRICE band [${minPrice.toFixed(5)}, ${maxPrice.toFixed(5)}] (Mark: ${markPrice})`);
-              if (Math.abs(finalPrice - markPrice) / markPrice > 0.05) {
-                 this.logger.error(`${symbol}: CRITICAL - Price too far from Mark. Rejecting order.`);
+              this.logger.warn(`${symbol}: Price ${finalPrice} outside buffered PERCENT_PRICE band [${bufferedMin.toFixed(5)}, ${bufferedMax.toFixed(5)}] (Mark: ${markPrice})`);
+
+              // SRE: Stricter rejection for entries. If we are already outside exchange bands or very close (within 5%), block entry.
+              // This avoids instant "at or past SL" aborts for high-volatility symbols.
+              if (finalPrice > maxPrice || finalPrice < minPrice || Math.abs(finalPrice - markPrice) / markPrice > 0.05) {
+                 this.logger.error(`${symbol}: CRITICAL - Price too far from Mark or outside bands. Rejecting order.`);
                  return { price: finalPrice, qty: 0 };
               }
             } else {
@@ -727,7 +736,7 @@ export class OrderManagerService {
       // Cache brackets for 1 hour to minimize REST weight
       if (this.leverageBrackets.size === 0 || (now - this.lastBracketFetch > 3600000)) {
          this.logger.debug(`[OrderManager] Fetching fresh leverage brackets...`);
-         const response = await (this.binanceClient.restAPI as any).leverageBracket();
+         const response = await (this.binanceClient.restAPI as any).notionalAndLeverageBrackets();
          this.updateWeight(response.headers);
          const data = (await response.data()) as any[];
          if (Array.isArray(data)) {
@@ -1236,7 +1245,11 @@ export class OrderManagerService {
 
     // Outer loop for Adaptive Buffer Strategy
     adaptiveLoop: while (adaptiveAttempts <= MAX_ADAPTIVE_ATTEMPTS) {
-    const filtered = this.applyFilters(trade.symbol, currentSlPrice, trade.qty, { skipNotionalCheck: true });
+    // SRE: For Stop Loss placement, we MUST clamp to PERCENT_PRICE bands to avoid Error -4131 rejections.
+    const filtered = this.applyFilters(trade.symbol, currentSlPrice, trade.qty, {
+      skipNotionalCheck: true,
+      clampToPercentPrice: true
+    });
     currentSlPrice = filtered.price;
 
     // DATA-CONSISTENCY: Dust Guard for SL placement.
@@ -2130,16 +2143,24 @@ export class OrderManagerService {
 
       // 2. Cancel all algo orders
       try {
-        const algoOrders = await this.fetchOpenAlgoOrders(symbol, { forceFresh: true });
-        if (algoOrders.length > 0) {
-           this.logger.log(`[${symbol}] [Flush] Found ${algoOrders.length} ghost algo orders. Clearing...`);
-           for (const o of algoOrders) {
-              const algoId = String(o.algoId || o.orderId);
-              await this.cancelBinanceOrder(symbol, algoId, 'algo');
-           }
-        }
+        this.logger.debug(`[${symbol}] [Flush] Clearing all algo orders...`);
+        const res = await (this.binanceClient.restAPI as any).cancelAllAlgoOpenOrders({ symbol });
+        this.updateWeight(res?.headers);
+        this.logger.log(`[${symbol}] [Flush] Algo orders cleared.`);
       } catch (e: any) {
-        this.logger.debug(`[${symbol}] [Flush] Failed to clear algo orders: ${e.message}`);
+        this.logger.debug(`[${symbol}] [Flush] Failed to clear all algo orders via bulk API: ${e.message}. Falling back to manual loop.`);
+        try {
+          const algoOrders = await this.fetchOpenAlgoOrders(symbol, { forceFresh: true });
+          if (algoOrders.length > 0) {
+             this.logger.log(`[${symbol}] [Flush] Found ${algoOrders.length} ghost algo orders. Clearing manually...`);
+             for (const o of algoOrders) {
+                const algoId = String(o.algoId || o.orderId);
+                await this.cancelBinanceOrder(symbol, algoId, 'algo');
+             }
+          }
+        } catch (innerE: any) {
+           this.logger.debug(`[${symbol}] [Flush] Manual algo clear failed: ${innerE.message}`);
+        }
       }
 
       // 3. Purge real-time caches
@@ -2363,8 +2384,20 @@ export class OrderManagerService {
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: abortMsg, level: 'error' });
 
       try {
-        // Unwind position immediately.
-        await this.closeTrade(symbol, trade, actualPrice, isPast ? EXIT_REASONS.ENTRY_AT_OR_PAST_SL : EXIT_REASONS.ENTRY_TOO_CLOSE_TO_SL, false, false);
+        const exitReason = isPast ? EXIT_REASONS.ENTRY_AT_OR_PAST_SL : EXIT_REASONS.ENTRY_TOO_CLOSE_TO_SL;
+
+        // CHRONOS: Unwind position immediately via PositionTracker to handle both in-flight and promoted states.
+        // This ensures the exchange position is closed and local state is purged in a single atomic-like operation.
+        await this.positionTracker.closeTrade(
+          symbol,
+          actualPrice,
+          exitReason,
+          config as SessionConfig,
+          this.paperMode,
+          false,
+          { needsMarketClose: true }
+        );
+
         return { isValid: false, error: `Entry ${reason.toLowerCase()} SL: ${actualPrice.toFixed(8)}` };
       } catch (unwindErr) {
         this.logger.error(`Failed to unwind unsafe entry for ${symbol}: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);

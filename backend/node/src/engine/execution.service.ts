@@ -217,18 +217,10 @@ export class ExecutionService {
         const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk(), enteringCount, opp.score);
 
         if (!riskResult.canEnter) {
-          if (riskResult.reason.includes('Max open trades')) {
-             this.logger.debug(`${opp.symbol}: Entry skipped - ${riskResult.reason}`);
-          }
-
-          if (!riskResult.reason.includes('Max open trades for')) {
-            this.sessionState.gateState = this.gatingService.mapGateState(riskResult.reason);
-            this.broadcastService.broadcast('gate', {
-              gateState: this.sessionState.gateState,
-              reason: riskResult.reason,
-              scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused
-            });
-          }
+          // BOLT: Only log symbol-specific rejections as debug.
+          // Do NOT update global sessionState.gateState here as it causes log/UI flapping.
+          // Global gating is handled by TradingSessionService.refreshRiskGating().
+          this.logger.debug(`${opp.symbol}: Entry skipped - ${riskResult.reason}`);
           continue;
         }
 

@@ -168,7 +168,7 @@ export class RiskEngineService {
       return (h >>> 0) / 4294967296;
     };
 
-    const jitterFactor = effectiveJitterPct > 0
+    const jitterFactor = (effectiveJitterPct > 0 && symbol !== 'DUMMY')
       ? 1 + (getHash(jitterSeed) * effectiveJitterPct) / 100
       : 1;
 

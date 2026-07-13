@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton } from './ui/primitives'
-import { RiskSummary } from './RiskSummary'
 import * as Switch from '@radix-ui/react-switch'
 import { ConfirmationModal } from './ConfirmationModal'
 import { CONFIG_LIMITS } from '../constants/configLimits'
@@ -1773,8 +1772,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
           </div>
         )}
       </div>
-
-      <RiskSummary cfg={cfg} balance={currentModeBalance} />
 
       <div className="p-5 border-t border-border bg-surface flex gap-3 sticky bottom-0">
         <div className="flex-1 flex gap-2">

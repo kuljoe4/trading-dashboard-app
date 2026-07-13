@@ -38,6 +38,7 @@ describe('Watchdog Robustness', () => {
             fetchOpenOrders: jest.fn(),
             fetchPosition: jest.fn(),
             isRatcheting: jest.fn().mockReturnValue(false),
+            isBanned: jest.fn().mockReturnValue(false),
             placeStopLoss: jest.fn(),
             cancelBinanceOrder: jest.fn(),
             closeTrade: jest.fn(),

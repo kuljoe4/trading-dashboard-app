@@ -33,3 +33,7 @@
 ## 2026-07-04 - Stable Sidebar Tooltip Anchoring
 **Learning:** Tying navigation tooltips to volatile hover states (e.g., `isExpanded`) causes them to flicker or fail to appear during the "hover-to-expand" transition. Anchoring them strictly to the underlying `collapsed` state from the store ensures they remain active and reliable for keyboard users and quick-hover interactions in the narrow sidebar.
 **Action:** Use the base `collapsed` state for sidebar tooltip triggers instead of derived hover states to maintain shortcut hint visibility.
+
+## 2026-07-04 - Keyboard Shortcut Discoverability and Tooltip Redundancy
+**Learning:** Communicating global keyboard shortcuts visually (e.g., via `group-hover` hints) significantly improves user productivity. However, tooltips that repeat these shortcuts become redundant and visually distracting when the sidebar is expanded and the labels/hints are already visible.
+**Action:** Use subtle mono-spaced hints (e.g., `opacity-0 group-hover:opacity-100`) to teach shortcuts. Conditionally disable tooltips when the parent container is expanded to minimize UI noise.

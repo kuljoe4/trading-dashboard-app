@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { fmtVol } from '../lib/theme'
 import { formatDuration } from '../lib/formatters'
-import { PulseDot, Sparkline, cn, CopyButton, Tooltip, CandlestickChart } from './ui/primitives'
+import { PulseDot, Sparkline, cn, CopyButton, Tooltip, CandlestickChart, MonitoredBadge, InPosBadge } from './ui/primitives'
 import { SignalGauge } from './ui/SignalGauge'
 import { useTradingStore } from '../store/trading'
 import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert, RefreshCw } from 'lucide-react'
@@ -216,13 +216,13 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
         tabIndex={0}
         aria-expanded={isExpanded}
         className={cn(
-          "grid grid-cols-[30px_1fr_80px_60px] md:grid-cols-[30px_100px_1fr_60px_1fr_1fr_50px] items-center px-4 py-3 transition-all h-[56px] group cursor-pointer outline-none focus-visible:bg-white/5",
+          "flex md:grid md:grid-cols-[30px_100px_1fr_60px_1fr_1fr_50px] items-center px-4 py-3 transition-all h-[56px] group cursor-pointer outline-none focus-visible:bg-white/5",
           !passing && "opacity-45 grayscale-[0.5]",
           isSingleMonitor && "bg-accent/5",
           passing && "hover:bg-white/5 active:bg-white/10",
           isExpanded && "bg-white/[0.02]"
         )}>
-        <div className="flex flex-col justify-center gap-1">
+        <div className="flex flex-col justify-center gap-1 w-7 shrink-0 md:w-auto md:shrink">
           <span className="text-[10px] text-dim font-black font-mono leading-none opacity-40 group-hover:opacity-100 transition-opacity">{(i + 1).toString().padStart(2, '0')}</span>
           {opp.volume_rank && (
             <div className="flex items-center">
@@ -232,28 +232,22 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
             </div>
           )}
         </div>
-        <div className="flex flex-col justify-center overflow-hidden">
+        <div className="flex flex-col justify-center overflow-hidden flex-1 md:flex-none">
            <div className="flex items-baseline gap-0.5">
              <span className="text-[14px] font-bold font-mono truncate">{opp.symbol.replace("USDT", "")}</span>
              <span className="text-[9px] text-dim font-mono opacity-50">/U</span>
              <CopyButton value={opp.symbol} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ml-1" />
            </div>
-           <div className="flex items-center gap-1.5 mt-0.5">
+           <div className="flex items-center gap-1.5 mt-0.5 h-3.5">
             {isInPosition && (
-              <div className="flex items-center gap-1">
-                 <Zap size={10} className="text-green fill-green/20" />
-                 <span className="text-[8px] font-bold text-green uppercase tracking-tighter">In Pos</span>
-              </div>
+              <InPosBadge />
             )}
             {isSingleMonitor && (
-              <div className="flex items-center gap-1">
-                 <ShieldCheck size={10} className="text-accent" />
-                 <span className="text-[8px] font-bold text-accent uppercase tracking-tighter">Monitored</span>
-              </div>
+              <MonitoredBadge />
             )}
            </div>
         </div>
-        <div className="flex flex-col items-end">
+        <div className="flex flex-col items-end w-16 shrink-0 md:w-auto md:shrink">
           <span className={cn(
             "text-[14px] font-bold font-mono",
             isLong ? "text-green" : "text-red"
@@ -310,7 +304,7 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
             </div>
           </Tooltip>
         </div>
-        <div className="flex justify-center items-center gap-2">
+        <div className="flex justify-end md:justify-center items-center gap-2 w-20 shrink-0 md:w-auto md:shrink">
           <div className="hidden lg:flex items-center gap-1 mr-4">
              <div className="flex flex-col items-end gap-0.5">
                 <span className="text-[10px] font-bold text-text/90 font-mono leading-none">{proximity}%</span>
@@ -705,13 +699,13 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
       </div>
 
       {/* Mobile Header (Simplified) */}
-      <div className="grid grid-cols-[30px_1fr_80px_60px] items-center px-4 py-2 text-[10px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase h-[36px] shrink-0 md:hidden">
-        <span>#</span>
-        <span>Symbol</span>
-        <div className="flex justify-end">
+      <div className="flex md:hidden items-center px-4 py-2 text-[10px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase h-[36px] shrink-0">
+        <span className="w-7 shrink-0">#</span>
+        <span className="flex-1">Symbol</span>
+        <div className="w-16 shrink-0 text-right">
           <span>Move</span>
         </div>
-        <div className="flex justify-center">
+        <div className="w-20 shrink-0 text-right">
           <span>Status</span>
         </div>
       </div>

@@ -177,6 +177,19 @@ export class OrderManagerService {
         trade = this.positionTracker.getInFlightEntry(symbol);
         if (trade) {
           this.logger.debug(`[UDS] Matched in-flight entry for ${symbol} via registry.`);
+
+          // CHRONOS: Auto-promotion. If an entry fills while still in-flight (e.g. during enter() retry or network lag),
+          // we must promote it to active status immediately to enable exit monitoring and watchdog protection.
+          if (status === 'FILLED' || status === 'PARTIALLY_FILLED') {
+            this.logger.log(`[UDS] Promoting in-flight entry for ${symbol} to active monitoring due to ${status} event.`);
+
+            // Sync order ID if missing (common in UDS-first arrivals)
+            if (!trade.binance_order_id) {
+               trade.binance_order_id = orderId;
+            }
+
+            this.positionTracker.addTrade(trade);
+          }
         }
       }
 
@@ -801,6 +814,12 @@ export class OrderManagerService {
         const MAX_ATTEMPTS = 3;
         let lastError: any = null;
 
+        // CHRONOS: Register in-flight entry BEFORE the retry loop begins.
+        // This ensures the UDS handler can match and promote the trade even if the REST call
+        // times out or experiences extreme latency, preventing "Ghost Positions".
+        this.positionTracker.setInFlight(symbol, trade);
+
+        try {
         while (attempts < MAX_ATTEMPTS) {
         try {
           attempts++;
@@ -817,9 +836,6 @@ export class OrderManagerService {
              this.logger.error(`[${symbol}] CRITICAL: Generated ClientOrderId too long: ${entryOrderId}`);
           }
 
-          // SRE: Register in-flight entry to prevent UDS race conditions
-          this.positionTracker.setInFlight(symbol, trade);
-
           const entryOrder = {
             symbol,
             side: binanceDirection as any,
@@ -835,7 +851,9 @@ export class OrderManagerService {
           try {
             response = await this.binanceClient.restAPI.newOrder(entryOrder as any);
           } catch (e) {
-            this.positionTracker.clearInFlight(symbol);
+            // CHRONOS: DO NOT clear in-flight on catch here.
+            // We must keep the symbol in in-flight registry during the entire retry window
+            // so UDS events can still find and promote it.
             throw e;
           }
 
@@ -1042,6 +1060,7 @@ export class OrderManagerService {
           if (slResult?.orderId === 'TRIGGERED_LOCALLY') {
              this.logger.log(`[${trade.id.substring(0, 8)}] SL for ${symbol} was triggered locally during entry. Trade will be handled by event-driven closure.`);
              // CHRONOS: Return SL_FAILED to prevent ExecutionService from re-adding this closed trade as 'OPEN'
+             // Note: in-flight cleanup handled in finally block
              return { status: ExecutionStatus.SL_FAILED, data: trade, error: 'Stop loss triggered locally during entry' };
           }
           if (!slResult || slResult.error) {
@@ -1050,21 +1069,18 @@ export class OrderManagerService {
             try {
               const unwindResult = await this.closeTrade(symbol, trade, entryPrice, EXIT_REASONS.SL_PLACEMENT_FAILURE);
               if (unwindResult.exitOccurred) {
-                this.positionTracker.clearInFlight(symbol);
                 return { status: ExecutionStatus.SL_FAILED, data: trade, unwindPerformed: true, error: slError };
               } else {
                 // CHRONOS: If unwind fails, the trade is STILL OPEN on exchange.
                 // We must add it to tracking so the Watchdog can find and protect/close it.
                 this.logger.error(`[${symbol}] Emergency unwind failed after SL error. Adding trade to tracking for Watchdog recovery.`);
                 this.positionTracker.addTrade(trade);
-                this.positionTracker.clearInFlight(symbol);
                 return { status: ExecutionStatus.SL_FAILED, data: trade, error: slError };
               }
             } catch (unwindErr) {
               this.logger.error(`CRITICAL: Emergency unwind failed for ${symbol}: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);
               // CHRONOS: Same here, ensure it is tracked before throwing.
               this.positionTracker.addTrade(trade);
-              this.positionTracker.clearInFlight(symbol);
               throw new ExchangeExecutionException(`SL placement failed (${slError}) and emergency unwind also failed for ${symbol}`);
             }
           }
@@ -1072,8 +1088,6 @@ export class OrderManagerService {
 
         } catch (err: unknown) {
           if (err instanceof ExchangeExecutionException) {
-            // SRE: Ensure cleanup on re-thrown exceptions
-            this.positionTracker.clearInFlight(symbol);
             throw err;
           }
           const errMsg = err instanceof Error ? err.message : String(err);
@@ -1084,9 +1098,6 @@ export class OrderManagerService {
              await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
              continue;
           }
-
-          // CHRONOS: Ensure in-flight cleanup on all entry failure paths
-          this.positionTracker.clearInFlight(symbol);
 
           if (trade.binance_order_id) {
             this.logger.error(`[${symbol}] Critical Failure: Unexpected error after market entry: ${errMsg}`);
@@ -1120,6 +1131,11 @@ export class OrderManagerService {
           this.recordFailure(isSystemic);
           return { status: ExecutionStatus.ORDER_REJECTED, error: agreementMsg };
         }
+        }
+        } finally {
+          // CHRONOS: Always clear in-flight status after the retry loop finishes
+          // (whether by success or exhaustion), UNLESS it was already promoted.
+          this.positionTracker.clearInFlight(symbol);
         }
       } else if (this.paperMode) {
         // Simulate paper entry fee (taker rate)
@@ -1157,6 +1173,14 @@ export class OrderManagerService {
     adaptiveLoop: while (adaptiveAttempts <= MAX_ADAPTIVE_ATTEMPTS) {
     const filtered = this.applyFilters(trade.symbol, currentSlPrice, trade.qty, { skipNotionalCheck: true });
     currentSlPrice = filtered.price;
+
+    // DATA-CONSISTENCY: Dust Guard for SL placement.
+    // If quantity is below exchange stepSize, we cannot place a conditional order.
+    // We skip exchange placement to avoid rejection loops; the engine remains responsible for price-based local closure.
+    if (filtered.qty <= 0 && trade.qty > 0) {
+      this.logger.warn(`[${trade.symbol}] [Sync] SL quantity ${trade.qty} is dust. Skipping exchange SL placement.`);
+      return { orderId: 'SKIPPED_DUST', price: currentSlPrice };
+    }
 
     // IMMEDIATE TRIGGER GUARD: Check if current price already breached SL
     let currentMarketPrice = fillPrice;
@@ -2403,9 +2427,23 @@ export class OrderManagerService {
          }
       }
 
+      // DATA-CONSISTENCY: Check for dust before attempting exchange closure.
+      // If the position is smaller than the exchange's minimum step size, any MARKET order will be rejected.
+      // We handle these residual amounts via local-only synchronization to prevent infinite loop rejections.
+      const hasOrderId = trade.binance_order_id && trade.binance_order_id !== '';
+      if (!paperMode && !localOnly && this.binanceClient && hasOrderId) {
+        const filters = this.marketFeed.getSymbolFilters(symbol);
+        if (filters && filters.stepSize > 0) {
+          const epsilon = 1e-10;
+          if (trade.qty < filters.stepSize - epsilon) {
+            this.logger.warn(`[${symbol}] [Sync] Position ${trade.qty} is below stepSize (${filters.stepSize}). Converting to local-only dust synchronization.`);
+            localOnly = true;
+          }
+        }
+      }
+
       // In live mode, place close order with reduce-only for safety
       // BOLT: Support both standard binance_order_id and RECON- prefixed IDs for imported trades
-      const hasOrderId = trade.binance_order_id && trade.binance_order_id !== '';
       if (!paperMode && !localOnly && this.binanceClient && hasOrderId) {
         trade.close_attempts = (trade.close_attempts || 0) + 1;
         trade.last_close_attempt_ts = nowTs;
@@ -2439,10 +2477,11 @@ export class OrderManagerService {
           });
 
           if (filteredExit.qty <= 0 && trade.qty > 0) {
-             this.logger.error(`[${symbol}] [Sync] Filtered close quantity is 0 for non-zero position ${trade.qty}. Falling back to raw quantity.`);
-             filteredExit.qty = trade.qty;
+             this.logger.warn(`[${symbol}] [Sync] Filtered close quantity is 0 for position ${trade.qty}. Handling as local-only dust sync.`);
+             localOnly = true;
           }
 
+          if (!localOnly) {
           // HARDENING: Idempotent Closure Loop. Handles network timeouts and Duplicate clientOrderId
           // by querying exchange state to verify if the close order was accepted.
           let orderData: any = null;
@@ -2644,6 +2683,7 @@ export class OrderManagerService {
                } catch (e) {}
             }
           }
+          } // end if (!localOnly)
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : String(err);
           const upperMsg = errMsg.toUpperCase();

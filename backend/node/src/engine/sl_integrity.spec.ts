@@ -27,6 +27,7 @@ describe('SL Integrity (Chronos Audit)', () => {
             updateStopLoss: jest.fn(),
             applyFilters: jest.fn((s, p, q) => ({ price: p, qty: q })),
             isRatcheting: jest.fn().mockReturnValue(false),
+            isBanned: jest.fn().mockReturnValue(false),
             fetchPosition: jest.fn(),
             fetchOpenOrders: jest.fn(),
             cancelBinanceOrder: jest.fn(),

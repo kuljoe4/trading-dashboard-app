@@ -78,6 +78,10 @@ export class PositionTrackerService {
     return this.enteringSymbols.size;
   }
 
+  getInFlightSymbols(): string[] {
+    return Array.from(this.inFlightEntries.keys());
+  }
+
   getInFlightEntry(symbol: string): Trade | undefined {
     return this.inFlightEntries.get(symbol);
   }

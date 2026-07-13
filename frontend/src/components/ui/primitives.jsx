@@ -112,27 +112,27 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
               onClick={(e) => { e.stopPropagation(); handleAction(onDecrement); }}
               disabled={!isLocked && value <= min}
               className={cn(
-                "w-10 h-10 rounded-lg border flex items-center justify-center transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                "w-11 h-11 rounded-lg border flex items-center justify-center transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                 isLocked
                   ? "bg-transparent border-transparent text-dim/20"
                   : "bg-background border-border text-dim hover:text-text hover:border-accent/40 shadow-sm"
               )}
               aria-label={isLocked ? "Tap to unlock" : `Decrease ${label}`}
             >
-              <Minus size={20} />
+              <Minus size={22} />
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); handleAction(onIncrement); }}
               disabled={!isLocked && value >= max}
               className={cn(
-                "w-10 h-10 rounded-lg border flex items-center justify-center transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                "w-11 h-11 rounded-lg border flex items-center justify-center transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                 isLocked
                   ? "bg-transparent border-transparent text-dim/20"
                   : "bg-background border-border text-dim hover:text-text hover:border-accent/40 shadow-sm"
               )}
               aria-label={isLocked ? "Tap to unlock" : `Increase ${label}`}
             >
-              <Plus size={20} />
+              <Plus size={22} />
             </button>
           </div>
         </div>
@@ -306,6 +306,22 @@ export const LiveBadge = () => (
   </span>
 )
 
+export const MonitoredBadge = React.memo(({ className, label = "Monitored" }) => (
+  <div className={cn("flex items-center gap-1.5 whitespace-nowrap overflow-hidden", className)}>
+    <ShieldCheck size={12} className="text-accent shrink-0" />
+    <span className="text-[8px] md:text-[9px] font-black text-accent uppercase tracking-widest truncate">{label}</span>
+  </div>
+))
+MonitoredBadge.displayName = 'MonitoredBadge'
+
+export const InPosBadge = React.memo(({ className, label = "In Pos" }) => (
+  <div className={cn("flex items-center gap-1 whitespace-nowrap overflow-hidden", className)}>
+     <Zap size={10} className="text-green fill-green/20 shrink-0" />
+     <span className="text-[8px] font-black text-green uppercase tracking-tighter truncate">{label}</span>
+  </div>
+))
+InPosBadge.displayName = 'InPosBadge'
+
 // --- Condition Widget ---
 export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%", satisfied, sublabel }) => {
   const absThreshold = Math.max(Math.abs(threshold), 0.0001);
@@ -378,7 +394,12 @@ export const PnLBars = React.memo(({ trades }) => {
   const safeTrades = Array.isArray(trades) ? trades : [];
   if (safeTrades.length === 0) return <div className="h-[60px] flex items-center justify-center text-[10px] text-dim font-bold uppercase tracking-widest">No Trade Data</div>
 
-  const max = Math.max(...safeTrades.map(t => Math.abs(t.pnl || 0)), 1);
+  // BOLT: Single-pass O(N) loop to find maximum absolute PnL with zero intermediate allocations.
+  let max = 1;
+  for (let i = 0; i < safeTrades.length; i++) {
+    const val = Math.abs(safeTrades[i].pnl || 0);
+    if (val > max) max = val;
+  }
 
   return (
     <div

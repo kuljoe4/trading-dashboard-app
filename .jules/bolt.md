@@ -176,3 +176,6 @@
 ## 2026-07-10 - [Optimization] Pre-parsing & WeakMap Caching for Trading Windows
 **Learning:** Performing string manipulation ('replace') and 'parseInt' on configuration objects within high-frequency loops (like a 15s main loop checking trading windows) adds unnecessary CPU overhead. Replaced functional '.some()' with a manual 'for' loop and implemented 'WeakMap' caching for pre-parsed numeric window bounds.
 **Action:** Use 'WeakMap' to cache derived or parsed data from configuration objects to turn O(N) string/parsing operations into O(1) lookups in hot paths, and favor manual loops over functional iterators in high-frequency logic. Benchmark showed a ~5.8x performance improvement (3173ns -> 543ns per call).
+## 2026-07-13 - [Optimization] Hot-Path UI Extreme Calculation Standard
+**Learning:** Spread-based 'Math.min(...arr)' and '.map()' chains in high-frequency React components (like PnLBars and Sparkline) create significant GC pressure and unnecessary O(N) passes. Fusing these into a single-pass 'for' loop with direct variable comparison reduces execution time and eliminates transient array allocations.
+**Action:** Always use single-pass 'for' loops for min/max calculations in charting and scaling components that update on every price tick.

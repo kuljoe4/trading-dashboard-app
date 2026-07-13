@@ -1,0 +1,98 @@
+import { BinanceSubscriptionManager } from './binanceSubscriptionManager';
+import WebSocket from 'ws';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+
+jest.mock('ws');
+
+describe('BinanceSubscriptionManager', () => {
+  let manager: BinanceSubscriptionManager;
+  let mockOnMessage: jest.Mock;
+  let mockWs: any;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockOnMessage = jest.fn();
+
+    mockWs = {
+      on: jest.fn(),
+      send: jest.fn(),
+      ping: jest.fn(),
+      terminate: jest.fn(),
+      readyState: 1 // WebSocket.OPEN
+    };
+    (WebSocket as any).mockImplementation(() => mockWs);
+
+    manager = new BinanceSubscriptionManager(
+      'ws://localhost:8080',
+      { isTestnet: true, onMessage: mockOnMessage }
+    );
+  });
+
+  afterEach(async () => {
+    await manager.stop();
+  });
+
+  it('should chunk subscriptions and respect rate limits', async () => {
+    // Manually trigger 'open'
+    const connectPromise = manager.connect();
+    const openHandler = mockWs.on.mock.calls.find((call: any) => call[0] === 'open')[1];
+    openHandler();
+    await connectPromise;
+
+    const streams = Array.from({ length: 250 }, (_, i) => `stream${i}`);
+
+    // Subscribe starts a promise that won't resolve until ACKs are received
+    const subPromise = manager.subscribe(streams);
+
+    // Should have sent one chunk immediately (if queue processor started)
+    // Wait for queue processor
+    await new Promise(resolve => setTimeout(resolve, 150));
+
+    expect(mockWs.send).toHaveBeenCalledTimes(1);
+    const firstCall = JSON.parse(mockWs.send.mock.calls[0][0]);
+    expect(firstCall.method).toBe('SUBSCRIBE');
+    expect(firstCall.params.length).toBe(200);
+
+    // Mock ACK for first chunk
+    const messageHandler = mockWs.on.mock.calls.find((call: any) => call[0] === 'message')[1];
+    messageHandler(Buffer.from(JSON.stringify({ id: firstCall.id, result: null })));
+
+    // Wait for second chunk (respecting 100ms interval)
+    await new Promise(resolve => setTimeout(resolve, 150));
+
+    expect(mockWs.send).toHaveBeenCalledTimes(2);
+    const secondCall = JSON.parse(mockWs.send.mock.calls[1][0]);
+    expect(secondCall.params.length).toBe(50);
+
+    // Mock ACK for second chunk
+    messageHandler(Buffer.from(JSON.stringify({ id: secondCall.id, result: null })));
+
+    await subPromise;
+    expect(manager.getStatus().subscriptions.length).toBe(250);
+  });
+
+  it('should handle ACK timeouts', async () => {
+    // Use fake timers BEFORE connect
+    jest.useFakeTimers();
+
+    const connectPromise = manager.connect();
+    const openHandler = mockWs.on.mock.calls.find((call: any) => call[0] === 'open')[1];
+    openHandler();
+    // Resolve the connect promise
+    jest.runAllTicks();
+    await connectPromise;
+
+    const subPromise = manager.subscribe(['test_stream']);
+
+    // Advance to process the queue
+    jest.advanceTimersByTime(150);
+    expect(mockWs.send).toHaveBeenCalled();
+
+    // Advance to trigger ACK timeout
+    jest.advanceTimersByTime(5100);
+
+    await expect(subPromise).rejects.toThrow('ACK Timeout');
+
+    jest.useRealTimers();
+  });
+});

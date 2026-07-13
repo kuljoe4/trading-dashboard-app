@@ -31,6 +31,7 @@ describe('SL Integrity (Chronos Audit)', () => {
             fetchOpenOrders: jest.fn(),
             cancelBinanceOrder: jest.fn(),
             getBinanceRateLimit: jest.fn().mockReturnValue({ used_weight_1m: 0, limit: 2400 }),
+            isBanned: jest.fn().mockReturnValue(false),
             seedRealTimePosition: jest.fn(),
           },
         },

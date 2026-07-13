@@ -60,6 +60,7 @@ export class PositionTrackerService {
     this.rrSequenceIndex.clear();
     this._totalRisk = 0;
     this._pendingRiskTotal = 0;
+    this.sessionState.setActiveTrades([]);
     this._activeListCache = null;
     this.logger.log('[PositionTracker] Internal state cleared.');
   }
@@ -161,6 +162,9 @@ export class PositionTrackerService {
 
     // SRE: Remove from in-flight registry now that it's in active trades
     this.clearInFlight(trade.symbol);
+
+    // BOLT: Proactively synchronize SessionState to prevent race conditions in UDS handlers
+    this.sessionState.setActiveTrades(Array.from(this.trades.values()));
 
     this._activeListCache = null;
     this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
@@ -410,7 +414,7 @@ export class PositionTrackerService {
     config?: SessionConfig,
     paperMode?: boolean,
     localOnly?: boolean,
-    options: { ignoreBlocked?: boolean, orderId?: string, feesAlreadyAccounted?: boolean } = {}
+    options: { ignoreBlocked?: boolean, orderId?: string, feesAlreadyAccounted?: boolean, needsMarketClose?: boolean } = {}
   ): Promise<{ trade: Trade | null; exitOccurred: boolean; closeBlocked?: boolean, error?: string }> {
     // CHRONOS: Fallback to in-flight registry if not in active trades (Race Condition Guard)
     let trade = this.trades.get(symbol);
@@ -479,6 +483,7 @@ export class PositionTrackerService {
     }
     this.trades.delete(symbol);
     this.rrSequenceIndex.delete(symbol);
+    this.sessionState.setActiveTrades(Array.from(this.trades.values()));
     this._activeListCache = null;
     this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
   }

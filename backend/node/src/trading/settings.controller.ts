@@ -104,7 +104,7 @@ export class SettingsController {
             ? 'Connection timed out while testing live key'
             : `Error testing live key: ${err instanceof Error ? err.message : 'Unknown error'}`
         });
-        this.logger.error(`Live API key test error: ${err}`);
+        this.logger.error(`Live API key test error: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
@@ -151,7 +151,7 @@ export class SettingsController {
             ? 'Connection timed out while testing testnet key'
             : `Error testing testnet key: ${err instanceof Error ? err.message : 'Unknown error'}`
         });
-        this.logger.error(`Testnet API key test error: ${err}`);
+        this.logger.error(`Testnet API key test error: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 

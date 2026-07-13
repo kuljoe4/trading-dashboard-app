@@ -203,6 +203,7 @@ const defaultConfig = {
     volatility: 0.3,
     trend: 0.2
   },
+  sl_out_of_bounds_action: 'clamp',
 };
 
 export const useTradingStore = createWithEqualityFn(persist((set, get) => ({

@@ -345,8 +345,13 @@ export class MaintenanceService {
       const localOpenTrades = this.positionTracker.activeList();
       const localSymbols = new Set(localOpenTrades.map((t) => t.symbol));
 
+      // CHRONOS: Include in-flight/entering symbols in the "known" set to prevent
+      // incorrect ghost adoption during the entry window.
+      const inFlightSymbols = this.positionTracker.getInFlightSymbols();
+      inFlightSymbols.forEach(s => localSymbols.add(s));
+
       this.logger.debug(
-        `[Reconciliation] Local symbols: [${Array.from(localSymbols).join(",")}], Exchange symbols: [${Array.from(activeExMap.keys()).join(",")}]`,
+        `[Reconciliation] Local symbols (inc. in-flight): [${Array.from(localSymbols).join(",")}], Exchange symbols: [${Array.from(activeExMap.keys()).join(",")}]`,
       );
 
       // 1. Audit Local Trades (Local -> Exchange)

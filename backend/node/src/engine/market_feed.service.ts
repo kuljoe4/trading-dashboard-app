@@ -53,8 +53,6 @@ export class MarketFeedService {
   private backfillProcessing = false;
   private binanceClient: any = null;
 
-  private globalDiscoveryTimeout: NodeJS.Timeout | null = null;
-  private globalDiscoveryRetryCount = 0;
   private lastMiniTickerMsgTs = 0;
   private lastMarkTickerMsgTs = 0;
   private globalDiscoveryOpenedAt = 0;
@@ -114,12 +112,13 @@ export class MarketFeedService {
     this.startWatchlistManager(config);
 
     // SRE: Startup Self-Test (Citadel Protocol 2026)
-    // Assert TickerCache is seeded within 15s or alert loudly.
+    // Assert TickerCache is seeded within 25s or alert loudly.
+    // 25s allows for manager connection, subscription, and first frame arrival.
     const runMode = mode;
     if (runMode !== 'paper') {
        setTimeout(() => {
           if (this.running && this.tickerCache.getCacheSize() === 0) {
-             const alertMsg = `CRITICAL: Market Feed Startup Failure - TickerCache remains empty after 15s. Scanner is offline. Mode=${runMode}`;
+             const alertMsg = `CRITICAL: Market Feed Startup Failure - TickerCache remains empty after 25s. Scanner is offline. Mode=${runMode}`;
              this.logger.error(alertMsg);
              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: alertMsg, level: 'error' });
              this.eventEmitter.emit(ENGINE_EVENTS.ALERT, {
@@ -539,32 +538,26 @@ export class MarketFeedService {
 
     const mode = this.sessionState.config?.trading_mode || (this.sessionState.config?.paper_mode ? 'paper' : 'live');
     const isTestnet = mode === 'testnet';
-    const wsBase = isTestnet
-        ? 'wss://fstream.binancefuture.com/ws'
-        : 'wss://fstream.binance.com/ws';
+    const wsBaseMarket = isTestnet
+        ? 'wss://fstream.binancefuture.com/stream'
+        : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
 
-    // WebSocket Resilience Protocol (Industry 2026):
-    // For aggregate streams (!), use dedicated connections to /ws/topic
-    // instead of SUBSCRIBE frames to avoid protocol-level silent drops.
+    // Industry 2026 Unified Discovery Protocol:
+    // Aggregate discovery streams are managed via a stateful unified connection
+    // to the /stream endpoint, ensuring ACK reliability and preventing URI length issues.
     const topics = ['!miniTicker@arr', '!markPrice@arr@1s'];
 
-    const managerPromises = [];
-
-    for (const topic of topics) {
-        const url = `${wsBase}/${topic}`;
-        this.logger.log(`[MarketFeed] Starting discovery manager (Raw-WS): ${url}`);
-        const manager = new BinanceSubscriptionManager(
-            url,
-            {
-                isTestnet,
-                onMessage: (data) => this.processStreamMessage(data, topic)
-            }
-        );
-        this.discoveryManagers.set(topic, manager);
-        managerPromises.push(manager.connect());
-    }
-
-    await Promise.all(managerPromises);
+    this.logger.log(`[MarketFeed] Starting unified discovery manager for: ${topics.join(', ')}`);
+    const manager = new BinanceSubscriptionManager(
+        wsBaseMarket,
+        {
+            isTestnet,
+            onMessage: (data) => this.processStreamMessage(data)
+        }
+    );
+    this.discoveryManagers.set('unified', manager);
+    await manager.connect();
+    await manager.subscribe(topics);
 
     this.globalDiscoveryOpenedAt = Date.now();
     this._globalDiscoveryConfirmed = false;
@@ -579,6 +572,7 @@ export class MarketFeedService {
 
   private lastRawWsLogTs = 0;
   private _firstMsgLogged = false;
+  private lastHeartbeatTs = 0;
 
   private processStreamMessage(msg: any, defaultStream?: string) {
     try {
@@ -586,13 +580,20 @@ export class MarketFeedService {
       const stream = msg.stream || defaultStream || '';
       const payload = msg.data || msg;
 
-      // Health tracking for discovery streams
-      if (stream.startsWith('!')) {
+      // Health tracking for discovery streams (Aggregate streams start with '!' or contain '@arr')
+      if (stream.startsWith('!') || stream.includes('@arr')) {
           this._globalDiscoveryConfirmed = true;
           this.consecutiveDiscoveryFailures = 0;
           if (!this.hasEverReceivedData) {
               this.hasEverReceivedData = true;
               this.logger.log(`[MarketFeed] First message received from stream: ${stream}. Connection healthy.`);
+          }
+
+          // Heartbeat Telemetry (Every 10s)
+          const now = Date.now();
+          if (now - this.lastHeartbeatTs > 10000) {
+              this.logger.log(`[MarketFeed] Heartbeat: Receiving discovery data (${stream}). Cache: ${this.tickerCache.getCacheSize()} symbols.`);
+              this.lastHeartbeatTs = now;
           }
       }
 

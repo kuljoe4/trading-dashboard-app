@@ -14,6 +14,7 @@ import { MonitoringService } from './monitoring.service';
 import { ENGINE_EVENTS } from './events';
 import { BinanceExchangeInfo } from '../models/binance.types';
 import { BinanceRequestQueue, BinanceClientFactory } from '../lib/binanceClientFactory';
+import { BinanceSubscriptionManager } from '../lib/binanceSubscriptionManager';
 
 interface BinanceKline {
   stream?: string;
@@ -35,7 +36,6 @@ export class MarketFeedService {
   }
   private readonly logger = new Logger(MarketFeedService.name);
   private running = false;
-  private combinedKlineWsList: Set<any> = new Set();
   private static cachedExchangeInfo: Map<string, any> = new Map();
   private static cachedRateLimit = 0;
   private static lastExchangeInfoFetch = 0;
@@ -53,7 +53,6 @@ export class MarketFeedService {
   private backfillProcessing = false;
   private binanceClient: any = null;
 
-  private globalDiscoveryWsList: Set<any> = new Set();
   private globalDiscoveryTimeout: NodeJS.Timeout | null = null;
   private globalDiscoveryRetryCount = 0;
   private lastMiniTickerMsgTs = 0;
@@ -63,6 +62,9 @@ export class MarketFeedService {
   private _globalDiscoveryConfirmed = false;
   private forceRawDiscovery = false;
   private consecutiveDiscoveryFailures = 0;
+
+  private discoveryManagers: Map<string, BinanceSubscriptionManager> = new Map();
+  private klineManagers: BinanceSubscriptionManager[] = [];
 
   constructor(
     private tickerCache: TickerCacheService,
@@ -95,6 +97,12 @@ export class MarketFeedService {
     const restBase = isTestnet
         ? 'https://testnet.binancefuture.com' // Corrected Testnet URL
         : ENGINE_CONSTANTS.BINANCE_REST_BASE;
+
+    const wsBaseMarket = isTestnet
+        ? 'wss://fstream.binancefuture.com/stream'
+        : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
+
+    // Discovery Managers initialization is now deferred to startGlobalDiscovery
 
     // RESEARCH-02: Optimized Startup. loadFromDb() called via fetchExchangeInfo()
     // will now be called before any session start.
@@ -295,38 +303,17 @@ export class MarketFeedService {
 
   getSymbolFilters(symbol: string) { return this.exchangeInfo.get(symbol); }
 
-  private safeClose(ws: any) {
-    if (!ws) return;
-    try {
-      // Support for SDK connection objects
-      if (typeof ws.disconnect === 'function') {
-        ws.disconnect();
-        return;
-      }
-
-      // Support for raw WebSockets
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CLOSING) {
-        ws.terminate();
-      } else if (ws.readyState === WebSocket.CONNECTING) {
-        ws.close();
-      }
-    } catch (err) {
-      this.logger.debug(`Error during safeClose: ${err}`);
-    }
-  }
-
   async stop() {
     this.running = false;
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
     if (this.watchlistUpdateTimeout) clearTimeout(this.watchlistUpdateTimeout);
 
-    this.stopGlobalDiscovery();
+    await this.stopGlobalDiscovery();
 
-    for (const ws of this.combinedKlineWsList) {
-      (ws as any)._isExplicitClose = true;
-      this.safeClose(ws);
+    for (const manager of this.klineManagers) {
+        await manager.stop();
     }
-    this.combinedKlineWsList.clear();
+    this.klineManagers = [];
 
     for (const task of this.subscriptionTasks) clearTimeout(task);
     this.subscriptionTasks = [];
@@ -550,116 +537,45 @@ export class MarketFeedService {
   private async startGlobalDiscovery() {
     this.stopGlobalDiscovery();
 
-    const isTestnet = this.sessionState.config?.trading_mode === 'testnet';
-
-    // BOLT: Unify discovery streams for both Live and Testnet.
-    // Production testing shows joined streams via /stream are more reliable and
-    // consume fewer socket descriptors than multiple single streams.
-    const streams = [['!miniTicker@arr', '!markPrice@arr@1s'].join('/')];
-
+    const mode = this.sessionState.config?.trading_mode || (this.sessionState.config?.paper_mode ? 'paper' : 'live');
+    const isTestnet = mode === 'testnet';
     const wsBaseMarket = isTestnet
         ? 'wss://fstream.binancefuture.com/stream'
         : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
 
-    for (const streamName of streams) {
-      const connect = async () => {
-        if (!this.running) return;
+    // WebSocket Resilience Protocol: Decouple global discovery streams.
+    // In Live mode, split them into separate connections for maximum isolation.
+    const topics = ['!miniTicker@arr', '!markPrice@arr@1s'];
 
-        let ws: any = null;
-
-        const scheduleReconnect = () => {
-          if (this.running && !ws?._isExplicitClose) {
-            this.globalDiscoveryRetryCount++;
-            const jitter = Math.random() * 5000;
-            const delay = Math.min(60000, (ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS * Math.pow(2, Math.max(0, this.globalDiscoveryRetryCount - 1))) + jitter);
-            this.logger.debug(`Global discovery stream (${streamName}) will reconnect in ${Math.round(delay)}ms... (Attempt ${this.globalDiscoveryRetryCount})`);
-
-            if (this.globalDiscoveryTimeout) {
-              clearTimeout(this.globalDiscoveryTimeout);
-              this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== this.globalDiscoveryTimeout);
+    for (const topic of topics) {
+        this.logger.log(`[MarketFeed] Starting discovery manager for: ${topic}`);
+        const manager = new BinanceSubscriptionManager(
+            wsBaseMarket,
+            {
+                isTestnet,
+                onMessage: (data) => this.processStreamMessage(data, topic)
             }
-
-            this.globalDiscoveryTimeout = setTimeout(() => {
-              this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== this.globalDiscoveryTimeout);
-              this.globalDiscoveryTimeout = null;
-              connect();
-            }, delay);
-            this.subscriptionTasks.push(this.globalDiscoveryTimeout);
-          }
-        };
-
-        try {
-          let usedSdk = false;
-          // CIRCUIT BREAKER: If primary connection has failed repeatedly, force the raw WebSocket path.
-          const forceRaw = this.forceRawDiscovery;
-          const isCombined = streamName.includes('/');
-
-          // BOLT: Multiplexed streams identify as 'isCombined'. For these, always use forceRaw
-          // to route through the manual raw-WS gateway construction, bypassing SDK multiplexing bugs.
-          if (!forceRaw && !isCombined && this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
-             this.logger.debug(`[MarketFeed] Connecting to discovery (${streamName}) via SDK`);
-             ws = await this.binanceClient.websocketStreams.connect({ stream: streamName });
-             usedSdk = true;
-          } else if (this.binanceClient) {
-             this.logger.log(`[MarketFeed] Connecting to discovery stream (ForceRaw=${forceRaw} | isCombined=${isCombined}): ${streamName}`);
-             ws = await this.binanceClient.websocketStreams.connect({ stream: streamName, forceRaw: true });
-          } else {
-             // Fallback for bootstrap before client is initialized
-             const base = isCombined ? wsBaseMarket : wsBaseMarket.replace(/\/stream$/, '/ws');
-             const url = isCombined ? `${base}?streams=${streamName}` : `${base}/${streamName}`;
-             this.logger.log(`[MarketFeed] Connecting to discovery stream (Bootstrap Raw): ${url}`);
-             ws = new WebSocket(url, {
-               handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS,
-               perMessageDeflate: false,
-               headers: isTestnet ? {} : {
-                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                 'Origin': 'https://www.binance.com'
-               }
-             });
-          }
-          this.globalDiscoveryWsList.add(ws);
-
-          ws.on('message', (data: any) => this.processStreamMessage(data, streamName));
-          ws.on('open', () => {
-            this.logger.log(`[MarketFeed] Discovery socket OPEN: ${streamName} via ${usedSdk ? 'SDK' : 'raw-ws'}`);
-            this.globalDiscoveryRetryCount = 0;
-            this.globalDiscoveryOpenedAt = Date.now();
-            this._globalDiscoveryConfirmed = false;
-          });
-          ws.on('close', () => {
-            this.globalDiscoveryWsList.delete(ws);
-            if (!ws?._isExplicitClose) scheduleReconnect();
-          });
-          ws.on('error', (err: any) => {
-            this.logger.error(`Discovery stream error (${streamName}): ${err.message}`);
-          });
-        } catch (err) {
-           this.logger.error(`[MarketFeed] Failed to connect discovery stream (${streamName}): ${err instanceof Error ? err.message : String(err)}`);
-           scheduleReconnect();
-        }
-      };
-
-      await connect();
+        );
+        this.discoveryManagers.set(topic, manager);
+        await manager.connect();
+        await manager.subscribe([topic]);
     }
+
+    this.globalDiscoveryOpenedAt = Date.now();
+    this._globalDiscoveryConfirmed = false;
   }
 
-  private stopGlobalDiscovery() {
-    for (const ws of this.globalDiscoveryWsList) {
-      ws._isExplicitClose = true;
-      this.safeClose(ws);
+  private async stopGlobalDiscovery() {
+    for (const manager of this.discoveryManagers.values()) {
+        await manager.stop();
     }
-    this.globalDiscoveryWsList.clear();
-    if (this.globalDiscoveryTimeout) {
-      clearTimeout(this.globalDiscoveryTimeout);
-      this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== this.globalDiscoveryTimeout);
-      this.globalDiscoveryTimeout = null;
-    }
+    this.discoveryManagers.clear();
   }
 
   private lastRawWsLogTs = 0;
   private _firstMsgLogged = false;
 
-  private processStreamMessage(data: any, defaultStream?: string) {
+  private processStreamMessage(msg: any, defaultStream?: string) {
     try {
       this._globalDiscoveryConfirmed = true;
       this.consecutiveDiscoveryFailures = 0; // Reset failure counter on successful data
@@ -670,19 +586,16 @@ export class MarketFeedService {
 
       if (!this._firstMsgLogged) {
         this._firstMsgLogged = true;
-        this.logger.debug(`[MarketFeed] First discovery message sample: ${String(data).substring(0, 200)}`);
+        this.logger.debug(`[MarketFeed] First discovery message sample: ${JSON.stringify(msg).substring(0, 200)}`);
       }
 
-      const raw = data.toString();
       if (this.sessionState.config?.debug_mode) {
          const now = Date.now();
          if (now - this.lastRawWsLogTs > 2000) {
-            this.logger.debug(`[MarketFeed] Raw WS: ${raw.substring(0, 100)}...`);
+            this.logger.debug(`[MarketFeed] Raw WS Frame: ${JSON.stringify(msg).substring(0, 100)}...`);
             this.lastRawWsLogTs = now;
          }
       }
-
-      const msg: any = JSON.parse(raw);
 
       // SRE: Handle both combined ({stream, data}) and single-stream (raw payload) formats.
       const stream = msg.stream || defaultStream || '';
@@ -720,91 +633,50 @@ export class MarketFeedService {
   }
 
   private async rebuildCombinedKlineStream() {
-    for (const ws of this.combinedKlineWsList) {
-      (ws as any)._isExplicitClose = true;
-      this.safeClose(ws);
-    }
-    this.combinedKlineWsList.clear();
+    const mode = this.sessionState.config?.trading_mode || (this.sessionState.config?.paper_mode ? 'paper' : 'live');
+    const isTestnet = mode === 'testnet';
+    const wsBaseMarket = isTestnet
+        ? 'wss://fstream.binancefuture.com/stream'
+        : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
 
     const allStreams: string[] = [];
 
-    // BOLT: Watchlist streams only. Global streams handled by startGlobalDiscovery().
     for (const [symbol, intervals] of this.activeWatchlist) {
       const s = symbol.toLowerCase();
-      // BOLT: Subscription Strategy for HF Data (2026)
-      // 1. @ticker: For general momentum/scanner volume tracking.
       allStreams.push(`${s}@ticker`);
-
       const isActiveTrade = this.sessionState.activeTrades.some(t => t.symbol === symbol);
       if (isActiveTrade) {
-        // High-frequency mark price for real-time PnL accuracy on active positions.
         allStreams.push(`${s}@markPrice@1s`);
       }
-
       for (const interval of intervals) {
         allStreams.push(`${s}@kline_${interval}`);
       }
     }
 
+    // Stop all existing kline managers
+    for (const manager of this.klineManagers) {
+        await manager.stop();
+    }
+    this.klineManagers = [];
+
     if (allStreams.length === 0) return;
 
-    const CHUNK_SIZE = ENGINE_CONSTANTS.KLINE_STREAM_CHUNK_SIZE || 20;
-    const chunks = [];
-    for (let i = 0; i < allStreams.length; i += CHUNK_SIZE) chunks.push(allStreams.slice(i, i + CHUNK_SIZE));
-    const isTestnet = this.sessionState.config?.trading_mode === 'testnet';
-    const wsBaseMarket = isTestnet
-        ? 'wss://fstream.binancefuture.com/stream'
-        : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
+    // Industry 2026: Chunk into separate connections of max 200 streams each
+    const CHUNK_SIZE = 200;
+    for (let i = 0; i < allStreams.length; i += CHUNK_SIZE) {
+        const chunk = allStreams.slice(i, i + CHUNK_SIZE);
+        this.logger.debug(`[MarketFeed] Initializing kline manager for chunk of ${chunk.length} streams...`);
 
-    for (const chunk of chunks) {
-      const streams = chunk.join('/');
-      let retryCount = 0;
-      const connect = async () => {
-        if (!this.running) return;
-
-        const scheduleReconnect = () => {
-          if (this.running && !(ws as any)?._isExplicitClose) {
-            retryCount++;
-            const jitter = Math.random() * 5000;
-            const delay = Math.min(60000, (ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS * Math.pow(2, Math.max(0, retryCount - 1))) + jitter);
-            this.logger.debug(`Combined kline stream will reconnect in ${Math.round(delay)}ms... (Attempt ${retryCount})`);
-            const timeout = setTimeout(() => {
-              this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== timeout);
-              connect();
-            }, delay);
-            this.subscriptionTasks.push(timeout);
-          }
-        };
-
-        let ws: any;
-        try {
-          const forceRaw = this.forceRawDiscovery;
-          // BOLT: Combined streams identified by chunk size > 1. Always use forceRaw
-          // to ensure manual gateway logic is used for multi-stream subscriptions.
-          if (!forceRaw && chunk.length === 1 && this.binanceClient && typeof this.binanceClient.websocketStreams?.connect === 'function') {
-             this.logger.debug(`[MarketFeed] Connecting to stream via SDK: ${chunk.length} items`);
-             ws = await this.binanceClient.websocketStreams.connect({ stream: streams });
-          } else {
-             this.logger.debug(`[MarketFeed] Connecting to combined stream (ForceRaw=${forceRaw} | chunk=${chunk.length}): ${streams}`);
-             ws = await this.binanceClient.websocketStreams.connect({ stream: streams, forceRaw: true });
-          }
-        } catch (err) {
-           this.logger.error(`[MarketFeed] Failed to connect combined stream: ${err instanceof Error ? err.message : String(err)}`);
-           scheduleReconnect();
-           return;
-        }
-
-        ws.on('message', (data: any) => this.processStreamMessage(data));
-        ws.on('open', () => {
-          retryCount = 0;
-        });
-        ws.on('close', () => {
-          this.combinedKlineWsList.delete(ws);
-          if (!(ws as any)._isExplicitClose) scheduleReconnect();
-        });
-        this.combinedKlineWsList.add(ws);
-      };
-      connect();
+        const manager = new BinanceSubscriptionManager(
+            wsBaseMarket,
+            {
+                isTestnet,
+                onMessage: (data) => this.processStreamMessage(data)
+            }
+        );
+        this.klineManagers.push(manager);
+        await manager.connect();
+        await manager.subscribe(chunk);
     }
   }
 

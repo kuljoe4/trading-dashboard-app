@@ -28,6 +28,7 @@ describe('SL Ratchet Race Conditions & Protection Gaps', () => {
     };
     mockSessionState = {
       isRateLimited: jest.fn().mockReturnValue(false),
+      isBanned: jest.fn().mockReturnValue(false),
       isOrderRateLimited: jest.fn().mockReturnValue(false),
       hasOrderCapacity: jest.fn().mockReturnValue(true),
       config: { trailing_guard_buffer_pct: 0.1 },

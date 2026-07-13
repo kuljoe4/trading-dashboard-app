@@ -44,7 +44,7 @@ describe('UDS Stall Optimization', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SessionLifecycleService,
-        { provide: SessionStateService, useValue: { reset: jest.fn(), updateRateLimit: jest.fn(), isRateLimited: jest.fn().mockReturnValue(false), realTimePositions: new Map(), activeTrades: [], binanceRateLimit: { used_1m: 0, limit: 2400 } } },
+        { provide: SessionStateService, useValue: { reset: jest.fn(), updateRateLimit: jest.fn(), isRateLimited: jest.fn().mockReturnValue(false), isBanned: jest.fn().mockReturnValue(false), realTimePositions: new Map(), activeTrades: [], binanceRateLimit: { used_1m: 0, limit: 2400 } } },
         { provide: OrderManagerService, useValue: { setBinanceClient: jest.fn(), isRatcheting: jest.fn().mockReturnValue(false) } },
         { provide: MarketFeedService, useValue: { start: jest.fn(), stop: jest.fn() } },
         { provide: MomentumScannerService, useValue: { start: jest.fn(), stop: jest.fn() } },

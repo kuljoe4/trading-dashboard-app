@@ -13,7 +13,6 @@ import { SignalEngineService } from '../engine/signalEngine';
 import { RiskEngineService } from '../engine/riskEngine';
 import { PositionTrackerService } from '../engine/positionTracker';
 import { OrderManagerService } from '../engine/orderManager';
-import { OrderFilterService } from '../engine/order-filter.service';
 import { TradingSessionService } from '../engine/trading_session.service';
 import { TickerCacheService } from '../engine/ticker_cache.service';
 import { MarketFeedService } from '../engine/market_feed.service';
@@ -50,7 +49,6 @@ import { MaintenanceService } from '../engine/maintenance.service';
     RiskEngineService,
     PositionTrackerService,
     OrderManagerService,
-    OrderFilterService,
     TradingSessionService,
     TickerCacheService,
     MarketFeedService,
@@ -77,7 +75,6 @@ import { MaintenanceService } from '../engine/maintenance.service';
     RiskEngineService,
     PositionTrackerService,
     OrderManagerService,
-    OrderFilterService,
     TradingSessionService,
     TickerCacheService,
     MarketFeedService,

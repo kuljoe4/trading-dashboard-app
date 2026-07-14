@@ -1,7 +1,7 @@
 import { createWithEqualityFn } from 'zustand/traditional'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import { sessionAPI, normalizeUrl } from '../api/client.js'
-import { CONFIG_LIMITS, ENGINE_CONSTANTS } from '../constants/configLimits.js'
+import { sessionAPI, normalizeUrl } from '../api/client'
+import { CONFIG_LIMITS, ENGINE_CONSTANTS } from '../constants/configLimits'
 
 const toNumber = (v, f = 0) => { const p = Number(v); return Number.isFinite(p) ? p : f; }
 const MAX_LOG_LINES = 500;
@@ -82,7 +82,7 @@ export const normalizeOpportunity = (o = {}) => {
   return res;
 }
 
-export const normalizeTrade = (t = {}, pt = null) => {
+const normalizeTrade = (t = {}, pt = null) => {
   if (!t || typeof t !== 'object') return null;
   const p = pt || {};
 
@@ -527,14 +527,12 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
           let nt = currentActiveTrades;
           if (stop) nt = [];
-          else if (Array.isArray(d.activeTrades)) {
-            if (d.activeTrades.length > 0) {
-              const m = new Map(currentActiveTrades.map(t => [t.symbol, t]));
-              nt = d.activeTrades.map(t => normalizeTrade(t, m.get(t.symbol))).filter(Boolean);
-            } else if (!isResuming) {
-              // Authoritative clear when not in resumption window
-              nt = [];
-            }
+          else if (Array.isArray(d.activeTrades) && d.activeTrades.length > 0) {
+            const m = new Map(currentActiveTrades.map(t => [t.symbol, t]));
+            nt = d.activeTrades.map(t => normalizeTrade(t, m.get(t.symbol))).filter(Boolean);
+          } else if (isResuming && currentActiveTrades.length > 0) {
+            // Anti-flicker: preserve trades during resume if broadcast is empty
+            nt = currentActiveTrades;
           }
 
           // BOLT: Smart history merging to prevent flickering or data loss.
@@ -596,16 +594,13 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           const isResuming = st.isSyncingOnResume;
           const currentActiveTrades = Array.isArray(st.activeTrades) ? st.activeTrades : [];
           let nt = currentActiveTrades;
-          if (Array.isArray(d.trades)) {
-            if (d.trades.length > 0) {
-              const m = new Map(currentActiveTrades.map(t => [t.id, t]));
-              d.trades.forEach(t => { const p = m.get(t.id); const n = normalizeTrade(t, p); if (n) m.set(t.id, n); });
-              if (d._heartbeat) { const ids = new Set(d.trades.map(t => t.id)); for (const id of m.keys()) if (!ids.has(id)) m.delete(id); }
-              nt = Array.from(m.values());
-            } else if (!isResuming) {
-              // Authoritative clear when not in resumption window
-              nt = [];
-            }
+          if (Array.isArray(d.trades) && d.trades.length > 0) {
+            const m = new Map(currentActiveTrades.map(t => [t.id, t]));
+            d.trades.forEach(t => { const p = m.get(t.id); const n = normalizeTrade(t, p); if (n) m.set(t.id, n); });
+            if (d._heartbeat) { const ids = new Set(d.trades.map(t => t.id)); for (const id of m.keys()) if (!ids.has(id)) m.delete(id); }
+            nt = Array.from(m.values());
+          } else if (isResuming && currentActiveTrades.length > 0) {
+            nt = currentActiveTrades;
           }
 
           // BOLT: Prevent flickering during config sync. If local state is in-flight, ignore config updates from ticks.
@@ -689,25 +684,13 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         if (get().isSyncingOnResume) {
           console.log(`[Store] Received trade_event. Clearing isSyncingOnResume.`);
         }
-        set(st => {
-          let nextActive = st.activeTrades;
-          if (d.event === 'closed') {
-            nextActive = st.activeTrades.filter(x => x.symbol !== d.symbol && x.id !== d.id);
-          } else if (t) {
-            // BOLT: Prevent "Multiples" Ghost Trades. Ensure only one trade per symbol exists in the store.
-            // This hardening ensures that even if backend sends redundant 'opened' events during retries,
-            // the UI only renders the most recent authoritative trade.
-            nextActive = [...st.activeTrades.filter(x => x.symbol !== t.symbol), t];
-          }
-
-          return {
-            isSyncingOnResume: false,
-            activeTrades: nextActive,
-            tradeHistory: d.event === 'closed' && t ? [t, ...st.tradeHistory].slice(0, 50) : st.tradeHistory,
-            entryCount: d.stats?.entryCount ?? st.entryCount,
-            hitCount: d.stats?.hitCount ?? st.hitCount
-          };
-        });
+        set(st => ({
+          isSyncingOnResume: false,
+          activeTrades: d.event === 'closed' ? st.activeTrades.filter(x => x.symbol !== d.symbol) : (t ? [...st.activeTrades, t] : st.activeTrades),
+          tradeHistory: d.event === 'closed' && t ? [t, ...st.tradeHistory].slice(0, 50) : st.tradeHistory,
+          entryCount: d.stats?.entryCount ?? st.entryCount,
+          hitCount: d.stats?.hitCount ?? st.hitCount
+        }));
       } else if (d.type === 'gate') {
         if (get().isSyncingOnResume) {
           console.log(`[Store] Received gate update. Clearing isSyncingOnResume.`);

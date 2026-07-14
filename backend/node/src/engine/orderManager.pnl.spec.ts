@@ -1,4 +1,3 @@
-import { OrderFilterService } from './order-filter.service';
 import { OrderManagerService } from './orderManager';
 import { Trade } from '../models/Trade';
 import { roundEight } from '../lib/math';
@@ -39,10 +38,9 @@ describe('OrderManagerService - PnL Consistency', () => {
       { incrementApiRequests: jest.fn() } as any, // monitoringService
       { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn() } as any, // positionTracker
       mockTradingSession,
-      { broadcast: jest.fn() } as any, // broadcastService
       { log: jest.fn() } as any, // auditLog
       { emit: jest.fn() } as any, { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any
-    , new OrderFilterService(mockMarketFeed as any, { getTicker: jest.fn(), getPrice: jest.fn() } as any, { broadcast: jest.fn() } as any));
+    );
 
     mockBinanceClient = {
       restAPI: {
@@ -69,7 +67,6 @@ describe('OrderManagerService - PnL Consistency', () => {
       direction: 'LONG',
       qty: 0.1,
       entry_price: 50000,
-      pnl: -2.0, // CHRONOS: Must be consistent with realized_fee
       realized_fee: 2.0, // Initial fee (0.04% of 50000 * 0.1)
       binance_order_id: 'entry_id',
       binance_stop_order_id: 'sl_order_id',
@@ -98,7 +95,7 @@ describe('OrderManagerService - PnL Consistency', () => {
     // Total fee = 2.0 + 1.98 = 3.98
     expect(trade.realized_fee).toBeGreaterThanOrEqual(2.0);
 
-    // PnL calculation: -2.0 (initial fee) - 1.98 (exit fee) + (49500 - 50000) * 0.1 = -3.98 - 50 = -53.98
+    // PnL calculation: (49500 - 50000) * 0.1 - 3.98 = -50 - 3.98 = -53.98
     expect(trade.pnl).toBeLessThanOrEqual(-52.0);
   });
 
@@ -113,7 +110,6 @@ describe('OrderManagerService - PnL Consistency', () => {
       entry_price: 50000,
       initial_sl: 49000,
       current_sl: 49000,
-      pnl: -1.0,
       realized_fee: 1.0,
       binance_order_id: 'entry_id',
       status: 'OPEN'
@@ -156,7 +152,6 @@ describe('OrderManagerService - PnL Consistency', () => {
       direction: 'LONG',
       qty: 0.1,
       entry_price: 50000,
-      pnl: 0,
       binance_order_id: 'entry_id',
       status: 'OPEN'
     } as Trade;
@@ -198,7 +193,6 @@ describe('OrderManagerService - PnL Consistency', () => {
       direction: 'LONG',
       qty: 0.1,
       entry_price: 50000,
-      pnl: 0,
       realized_fee: 0,
       status: 'OPEN'
     } as Trade;

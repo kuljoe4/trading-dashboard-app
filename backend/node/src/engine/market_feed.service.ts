@@ -572,12 +572,6 @@ export class MarketFeedService {
   private async startGlobalDiscovery() {
     this.stopGlobalDiscovery();
 
-    // SRE: Critical guard - do not attempt to open new streams if the IP is currently banned
-    if (this.sessionState.isBanned()) {
-      this.logger.warn(`[MarketFeed] Global discovery start deferred: IP is currently banned.`);
-      return;
-    }
-
     const mode = this.sessionState.config?.trading_mode || (this.sessionState.config?.paper_mode ? 'paper' : 'live');
     const isTestnet = mode === 'testnet';
     const wsBaseMarket = isTestnet
@@ -684,12 +678,6 @@ export class MarketFeedService {
   }
 
   private async rebuildCombinedKlineStream() {
-    // SRE: Critical guard - do not attempt to open new streams if the IP is currently banned
-    if (this.sessionState.isBanned()) {
-      this.logger.warn(`[MarketFeed] Kline stream rebuild deferred: IP is currently banned.`);
-      return;
-    }
-
     const mode = this.sessionState.config?.trading_mode || (this.sessionState.config?.paper_mode ? 'paper' : 'live');
     const isTestnet = mode === 'testnet';
     const wsBaseMarket = isTestnet

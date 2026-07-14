@@ -12,8 +12,3 @@
 **Vulnerability:** API ban and rate-limit cooldowns were stored only in static memory within `BinanceRequestQueue`. Upon application crash or restart (common in cloud environments like Railway), this state was lost, causing the bot to immediately resume hammering the exchange API even if a 24-hour ban was still active.
 **Learning:** For high-stakes exchange integrations, "Terminal Lock" states must be persistent. Relying on process memory for IP reputation protection is a single point of failure in distributed or auto-restarting infrastructures.
 **Prevention:** Persist `api_ban_until` and `api_ban_reason` to a global settings table. Implement `OnModuleInit` in the client factory to re-hydrate the request queue's cooldown state from the database before any egress traffic is dispatched.
-
-## 2026-07-14 - Startup Resilience & WebSocket Ban Hammering
-**Vulnerability:** `BinanceClientFactory` performed a naked `fetch` for clock sync before loading persistent ban status. `MarketFeedService` lacked guards to prevent WebSocket handshake bursts during active IP bans.
-**Learning:** Initializing network state must be strictly ordered: Load persistent cooldowns -> Register throttle -> Throttled sync. WebSocket connections are "costly" handshakes that must respect IP reputation same as REST.
-**Prevention:** Always load ban status as the first action in `onModuleInit`. Wrap ALL startup fetch calls in `genericRequest`. Implement `isBanned()` guards in stream managers.

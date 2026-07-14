@@ -27,39 +27,14 @@ export class BinanceClientFactory implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    // SRE: Load persistent ban status on startup to prevent immediate retry cycles after crash/restart
-    // This MUST happen before any network requests to respect existing IP reputation blocks.
-    try {
-      const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
-      if (settings && settings.api_ban_until && Number(settings.api_ban_until) > Date.now()) {
-        const remaining = Math.round((Number(settings.api_ban_until) - Date.now()) / 60000);
-        this.logger.warn(`Resuming with active API Ban/Cooldown. Remaining: ${remaining}m. Reason: ${settings.api_ban_reason}`);
-
-        BinanceRequestQueue.setCooldownUntil(Number(settings.api_ban_until));
-
-        this.eventEmitter.emit('binance.api_limit_reached', {
-          type: 'BAN',
-          message: settings.api_ban_reason || 'Persistent Ban',
-          until: Number(settings.api_ban_until)
-        });
-      }
-    } catch (e) {
-      this.logger.error(`Failed to load persistent ban status: ${e instanceof Error ? e.message : String(e)}`);
-    }
-
     // SRE: Proactive Clock Synchronization Check (Citadel Vector 6).
     // Drift of >1000ms makes signed requests invalid or vulnerable to replay.
     try {
       const start = Date.now();
-      // SENTINEL: Use genericRequest to ensure clock sync respects IP reputation and rate limits.
-      const response = await this.genericRequest(
-        () => fetch(`${DERIVATIVES_TRADING_USDS_FUTURES_REST_API_PROD_URL}/fapi/v1/time`, {
-          signal: AbortSignal.timeout(5000)
-        }),
-        'getServerTime',
-        true // Critical for boot but still throttled
-      );
-
+      // SENTINEL: Add timeout to prevent startup hang if Binance API is unresponsive
+      const response = await fetch(`${DERIVATIVES_TRADING_USDS_FUTURES_REST_API_PROD_URL}/fapi/v1/time`, {
+        signal: AbortSignal.timeout(5000)
+      });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
@@ -76,6 +51,25 @@ export class BinanceClientFactory implements OnModuleInit {
       }
     } catch (e) {
       this.logger.warn(`[Clock] Failed to verify system time synchronization: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    // SRE: Load persistent ban status on startup to prevent immediate retry cycles after crash/restart
+    try {
+      const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+      if (settings && settings.api_ban_until && Number(settings.api_ban_until) > Date.now()) {
+        const remaining = Math.round((Number(settings.api_ban_until) - Date.now()) / 60000);
+        this.logger.warn(`Resuming with active API Ban/Cooldown. Remaining: ${remaining}m. Reason: ${settings.api_ban_reason}`);
+
+        BinanceRequestQueue.setCooldownUntil(Number(settings.api_ban_until));
+
+        this.eventEmitter.emit('binance.api_limit_reached', {
+          type: 'BAN',
+          message: settings.api_ban_reason || 'Persistent Ban',
+          until: Number(settings.api_ban_until)
+        });
+      }
+    } catch (e) {
+      this.logger.error(`Failed to load persistent ban status: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -315,7 +309,6 @@ export class BinanceRequestQueue {
         this.executeRollover(now);
       }
     }, 5000); // Check every 5s
-    BinanceRequestQueue.rolloverInterval.unref?.();
   }
 
   private shouldRollover(now: number): boolean {

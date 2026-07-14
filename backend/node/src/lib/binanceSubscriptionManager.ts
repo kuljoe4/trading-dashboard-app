@@ -276,9 +276,7 @@ export class BinanceSubscriptionManager {
       if (typeof data === 'object' && !Buffer.isBuffer(data)) {
           msg = data;
       } else {
-          // BOLT OPTIMIZATION: Use JSON.parse(data) directly on the Buffer in Node.js 20+.
-          // This leverages the internal C++ parser optimization for binary data, bypassing the expensive V8 string allocation phase.
-          msg = JSON.parse(data);
+          msg = JSON.parse(data.toString());
       }
 
       if (!this._hasReceivedAnyMessage) {

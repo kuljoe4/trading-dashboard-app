@@ -334,7 +334,7 @@ export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
           <span className="text-[10px] text-dim font-bold uppercase tracking-widest text-left">Edge Optimization Curve</span>
           <div className="flex items-baseline gap-3">
             <span className={cn("text-2xl font-black font-mono tracking-tighter", hoverData ? "text-accent" : "text-text")}>
-              {Number(currentStats.threshold || 0).toFixed(1)}R
+              {currentStats.threshold.toFixed(1)}R
             </span>
             <span className="text-[10px] text-dim font-black uppercase tracking-widest">
               Target Selection
@@ -344,11 +344,11 @@ export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
         <div className="grid grid-cols-2 gap-x-8 gap-y-1">
            <div className="flex flex-col">
               <span className="text-[8px] text-dim font-black uppercase tracking-widest">Profit Factor</span>
-              <span className="text-xs font-black font-mono text-accent">{Number(currentStats.profitFactor || 0).toFixed(2)}</span>
+              <span className="text-xs font-black font-mono text-accent">{currentStats.profitFactor.toFixed(2)}</span>
            </div>
            <div className="flex flex-col">
               <span className="text-[8px] text-dim font-black uppercase tracking-widest">Win Rate</span>
-              <span className="text-xs font-black font-mono text-text">{Number(currentStats.winRate || 0).toFixed(0)}%</span>
+              <span className="text-xs font-black font-mono text-text">{currentStats.winRate.toFixed(0)}%</span>
            </div>
         </div>
       </div>
@@ -424,9 +424,9 @@ export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
         </svg>
 
         <div className="absolute inset-x-0 -bottom-6 flex justify-between">
-          <span className="text-[8px] text-dim font-mono font-bold">{Number(safeData[0].threshold || 0).toFixed(1)}R</span>
+          <span className="text-[8px] text-dim font-mono font-bold">{safeData[0].threshold.toFixed(1)}R</span>
           <div className="h-px flex-1 mx-4 bg-border/10 self-center" />
-          <span className="text-[8px] text-dim font-mono font-bold">{Number(safeData[safeData.length - 1].threshold || 0).toFixed(1)}R</span>
+          <span className="text-[8px] text-dim font-mono font-bold">{safeData[safeData.length - 1].threshold.toFixed(1)}R</span>
         </div>
       </div>
     </div>

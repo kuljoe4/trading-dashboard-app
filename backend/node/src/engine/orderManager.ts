@@ -7,13 +7,11 @@ import { DerivativesTradingUsdsFutures } from '@binance/derivatives-trading-usds
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
 import { SignalEngineService } from './signalEngine';
-import { OrderFilterService } from './order-filter.service';
 import { MarketFeedService } from './market_feed.service';
 import { TickerCacheService } from './ticker_cache.service';
 import { MonitoringService } from './monitoring.service';
 import { PositionTrackerService } from './positionTracker';
 import { SessionStateService } from './session_state.service';
-import { BroadcastService } from './broadcast.service';
 import { AuditLogService } from '../trading/audit-log.service';
 import { v4 as uuid } from 'uuid';
 import { roundEight, floorStep, roundTo, formatSlType } from '../lib/math';
@@ -45,6 +43,8 @@ export class OrderManagerService {
   private paperMode = true;
   private takerFeeRate = 0.0004; // Default taker fee (0.04%)
   private lastFeeFetch = 0;
+  private leverageBrackets: Map<string, any> = new Map();
+  private lastBracketFetch = 0;
 
   private consecutiveFailures = 0;
   private readonly MAX_CONSECUTIVE_FAILURES = 3;
@@ -77,12 +77,10 @@ export class OrderManagerService {
     @Inject(forwardRef(() => PositionTrackerService))
     private readonly positionTracker: PositionTrackerService,
     private readonly sessionState: SessionStateService,
-    private readonly broadcastService: BroadcastService,
     private readonly auditLog: AuditLogService,
     private readonly eventEmitter: EventEmitter2,
     @InjectRepository(SettingsEntity)
     private readonly settingsRepository: Repository<SettingsEntity>,
-    private readonly orderFilterService: OrderFilterService,
   ) {}
 
   @OnEvent('binance.order_update')
@@ -629,7 +627,92 @@ export class OrderManagerService {
       cachedFilters?: any
     } = {}
   ) {
-    return this.orderFilterService.applyFilters(symbol, price, qty, { ...options, paperMode: this.paperMode });
+    const filters = options.cachedFilters || this.marketFeed.getSymbolFilters(symbol);
+    if (!filters) return { price, qty };
+
+    let finalPrice = price;
+    let finalQty = qty;
+
+    const tickSize = filters.tickSize;
+    if (tickSize > 0) {
+      const rounding = options.priceRounding || 'round';
+      const epsilon = 1e-10;
+      if (rounding === 'floor') finalPrice = roundEight(Math.floor((price + epsilon) / tickSize) * tickSize);
+      else if (rounding === 'ceil') finalPrice = roundEight(Math.ceil((price - epsilon) / tickSize) * tickSize);
+      else finalPrice = roundEight(Math.round(price / tickSize) * tickSize);
+    }
+
+    // PERCENT_PRICE Validation & Clamping
+    if (filters.multiplierUp && !this.paperMode) {
+      const ticker = this.tickerCache.getTicker(symbol);
+      const markPrice = ticker?.mark_price || ticker?.price;
+      if (markPrice) {
+        const maxPrice = markPrice * filters.multiplierUp;
+        const minPrice = markPrice * filters.multiplierDown;
+
+        // SRE: Safety Buffer for PERCENT_PRICE.
+        // We use a 0.5% internal buffer from the exchange edges to account for markPrice lag.
+        const safetyBuffer = 0.005;
+        const bufferedMax = maxPrice * (1 - safetyBuffer);
+        const bufferedMin = minPrice * (1 + safetyBuffer);
+
+        if (finalPrice > bufferedMax || finalPrice < bufferedMin) {
+          if (options.clampToPercentPrice) {
+             const prevPrice = finalPrice;
+             finalPrice = Math.min(Math.max(finalPrice, bufferedMin), bufferedMax);
+             // Re-apply tick size rounding after clamping
+             if (tickSize > 0) {
+               finalPrice = roundEight(Math.round(finalPrice / tickSize) * tickSize);
+             }
+             this.logger.log(`${symbol}: Price ${prevPrice} clamped to buffered PERCENT_PRICE band edge ${finalPrice} (Mark: ${markPrice})`);
+          } else {
+            const isStopLossOrTp = !!options.skipNotionalCheck;
+
+            if (!isStopLossOrTp) {
+              this.logger.warn(`${symbol}: Price ${finalPrice} outside buffered PERCENT_PRICE band [${bufferedMin.toFixed(5)}, ${bufferedMax.toFixed(5)}] (Mark: ${markPrice})`);
+
+              // SRE: Stricter rejection for entries. If we are already outside exchange bands or very close (within 5%), block entry.
+              // This avoids instant "at or past SL" aborts for high-volatility symbols.
+              if (finalPrice > maxPrice || finalPrice < minPrice || Math.abs(finalPrice - markPrice) / markPrice > 0.05) {
+                 this.logger.error(`${symbol}: CRITICAL - Price too far from Mark or outside bands. Rejecting order.`);
+                 return { price: finalPrice, qty: 0 };
+              }
+            } else {
+              const deviation = Math.abs(finalPrice - markPrice) / markPrice;
+              if (deviation > 0.1) {
+                this.logger.warn(`${symbol}: SL/TP Price ${finalPrice} significantly far from Mark (${(deviation * 100).toFixed(2)}%). Proceeding with filtered price.`);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (filters.stepSize > 0) {
+      finalQty = floorStep(qty, filters.stepSize);
+
+      // Support for MARKET_LOT_SIZE to prevent "Quantity greater than max quantity" errors
+      if (filters.marketMaxQty !== undefined) {
+        if (finalQty > filters.marketMaxQty) {
+          this.logger.warn(`${symbol}: Quantity ${finalQty} exceeds MARKET_LOT_SIZE maxQty ${filters.marketMaxQty}. Clamping.`);
+          finalQty = filters.marketMaxQty;
+        }
+        if (finalQty < filters.marketMinQty && finalQty > 0) {
+          this.logger.warn(`${symbol}: Quantity ${finalQty} below MARKET_LOT_SIZE minQty ${filters.marketMinQty}.`);
+          finalQty = 0; // Block entry
+        }
+      }
+    }
+
+    // MIN_NOTIONAL Check
+    if (!options.skipNotionalCheck && filters.minNotional !== undefined) {
+      if (finalQty * finalPrice < filters.minNotional) {
+        this.logger.warn(`${symbol}: Order notional ${finalQty * finalPrice} is below minimum ${filters.minNotional}`);
+        return { price: finalPrice, qty: 0 }; // Zero qty will block entry
+      }
+    }
+
+    return { price: finalPrice, qty: finalQty };
   }
 
   /**
@@ -646,14 +729,52 @@ export class OrderManagerService {
    * for the symbol's current leverage to avoid Error -4031/4033 rejections.
    */
   async checkLeverageBracket(symbol: string, notional: number): Promise<{ isAllowed: boolean; maxNotional?: number }> {
-    return this.orderFilterService.checkLeverageBracket(
-      symbol,
-      notional,
-      this.paperMode,
-      this.binanceClient,
-      (headers) => this.updateWeight(headers),
-      (s, o) => this.fetchPosition(s, o)
-    );
+    if (this.paperMode || !this.binanceClient) return { isAllowed: true };
+
+    try {
+      const now = Date.now();
+      // Cache brackets for 1 hour to minimize REST weight
+      if (this.leverageBrackets.size === 0 || (now - this.lastBracketFetch > 3600000)) {
+         this.logger.debug(`[OrderManager] Fetching fresh leverage brackets...`);
+         const response = await (this.binanceClient.restAPI as any).notionalAndLeverageBrackets();
+         this.updateWeight(response.headers);
+         const data = (await response.data()) as any[];
+         if (Array.isArray(data)) {
+            this.leverageBrackets.clear();
+            for (const b of data) {
+               this.leverageBrackets.set(b.symbol, b.brackets);
+            }
+            this.lastBracketFetch = now;
+         }
+      }
+
+      const brackets = this.leverageBrackets.get(symbol);
+      if (!brackets || !Array.isArray(brackets)) return { isAllowed: true };
+
+      // Get current position for the symbol to check total aggregate notional
+      const pos = await this.fetchPosition(symbol, { forceFresh: false });
+      const currentNotional = pos ? Math.abs(parseFloat(pos.notional || '0')) : 0;
+      const totalNotional = currentNotional + notional;
+
+      // Find the relevant bracket. Brackets are usually sorted by leverage descending.
+      // We need to find the one that corresponds to the symbol's ACTIVE leverage on Binance.
+      const currentLeverage = pos ? parseInt(pos.leverage || '1') : 20; // Default 20x if unknown
+
+      // Find the relevant bracket. Brackets are returned in descending order (e.g., 125x, 100x, ..., 1x).
+      // We need to find the one where our current leverage is <= the initialLeverage of the tier.
+      // SRE: Brackets represent the MAX leverage allowed for that notional tier.
+      const activeBracket = [...brackets].reverse().find(b => currentLeverage <= b.initialLeverage) || brackets[0];
+
+      if (activeBracket && totalNotional > activeBracket.notionalCap) {
+         this.logger.warn(`[OrderManager] Leverage Cap Breach for ${symbol}: Total Notional ${totalNotional.toFixed(2)} exceeds cap ${activeBracket.notionalCap} at ${currentLeverage}x leverage.`);
+         return { isAllowed: false, maxNotional: activeBracket.notionalCap };
+      }
+
+      return { isAllowed: true };
+    } catch (err) {
+      this.logger.debug(`[OrderManager] Leverage bracket check failed for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
+      return { isAllowed: true }; // Permissive on failure
+    }
   }
 
   async enter(
@@ -831,8 +952,6 @@ export class OrderManagerService {
             if (totalEntryCommission > 0) {
               this.logger.debug(`[${symbol}] [Sync] Adding commissions from REST entry fills: ${totalEntryCommission}`);
               trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + totalEntryCommission);
-              // CHRONOS: Subtract commission from pnl as it's realized
-              trade.pnl = roundEight((Number(trade.pnl) || 0) - totalEntryCommission);
             }
             this.cleanupExecutionCache();
           }
@@ -1073,15 +1192,6 @@ export class OrderManagerService {
 
           this.logger.error(agreementMsg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: agreementMsg, level: 'error' });
-
-          // CHRONOS: Emit specific rejection for PERCENT_PRICE to ensure the UI updates the gate status immediately.
-          if (errMsg.includes('PERCENT_PRICE')) {
-             this.broadcastService.broadcast('gate', {
-               gateState: 'sl_out_of_bounds',
-               reason: agreementMsg,
-               scannerPaused: false
-             });
-          }
 
           const isSystemic = !errMsg.includes('agreement') &&
                              !errMsg.includes('TradFi-Perps') &&
@@ -2273,18 +2383,26 @@ export class OrderManagerService {
       this.logger.error(abortMsg);
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: abortMsg, level: 'error' });
 
-      const exitReason = isPast ? EXIT_REASONS.ENTRY_AT_OR_PAST_SL : EXIT_REASONS.ENTRY_TOO_CLOSE_TO_SL;
+      try {
+        const exitReason = isPast ? EXIT_REASONS.ENTRY_AT_OR_PAST_SL : EXIT_REASONS.ENTRY_TOO_CLOSE_TO_SL;
 
-      // CHRONOS: Unwind position via EXCHANGE_CLOSE event to ensure TradingSessionService
-      // broadcasts the 'closed' event to the frontend, preventing ghost trades.
-      this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
-        symbol,
-        exitPrice: actualPrice,
-        reason: exitReason,
-        needsMarketClose: true
-      });
+        // CHRONOS: Unwind position immediately via PositionTracker to handle both in-flight and promoted states.
+        // This ensures the exchange position is closed and local state is purged in a single atomic-like operation.
+        await this.positionTracker.closeTrade(
+          symbol,
+          actualPrice,
+          exitReason,
+          config as SessionConfig,
+          this.paperMode,
+          false,
+          { needsMarketClose: true }
+        );
 
-      return { isValid: false, error: `Entry ${reason.toLowerCase()} SL: ${actualPrice.toFixed(8)}` };
+        return { isValid: false, error: `Entry ${reason.toLowerCase()} SL: ${actualPrice.toFixed(8)}` };
+      } catch (unwindErr) {
+        this.logger.error(`Failed to unwind unsafe entry for ${symbol}: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);
+        throw unwindErr;
+      }
     }
 
     // Abort if negative slippage (worse price) exceeds threshold
@@ -2293,15 +2411,20 @@ export class OrderManagerService {
       this.logger.error(abortMsg);
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: abortMsg, level: 'error' });
 
-      // CHRONOS: Unwind position via EXCHANGE_CLOSE event to ensure consistent state broadcast
-      this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
-        symbol,
-        exitPrice: actualPrice,
-        reason: EXIT_REASONS.SLIPPAGE_ABORT,
-        needsMarketClose: true
-      });
-
-      return { isValid: false, error: `Slippage abort: ${slippagePctStr}%` };
+      try {
+        const unwindRes = await this.closeTrade(symbol, trade, actualPrice, EXIT_REASONS.SLIPPAGE_ABORT, false, false);
+        if (!unwindRes.exitOccurred) {
+          this.logger.error(`[FATAL] Slippage abort unwind FAILED for ${symbol}. Position may be lingering!`);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+            msg: `FATAL: Slippage abort unwind failed for ${symbol}. Please check exchange immediately.`,
+            level: 'error'
+          });
+        }
+        return { isValid: false, error: `Slippage abort: ${slippagePctStr}%` };
+      } catch (unwindErr) {
+        this.logger.error(`Slippage unwind exception for ${symbol}: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);
+        throw unwindErr;
+      }
     } else if (slippage < -warningThreshold) {
       this.logger.warn(`Slippage warning for ${symbol}: Delta ${slippagePctStr}% exceeds threshold ${(warningThreshold * 100).toFixed(2)}%`);
     }
@@ -2333,13 +2456,6 @@ export class OrderManagerService {
       // Nuclear Option (ignoreBlocked) bypasses this to ensure forced capital safety.
       if (trade.close_blocked && !localOnly && !options.ignoreBlocked) {
          return { trade, exitOccurred: false, closeBlocked: true };
-      }
-
-      // CHRONOS: Routing for illiquid positions. If a symbol is structurally illiquid,
-      // we skip the MARKET attempt and go straight to the aggressive LIMIT fallback.
-      if (trade.illiquid_blocked && !localOnly && !options.ignoreBlocked) {
-         this.logger.warn(`[${symbol}] Routing illiquid position directly to LIMIT fallback.`);
-         throw new Error('PERCENT_PRICE'); // Trigger catch block for fallback routing
       }
 
       if (!paperMode && this.checkCircuitBreaker()) {
@@ -2412,8 +2528,6 @@ export class OrderManagerService {
          if (!isNaN(exitFee) && exitFee > 0) {
             this.logger.debug(`[${symbol}] [Sync] Estimating exit fee for local-only closure: ${exitFee}`);
             trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + exitFee);
-            // CHRONOS: Subtract estimated fee from pnl
-            trade.pnl = roundEight((Number(trade.pnl) || 0) - exitFee);
          }
       }
 
@@ -2639,8 +2753,6 @@ export class OrderManagerService {
               if (exitFeeFromFills > 0) {
                 this.logger.debug(`[${symbol}] [Sync] Adding commissions from REST exit fills: ${exitFeeFromFills}`);
                 trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + exitFeeFromFills);
-                // CHRONOS: Subtract commission from pnl
-                trade.pnl = roundEight((Number(trade.pnl) || 0) - exitFeeFromFills);
               }
               this.cleanupExecutionCache();
             }
@@ -2653,8 +2765,6 @@ export class OrderManagerService {
               if (isNaN(exitFee)) exitFee = 0;
 
               trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + exitFee);
-              // CHRONOS: Subtract estimated fee from pnl
-              trade.pnl = roundEight((Number(trade.pnl) || 0) - exitFee);
             }
 
             const exitFeeDisplay = exitFeeFromFills || (trade.qty * exitPrice * (this.takerFeeRate || 0.0004));
@@ -2725,8 +2835,6 @@ export class OrderManagerService {
                     let exitFee = exitPrice * trade.qty * feeRate;
                     if (isNaN(exitFee)) exitFee = 0;
                     trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + exitFee);
-                    // CHRONOS: Subtract estimated fee from pnl
-                    trade.pnl = roundEight((Number(trade.pnl) || 0) - exitFee);
                   }
 
                   // BOLT: Field Synchronization. Update tooltip reason to match the new authoritative price.
@@ -2809,8 +2917,6 @@ export class OrderManagerService {
                     if (limitData.orderId) {
                       this.logger.log(`Aggressive LIMIT fallback for ${symbol} successful: ${limitData.orderId}`);
                       trade.binance_close_order_id = String(limitData.orderId);
-                      // SRE: Successfully placed a limit within bands, clear illiquid flag
-                      trade.illiquid_blocked = false;
                     }
                   } catch (limitErr) {
                     this.logger.error(`Aggressive LIMIT fallback failed for ${symbol}: ${limitErr instanceof Error ? limitErr.message : String(limitErr)}`);
@@ -2851,32 +2957,14 @@ export class OrderManagerService {
       trade.exit_price = exitPrice;
       trade.exit_ts = new Date();
 
-      if (!paperMode) {
-         if (options.feesAlreadyAccounted) {
-            this.logger.debug(`[PnL Integrity] Using authoritative accumulated PnL for ${symbol}: ${trade.pnl}`);
-         } else {
-            // CHRONOS: Incremental PnL Calculation for Live mode.
-            // Instead of an absolute calculation from entry price, we add the profit of the
-            // remaining quantity to the already accumulated trade.pnl (which contains
-            // realized slices and commissions from both REST and UDS).
-            const remainingPnlPoints = trade.direction === 'LONG'
-              ? exitPrice - trade.entry_price
-              : trade.entry_price - exitPrice;
+      if (!paperMode && options.feesAlreadyAccounted) {
+         // CHRONOS: Authoritative PnL preservation.
+         // In Live mode, if we are closing based on UDS events, trade.pnl already
+         // contains the sum of all 'rp' and 'n' (commission) slices from the exchange.
+         this.logger.debug(`[PnL Integrity] Using authoritative accumulated PnL for ${symbol}: ${trade.pnl}`);
 
-            const remainingGrossPnl = remainingPnlPoints * (trade.qty || 0);
-            // Funding fees and realized commissions are already in trade.pnl via handleAccountUpdate and entry/exit hardening.
-            const finalNetPnl = roundEight((Number(trade.pnl) || 0) + remainingGrossPnl);
-
-            this.logger.log(`[PnL Integrity] Finalizing Live trade ${symbol}: AccumulatedNet=${trade.pnl}, RemainingQty=${trade.qty}, RemainingGross=${remainingGrossPnl.toFixed(4)}, FinalNet=${finalNetPnl}`);
-
-            trade.pnl = finalNetPnl;
-         }
-
-         // pnl_pct: Recover original quantity from risk_usdt to ensure accuracy even if terminal qty is 0.
-         const riskDist = Math.abs(trade.entry_price - trade.initial_sl);
-         const initialQty = (riskDist > 0 && trade.initial_risk_usdt) ? (trade.initial_risk_usdt / riskDist) : (trade.qty || 1);
-         const notional = trade.entry_price * initialQty;
-
+         // Still update pnl_pct for dashboard consistency
+         const notional = trade.entry_price * (trade.qty || 0);
          const finalPnlPct = (notional !== 0) ? (trade.pnl / notional) * 100 : 0;
          trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
       } else {
@@ -2893,7 +2981,7 @@ export class OrderManagerService {
          const finalPnlPct = (notional !== 0) ? (finalNetPnl / notional) * 100 : 0;
          trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
 
-         this.logger.log(`[PnL Calculation] ${symbol} (Paper): ${trade.direction} Exit=${exitPrice}, Entry=${trade.entry_price}, Qty=${trade.qty}, Gross=${Number(finalGrossPnl || 0).toFixed(4)}, Fee=${Number(trade.realized_fee || 0).toFixed(4)}, Net=${Number(finalNetPnl || 0).toFixed(4)}`);
+         this.logger.log(`[PnL Calculation] ${symbol}: ${trade.direction} Exit=${exitPrice}, Entry=${trade.entry_price}, Qty=${trade.qty}, Gross=${Number(finalGrossPnl || 0).toFixed(4)}, Fee=${Number(trade.realized_fee || 0).toFixed(4)}, Net=${Number(finalNetPnl || 0).toFixed(4)}`);
 
          trade.pnl = roundEight(Number.isFinite(finalNetPnl) ? finalNetPnl : 0);
       }

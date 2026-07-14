@@ -362,23 +362,22 @@ export class TradingSessionService implements OnApplicationShutdown {
         const graceSec = this.config.hibernation_grace_period_sec || 30;
         // BOLT: Adaptive Hibernation. Implement a configurable grace period ("Light Sleep") before full cache purge.
         // This prevents the expensive "Resumption Burst" if gating is brief (e.g., cooling down after a hit).
-        this.logger.log(`[Gating] Entering LIGHT SLEEP (Grace Period). DEEP SLEEP scheduled in ${graceSec}s if conditions persist.`);
+        this.logger.log(`[Gating] Entering Light Sleep. Deep Sleep scheduled in ${graceSec}s if conditions persist.`);
         this.hibernateGraceTimeout = setTimeout(async () => {
           this.hibernateGraceTimeout = null;
           try {
             if (this.isGated() && this.positionTracker.activeCount() === 0 && !this.sessionState.hibernating) {
-              this.logger.log(`[Gating] Transitioning to DEEP SLEEP. Reason: ${riskResult.reason || 'Session gated and idle'}`);
+              this.logger.log(`[Gating] Transitioning to Deep Sleep. Reason: ${riskResult.reason || 'Session gated and idle'}`);
               await this.gatingService.enterHibernation(riskResult.reason || 'Session gated and idle', this.config!, this.positionTracker.activeList());
               this.minimizeMemoryUsage();
             }
           } catch (error) {
-            this.logger.error(`Failed to transition to DEEP SLEEP: ${error instanceof Error ? error.message : String(error)}`);
+            this.logger.error(`Failed to transition to Deep Sleep: ${error instanceof Error ? error.message : String(error)}`);
           }
         }, graceSec * 1000);
       } else {
         // Immediate entry for 'light' or 'deep' modes
-        const label = (mode === 'light') ? 'LIGHT SLEEP' : 'DEEP SLEEP';
-        this.logger.log(`[Gating] Entering ${label} immediately.`);
+        this.logger.log(`[Gating] Entering ${mode.toUpperCase()} hibernation immediately.`);
         await this.gatingService.enterHibernation(riskResult.reason || 'Session gated and idle', this.config!, activeTrades);
         if (mode === 'deep') this.minimizeMemoryUsage();
       }
@@ -386,20 +385,18 @@ export class TradingSessionService implements OnApplicationShutdown {
     // Transition out of Hibernation
     else if (!shouldHibernate) {
       if (this.hibernateGraceTimeout) {
-        this.logger.log(`[Gating] LIGHT SLEEP cancelled. Gating cleared before DEEP SLEEP transition.`);
+        this.logger.log(`[Gating] Light Sleep cancelled. Gating cleared before Deep Sleep transition.`);
         clearTimeout(this.hibernateGraceTimeout);
         this.hibernateGraceTimeout = null;
       }
 
       if (this.sessionState.hibernating) {
-        const mode = this.config.hibernation_mode || 'adaptive';
-        const label = (mode === 'light') ? 'LIGHT SLEEP' : 'DEEP SLEEP';
-        this.logger.log(`[Gating] Exiting ${label}. Reason: Gating conditions cleared.`);
+        this.logger.log(`[Gating] Exiting Deep Sleep. Reason: Gating conditions cleared.`);
         const exitStart = Date.now();
         // SRE: Pre-emptive metadata refresh check before exiting hibernation
         await this.marketFeed.fetchExchangeInfo();
         await this.gatingService.exitHibernation(this.config!);
-        this.logger.log(`[Gating] ${label} exit completed in ${Date.now() - exitStart}ms`);
+        this.logger.log(`[Gating] Deep Sleep exit completed in ${Date.now() - exitStart}ms`);
       }
     }
 

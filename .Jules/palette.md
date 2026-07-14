@@ -37,7 +37,3 @@
 ## 2026-07-04 - Keyboard Shortcut Discoverability and Tooltip Redundancy
 **Learning:** Communicating global keyboard shortcuts visually (e.g., via `group-hover` hints) significantly improves user productivity. However, tooltips that repeat these shortcuts become redundant and visually distracting when the sidebar is expanded and the labels/hints are already visible.
 **Action:** Use subtle mono-spaced hints (e.g., `opacity-0 group-hover:opacity-100`) to teach shortcuts. Conditionally disable tooltips when the parent container is expanded to minimize UI noise.
-
-## 2024-07-13 - Focusable Dashboard Metrics for Information Discovery
-**Learning:** High-density dashboard cards (like `StatCard`) often hide essential context in tooltips. Making these cards keyboard-focusable via `tabIndex={0}` only when tooltips are present ensures keyboard users can access the same informational depth as mouse users. Synchronizing focus visuals (`focus-visible`) with existing hover states maintains a cohesive aesthetic.
-**Action:** Use conditional `tabIndex` and `group-focus-visible` to reveal supplemental information on interactive dashboard components.

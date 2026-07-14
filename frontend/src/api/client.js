@@ -139,16 +139,6 @@ const sessionConfigAllowedKeys = [
   'hibernation_grace_period_sec',
   'trailing_guard_buffer_pct',
   'scanner_weights',
-  'sl_out_of_bounds_action',
-  'scanner_signal_depth',
-  'engulfing_mode',
-  'engulfing_timing',
-  'engulfing_volume_confirm',
-  'engulfing_lookback',
-  'engulfing_streak',
-  'engulfing_sequential',
-  'risk_hardening_enabled',
-  'max_single_trade_risk_pct',
 ]
 
 const sanitizeSessionConfig = (config) => {

@@ -27,7 +27,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
 
   let ariaText = `Trade status for ${trade.symbol}`
   if (entry && mark && sl) {
-    const pnlLabel = Number(trade.pnl || 0) >= 0 ? 'profit' : 'loss'
+    const pnlLabel = trade.pnl >= 0 ? 'profit' : 'loss'
     const rrValue = Number(trade.rr || 0).toFixed(2)
 
     if (tp) {
@@ -142,12 +142,12 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         <div className="flex justify-between text-[9px] font-bold text-dim uppercase tracking-widest font-mono">
           <div className="flex flex-col items-start">
             <span className="text-red/60">SL</span>
-            <span className="text-[8px] opacity-40">{entry ? Number((Math.abs(entry - sl) / entry) * 100).toFixed(1) : 0}%</span>
+            <span className="text-[8px] opacity-40">{entry ? ((Math.abs(entry - sl) / entry) * 100).toFixed(1) : 0}%</span>
           </div>
           <span className="text-text/20">Entry</span>
           <div className="flex flex-col items-end">
             <span className="text-green/60">{tp ? 'TP' : '3R'}</span>
-            <span className="text-[8px] opacity-40">{tp && entry ? Number((Math.abs(tp - entry) / entry) * 100).toFixed(1) : '---'}</span>
+            <span className="text-[8px] opacity-40">{tp && entry ? ((Math.abs(tp - entry) / entry) * 100).toFixed(1) : '---'}</span>
           </div>
         </div>
       </div>

@@ -1,4 +1,3 @@
-import { OrderFilterService } from './order-filter.service';
 import { OrderManagerService } from './orderManager';
 import { ExchangeExecutionException } from '../lib/exceptions';
 import { ExecutionStatus } from '../models/ExecutionResult';
@@ -58,11 +57,10 @@ describe('OrderManagerService Atomicity', () => {
       { incrementApiRequests: jest.fn() } as any, // monitoringService
       { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn(), isRatcheting: jest.fn() } as any, // positionTracker
       mockSessionState,
-      { broadcast: jest.fn() } as any, // broadcastService
       mockAuditLog,
       { emit: jest.fn() } as any, // eventEmitter
       { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any // settingsRepository
-    , new OrderFilterService(mockMarketFeed as any, { getTicker: jest.fn(), getPrice: jest.fn() } as any, { broadcast: jest.fn() } as any));
+    );
 
     mockBinanceClient = {
       restAPI: {

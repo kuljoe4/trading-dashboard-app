@@ -142,20 +142,21 @@ export class MaintenanceService {
              continue;
           }
 
-          if (trade.close_blocked) {
+          if (trade.close_blocked || trade.illiquid_blocked) {
              const lastAttempt = trade.last_close_attempt_ts || 0;
              const minutesSinceLastAttempt = (Date.now() - lastAttempt) / 60000;
 
              // SRE: Rescue stuck trades. If a trade is blocked but hasn't been attempted for 15+ minutes,
              // trigger a forced nuclear close to attempt recovery.
              if (minutesSinceLastAttempt >= 15) {
-                this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} has been blocked for ${minutesSinceLastAttempt.toFixed(1)}m. Triggering forced recovery close.`);
+                this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} has been blocked (illiquid=${!!trade.illiquid_blocked}) for ${minutesSinceLastAttempt.toFixed(1)}m. Triggering forced recovery close.`);
                 this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
                    symbol: trade.symbol,
                    exitPrice: 0,
                    reason: EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE,
                    needsMarketClose: true,
-                   feesAlreadyAccounted: false
+                   feesAlreadyAccounted: false,
+                   ignoreBlocked: true
                 });
              }
              continue;

@@ -1,3 +1,4 @@
+import { OrderFilterService } from './order-filter.service';
 import { OrderManagerService } from './orderManager';
 import { Trade } from '../models/Trade';
 import { ENGINE_EVENTS } from './events';
@@ -31,7 +32,9 @@ describe('OrderManagerService - Idempotency & Partial SL Sync', () => {
       { log: jest.fn() } as any, // auditLog
       eventEmitter,
       { findOne: jest.fn(), update: jest.fn() } as any // settingsRepository
-    );
+    , new OrderFilterService(// signalEngine
+      { getSymbolFilters: jest.fn() } as any, // marketFeed
+      { getPrice: jest.fn() } as any, { broadcast: jest.fn() } as any));
   });
 
   it('should sync trade.qty on PARTIALLY_FILLED SL order and restore it on final FILLED', async () => {

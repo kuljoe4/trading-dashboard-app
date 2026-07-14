@@ -1,3 +1,4 @@
+import { OrderFilterService } from './order-filter.service';
 import { MomentumScannerService } from './momentum_scanner.service'
 import { OrderManagerService } from './orderManager'
 
@@ -64,7 +65,8 @@ describe('MomentumScannerService Environment Filtering', () => {
         mockAuditLog as any,
         { emit: jest.fn() } as any,
         { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any // settingsRepository
-    );
+    , new OrderFilterService(marketFeed as any, { getTicker: jest.fn(), getPrice: jest.fn() } as any, // sessionState
+        { broadcast: jest.fn() } as any));
     (orderManager as any).marketFeed = marketFeed;
     const mockRest = {
       newOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ orderId: 'mock', avgPrice: '50000', executedQty: '1' }), headers: {} }),

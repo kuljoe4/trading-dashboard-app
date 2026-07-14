@@ -4,12 +4,14 @@ import { SessionStateService } from './session_state.service';
 import { Trade } from '../models/Trade';
 import { ExecutionStatus } from '../models/ExecutionResult';
 import { EXIT_REASONS } from '../models/constants';
+import { ENGINE_EVENTS } from './events';
 
 describe('Race Condition & Edge Case Fixes', () => {
   let orderManager: OrderManagerService;
   let positionTracker: PositionTrackerService;
   let sessionState: SessionStateService;
   let mockBinanceClient: any;
+  let mockEventEmitter: any;
 
   beforeEach(() => {
     sessionState = new SessionStateService();
@@ -21,7 +23,7 @@ describe('Race Condition & Edge Case Fixes', () => {
     const mockTickerCache = { getTicker: jest.fn().mockReturnValue({ mark_price: 100 }), getPrice: jest.fn().mockReturnValue(100) };
     const mockMonitoring = { incrementApiRequests: jest.fn() };
     const mockAuditLog = { log: jest.fn() };
-    const mockEventEmitter = { emit: jest.fn(), on: jest.fn() };
+    mockEventEmitter = { emit: jest.fn(), on: jest.fn() };
 
     positionTracker = new PositionTrackerService(
       {} as any,
@@ -40,6 +42,7 @@ describe('Race Condition & Edge Case Fixes', () => {
       mockMonitoring as any,
       positionTracker,
       sessionState,
+      { broadcast: jest.fn() } as any, // broadcastService
       mockAuditLog as any,
       mockEventEmitter as any,
       { findOne: jest.fn(), update: jest.fn() } as any
@@ -91,20 +94,20 @@ describe('Race Condition & Edge Case Fixes', () => {
     // Simulate trade already promoted to sessionState
     sessionState.activeTrades = [trade];
 
-    const closeSpy = jest.spyOn(positionTracker, 'closeTrade').mockResolvedValue({ trade, exitOccurred: true });
+    const emitSpy = jest.spyOn(mockEventEmitter, 'emit');
 
     // Entry price 95 with SL 98 -> AT OR PAST SL
     const result = await (orderManager as any).validateSlippage('BTCUSDT', trade, 100, 95, 98);
 
     expect(result.isValid).toBe(false);
-    expect(closeSpy).toHaveBeenCalledWith(
-        'BTCUSDT',
-        95,
-        EXIT_REASONS.ENTRY_AT_OR_PAST_SL,
-        undefined,
-        false,
-        false,
-        expect.objectContaining({ needsMarketClose: true })
+    expect(emitSpy).toHaveBeenCalledWith(
+        ENGINE_EVENTS.EXCHANGE_CLOSE,
+        expect.objectContaining({
+            symbol: 'BTCUSDT',
+            exitPrice: 95,
+            reason: EXIT_REASONS.ENTRY_AT_OR_PAST_SL,
+            needsMarketClose: true
+        })
     );
   });
 

@@ -27,6 +27,7 @@ describe('OrderManagerService - Idempotency & Partial SL Sync', () => {
       { incrementApiRequests: jest.fn() } as any, // monitoringService
       { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn() } as any, // positionTracker
       sessionState,
+      { broadcast: jest.fn() } as any, // broadcastService
       { log: jest.fn() } as any, // auditLog
       eventEmitter,
       { findOne: jest.fn(), update: jest.fn() } as any // settingsRepository

@@ -12,6 +12,7 @@ import { TickerCacheService } from './ticker_cache.service';
 import { MonitoringService } from './monitoring.service';
 import { PositionTrackerService } from './positionTracker';
 import { SessionStateService } from './session_state.service';
+import { BroadcastService } from './broadcast.service';
 import { AuditLogService } from '../trading/audit-log.service';
 import { v4 as uuid } from 'uuid';
 import { roundEight, floorStep, roundTo, formatSlType } from '../lib/math';
@@ -77,6 +78,7 @@ export class OrderManagerService {
     @Inject(forwardRef(() => PositionTrackerService))
     private readonly positionTracker: PositionTrackerService,
     private readonly sessionState: SessionStateService,
+    private readonly broadcastService: BroadcastService,
     private readonly auditLog: AuditLogService,
     private readonly eventEmitter: EventEmitter2,
     @InjectRepository(SettingsEntity)
@@ -1194,6 +1196,15 @@ export class OrderManagerService {
 
           this.logger.error(agreementMsg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: agreementMsg, level: 'error' });
+
+          // CHRONOS: Emit specific rejection for PERCENT_PRICE to ensure the UI updates the gate status immediately.
+          if (errMsg.includes('PERCENT_PRICE')) {
+             this.broadcastService.broadcast('gate', {
+               gateState: 'sl_out_of_bounds',
+               reason: agreementMsg,
+               scannerPaused: false
+             });
+          }
 
           const isSystemic = !errMsg.includes('agreement') &&
                              !errMsg.includes('TradFi-Perps') &&
@@ -2385,26 +2396,18 @@ export class OrderManagerService {
       this.logger.error(abortMsg);
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: abortMsg, level: 'error' });
 
-      try {
-        const exitReason = isPast ? EXIT_REASONS.ENTRY_AT_OR_PAST_SL : EXIT_REASONS.ENTRY_TOO_CLOSE_TO_SL;
+      const exitReason = isPast ? EXIT_REASONS.ENTRY_AT_OR_PAST_SL : EXIT_REASONS.ENTRY_TOO_CLOSE_TO_SL;
 
-        // CHRONOS: Unwind position immediately via PositionTracker to handle both in-flight and promoted states.
-        // This ensures the exchange position is closed and local state is purged in a single atomic-like operation.
-        await this.positionTracker.closeTrade(
-          symbol,
-          actualPrice,
-          exitReason,
-          config as SessionConfig,
-          this.paperMode,
-          false,
-          { needsMarketClose: true }
-        );
+      // CHRONOS: Unwind position via EXCHANGE_CLOSE event to ensure TradingSessionService
+      // broadcasts the 'closed' event to the frontend, preventing ghost trades.
+      this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
+        symbol,
+        exitPrice: actualPrice,
+        reason: exitReason,
+        needsMarketClose: true
+      });
 
-        return { isValid: false, error: `Entry ${reason.toLowerCase()} SL: ${actualPrice.toFixed(8)}` };
-      } catch (unwindErr) {
-        this.logger.error(`Failed to unwind unsafe entry for ${symbol}: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);
-        throw unwindErr;
-      }
+      return { isValid: false, error: `Entry ${reason.toLowerCase()} SL: ${actualPrice.toFixed(8)}` };
     }
 
     // Abort if negative slippage (worse price) exceeds threshold
@@ -2413,20 +2416,15 @@ export class OrderManagerService {
       this.logger.error(abortMsg);
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: abortMsg, level: 'error' });
 
-      try {
-        const unwindRes = await this.closeTrade(symbol, trade, actualPrice, EXIT_REASONS.SLIPPAGE_ABORT, false, false);
-        if (!unwindRes.exitOccurred) {
-          this.logger.error(`[FATAL] Slippage abort unwind FAILED for ${symbol}. Position may be lingering!`);
-          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
-            msg: `FATAL: Slippage abort unwind failed for ${symbol}. Please check exchange immediately.`,
-            level: 'error'
-          });
-        }
-        return { isValid: false, error: `Slippage abort: ${slippagePctStr}%` };
-      } catch (unwindErr) {
-        this.logger.error(`Slippage unwind exception for ${symbol}: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);
-        throw unwindErr;
-      }
+      // CHRONOS: Unwind position via EXCHANGE_CLOSE event to ensure consistent state broadcast
+      this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
+        symbol,
+        exitPrice: actualPrice,
+        reason: EXIT_REASONS.SLIPPAGE_ABORT,
+        needsMarketClose: true
+      });
+
+      return { isValid: false, error: `Slippage abort: ${slippagePctStr}%` };
     } else if (slippage < -warningThreshold) {
       this.logger.warn(`Slippage warning for ${symbol}: Delta ${slippagePctStr}% exceeds threshold ${(warningThreshold * 100).toFixed(2)}%`);
     }

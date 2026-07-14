@@ -60,6 +60,7 @@ describe('MomentumScannerService Environment Filtering', () => {
         { incrementApiRequests: jest.fn() } as any, // monitoringService
         { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn() } as any, // positionTracker
         { isRateLimited: () => false, isOrderRateLimited: () => false, isBanned: () => false, realTimePositions: new Map(), realTimeOrders: new Map(), binanceRateLimit: { used_1m: 0, limit: 2400 } } as any, // sessionState
+        { broadcast: jest.fn() } as any, // broadcastService
         mockAuditLog as any,
         { emit: jest.fn() } as any,
         { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any // settingsRepository

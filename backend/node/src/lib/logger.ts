@@ -43,7 +43,14 @@ export function updateLogLevels(debugMode: boolean) {
  * Includes circular reference protection and recursion depth limits.
  */
 export function sanitize(obj: any, visited = new WeakSet<any>(), depth = 0): any {
-  if (obj === null || typeof obj !== 'object') {
+  if (obj === null) return null;
+
+  if (typeof obj === 'string') {
+    // SENTINEL: Truncate very long strings to prevent memory/log bloat
+    return obj.length > 4096 ? obj.substring(0, 4096) + '... [truncated]' : obj;
+  }
+
+  if (typeof obj !== 'object') {
     return obj;
   }
 

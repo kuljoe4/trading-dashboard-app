@@ -23,7 +23,7 @@ describe('Chronos: In-Flight Closure Race Regression', () => {
         { provide: SignalEngineService, useValue: {} },
         { provide: TickerCacheService, useValue: {} },
         { provide: KlineStoreService, useValue: {} },
-        { provide: SessionStateService, useValue: {} },
+        { provide: SessionStateService, useValue: { setActiveTrades: jest.fn() } },
         { provide: EventEmitter2, useValue: { emit: jest.fn() } },
       ],
     }).compile();

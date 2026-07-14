@@ -434,7 +434,7 @@ export class MaintenanceService {
 
       // 2. Audit Exchange Positions (Exchange -> Local)
       const ghostPositions = activeExPositions.filter(
-        (p) => !localSymbols.has(p.symbol),
+        (p) => !localSymbols.has(p.symbol) && !this.positionTracker.isClosing(p.symbol),
       );
 
       if (ghostPositions.length > 0) {

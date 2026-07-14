@@ -323,6 +323,14 @@ export const InPosBadge = React.memo(({ className, label = "In Pos" }) => (
 ))
 InPosBadge.displayName = 'InPosBadge'
 
+export const SmartCandidateBadge = React.memo(({ className, label = "Predictive" }) => (
+  <div className={cn("flex items-center gap-1.5 whitespace-nowrap overflow-hidden", className)}>
+    <Activity size={10} className="text-purple-400 shrink-0" />
+    <span className="text-[8px] md:text-[9px] font-black text-purple-400 uppercase tracking-widest truncate">{label}</span>
+  </div>
+))
+SmartCandidateBadge.displayName = 'SmartCandidateBadge'
+
 // --- Condition Widget ---
 export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%", satisfied, sublabel }) => {
   const absThreshold = Math.max(Math.abs(threshold), 0.0001);

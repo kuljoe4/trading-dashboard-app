@@ -63,6 +63,7 @@ export class ExecutionService {
 
         const tradeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
         await this.positionTracker.checkRrSequenceAdjustments(trade.symbol, currentPrice, tradeConfig);
+        await this.positionTracker.checkTrailingStop(trade.symbol, currentPrice, tradeConfig);
 
         const exitInterval = tradeConfig.scan_interval || '1m';
         const exitCondition = this.positionTracker.checkExitConditions(trade.symbol, currentPrice, tradeConfig, exitInterval);

@@ -43,6 +43,16 @@ export class SessionConfig {
   @IsOptional()
   global_scanner_enabled: boolean = true;
 
+  @IsBoolean()
+  @IsOptional()
+  smart_watchlist_enabled?: boolean = false;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0.1)
+  @Max(1.0)
+  smart_watchlist_sensitivity?: number = 0.7;
+
   @IsArray()
   @IsOptional()
   @ArrayMaxSize(CONFIG_LIMITS.MAX_SINGLE_SYMBOL_MONITORS)
@@ -167,9 +177,9 @@ export class SessionConfig {
   engulfing_sequential?: boolean = true;
 
   // Stop Loss Configuration
-  @IsEnum(['pct', 'lookback_low/high', 'engulfing_boundary', 'streak_extreme'])
+  @IsEnum(['pct', 'lookback_low/high', 'engulfing_boundary', 'streak_extreme', 'trailing'])
   @IsOptional()
-  sl_type?: 'pct' | 'lookback_low/high' | 'engulfing_boundary' | 'streak_extreme' = "pct";
+  sl_type?: 'pct' | 'lookback_low/high' | 'engulfing_boundary' | 'streak_extreme' | 'trailing' = "pct";
 
   @IsNumber()
   @Min(CONFIG_LIMITS.SL_DISTANCE_MIN)
@@ -414,6 +424,16 @@ export class SessionConfig {
   @Min(CONFIG_LIMITS.TRAILING_GUARD_MIN)
   @Max(CONFIG_LIMITS.TRAILING_GUARD_MAX)
   trailing_guard_buffer_pct?: number = CONFIG_LIMITS.TRAILING_GUARD_DEFAULT;
+
+  @IsBoolean()
+  @IsOptional()
+  trailing_stop_enabled?: boolean = false;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0.1)
+  @Max(10.0)
+  trailing_stop_distance_pct?: number = 1.0;
 
   @IsObject()
   @IsOptional()

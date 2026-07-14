@@ -13,6 +13,7 @@ export interface Opportunity {
   volume_rank?: number;
   score: number; // 0-100 opportunity score
   direction: 'LONG' | 'SHORT';
+  is_smart_candidate?: boolean; // Discovered via event-driven Smart Watchlist
   history?: number[]; // Recent close prices for sparkline
   ohlc_history?: Candle[]; // Full OHLC for detailed visualization
   score_breakdown?: {
@@ -69,19 +70,51 @@ export class MomentumScannerService {
     try {
       // 1. Task Collection (Deduplication)
       // BOLT: Collect all unique symbols and their configs before execution to avoid redundant scans.
-      const tasks = new Map<string, { config: SessionConfig; volume_rank?: number }>();
+      const tasks = new Map<string, { config: SessionConfig; volume_rank?: number; is_smart?: boolean }>();
 
       // Global Scan Collection
       if (config.global_scanner_enabled !== false) {
         const offset = config.watchlist_offset || 0;
+        const watchlistSize = config.watchlist_size || 10;
+
         if (config.symbols && config.symbols.length > 0) {
           const syms = config.symbols;
           for (let i = 0; i < syms.length; i++) {
             tasks.set(syms[i], { config, volume_rank: offset + i + 1 });
           }
+        } else if (config.smart_watchlist_enabled) {
+          // BOLT: Smart Watchlist Discovery logic inside scanner to match MarketFeed
+          const sensitivity = config.smart_watchlist_sensitivity || 0.7;
+          const threshold = (config.scan_pct_threshold || 2.0) * sensitivity;
+
+          const tickers = this.tickerCache.getLatestTickers();
+          const smartCandidates = tickers
+            .filter(t => {
+              if (config.excluded_symbols?.includes(t.symbol)) return false;
+              if (!this.marketFeed.getSymbolFilters(t.symbol)) return false;
+              if (t.open_24h && t.open_24h > 0) {
+                const momentum = Math.abs((t.price - t.open_24h) / t.open_24h) * 100;
+                return momentum >= threshold;
+              }
+              return false;
+            })
+            .sort((a, b) => b.volume_24h - a.volume_24h)
+            .slice(0, watchlistSize);
+
+          smartCandidates.forEach(t => {
+            tasks.set(t.symbol, { config, is_smart: true });
+          });
+
+          // Also include volume-based leaders
+          const topByVolume = this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), config.excluded_symbols || []);
+          topByVolume.forEach((t, i) => {
+             if (!tasks.has(t.symbol)) {
+                tasks.set(t.symbol, { config, volume_rank: i + 1 });
+             }
+          });
         } else {
           const topByVolume = this.tickerCache.topByVolume(
-            (config.watchlist_size || 10) + offset,
+            watchlistSize + offset,
             config.excluded_symbols || [],
           );
           for (let i = offset; i < topByVolume.length; i++) {
@@ -117,6 +150,7 @@ export class MomentumScannerService {
           const res = this.scanSymbol(symbol, interval, task.config);
           if (res) {
             if (task.volume_rank) res.opp.volume_rank = task.volume_rank;
+            if (task.is_smart) res.opp.is_smart_candidate = true;
             results.push(res);
           }
         } catch (error) {

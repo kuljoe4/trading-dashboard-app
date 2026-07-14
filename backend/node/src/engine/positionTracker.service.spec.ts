@@ -459,4 +459,61 @@ describe('PositionTrackerService', () => {
        expect(service.totalRisk()).toBe(100);
     });
   });
+
+  describe('checkTrailingStop', () => {
+    it('should move SL up for LONG trade when price improves', async () => {
+      const trade = {
+        symbol: 'TRAIL_LONG',
+        direction: 'LONG',
+        entry_price: 100,
+        current_sl: 98,
+        qty: 1,
+        status: 'OPEN',
+        risk_usdt: 2,
+        updated_at: new Date()
+      } as any;
+      service.addTrade(trade);
+
+      const config = {
+        trailing_stop_enabled: true,
+        trailing_stop_distance_pct: 1.0, // 1% = .00 distance
+        trailing_guard_buffer_pct: 0.05
+      } as any;
+
+      mockOrderManager.applyFilters.mockReturnValue({ price: 104 }); // Price 105 - 1% = 104
+      mockOrderManager.updateStopLoss.mockResolvedValue({ success: true, price: 104 });
+
+      await service.checkTrailingStop('TRAIL_LONG', 105, config);
+
+      expect(mockOrderManager.updateStopLoss).toHaveBeenCalledWith(trade, 104, 98);
+      expect(trade.current_sl).toBe(104);
+    });
+
+    it('should move SL down for SHORT trade when price improves', async () => {
+      const trade = {
+        symbol: 'TRAIL_SHORT',
+        direction: 'SHORT',
+        entry_price: 100,
+        current_sl: 102,
+        qty: 1,
+        status: 'OPEN',
+        risk_usdt: 2,
+        updated_at: new Date()
+      } as any;
+      service.addTrade(trade);
+
+      const config = {
+        trailing_stop_enabled: true,
+        trailing_stop_distance_pct: 1.0, // 1% = .00 distance
+      } as any;
+
+      mockOrderManager.applyFilters.mockReturnValue({ price: 96 }); // Price 95 + 1% = 96
+      mockOrderManager.updateStopLoss.mockResolvedValue({ success: true, price: 96 });
+
+      await service.checkTrailingStop('TRAIL_SHORT', 95, config);
+
+      expect(mockOrderManager.updateStopLoss).toHaveBeenCalledWith(trade, 96, 102);
+      expect(trade.current_sl).toBe(96);
+    });
+  });
 });

@@ -534,6 +534,10 @@ const flattenConfig = (config) => {
       hibernation_mode: config.hibernation_mode || 'adaptive',
       hibernation_grace_period_sec: config.hibernation_grace_period_sec || 30,
       sl_out_of_bounds_action: config.sl_out_of_bounds_action !== undefined ? config.sl_out_of_bounds_action : 'clamp',
+  trailing_stop_enabled: !!config.trailing_stop_enabled,
+  trailing_stop_distance_pct: config.trailing_stop_distance_pct || 1.0,
+  smart_watchlist_enabled: !!config.smart_watchlist_enabled,
+  smart_watchlist_sensitivity: config.smart_watchlist_sensitivity || 0.7,
       scanner_signal_depth: config.scanner_signal_depth || 10,
       auto_scale_min_notional: config.auto_scale_min_notional !== undefined ? config.auto_scale_min_notional : true,
       risk_hardening_enabled: !!config.risk_hardening_enabled,
@@ -755,6 +759,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     const numericFields = [
       'risk_pct_per_trade', 'max_total_risk_pct', 'max_open_trades', 'total_sl_guard_usdt',
       'max_single_trade_risk_pct',
+      'smart_watchlist_sensitivity',
+      'trailing_stop_distance_pct',
       'scan_pct_threshold', 'scan_lookback', 'scan_min_volume_usdt', 'watchlist_size',
       'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
@@ -1020,6 +1026,36 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 <Tooltip content="The scanner will check signals for top candidates up to this depth. If top candidates fail signals, it moves to the next. Set higher for strict signal strategies to prevent stalling.">
                   {renderField('Signal Depth', 'scanner_signal_depth', 'number', null, { min: 1, max: 50 })}
                 </Tooltip>
+
+                <div className="md:col-span-2 mt-4 space-y-4">
+                  <div className="p-4 bg-background/50 rounded-2xl border border-border/50 flex items-center justify-between group hover:border-accent/30 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><Zap size={20} /></div>
+                      <div>
+                        <div className="text-sm font-bold flex items-center gap-2">
+                          Smart Watchlist
+                          <Tooltip content="Event-driven discovery: Monitors the real-time !miniTicker stream to catch symbols with high momentum BEFORE they enter the top volume lists. Increases discovery range without extra API weight.">
+                            <Info size={12} className="text-dim/60" />
+                          </Tooltip>
+                        </div>
+                        <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Event-driven discovery via !miniTicker</div>
+                      </div>
+                    </div>
+                    <Toggle value={cfg.smart_watchlist_enabled === true} onChange={(v) => setField('smart_watchlist_enabled', v)} />
+                  </div>
+
+                  {cfg.smart_watchlist_enabled && (
+                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-5 bg-accent/5 rounded-2xl border border-accent/20 space-y-4 shadow-sm">
+                      <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-accent mb-2">
+                        <TrendingUp size={12} /> Predictive Discovery
+                      </div>
+                      {renderField('Discovery Sensitivity', 'smart_watchlist_sensitivity', 'number', null, { min: 0.1, max: 1.0, step: 0.1 })}
+                      <p className="text-[9px] text-dim/60 italic leading-snug border-l-2 border-accent/20 pl-3">
+                        Expands the candidate pool by identifying movers in the real-time mini-ticker stream before they enter the top volume lists. Lower values are more inclusive.
+                      </p>
+                    </motion.div>
+                  )}
+                </div>
                 {renderField('Min Volume (USDT)', 'scan_min_volume_usdt', 'number', null, { min: 0, step: 100000 })}
                 {renderField('Scan Mode', 'scan_mode', 'text', [
                   { value: 'interval', label: 'Fixed Interval' },
@@ -1515,6 +1551,30 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 ])}
                 {cfg.tp_mode === 'fixed' ? renderField('Fixed Ratio (R)', 'tp_ratio', 'number', null, { min: 0.1, step: 0.1 }) : <div />}
               </div>
+
+              <OptimizationPanel analytics={lifetimeAnalytics} cfg={cfg} setField={setField} type="rr" />
+
+              <div className="mt-8 pt-6 border-t border-border/40 space-y-6">
+                 <div className="p-4 bg-background/50 rounded-2xl border border-border/50 flex items-center justify-between group hover:border-accent/30 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><Activity size={20} /></div>
+                      <div>
+                        <div className="text-sm font-bold">Dynamic Trailing Stop</div>
+                        <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Active price chasing to protect unrealized PnL</div>
+                      </div>
+                    </div>
+                    <Toggle value={cfg.trailing_stop_enabled === true} onChange={(v) => setField('trailing_stop_enabled', v)} />
+                 </div>
+
+                 {cfg.trailing_stop_enabled && (
+                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {renderField('Trailing Distance (%)', 'trailing_stop_distance_pct', 'number', null, { min: 0.1, max: 10, step: 0.1 })}
+                       </div>
+                       <OptimizationPanel analytics={lifetimeAnalytics} cfg={cfg} setField={setField} type="trailing" />
+                    </motion.div>
+                 )}
+              </div>
             </CollapsibleSection>
 
             <CollapsibleSection id="risk_temporal" icon={Clock} title="Frequency & Temporal Risk" subtitle="Execution windows & frequency shaping">
@@ -1799,3 +1859,90 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   )
 }
 
+
+const OptimizationPanel = ({ analytics, cfg, setField, type = 'rr' }) => {
+  if (!analytics?.rrOptimization) return null;
+  const opt = analytics.rrOptimization;
+  const sampleSize = opt.sampleSize || 0;
+  const needed = Math.max(0, 20 - sampleSize);
+  const isOptimal = opt.status === 'OPTIMAL';
+
+  if (type === 'rr') {
+    return (
+      <div className="mt-4 p-4 bg-accent/5 border border-accent/20 rounded-2xl space-y-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-accent">
+            <Target size={12} /> Statistical RR Model
+          </div>
+          <div className={cn("text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-tighter border", isOptimal ? "bg-green/10 border-green/20 text-green" : "bg-amber/10 border-amber/20 text-amber")}>
+            {opt.status} MODEL
+          </div>
+        </div>
+
+        {needed > 0 && (
+          <div className="flex items-center gap-2 p-2 bg-background/40 rounded-lg border border-border/30">
+            <div className="h-1 flex-1 bg-border rounded-full overflow-hidden">
+               <div className="h-full bg-accent transition-all duration-1000" style={{ width: `${(sampleSize / 20) * 100}%` }} />
+            </div>
+            <span className="text-[9px] font-bold text-dim uppercase tracking-tight">{needed} more trades for optimal accuracy</span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { label: 'Conservative', rr: opt.conservativeRr, color: 'text-green', bg: 'bg-green/10' },
+            { label: 'Balanced', rr: opt.balancedRr, color: 'text-accent', bg: 'bg-accent/10' },
+            { label: 'Aggressive', rr: opt.aggressiveRr, color: 'text-purple', bg: 'bg-purple/10' }
+          ].map(t => (
+            <button
+              key={t.label}
+              type="button"
+              onClick={() => {
+                if (cfg.tp_mode === 'fixed') setField('tp_ratio', t.rr);
+                else {
+                  const next = [...(cfg.exit_rr_sequence || [0, 1, 2])];
+                  next[next.length - 1] = t.rr;
+                  setField('exit_rr_sequence', next);
+                }
+              }}
+              className={cn("p-2 rounded-xl border border-border/40 hover:border-accent/40 transition-all text-left bg-background/40 group", t.bg)}
+            >
+              <div className="text-[7px] font-black uppercase tracking-tighter text-dim/60 mb-0.5">{t.label}</div>
+              <div className={cn("text-sm font-black font-mono tracking-tighter", t.color)}>{t.rr.toFixed(1)}R</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (type === 'trailing') {
+     return (
+       <div className="mt-4 p-4 bg-purple/5 border border-purple/20 rounded-2xl space-y-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-purple-400">
+              <Activity size={12} /> Volatility Recommendation
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+             <div className="flex flex-col">
+                <span className="text-[8px] text-dim font-black uppercase tracking-widest mb-0.5">Statistical Distance</span>
+                <span className="text-lg font-black font-mono tracking-tighter text-text leading-none">{opt.recommendedTrailingDistance.toFixed(2)}%</span>
+             </div>
+             <Btn
+               variant="ghost"
+               onClick={() => setField('trailing_stop_distance_pct', opt.recommendedTrailingDistance)}
+               className="px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest bg-purple/10 text-purple-400 border-purple/20 hover:bg-purple/20"
+             >
+               Use Recommended
+             </Btn>
+          </div>
+          <p className="text-[8px] text-dim/60 italic leading-snug border-l-2 border-purple/20 pl-3">
+             Based on historical Maximum Adverse Excursion (MAE). Designed to survive normal volatility while locking gains.
+          </p>
+       </div>
+     );
+  }
+
+  return null;
+};

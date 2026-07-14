@@ -46,7 +46,14 @@ const RRLadder = memo(({ trade }) => {
              <Zap size={14} className="text-accent" fill="currentColor" /> Guard Ladder
           </SectionLabel>
         </div>
-        <div className="text-[10px] text-accent font-mono bg-accent/10 px-2 py-0.5 rounded border border-accent/20">Live Ratchet</div>
+        <div className="flex items-center gap-2">
+          {trade.strategy_config?.trailing_stop_enabled && (
+            <div className="text-[10px] text-purple-400 font-mono bg-purple-400/10 px-2 py-0.5 rounded border border-purple-400/20 flex items-center gap-1">
+              <Activity size={10} /> Trailing
+            </div>
+          )}
+          <div className="text-[10px] text-accent font-mono bg-accent/10 px-2 py-0.5 rounded border border-accent/20">Live Ratchet</div>
+        </div>
       </div>
 
       <div className="flex gap-4 overflow-x-auto no-scrollbar mb-4 md:mb-8 pb-2">
@@ -119,8 +126,13 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
         const totalDist = isLong ? (threshold - entryPrice) : (entryPrice - threshold);
         const progressDist = isLong ? (mark - entryPrice) : (entryPrice - mark);
         if (totalDist > 0) progress = Math.max(0, Math.min(100, (progressDist / totalDist) * 100));
-      } else {
+      } else if (key.includes('momentum') || key.includes('volume')) {
         progress = Math.max(0, Math.min(100, (Math.abs(value) / Math.abs(threshold)) * 100));
+      } else {
+        // Direction-aware convergence for oscillators or other signals
+        const dist = Math.abs(value - threshold);
+        const maxDist = Math.abs(threshold) * 0.5 || 1; // Assume 50% range for proximity scaling
+        progress = Math.max(0, Math.min(100, (1 - dist / maxDist) * 100));
       }
       return [key, { ...s, progress }];
     }).sort((a, b) => b[1].progress - a[1].progress);
@@ -408,6 +420,11 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                     { label: 'Funding Fee', value: fmtUSD(-(trade.funding_fee || 0)), color: trade.funding_fee > 0 ? 'text-red/70' : 'text-green/70' },
                    { label: 'ROI from Entry', value: `${pnlPct.toFixed(2)}%`, color: pnlPct >= 0 ? 'text-green' : 'text-red' },
                    { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%` },
+                   trade.strategy_config?.trailing_stop_enabled && {
+                     label: 'Trailing Stop',
+                     value: `${trade.strategy_config.trailing_stop_distance_pct}%`,
+                     color: 'text-purple-400'
+                   },
                    { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%` },
                    { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0) },
                    {

@@ -198,6 +198,10 @@ const defaultConfig = {
   auto_scale_min_notional: true,
   hibernation_mode: 'adaptive',
   debug_mode: false,
+  smart_watchlist_enabled: false,
+  smart_watchlist_sensitivity: 0.7,
+  trailing_stop_enabled: false,
+  trailing_stop_distance_pct: 1.0,
   scanner_weights: {
     momentum: 0.5,
     volatility: 0.3,

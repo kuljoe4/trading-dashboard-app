@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { fmtVol } from '../lib/theme'
 import { formatDuration } from '../lib/formatters'
-import { PulseDot, Sparkline, cn, CopyButton, Tooltip, CandlestickChart, MonitoredBadge, InPosBadge } from './ui/primitives'
+import { PulseDot, Sparkline, cn, CopyButton, Tooltip, CandlestickChart, MonitoredBadge, InPosBadge, SmartCandidateBadge } from './ui/primitives'
 import { SignalGauge } from './ui/SignalGauge'
 import { useTradingStore } from '../store/trading'
 import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert, RefreshCw } from 'lucide-react'
@@ -241,6 +241,9 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
            <div className="flex items-center gap-1.5 mt-0.5 h-3.5">
             {isInPosition && (
               <InPosBadge />
+            )}
+            {opp.is_smart_candidate && (
+              <SmartCandidateBadge />
             )}
             {isSingleMonitor && (
               <MonitoredBadge />

@@ -9,7 +9,7 @@ describe('RrOptimizationService', () => {
   });
 
   it('returns INSUFFICIENT_DATA status for small sample sizes', () => {
-    const trades = Array(10).fill({
+    const trades = Array(3).fill({
       status: 'CLOSED',
       exit_ts: new Date(),
       max_rr_achieved: 1.5,
@@ -20,6 +20,21 @@ describe('RrOptimizationService', () => {
     const result = service.calculateRrOptimization(trades);
     expect(result.status).toBe('INSUFFICIENT_DATA');
     expect(result.curve).toHaveLength(0);
+  });
+
+  it('returns PRELIMINARY status for moderate sample sizes', () => {
+    const trades = Array(10).fill({
+      status: 'CLOSED',
+      exit_ts: new Date(),
+      max_rr_achieved: 1.5,
+      pnl: 10,
+      risk_usdt: 10,
+      is_reconciliation: false
+    }) as TradeEntity[];
+
+    const result = service.calculateRrOptimization(trades);
+    expect(result.status).toBe('PRELIMINARY');
+    expect(result.curve.length).toBeGreaterThan(0);
   });
 
   it('recommends tiered optimal RRs based on MFE sweep', () => {

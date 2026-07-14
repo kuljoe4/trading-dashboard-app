@@ -17,11 +17,12 @@ export interface RrOptimizationResult {
   conservativeRr: number;
   balancedRr: number;
   aggressiveRr: number;
+  recommendedTrailingDistance: number;
   maxProfitFactor: number;
   maxExpectancy: number;
   curve: RrOptimizationPoint[];
   sampleSize: number;
-  status: 'OPTIMAL' | 'INSUFFICIENT_DATA' | 'STALE';
+  status: 'OPTIMAL' | 'PRELIMINARY' | 'INSUFFICIENT_DATA' | 'STALE';
 }
 
 @Injectable()
@@ -41,12 +42,13 @@ export class RrOptimizationService {
       t.max_rr_achieved !== undefined
     );
 
-    if (closedTrades.length < 20) {
+    if (closedTrades.length < 5) {
       return {
         recommendedRr: 0,
         conservativeRr: 0,
         balancedRr: 0,
         aggressiveRr: 0,
+        recommendedTrailingDistance: 0,
         maxProfitFactor: 0,
         maxExpectancy: 0,
         curve: [],
@@ -56,10 +58,19 @@ export class RrOptimizationService {
     }
 
     // Performance Engineering: Pre-calculate outcomes and epsilons for all trades
+    let sumMaePct = 0;
     const tradeData = closedTrades.map(t => {
       const risk = Number(t.initial_risk_usdt || t.risk_usdt || 0);
       const pnl = Number(t.pnl || 0);
       const epsilon = Math.max(risk * 0.05, 0.5);
+
+      // Calculate Maximum Adverse Excursion (MAE) pct relative to entry
+      // MAE pct is effectively how far the trade went against us.
+      // Since MAE isn't directly in TradeEntity, we estimate it from entry vs initial_sl if it was a loss,
+      // or use a safe baseline (0.5%) for wins.
+      const maePct = (pnl < 0) ? Math.abs((t.entry_price - t.current_sl) / t.entry_price) * 100 : 0.5;
+      sumMaePct += maePct;
+
       return {
         max_rr: Number(t.max_rr_achieved || 0),
         risk,
@@ -71,10 +82,13 @@ export class RrOptimizationService {
       };
     });
 
+    const n = tradeData.length;
+    // Strategy: Recommend trailing distance at 2x Average Adverse Excursion to survive normal noise
+    const avgMaePct = sumMaePct / n;
+    const recommendedTrailingDistance = roundTo(Math.max(0.5, avgMaePct * 2), 2);
+
     // Sort descending by MFE
     tradeData.sort((a, b) => b.max_rr - a.max_rr);
-
-    const n = tradeData.length;
     const curve: RrOptimizationPoint[] = [];
 
     // State for sweep
@@ -201,11 +215,12 @@ export class RrOptimizationService {
       conservativeRr,
       balancedRr,
       aggressiveRr,
+      recommendedTrailingDistance,
       maxProfitFactor: roundTo(maxPF, 2),
       maxExpectancy: roundTo(maxExp, 2),
       curve: curve.reverse(),
       sampleSize: n,
-      status: 'OPTIMAL',
+      status: n >= 20 ? 'OPTIMAL' : 'PRELIMINARY',
     };
   }
 }

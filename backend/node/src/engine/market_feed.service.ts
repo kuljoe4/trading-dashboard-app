@@ -448,14 +448,50 @@ export class MarketFeedService {
         let symbols: string[];
         if (config.symbols && config.symbols.length > 0) symbols = config.symbols;
         else {
-          const top = await this.tickerCache.topByVolume((config.watchlist_size || 50) + (config.watchlist_offset || 0), config.excluded_symbols || []);
-          const slicedTop = top.slice(config.watchlist_offset || 0);
+          // BOLT: Smart Watchlist Logic - Event driven discovery without extra REST calls.
+          // If enabled, we expand the candidate pool from !miniTicker updates.
+          const watchlistSize = config.watchlist_size || 50;
+          const offset = config.watchlist_offset || 0;
 
-          // COMPLIANCE: Filter by getSymbolFilters() to exclude non-crypto symbols (Gold, Equities)
-          // that appear in miniTicker stream but are not tradable by the bot.
-          symbols = slicedTop
-            .map((t: any) => t.symbol)
-            .filter(s => this.getSymbolFilters(s) !== undefined);
+          if (config.smart_watchlist_enabled) {
+            // Smart Watchlist: Filter all tickers by momentum volatility from the cache (seeded by !miniTicker)
+            // to find candidates that are moving fast even if they are not in the top 50 by volume.
+            const sensitivity = config.smart_watchlist_sensitivity || 0.7;
+            const threshold = (config.scan_pct_threshold || 2.0) * sensitivity;
+
+            const tickers = this.tickerCache.getLatestTickers();
+            const smartCandidates = tickers
+              .filter(t => {
+                if (config.excluded_symbols?.includes(t.symbol)) return false;
+                if (this.getSymbolFilters(t.symbol) === undefined) return false;
+
+                // Estimate momentum if open_24h is available
+                if (t.open_24h && t.open_24h > 0) {
+                  const momentum = Math.abs((t.price - t.open_24h) / t.open_24h) * 100;
+                  return momentum >= threshold;
+                }
+                return false;
+              })
+              .sort((a, b) => b.volume_24h - a.volume_24h)
+              .slice(0, watchlistSize);
+
+            symbols = smartCandidates.map(t => t.symbol);
+
+            // Ensure we also include the standard top volume symbols to avoid missing established liquidity
+            const topByVolume = await this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), config.excluded_symbols || []);
+            const volumeSymbols = topByVolume.map(t => t.symbol);
+
+            symbols = Array.from(new Set([...symbols, ...volumeSymbols]));
+          } else {
+            const top = await this.tickerCache.topByVolume(watchlistSize + offset, config.excluded_symbols || []);
+            const slicedTop = top.slice(offset);
+
+            // COMPLIANCE: Filter by getSymbolFilters() to exclude non-crypto symbols (Gold, Equities)
+            // that appear in miniTicker stream but are not tradable by the bot.
+            symbols = slicedTop
+              .map((t: any) => t.symbol)
+              .filter(s => this.getSymbolFilters(s) !== undefined);
+          }
         }
         const globalInterval = config.scan_interval || '1m';
         for (const s of symbols) {

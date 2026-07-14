@@ -602,4 +602,63 @@ export class PositionTrackerService {
 
     return bestIndex;
   }
+
+  async checkTrailingStop(
+    symbol: string,
+    currentPrice: number,
+    config: SessionConfig,
+  ): Promise<void> {
+    const trade = this.trades.get(symbol);
+    if (!trade || trade.status !== 'OPEN' || !config.trailing_stop_enabled) return;
+
+    const distancePct = config.trailing_stop_distance_pct || 1.0;
+    const distance = trade.entry_price * (distancePct / 100);
+
+    let prospectiveSl: number;
+    if (trade.direction === 'LONG') {
+      prospectiveSl = currentPrice - distance;
+    } else {
+      prospectiveSl = currentPrice + distance;
+    }
+
+    const filtered = this.orderManager.applyFilters(symbol, prospectiveSl, trade.qty, {
+      priceRounding: trade.direction === 'LONG' ? 'floor' : 'ceil',
+      skipNotionalCheck: true
+    });
+    let newSl = filtered.price;
+
+    const bufferPct = config.trailing_guard_buffer_pct ?? CONFIG_LIMITS.TRAILING_GUARD_DEFAULT;
+    const buffer = currentPrice * (bufferPct / 100);
+
+    if (trade.direction === 'LONG') {
+      newSl = Math.min(newSl, currentPrice - buffer);
+    } else {
+      newSl = Math.max(newSl, currentPrice + buffer);
+    }
+
+    const minDelta = trade.entry_price * 0.0001;
+    let shouldUpdate = false;
+
+    if (trade.direction === 'LONG') {
+      shouldUpdate = newSl > trade.current_sl + Math.max(0.00000001, minDelta);
+    } else {
+      shouldUpdate = newSl < trade.current_sl - Math.max(0.00000001, minDelta);
+    }
+
+    if (shouldUpdate) {
+      if (this.orderManager.isRatcheting(symbol)) return;
+
+      const prevSl = trade.current_sl;
+      const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
+
+      if (updateRes.success) {
+        const finalSl = updateRes.price || newSl;
+        trade.current_sl = finalSl;
+        trade.updated_at = new Date();
+        this.refreshTradeRisk(trade);
+        this.logSlAdjustment(trade, prevSl, finalSl, -2, !!updateRes.price && updateRes.price !== newSl);
+        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+      }
+    }
+  }
 }

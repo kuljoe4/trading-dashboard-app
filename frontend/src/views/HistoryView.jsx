@@ -17,7 +17,7 @@ const TODPerformance = lazyWithRetry(() => import('../components/Analytics').the
 const RrOptimizationChart = lazyWithRetry(() => import('../components/Analytics').then(m => ({ default: m.RrOptimizationChart })))
 
 const price = (value) => {
-  if (value == null) return 'None'
+  if (value == null || isNaN(Number(value))) return 'None'
   const n = Number(value)
   return n >= 100 ? `$${n.toFixed(2)}` : `$${n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}`
 }
@@ -36,7 +36,7 @@ const buildCurve = (trades = []) => {
 const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
   const pnl = safeNum(trade.pnl)
   const durationMs = trade.exit_ts && trade.entry_ts ? new Date(trade.exit_ts).getTime() - new Date(trade.entry_ts).getTime() : 0
-  const durationStr = durationMs ? (durationMs / 60000).toFixed(1) + 'm' : 'N/A'
+  const durationStr = durationMs ? Number(durationMs / 60000).toFixed(1) + 'm' : 'N/A'
   const isLong = trade.direction?.toLowerCase() === 'long'
 
   return (
@@ -108,7 +108,7 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
         <div className="flex flex-col items-start min-w-0">
           <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Market Context</span>
           <span className={cn("text-[9px] font-black font-mono", pnlClass(trade.entry_daily_change_pct))}>
-            {(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} {Math.abs(trade.entry_daily_change_pct || 0).toFixed(2)}%
+            {(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} {Number(Math.abs(trade.entry_daily_change_pct || 0)).toFixed(2)}%
           </span>
         </div>
         <div className="flex flex-col items-start min-w-0 sm:max-w-[120px] col-span-2 sm:col-span-1">
@@ -171,7 +171,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
         winLossRatio: analytics.avgWinLossRatio || 0,
         winLossRatioStr: Number(analytics.avgWinLossRatio || 0).toFixed(2),
         pnlPct: analytics.overallPnlPct || 0,
-        expectancyStatus: getExpectancyStatus(session.analytics.overallWinRate / 100, session.analytics.avgWinLossRatio),
+        expectancyStatus: getExpectancyStatus(Number(session.analytics.overallWinRate || 0) / 100, Number(session.analytics.avgWinLossRatio || 0)),
         sharpeStatus: getSharpeStatus(session.analytics.sharpeRatio),
         sortinoStatus: getSortinoStatus(session.analytics.sortinoRatio),
         curve: session.analytics.cumulativePnL
@@ -261,7 +261,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
             <div className="flex flex-col">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Avg Time</span>
               <span className="text-xs font-bold text-text">
-                {avgDuration ? (avgDuration / 60000).toFixed(1) + 'm' : '---'}
+                {avgDuration ? Number(avgDuration / 60000).toFixed(1) + 'm' : '---'}
               </span>
             </div>
             <div className="flex flex-col">
@@ -571,7 +571,7 @@ export const HistoryView = () => {
             subValue={
               <span className={cn("flex items-center gap-1", pnlClass(currentAnalytics?.overallPnlPct))}>
                 <span className="text-[0.8em] opacity-80">{(currentAnalytics?.overallPnlPct || 0) > 0 ? '▴' : (currentAnalytics?.overallPnlPct || 0) < 0 ? '▾' : ''}</span>
-                {Math.abs(currentAnalytics?.overallPnlPct || 0).toFixed(2)}% Performance
+                {Number(Math.abs(currentAnalytics?.overallPnlPct || 0)).toFixed(2)}% Performance
               </span>
             }
           />
@@ -592,7 +592,7 @@ export const HistoryView = () => {
               <div className="flex flex-col gap-0.5">
                 <span className={cn("flex items-center gap-1", lifetimeExpectancyStatus.color)}>
                   <lifetimeExpectancyStatus.icon size={10} />
-                  {Number(lifetimeExpectancyStatus.expectancy).toFixed(2)} Expectancy
+                  {Number(lifetimeExpectancyStatus.expectancy || 0).toFixed(2)} Expectancy
                 </span>
                 <span className={cn("text-[8px] font-black uppercase tracking-tight", lifetimeExpectancyStatus.color)}>
                   {lifetimeExpectancyStatus.label} Status
@@ -653,7 +653,7 @@ export const HistoryView = () => {
             subValue={
               <span className="flex items-center gap-1.5">
                 <Clock size={10} />
-                Avg: {currentAnalytics?.avgDuration ? (currentAnalytics.avgDuration / 60000).toFixed(1) + 'm' : '---'}
+                Avg: {currentAnalytics?.avgDuration ? Number(currentAnalytics.avgDuration / 60000).toFixed(1) + 'm' : '---'}
               </span>
             }
           />
@@ -715,7 +715,7 @@ export const HistoryView = () => {
                                 id: Math.random().toString(36).substring(2, 9),
                                 level: 'success',
                                 title: `${tier.label} RR Set`,
-                                message: `Target ${tier.rr.toFixed(1)}R ready in draft.`
+                                message: `Target ${Number(tier.rr || 0).toFixed(1)}R ready in draft.`
                               }]
                             });
                           }}
@@ -727,7 +727,7 @@ export const HistoryView = () => {
                           {tier.active && <div className="absolute top-0 right-0 px-2 py-0.5 bg-accent text-white text-[7px] font-black uppercase tracking-widest rounded-bl-lg">Balanced Pick</div>}
                           <div className="flex flex-col">
                             <span className="text-[9px] text-dim font-black uppercase tracking-widest mb-0.5">{tier.label}</span>
-                            <span className="text-lg font-black font-mono tracking-tighter text-text leading-none">{tier.rr.toFixed(1)}R</span>
+                            <span className="text-lg font-black font-mono tracking-tighter text-text leading-none">{Number(tier.rr || 0).toFixed(1)}R</span>
                             <span className="text-[8px] text-dim/60 font-bold uppercase mt-1">{tier.desc}</span>
                           </div>
                           <div className="flex flex-col items-end text-right">

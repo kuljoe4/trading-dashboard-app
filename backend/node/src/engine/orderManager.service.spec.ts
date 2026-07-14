@@ -1,3 +1,4 @@
+import { OrderFilterService } from './order-filter.service';
 import { OrderManagerService } from './orderManager';
 import { Trade } from '../models/Trade';
 import { ExecutionStatus } from '../models/ExecutionResult';
@@ -34,9 +35,11 @@ describe('OrderManagerService', () => {
         config: {},
         hasOrderCapacity: () => true
       } as any, // sessionState
+      { broadcast: jest.fn() } as any, // broadcastService
       { log: jest.fn() } as any, // auditLog
       { emit: jest.fn() } as any, { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any
-    );
+    , new OrderFilterService({ getSymbolFilters: (symbol: string) => ({ filters: [] }) } as any, { getTicker: jest.fn(), getPrice: jest.fn() } as any, // sessionState
+      { broadcast: jest.fn() } as any));
     
     mockBinanceClient = {
       restAPI: {

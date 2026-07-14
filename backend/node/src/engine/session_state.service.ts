@@ -102,7 +102,12 @@ export class SessionStateService {
     this.countedStrategyHits.clear();
 
     let totalPnlAcc = 0;
+    const processedTradeIds = new Set<string>();
+
     const processTrade = (trade: Trade) => {
+      if (processedTradeIds.has(trade.id)) return;
+      processedTradeIds.add(trade.id);
+
       const label = trade.strategy_label || config.strategy_label || 'Momentum Strategy';
       if (!trade.strategy_label) trade.strategy_label = label;
 

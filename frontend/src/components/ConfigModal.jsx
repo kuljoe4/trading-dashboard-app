@@ -1355,7 +1355,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     </div>
                     <div className="flex flex-col gap-1 border-l border-border/50 pl-2 py-0.5">
                       <p className="text-[8px] text-dim/60 font-mono leading-tight">
-                        Math: {fmtUSD(riskAmount)} Target Risk / {(cfg.sl_distance_pct || 0.8).toFixed(1)}% SL = {fmtUSD(riskAmount / ((cfg.sl_distance_pct || 0.8) / 100))} Notional
+                        Math: {fmtUSD(riskAmount)} Target Risk / {Number(cfg.sl_distance_pct || 0.8).toFixed(1)}% SL = {fmtUSD(riskAmount / ((cfg.sl_distance_pct || 0.8) / 100))} Notional
                       </p>
                       <p className="text-[7px] text-dim/40 font-bold uppercase tracking-tighter">
                         Exchange Rule: $5.00 (Min) + $0.05 (Buffer) = $5.05 Requirement

@@ -212,7 +212,7 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
                    <span className={cn(
                       "text-[10px] font-mono font-black",
                       isFired ? "text-red" : s.fired ? "text-amber" : "text-accent"
-                    )}>{s.progress.toFixed(1)}%</span>
+                    )}>{Number(s.progress || 0).toFixed(1)}%</span>
                 </div>
 
                 <div className="h-2 bg-background/80 rounded-full overflow-hidden relative border border-white/5 shadow-inner">
@@ -234,7 +234,7 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
                       "text-[9px] font-mono font-black",
                       estPnl >= 0 ? "text-green" : "text-red"
                     )}>
-                      {estPnl >= 0 ? '+' : ''}{fmtUSD(estPnl)} ({estRr?.toFixed(1)}R)
+                      {estPnl >= 0 ? '+' : ''}{fmtUSD(estPnl)} ({Number(estRr || 0).toFixed(1)}R)
                     </div>
                   </div>
                 )}
@@ -342,7 +342,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
             </div>
             <div className="flex items-center gap-2">
               <div className={cn("px-2 py-0.5 md:px-4 md:py-1.5 rounded-full text-[8px] md:text-xs font-black font-mono shadow-sm", trade.pnl >= 0 ? "bg-green/10 text-green" : "bg-red/10 text-red")}>
-                ROI: {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
+                ROI: {Number(pnlPct || 0) >= 0 ? '+' : ''}{Number(pnlPct || 0).toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
               </div>
               {trade.is_reconciliation && (
                 <div className="bg-amber/10 text-amber border border-amber/20 px-2 py-0.5 md:px-4 md:py-1.5 rounded-full text-[8px] md:text-xs font-black uppercase tracking-widest shadow-sm flex items-center gap-1.5">
@@ -429,7 +429,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                    { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0) },
                    {
                      label: 'Daily Δ at Entry',
-                     value: `${(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} ${Math.abs(trade.entry_daily_change_pct || 0).toFixed(2)}%`,
+                     value: `${(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} ${Number(Math.abs(trade.entry_daily_change_pct || 0)).toFixed(2)}%`,
                      color: pnlClass(trade.entry_daily_change_pct)
                    },
                    trade.exit_ts && {

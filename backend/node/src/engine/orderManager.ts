@@ -952,6 +952,8 @@ export class OrderManagerService {
             if (totalEntryCommission > 0) {
               this.logger.debug(`[${symbol}] [Sync] Adding commissions from REST entry fills: ${totalEntryCommission}`);
               trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + totalEntryCommission);
+              // CHRONOS: Subtract commission from pnl as it's realized
+              trade.pnl = roundEight((Number(trade.pnl) || 0) - totalEntryCommission);
             }
             this.cleanupExecutionCache();
           }
@@ -2528,6 +2530,8 @@ export class OrderManagerService {
          if (!isNaN(exitFee) && exitFee > 0) {
             this.logger.debug(`[${symbol}] [Sync] Estimating exit fee for local-only closure: ${exitFee}`);
             trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + exitFee);
+            // CHRONOS: Subtract estimated fee from pnl
+            trade.pnl = roundEight((Number(trade.pnl) || 0) - exitFee);
          }
       }
 
@@ -2753,6 +2757,8 @@ export class OrderManagerService {
               if (exitFeeFromFills > 0) {
                 this.logger.debug(`[${symbol}] [Sync] Adding commissions from REST exit fills: ${exitFeeFromFills}`);
                 trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + exitFeeFromFills);
+                // CHRONOS: Subtract commission from pnl
+                trade.pnl = roundEight((Number(trade.pnl) || 0) - exitFeeFromFills);
               }
               this.cleanupExecutionCache();
             }
@@ -2765,6 +2771,8 @@ export class OrderManagerService {
               if (isNaN(exitFee)) exitFee = 0;
 
               trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + exitFee);
+              // CHRONOS: Subtract estimated fee from pnl
+              trade.pnl = roundEight((Number(trade.pnl) || 0) - exitFee);
             }
 
             const exitFeeDisplay = exitFeeFromFills || (trade.qty * exitPrice * (this.takerFeeRate || 0.0004));
@@ -2835,6 +2843,8 @@ export class OrderManagerService {
                     let exitFee = exitPrice * trade.qty * feeRate;
                     if (isNaN(exitFee)) exitFee = 0;
                     trade.realized_fee = roundEight((Number(trade.realized_fee) || 0) + exitFee);
+                    // CHRONOS: Subtract estimated fee from pnl
+                    trade.pnl = roundEight((Number(trade.pnl) || 0) - exitFee);
                   }
 
                   // BOLT: Field Synchronization. Update tooltip reason to match the new authoritative price.
@@ -2957,14 +2967,32 @@ export class OrderManagerService {
       trade.exit_price = exitPrice;
       trade.exit_ts = new Date();
 
-      if (!paperMode && options.feesAlreadyAccounted) {
-         // CHRONOS: Authoritative PnL preservation.
-         // In Live mode, if we are closing based on UDS events, trade.pnl already
-         // contains the sum of all 'rp' and 'n' (commission) slices from the exchange.
-         this.logger.debug(`[PnL Integrity] Using authoritative accumulated PnL for ${symbol}: ${trade.pnl}`);
+      if (!paperMode) {
+         if (options.feesAlreadyAccounted) {
+            this.logger.debug(`[PnL Integrity] Using authoritative accumulated PnL for ${symbol}: ${trade.pnl}`);
+         } else {
+            // CHRONOS: Incremental PnL Calculation for Live mode.
+            // Instead of an absolute calculation from entry price, we add the profit of the
+            // remaining quantity to the already accumulated trade.pnl (which contains
+            // realized slices and commissions from both REST and UDS).
+            const remainingPnlPoints = trade.direction === 'LONG'
+              ? exitPrice - trade.entry_price
+              : trade.entry_price - exitPrice;
 
-         // Still update pnl_pct for dashboard consistency
-         const notional = trade.entry_price * (trade.qty || 0);
+            const remainingGrossPnl = remainingPnlPoints * (trade.qty || 0);
+            // Funding fees and realized commissions are already in trade.pnl via handleAccountUpdate and entry/exit hardening.
+            const finalNetPnl = roundEight((Number(trade.pnl) || 0) + remainingGrossPnl);
+
+            this.logger.log(`[PnL Integrity] Finalizing Live trade ${symbol}: AccumulatedNet=${trade.pnl}, RemainingQty=${trade.qty}, RemainingGross=${remainingGrossPnl.toFixed(4)}, FinalNet=${finalNetPnl}`);
+
+            trade.pnl = finalNetPnl;
+         }
+
+         // pnl_pct: Recover original quantity from risk_usdt to ensure accuracy even if terminal qty is 0.
+         const riskDist = Math.abs(trade.entry_price - trade.initial_sl);
+         const initialQty = (riskDist > 0 && trade.initial_risk_usdt) ? (trade.initial_risk_usdt / riskDist) : (trade.qty || 1);
+         const notional = trade.entry_price * initialQty;
+
          const finalPnlPct = (notional !== 0) ? (trade.pnl / notional) * 100 : 0;
          trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
       } else {
@@ -2981,7 +3009,7 @@ export class OrderManagerService {
          const finalPnlPct = (notional !== 0) ? (finalNetPnl / notional) * 100 : 0;
          trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
 
-         this.logger.log(`[PnL Calculation] ${symbol}: ${trade.direction} Exit=${exitPrice}, Entry=${trade.entry_price}, Qty=${trade.qty}, Gross=${Number(finalGrossPnl || 0).toFixed(4)}, Fee=${Number(trade.realized_fee || 0).toFixed(4)}, Net=${Number(finalNetPnl || 0).toFixed(4)}`);
+         this.logger.log(`[PnL Calculation] ${symbol} (Paper): ${trade.direction} Exit=${exitPrice}, Entry=${trade.entry_price}, Qty=${trade.qty}, Gross=${Number(finalGrossPnl || 0).toFixed(4)}, Fee=${Number(trade.realized_fee || 0).toFixed(4)}, Net=${Number(finalNetPnl || 0).toFixed(4)}`);
 
          trade.pnl = roundEight(Number.isFinite(finalNetPnl) ? finalNetPnl : 0);
       }

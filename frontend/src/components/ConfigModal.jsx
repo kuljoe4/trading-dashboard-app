@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw } from 'lucide-react'
+import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 import { ConfirmationModal } from './ConfirmationModal'
@@ -1151,7 +1151,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                           { value: 'body', label: 'Body (O/C)' },
                           { value: 'strict', label: 'Strict (Both)' },
                           { value: 'close_range', label: 'Close > H/L (Closed)' },
-                          { value: 'close_body', label: 'Close > Body (Closed)' }
+                          { value: 'close_body', label: 'Close > Body (Closed)' },
+                          { value: 'soft_range', label: 'Partial Range (Close > H/L)' },
+                          { value: 'soft_body', label: 'Partial Body (Close > Body)' }
                         ])}
                       </Tooltip>
                       <Tooltip content="Is Opportunity: Signal fires on the momentum candle itself. After Opportunity: Signal must fire on the NEXT candle after momentum.">
@@ -1725,9 +1727,25 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             aria-labelledby="config-tab-presets"
             className="space-y-6 lg:space-y-8 animate-in fade-in duration-300"
           >
-            <section>
-              <SectionHeader icon={Save} title="Save Strategy" subtitle="Store current configuration as a preset" />
-              <SavePresetInput defaultName={loadedPresetName} onSave={(name) => { savePreset(name); }} isSaving={isSaving} success={saveSuccess} />
+            <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <SectionHeader icon={Save} title="Save Strategy" subtitle="Store current configuration as a preset" />
+                <SavePresetInput defaultName={loadedPresetName} onSave={(name) => { savePreset(name); }} isSaving={isSaving} success={saveSuccess} />
+              </div>
+              <div className="space-y-4">
+                <SectionHeader icon={RefreshCw} title="Transfer Config" subtitle="Portable strategy definitions" />
+                <div className="grid grid-cols-2 gap-3">
+                  <Btn variant="ghost" onClick={handleExportToFile} className="flex items-center justify-center gap-2 py-3 border-border hover:bg-accent/5 hover:border-accent/40">
+                    <Download size={16} /> Export JSON
+                  </Btn>
+                  <label className="relative">
+                    <input type="file" accept=".json" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
+                    <div className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl border border-border bg-transparent text-xs font-bold transition-all hover:bg-accent/5 hover:border-accent/40 cursor-pointer">
+                      <Upload size={16} /> Import JSON
+                    </div>
+                  </label>
+                </div>
+              </div>
             </section>
 
             <section className="pt-6 border-t border-border/40">
@@ -1782,6 +1800,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 value={JSON.stringify(buildConfigToSave(), null, 2)}
                 className="w-12 h-12 flex items-center justify-center border border-border rounded-xl hover:bg-white/5 transition-all"
              />
+           </Tooltip>
+           <Tooltip content="Paste Configuration from Clipboard">
+              <Btn variant="ghost" onClick={handlePasteConfig} className="w-12 h-12 p-0 flex items-center justify-center border-border rounded-xl hover:bg-accent/5 hover:border-accent/40 transition-all">
+                <ClipboardPaste size={18} className="text-dim group-hover:text-accent" />
+              </Btn>
            </Tooltip>
         </div>
         <Btn variant="primary" loading={loading} onClick={() => {

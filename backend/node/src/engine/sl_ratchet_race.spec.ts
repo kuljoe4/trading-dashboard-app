@@ -1,3 +1,4 @@
+import { OrderFilterService } from './order-filter.service';
 import { OrderManagerService } from './orderManager';
 import { Trade } from '../models/Trade';
 import { ExecutionStatus } from '../models/ExecutionResult';
@@ -49,7 +50,7 @@ describe('SL Ratchet Race Conditions & Protection Gaps', () => {
       { broadcast: jest.fn() } as any, // broadcastService
       mockAuditLog,
       mockEventEmitter as any, { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any
-    );
+    , new OrderFilterService(mockMarketFeed as any, mockTickerCache as any, { broadcast: jest.fn() } as any));
 
     mockBinanceClient = {
       restAPI: {

@@ -7,6 +7,7 @@ import { DerivativesTradingUsdsFutures } from '@binance/derivatives-trading-usds
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
 import { SignalEngineService } from './signalEngine';
+import { OrderFilterService } from './order-filter.service';
 import { MarketFeedService } from './market_feed.service';
 import { TickerCacheService } from './ticker_cache.service';
 import { MonitoringService } from './monitoring.service';
@@ -44,8 +45,6 @@ export class OrderManagerService {
   private paperMode = true;
   private takerFeeRate = 0.0004; // Default taker fee (0.04%)
   private lastFeeFetch = 0;
-  private leverageBrackets: Map<string, any> = new Map();
-  private lastBracketFetch = 0;
 
   private consecutiveFailures = 0;
   private readonly MAX_CONSECUTIVE_FAILURES = 3;
@@ -83,6 +82,7 @@ export class OrderManagerService {
     private readonly eventEmitter: EventEmitter2,
     @InjectRepository(SettingsEntity)
     private readonly settingsRepository: Repository<SettingsEntity>,
+    private readonly orderFilterService: OrderFilterService,
   ) {}
 
   @OnEvent('binance.order_update')
@@ -629,92 +629,7 @@ export class OrderManagerService {
       cachedFilters?: any
     } = {}
   ) {
-    const filters = options.cachedFilters || this.marketFeed.getSymbolFilters(symbol);
-    if (!filters) return { price, qty };
-
-    let finalPrice = price;
-    let finalQty = qty;
-
-    const tickSize = filters.tickSize;
-    if (tickSize > 0) {
-      const rounding = options.priceRounding || 'round';
-      const epsilon = 1e-10;
-      if (rounding === 'floor') finalPrice = roundEight(Math.floor((price + epsilon) / tickSize) * tickSize);
-      else if (rounding === 'ceil') finalPrice = roundEight(Math.ceil((price - epsilon) / tickSize) * tickSize);
-      else finalPrice = roundEight(Math.round(price / tickSize) * tickSize);
-    }
-
-    // PERCENT_PRICE Validation & Clamping
-    if (filters.multiplierUp && !this.paperMode) {
-      const ticker = this.tickerCache.getTicker(symbol);
-      const markPrice = ticker?.mark_price || ticker?.price;
-      if (markPrice) {
-        const maxPrice = markPrice * filters.multiplierUp;
-        const minPrice = markPrice * filters.multiplierDown;
-
-        // SRE: Safety Buffer for PERCENT_PRICE.
-        // We use a 0.5% internal buffer from the exchange edges to account for markPrice lag.
-        const safetyBuffer = 0.005;
-        const bufferedMax = maxPrice * (1 - safetyBuffer);
-        const bufferedMin = minPrice * (1 + safetyBuffer);
-
-        if (finalPrice > bufferedMax || finalPrice < bufferedMin) {
-          if (options.clampToPercentPrice) {
-             const prevPrice = finalPrice;
-             finalPrice = Math.min(Math.max(finalPrice, bufferedMin), bufferedMax);
-             // Re-apply tick size rounding after clamping
-             if (tickSize > 0) {
-               finalPrice = roundEight(Math.round(finalPrice / tickSize) * tickSize);
-             }
-             this.logger.log(`${symbol}: Price ${prevPrice} clamped to buffered PERCENT_PRICE band edge ${finalPrice} (Mark: ${markPrice})`);
-          } else {
-            const isStopLossOrTp = !!options.skipNotionalCheck;
-
-            if (!isStopLossOrTp) {
-              this.logger.warn(`${symbol}: Price ${finalPrice} outside buffered PERCENT_PRICE band [${bufferedMin.toFixed(5)}, ${bufferedMax.toFixed(5)}] (Mark: ${markPrice})`);
-
-              // SRE: Stricter rejection for entries. If we are already outside exchange bands or very close (within 5%), block entry.
-              // This avoids instant "at or past SL" aborts for high-volatility symbols.
-              if (finalPrice > maxPrice || finalPrice < minPrice || Math.abs(finalPrice - markPrice) / markPrice > 0.05) {
-                 this.logger.error(`${symbol}: CRITICAL - Price too far from Mark or outside bands. Rejecting order.`);
-                 return { price: finalPrice, qty: 0 };
-              }
-            } else {
-              const deviation = Math.abs(finalPrice - markPrice) / markPrice;
-              if (deviation > 0.1) {
-                this.logger.warn(`${symbol}: SL/TP Price ${finalPrice} significantly far from Mark (${(deviation * 100).toFixed(2)}%). Proceeding with filtered price.`);
-              }
-            }
-          }
-        }
-      }
-    }
-
-    if (filters.stepSize > 0) {
-      finalQty = floorStep(qty, filters.stepSize);
-
-      // Support for MARKET_LOT_SIZE to prevent "Quantity greater than max quantity" errors
-      if (filters.marketMaxQty !== undefined) {
-        if (finalQty > filters.marketMaxQty) {
-          this.logger.warn(`${symbol}: Quantity ${finalQty} exceeds MARKET_LOT_SIZE maxQty ${filters.marketMaxQty}. Clamping.`);
-          finalQty = filters.marketMaxQty;
-        }
-        if (finalQty < filters.marketMinQty && finalQty > 0) {
-          this.logger.warn(`${symbol}: Quantity ${finalQty} below MARKET_LOT_SIZE minQty ${filters.marketMinQty}.`);
-          finalQty = 0; // Block entry
-        }
-      }
-    }
-
-    // MIN_NOTIONAL Check
-    if (!options.skipNotionalCheck && filters.minNotional !== undefined) {
-      if (finalQty * finalPrice < filters.minNotional) {
-        this.logger.warn(`${symbol}: Order notional ${finalQty * finalPrice} is below minimum ${filters.minNotional}`);
-        return { price: finalPrice, qty: 0 }; // Zero qty will block entry
-      }
-    }
-
-    return { price: finalPrice, qty: finalQty };
+    return this.orderFilterService.applyFilters(symbol, price, qty, { ...options, paperMode: this.paperMode });
   }
 
   /**
@@ -731,52 +646,14 @@ export class OrderManagerService {
    * for the symbol's current leverage to avoid Error -4031/4033 rejections.
    */
   async checkLeverageBracket(symbol: string, notional: number): Promise<{ isAllowed: boolean; maxNotional?: number }> {
-    if (this.paperMode || !this.binanceClient) return { isAllowed: true };
-
-    try {
-      const now = Date.now();
-      // Cache brackets for 1 hour to minimize REST weight
-      if (this.leverageBrackets.size === 0 || (now - this.lastBracketFetch > 3600000)) {
-         this.logger.debug(`[OrderManager] Fetching fresh leverage brackets...`);
-         const response = await (this.binanceClient.restAPI as any).notionalAndLeverageBrackets();
-         this.updateWeight(response.headers);
-         const data = (await response.data()) as any[];
-         if (Array.isArray(data)) {
-            this.leverageBrackets.clear();
-            for (const b of data) {
-               this.leverageBrackets.set(b.symbol, b.brackets);
-            }
-            this.lastBracketFetch = now;
-         }
-      }
-
-      const brackets = this.leverageBrackets.get(symbol);
-      if (!brackets || !Array.isArray(brackets)) return { isAllowed: true };
-
-      // Get current position for the symbol to check total aggregate notional
-      const pos = await this.fetchPosition(symbol, { forceFresh: false });
-      const currentNotional = pos ? Math.abs(parseFloat(pos.notional || '0')) : 0;
-      const totalNotional = currentNotional + notional;
-
-      // Find the relevant bracket. Brackets are usually sorted by leverage descending.
-      // We need to find the one that corresponds to the symbol's ACTIVE leverage on Binance.
-      const currentLeverage = pos ? parseInt(pos.leverage || '1') : 20; // Default 20x if unknown
-
-      // Find the relevant bracket. Brackets are returned in descending order (e.g., 125x, 100x, ..., 1x).
-      // We need to find the one where our current leverage is <= the initialLeverage of the tier.
-      // SRE: Brackets represent the MAX leverage allowed for that notional tier.
-      const activeBracket = [...brackets].reverse().find(b => currentLeverage <= b.initialLeverage) || brackets[0];
-
-      if (activeBracket && totalNotional > activeBracket.notionalCap) {
-         this.logger.warn(`[OrderManager] Leverage Cap Breach for ${symbol}: Total Notional ${totalNotional.toFixed(2)} exceeds cap ${activeBracket.notionalCap} at ${currentLeverage}x leverage.`);
-         return { isAllowed: false, maxNotional: activeBracket.notionalCap };
-      }
-
-      return { isAllowed: true };
-    } catch (err) {
-      this.logger.debug(`[OrderManager] Leverage bracket check failed for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
-      return { isAllowed: true }; // Permissive on failure
-    }
+    return this.orderFilterService.checkLeverageBracket(
+      symbol,
+      notional,
+      this.paperMode,
+      this.binanceClient,
+      (headers) => this.updateWeight(headers),
+      (s, o) => this.fetchPosition(s, o)
+    );
   }
 
   async enter(
@@ -2458,6 +2335,13 @@ export class OrderManagerService {
          return { trade, exitOccurred: false, closeBlocked: true };
       }
 
+      // CHRONOS: Routing for illiquid positions. If a symbol is structurally illiquid,
+      // we skip the MARKET attempt and go straight to the aggressive LIMIT fallback.
+      if (trade.illiquid_blocked && !localOnly && !options.ignoreBlocked) {
+         this.logger.warn(`[${symbol}] Routing illiquid position directly to LIMIT fallback.`);
+         throw new Error('PERCENT_PRICE'); // Trigger catch block for fallback routing
+      }
+
       if (!paperMode && this.checkCircuitBreaker()) {
          this.logger.warn(`[${symbol}] Circuit breaker is open. Proceeding with emergency close despite systemic failures.`);
       }
@@ -2925,6 +2809,8 @@ export class OrderManagerService {
                     if (limitData.orderId) {
                       this.logger.log(`Aggressive LIMIT fallback for ${symbol} successful: ${limitData.orderId}`);
                       trade.binance_close_order_id = String(limitData.orderId);
+                      // SRE: Successfully placed a limit within bands, clear illiquid flag
+                      trade.illiquid_blocked = false;
                     }
                   } catch (limitErr) {
                     this.logger.error(`Aggressive LIMIT fallback failed for ${symbol}: ${limitErr instanceof Error ? limitErr.message : String(limitErr)}`);

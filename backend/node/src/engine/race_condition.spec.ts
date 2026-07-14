@@ -1,3 +1,4 @@
+import { OrderFilterService } from './order-filter.service';
 import { OrderManagerService } from './orderManager';
 import { PositionTrackerService } from './positionTracker';
 import { SessionStateService } from './session_state.service';
@@ -46,7 +47,7 @@ describe('Race Condition & Edge Case Fixes', () => {
       mockAuditLog as any,
       mockEventEmitter as any,
       { findOne: jest.fn(), update: jest.fn() } as any
-    );
+    , new OrderFilterService(mockMarketFeed as any, mockTickerCache as any, { broadcast: jest.fn() } as any));
 
     // Fix circular dependency in positionTracker
     (positionTracker as any).orderManager = orderManager;

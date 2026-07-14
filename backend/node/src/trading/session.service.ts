@@ -358,6 +358,7 @@ export class SessionService implements OnModuleInit {
         close_attempts: trade.close_attempts || 0,
         last_close_attempt_ts: trade.last_close_attempt_ts,
         close_blocked: !!trade.close_blocked,
+        illiquid_blocked: !!trade.illiquid_blocked,
         _sig_json: trade._sig_json,
         sessionId,
       });
@@ -1456,6 +1457,7 @@ export class SessionService implements OnModuleInit {
           },
           close_attempts: 0,
           close_blocked: false,
+          illiquid_blocked: false,
           binance_order_id: "RECON-" + uuid().substring(0, 8),
           binance_stop_order_id: slId,
           binance_stop_order_type: slType as any,

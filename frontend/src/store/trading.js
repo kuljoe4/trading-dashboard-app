@@ -1,7 +1,7 @@
 import { createWithEqualityFn } from 'zustand/traditional'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import { sessionAPI, normalizeUrl } from '../api/client'
-import { CONFIG_LIMITS, ENGINE_CONSTANTS } from '../constants/configLimits'
+import { sessionAPI, normalizeUrl } from '../api/client.js'
+import { CONFIG_LIMITS, ENGINE_CONSTANTS } from '../constants/configLimits.js'
 
 const toNumber = (v, f = 0) => { const p = Number(v); return Number.isFinite(p) ? p : f; }
 const MAX_LOG_LINES = 500;
@@ -82,7 +82,7 @@ export const normalizeOpportunity = (o = {}) => {
   return res;
 }
 
-const normalizeTrade = (t = {}, pt = null) => {
+export const normalizeTrade = (t = {}, pt = null) => {
   if (!t || typeof t !== 'object') return null;
   const p = pt || {};
 

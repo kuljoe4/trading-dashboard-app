@@ -2045,10 +2045,13 @@ export class SessionService implements OnModuleInit {
   async logMessage(msg: string, level: "info" | "warn" | "error" = "info") {
     if (!this.currentSessionId) return;
 
+    // SENTINEL: Truncate message to prevent excessive database growth from oversized logs
+    const sanitizedMsg = msg && msg.length > 4000 ? msg.substring(0, 4000) + '... [truncated]' : msg;
+
     const sid = this.currentSessionId;
 
     // Broadcast to UI immediately for real-time visibility
-    this.broadcastEvent("log", { msg, level, ts: new Date().toISOString() });
+    this.broadcastEvent("log", { msg: sanitizedMsg, level, ts: new Date().toISOString() });
 
     const now = Date.now();
 
@@ -2100,7 +2103,7 @@ export class SessionService implements OnModuleInit {
       sessionId: this.currentSessionId,
       ts: new Date().toISOString(),
       level,
-      msg,
+      msg: sanitizedMsg,
     });
   }
 

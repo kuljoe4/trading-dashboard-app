@@ -60,3 +60,7 @@
 **Vulnerability:** Outgoing network requests during application initialization (e.g., clock synchronization) lacked timeouts and status validation.
 **Learning:** External dependencies that hang or fail silently during a synchronous-looking startup sequence can prevent the application from booting or reaching a ready state, leading to a self-inflicted Denial of Service.
 **Prevention:** Always enforce strict timeouts (e.g., 5s) and validate response status for all network requests initiated during the application bootstrap phase.
+## 2026-07-15 - Log Injection and Storage Exhaustion Protection
+**Vulnerability:** Metadata fields in audit logs (User-Agent, Actor) and application logs lacked length limits and character sanitization, creating risks of Log Injection and storage-based Denial of Service.
+**Learning:** Even internal/audit metadata must be treated as untrusted input. Maliciously crafted headers or extremely long strings can compromise log integrity or exhaust system resources (DB storage, memory).
+**Prevention:** Implement a strict "Sanitize & Truncate" policy at the persistence layer. Strip non-printable control characters to prevent log forging and enforce hard length limits (e.g., 4000 chars for logs, 1024 for User-Agents) to protect system availability.

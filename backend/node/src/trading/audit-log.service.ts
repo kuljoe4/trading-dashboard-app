@@ -26,9 +26,17 @@ export class AuditLogService {
   }) {
     let sanitizedParams: any;
     try {
-      // SENTINEL: Sanitize details to prevent accidental credential leakage in audit logs
+      // SENTINEL: Truncate and sanitize metadata to prevent storage exhaustion and injection
+      const sanitizeMeta = (str: string | undefined, max: number) =>
+        str ? str.replace(/[^\x20-\x7E]/g, '').substring(0, max) : undefined;
+
       sanitizedParams = {
         ...params,
+        actor: sanitizeMeta(params.actor, 255),
+        ip: sanitizeMeta(params.ip, 45),
+        userAgent: sanitizeMeta(params.userAgent, 1024),
+        resourceId: sanitizeMeta(params.resourceId, 100),
+        // SENTINEL: Sanitize details to prevent accidental credential leakage in audit logs
         details: params.details ? sanitize(params.details) : undefined,
       };
 

@@ -255,6 +255,10 @@ export class SessionConfig {
 
   @IsObject()
   @IsOptional()
+  exit_signal_actions?: Record<string, 'close' | 'lock_sl'> = {};
+
+  @IsObject()
+  @IsOptional()
   signal_timeframes?: Record<string, string> = {};
 
   // Risk Management

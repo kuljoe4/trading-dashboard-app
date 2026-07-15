@@ -570,7 +570,7 @@ export class SessionService implements OnModuleInit {
     ip?: string,
     userAgent?: string,
   ) {
-    const mode = config.trading_mode || (paperMode ? "paper" : "live");
+    let mode = config.trading_mode || (paperMode ? "paper" : "live");
     if (mode !== "paper" && !process.env.ENCRYPTION_KEY) {
       throw new ConfigValidationException(
         "ENCRYPTION_KEY must be set to start a session in live or testnet mode.",
@@ -610,11 +610,16 @@ export class SessionService implements OnModuleInit {
       // Use existing config and balance
       config = session.config;
       paperMode = session.paperMode;
+      mode = session.tradingMode || (paperMode ? "paper" : "live");
 
       // Preserving starting balance if it exists in the config to maintain correct PnL calculation across restarts
-      if (paperMode) {
+      if (mode === "paper") {
         config.paper_starting_balance =
           config.paper_starting_balance ||
+          roundEight(Number(session.balance) - Number(session.totalPnl));
+      } else if (mode === "testnet") {
+        (config as any).testnet_starting_balance =
+          (config as any).testnet_starting_balance ||
           roundEight(Number(session.balance) - Number(session.totalPnl));
       } else {
         config.live_starting_balance =
@@ -734,9 +739,18 @@ export class SessionService implements OnModuleInit {
         );
       }
 
+      const decryptedKey = decrypt(key);
+      const decryptedSecret = decrypt(secret);
+
+      if (!decryptedKey || !decryptedSecret) {
+        throw new BadRequestException(
+          `Binance ${isTestnet ? "Testnet" : "Live"} API keys cannot be successfully decrypted. Please check or re-configure them in Settings.`,
+        );
+      }
+
       binanceClient = this.binanceClientFactory.createClient(
-        decrypt(key),
-        decrypt(secret),
+        decryptedKey,
+        decryptedSecret,
         isTestnet,
       );
     }

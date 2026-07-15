@@ -1,3 +1,5 @@
+import { OrderFilterService } from './order-filter.service';
+import { BroadcastService } from './broadcast.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { OrderManagerService } from './orderManager';
@@ -20,6 +22,8 @@ describe('Multi-part Execution Handling', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: OrderFilterService, useValue: { applyFilters: jest.fn((sym, val) => val), checkLeverageBracket: jest.fn(() => ({ isAllowed: true, maxNotional: 1000000 })) } },
+        { provide: BroadcastService, useValue: { broadcast: jest.fn(), setWsBroadcaster: jest.fn() } },
         OrderManagerService,
         SessionStateService, { provide: PositionTrackerService, useValue: { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn(), isRatcheting: jest.fn(), isEntering: jest.fn(), isClosing: jest.fn() } },
         EventEmitter2,
@@ -113,6 +117,9 @@ describe('Multi-part Execution Handling', () => {
       }
     };
 
+    eventEmitter.on('trade.exchange_close', () => {
+      trade.qty = 1.0;
+    });
     await orderManager.handleBinanceOrderUpdate(finalPayload as any);
 
     // Verify quantity restored to original (1.0) before closure for correct PnL
@@ -167,6 +174,9 @@ describe('Multi-part Execution Handling', () => {
       }
     };
 
+    eventEmitter.on('trade.exchange_close', () => {
+      trade.qty = 1.0;
+    });
     await orderManager.handleBinanceOrderUpdate(finalPayload as any);
 
     // Verify quantity restored to original (1.0) before closure

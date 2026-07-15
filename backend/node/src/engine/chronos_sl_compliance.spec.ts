@@ -1,3 +1,5 @@
+import { OrderFilterService } from './order-filter.service';
+import { BroadcastService } from './broadcast.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { OrderManagerService } from './orderManager';
@@ -28,6 +30,8 @@ describe('Chronos: SL Compliance (Binance FAPI Error -1106)', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: OrderFilterService, useValue: { applyFilters: jest.fn((sym, val) => val), checkLeverageBracket: jest.fn(() => ({ isAllowed: true, maxNotional: 1000000 })) } },
+        { provide: BroadcastService, useValue: { broadcast: jest.fn(), setWsBroadcaster: jest.fn() } },
         OrderManagerService,
         { provide: PositionTrackerService, useValue: { isRatcheting: jest.fn().mockReturnValue(false) } },
         { provide: SessionStateService, useValue: { realTimeOrders: new Map(), config: { trailing_guard_buffer_pct: 0.5 } } },

@@ -871,7 +871,7 @@ export class OrderManagerService {
             clientOrderId: entryReceipt.clientOrderId || entryOrderId,
             price: parseFloat(entryReceipt.price || '0'),
             avgPrice: parseFloat(entryReceipt.avgPrice || '0'),
-            origQty: parseFloat(entryReceipt.origQty || trade.qty.toString()),
+            origQty: parseFloat(entryReceipt.origQty || String(trade.qty ?? qty)),
             executedQty: parseFloat(entryReceipt.executedQty || '0'),
             status: entryReceipt.status,
             type: entryReceipt.type || 'MARKET',

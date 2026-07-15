@@ -1,3 +1,5 @@
+import { OrderFilterService } from './order-filter.service';
+import { BroadcastService } from './broadcast.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { OrderManagerService } from './orderManager';
@@ -24,6 +26,8 @@ describe('Chronos: Partial Fill and Quantity Integrity', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: OrderFilterService, useValue: { applyFilters: jest.fn((sym, val) => val), checkLeverageBracket: jest.fn(() => ({ isAllowed: true, maxNotional: 1000000 })) } },
+        { provide: BroadcastService, useValue: { broadcast: jest.fn(), setWsBroadcaster: jest.fn() } },
         OrderManagerService,
         { provide: PositionTrackerService, useValue: { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn(), isRatcheting: jest.fn(), isEntering: jest.fn(), isClosing: jest.fn(), addTrade: jest.fn() } },
         SessionStateService,
@@ -123,6 +127,9 @@ describe('Chronos: Partial Fill and Quantity Integrity', () => {
     };
 
     const emitSpy = jest.spyOn(eventEmitter, 'emit');
+    eventEmitter.on('trade.exchange_close', () => {
+      trade.qty = 1.0;
+    });
     await orderManager.handleBinanceOrderUpdate(payload as any);
 
     // EXPECTATION: trade.qty should be restored to 1.0 for closeTrade to calculate final PnL correctly

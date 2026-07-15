@@ -237,7 +237,7 @@ export class SessionLifecycleService {
         this.userDataWs = null;
     }
     if (this.listenKey && bc) {
-        try { await bc.restAPI.closeUserDataStream(); } catch (e) {
+        try { await bc.restAPI.closeUserDataStream({ listenKey: this.listenKey }); } catch (e) {
             this.logger.debug(`Error closing user data stream: ${e instanceof Error ? e.message : String(e)}`);
         }
         this.listenKey = null;
@@ -695,7 +695,7 @@ export class SessionLifecycleService {
 
         try {
           this.monitoringService.incrementApiRequests();
-          await bc.restAPI.keepaliveUserDataStream();
+          await bc.restAPI.keepaliveUserDataStream({ listenKey: this.listenKey });
         } catch (err: any) {
             const msg = err.message || '';
             // BOLT: Suppress "IP banned" errors during keepalive as they are expected during a ban

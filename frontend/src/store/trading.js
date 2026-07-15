@@ -424,19 +424,19 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
        if (updates.totalSlUsed === 0 && st.totalSlUsed !== 0) merged.totalSlUsed = st.totalSlUsed;
 
        // 3. Collection Persistence: hold trades/scanner results until non-empty data arrives
-       if (Array.isArray(updates.activeTrades) && updates.activeTrades.length > 0) {
+       if (Array.isArray(updates.activeTrades)) {
          merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, currentActiveTrades.find(x => x.symbol === t.symbol))).filter(Boolean);
        } else if (currentActiveTrades.length > 0) {
          merged.activeTrades = currentActiveTrades;
        }
 
-       if (Array.isArray(updates.scannerResults) && updates.scannerResults.length > 0) {
+       if (Array.isArray(updates.scannerResults)) {
          merged.scannerResults = updates.scannerResults.map(o => normalizeOpportunity(o)).filter(Boolean);
        } else if (currentScannerResults.length > 0) {
          merged.scannerResults = currentScannerResults;
        }
 
-       if (Array.isArray(updates.tradeHistory) && updates.tradeHistory.length > 0) {
+       if (Array.isArray(updates.tradeHistory)) {
          merged.tradeHistory = updates.tradeHistory.map(t => normalizeTrade(t)).filter(Boolean);
        } else if (currentTradeHistory.length > 0) {
          merged.tradeHistory = currentTradeHistory;

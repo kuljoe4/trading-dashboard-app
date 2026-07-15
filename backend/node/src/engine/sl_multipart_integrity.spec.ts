@@ -127,15 +127,17 @@ describe('OrderManagerService - Multi-part SL Integrity', () => {
 
     await service.handleBinanceOrderUpdate(slice2 as any);
 
-    // Verify quantity restoration for final PnL
-    expect(trade.qty).toBe(0.1);
+    // CHRONOS: Under Incremental PnL Architecture, trade.qty is NOT restored in the handler.
+    // It is restored during final closure in closeTrade() to ensure history accuracy without double-counting.
+    expect(trade.qty).toBe(0.05); // Still at remaining from previous slice
     expect(trade.realized_fee).toBe(roundEight(2.0 + 0.984 + 0.982));
 
-    // Verify closure event was emitted with feesAlreadyAccounted flag
+    // Verify closure event was emitted with feesAlreadyAccounted and alreadyRealized flags
     expect(eventEmitter.emit).toHaveBeenCalledWith('trade.exchange_close', expect.objectContaining({
       symbol: 'BTCUSDT',
       exitPrice: 49100,
-      feesAlreadyAccounted: true
+      feesAlreadyAccounted: true,
+      alreadyRealized: true
     }));
   });
 

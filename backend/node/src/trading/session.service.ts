@@ -1888,9 +1888,10 @@ export class SessionService implements OnModuleInit {
       currentBalance = currentStatus.balance;
     }
 
+    // SRE: Provide stable fallback startingBalance (10000) if undefined to prevent metrics/drawdowns from being distorted by deposits/withdrawals.
     const result = this.analyticsService.calculateAnalytics(
       trades as any,
-      startingBalance,
+      startingBalance || 10000,
       currentStatus.balance,
     );
 
@@ -2207,13 +2208,8 @@ export class SessionService implements OnModuleInit {
       this.logger.warn(`Failed to calculate lifetime RR optimization: ${e instanceof Error ? e.message : String(e)}`);
     }
 
-    // 4. Override cumulative PnL with balance history for better accuracy if available
-    if (history.length > 0) {
-      analytics.cumulativePnL = history.map((h) => ({
-        ts: h.timestamp.toISOString(),
-        pnl: Number(h.balance) - startingBalance,
-      }));
-    }
+    // 4. Skip overriding cumulative PnL with h.balance to prevent exchange deposits/withdrawals from distorting metrics and charts.
+    // The trade-by-trade cumulative PnL calculated above is purely performance-based and completely immune to funding changes.
 
     return analytics;
   }

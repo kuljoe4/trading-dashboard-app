@@ -75,4 +75,22 @@ describe('AuditLogService', () => {
     expect(mockRepository.createQueryBuilder).toHaveBeenCalled();
     expect(queryBuilder.execute).toHaveBeenCalled();
   });
+
+  it('handles array inputs for metadata fields gracefully', async () => {
+    mockRepository.save.mockResolvedValue({});
+
+    await service.log({
+      action: 'ARRAY_INPUT_TEST',
+      userAgent: ['Mozilla/5.0', 'Extra Info'] as any,
+      actor: ['actor1', 'actor2'] as any,
+    });
+
+    expect(mockRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'ARRAY_INPUT_TEST',
+        userAgent: expect.stringContaining('Mozilla/5.0'),
+        actor: expect.stringContaining('actor1'),
+      }),
+    );
+  });
 });

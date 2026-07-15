@@ -329,6 +329,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         config: res.data.config,
         rateLimitLastSync: res.data.rateLimit ? new Date().toISOString() : undefined,
       });
+      // SRE: Proactively fetch analytics to keep Performance Insights populated
+      get().fetchAnalytics();
     } catch (e) {
       if (e.code === 'ERR_CANCELED') return;
       console.error("Manual sync failed", e);
@@ -378,11 +380,13 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         get().sync();
         get().fetchTradeHistory();
         get().fetchSessions();
+        get().fetchAnalytics();
       }
     }
   },
   fetchSessions: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.list(); set({ sessionList: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchLifetimeAnalytics: async (m = 'paper') => { set({ isSyncing: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
+  fetchAnalytics: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.analytics(); set({ analytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchTradeHistory: async (sid = 'all') => { set({ isSyncing: true }); try { const r = await sessionAPI.history(sid); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
   updateStats: (updates) => set((st) => {
     // BOLT: Session Stickiness Logic.

@@ -69,7 +69,7 @@ export const Sidebar = ({ selected }) => {
               {isExpanded && (
                 <span className="flex-1 flex items-center justify-between">
                   <span>{item.label}</span>
-                  <span className="ml-auto text-[10px] font-mono text-dim/50 opacity-0 group-hover:opacity-100 transition-opacity">[{item.shortcut}]</span>
+                  <span className="ml-auto text-[10px] font-mono text-dim/50 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">[{item.shortcut}]</span>
                 </span>
               )}
             </button>
@@ -89,7 +89,7 @@ export const Sidebar = ({ selected }) => {
             {isExpanded && (
               <span className="flex-1 flex items-center justify-between">
                 <span>Scanner</span>
-                <span className="ml-auto text-[10px] font-mono text-dim/50 opacity-0 group-hover:opacity-100 transition-opacity">[S]</span>
+                <span className="ml-auto text-[10px] font-mono text-dim/50 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">[S]</span>
               </span>
             )}
           </button>

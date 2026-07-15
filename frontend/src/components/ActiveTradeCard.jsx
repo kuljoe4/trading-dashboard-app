@@ -73,7 +73,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         <div className="flex flex-col gap-1 min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm md:text-base font-black font-mono tracking-tight shrink-0">{trade.symbol || '---'}</span>
-            <CopyButton value={trade.symbol} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity scale-75 -ml-1" />
+            <CopyButton value={trade.symbol} className="opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 focus-visible:opacity-100 transition-opacity scale-75 -ml-1" />
             <span className={cn("text-[9px] md:text-xs font-black px-1.5 py-0.5 rounded border uppercase shrink-0", isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5')}>
               {isLong ? '▲' : '▼'} {trade.direction || '---'}
             </span>

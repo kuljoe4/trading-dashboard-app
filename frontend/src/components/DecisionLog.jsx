@@ -53,7 +53,7 @@ const LogEntry = React.memo(({ log }) => {
         </div>
         <CopyButton
           value={logMessage}
-          className="opacity-0 group-hover/entry:opacity-100 focus-visible:opacity-100 -my-1"
+          className="opacity-0 group-hover/entry:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 -my-1"
           tooltip="Copy log message"
         />
       </div>
@@ -199,7 +199,7 @@ export const DecisionLog = React.memo(() => {
                   aria-pressed={active}
                   onClick={() => toggleLogFilter(filter.level)}
                   className={cn(
-                    "px-3 py-1 rounded-full border text-[11px] font-bold transition-all whitespace-nowrap",
+                    "px-3 py-1 rounded-full border text-[11px] font-bold transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                     active ? "bg-surface border-border opacity-100" : "bg-transparent border-border/50 opacity-55 hover:opacity-80",
                     filter.level === 'warn' ? "text-amber" :
                     filter.level === 'error' ? "text-red" :

@@ -162,7 +162,9 @@ export class OrderManagerService {
     // COMMISSION IDEMPOTENCY: Deduplicate based on unique Binance Trade ID ('t')
     const tradeId = order.t ? String(order.t) : null;
     let isDuplicateTrade = false;
-    if (executionType === 'TRADE' && tradeId) {
+    const isExecutionTrade = executionType === 'TRADE' || executionType === 'CALCULATED';
+
+    if (isExecutionTrade && tradeId) {
       if (this.tradeExecutionCache.has(tradeId)) {
         isDuplicateTrade = true;
         this.logger.debug(`[Idempotency] Dropping duplicate trade execution for ${symbol} (TradeID: ${tradeId})`);
@@ -172,7 +174,7 @@ export class OrderManagerService {
     }
 
     // Accuracy Improvement: Update trade entry/exit price from User Data Stream (ORDER_TRADE_UPDATE)
-    if (executionType === 'TRADE' && !isDuplicateTrade) {
+    if (isExecutionTrade && !isDuplicateTrade) {
       const activeTrades = this.sessionState.activeTrades;
       let trade = activeTrades.find(t => t.symbol === symbol);
 
@@ -262,12 +264,6 @@ export class OrderManagerService {
             const metadata = { orderId, clientOrderId, avgPrice, lastPrice, rawPrice: order.p, status, executionType };
             this.logger.log(`[${tradeIdShort8}] Binance SL HIT for ${symbol}. Closing trade locally. Meta: ${JSON.stringify(metadata)}`);
 
-            // CHRONOS: Restore trade.qty to the total order size (order.q) before closeTrade is called.
-            if (totalQty > 0 && Math.abs(trade.qty - totalQty) > 0.00000001) {
-              this.logger.debug(`[${tradeIdShort8}] [Sync] Restoring qty to ${totalQty} for final SL PnL calculation.`);
-              trade.qty = totalQty;
-            }
-
             let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
             if (exitPrice === 0) {
               const tickerPrice = this.tickerCache.getPrice(symbol);
@@ -289,7 +285,8 @@ export class OrderManagerService {
               exitPrice,
               reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
               orderId, // DATA-ACCURACY: Pass orderId for authoritative recovery
-              feesAlreadyAccounted: true // CHRONOS: Signal that commissions were already handled via UDS 'n' events
+              feesAlreadyAccounted: true, // CHRONOS: Signal that commissions were already handled via UDS 'n' events
+              alreadyRealized: true // CHRONOS: Signal that PnL was already accumulated via UDS 'rp' events
             });
           }
         }
@@ -324,10 +321,12 @@ export class OrderManagerService {
         }
         else if (side !== (trade.direction === 'LONG' ? 'BUY' : 'SELL')) {
            // CHRONOS: Only close locally for recognized exit orders or closePosition: true.
+           // COMPLIANCE: Include 'LIQUIDATION' type (executionType 'CALCULATED' usually) as recognized.
            const isRecognizedExit =
              (trade.binance_close_order_id === orderId) ||
              (trade.binance_stop_order_id === orderId) ||
              (order.cp === true) ||
+             (order.ot === 'LIQUIDATION') ||
              (clientOrderId && (clientOrderId.startsWith('cls-') || clientOrderId.startsWith('tp-') || clientOrderId.startsWith('sig-') || clientOrderId.startsWith('sl-')));
 
            if (status === 'FILLED' || status === 'PARTIALLY_FILLED') {
@@ -355,10 +354,6 @@ export class OrderManagerService {
            }
 
            if (status === 'FILLED') {
-             // RESTORE: Set trade.qty to total order size for correct PnL calculation on final fill
-             // For recognized exits, order.q should match the full position being closed.
-             trade.qty = parseFloat(order.q || '0');
-
              this.logger.log(`[${tradeIdShort8}] Recognized exit order FILLED for ${symbol} (${side}). Closing trade locally.`);
              let exitPrice = avgPrice || lastPrice || parseFloat(order.p || '0');
 
@@ -383,6 +378,9 @@ export class OrderManagerService {
                } else if (type === 'STOP' || type === 'STOP_MARKET') {
                  reason = EXIT_REASONS.SL_HIT;
                  trade.exit_signal_reason = `External Stop Loss hit on exchange at ${exitPrice}`;
+               } else if (type === 'LIQUIDATION') {
+                 reason = EXIT_REASONS.EXCHANGE_FILL;
+                 trade.exit_signal_reason = `Liquidation event on exchange at ${exitPrice}`;
                } else {
                  reason = EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
                  trade.exit_signal_reason = `External close on exchange at ${exitPrice} (Type: ${type})`;
@@ -394,7 +392,8 @@ export class OrderManagerService {
                exitPrice,
                reason,
                orderId, // DATA-ACCURACY: Pass orderId to allow authoritative recovery
-               feesAlreadyAccounted: true // CHRONOS: Signal that commissions were already handled via UDS 'n' events
+               feesAlreadyAccounted: true, // CHRONOS: Signal that commissions were already handled via UDS 'n' events
+               alreadyRealized: true // CHRONOS: Signal that PnL was already accumulated via UDS 'rp' events
              });
            } else if (status === 'PARTIALLY_FILLED' && isRecognizedExit) {
              // SYNC: Update trade.qty to remaining exchange quantity (q - z)
@@ -2316,7 +2315,7 @@ export class OrderManagerService {
     exitReason: string,
     paperMode = this.paperMode,
     localOnly = false,
-    options: { ignoreBlocked?: boolean, orderId?: string, feesAlreadyAccounted?: boolean } = {}
+    options: { ignoreBlocked?: boolean, orderId?: string, feesAlreadyAccounted?: boolean, alreadyRealized?: boolean } = {}
   ): Promise<{ trade: Trade; exitOccurred: boolean; closeBlocked?: boolean, error?: string }> {
     // SRE: Per-symbol concurrency lock to prevent overlapping closure attempts
     // BOLT: Lock is now universal to prevent race conditions during localOnly syncs (Issue 2)
@@ -2852,7 +2851,12 @@ export class OrderManagerService {
       trade.exit_ts = new Date();
 
       if (!paperMode) {
-         if (options.feesAlreadyAccounted) {
+         // pnl_pct: Recover original quantity from risk_usdt to ensure accuracy even if terminal qty is 0 or reduced.
+         // We do this BEFORE potentially updating pnl but after we have everything needed.
+         const riskDist = Math.abs(trade.entry_price - trade.initial_sl);
+         const initialQty = (riskDist > 0 && trade.initial_risk_usdt) ? (trade.initial_risk_usdt / riskDist) : (trade.qty || 1);
+
+         if (options.alreadyRealized || options.feesAlreadyAccounted) {
             this.logger.debug(`[PnL Integrity] Using authoritative accumulated PnL for ${symbol}: ${trade.pnl}`);
          } else {
             // CHRONOS: Incremental PnL Calculation for Live mode.
@@ -2872,9 +2876,10 @@ export class OrderManagerService {
             trade.pnl = finalNetPnl;
          }
 
-         // pnl_pct: Recover original quantity from risk_usdt to ensure accuracy even if terminal qty is 0.
-         const riskDist = Math.abs(trade.entry_price - trade.initial_sl);
-         const initialQty = (riskDist > 0 && trade.initial_risk_usdt) ? (trade.initial_risk_usdt / riskDist) : (trade.qty || 1);
+         // CHRONOS: Restore trade.qty to the total order size (recovered initialQty) for history accuracy.
+         // This must happen AFTER Incremental PnL calculation to avoid double-counting.
+         trade.qty = initialQty;
+
          const notional = trade.entry_price * initialQty;
 
          const finalPnlPct = (notional !== 0) ? (trade.pnl / notional) * 100 : 0;

@@ -3,6 +3,7 @@ import { MaintenanceService } from './maintenance.service';
 import { PositionTrackerService } from './positionTracker';
 import { OrderManagerService } from './orderManager';
 import { TickerCacheService } from './ticker_cache.service';
+import { SessionStateService } from './session_state.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Trade } from '../models/Trade';
 
@@ -22,6 +23,7 @@ describe('Watchdog Robustness', () => {
             activeList: jest.fn(),
             isEntering: jest.fn().mockReturnValue(false),
             isClosing: jest.fn().mockReturnValue(false),
+            getInFlightSymbols: jest.fn().mockReturnValue([]),
             recalculateTotalRisk: jest.fn(),
             addTrade: jest.fn(),
             reconcileMilestoneFromSl: jest.fn((trade, slPrice, config) => {
@@ -51,6 +53,12 @@ describe('Watchdog Robustness', () => {
           provide: TickerCacheService,
           useValue: {
             getPrice: jest.fn(),
+          },
+        },
+        {
+          provide: SessionStateService,
+          useValue: {
+            realTimePositions: new Map(),
           },
         },
         {
@@ -155,5 +163,28 @@ describe('Watchdog Robustness', () => {
     expect(trade.current_sl).toBe(50000);
     expect(trade.rr_sequence_index).toBe(0); // Successfully reconciled index 0
     expect(positionTracker.addTrade).toHaveBeenCalledWith(trade);
+  });
+
+  it('reconcileLiveState should exclude symbols that are currently closing from ghost position adoption', async () => {
+    const config = {
+      paper_mode: false,
+    };
+
+    // Mock that positionTracker says BTCUSDT is closing
+    (positionTracker.activeList as jest.Mock).mockReturnValue([]);
+    (positionTracker.isClosing as jest.Mock).mockImplementation((symbol) => symbol === 'BTCUSDT');
+
+    // Exchange has an active position for BTCUSDT
+    (orderManager.fetchAllPositions as jest.Mock).mockResolvedValue([
+      { symbol: 'BTCUSDT', positionAmt: '1.0', entryPrice: '50000' }
+    ]);
+    (orderManager.fetchAllOpenOrders as jest.Mock).mockResolvedValue([]);
+
+    const eventEmitter = module.get<EventEmitter2>(EventEmitter2);
+
+    await service.reconcileLiveState(true, config as any);
+
+    // Should NOT emit adoption event since BTCUSDT is closing
+    expect(eventEmitter.emit).not.toHaveBeenCalledWith('reconciliation.adopt_positions', expect.any(Object));
   });
 });

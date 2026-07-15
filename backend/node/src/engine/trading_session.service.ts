@@ -214,27 +214,16 @@ export class TradingSessionService implements OnApplicationShutdown {
         this.sessionState.updateStatsOnClose((res.trade.pnl || 0) > 0, res.trade.pnl || 0, res.trade.is_reconciliation, res.trade.id); this.sessionState.addClosedTrade(res.trade);
         await this.updateBalance(res.trade); if (this.onTradeUpdate) await this.onTradeUpdate(res.trade, this.getBalance());
       } else {
-        t.status = 'CLOSED'; t.exit_ts = new Date(); t.exit_reason = EXIT_REASONS.SESSION_TERMINATED;
-        t.exit_signal_type = 'SESSION_TERMINATED'; t.exit_signal_reason = 'Trading session was stopped by user';
-        t.exit_price = ep;
-        const pnlp = t.direction === 'LONG' ? ep - t.entry_price : t.entry_price - ep;
+        // If closeTrade failed on exchange (res.exitOccurred is false/falsy),
+        // we should NOT fabricate a closed/PnL-final trade with synthetic exit price!
+        // Instead, we mark it as CLOSED_ORPHANED because it's orphaned on shutdown,
+        // and we DO NOT calculate synthetic realized PnL or fee, nor do we update session balance with a fake PnL.
+        t.status = 'CLOSED_ORPHANED'; t.exit_ts = new Date(); t.exit_reason = EXIT_REASONS.SESSION_TERMINATED;
+        t.exit_signal_type = 'SESSION_TERMINATED'; t.exit_signal_reason = 'Position still live on exchange; orphaned on session shutdown';
+        t.exit_price = ep; // reference price at shutdown, but not realized on exchange
 
-        const feeRate = isPaper ? ENGINE_CONSTANTS.SIMULATED_FEE_RATE : this.orderManager.getTakerFeeRate();
-
-        // Simulate exit fee (taker rate) for forced closure
-        const exitFee = roundEight(ep * t.qty * feeRate);
-        t.realized_fee = roundEight((t.realized_fee || 0) + exitFee);
-
-        const finalGrossPnl = pnlp * (t.qty || 0);
-        const finalNetPnl = finalGrossPnl - (t.realized_fee || 0) - (t.funding_fee || 0);
-        t.pnl = roundEight(Number.isFinite(finalNetPnl) ? finalNetPnl : 0);
-
-        // DATA-CONSISTENCY: Update pnl_pct for forced closure
-        const notional = t.entry_price * (t.qty || 0);
-        const finalPnlPct = (notional !== 0) ? (t.pnl / notional) * 100 : 0;
-        t.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
-        this.sessionState.addClosedTrade(t); this.sessionState.updateStatsOnClose((t.pnl || 0) > 0, t.pnl || 0, t.is_reconciliation, t.id);
-        await this.updateBalance(t); if (this.onTradeUpdate) await this.onTradeUpdate(t, this.getBalance());
+        this.sessionState.addClosedTrade(t);
+        if (this.onTradeUpdate) await this.onTradeUpdate(t, this.getBalance());
         this.positionTracker.removeTrade(t.symbol);
       }
     }

@@ -212,19 +212,6 @@ export class ExecutionService {
         // required for structural Stop Loss calculations and full telemetry.
         signalResult = this.signalEngine.checkEntry(opp.symbol, symbolConfig, symbolConfig.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', false);
 
-        this.monitoringService.setLoopStage('RISK_CHECK', opp.symbol);
-        const activeTrades = this.positionTracker.activeList();
-        const enteringCount = this.positionTracker.enteringCount();
-        const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk(), enteringCount, opp.score);
-
-        if (!riskResult.canEnter) {
-          // BOLT: Only log symbol-specific rejections as debug.
-          // Do NOT update global sessionState.gateState here as it causes log/UI flapping.
-          // Global gating is handled by TradingSessionService.refreshRiskGating().
-          this.logger.debug(`${opp.symbol}: Entry skipped - ${riskResult.reason}`);
-          continue;
-        }
-
         const price = this.tickerCache.getPrice(opp.symbol);
         if (!price) continue;
 
@@ -292,6 +279,22 @@ export class ExecutionService {
         }
         const qty = sizeResult.qty;
         const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig);
+
+        const prospectiveRiskUsdt = Math.abs(price - slPrice) * qty;
+        const prospectiveRiskPct = balance > 0 ? (prospectiveRiskUsdt / balance) * 100 : 0;
+
+        this.monitoringService.setLoopStage('RISK_CHECK', opp.symbol);
+        const activeTrades = this.positionTracker.activeList();
+        const enteringCount = this.positionTracker.enteringCount();
+        const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk(), enteringCount, opp.score, prospectiveRiskPct);
+
+        if (!riskResult.canEnter) {
+          // BOLT: Only log symbol-specific rejections as debug.
+          // Do NOT update global sessionState.gateState here as it causes log/UI flapping.
+          // Global gating is handled by TradingSessionService.refreshRiskGating().
+          this.logger.debug(`${opp.symbol}: Entry skipped - ${riskResult.reason}`);
+          continue;
+        }
 
         const reservedRisk = roundEight(Math.abs(price - slPrice) * qty);
 

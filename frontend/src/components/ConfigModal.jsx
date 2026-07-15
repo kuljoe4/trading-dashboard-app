@@ -179,48 +179,127 @@ const SignalChip = React.memo(({ signal, active, onClick }) => {
 })
 SignalChip.displayName = 'SignalChip'
 
-const ExitSignalCard = React.memo(({ signal, active, delayValue, onToggle, onDelayChange }) => {
+const ExitSignalCard = React.memo(({
+  signal,
+  active,
+  layers,
+  delays,
+  actions,
+  timeframes,
+  onToggle,
+  onAddLayer,
+  onRemoveLayer,
+  onUpdateLayer
+}) => {
   const [key, label, desc] = signal;
-  const [localDelay, setLocalDelay] = useState(delayValue || '');
-
-  useEffect(() => {
-    setLocalDelay(delayValue || '');
-  }, [delayValue]);
-
-  const commit = () => {
-    const val = Math.max(0, parseInt(localDelay) || 0);
-    if (val !== delayValue) {
-      onDelayChange(key, val);
-    }
-  };
 
   return (
-    <div className="flex flex-col gap-2">
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => onToggle(key, active)}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(key, active); } }}
-        className={cn("w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all text-left cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-red/50", active ? "border-red/40 bg-red/5" : "border-border hover:border-border-hover bg-surface/50")}
-      >
-        <span className={cn("text-xs font-bold", active ? "text-red" : "text-text")}>{label}</span>
-        <Switch.Root checked={active} className={cn("h-5 w-9 rounded-full transition-colors relative pointer-events-none", active ? "bg-red" : "bg-border")}>
+    <div className={cn("flex flex-col gap-2.5 p-3.5 bg-surface/50 border rounded-2xl hover:border-border-hover transition-all", active ? "border-red/30 bg-red/[0.01]" : "border-border")}>
+      <div className="flex items-center justify-between">
+        <div className="flex flex-col text-left">
+          <span className={cn("text-xs font-bold", active ? "text-red" : "text-text")}>{label}</span>
+          <span className="text-[9px] text-dim font-medium uppercase mt-0.5">{desc}</span>
+        </div>
+        <Switch.Root
+          checked={active}
+          onCheckedChange={() => onToggle(key, active)}
+          className={cn("h-5 w-9 rounded-full transition-colors relative outline-none focus-visible:ring-2 focus-visible:ring-red/50", active ? "bg-red" : "bg-border")}
+          aria-label={`Toggle ${label} exit signal`}
+        >
           <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
         </Switch.Root>
       </div>
+
       {active && (
-        <div className="px-1 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
-          <label className="text-[9px] font-bold text-dim uppercase tracking-wider">Delay Trigger (s)</label>
-          <input
-            type="number"
-            min="0"
-            placeholder="0s"
-            value={localDelay}
-            onChange={(e) => setLocalDelay(e.target.value)}
-            onBlur={commit}
-            onKeyDown={(e) => { if (e.key === 'Enter') commit(); }}
-            className="w-20 bg-background border border-border rounded-lg px-2 py-1 text-[10px] font-mono font-bold text-right focus:border-red outline-none"
-          />
+        <div className="space-y-3.5 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
+          {layers.map((layerKey, idx) => {
+            const isBase = layerKey === key;
+            const delayValue = delays[layerKey] || 0;
+            const actionValue = actions[layerKey] || 'close';
+            const tfValue = timeframes[layerKey] || 'default';
+
+            return (
+              <div key={layerKey} className="p-3 bg-background/50 border border-border/30 rounded-xl space-y-2.5 relative group/layer">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-red">
+                    Layer {idx + 1} {isBase ? "(Base)" : `(Chain: _${layerKey.split('_').pop()})`}
+                  </span>
+                  {!isBase && (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveLayer(layerKey)}
+                      aria-label={`Remove Layer ${idx + 1}`}
+                      className="p-1 text-dim hover:text-red transition-colors opacity-0 group-hover/layer:opacity-100 focus-visible:opacity-100"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-3 gap-2.5">
+                  {/* Timeframe Selection */}
+                  <div className="flex flex-col gap-1 text-left">
+                    <label htmlFor={`tf-${layerKey}`} className="text-[8px] text-dim uppercase tracking-wider font-bold">Timeframe</label>
+                    <select
+                      id={`tf-${layerKey}`}
+                      value={tfValue}
+                      onChange={(e) => onUpdateLayer(layerKey, 'timeframe', e.target.value)}
+                      className="bg-surface border border-border/40 rounded-lg px-2 py-1 text-[10px] font-bold text-text focus:border-accent outline-none cursor-pointer h-7"
+                    >
+                      <option value="default">Default</option>
+                      <option value="1m">1m</option>
+                      <option value="3m">3m</option>
+                      <option value="5m">5m</option>
+                      <option value="15m">15m</option>
+                      <option value="30m">30m</option>
+                      <option value="1h">1h</option>
+                    </select>
+                  </div>
+
+                  {/* Delay Input */}
+                  <div className="flex flex-col gap-1 text-left">
+                    <label htmlFor={`delay-${layerKey}`} className="text-[8px] text-dim uppercase tracking-wider font-bold">Delay (s)</label>
+                    <input
+                      id={`delay-${layerKey}`}
+                      type="number"
+                      min="0"
+                      value={delayValue || ''}
+                      placeholder="0s"
+                      onChange={(e) => onUpdateLayer(layerKey, 'delay', parseInt(e.target.value) || 0)}
+                      className="bg-surface border border-border/40 rounded-lg px-2 py-1 text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-7"
+                    />
+                  </div>
+
+                  {/* Action Selection */}
+                  <div className="flex flex-col gap-1 text-left">
+                    <label htmlFor={`action-${layerKey}`} className="text-[8px] text-dim uppercase tracking-wider font-bold">Action</label>
+                    <select
+                      id={`action-${layerKey}`}
+                      value={actionValue}
+                      onChange={(e) => onUpdateLayer(layerKey, 'action', e.target.value)}
+                      className={cn(
+                        "border rounded-lg px-1.5 py-1 text-[10px] font-black uppercase tracking-tight focus:outline-none cursor-pointer h-7 text-center",
+                        actionValue === 'lock_sl'
+                          ? "bg-purple/10 border-purple/30 text-purple focus:border-purple"
+                          : "bg-red/10 border-red/30 text-red focus:border-red"
+                      )}
+                    >
+                      <option value="close">🛑 Close</option>
+                      <option value="lock_sl">🔒 Lock SL</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={() => onAddLayer(key)}
+            className="w-full py-1.5 border border-dashed border-border rounded-xl text-[9px] font-black uppercase tracking-wider text-dim hover:text-red hover:border-red/40 hover:bg-red/5 transition-all flex items-center justify-center gap-1.5"
+          >
+            <Plus size={11} /> Add Chained Layer
+          </button>
         </div>
       )}
     </div>

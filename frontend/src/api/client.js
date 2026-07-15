@@ -105,6 +105,7 @@ const sessionConfigAllowedKeys = [
   'exit_signals',
   'exit_signal_logic',
   'exit_signal_delays',
+  'exit_signal_actions',
   'risk_pct_per_trade',
   'max_open_trades',
   'max_open_trades_per_symbol',

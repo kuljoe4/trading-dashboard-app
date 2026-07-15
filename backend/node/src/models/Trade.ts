@@ -63,6 +63,7 @@ export class Trade {
     unit: string;
     description?: string;
     insufficientData?: boolean;
+    threshold_is_price?: boolean;
   }>;
 
   entry_signal_type?: string;

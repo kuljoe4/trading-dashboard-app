@@ -20,6 +20,7 @@ describe('PositionTrackerService', () => {
       applyFilters: jest.fn().mockImplementation((symbol, price, qty) => ({ price, qty })),
       isRatcheting: jest.fn().mockReturnValue(false),
       closeTrade: jest.fn(),
+      checkExitSignals: jest.fn(),
     };
     mockTickerCache = {};
     mockKlineStore = {};
@@ -457,6 +458,105 @@ describe('PositionTrackerService', () => {
        expect(trade.qty).toBe(5);
        expect(trade.risk_usdt).toBe(100);
        expect(service.totalRisk()).toBe(100);
+    });
+  });
+
+  describe('checkExitConditions with lock_sl action', () => {
+    it('should lock SL instead of closing when lock_sl action is configured', async () => {
+      const trade = {
+        symbol: 'LOCK_SL_TEST',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 95,
+        current_sl: 95,
+        qty: 1,
+        status: 'OPEN',
+        risk_usdt: 5,
+        updated_at: new Date(),
+        exit_signals_status: {}
+      } as any;
+      service.addTrade(trade);
+
+      const config = {
+        exit_signals: ['ema_close_fast'],
+        exit_signal_actions: {
+          ema_close_fast: 'lock_sl'
+        },
+        exit_signal_logic: 'any',
+        trailing_guard_buffer_pct: 0.1
+      } as any;
+
+      mockOrderManager.checkExitSignals.mockReturnValue({
+        exitTriggered: true,
+        exitSignalType: 'ema_close_fast'
+      });
+
+      // Mock signal status as populated by checkExitSignals
+      trade.exit_signals_status = {
+        ema_close_fast: {
+          fired: true,
+          active: true,
+          value: 99.5, // EMA value
+          threshold_is_price: true
+        }
+      };
+
+      mockOrderManager.applyFilters.mockReturnValue({ price: 99.5 });
+      mockOrderManager.updateStopLoss.mockResolvedValue({ success: true, price: 99.5 });
+
+      const result = service.checkExitConditions('LOCK_SL_TEST', 100, config);
+
+      // Result should be null because it didn't trigger a close event
+      expect(result).toBeNull();
+      expect(trade.status).toBe('OPEN');
+
+      // But updateStopLoss should have been triggered asynchronously
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(mockOrderManager.updateStopLoss).toHaveBeenCalledWith(trade, 99.5, 95);
+    });
+
+    it('should close position if close action is configured', async () => {
+      const trade = {
+        symbol: 'CLOSE_TEST',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 95,
+        current_sl: 95,
+        qty: 1,
+        status: 'OPEN',
+        risk_usdt: 5,
+        updated_at: new Date(),
+        exit_signals_status: {}
+      } as any;
+      service.addTrade(trade);
+
+      const config = {
+        exit_signals: ['ema_close_slow'],
+        exit_signal_actions: {
+          ema_close_slow: 'close'
+        },
+        exit_signal_logic: 'any'
+      } as any;
+
+      mockOrderManager.checkExitSignals.mockReturnValue({
+        exitTriggered: true,
+        exitSignalType: 'ema_close_slow'
+      });
+
+      trade.exit_signals_status = {
+        ema_close_slow: {
+          fired: true,
+          active: true,
+          value: 98,
+          threshold_is_price: true
+        }
+      };
+
+      const result = service.checkExitConditions('CLOSE_TEST', 100, config);
+
+      expect(result).not.toBeNull();
+      expect(result?.exitOccurred).toBe(true);
+      expect(result?.exitType).toBe('CLOSED_SIGNAL');
     });
   });
 

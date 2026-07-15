@@ -112,7 +112,8 @@ export class SignalEngineService {
     purpose: 'entry' | 'exit' = 'entry',
     minimal: boolean = false,
   ): { allFired: boolean; firedSignals: string[]; reason: string; details?: Record<string, SignalDetail> } {
-    if (!config.enabled_signals || config.enabled_signals.length === 0) {
+    const activeSignals = config.enabled_signals || [];
+    if (activeSignals.length === 0) {
       return {
         allFired: false,
         firedSignals: [],
@@ -120,7 +121,7 @@ export class SignalEngineService {
       };
     }
 
-    const logic = config.signal_logic || 'all';
+    const logic = purpose === 'exit' ? (config.exit_signal_logic || 'any') : (config.signal_logic || 'all');
     const candles = this.klineStore.getRawCandles(symbol, interval);
 
     // Warm-up check for technical indicators
@@ -151,8 +152,22 @@ export class SignalEngineService {
     const failedSignals: string[] = minimal ? [] : [];
     const details: Record<string, SignalDetail> = minimal ? {} : {};
 
-    for (const signalType of config.enabled_signals) {
-      const handler = this.signalHandlers[signalType];
+    for (const signalType of activeSignals) {
+      // DYNAMIC SUFFIX ROUTING: Resolve base signal type for suffixed keys (e.g. ema_close_fast -> ema_close)
+      let baseSignalType = signalType;
+      let handler = this.signalHandlers[signalType];
+
+      if (!handler) {
+        const lastUnderscore = signalType.lastIndexOf('_');
+        if (lastUnderscore > 0) {
+          const potentialBase = signalType.substring(0, lastUnderscore);
+          if (this.signalHandlers[potentialBase]) {
+            baseSignalType = potentialBase;
+            handler = this.signalHandlers[potentialBase];
+          }
+        }
+      }
+
       if (!handler) {
         if (minimal) {
           if (logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
@@ -172,7 +187,7 @@ export class SignalEngineService {
         const fired = typeof result === 'boolean' ? result : result.fired;
         
         if (!minimal) {
-          if (typeof result !== 'boolean') details[signalType] = result;
+          if (typeof result !== 'boolean') details[signalType] = { ...result, metric: result.metric || baseSignalType };
           if (fired) firedSignals.push(signalType);
           else failedSignals.push(signalType);
         } else {
@@ -202,7 +217,7 @@ export class SignalEngineService {
       : failedSignals.length === 0;
 
     const reason =
-      `Signals fired: ${firedSignals.length}/${config.enabled_signals.length}` +
+      `Signals fired: ${firedSignals.length}/${activeSignals.length}` +
       (firedSignals.length > 0 ? ` (${firedSignals.join(', ')})` : '') +
       (failedSignals.length > 0 ? `; Failed: ${failedSignals.join(', ')}` : '');
 

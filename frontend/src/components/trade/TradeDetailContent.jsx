@@ -120,19 +120,24 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
     return Object.entries(status || {}).map(([key, s]) => {
       const value = Number(s.value) || 0;
       const threshold = Number(s.threshold) || 1;
-      let progress = 0;
-      if (s.fired && s.active) progress = 100;
-      else if (s.threshold_is_price) {
-        const totalDist = isLong ? (threshold - entryPrice) : (entryPrice - threshold);
-        const progressDist = isLong ? (mark - entryPrice) : (entryPrice - mark);
-        if (totalDist > 0) progress = Math.max(0, Math.min(100, (progressDist / totalDist) * 100));
-      } else if (key.includes('momentum') || key.includes('volume')) {
-        progress = Math.max(0, Math.min(100, (Math.abs(value) / Math.abs(threshold)) * 100));
-      } else {
-        // Direction-aware convergence for oscillators or other signals
-        const dist = Math.abs(value - threshold);
-        const maxDist = Math.abs(threshold) * 0.5 || 1; // Assume 50% range for proximity scaling
-        progress = Math.max(0, Math.min(100, (1 - dist / maxDist) * 100));
+      let progress = s.distPct !== undefined ? s.distPct : 0;
+
+      if (progress === 0) {
+        if (s.fired && s.active) {
+          progress = 100;
+        } else if (s.threshold_is_price) {
+          const totalDist = isLong ? (threshold - entryPrice) : (entryPrice - threshold);
+          const progressDist = isLong ? (mark - entryPrice) : (entryPrice - mark);
+          if (totalDist > 0) progress = Math.max(0, Math.min(100, (progressDist / totalDist) * 100));
+        } else {
+          // Direction-aware convergence check for momentum/oscillators
+          const hasOppositeSign = (value > 0 && threshold < 0) || (value < 0 && threshold > 0);
+          if (hasOppositeSign) {
+            progress = 0;
+          } else {
+            progress = Math.max(0, Math.min(100, (Math.abs(value) / Math.abs(threshold)) * 100));
+          }
+        }
       }
       return [key, { ...s, progress }];
     }).sort((a, b) => b[1].progress - a[1].progress);

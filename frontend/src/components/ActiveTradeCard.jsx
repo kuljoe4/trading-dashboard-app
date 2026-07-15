@@ -83,9 +83,16 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               </span>
             )}
           </div>
-          {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
-            <MonitoredBadge className="opacity-80" />
-          )}
+          <div className="flex gap-2 items-center flex-wrap">
+            {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
+              <MonitoredBadge className="opacity-80" />
+            )}
+            {trade.strategy_config?.trailing_stop_enabled && (
+              <span className="bg-purple-400/10 border border-purple-400/25 text-purple-400 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1 animate-pulse shadow-[0_0_8px_rgba(168,85,247,0.15)]">
+                Trailing Active
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-col items-end shrink-0 min-w-[80px]">
@@ -98,9 +105,9 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             </div>
           </Tooltip>
           <div className="flex items-center gap-2">
-            <Tooltip content="Current Reward-to-Risk ratio based on Entry and SL distance">
-              <span className="text-[10px] md:text-[11px] font-black font-mono text-dim/60 uppercase tracking-widest cursor-help">
-                {Number(trade.rr || 0).toFixed(2)}R
+            <Tooltip content={`Current RR: ${Number(trade.rr || 0).toFixed(2)}R | Peak RR: ${Number(trade.max_rr || trade.rr || 0).toFixed(2)}R`}>
+              <span className="text-[10px] md:text-[11px] font-black font-mono text-dim/60 uppercase tracking-widest cursor-help flex items-center gap-1">
+                {Number(trade.rr || 0).toFixed(2)}R <span className="text-[9px] opacity-40 font-bold">(Peak: {Number(trade.max_rr || trade.rr || 0).toFixed(2)}R)</span>
               </span>
             </Tooltip>
             {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (

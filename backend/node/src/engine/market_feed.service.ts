@@ -527,6 +527,26 @@ export class MarketFeedService {
         for (const [symbol, intervals] of newWatchlist) intervals.add(config.sl_lookback_timeframe);
       }
 
+      // MULTI-TIMEFRAME SIGNALS: Extract all unique timeframes from enabled entry & exit signals
+      const mtfIntervals = new Set<string>();
+      if (config.signal_timeframes) {
+        const activeSignals = [
+          ...(config.enabled_signals || []),
+          ...(config.exit_signals || [])
+        ];
+        for (const sig of activeSignals) {
+          const tf = config.signal_timeframes[sig];
+          if (tf) mtfIntervals.add(tf);
+        }
+      }
+      if (mtfIntervals.size > 0) {
+        for (const [symbol, intervals] of newWatchlist) {
+          for (const mtfTf of mtfIntervals) {
+            intervals.add(mtfTf);
+          }
+        }
+      }
+
       let changed = newWatchlist.size !== this.activeWatchlist.size;
       if (!changed) {
         for (const [symbol, intervals] of newWatchlist) {

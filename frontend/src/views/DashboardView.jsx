@@ -238,7 +238,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
       role="button"
       tabIndex={0}
       className={cn(
-        "bg-surface border border-border/40 rounded-2xl p-5 md:p-6 cursor-pointer transition-all relative group shadow-sm h-full focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none min-w-0",
+        "bg-background/40 border border-border/30 rounded-2xl p-5 md:p-6 cursor-pointer transition-all relative group shadow-sm h-full focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none min-w-0 hover:bg-background/60",
         tradingMode === 'paper' ? "hover:border-amber/30 hover:shadow-amber/5" :
         tradingMode === 'testnet' ? "hover:border-purple/30 hover:shadow-purple/5" :
         "hover:border-green/30 hover:shadow-green/5",
@@ -378,6 +378,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
 const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, hibernating, hibernationMode, activeTradesCount = 0, showResumingFeedback }) => {
   if (!gateState && !scannerPaused && !showResumingFeedback) return null
 
+  const config = useTradingStore(state => state.config);
   const [now, setNow] = React.useState(Date.now());
   React.useEffect(() => {
     if (gateState !== 'max_trades_period' || !nextSlotTs) return;
@@ -399,26 +400,44 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
 
   const isGatedIdle = (gateState === 'sleeping' || gateState === 'max_trades_period' || gateState === 'sl_guard') && activeTradesCount === 0;
 
+  // Visual Cue Styling
+  const bannerStyle = cn(
+    "p-4 rounded-xl mb-6 text-xs font-bold border flex flex-col gap-2.5 shadow-sm transition-all duration-300 relative overflow-hidden",
+    showResumingFeedback ? "bg-accent/10 border-accent/30 text-accent shadow-[0_0_15px_rgba(91,111,255,0.1)]" :
+    scannerPaused ? "bg-red/10 border-red/20 text-red shadow-[0_0_15px_rgba(239,68,68,0.1)]" :
+    (gateState === 'sl_guard') ? "bg-red/5 border-red/20 text-red shadow-[0_0_12px_rgba(239,68,68,0.05)]" :
+    "bg-amber/10 border-amber/20 text-amber shadow-[0_0_12px_rgba(245,166,35,0.05)]",
+    (!showResumingFeedback && (hibernating || isGatedIdle)) && "bg-slate-500/10 border-slate-500/20 text-slate-400"
+  );
+
+  const totalPeriodSec = Math.max(1, (config?.trades_period_min || 60) * 60);
+  const progressPct = nextSlotSec !== null ? Math.min(100, Math.max(0, (nextSlotSec / totalPeriodSec) * 100)) : 0;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
-      className={cn(
-        "p-4 rounded-xl mb-6 text-xs font-bold border flex flex-col gap-2 shadow-sm transition-colors",
-        showResumingFeedback ? "bg-accent/10 border-accent/30 text-accent" :
-        scannerPaused ? "bg-red/10 border-red/20 text-red" : "bg-amber/10 border-amber/20 text-amber",
-        (!showResumingFeedback && (hibernating || isGatedIdle)) && "bg-accent/5 border-accent/20 text-accent/80"
-      )}
+      className={bannerStyle}
     >
       <div className="flex items-center gap-3">
-        {showResumingFeedback ? <RefreshCw size={16} className="animate-spin" /> : hibernating ? <Zap size={16} className={cn("animate-pulse opacity-50", hibernationMode === 'light' ? "text-accent" : "text-amber")} /> : gateState === 'sleeping' ? <Pause size={16} className="animate-pulse" /> : <XCircle size={16} className={scannerPaused ? "animate-pulse" : ""} />}
-        <span className="uppercase tracking-widest">
+        {showResumingFeedback ? (
+          <RefreshCw size={16} className="animate-spin text-accent" />
+        ) : hibernating ? (
+          <Zap size={16} className={cn("animate-pulse", hibernationMode === 'light' ? "text-accent" : "text-amber")} />
+        ) : gateState === 'sleeping' ? (
+          <Pause size={16} className="text-slate-400" />
+        ) : scannerPaused ? (
+          <XCircle size={16} className="text-red animate-pulse" />
+        ) : (
+          <PulseDot color="bg-amber" />
+        )}
+        <span className="uppercase tracking-widest flex-1">
           {showResumingFeedback ? 'Resuming Data Feed...' : hibernating ? (hibernationMode === 'light' ? 'Light Sleep Active' : 'Deep Sleep Active') : (messages[gateState] || 'Risk gate active.')}
         </span>
         {hibernating ? (
           <div
             className={cn(
-              "ml-auto px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border",
+              "ml-auto px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border shrink-0",
               hibernationMode === 'light' ? "bg-accent/10 border-accent/20 text-accent" : "bg-amber/20 border-amber/40 text-amber"
             )}
             title={hibernationMode === 'light' ? "Light Sleep Active: Market streams kept active for fast resumption." : "Deep Sleep (Hibernation) Active: All market data connections closed to save maximum CPU/Memory. Engine will wake up automatically when limit expires."}
@@ -427,7 +446,7 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
           </div>
         ) : isGatedIdle && (
           <Tooltip content="Resource Suppression Active: Market feed and scanner are throttled to save CPU/Memory while idle.">
-            <div className="ml-auto bg-accent/10 px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border border-accent/20">
+            <div className="ml-auto bg-accent/10 px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border border-accent/20 shrink-0">
               <Leaf size={10} /> RESOURCE SAVER
             </div>
           </Tooltip>
@@ -436,6 +455,18 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
       {reason && reason !== 'OK' && (
         <div className="pl-7 opacity-80 font-mono text-[10px] tracking-tight">
           Backend: {reason}
+        </div>
+      )}
+
+      {/* Dynamic Micro-Progress Timeline Bar for Period Release Countdown */}
+      {nextSlotSec !== null && nextSlotSec > 0 && (
+        <div className="w-full bg-border/20 h-1 rounded-full overflow-hidden mt-1 relative border border-white/5">
+          <motion.div
+            initial={{ width: '100%' }}
+            animate={{ width: `${progressPct}%` }}
+            transition={{ duration: 1, ease: 'linear' }}
+            className="h-full bg-amber shadow-[0_0_8px_rgba(245,166,35,0.4)]"
+          />
         </div>
       )}
     </motion.div>
@@ -1158,9 +1189,17 @@ export function DashboardView({ initialStrategy }) {
           transition={{ delay: 0.4 }}
           className="mb-8 lg:mb-12 flex flex-col"
         >
-          <button
+          <div
+            role="button"
+            tabIndex={0}
             onClick={() => setShowInsights(!showInsights)}
-            className="group flex items-center justify-between w-full mb-4 text-left outline-none"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setShowInsights(!showInsights);
+              }
+            }}
+            className="group flex items-center justify-between w-full mb-4 text-left outline-none cursor-pointer select-none"
             aria-expanded={showInsights}
             aria-controls="performance-insights-grid"
           >
@@ -1171,7 +1210,7 @@ export function DashboardView({ initialStrategy }) {
                <button
                  type="button"
                  onClick={(e) => { e.stopPropagation(); window.location.hash = '#/history'; }}
-                 className="hidden sm:flex text-[10px] font-black uppercase tracking-widest text-accent hover:text-accent/80 transition-colors items-center gap-1.5"
+                 className="hidden sm:flex text-[10px] font-black uppercase tracking-widest text-accent hover:text-accent/80 transition-colors items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded px-1"
                >
                  View Full Analytics <ChevronRight size={12} />
                </button>
@@ -1185,7 +1224,7 @@ export function DashboardView({ initialStrategy }) {
                  <ChevronLeft size={14} className="-rotate-90" />
                </div>
             </div>
-          </button>
+          </div>
 
           <AnimatePresence>
             {showInsights && (
@@ -1306,13 +1345,16 @@ export function DashboardView({ initialStrategy }) {
         <div className="grid grid-cols-1 lg:grid-cols-2 items-start gap-6">
 
           {/* Left Workspace */}
-          <div className="flex flex-col gap-6 lg:gap-10 no-scrollbar overflow-hidden">
+          <div className="flex flex-col gap-6 lg:gap-10 no-scrollbar">
             <motion.div
               initial={{ x: -20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ delay: 0.3 }}
+              className="bg-surface border border-border rounded-2xl p-6 flex flex-col shadow-sm"
             >
-              <SectionLabel>Active Strategy</SectionLabel>
+              <SectionLabel className="mb-4 flex items-center gap-2">
+                <Zap size={14} className="text-accent" /> Active Strategy
+              </SectionLabel>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {sessionActive ? (
                   <>

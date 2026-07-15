@@ -163,7 +163,12 @@ export class SignalEngineService {
       }
 
       try {
-        const result = handler(symbol, config, interval, side, purpose, candles, minimal);
+        const signalInterval = config.signal_timeframes?.[signalType] || interval;
+        const signalCandles = (signalInterval !== interval)
+          ? this.klineStore.getRawCandles(symbol, signalInterval)
+          : candles;
+
+        const result = handler(symbol, config, signalInterval, side, purpose, signalCandles, minimal);
         const fired = typeof result === 'boolean' ? result : result.fired;
         
         if (!minimal) {
@@ -309,6 +314,12 @@ export class SignalEngineService {
     minimal?: boolean,
   ): boolean | SignalDetail {
     try {
+      // DIRECTION-AWARE: For exit signals, we search for the opposite pattern direction
+      const evaluatedSide = (purpose === 'exit' && side)
+        ? (side === 'LONG' ? 'SHORT' : 'LONG')
+        : side;
+      side = evaluatedSide;
+
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
       const lookback = Math.max(config.engulfing_lookback || 1, 1);
       const streakReq = Math.min(Math.max(config.engulfing_streak || lookback, 1), lookback);

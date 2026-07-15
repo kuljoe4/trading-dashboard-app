@@ -238,7 +238,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
       role="button"
       tabIndex={0}
       className={cn(
-        "bg-background/40 border border-border/30 rounded-2xl p-5 md:p-6 cursor-pointer transition-all relative group shadow-sm h-full focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none min-w-0 hover:bg-background/60",
+        "bg-background/40 border border-border/30 rounded-2xl p-4 md:p-6 cursor-pointer transition-all relative group shadow-sm h-full focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none min-w-0 hover:bg-background/60",
         tradingMode === 'paper' ? "hover:border-amber/30 hover:shadow-amber/5" :
         tradingMode === 'testnet' ? "hover:border-purple/30 hover:shadow-purple/5" :
         "hover:border-green/30 hover:shadow-green/5",
@@ -259,11 +259,11 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
           </div>
         </div>
       )}
-        <div className="flex justify-between items-start mb-5 md:mb-6 min-w-0 gap-3" aria-live="polite">
+        <div className="flex justify-between items-start mb-3.5 md:mb-5 min-w-0 gap-3" aria-live="polite">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-2.5 md:mb-3 flex-wrap min-h-[1.5rem] h-auto">
+          <div className="flex items-center gap-1.5 mb-1.5 md:mb-2.5 flex-wrap">
             <StatusBadge status={s.sessionActive} />
-            <div className="flex items-center gap-1.5 scale-90 origin-left">
+            <div className="flex items-center gap-1 scale-90 origin-left">
               {tradingMode === 'paper' && <PaperBadge />}
               {tradingMode === 'testnet' && <DemoBadge />}
               {tradingMode === 'live' && <LiveBadge />}

@@ -344,15 +344,15 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 md:gap-6">
         <div className="relative group flex-1">
           <div className="absolute -inset-1 bg-gradient-to-r from-accent/20 to-purple/20 rounded-xl md:rounded-[2rem] blur opacity-25 group-hover:opacity-40 transition duration-1000" />
-          <div className="relative bg-white/[0.03] border border-white/[0.05] rounded-xl md:rounded-[2rem] p-3 md:p-8 flex flex-col items-center text-center shadow-inner overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-10">
-              <Activity size={32} className="md:w-20 md:h-20" />
+            <div className="relative bg-white/[0.03] border border-white/[0.05] rounded-xl md:rounded-2xl py-2 md:py-4 px-3 md:px-6 flex flex-col items-center text-center shadow-inner overflow-hidden">
+              <div className="absolute top-0 right-0 p-2 md:p-4 opacity-10">
+                <Activity size={24} className="md:w-12 md:h-12" />
             </div>
-            <div className="flex items-center gap-2 mb-1 md:mb-2">
-              <span className="text-[7px] md:text-[10px] font-black text-dim uppercase tracking-[0.2em]">
+              <div className="flex items-center gap-2 mb-0.5 md:mb-1">
+                <span className="text-[7px] md:text-[9px] font-black text-dim uppercase tracking-[0.2em]">
                 {trade.exit_ts ? 'Realized P&L' : 'Live Return'}
               </span>
-              <div className={cn("text-lg md:text-4xl font-black font-mono tracking-tighter", pnlClass(trade.pnl))}>
+                <div className={cn("text-base md:text-2xl lg:text-3xl font-black font-mono tracking-tighter", pnlClass(trade.pnl))}>
                 {fmtUSD(trade.pnl)}
               </div>
             </div>
@@ -371,26 +371,26 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       </div>
 
       {/* Price Runway */}
-      <div className="space-y-2 md:space-y-4">
+      <div className="space-y-1.5 md:space-y-2">
         <div className="flex justify-between items-end">
           <div className="flex flex-col gap-0.5">
             <span className={cn(
-              "text-[9px] font-black uppercase tracking-widest flex items-center gap-1",
+              "text-[8px] md:text-[9px] font-black uppercase tracking-widest flex items-center gap-1",
               trade.strategy_config?.trailing_stop_enabled ? "text-purple-400 animate-pulse font-extrabold" : "text-red"
             )}>
               <ShieldAlert size={8} /> {trade.strategy_config?.trailing_stop_enabled ? 'Trailing SL' : 'SL'}
             </span>
-            <span className="font-mono text-[10px] font-bold text-dim">{price(sl)}</span>
+            <span className="font-mono text-[9px] md:text-[10px] font-bold text-dim leading-none">{price(sl)}</span>
           </div>
           <div className="flex flex-col items-end gap-0.5">
-            <span className="text-[9px] font-black text-green uppercase tracking-widest flex items-center gap-1">
+            <span className="text-[8px] md:text-[9px] font-black text-green uppercase tracking-widest flex items-center gap-1">
               TP <Zap size={8} fill="currentColor" />
             </span>
-            <span className="font-mono text-[10px] font-bold text-dim">{tp ? price(tp) : 'TRAILED'}</span>
+            <span className="font-mono text-[9px] md:text-[10px] font-bold text-dim leading-none">{tp ? price(tp) : 'TRAILED'}</span>
           </div>
         </div>
 
-        <div className="h-4 w-full bg-border/20 rounded-full overflow-hidden relative shadow-[inset_0_2px_4px_rgba(0,0,0,0.3)]">
+        <div className="h-2 w-full bg-border/20 rounded-full overflow-hidden relative shadow-[inset_0_1px_2px_rgba(0,0,0,0.3)]">
           <div className="absolute inset-0 bg-gradient-to-r from-red/5 via-transparent to-green/5 opacity-50" />
           <div className="absolute top-0 bottom-0 w-1 bg-white/20 z-10 blur-[1px]" style={{ left: '50%' }} />
           <div
@@ -404,28 +404,28 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
           </div>
         </div>
 
-        <div className="flex justify-center">
-          <div className="bg-surface border border-border/50 px-2 py-0.5 rounded-lg">
-            <span className="text-[9px] font-black text-dim uppercase tracking-widest">Entry: </span>
-            <span className="font-mono text-[10px] font-bold text-text/80">{price(entry)}</span>
+        <div className="flex justify-center scale-90">
+          <div className="bg-surface border border-border/50 px-1.5 py-0.2 rounded-md">
+            <span className="text-[8px] font-black text-dim uppercase tracking-widest">Entry: </span>
+            <span className="font-mono text-[9px] font-bold text-text/80">{price(entry)}</span>
           </div>
         </div>
       </div>
 
       {/* Primary Metrics Grid */}
-       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-         <StatCard label="Mark" value={price(mark)} color={pnlClass(trade.pnl)} syncing={isSyncing} />
-         <StatCard label="Size" value={qtyFormatted} subValue={trade.symbol.replace('USDT', '')} color="text-text" />
-         <StatCard label="Risk" value={riskFormatted} color="text-red" />
-         <StatCard label="Entry" value={price(entry)} color="text-dim" />
+       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-3">
+         <StatCard label="Mark" value={price(mark)} color={pnlClass(trade.pnl)} syncing={isSyncing} compact />
+         <StatCard label="Size" value={qtyFormatted} subValue={trade.symbol.replace('USDT', '')} color="text-text" compact />
+         <StatCard label="Risk" value={riskFormatted} color="text-red" compact />
+         <StatCard label="Entry" value={price(entry)} color="text-dim" compact />
       </div>
 
-      <div className={cn("grid gap-4 md:gap-8", layout === "grid" ? "grid-cols-1 lg:grid-cols-3" : "grid-cols-1")}>
-         <div className={cn(layout === "grid" ? "lg:col-span-2 space-y-4 md:space-y-8" : "space-y-4 md:space-y-8")}>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:gap-5">
+         <div className="lg:col-span-2 space-y-3 md:space-y-4">
             <RRLadder trade={trade} />
          </div>
 
-         <div className="space-y-4 md:space-y-8">
+         <div className="space-y-3 md:space-y-4">
             <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} trade={trade} />
 
             <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">

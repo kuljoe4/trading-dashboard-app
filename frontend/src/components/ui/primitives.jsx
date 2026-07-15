@@ -154,7 +154,7 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
 })
 
 // --- Stat Card ---
-export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing, tooltipText }) => {
+export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing, tooltipText, compact }) => {
   // BOLT: Clean up double-negative visuals: if value starts with '-', don't show negative arrow in label/icon.
   const sanitizedValue = typeof value === 'string' && (value.includes('▼') || value.includes('▲') || value.includes('▾') || value.includes('▴')) && value.includes('-')
     ? value.replace('-', '') // Remove the minus if an arrow is already present
@@ -162,7 +162,12 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
 
   const content = (
     <div
-      className="bg-surface border border-border/60 p-3 md:p-4 lg:p-5 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[80px] lg:min-h-[100px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset focus-visible:outline-none focus-visible:border-accent/30 focus-visible:bg-white/[0.01]"
+      className={cn(
+        "bg-surface border border-border/60 rounded-xl md:rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col items-start min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset focus-visible:outline-none focus-visible:border-accent/30 focus-visible:bg-white/[0.01]",
+        compact
+          ? "p-2 md:p-2.5 min-h-[48px] md:min-h-[56px] lg:min-h-[64px]"
+          : "p-3 md:p-4 lg:p-5 min-h-[64px] md:min-h-[80px] lg:min-h-[100px]"
+      )}
       role="region"
       aria-label={`${label}: ${value}${tooltipText ? '. ' + tooltipText : ''}`}
       aria-busy={syncing}
@@ -171,23 +176,25 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
       {syncing && (
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />
       )}
-      <div className="flex flex-col gap-0.5 w-full">
-        <div className="flex items-start gap-1.5 min-h-[2rem] md:min-h-[2.25rem]">
-            <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] flex-1" aria-hidden="true">{label}</div>
-            {tooltipText && <Info size={10} className="text-dim/30 group-hover:text-accent group-focus-visible:text-accent transition-colors" />}
+      <div className={cn("flex flex-col w-full", compact ? "gap-0" : "gap-0.5")}>
+        <div className={cn("flex items-start gap-1.5", compact ? "min-h-[1.25rem]" : "min-h-[2rem] md:min-h-[2.25rem]")}>
+            <div className={cn("text-dim tracking-[0.15em] uppercase font-black leading-[1.1] flex-1", compact ? "text-[8px] md:text-[9px]" : "text-[9px] md:text-[10px]")} aria-hidden="true">{label}</div>
+            {tooltipText && <Info size={compact ? 8 : 10} className="text-dim/30 group-hover:text-accent group-focus-visible:text-accent transition-colors" />}
         </div>
         <div className="flex flex-col">
           <div className={cn(
-            "text-sm md:text-base lg:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate",
+            "font-black font-mono tracking-tighter transition-all duration-500 truncate leading-none",
             color,
+            compact ? "text-xs md:text-sm lg:text-base" : "text-sm md:text-base lg:text-xl",
             syncing && "opacity-40 blur-[1px]"
           )}>{sanitizedValue}</div>
           {subValue && (
             <div className={cn(
-              "text-[8px] md:text-[9px] text-dim font-mono font-black uppercase flex items-center gap-1.5 whitespace-nowrap overflow-hidden",
+              "text-dim font-mono font-black uppercase flex items-center gap-1.5 whitespace-nowrap overflow-hidden",
+              compact ? "text-[7px] md:text-[7.5px] mt-0.5" : "text-[8px] md:text-[9px] mt-0.5",
               syncing && "text-accent/60 animate-pulse"
             )}>
-              {syncing && <Loader2 size={8} className="animate-spin shrink-0" aria-hidden="true" />}
+              {syncing && <Loader2 size={compact ? 6 : 8} className="animate-spin shrink-0" aria-hidden="true" />}
               <span className="truncate">{subValue}</span>
             </div>
           )}

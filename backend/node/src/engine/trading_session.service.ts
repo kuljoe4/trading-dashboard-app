@@ -904,9 +904,9 @@ export class TradingSessionService implements OnApplicationShutdown {
   }
 
   @OnEvent(ENGINE_EVENTS.EXCHANGE_CLOSE)
-  async handleExchangeClose(payload: { symbol: string, exitPrice: number, reason: string, isReconciliation?: boolean, orderId?: string, feesAlreadyAccounted?: boolean, needsMarketClose?: boolean }) {
+  async handleExchangeClose(payload: { symbol: string, exitPrice: number, reason: string, isReconciliation?: boolean, orderId?: string, feesAlreadyAccounted?: boolean, alreadyRealized?: boolean, needsMarketClose?: boolean }) {
     if (!this.running) return;
-    const { symbol, exitPrice, reason, isReconciliation, feesAlreadyAccounted, needsMarketClose } = payload;
+    const { symbol, exitPrice, reason, isReconciliation, feesAlreadyAccounted, alreadyRealized, needsMarketClose } = payload;
 
     // SRE: Idempotency guard - check if we are already closing this symbol
     if (this.inFlightExchangeCloses.has(symbol) || this.positionTracker.isClosing(symbol)) {
@@ -941,7 +941,7 @@ export class TradingSessionService implements OnApplicationShutdown {
     const localOnly = !needsMarketClose && reason !== EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE;
     const ignoreBlocked = reason === EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE || needsMarketClose;
 
-    const res = await this.positionTracker.closeTrade(symbol, exitPrice, reason, this.config!, this.config?.paper_mode ?? true, localOnly, { ignoreBlocked, orderId: payload.orderId, feesAlreadyAccounted });
+    const res = await this.positionTracker.closeTrade(symbol, exitPrice, reason, this.config!, this.config?.paper_mode ?? true, localOnly, { ignoreBlocked, orderId: payload.orderId, feesAlreadyAccounted, alreadyRealized });
 
     if (res.exitOccurred && res.trade) {
       if (isReconciliation) res.trade.is_reconciliation = true;

@@ -414,7 +414,7 @@ export class PositionTrackerService {
     config?: SessionConfig,
     paperMode?: boolean,
     localOnly?: boolean,
-    options: { ignoreBlocked?: boolean, orderId?: string, feesAlreadyAccounted?: boolean, needsMarketClose?: boolean } = {}
+    options: { ignoreBlocked?: boolean, orderId?: string, feesAlreadyAccounted?: boolean, alreadyRealized?: boolean, needsMarketClose?: boolean } = {}
   ): Promise<{ trade: Trade | null; exitOccurred: boolean; closeBlocked?: boolean, error?: string }> {
     // CHRONOS: Fallback to in-flight registry if not in active trades (Race Condition Guard)
     let trade = this.trades.get(symbol);

@@ -305,7 +305,18 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       // Proximity should represent how "filled" the condition is.
       // If value is 0 and threshold is 10, distPct should be 0.
       // If value is 10 and threshold is 10, distPct should be 100.
-      const rawDistPct = threshold !== 0 ? (Math.abs(value) / Math.abs(threshold)) * 100 : 0
+      // DIRECTION-AWARE: If value and threshold have opposite signs (opposite momentum direction), proximity is 0.
+      let rawDistPct = 0;
+      if (s.fired) {
+        rawDistPct = 100;
+      } else if (threshold !== 0) {
+        const hasOppositeSign = (value > 0 && threshold < 0) || (value < 0 && threshold > 0);
+        if (hasOppositeSign) {
+          rawDistPct = 0;
+        } else {
+          rawDistPct = (Math.abs(value) / Math.abs(threshold)) * 100;
+        }
+      }
       const distPct = s.insufficientData ? 0 : Math.min(100, Math.max(0, rawDistPct))
 
       acc[key] = {
@@ -358,8 +369,11 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       <div className="space-y-2 md:space-y-4">
         <div className="flex justify-between items-end">
           <div className="flex flex-col gap-0.5">
-            <span className="text-[9px] font-black text-red uppercase tracking-widest flex items-center gap-1">
-              <ShieldAlert size={8} /> SL
+            <span className={cn(
+              "text-[9px] font-black uppercase tracking-widest flex items-center gap-1",
+              trade.strategy_config?.trailing_stop_enabled ? "text-purple-400 animate-pulse font-extrabold" : "text-red"
+            )}>
+              <ShieldAlert size={8} /> {trade.strategy_config?.trailing_stop_enabled ? 'Trailing SL' : 'SL'}
             </span>
             <span className="font-mono text-[10px] font-bold text-dim">{price(sl)}</span>
           </div>

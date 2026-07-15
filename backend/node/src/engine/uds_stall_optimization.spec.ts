@@ -1,3 +1,5 @@
+import { OrderFilterService } from './order-filter.service';
+import { BroadcastService } from './broadcast.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { SessionLifecycleService } from './session-lifecycle.service';
 import { SessionStateService } from './session_state.service';
@@ -43,6 +45,8 @@ describe('UDS Stall Optimization', () => {
     jest.useFakeTimers();
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: OrderFilterService, useValue: { applyFilters: jest.fn((sym, val) => val), checkLeverageBracket: jest.fn(() => ({ isAllowed: true, maxNotional: 1000000 })) } },
+        { provide: BroadcastService, useValue: { broadcast: jest.fn(), setWsBroadcaster: jest.fn() } },
         SessionLifecycleService,
         { provide: SessionStateService, useValue: { reset: jest.fn(), updateRateLimit: jest.fn(), isRateLimited: jest.fn().mockReturnValue(false), isBanned: jest.fn().mockReturnValue(false), realTimePositions: new Map(), activeTrades: [], binanceRateLimit: { used_1m: 0, limit: 2400 } } },
         { provide: OrderManagerService, useValue: { setBinanceClient: jest.fn(), isRatcheting: jest.fn().mockReturnValue(false) } },

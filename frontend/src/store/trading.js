@@ -191,6 +191,7 @@ const defaultConfig = {
   frequency_shaping_enabled: false,
   frequency_tod_integration: false,
   paper_starting_balance: CONFIG_LIMITS.PAPER_STARTING_BALANCE_DEFAULT,
+  testnet_starting_balance: 10000.0,
   live_starting_balance: CONFIG_LIMITS.LIVE_STARTING_BALANCE_DEFAULT,
   hot_loop_interval_ms: CONFIG_LIMITS.HOT_LOOP_DEFAULT,
   main_loop_interval_ms: CONFIG_LIMITS.MAIN_LOOP_DEFAULT,

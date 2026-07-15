@@ -95,6 +95,9 @@ describe('OrderManagerService - Idempotency & Partial SL Sync', () => {
       }
     };
 
+    eventEmitter.on('trade.exchange_close', () => {
+      trade.qty = 1.0;
+    });
     await service.handleBinanceOrderUpdate(finalPayload as any);
 
     // After final fill, trade.qty should be restored to 1.0 for PnL calculation in closeTrade

@@ -233,4 +233,20 @@ describe('sanitizeSessionConfig', () => {
     const sanitized = sanitizeSessionConfig(config)
     assert.strictEqual(sanitized.signal_params, undefined)
   })
+
+  it('preserves smart watchlist and trailing stop fields', () => {
+    const config = {
+      smart_watchlist_enabled: true,
+      smart_watchlist_sensitivity: 0.8,
+      trailing_stop_enabled: true,
+      trailing_stop_distance_pct: 1.5,
+      signal_timeframes: { ema: '5m' }
+    }
+    const sanitized = sanitizeSessionConfig(config)
+    assert.strictEqual(sanitized.smart_watchlist_enabled, true)
+    assert.strictEqual(sanitized.smart_watchlist_sensitivity, 0.8)
+    assert.strictEqual(sanitized.trailing_stop_enabled, true)
+    assert.strictEqual(sanitized.trailing_stop_distance_pct, 1.5)
+    assert.deepEqual(sanitized.signal_timeframes, { ema: '5m' })
+  })
 })

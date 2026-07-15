@@ -79,7 +79,9 @@ const App = () => {
   useEffect(() => {
     async function initAuth() {
       try {
-        const res = await api.get('/auth/config');
+        // Enforce a hard 5-second timeout on the initial config check
+        // to prevent full-app deadlocks on flaky or stalled connections.
+        const res = await api.get('/auth/config', { timeout: 5000 });
         if (res.data.adminApiKey) {
           setAdminApiKey(res.data.adminApiKey);
         } else {

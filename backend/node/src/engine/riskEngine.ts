@@ -34,7 +34,8 @@ export class RiskEngineService {
     config: SessionConfig,
     totalSlUsed: number,
     enteringCount = 0,
-    marketScore?: number
+    marketScore?: number,
+    prospectiveRiskPct?: number
   ): ReturnType<RiskEngineService['checkFrequencyAndPerformanceLimits']> {
     const now = Date.now();
 
@@ -54,7 +55,7 @@ export class RiskEngineService {
       return { canEnter: false, reason: `Max open trades for ${symbol} (${maxOpenTradesPerSymbol}) reached` };
     }
 
-    const riskPerTrade = config.risk_pct_per_trade ?? 1.0;
+    const riskPerTrade = prospectiveRiskPct !== undefined ? prospectiveRiskPct : (config.risk_pct_per_trade ?? 1.0);
     const totalRiskPct = balance > 0 ? (totalSlUsed / balance) * 100 : 0;
 
     // SRE: Tight Gating. Ensure prospective total risk (current + next entry) does not exceed ceiling.
@@ -62,7 +63,7 @@ export class RiskEngineService {
     if (totalRiskPct + riskPerTrade > maxTotalRiskPct + 0.0001) {
       return {
         canEnter: false,
-        reason: `Risk ceiling reached: ${totalRiskPct.toFixed(2)}% + ${riskPerTrade}% prospective > ${maxTotalRiskPct}% max`
+        reason: `Risk ceiling reached: ${totalRiskPct.toFixed(2)}% + ${riskPerTrade.toFixed(2)}% prospective > ${maxTotalRiskPct}% max`
       };
     }
 

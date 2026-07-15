@@ -21,6 +21,7 @@ const baseUrlEnv = typeof import.meta !== 'undefined' && typeof import.meta.env 
 const baseURL = normalizeUrl(baseUrlEnv) || (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:3000' : '')
 const api = axios.create({
   baseURL,
+  timeout: 15000, // 15 seconds default timeout to prevent indefinite hangs
 })
 
 // Dynamically inject Admin API Key
@@ -149,6 +150,11 @@ const sessionConfigAllowedKeys = [
   'engulfing_sequential',
   'risk_hardening_enabled',
   'max_single_trade_risk_pct',
+  'smart_watchlist_enabled',
+  'smart_watchlist_sensitivity',
+  'trailing_stop_enabled',
+  'trailing_stop_distance_pct',
+  'signal_timeframes',
 ]
 
 const sanitizeSessionConfig = (config) => {

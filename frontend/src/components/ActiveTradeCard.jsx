@@ -107,10 +107,10 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           <div className="flex items-center gap-2">
             <Tooltip content={`Current RR: ${Number(trade.rr || 0).toFixed(2)}R | Peak RR: ${Number(trade.max_rr || trade.rr || 0).toFixed(2)}R`}>
               <span
-                className="text-[10px] md:text-[11px] font-black font-mono text-dim/60 uppercase tracking-widest cursor-help flex items-center gap-1"
+                className="text-[10px] md:text-[11px] font-black font-mono text-dim uppercase tracking-widest cursor-help flex items-center gap-1"
                 aria-label={`Live risk-to-reward is ${Number(trade.rr || 0).toFixed(2)}R, Peak risk-to-reward is ${Number(trade.max_rr || trade.rr || 0).toFixed(2)}R`}
               >
-                {Number(trade.rr || 0).toFixed(2)}R <span className="text-[9px] opacity-40 font-bold" aria-hidden="true">(Peak: {Number(trade.max_rr || trade.rr || 0).toFixed(2)}R)</span>
+                {Number(trade.rr || 0).toFixed(2)}R <span className="text-[9px] text-accent/80 font-black tracking-normal" aria-hidden="true">(Peak: {Number(trade.max_rr || trade.rr || 0).toFixed(2)}R)</span>
               </span>
             </Tooltip>
             {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (

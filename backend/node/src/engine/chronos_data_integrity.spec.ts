@@ -1,3 +1,4 @@
+import { OrderFilterService } from './order-filter.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { OrderManagerService } from './orderManager';
@@ -34,6 +35,7 @@ describe('Chronos: Data Integrity and PnL Synchronization', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: OrderFilterService, useValue: { applyFilters: jest.fn((sym, val) => val), checkLeverageBracket: jest.fn(() => ({ isAllowed: true, maxNotional: 1000000 })) } },
         OrderManagerService,
         TradingSessionService,
         SessionStateService,

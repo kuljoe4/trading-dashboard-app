@@ -59,4 +59,43 @@ describe('KlineStoreService', () => {
       volume: 1000,
     });
   });
+
+  it('clear should clear both klines and hlStableCache', async () => {
+    const wsKline = {
+      t: 1000,
+      o: '10',
+      h: '12',
+      l: '8',
+      c: '11',
+      q: '1000',
+    };
+
+    const wsKline2 = {
+      t: 2000,
+      o: '11',
+      h: '13',
+      l: '9',
+      c: '12',
+      q: '1000',
+    };
+
+    await service.upsertCandle('BTCUSDT', '1m', wsKline);
+    await service.upsertCandle('BTCUSDT', '1m', wsKline2);
+
+    // Warm up/fill hlStableCache
+    const extremesBefore = service.getLookbackExtremes('BTCUSDT', '1m', 1);
+    expect(extremesBefore).toEqual({ minLow: 8, maxHigh: 12 });
+
+    // Verify it is cached
+    const stableCacheBefore = (service as any).hlStableCache.get('BTCUSDT:1m:1');
+    expect(stableCacheBefore).toBeDefined();
+
+    service.clear();
+
+    const candlesAfter = await service.getRecentCandles('BTCUSDT', '1m', 1);
+    expect(candlesAfter).toEqual([]);
+
+    const stableCacheAfter = (service as any).hlStableCache.get('BTCUSDT:1m:1');
+    expect(stableCacheAfter).toBeUndefined();
+  });
 });

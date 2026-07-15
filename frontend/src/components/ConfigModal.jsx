@@ -560,7 +560,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     isSyncingOnResume: state.isSyncingOnResume,
     sessionActive: state.sessionActive,
     lifetimeAnalytics: state.lifetimeAnalytics,
-    fetchLifetimeAnalytics: state.fetchLifetimeAnalytics,
+    fetchLifetimeAnalytics: state.fetchLifetimeAnalytics
   }));
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
@@ -700,6 +700,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     }
     checkConfig()
   }, [])
+
+  // Fetch lifetime analytics for the current mode
+  useEffect(() => {
+    if (fetchLifetimeAnalytics) {
+      const mode = cfg.trading_mode || (cfg.paper_mode ? 'paper' : 'live');
+      fetchLifetimeAnalytics(mode);
+    }
+  }, [fetchLifetimeAnalytics, cfg.trading_mode, cfg.paper_mode]);
 
   const setField = React.useCallback((key, value) => {
     setIsDirty(true);

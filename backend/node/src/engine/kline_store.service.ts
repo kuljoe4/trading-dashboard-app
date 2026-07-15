@@ -292,6 +292,7 @@ export class KlineStoreService {
    */
   clear() {
     this.klines.clear();
+    this.hlStableCache.clear();
     this.logger.verbose('KlineStore cleared');
   }
 }

@@ -1924,20 +1924,20 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         )}
       </div>
 
-      <div className="p-5 border-t border-border bg-surface flex flex-col sm:flex-row gap-4 sticky bottom-0 items-stretch sm:items-center">
+      <div className="p-3.5 md:p-4.5 border-t border-border bg-surface flex flex-col sm:flex-row gap-3 sticky bottom-0 items-stretch sm:items-center">
         <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
-           <Btn variant="ghost" onClick={onClose} className="flex-1 sm:flex-initial min-w-[80px]">Cancel</Btn>
-           {isDirty && <Btn variant="ghost" onClick={resetToLastSaved} className="text-red hover:bg-red/5 flex-1 sm:flex-initial">Reset</Btn>}
+           <Btn variant="ghost" onClick={onClose} className="h-10 py-1 flex-1 sm:flex-initial min-w-[80px]">Cancel</Btn>
+           {isDirty && <Btn variant="ghost" onClick={resetToLastSaved} className="h-10 py-1 text-red hover:bg-red/5 flex-1 sm:flex-initial">Reset</Btn>}
            <div className="flex gap-2 items-center">
              <Tooltip content="Copy Configuration to Clipboard">
                <CopyButton
                   value={JSON.stringify(buildConfigToSave(), null, 2)}
-                  className="w-12 h-12 flex items-center justify-center border border-border rounded-xl hover:bg-white/5 transition-all"
+                  className="w-10 h-10 flex items-center justify-center border border-border rounded-xl hover:bg-white/5 transition-all"
                />
              </Tooltip>
              <Tooltip content="Paste Configuration from Clipboard">
-                <Btn variant="ghost" onClick={handlePasteConfig} className="w-12 h-12 p-0 flex items-center justify-center border border-border rounded-xl hover:bg-accent/5 hover:border-accent/40 transition-all">
-                  <ClipboardPaste size={18} className="text-dim group-hover:text-accent" />
+                <Btn variant="ghost" onClick={handlePasteConfig} className="w-10 h-10 p-0 flex items-center justify-center border border-border rounded-xl hover:bg-accent/5 hover:border-accent/40 transition-all">
+                  <ClipboardPaste size={16} className="text-dim group-hover:text-accent" />
                 </Btn>
              </Tooltip>
            </div>
@@ -1948,7 +1948,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
              sessionStorage.removeItem('config_draft');
              setIsDirty(false);
           }
-        }} className="w-full sm:w-auto sm:flex-[2] h-12 flex items-center justify-center gap-2">
+        }} className="w-full sm:w-auto sm:flex-[2] h-10 py-1 flex items-center justify-center gap-2">
           {isEdit ? 'Apply Changes' : 'Start Session'}
           {isDirty && <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />}
         </Btn>

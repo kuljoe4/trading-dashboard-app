@@ -369,8 +369,11 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       <div className="space-y-2 md:space-y-4">
         <div className="flex justify-between items-end">
           <div className="flex flex-col gap-0.5">
-            <span className="text-[9px] font-black text-red uppercase tracking-widest flex items-center gap-1">
-              <ShieldAlert size={8} /> SL
+            <span className={cn(
+              "text-[9px] font-black uppercase tracking-widest flex items-center gap-1",
+              trade.strategy_config?.trailing_stop_enabled ? "text-purple-400 animate-pulse font-extrabold" : "text-red"
+            )}>
+              <ShieldAlert size={8} /> {trade.strategy_config?.trailing_stop_enabled ? 'Trailing SL' : 'SL'}
             </span>
             <span className="font-mono text-[10px] font-bold text-dim">{price(sl)}</span>
           </div>

@@ -29,7 +29,7 @@ const CollapsibleSection = ({ id, icon, title, subtitle, children, defaultOpen =
       <button
         type="button"
         onClick={toggle}
-        className="w-full flex items-center justify-between p-5 hover:bg-white/[0.02] transition-colors group"
+        className="w-full flex items-center justify-between p-4 hover:bg-white/[0.02] transition-colors group"
       >
         <SectionHeader icon={icon} title={title} subtitle={subtitle} className="mb-0" />
         <div className={cn(
@@ -47,7 +47,7 @@ const CollapsibleSection = ({ id, icon, title, subtitle, children, defaultOpen =
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
           >
-            <div className="p-5 pt-0 border-t border-border/5">
+            <div className="p-4 pt-0 border-t border-border/5">
               {children}
             </div>
           </motion.div>

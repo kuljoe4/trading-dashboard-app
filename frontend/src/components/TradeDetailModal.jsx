@@ -59,38 +59,38 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
     <Dialog.Root open={isOpen} onOpenChange={onClose}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-md z-[100] animate-in fade-in duration-300" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-4xl max-h-[90vh] overflow-y-auto no-scrollbar bg-surface/95 border border-border/50 rounded-xl p-4 md:p-6 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.6)] backdrop-blur-xl z-[101] animate-in fade-in zoom-in-95 duration-300 focus:outline-none">
+        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-4xl max-h-[90vh] overflow-y-auto no-scrollbar bg-surface/95 border border-border/50 rounded-xl p-3.5 md:p-5 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.6)] backdrop-blur-xl z-[101] animate-in fade-in zoom-in-95 duration-300 focus:outline-none">
           <VisuallyHidden>
             <Dialog.Description>
               Detailed view of the active trade for {trade.symbol}, including P&L, duration, and exit signals.
             </Dialog.Description>
           </VisuallyHidden>
-          <Dialog.Title className="flex items-center justify-between mb-4 sticky -top-6 bg-surface/80 backdrop-blur-sm z-20 pb-2 pt-2">
-            <div className="flex items-center gap-3">
+          <Dialog.Title className="flex items-center justify-between mb-3 sticky -top-5 bg-surface/80 backdrop-blur-sm z-20 pb-2 pt-2">
+            <div className="flex items-center gap-2.5">
               <div className={cn(
-                "w-10 h-10 rounded-2xl flex items-center justify-center shadow-lg transition-transform duration-500 hover:scale-105",
+                "w-8 h-8 rounded-xl flex items-center justify-center shadow-md transition-transform duration-500 hover:scale-105",
                 isLong ? "bg-green/10 text-green shadow-green/20" : "bg-red/10 text-red shadow-red/20"
               )}>
-                {isLong ? <ArrowUpRight size={18} /> : <ArrowDownRight size={18} />}
+                {isLong ? <ArrowUpRight size={15} /> : <ArrowDownRight size={15} />}
               </div>
-              <div className="flex flex-col gap-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg font-black tracking-tighter">{trade.symbol}</span>
+              <div className="flex flex-col">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-base font-black tracking-tighter">{trade.symbol}</span>
                   <CopyButton value={trade.symbol} className="opacity-40 hover:opacity-100" />
                 </div>
-                <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.2em]">
+                <div className="flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase tracking-[0.2em]">
                   {showResumingFeedback ? (
                     <span className="text-accent flex items-center gap-1">
-                      <RefreshCw size={10} className="animate-spin" /> Resuming Feed...
+                      <RefreshCw size={9} className="animate-spin" /> Resuming Feed...
                     </span>
                   ) : (
                     <>
-                      <span className={cn("px-1.5 py-0.5 rounded-full", isLong ? 'bg-green/10 text-green' : 'bg-red/10 text-red')}>
+                      <span className={cn("px-1 py-0.5 rounded-full", isLong ? 'bg-green/10 text-green' : 'bg-red/10 text-red')}>
                         {trade.direction}
                       </span>
                       <span className="text-dim/30">•</span>
                       <span className="text-dim flex items-center gap-1">
-                        <Clock size={10} className="text-accent" /> {duration}
+                        <Clock size={9} className="text-accent" /> {duration}
                       </span>
                     </>
                   )}
@@ -99,8 +99,8 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
             </div>
             <Tooltip content="Close Details">
               <Dialog.Close asChild>
-                <button className="p-2 hover:bg-white/5 rounded-xl transition-all text-dim hover:text-text active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none" aria-label="Close Details">
-                  <X size={16} />
+                <button className="p-1.5 hover:bg-white/5 rounded-xl transition-all text-dim hover:text-text active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none" aria-label="Close Details">
+                  <X size={14} />
                 </button>
               </Dialog.Close>
             </Tooltip>

@@ -527,34 +527,34 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
          </div>
       </div>
 
-      <div className="mt-4 md:mt-8 pt-6 border-t border-border/40">
-        <SectionLabel className="mb-4 text-red">Danger Zone</SectionLabel>
-        <div className="bg-red/5 border border-red/10 rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-6 transition-all hover:bg-red/10">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-red/10 flex items-center justify-center text-red shrink-0">
-              <ShieldAlert size={24} />
+      <div className="mt-3 md:mt-5 pt-4 border-t border-border/40">
+        <SectionLabel className="mb-2.5 text-red">Danger Zone</SectionLabel>
+        <div className="bg-red/5 border border-red/10 rounded-2xl p-4 md:p-5 flex flex-col md:flex-row items-center justify-between gap-4 transition-all hover:bg-red/10">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red/10 flex items-center justify-center text-red shrink-0">
+              <ShieldAlert size={20} />
             </div>
             <div className="flex flex-col">
-              <h3 className="text-sm font-bold uppercase tracking-tight text-red">Force Liquidation</h3>
-              <p className="text-[10px] text-dim font-medium uppercase mt-1">Immediately close this position at current market price. This ignores all strategy logic.</p>
+              <h3 className="text-xs font-bold uppercase tracking-tight text-red">Force Liquidation</h3>
+              <p className="text-[9px] text-dim font-medium uppercase mt-0.5">Immediately close this position at current market price. This ignores all strategy logic.</p>
             </div>
           </div>
 
-          <div className="flex flex-col gap-2 w-full md:w-auto min-w-[200px]">
+          <div className="flex flex-col gap-1.5 w-full md:w-auto min-w-[180px]">
             {trade.close_blocked && (
-               <div className="bg-red/10 border border-red/20 rounded-xl p-3 flex flex-col gap-1 items-center text-center animate-pulse mb-2">
-                  <span className="text-[10px] font-black text-red uppercase tracking-widest flex items-center gap-1">
-                     <ShieldAlert size={12} /> Liquidation Blocked
+               <div className="bg-red/10 border border-red/20 rounded-xl p-2.5 flex flex-col gap-0.5 items-center text-center animate-pulse mb-1.5">
+                  <span className="text-[9px] font-black text-red uppercase tracking-widest flex items-center gap-1">
+                     <ShieldAlert size={10} /> Liquidation Blocked
                   </span>
-                  <span className="text-[8px] text-red/60 font-bold uppercase leading-tight">
+                  <span className="text-[7.5px] text-red/60 font-bold uppercase leading-tight">
                      Max retries exceeded. Manual intervention on Binance is required.
                   </span>
                </div>
             )}
             {!trade.close_blocked && trade.close_attempts > 0 && (
-               <div className="bg-amber/10 border border-amber/20 rounded-xl p-2 flex items-center justify-center gap-2 mb-2">
-                  <Loader2 className="animate-spin text-amber" size={10} />
-                  <span className="text-[8px] font-black text-amber uppercase tracking-widest">
+               <div className="bg-amber/10 border border-amber/20 rounded-xl p-1.5 flex items-center justify-center gap-1.5 mb-1.5">
+                  <Loader2 className="animate-spin text-amber" size={9} />
+                  <span className="text-[7.5px] font-black text-amber uppercase tracking-widest">
                      Closure Retry {trade.close_attempts}/5
                   </span>
                </div>
@@ -564,9 +564,9 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               onClick={() => setConfirmClose(true)}
               disabled={isClosing}
               loading={isClosing}
-              className="w-full h-12 uppercase tracking-widest font-black"
+              className="w-full h-10 py-1 text-[11px] uppercase tracking-widest font-black"
             >
-              <Trash2 size={16} /> Force Close
+              <Trash2 size={14} /> Force Close
             </Btn>
           </div>
         </div>

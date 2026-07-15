@@ -261,7 +261,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
       )}
         <div className="flex justify-between items-start mb-5 md:mb-6 min-w-0 gap-3" aria-live="polite">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-2.5 md:mb-3 flex-wrap h-6">
+          <div className="flex items-center gap-2 mb-2.5 md:mb-3 flex-wrap min-h-[1.5rem] h-auto">
             <StatusBadge status={s.sessionActive} />
             <div className="flex items-center gap-1.5 scale-90 origin-left">
               {tradingMode === 'paper' && <PaperBadge />}

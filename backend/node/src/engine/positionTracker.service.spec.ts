@@ -515,5 +515,37 @@ describe('PositionTrackerService', () => {
       expect(mockOrderManager.updateStopLoss).toHaveBeenCalledWith(trade, 96, 102);
       expect(trade.current_sl).toBe(96);
     });
+
+    it('sets risk_usdt to 0 and decrements totalRisk when trailing stop ratchets to breakeven or better', async () => {
+      const trade = {
+        symbol: 'TRAIL_BE',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90,
+        current_sl: 90,
+        qty: 10,
+        status: 'OPEN',
+        risk_usdt: 100,
+        updated_at: new Date()
+      } as any;
+      service.addTrade(trade);
+      expect(service.totalRisk()).toBe(100);
+
+      const config = {
+        trailing_stop_enabled: true,
+        trailing_stop_distance_pct: 1.0,
+        trailing_guard_buffer_pct: 0.05
+      } as any;
+
+      // Price moves from 100 to 110. Trailing stop prospective is 110 - 1% = 109 (which is above entry 100)
+      mockOrderManager.applyFilters.mockReturnValue({ price: 109 });
+      mockOrderManager.updateStopLoss.mockResolvedValue({ success: true, price: 109 });
+
+      await service.checkTrailingStop('TRAIL_BE', 110, config);
+
+      expect(trade.current_sl).toBe(109);
+      expect(trade.risk_usdt).toBe(0);
+      expect(service.totalRisk()).toBe(0);
+    });
   });
 });

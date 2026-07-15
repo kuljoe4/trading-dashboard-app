@@ -52,7 +52,7 @@ const TemporalRiskGrid = React.memo(() => {
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4 mb-8 lg:mb-10">
       <InteractiveLimitCard
         label="Period Limit"
-        subValue={gateState === 'max_trades_period' ? (waitTime ? `Wait ~${waitTime}` : 'Wait...') : (isAdaptiveTightened ? 'x0.5 Applied' : (tradesInPeriod !== undefined ? `${Math.max(0, (maxTradesPeriod || config.max_trades_per_period) - tradesInPeriod)} Remaining` : null))}
+        subValue={tradesInPeriod !== undefined ? `${Math.max(0, (maxTradesPeriod || config.max_trades_per_period) - tradesInPeriod)} Remaining${isAdaptiveTightened ? ' (x0.5)' : ''}` : (isAdaptiveTightened ? 'x0.5 Applied' : null)}
         tooltip="Maximum trades allowed within the sliding period window."
         value={config.max_trades_per_period || 0}
         min={0}
@@ -78,7 +78,7 @@ const TemporalRiskGrid = React.memo(() => {
 
       <InteractiveLimitCard
         label="24h Limit"
-        subValue={gateReason?.includes('24h limit') ? `Wait ~${waitTime}` : (tradesIn24h !== undefined ? `${Math.max(0, (maxTrades24h || config.max_trades_24h) - tradesIn24h)} Remaining` : (config.max_trades_24h > 0 ? 'Rolling' : 'Inactive'))}
+        subValue={tradesIn24h !== undefined ? `${Math.max(0, (maxTrades24h || config.max_trades_24h) - tradesIn24h)} Remaining` : (config.max_trades_24h > 0 ? 'Rolling' : 'Inactive')}
         tooltip="Total trade entry quota for a rolling 24-hour period."
         value={config.max_trades_24h || 0}
         min={0}
@@ -557,7 +557,7 @@ export function DashboardView({ initialStrategy }) {
     updateStats, analytics,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
     healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs, isSyncingOnResume,
-    nextSlotTs
+    nextSlotTs, fetchTradeHistory, fetchLifetimeAnalytics, fetchAnalytics, tradeHistory
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -599,7 +599,11 @@ export function DashboardView({ initialStrategy }) {
     analytics: state.analytics,
     effectivePeriodMs: state.effectivePeriodMs,
     isSyncingOnResume: state.isSyncingOnResume,
-    nextSlotTs: state.nextSlotTs
+    nextSlotTs: state.nextSlotTs,
+    fetchTradeHistory: state.fetchTradeHistory,
+    fetchLifetimeAnalytics: state.fetchLifetimeAnalytics,
+    fetchAnalytics: state.fetchAnalytics,
+    tradeHistory: state.tradeHistory
   }), shallow)
 
   useEffect(() => {
@@ -652,6 +656,42 @@ export function DashboardView({ initialStrategy }) {
 
 
   const [loading, setLoading] = useState(false)
+  const [showInsights, setShowInsights] = useState(true)
+
+  const correlationData = useMemo(() => {
+    const list = tradeHistory || [];
+    const buckets = [
+      { label: '< 5m', min: 0, max: 5 * 60 * 1000, grossWin: 0, grossLoss: 0, count: 0 },
+      { label: '5m - 30m', min: 5 * 60 * 1000, max: 30 * 60 * 1000, grossWin: 0, grossLoss: 0, count: 0 },
+      { label: '> 30m', min: 30 * 60 * 1000, max: Infinity, grossWin: 0, grossLoss: 0, count: 0 }
+    ];
+
+    list.forEach(t => {
+      if (!t.entry_ts || !t.exit_ts) return;
+      const entry = new Date(t.entry_ts).getTime();
+      const exit = new Date(t.exit_ts).getTime();
+      const duration = exit - entry;
+      if (duration < 0) return;
+
+      const bucket = buckets.find(b => duration >= b.min && duration < b.max);
+      if (bucket) {
+        const pnl = Number(t.pnl || 0);
+        if (pnl > 0) bucket.grossWin += pnl;
+        else if (pnl < 0) bucket.grossLoss += Math.abs(pnl);
+        bucket.count++;
+      }
+    });
+
+    return buckets.map(b => {
+      const pfVal = b.grossLoss > 0 ? (b.grossWin / b.grossLoss) : (b.grossWin > 0 ? b.grossWin : 0);
+      return {
+        label: b.label,
+        profitFactor: Number(Number(pfVal).toFixed(2)),
+        count: b.count,
+        avgDurationText: b.label
+      };
+    });
+  }, [tradeHistory]);
 
   useEffect(() => {
     let timer;
@@ -670,11 +710,14 @@ export function DashboardView({ initialStrategy }) {
   }, [showScanner]);
   useEffect(() => {
     fetchSessions();
+    fetchTradeHistory();
+    fetchAnalytics();
+    fetchLifetimeAnalytics(config?.paper_mode ? 'paper' : 'live');
 
     const toggleScanner = () => setShowScanner(prev => !prev);
     window.addEventListener('toggle-scanner', toggleScanner);
     return () => window.removeEventListener('toggle-scanner', toggleScanner);
-  }, []);
+  }, [fetchSessions, fetchTradeHistory, fetchAnalytics, fetchLifetimeAnalytics, config?.paper_mode]);
 
   const addAlert = useTradingStore(state => state.addAlert);
 
@@ -1108,96 +1151,156 @@ export function DashboardView({ initialStrategy }) {
         </div>
 
 
-        {/* ROI Trends & Insights */}
-        {(analytics?.roiTrends || !sessionActive) && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-            className="mb-8 lg:mb-12"
+        {/* ROI Trends & Insights - Collapsible */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          className="mb-8 lg:mb-12 flex flex-col"
+        >
+          <button
+            onClick={() => setShowInsights(!showInsights)}
+            className="group flex items-center justify-between w-full mb-4 text-left outline-none"
+            aria-expanded={showInsights}
+            aria-controls="performance-insights-grid"
           >
-            <div className="flex items-center justify-between mb-4">
-               <SectionLabel className="mb-0">
-                  <TrendingUp size={14} className="text-accent" /> Performance Insights
-               </SectionLabel>
-               <div className="flex items-center gap-3">
-                 <button
-                   onClick={() => window.location.hash = '#/history'}
-                   className="text-[10px] font-black uppercase tracking-widest text-accent hover:text-accent/80 transition-colors flex items-center gap-1.5"
-                 >
-                   View Full Analytics <ChevronRight size={12} />
-                 </button>
-                 <span className="text-[9px] text-dim font-black uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50">
-                    {analytics?.cumulativePnL?.length ? `As of ${new Date(analytics.cumulativePnL[analytics.cumulativePnL.length - 1].ts).toLocaleTimeString()}` : 'Updated Live'}
-                 </span>
+            <SectionLabel className="mb-0 flex-1">
+              <TrendingUp size={14} className="text-accent" /> Performance Insights
+            </SectionLabel>
+            <div className="flex items-center gap-3 shrink-0">
+               <button
+                 type="button"
+                 onClick={(e) => { e.stopPropagation(); window.location.hash = '#/history'; }}
+                 className="hidden sm:flex text-[10px] font-black uppercase tracking-widest text-accent hover:text-accent/80 transition-colors items-center gap-1.5"
+               >
+                 View Full Analytics <ChevronRight size={12} />
+               </button>
+               <span className="hidden sm:inline text-[9px] text-dim font-black uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50">
+                  {analytics?.cumulativePnL?.length ? `As of ${new Date(analytics.cumulativePnL[analytics.cumulativePnL.length - 1].ts).toLocaleTimeString()}` : 'Updated Live'}
+               </span>
+               <div className={cn(
+                 "p-1.5 rounded-lg border border-border/40 bg-surface/50 text-dim group-hover:text-accent group-hover:border-accent/40 transition-all",
+                 showInsights && "text-accent border-accent/40 bg-accent/5 rotate-180"
+               )}>
+                 <ChevronLeft size={14} className="-rotate-90" />
                </div>
             </div>
+          </button>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Left Column: Equity Story */}
-              <div className="lg:col-span-2 bg-surface border border-border/40 rounded-2xl p-5 md:p-6 shadow-sm flex flex-col gap-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex flex-col gap-1">
-                    <div className="text-[10px] text-dim font-black uppercase tracking-widest">Equity Narrative</div>
-                    <div className="text-xs font-bold text-text">Lifetime Performance Curve</div>
+          <AnimatePresence>
+            {showInsights && (
+              <motion.div
+                id="performance-insights-grid"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+                className="overflow-hidden"
+              >
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Left Column: Equity Story & Duration Correlation */}
+                  <div className="lg:col-span-2 bg-surface border border-border/40 rounded-2xl p-5 md:p-6 shadow-sm flex flex-col gap-6">
+
+                    <div className="flex justify-between items-start gap-4">
+                      <div className="flex flex-col gap-1">
+                        <div className="text-[10px] text-dim font-black uppercase tracking-widest">Equity Narrative</div>
+                        <div className="text-xs font-bold text-text">Performance Curve & Hold Time Correlation</div>
+                      </div>
+                      <div className="flex gap-4 shrink-0">
+                         <div className="flex flex-col items-end">
+                            <span className="text-[9px] text-dim font-black uppercase tracking-widest">7D ROI</span>
+                            <span className={cn("text-xs font-bold font-mono", analytics?.roiTrends ? pnlClass(analytics.roiTrends.sevenDay) : "text-dim")}>
+                              {analytics?.roiTrends ? `${analytics.roiTrends.sevenDay >= 0 ? '+' : ''}${analytics.roiTrends.sevenDay}%` : '---'}
+                            </span>
+                         </div>
+                         <div className="flex flex-col items-end">
+                            <span className="text-[9px] text-dim font-black uppercase tracking-widest">4W ROI</span>
+                            <span className={cn("text-xs font-bold font-mono", analytics?.roiTrends ? pnlClass(analytics.roiTrends.fourWeek) : "text-dim")}>
+                              {analytics?.roiTrends ? `${analytics.roiTrends.fourWeek >= 0 ? '+' : ''}${analytics.roiTrends.fourWeek}%` : '---'}
+                            </span>
+                         </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch flex-1">
+                      {/* Equity Curve */}
+                      <div className="flex flex-col justify-between h-full min-h-[140px] bg-background/20 rounded-xl p-4 border border-border/20">
+                        <span className="text-[10px] text-dim font-black uppercase tracking-widest mb-2">Growth Curve</span>
+                        <div className="h-[80px] w-full overflow-hidden">
+                          <Suspense fallback={<div className="h-full w-full bg-surface/10 animate-pulse" />}>
+                            <EquityCurve data={analytics?.cumulativePnL || []} height={80} hideAxes={true} />
+                          </Suspense>
+                        </div>
+                      </div>
+
+                      {/* Duration Correlation Chart */}
+                      <div className="flex flex-col justify-between h-full min-h-[140px] bg-background/20 rounded-xl p-4 border border-border/20">
+                        <span className="text-[10px] text-dim font-black uppercase tracking-widest mb-2">Duration Correlation (Profit Factor)</span>
+                        <div className="flex items-end justify-between h-[80px] pt-1 px-1">
+                          {correlationData.map((d) => {
+                            const pct = Math.min(100, (d.profitFactor / 3) * 100);
+                            const colorClass = d.profitFactor >= 2.0 ? 'bg-green shadow-[0_0_12px_rgba(34,197,94,0.3)]' :
+                                               d.profitFactor >= 1.0 ? 'bg-accent shadow-[0_0_12px_rgba(0,229,160,0.3)]' :
+                                               d.profitFactor > 0 ? 'bg-red-400' : 'bg-dim/40';
+                            return (
+                              <div key={d.label} className="flex flex-col items-center gap-1 flex-1 group relative">
+                                <Tooltip content={`Profit Factor: ${d.profitFactor} (${d.count} trades)`}>
+                                  <div className="w-8 flex flex-col items-center justify-end h-[50px]">
+                                    <motion.div
+                                      initial={{ height: 0 }}
+                                      animate={{ height: `${Math.max(4, pct)}%` }}
+                                      className={cn("w-3 rounded-t-sm transition-all", colorClass)}
+                                    />
+                                  </div>
+                                </Tooltip>
+                                <span className="text-[8px] text-dim font-black uppercase tracking-tight leading-none">{d.label}</span>
+                                <span className="text-[9px] font-mono font-bold leading-none mt-1 whitespace-nowrap">{d.profitFactor} PF</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
                   </div>
-                  <div className="flex gap-4">
-                     <div className="flex flex-col items-end">
-                        <span className="text-[9px] text-dim font-black uppercase tracking-widest">7D ROI</span>
-                        <span className={cn("text-xs font-bold font-mono", analytics?.roiTrends ? pnlClass(analytics.roiTrends.sevenDay) : "text-dim")}>
-                          {analytics?.roiTrends ? `${analytics.roiTrends.sevenDay >= 0 ? '+' : ''}${analytics.roiTrends.sevenDay}%` : '---'}
-                        </span>
+
+                  {/* Right Column: Key Stats Grid */}
+                  <div className="grid grid-cols-2 gap-3 md:gap-4">
+                     <div className="flex flex-col gap-3">
+                        <StatCard
+                          label="Returns"
+                          value={analytics ? `${Number(analytics.overallWinRate || 0).toFixed(1)}%` : '---'}
+                          subValue="Win Rate"
+                          tooltipText="Percentage of closed trades that resulted in a profit."
+                        />
+                        <StatCard
+                          label="Max DD"
+                          value={analytics ? `${Number(analytics.maxDrawdownPct || 0).toFixed(1)}%` : '---'}
+                          color="text-red"
+                          subValue="Drawdown"
+                          tooltipText="Maximum observed peak-to-trough decline in equity."
+                        />
                      </div>
-                     <div className="flex flex-col items-end">
-                        <span className="text-[9px] text-dim font-black uppercase tracking-widest">4W ROI</span>
-                        <span className={cn("text-xs font-bold font-mono", analytics?.roiTrends ? pnlClass(analytics.roiTrends.fourWeek) : "text-dim")}>
-                          {analytics?.roiTrends ? `${analytics.roiTrends.fourWeek >= 0 ? '+' : ''}${analytics.roiTrends.fourWeek}%` : '---'}
-                        </span>
+                     <div className="flex flex-col gap-3">
+                        <StatCard
+                          label="Risk Edge"
+                          value={analytics ? Number(analytics.profitFactor || 0).toFixed(2) : '---'}
+                          subValue="Profit Factor"
+                          tooltipText="Ratio of gross profit to gross loss. > 1.0 is profitable."
+                        />
+                        <StatCard
+                          label="Efficiency"
+                          value={analytics ? Number(analytics.sharpeRatio || 0).toFixed(2) : '---'}
+                          subValue="Sharpe Ratio"
+                          tooltipText="Risk-adjusted return. Higher is better."
+                        />
                      </div>
                   </div>
                 </div>
-                <div className="h-[80px] w-full overflow-hidden">
-                  <Suspense fallback={<div className="h-full w-full bg-surface/10 animate-pulse" />}>
-                    <EquityCurve data={analytics?.cumulativePnL || []} height={80} hideAxes={true} />
-                  </Suspense>
-                </div>
-              </div>
-
-              {/* Right Column: Key Stats Grid */}
-              <div className="grid grid-cols-2 gap-3 md:gap-4">
-                 <div className="flex flex-col gap-3">
-                    <StatCard
-                      label="Returns"
-                      value={analytics ? `${Number(analytics.overallWinRate || 0).toFixed(1)}%` : '---'}
-                      subValue="Win Rate"
-                      tooltipText="Percentage of closed trades that resulted in a profit."
-                    />
-                    <StatCard
-                      label="Max DD"
-                      value={analytics ? `${Number(analytics.maxDrawdownPct || 0).toFixed(1)}%` : '---'}
-                      color="text-red"
-                      subValue="Drawdown"
-                      tooltipText="Maximum observed peak-to-trough decline in equity."
-                    />
-                 </div>
-                 <div className="flex flex-col gap-3">
-                    <StatCard
-                      label="Risk Edge"
-                      value={analytics ? Number(analytics.profitFactor || 0).toFixed(2) : '---'}
-                      subValue="Profit Factor"
-                      tooltipText="Ratio of gross profit to gross loss. > 1.0 is profitable."
-                    />
-                    <StatCard
-                      label="Efficiency"
-                      value={analytics ? Number(analytics.sharpeRatio || 0).toFixed(2) : '---'}
-                      subValue="Sharpe Ratio"
-                      tooltipText="Risk-adjusted return. Higher is better."
-                    />
-                 </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
 
         {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 items-start gap-6">

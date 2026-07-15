@@ -552,13 +552,15 @@ const flattenConfig = (config) => {
   } catch (e) { return { ...config }; }
 };
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
-  const { addAlert, scannerResults, isThrottled, wsStatus, isSyncingOnResume, sessionActive } = useTradingStore(state => ({
+  const { addAlert, scannerResults, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics } = useTradingStore(state => ({
     addAlert: state.addAlert,
     scannerResults: state.scannerResults,
     isThrottled: state.isThrottled,
     wsStatus: state.wsStatus,
     isSyncingOnResume: state.isSyncingOnResume,
-    sessionActive: state.sessionActive
+    sessionActive: state.sessionActive,
+    lifetimeAnalytics: state.lifetimeAnalytics,
+    fetchLifetimeAnalytics: state.fetchLifetimeAnalytics,
   }));
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
@@ -581,6 +583,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     }
     return flattenConfig(initialConfig);
   });
+
+  useEffect(() => {
+    fetchLifetimeAnalytics(cfg?.paper_mode ? 'paper' : 'live');
+  }, [fetchLifetimeAnalytics, cfg?.paper_mode]);
   const [isDirty, setIsDirty] = useState(() => {
     const savedDraft = sessionStorage.getItem('config_draft');
     return !!savedDraft;
@@ -1910,21 +1916,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         )}
       </div>
 
-      <div className="p-5 border-t border-border bg-surface flex gap-3 sticky bottom-0">
-        <div className="flex-1 flex gap-2">
-           <Btn variant="ghost" onClick={onClose} className="flex-1">Cancel</Btn>
-           {isDirty && <Btn variant="ghost" onClick={resetToLastSaved} className="text-red hover:bg-red/5">Reset</Btn>}
-           <Tooltip content="Copy Configuration to Clipboard">
-             <CopyButton
-                value={JSON.stringify(buildConfigToSave(), null, 2)}
-                className="w-12 h-12 flex items-center justify-center border border-border rounded-xl hover:bg-white/5 transition-all"
-             />
-           </Tooltip>
-           <Tooltip content="Paste Configuration from Clipboard">
-              <Btn variant="ghost" onClick={handlePasteConfig} className="w-12 h-12 p-0 flex items-center justify-center border-border rounded-xl hover:bg-accent/5 hover:border-accent/40 transition-all">
-                <ClipboardPaste size={18} className="text-dim group-hover:text-accent" />
-              </Btn>
-           </Tooltip>
+      <div className="p-5 border-t border-border bg-surface flex flex-col sm:flex-row gap-4 sticky bottom-0 items-stretch sm:items-center">
+        <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+           <Btn variant="ghost" onClick={onClose} className="flex-1 sm:flex-initial min-w-[80px]">Cancel</Btn>
+           {isDirty && <Btn variant="ghost" onClick={resetToLastSaved} className="text-red hover:bg-red/5 flex-1 sm:flex-initial">Reset</Btn>}
+           <div className="flex gap-2 items-center">
+             <Tooltip content="Copy Configuration to Clipboard">
+               <CopyButton
+                  value={JSON.stringify(buildConfigToSave(), null, 2)}
+                  className="w-12 h-12 flex items-center justify-center border border-border rounded-xl hover:bg-white/5 transition-all"
+               />
+             </Tooltip>
+             <Tooltip content="Paste Configuration from Clipboard">
+                <Btn variant="ghost" onClick={handlePasteConfig} className="w-12 h-12 p-0 flex items-center justify-center border border-border rounded-xl hover:bg-accent/5 hover:border-accent/40 transition-all">
+                  <ClipboardPaste size={18} className="text-dim group-hover:text-accent" />
+                </Btn>
+             </Tooltip>
+           </div>
         </div>
         <Btn variant="primary" loading={loading} onClick={() => {
           if (validate(cfg)) {
@@ -1932,7 +1940,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
              sessionStorage.removeItem('config_draft');
              setIsDirty(false);
           }
-        }} className="flex-[2] flex items-center justify-center gap-2">
+        }} className="w-full sm:w-auto sm:flex-[2] h-12 flex items-center justify-center gap-2">
           {isEdit ? 'Apply Changes' : 'Start Session'}
           {isDirty && <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />}
         </Btn>

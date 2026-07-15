@@ -552,13 +552,15 @@ const flattenConfig = (config) => {
   } catch (e) { return { ...config }; }
 };
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
-  const { addAlert, scannerResults, isThrottled, wsStatus, isSyncingOnResume, sessionActive } = useTradingStore(state => ({
+  const { addAlert, scannerResults, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics } = useTradingStore(state => ({
     addAlert: state.addAlert,
     scannerResults: state.scannerResults,
     isThrottled: state.isThrottled,
     wsStatus: state.wsStatus,
     isSyncingOnResume: state.isSyncingOnResume,
-    sessionActive: state.sessionActive
+    sessionActive: state.sessionActive,
+    lifetimeAnalytics: state.lifetimeAnalytics,
+    fetchLifetimeAnalytics: state.fetchLifetimeAnalytics
   }));
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
@@ -694,6 +696,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     }
     checkConfig()
   }, [])
+
+  // Fetch lifetime analytics for the current mode
+  useEffect(() => {
+    if (fetchLifetimeAnalytics) {
+      const mode = cfg.trading_mode || (cfg.paper_mode ? 'paper' : 'live');
+      fetchLifetimeAnalytics(mode);
+    }
+  }, [fetchLifetimeAnalytics, cfg.trading_mode, cfg.paper_mode]);
 
   const setField = React.useCallback((key, value) => {
     setIsDirty(true);

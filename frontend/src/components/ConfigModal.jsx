@@ -1366,6 +1366,85 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 ))}
               </div>
             </CollapsibleSection>
+
+            <CollapsibleSection id="strategy_timeframes" icon={Clock} title="Multi-Timeframe Overrides" subtitle="Signal-specific timeframe overlays">
+              {(() => {
+                const activeEntrySignals = cfg.enabled_signals || [];
+                const activeExitSignals = cfg.exit_signals || [];
+                const allActiveSignals = Array.from(new Set([...activeEntrySignals, ...activeExitSignals]));
+
+                if (allActiveSignals.length === 0) {
+                  return (
+                    <div className="flex flex-col items-center justify-center p-6 text-center border border-dashed border-border rounded-2xl bg-surface/30">
+                      <Clock className="text-dim mb-2 opacity-50" size={20} />
+                      <span className="text-[10px] text-dim font-bold uppercase tracking-wider">No Active Signals</span>
+                      <p className="text-[9px] text-dim/80 mt-1 max-w-xs">
+                        Enable Entry or Exit signals above to configure custom timeframe overrides for them.
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {allActiveSignals.map((signalKey) => {
+                      const sigInfo = SIGNALS.find(s => s[0] === signalKey);
+                      const label = sigInfo ? sigInfo[1] : signalKey;
+
+                      const isEntry = activeEntrySignals.includes(signalKey);
+                      const isExit = activeExitSignals.includes(signalKey);
+
+                      let usage = '';
+                      if (isEntry && isExit) usage = 'Entry & Exit';
+                      else if (isEntry) usage = 'Entry Only';
+                      else if (isExit) usage = 'Exit Only';
+
+                      const value = (cfg.signal_timeframes || {})[signalKey];
+
+                      return (
+                        <div key={signalKey} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-surface border border-border rounded-xl hover:border-border-hover transition-all">
+                          <div className="flex flex-col items-start text-left">
+                            <span className="text-xs font-bold text-text">{label}</span>
+                            <span className="text-[9px] text-accent font-black tracking-wider uppercase mt-0.5">{usage}</span>
+                          </div>
+                          <div className="relative flex items-center">
+                            <select
+                              value={value || 'default'}
+                              aria-label={`Timeframe override for ${label}`}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                const current = cfg.signal_timeframes || {};
+                                const updated = { ...current };
+                                if (val === 'default') {
+                                  delete updated[signalKey];
+                                } else {
+                                  updated[signalKey] = val;
+                                }
+                                setField('signal_timeframes', updated);
+                              }}
+                              className="bg-background border border-border rounded-lg pl-3 pr-8 py-1 text-[11px] font-bold text-text focus:border-accent outline-none appearance-none cursor-pointer transition-all hover:border-border-hover h-8"
+                            >
+                              <option value="default">Default ({cfg.scan_interval || 'Default'})</option>
+                              <option value="1m">1m</option>
+                              <option value="3m">3m</option>
+                              <option value="5m">5m</option>
+                              <option value="15m">15m</option>
+                              <option value="30m">30m</option>
+                              <option value="1h">1h</option>
+                              <option value="4h">4h</option>
+                              <option value="1d">1d</option>
+                            </select>
+                            <div className="absolute right-2.5 pointer-events-none text-dim">
+                              <ChevronDown size={12} />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </CollapsibleSection>
           </div>
         )}
 

@@ -42,29 +42,29 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
                 transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[10110] outline-none w-[calc(100%-2rem)] max-w-md bg-surface border border-border rounded-2xl p-6 shadow-2xl overflow-hidden"
+                className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[10110] outline-none w-[calc(100%-2rem)] max-w-md bg-surface border border-border rounded-xl p-4 md:p-5 shadow-2xl overflow-hidden"
               >
-                  <div className="flex justify-between items-start mb-4">
+                  <div className="flex justify-between items-start mb-2.5">
                     <div className={cn(
-                      "w-10 h-10 rounded-full flex items-center justify-center",
+                      "w-8 h-8 rounded-full flex items-center justify-center",
                       variant === 'danger' ? "bg-red/10 text-red" : "bg-accent/10 text-accent"
                     )}>
-                      <AlertTriangle size={20} />
+                      <AlertTriangle size={16} />
                     </div>
                     <Tooltip content="Close">
                       <Dialog.Close asChild>
                         <button
-                          className="text-dim hover:text-text p-2 hover:bg-white/5 rounded-xl transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                          className="text-dim hover:text-text p-1.5 hover:bg-white/5 rounded-lg transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                           aria-label="Close"
                         >
-                          <X size={20} />
+                          <X size={16} />
                         </button>
                       </Dialog.Close>
                     </Tooltip>
                   </div>
 
-                  <Dialog.Title id={titleId} className="text-lg font-bold mb-2">{title}</Dialog.Title>
-                  <Dialog.Description id={descriptionId} className="text-sm text-dim leading-relaxed mb-6">
+                  <Dialog.Title id={titleId} className="text-md font-bold mb-1.5">{title}</Dialog.Title>
+                  <Dialog.Description id={descriptionId} className="text-xs text-dim leading-relaxed mb-4">
                     {message}
                   </Dialog.Description>
 

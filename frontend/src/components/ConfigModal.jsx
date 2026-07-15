@@ -25,18 +25,18 @@ const CollapsibleSection = ({ id, icon, title, subtitle, children, defaultOpen =
   };
 
   return (
-    <section className="bg-background/40 rounded-2xl border border-border/40 overflow-hidden transition-all">
+    <section className="bg-background/40 rounded-xl border border-border/40 overflow-hidden transition-all">
       <button
         type="button"
         onClick={toggle}
-        className="w-full flex items-center justify-between p-4 hover:bg-white/[0.02] transition-colors group"
+        className="w-full flex items-center justify-between p-2.5 hover:bg-white/[0.02] transition-colors group"
       >
         <SectionHeader icon={icon} title={title} subtitle={subtitle} className="mb-0" />
         <div className={cn(
-          "w-8 h-8 rounded-lg border border-border/40 flex items-center justify-center text-dim transition-all group-hover:border-accent/40 group-hover:text-accent",
+          "w-6 h-6 rounded-md border border-border/40 flex items-center justify-center text-dim transition-all group-hover:border-accent/40 group-hover:text-accent",
           isOpen && "rotate-180 bg-accent/5 border-accent/20 text-accent"
         )}>
-          <ChevronDown size={16} />
+          <ChevronDown size={14} />
         </div>
       </button>
       <AnimatePresence initial={false}>
@@ -47,7 +47,7 @@ const CollapsibleSection = ({ id, icon, title, subtitle, children, defaultOpen =
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.3, ease: "easeInOut" }}
           >
-            <div className="p-4 pt-0 border-t border-border/5">
+            <div className="p-3 pt-0 border-t border-border/5">
               {children}
             </div>
           </motion.div>
@@ -82,13 +82,13 @@ const SIGNALS = [
 ]
 
 const SectionHeader = React.memo(({ icon: Icon, title, subtitle, className }) => (
-  <div className={cn("flex items-center gap-3 mb-4", className)}>
-    <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
-      <Icon size={18} />
+  <div className={cn("flex items-center gap-2 mb-2", className)}>
+    <div className="w-6 h-6 rounded-md bg-accent/10 flex items-center justify-center text-accent">
+      <Icon size={14} />
     </div>
     <div className="text-left">
-      <h3 className="text-sm font-bold uppercase tracking-tight">{title}</h3>
-      {subtitle && <p className="text-[10px] text-dim font-medium uppercase">{subtitle}</p>}
+      <h3 className="text-xs font-bold uppercase tracking-tight">{title}</h3>
+      {subtitle && <p className="text-[9px] text-dim font-medium uppercase">{subtitle}</p>}
     </div>
   </div>
 ))
@@ -135,9 +135,9 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
   };
 
   return (
-    <div className="flex flex-col gap-1.5 group/field">
+    <div className="flex flex-col gap-1 group/field">
       <div className="flex justify-between items-center">
-        <label htmlFor={id} className="text-[10px] text-dim group-hover/field:text-accent font-black tracking-widest uppercase transition-colors">{label}</label>
+        <label htmlFor={id} className="text-[9px] text-dim group-hover/field:text-accent font-black tracking-widest uppercase transition-colors">{label}</label>
         {error && <span role="alert" className="text-[9px] text-red font-bold uppercase">{error}</span>}
         {warning && !error && <span role="alert" className="text-[9px] text-amber font-bold uppercase">{warning}</span>}
       </div>
@@ -146,7 +146,7 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
           id={id}
           value={localValue ?? ''}
           onChange={handleSelectChange}
-          className="bg-surface border border-border rounded-xl px-4 py-2.5 text-sm font-bold text-text focus:border-accent outline-none appearance-none transition-all cursor-pointer hover:border-border-hover"
+          className="bg-surface border border-border rounded-lg px-3 py-1.5 text-xs font-bold text-text focus:border-accent outline-none appearance-none transition-all cursor-pointer hover:border-border-hover"
         >
           {opts.map((o) => {
             const val = typeof o === 'string' ? o : o.value;
@@ -163,7 +163,7 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
           onChange={handleChange}
           onBlur={(e) => { commit(); attrs.onBlur?.(e); }}
           onKeyDown={(e) => { if (e.key === 'Enter') commit(); }}
-          className="bg-surface border border-border rounded-xl px-4 py-2.5 text-sm font-mono font-bold text-text focus:border-accent outline-none transition-all hover:border-border-hover"
+          className="bg-surface border border-border rounded-lg px-3 py-1.5 text-xs font-mono font-bold text-text focus:border-accent outline-none transition-all hover:border-border-hover"
         />
       )}
     </div>
@@ -1032,24 +1032,24 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   return (
     <div className="flex flex-col h-full bg-surface text-text overflow-hidden relative">
       <div className="sticky top-0 z-30 bg-surface/80 backdrop-blur-md border-b border-border">
-        <div className="p-5 flex justify-between items-center">
+        <div className="py-3 px-4 flex justify-between items-center">
           <div className="min-w-0 flex-1 mr-4">
-             <div className="text-lg font-black tracking-tight truncate uppercase flex items-center gap-2">
+             <div className="text-md font-black tracking-tight truncate uppercase flex items-center gap-2">
                {cfg.strategy_label || 'Configure Engine'}
-               {isDirty && <span className="w-2 h-2 rounded-full bg-accent animate-pulse shrink-0" />}
+               {isDirty && <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />}
              </div>
-             <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2 truncate">
+             <div className="text-[9px] text-dim font-bold uppercase tracking-widest flex items-center gap-1.5 truncate">
                {showResumingFeedback ? (
-                 <span className="text-accent flex items-center gap-1.5 shrink-0">
-                   <RefreshCw size={10} className="animate-spin" /> Resuming Feed...
+                 <span className="text-accent flex items-center gap-1 shrink-0">
+                   <RefreshCw size={9} className="animate-spin" /> Resuming Feed...
                  </span>
                ) : isDirty ? (
-                 <span className="text-accent flex items-center gap-1.5 shrink-0">
-                   <Activity size={10} className="animate-pulse" /> Unsaved Changes
+                 <span className="text-accent flex items-center gap-1 shrink-0">
+                   <Activity size={9} className="animate-pulse" /> Unsaved Changes
                  </span>
                ) : (
-                 <span className="flex items-center gap-1.5 shrink-0">
-                   <ShieldCheck size={10} className="text-green/60" /> Strategy Synced
+                 <span className="flex items-center gap-1 shrink-0">
+                   <ShieldCheck size={9} className="text-green/60" /> Strategy Synced
                  </span>
                )}
                <span className="opacity-40">/</span>
@@ -1057,19 +1057,19 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
              </div>
           </div>
           <Tooltip content="Close Configuration">
-            <button type="button" onClick={onClose} aria-label="Close Configuration" className="p-2 hover:bg-white/5 rounded-full transition-colors shrink-0"><X size={18} className="text-dim" /></button>
+            <button type="button" onClick={onClose} aria-label="Close Configuration" className="p-1.5 hover:bg-white/5 rounded-full transition-colors shrink-0"><X size={16} className="text-dim" /></button>
           </Tooltip>
         </div>
         <SectionTabs section={section} onSectionChange={setSection} errors={errors} />
       </div>
 
-      <div className="flex-1 overflow-y-auto no-scrollbar p-4 md:p-6 pb-32 overscroll-contain" data-vaul-no-drag>
+      <div className="flex-1 overflow-y-auto no-scrollbar p-3 md:p-4 pb-24 overscroll-contain" data-vaul-no-drag>
         {section === 'scan' && (
           <div
             id="config-panel-scan"
             role="tabpanel"
             aria-labelledby="config-tab-scan"
-            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
+            className="space-y-3 animate-in fade-in duration-300"
           >
             <CollapsibleSection id="scan_general" icon={Settings2} title="General" subtitle="Basic strategy identification">
               {renderField('Strategy label', 'strategy_label', 'text', null, { placeholder: 'Momentum Strategy' })}

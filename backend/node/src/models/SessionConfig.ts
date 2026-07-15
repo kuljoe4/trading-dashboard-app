@@ -253,6 +253,10 @@ export class SessionConfig {
   @IsOptional()
   exit_signal_delays?: Record<string, number> = {};
 
+  @IsObject()
+  @IsOptional()
+  signal_timeframes?: Record<string, string> = {};
+
   // Risk Management
   @IsNumber()
   @Min(CONFIG_LIMITS.RISK_PER_TRADE_MIN)

@@ -40,7 +40,7 @@ export class SignalEngineService {
 
   private readonly signalHandlers: Record<
     string,
-    (symbol: string, config: any, interval: string, side?: 'LONG' | 'SHORT', purpose?: 'entry' | 'exit', candles?: Candle[]) => boolean | SignalDetail
+    (symbol: string, config: any, interval: string, side?: 'LONG' | 'SHORT', purpose?: 'entry' | 'exit', candles?: Candle[], minimal?: boolean) => boolean | SignalDetail
   > = {
     momentum_pct: this.momentumPctSignal.bind(this),
     breakout_hl: this.breakoutHlSignal.bind(this),
@@ -120,11 +120,7 @@ export class SignalEngineService {
       };
     }
 
-    const firedSignals: string[] = [];
-    const failedSignals: string[] = [];
-    const details: Record<string, SignalDetail> = {};
     const logic = config.signal_logic || 'all';
-
     const candles = this.klineStore.getRawCandles(symbol, interval);
 
     // Warm-up check for technical indicators
@@ -135,7 +131,7 @@ export class SignalEngineService {
           allFired: false,
           firedSignals: [],
           reason: `Indicator warm-up in progress (${candles.length}/${requiredWarmup} candles)`,
-          details: {
+          details: minimal ? undefined : {
             warmup: {
               fired: false,
               value: candles.length,
@@ -150,41 +146,55 @@ export class SignalEngineService {
       }
     }
 
+    // BOLT OPTIMIZATION: Avoid array/object allocations when minimal mode is active
+    const firedSignals: string[] = minimal ? [] : [];
+    const failedSignals: string[] = minimal ? [] : [];
+    const details: Record<string, SignalDetail> = minimal ? {} : {};
+
     for (const signalType of config.enabled_signals) {
       const handler = this.signalHandlers[signalType];
       if (!handler) {
-        failedSignals.push(signalType);
-        if (minimal && logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
+        if (minimal) {
+          if (logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
+        } else {
+          failedSignals.push(signalType);
+        }
         continue;
       }
 
       try {
-        const result = handler(symbol, config, interval, side, purpose, candles);
+        const result = handler(symbol, config, interval, side, purpose, candles, minimal);
         const fired = typeof result === 'boolean' ? result : result.fired;
         
-        if (!minimal && typeof result !== 'boolean') {
-          details[signalType] = result;
-        }
-
-        if (fired) {
-          firedSignals.push(signalType);
-          if (minimal && logic === 'any') return { allFired: true, firedSignals: [], reason: 'minimal' };
+        if (!minimal) {
+          if (typeof result !== 'boolean') details[signalType] = result;
+          if (fired) firedSignals.push(signalType);
+          else failedSignals.push(signalType);
         } else {
-          failedSignals.push(signalType);
-          if (minimal && logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
+          // Early exit if logic is satisfied
+          if (fired && logic === 'any') return { allFired: true, firedSignals: [], reason: 'minimal' };
+          if (!fired && logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
         }
       } catch (error) {
         this.logger.warn(`Signal ${signalType} error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
-        failedSignals.push(signalType);
-        if (minimal && logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
+        if (minimal) {
+          if (logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
+        } else {
+          failedSignals.push(signalType);
+        }
       }
+    }
+
+    if (minimal) {
+      // If we finished the loop in minimal mode:
+      // - any: none fired -> false
+      // - all: all fired -> true
+      return { allFired: logic === 'all', firedSignals: [], reason: 'minimal' };
     }
 
     const allFired = logic === 'any'
       ? firedSignals.length > 0
       : failedSignals.length === 0;
-
-    if (minimal) return { allFired, firedSignals: [], reason: 'minimal' };
 
     const reason =
       `Signals fired: ${firedSignals.length}/${config.enabled_signals.length}` +
@@ -201,7 +211,8 @@ export class SignalEngineService {
     side?: 'LONG' | 'SHORT',
     purpose?: 'entry' | 'exit',
     passedCandles?: Candle[],
-  ): SignalDetail {
+    minimal?: boolean,
+  ): boolean | SignalDetail {
     const lookback = Math.max(config.scan_lookback || 3, 1);
     const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
     const threshold = config.scan_pct_threshold || 0;
@@ -222,6 +233,8 @@ export class SignalEngineService {
     const last = candles[candles.length - 1].close;
     const pct = ((last - first) / first) * 100;
     const fired = Math.abs(pct) >= threshold;
+
+    if (minimal) return fired;
     
     return {
       fired,
@@ -244,7 +257,8 @@ export class SignalEngineService {
     side?: 'LONG' | 'SHORT',
     purpose?: 'entry' | 'exit',
     passedCandles?: Candle[],
-  ): SignalDetail {
+    minimal?: boolean,
+  ): boolean | SignalDetail {
     const lookback = Math.max(config.scan_lookback || 3, 2);
     const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
     
@@ -269,6 +283,8 @@ export class SignalEngineService {
     const target = isLong ? minLow : maxHigh; // Target for EXIT is the opposite side of the range
     const fired = isLong ? current.close <= target : current.close >= target;
 
+    if (minimal) return fired;
+
     return {
       fired,
       value: roundTo(current.close, 4),
@@ -290,7 +306,8 @@ export class SignalEngineService {
     side?: 'LONG' | 'SHORT',
     purpose?: 'entry' | 'exit',
     passedCandles?: Candle[],
-  ): SignalDetail {
+    minimal?: boolean,
+  ): boolean | SignalDetail {
     try {
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
       const lookback = Math.max(config.engulfing_lookback || 1, 1);
@@ -457,12 +474,14 @@ export class SignalEngineService {
 
       const predictedSl = side === 'LONG' ? aggregateLow : aggregateHigh;
 
+      if (minimal) return fired;
+
       return {
         fired,
         value: (closeOnlyMode || softMode) ? curr.close : (fired ? 1 : 0),
         threshold: (closeOnlyMode || softMode) ? threshold : 1,
         unit: (closeOnlyMode || softMode) ? 'price' : 'bool',
-        metric: (closeOnlyMode || softMode) ? 'Close Breakout' : 'Engulfing',
+        metric: (closeOnlyMode || softMode) ? 'Close Engulf' : 'Engulfing',
         description: fired
           ? (softMode ? `Live candle broke through ${streakReq}-candle cluster` : closeOnlyMode ? `Closed candle close-engulfed ${streakReq}-candle streak` : `Engulfing pattern (${mode}) detected`)
           : (reason || 'No engulfing pattern'),
@@ -490,7 +509,8 @@ export class SignalEngineService {
     side?: 'LONG' | 'SHORT',
     purpose?: 'entry' | 'exit',
     passedCandles?: Candle[],
-  ): SignalDetail {
+    minimal?: boolean,
+  ): boolean | SignalDetail {
     try {
       const period = parseInt(config.signal_params?.ma_period || '20', 10);
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
@@ -504,6 +524,8 @@ export class SignalEngineService {
       const diff = currClose - ma;
       const prevDiff = prevClose - ma;
       const fired = (prevDiff <= 0 && diff > 0) || (prevDiff >= 0 && diff < 0);
+
+      if (minimal) return fired;
       
       return {
         fired,
@@ -528,7 +550,8 @@ export class SignalEngineService {
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
     passedCandles?: Candle[],
-  ): SignalDetail {
+    minimal?: boolean,
+  ): boolean | SignalDetail {
     try {
       const params = config.signal_params || {};
       const period = purpose === 'exit'
@@ -556,6 +579,8 @@ export class SignalEngineService {
         else fired = false;
       }
 
+      if (minimal) return fired;
+
       return {
         fired,
         value: roundTo(currClose, 2),
@@ -580,7 +605,8 @@ export class SignalEngineService {
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
     passedCandles?: Candle[],
-  ): SignalDetail {
+    minimal?: boolean,
+  ): boolean | SignalDetail {
     try {
       const params = config.signal_params || {};
       const fastPeriod = purpose === 'exit'
@@ -617,6 +643,8 @@ export class SignalEngineService {
         else fired = false;
       }
 
+      if (minimal) return fired;
+
       return {
         fired,
         value: roundTo(currFast, 2),
@@ -646,7 +674,8 @@ export class SignalEngineService {
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
     passedCandles?: Candle[],
-  ): SignalDetail {
+    minimal?: boolean,
+  ): boolean | SignalDetail {
     try {
       const params = config.signal_params || {};
       const fastPeriod = purpose === 'exit'
@@ -696,6 +725,8 @@ export class SignalEngineService {
         else fired = false;
       }
 
+      if (minimal) return fired;
+
       return {
         fired,
         value: roundTo(completedClose, 2),
@@ -731,7 +762,8 @@ export class SignalEngineService {
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
     passedCandles?: Candle[],
-  ): SignalDetail {
+    minimal?: boolean,
+  ): boolean | SignalDetail {
     try {
       const params = config.signal_params || {};
       const period = purpose === 'exit'
@@ -767,6 +799,8 @@ export class SignalEngineService {
         else if (side === 'SHORT') fired = completedClose > ema;
         else fired = false;
       }
+
+      if (minimal) return fired;
 
       return {
         fired,

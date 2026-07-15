@@ -45,7 +45,7 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
         <div className="flex flex-col gap-1 min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-black font-mono tracking-tight shrink-0">{trade.symbol}</span>
-            <CopyButton value={trade.symbol} tooltip="Copy Symbol" className="opacity-0 group-hover/trade:opacity-100 focus-visible:opacity-100 -ml-1 scale-75" />
+            <CopyButton value={trade.symbol} tooltip="Copy Symbol" className="opacity-0 group-hover/trade:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 -ml-1 scale-75" />
             <span className={cn("text-[8px] font-black px-1.5 py-0.5 rounded border uppercase shrink-0", isLong ? "text-green border-green/20 bg-green/5" : "text-red border-red/20 bg-red/5")}>
               {trade.direction}
             </span>
@@ -226,7 +226,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
               </a>
               <div className="flex items-center gap-1">
                 <span className="text-[10px] text-dim font-mono bg-background/50 px-2 py-0.5 rounded border border-border/50">#{session.id.substring(0, 8)}</span>
-                <CopyButton value={session.id} tooltip="Copy Session ID" className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100" />
+                <CopyButton value={session.id} tooltip="Copy Session ID" className="opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 focus-visible:opacity-100" />
               </div>
               {session.paperMode && <PaperBadge />}
             </div>
@@ -859,10 +859,10 @@ export const HistoryView = () => {
                         aria-controls="orphans-list"
                         onClick={() => setOrphansExpanded(!orphansExpanded)}
                         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setOrphansExpanded(!orphansExpanded))}
-                        className="p-5 flex items-center justify-between cursor-pointer hover:bg-surface/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset"
+                        className="p-5 flex items-center justify-between cursor-pointer hover:bg-surface/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset group"
                       >
                         <div className="flex items-center gap-4">
-                          <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center border transition-colors", orphansExpanded ? "bg-accent/10 border-accent/20" : "bg-surface border-border")}>
+                          <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center border transition-colors group-focus-visible:border-accent/30", orphansExpanded ? "bg-accent/10 border-accent/20" : "bg-surface border-border")}>
                             {orphansExpanded ? <ChevronDown size={20} className="text-accent" /> : <ChevronRight size={20} className="text-dim" />}
                           </div>
                           <div>

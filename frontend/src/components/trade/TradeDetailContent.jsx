@@ -305,7 +305,18 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       // Proximity should represent how "filled" the condition is.
       // If value is 0 and threshold is 10, distPct should be 0.
       // If value is 10 and threshold is 10, distPct should be 100.
-      const rawDistPct = threshold !== 0 ? (Math.abs(value) / Math.abs(threshold)) * 100 : 0
+      // DIRECTION-AWARE: If value and threshold have opposite signs (opposite momentum direction), proximity is 0.
+      let rawDistPct = 0;
+      if (s.fired) {
+        rawDistPct = 100;
+      } else if (threshold !== 0) {
+        const hasOppositeSign = (value > 0 && threshold < 0) || (value < 0 && threshold > 0);
+        if (hasOppositeSign) {
+          rawDistPct = 0;
+        } else {
+          rawDistPct = (Math.abs(value) / Math.abs(threshold)) * 100;
+        }
+      }
       const distPct = s.insufficientData ? 0 : Math.min(100, Math.max(0, rawDistPct))
 
       acc[key] = {

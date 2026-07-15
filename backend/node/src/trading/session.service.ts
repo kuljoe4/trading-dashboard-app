@@ -2189,13 +2189,13 @@ export class SessionService implements OnModuleInit {
     });
 
     // 3. Calculate analytics using the full trade set
-    // We assume the very first starting balance was 10000 for paper, and 0 (initial tracking) for real
+    // We assume the very first starting balance was 10000 for paper, and 10000 for live if history is empty, to prevent division-by-zero or astronomical drawdowns.
     const startingBalance =
       mode === "paper"
         ? 10000
         : history.length > 0
           ? Number(history[0].balance) - Number(history[0].pnl)
-          : 0;
+          : 10000;
     const analytics = this.analyticsService.calculateAnalytics(
       filteredTrades as any,
       startingBalance,

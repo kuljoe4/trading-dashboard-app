@@ -60,7 +60,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         "bg-surface border border-border/40 rounded-2xl p-4 md:p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.98] group relative overflow-hidden",
         isResuming && "opacity-80 border-accent/20 bg-accent/[0.01]"
       )}
-      aria-label={`View details for ${trade.symbol} ${trade.direction} trade, ${fmtUSD(trade.pnl)} P&L, ${Number(trade.rr || 0).toFixed(2)} RR`}
+      aria-label={`View details for ${trade.symbol} ${trade.direction} trade, P&L is ${fmtUSD(trade.pnl)}, live risk-to-reward is ${Number(trade.rr || 0).toFixed(2)}R, peak risk-to-reward is ${Number(trade.max_rr || trade.rr || 0).toFixed(2)}R`}
     >
       {showResumingFeedback && (
         <div className="absolute inset-0 bg-accent/5 backdrop-blur-[1px] z-10 flex items-center justify-center pointer-events-none">
@@ -106,8 +106,11 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           </Tooltip>
           <div className="flex items-center gap-2">
             <Tooltip content={`Current RR: ${Number(trade.rr || 0).toFixed(2)}R | Peak RR: ${Number(trade.max_rr || trade.rr || 0).toFixed(2)}R`}>
-              <span className="text-[10px] md:text-[11px] font-black font-mono text-dim/60 uppercase tracking-widest cursor-help flex items-center gap-1">
-                {Number(trade.rr || 0).toFixed(2)}R <span className="text-[9px] opacity-40 font-bold">(Peak: {Number(trade.max_rr || trade.rr || 0).toFixed(2)}R)</span>
+              <span
+                className="text-[10px] md:text-[11px] font-black font-mono text-dim/60 uppercase tracking-widest cursor-help flex items-center gap-1"
+                aria-label={`Live risk-to-reward is ${Number(trade.rr || 0).toFixed(2)}R, Peak risk-to-reward is ${Number(trade.max_rr || trade.rr || 0).toFixed(2)}R`}
+              >
+                {Number(trade.rr || 0).toFixed(2)}R <span className="text-[9px] opacity-40 font-bold" aria-hidden="true">(Peak: {Number(trade.max_rr || trade.rr || 0).toFixed(2)}R)</span>
               </span>
             </Tooltip>
             {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (

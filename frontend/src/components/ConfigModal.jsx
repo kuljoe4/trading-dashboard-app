@@ -913,6 +913,65 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     }
   }, [addAlert]);
 
+  const handleExportToFile = React.useCallback(() => {
+    try {
+      const configToSave = buildConfigToSave();
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(configToSave, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      const filename = `${(configToSave.strategy_label || 'momentum_strategy').replace(/\s+/g, '_').toLowerCase()}_config.json`;
+      downloadAnchor.setAttribute("download", filename);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      addAlert({ level: 'success', title: 'Export Successful', message: `Configuration exported as ${filename}.` });
+    } catch (e) {
+      console.error('[ConfigModal] Export failed:', e);
+      addAlert({ level: 'error', title: 'Export Failed', message: 'Could not export configuration.' });
+    }
+  }, [buildConfigToSave, addAlert]);
+
+  const handleFileImport = React.useCallback((e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target.result);
+        const flattened = flattenConfig(parsed);
+        setCfg(flattened);
+        setIsDirty(true);
+        validate(flattened);
+        addAlert({ level: 'success', title: 'Import Successful', message: 'Configuration imported from file.' });
+      } catch (err) {
+        console.error('[ConfigModal] File import failed:', err);
+        addAlert({ level: 'error', title: 'Import Failed', message: 'Invalid JSON configuration file.' });
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }, [validate, addAlert]);
+
+  const handlePasteConfig = React.useCallback(async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) {
+        addAlert({ level: 'warn', title: 'Paste Failed', message: 'Clipboard is empty.' });
+        return;
+      }
+      const parsed = JSON.parse(text);
+      const flattened = flattenConfig(parsed);
+      setCfg(flattened);
+      setIsDirty(true);
+      validate(flattened);
+      addAlert({ level: 'success', title: 'Paste Successful', message: 'Configuration pasted from clipboard.' });
+    } catch (err) {
+      console.error('[ConfigModal] Paste failed:', err);
+      addAlert({ level: 'error', title: 'Paste Failed', message: 'Could not parse clipboard content as JSON.' });
+    }
+  }, [validate, addAlert]);
+
   const toggleVariant = React.useCallback((e, p) => {
     e.stopPropagation()
     const variants = cfg.strategy_variants || []

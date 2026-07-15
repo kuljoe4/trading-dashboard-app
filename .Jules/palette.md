@@ -41,3 +41,7 @@
 ## 2024-07-13 - Focusable Dashboard Metrics for Information Discovery
 **Learning:** High-density dashboard cards (like `StatCard`) often hide essential context in tooltips. Making these cards keyboard-focusable via `tabIndex={0}` only when tooltips are present ensures keyboard users can access the same informational depth as mouse users. Synchronizing focus visuals (`focus-visible`) with existing hover states maintains a cohesive aesthetic.
 **Action:** Use conditional `tabIndex` and `group-focus-visible` to reveal supplemental information on interactive dashboard components.
+
+## 2026-07-13 - Keyboard Discoverability for Hover-Only Utilities
+**Learning:** Utility elements like "Copy" buttons or keyboard shortcut hints that are hidden by default to maintain data density are often inaccessible to keyboard users. Synchronizing their visibility with both `hover` and `focus-visible`/`focus-within` states ensures parity between mouse and keyboard interaction models without cluttering the baseline UI.
+**Action:** Use `group-focus-visible:opacity-100` or `group-focus-within:opacity-100` on parent containers to reveal hidden utility children when they or their parent receive keyboard focus.

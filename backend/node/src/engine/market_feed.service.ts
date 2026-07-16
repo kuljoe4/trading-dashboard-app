@@ -72,7 +72,7 @@ export class MarketFeedService {
     });
 
     await waitForWs;
-    if (this.tickerCache.getCacheSize() === 0) await this.fetchInitialTickers();
+    if (this.tickerCache.getCacheSize() === 0) await this.fetchInitialTickers(restBase);
     this.startWatchlistManager(config);
   }
 
@@ -133,19 +133,24 @@ export class MarketFeedService {
 
   getSymbolFilters(symbol: string) { return this.exchangeInfo.get(symbol); }
 
-  private async fetchInitialTickers() {
+  private async fetchInitialTickers(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
     try {
       this.monitoringService.incrementApiRequests();
-      const response = await fetch(`${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/ticker/24hr`);
+      const response = await fetch(`${restBase}/fapi/v1/ticker/24hr`);
       this.updateWeight(response.headers);
-      if (response.ok) {
-        const tickers = await response.json();
-        if (Array.isArray(tickers)) {
-          const usdtTickers = tickers.filter(t => t.symbol.endsWith('USDT'));
-          this.tickerCache.bulkUpdate(usdtTickers);
-        }
+      if (!response.ok) {
+        this.logger.warn(`Initial ticker bootstrap failed from ${restBase}: HTTP ${response.status}`);
+        return;
       }
-    } catch (error) {}
+
+      const tickers = await response.json();
+      if (Array.isArray(tickers)) {
+        const usdtTickers = tickers.filter(t => t.symbol.endsWith('USDT'));
+        this.tickerCache.bulkUpdate(usdtTickers);
+      }
+    } catch (error) {
+      this.logger.error(`Initial ticker bootstrap failed from ${restBase}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private safeClose(ws: WebSocket | null) {
@@ -196,7 +201,6 @@ export class MarketFeedService {
       if (!this.running) return;
       const ws = new WebSocket(`${ENGINE_CONSTANTS.BINANCE_WS_BASE}/ws/!miniTicker@arr`, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
       ws.on('message', (data: Buffer) => {
-        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) return;
         try {
           const msg = JSON.parse(data as any);
           let tickers: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);

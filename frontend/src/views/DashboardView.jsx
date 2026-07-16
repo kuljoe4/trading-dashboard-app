@@ -1312,6 +1312,78 @@ export function DashboardView({ initialStrategy }) {
                       </div>
                     </div>
 
+                    {/* Risk-Width Initial SL Distance Insights */}
+                    {analytics?.riskWidthBuckets && analytics.riskWidthBuckets.length > 0 && (
+                      <div className="border-t border-border/20 pt-4 flex flex-col gap-3">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[10px] text-dim font-black uppercase tracking-widest">Initial SL Distance Insights</span>
+                          <span className="text-[9px] text-dim/60 font-bold uppercase tracking-wide">Performance and average hold time based on stop loss width</span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
+                          {analytics.riskWidthBuckets.map((b) => {
+                            const durationSeconds = Math.round(b.avgDurationMs / 1000);
+                            const durationMinutes = Math.floor(durationSeconds / 60);
+                            const durationHrs = Math.floor(durationMinutes / 60);
+                            const durationFormatted = durationHrs > 0
+                              ? `${durationHrs}h ${durationMinutes % 60}m`
+                              : durationMinutes > 0
+                                ? `${durationMinutes}m ${durationSeconds % 60}s`
+                                : `${durationSeconds}s`;
+
+                            const winRatePct = Math.round(b.winRate);
+                            const pfColor = b.profitFactor >= 2.0 ? 'text-green' :
+                                            b.profitFactor >= 1.0 ? 'text-accent' :
+                                            b.tradesCount > 0 ? 'text-red' : 'text-dim';
+
+                            const barColor = b.profitFactor >= 1.0 ? 'bg-green' : 'bg-red';
+
+                            return (
+                              <div
+                                key={b.label}
+                                tabIndex={0}
+                                className="bg-background/25 border border-border/20 rounded-xl p-3.5 flex flex-col gap-2 hover:border-accent/30 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+                                aria-label={`${b.label} risk bucket. ${b.tradesCount} trades, profit factor is ${b.profitFactor}, average hold time is ${durationFormatted}, win rate is ${winRatePct}%`}
+                              >
+                                <div className="flex justify-between items-start">
+                                  <span className="text-[10px] font-black uppercase tracking-wider text-text/80">{b.label}</span>
+                                  <span className="text-[9px] font-mono text-dim font-bold">{b.tradesCount} Trades</span>
+                                </div>
+
+                                <div className="flex items-baseline justify-between">
+                                  <div className="flex flex-col">
+                                    <span className="text-[8px] text-dim font-black uppercase tracking-widest">Profit Factor</span>
+                                    <span className={cn("text-xs font-black font-mono leading-none mt-1.5", pfColor)}>
+                                      {b.profitFactor.toFixed(2)} PF
+                                    </span>
+                                  </div>
+                                  <div className="flex flex-col items-end">
+                                    <span className="text-[8px] text-dim font-black uppercase tracking-widest">Avg Duration</span>
+                                    <span className="text-xs font-bold font-mono text-text/90 leading-none mt-1.5">
+                                      {durationFormatted}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Win Rate Progress Bar */}
+                                <div className="space-y-1 mt-1">
+                                  <div className="flex justify-between text-[8px] text-dim/60 font-bold font-mono">
+                                    <span>WIN RATE</span>
+                                    <span>{winRatePct}%</span>
+                                  </div>
+                                  <div className="h-1 bg-border/20 rounded-full overflow-hidden relative">
+                                    <div
+                                      className={cn("h-full rounded-full transition-all duration-700", barColor)}
+                                      style={{ width: `${winRatePct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                   </div>
 
                   {/* Right Column: Key Stats Grid */}

@@ -89,4 +89,36 @@ describe('AnalyticsService', () => {
     expect(result.avgLossPct).toBeCloseTo(0.5, 2);
     expect(result.expectancyPct).toBeCloseTo(0.25, 2); // (1 - 0.5) / 2
   });
+
+  it('calculates risk width buckets and hold time correctly', () => {
+    const trades = [
+      // Tight bucket: SL dist = 0.5%
+      { pnl: 10, status: 'CLOSED', entry_price: 100, initial_sl: 99.5, entry_ts: new Date('2023-01-01T10:00:00Z'), exit_ts: new Date('2023-01-01T10:05:00Z') },
+      // Medium bucket: SL dist = 1.0%
+      { pnl: -5, status: 'CLOSED', entry_price: 100, initial_sl: 99.0, entry_ts: new Date('2023-01-01T11:00:00Z'), exit_ts: new Date('2023-01-01T11:15:00Z') },
+      // Wide bucket: SL dist = 2.0%
+      { pnl: 30, status: 'CLOSED', entry_price: 100, initial_sl: 98.0, entry_ts: new Date('2023-01-01T12:00:00Z'), exit_ts: new Date('2023-01-01T13:00:00Z') },
+    ] as TradeEntity[];
+
+    const result = service.calculateAnalytics(trades, 10000);
+
+    expect(result.riskWidthBuckets).toBeDefined();
+    expect(result.riskWidthBuckets).toHaveLength(3);
+
+    const tight = result.riskWidthBuckets!.find(b => b.label.includes('Tight'));
+    const medium = result.riskWidthBuckets!.find(b => b.label.includes('Medium'));
+    const wide = result.riskWidthBuckets!.find(b => b.label.includes('Wide'));
+
+    expect(tight?.tradesCount).toBe(1);
+    expect(tight?.avgDurationMs).toBe(5 * 60 * 1000); // 5 minutes
+    expect(tight?.winRate).toBe(100);
+
+    expect(medium?.tradesCount).toBe(1);
+    expect(medium?.avgDurationMs).toBe(15 * 60 * 1000); // 15 minutes
+    expect(medium?.winRate).toBe(0);
+
+    expect(wide?.tradesCount).toBe(1);
+    expect(wide?.avgDurationMs).toBe(60 * 60 * 1000); // 60 minutes
+    expect(wide?.winRate).toBe(100);
+  });
 });

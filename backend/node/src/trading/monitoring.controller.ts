@@ -34,7 +34,8 @@ export class MonitoringController {
     const metrics = this.monitoringService.getMetrics();
     const rateLimit = this.sessionState.getBinanceRateLimit();
 
-    const isUdsHealthy = metrics.application.exchange_uds_status === 'CONNECTED';
+    const hasActiveSession = !!this.sessionState.config;
+    const isUdsHealthy = !hasActiveSession || metrics.application.exchange_uds_status === 'CONNECTED';
     const isWeightHealthy = (rateLimit.used_weight_1m / (rateLimit.weight_limit || 2400)) < 0.9;
 
     if (!isUdsHealthy) {
@@ -53,6 +54,6 @@ export class MonitoringController {
        }, HttpStatus.SERVICE_UNAVAILABLE);
     }
 
-    return { status: 'READY', uds: 'CONNECTED', weight: rateLimit.used_weight_1m };
+    return { status: 'READY', uds: hasActiveSession ? 'CONNECTED' : 'INACTIVE', weight: rateLimit.used_weight_1m };
   }
 }

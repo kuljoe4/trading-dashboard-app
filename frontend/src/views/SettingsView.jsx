@@ -44,7 +44,9 @@ export function SettingsView() {
     try {
       const res = await settingsAPI.validateKeys({
         api_key: apiKey,
-        testnet_api_key: testnetApiKey
+        api_secret: apiSecret,
+        testnet_api_key: testnetApiKey,
+        testnet_api_secret: testnetApiSecret
       })
       setValidationResults(res.data)
     } catch (e) {

@@ -57,15 +57,25 @@ export const calculatePerformanceMetrics = (trades = [], sessionBalance) => {
   const count = trades.length;
   if (count === 0) return { sharpe: 0, sortino: 0, profitFactor: 0, winRate: 0, wins: 0, totalPnl: 0, grossProfit: 0, grossLoss: 0 };
 
-  // Sort trades by exit time to replicate rolling balance correctly
-  const sorted = [...trades].sort((a, b) => {
-    const tsA = new Date(a.exit_ts || a.createdAt).getTime();
-    const tsB = new Date(b.exit_ts || b.createdAt).getTime();
-    return tsA - tsB;
-  });
-
+  // BOLT OPTIMIZATION: Single-pass pre-processing and loop fusion.
+  // We pre-calculate numeric values and timestamps once to avoid redundant property accesses
+  // and expensive Date object creation inside sort and calculation loops.
+  const processed = new Array(count);
   let totalNetPnL = 0;
-  for (let i = 0; i < count; i++) totalNetPnL += Number(trades[i].pnl || 0);
+
+  for (let i = 0; i < count; i++) {
+    const t = trades[i];
+    const pnl = Number(t.pnl || 0);
+    totalNetPnL += pnl;
+    processed[i] = {
+      pnl,
+      exitTs: new Date(t.exit_ts || t.createdAt).getTime(),
+      entryTs: new Date(t.entry_ts || t.createdAt).getTime()
+    };
+  }
+
+  // Numeric sort is significantly faster than Date object comparison
+  processed.sort((a, b) => a.exitTs - b.exitTs);
 
   // If sessionBalance is not provided, we estimate it backwards from total PnL
   // This matches the backend's effectiveStartingBalance logic.
@@ -79,8 +89,16 @@ export const calculatePerformanceMetrics = (trades = [], sessionBalance) => {
   let grossLoss = 0;
   let sumPnL = 0;
 
+  let maxWinStreak = 0;
+  let maxLossStreak = 0;
+  let currentWinStreak = 0;
+  let currentLossStreak = 0;
+  let totalDurationMs = 0;
+
+  // BOLT OPTIMIZATION: Fused three passes into a single O(N) iteration.
   for (let i = 0; i < count; i++) {
-    const pnl = Number(sorted[i].pnl || 0);
+    const t = processed[i];
+    const pnl = t.pnl;
     sumPnL += pnl;
 
     const tradeReturnPct = rollingBalance > 0 ? (pnl / rollingBalance) * 100 : 0;
@@ -89,35 +107,17 @@ export const calculatePerformanceMetrics = (trades = [], sessionBalance) => {
     sumReturnPct += tradeReturnPct;
     sumSquaredReturnPct += tradeReturnPct * tradeReturnPct;
 
+    if (t.entryTs && t.exitTs) totalDurationMs += (t.exitTs - t.entryTs);
+
     if (pnl > 0) {
       wins++;
       grossProfit += pnl;
-    } else if (pnl < 0) {
-      grossLoss += Math.abs(pnl);
-      downsideSumSquaredReturnPct += tradeReturnPct * tradeReturnPct;
-    }
-  }
-
-  // Calculate streaks and duration
-  let maxWinStreak = 0;
-  let maxLossStreak = 0;
-  let currentWinStreak = 0;
-  let currentLossStreak = 0;
-  let totalDurationMs = 0;
-
-  for (let i = 0; i < count; i++) {
-    const t = sorted[i];
-    const pnl = Number(t.pnl || 0);
-    const entryTs = new Date(t.entry_ts || t.createdAt).getTime();
-    const exitTs = new Date(t.exit_ts || t.createdAt).getTime();
-
-    if (entryTs && exitTs) totalDurationMs += (exitTs - entryTs);
-
-    if (pnl > 0) {
       currentWinStreak++;
       currentLossStreak = 0;
       if (currentWinStreak > maxWinStreak) maxWinStreak = currentWinStreak;
     } else if (pnl < 0) {
+      grossLoss += Math.abs(pnl);
+      downsideSumSquaredReturnPct += tradeReturnPct * tradeReturnPct;
       currentLossStreak++;
       currentWinStreak = 0;
       if (currentLossStreak > maxLossStreak) maxLossStreak = currentLossStreak;

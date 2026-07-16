@@ -39,8 +39,8 @@ const RRLadder = memo(({ trade }) => {
   }
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-4 md:p-6 shadow-sm">
-      <div className="flex justify-between items-center mb-4 md:mb-6">
+    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">
+      <div className="flex justify-between items-center mb-3 md:mb-5">
         <div className="flex items-center gap-2">
           <SectionLabel className="mb-0">
              <Zap size={14} className="text-accent" fill="currentColor" /> Guard Ladder
@@ -150,8 +150,8 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
   const criteriaMet = logic === 'all' ? allFired : satisfiedCount > 0;
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-3 md:p-6 shadow-sm flex flex-col">
-      <div className="flex items-center justify-between mb-3 md:mb-6">
+    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col">
+      <div className="flex items-center justify-between mb-2 md:mb-5">
         <div className="flex flex-col gap-0.5">
           <SectionLabel className={cn("mb-0 flex items-center gap-1.5", criteriaMet ? "text-red" : satisfiedCount > 0 ? "text-amber" : "text-dim")}>
             {criteriaMet ? <Zap size={11} className="fill-red" /> : satisfiedCount > 0 ? <Activity size={11} /> : <ShieldCheck size={11} />}
@@ -420,16 +420,50 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:gap-5">
          <div className="lg:col-span-2 space-y-3 md:space-y-4">
             <RRLadder trade={trade} />
+
+            {(trade.sl_adjustments || []).length > 0 && (
+              <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">
+                <SectionLabel className="mb-3 md:mb-5">
+                  <ShieldCheck size={14} className="text-accent" /> Risk Mitigation Log
+                </SectionLabel>
+                <div className="space-y-2">
+                  {(trade.sl_adjustments || []).slice(-3).reverse().map((adj, i) => (
+                    <div key={i} className="flex items-center justify-between text-[10px] bg-white/[0.02] border border-white/[0.05] p-3 md:p-4 rounded-2xl group/adj hover:border-accent/30 transition-colors">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-text/90">{price(adj.prev_sl)}</span>
+                          <span className="text-dim/30">→</span>
+                          <span className="font-mono font-bold text-accent">{price(adj.new_sl)}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                           <span className="text-dim/60 text-[9px] uppercase tracking-[0.1em]">{adj.reason}</span>
+                           {adj.adaptive && (
+                              <span className="bg-amber/10 text-amber px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter flex items-center gap-1 border border-amber/20">
+                                 <Activity size={8} /> Adaptive
+                              </span>
+                           )}
+                        </div>
+                      </div>
+                      {i === 0 && (
+                        <div className="flex flex-col items-end gap-1">
+                          <span className="bg-accent/10 text-accent px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-tighter">Current SL</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
          </div>
 
          <div className="space-y-3 md:space-y-4">
             <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} trade={trade} />
 
-            <div className="bg-surface border border-border rounded-2xl p-4 md:p-6 shadow-sm">
-              <SectionLabel className="mb-4 md:mb-6">
+            <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">
+              <SectionLabel className="mb-3 md:mb-5">
                  <Info size={14} className="text-accent" /> Technical Meta
               </SectionLabel>
-              <div className="space-y-1 md:space-y-4">
+              <div className="space-y-1 md:space-y-3.5">
                  {[
                    { label: 'TP Mode', value: trade.tp_mode === 'exp_rr_seq' ? 'Expansion RR' : 'Fixed Ratio' },
                     { label: 'Commission', value: fmtUSD(-(trade.realized_fee || 0)), color: 'text-red/70' },
@@ -472,7 +506,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                      color: 'text-accent'
                    }
                  ].filter(Boolean).map(item => (
-                   <div key={item.label} className="flex justify-between items-center py-1.5 md:py-3 border-b border-border/40 last:border-0">
+                   <div key={item.label} className="flex justify-between items-center py-1 md:py-2.5 border-b border-border/40 last:border-0">
                       <div className="flex items-center gap-1.5">
                         <span className="text-[9px] md:text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
                       </div>
@@ -487,40 +521,6 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                  ))}
               </div>
             </div>
-
-            {(trade.sl_adjustments || []).length > 0 && (
-              <div className="bg-surface border border-border rounded-2xl p-4 md:p-6 shadow-sm">
-                <SectionLabel className="mb-4 md:mb-6">
-                  <ShieldCheck size={14} className="text-accent" /> Risk Mitigation Log
-                </SectionLabel>
-                <div className="space-y-2">
-                  {(trade.sl_adjustments || []).slice(-3).reverse().map((adj, i) => (
-                    <div key={i} className="flex items-center justify-between text-[10px] bg-white/[0.02] border border-white/[0.05] p-3 md:p-4 rounded-2xl group/adj hover:border-accent/30 transition-colors">
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-text/90">{price(adj.prev_sl)}</span>
-                          <span className="text-dim/30">→</span>
-                          <span className="font-mono font-bold text-accent">{price(adj.new_sl)}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                           <span className="text-dim/60 text-[9px] uppercase tracking-[0.1em]">{adj.reason}</span>
-                           {adj.adaptive && (
-                              <span className="bg-amber/10 text-amber px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter flex items-center gap-1 border border-amber/20">
-                                 <Activity size={8} /> Adaptive
-                              </span>
-                           )}
-                        </div>
-                      </div>
-                      {i === 0 && (
-                        <div className="flex flex-col items-end gap-1">
-                          <span className="bg-accent/10 text-accent px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-tighter">Current SL</span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
          </div>
       </div>
 

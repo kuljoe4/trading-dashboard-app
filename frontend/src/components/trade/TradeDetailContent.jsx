@@ -56,22 +56,22 @@ const RRLadder = memo(({ trade }) => {
         </div>
       </div>
 
-      <div className="flex gap-4 overflow-x-auto no-scrollbar mb-4 md:mb-8 pb-2">
+      <div className="flex gap-4 overflow-x-auto no-scrollbar mb-3 md:mb-8 pb-2">
         {(triggers || []).map((trigger, i) => {
           const done = maxRR >= trigger
           const current = i === activeIdx
           return (
-            <div key={`${trigger}-${i}`} className="min-w-[80px] flex-1">
+            <div key={`${trigger}-${i}`} className="min-w-[60px] md:min-w-[80px] flex-1">
               <div className={cn(
-                "text-xs font-bold mb-3 text-center",
+                "text-[10px] md:text-xs font-bold mb-1.5 md:mb-3 text-center",
                 current ? "text-accent" : done ? "text-green" : "text-dim"
               )}>{trigger}R</div>
               <div className={cn(
-                "h-2 rounded-full transition-all duration-500",
+                "h-1.5 md:h-2 rounded-full transition-all duration-500",
                 done ? (current ? "bg-accent shadow-[0_0_10px_rgba(91,111,255,0.4)]" : "bg-green") : "bg-border"
               )} />
               <div className={cn(
-                "text-[10px] font-bold mt-3 uppercase tracking-widest text-center flex flex-col",
+                "text-[9px] md:text-[10px] font-bold mt-1.5 md:mt-3 uppercase tracking-widest text-center flex flex-col",
                 done ? "text-text" : "text-dim"
               )}>
                 <span>SL {exits[i] === 0 ? 'BE' : `${exits[i]}R`}</span>
@@ -84,21 +84,21 @@ const RRLadder = memo(({ trade }) => {
         })}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-6">
-        <div className="p-3 md:p-4 bg-background/40 rounded-xl border border-border">
-          <div className="text-[10px] text-dim font-bold uppercase tracking-widest mb-1">Live RR</div>
-          <div className={cn("text-xl font-mono font-bold", liveRR >= 0 ? "text-green" : "text-red")}>{fmt(liveRR, 2)}</div>
+      <div className="grid grid-cols-3 gap-2 md:gap-6">
+        <div className="p-2 md:p-4 bg-background/40 rounded-xl border border-border">
+          <div className="text-[8px] md:text-[10px] text-dim font-bold uppercase tracking-widest mb-0.5 md:mb-1">Live RR</div>
+          <div className={cn("text-sm md:text-xl font-mono font-bold", liveRR >= 0 ? "text-green" : "text-red")}>{fmt(liveRR, 2)}</div>
         </div>
-        <div className="p-3 md:p-4 bg-background/40 rounded-xl border border-border">
-          <div className="text-[10px] text-dim font-bold uppercase tracking-widest mb-1">Peak RR</div>
-          <div className="text-xl font-mono font-bold text-accent">{fmt(maxRR, 2)}</div>
+        <div className="p-2 md:p-4 bg-background/40 rounded-xl border border-border">
+          <div className="text-[8px] md:text-[10px] text-dim font-bold uppercase tracking-widest mb-0.5 md:mb-1">Peak RR</div>
+          <div className="text-sm md:text-xl font-mono font-bold text-accent">{fmt(maxRR, 2)}</div>
         </div>
-        <div className="p-3 md:p-4 bg-background/40 rounded-xl border border-border">
-          <div className="text-[10px] text-dim font-bold uppercase tracking-widest mb-1">Secured SL</div>
-          <div className="text-xl font-mono font-bold text-text flex flex-col">
+        <div className="p-2 md:p-4 bg-background/40 rounded-xl border border-border">
+          <div className="text-[8px] md:text-[10px] text-dim font-bold uppercase tracking-widest mb-0.5 md:mb-1">Secured SL</div>
+          <div className="text-sm md:text-xl font-mono font-bold text-text flex flex-col leading-tight">
             <span>{price(currentSl)}</span>
-            <span className={cn("text-[10px]", pnlClass(getEstPnl(currentSl)))}>
-              Est. {fmtUSD(getEstPnl(currentSl))}
+            <span className={cn("text-[7px] md:text-[10px]", pnlClass(getEstPnl(currentSl)))}>
+              {fmtUSD(getEstPnl(currentSl))}
             </span>
           </div>
         </div>
@@ -125,12 +125,13 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
       if (progress === 0) {
         if (s.fired && s.active) {
           progress = 100;
-        } else if (s.threshold_is_price) {
-          const totalDist = isLong ? (threshold - entryPrice) : (entryPrice - threshold);
-          const progressDist = isLong ? (mark - entryPrice) : (entryPrice - mark);
-          if (totalDist > 0) progress = Math.max(0, Math.min(100, (progressDist / totalDist) * 100));
+        } else if (s.threshold_is_price && threshold !== entryPrice) {
+          // Robust Proximity: (Mark - Entry) / (Target - Entry)
+          const totalDist = threshold - entryPrice;
+          const currentDist = mark - entryPrice;
+          progress = Math.max(0, Math.min(100, (currentDist / totalDist) * 100));
         } else {
-          // Direction-aware convergence check for momentum/oscillators
+          // Direction-aware proximity check for indicators
           const hasOppositeSign = (value > 0 && threshold < 0) || (value < 0 && threshold > 0);
           if (hasOppositeSign) {
             progress = 0;
@@ -204,7 +205,7 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
                 </div>
               </div>
 
-              {/* Enhanced Convergence Bar (SignalGauge Style) */}
+              {/* Enhanced Proximity Bar (SignalGauge Style) */}
               <div className="space-y-1.5">
                 <div className="flex justify-between items-end px-1">
                    <div className="flex items-center gap-2">
@@ -212,7 +213,7 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
                         "w-1.5 h-1.5 rounded-full",
                         isFired ? "bg-red animate-pulse" : s.fired ? "bg-amber" : "bg-accent"
                       )} />
-                      <span className="text-[9px] font-black text-dim uppercase tracking-widest">Convergence</span>
+                      <span className="text-[9px] font-black text-dim uppercase tracking-widest">Proximity</span>
                    </div>
                    <span className={cn(
                       "text-[10px] font-mono font-black",
@@ -428,11 +429,11 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
          <div className="space-y-3 md:space-y-4">
             <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} trade={trade} />
 
-            <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
-              <SectionLabel className="mb-6">
+            <div className="bg-surface border border-border rounded-2xl p-4 md:p-6 shadow-sm">
+              <SectionLabel className="mb-4 md:mb-6">
                  <Info size={14} className="text-accent" /> Technical Meta
               </SectionLabel>
-              <div className="space-y-4">
+              <div className="space-y-1 md:space-y-4">
                  {[
                    { label: 'TP Mode', value: trade.tp_mode === 'exp_rr_seq' ? 'Expansion RR' : 'Fixed Ratio' },
                     { label: 'Commission', value: fmtUSD(-(trade.realized_fee || 0)), color: 'text-red/70' },
@@ -475,7 +476,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                      color: 'text-accent'
                    }
                  ].filter(Boolean).map(item => (
-                   <div key={item.label} className="flex justify-between items-center py-3 border-b border-border/40 last:border-0">
+                   <div key={item.label} className="flex justify-between items-center py-2 md:py-3 border-b border-border/40 last:border-0">
                       <div className="flex items-center gap-1.5">
                         <span className="text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
                       </div>
@@ -492,13 +493,13 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
             </div>
 
             {(trade.sl_adjustments || []).length > 0 && (
-              <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
-                <SectionLabel className="mb-6">
+              <div className="bg-surface border border-border rounded-2xl p-4 md:p-6 shadow-sm">
+                <SectionLabel className="mb-4 md:mb-6">
                   <ShieldCheck size={14} className="text-accent" /> Risk Mitigation Log
                 </SectionLabel>
                 <div className="space-y-2">
                   {(trade.sl_adjustments || []).slice(-3).reverse().map((adj, i) => (
-                    <div key={i} className="flex items-center justify-between text-[10px] bg-white/[0.02] border border-white/[0.05] p-4 rounded-2xl group/adj hover:border-accent/30 transition-colors">
+                    <div key={i} className="flex items-center justify-between text-[10px] bg-white/[0.02] border border-white/[0.05] p-3 md:p-4 rounded-2xl group/adj hover:border-accent/30 transition-colors">
                       <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-2">
                           <span className="font-mono font-bold text-text/90">{price(adj.prev_sl)}</span>

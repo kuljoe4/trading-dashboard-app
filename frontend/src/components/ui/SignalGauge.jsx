@@ -2,6 +2,7 @@ import React from 'react'
 import { motion } from 'framer-motion'
 import { cn, Tooltip } from './primitives'
 import { Zap, Activity, Clock, CheckCircle2 } from 'lucide-react'
+import { price } from '../../lib/formatters'
 
 export const SignalGauge = React.memo(({
   label,
@@ -32,12 +33,12 @@ export const SignalGauge = React.memo(({
   if (!insufficientData) {
     if (isFired) {
       progress = 100
-    } else if (thresholdIsPrice && entryPrice && markPrice) {
-      const totalDist = isLong ? (numThreshold - entryPrice) : (entryPrice - numThreshold)
-      const progressDist = isLong ? (markPrice - entryPrice) : (entryPrice - markPrice)
-      if (totalDist > 0) {
-        progress = Math.max(0, Math.min(100, (progressDist / totalDist) * 100))
-      }
+    } else if (thresholdIsPrice && entryPrice && markPrice && numThreshold !== entryPrice) {
+      // Standardized Proximity: (Mark - Entry) / (Target - Entry)
+      // Handles both Long/Short and Profit/Exit targets naturally.
+      const totalDist = numThreshold - entryPrice
+      const currentDist = markPrice - entryPrice
+      progress = Math.max(0, Math.min(100, (currentDist / totalDist) * 100))
     } else if (numThreshold !== 0) {
       progress = Math.max(0, Math.min(100, (Math.abs(numValue) / Math.abs(numThreshold)) * 100))
     }
@@ -84,14 +85,14 @@ export const SignalGauge = React.memo(({
               )}
             </div>
             <span className="text-[9px] text-dim font-bold uppercase tracking-tight opacity-70">
-              {insufficientData ? 'Collecting data...' : `Target: ${numThreshold}${unit}`}
+              {insufficientData ? 'Collecting data...' : `Target: ${thresholdIsPrice ? price(numThreshold) : `${numThreshold}${unit}`}`}
             </span>
           </div>
         </div>
         <div className="flex flex-col items-end">
           <div className={cn("text-sm font-mono font-black tracking-tighter leading-none", isFired ? "text-red" : fired ? "text-amber" : "text-text")}>
-            {insufficientData ? '---' : Number(numValue).toFixed(numValue >= 100 ? 2 : 4)}
-            <span className="text-[9px] ml-0.5 opacity-40 font-bold">{unit}</span>
+            {insufficientData ? '---' : thresholdIsPrice ? price(numValue) : Number(numValue).toFixed(numValue >= 100 ? 2 : 4)}
+            {!thresholdIsPrice && <span className="text-[9px] ml-0.5 opacity-40 font-bold">{unit}</span>}
           </div>
           <div className={cn("mt-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border", status.color)}>
             {status.label}
@@ -101,7 +102,7 @@ export const SignalGauge = React.memo(({
 
       <div className="space-y-1.5">
         <div className="flex justify-between items-end px-1">
-          <span className="text-[8px] font-black text-dim uppercase tracking-widest">Convergence</span>
+          <span className="text-[8px] font-black text-dim uppercase tracking-widest">Proximity</span>
           <span className={cn("text-[9px] font-mono font-black", fired ? "text-green" : "text-text/80")}>
             {insufficientData ? '0.0' : Number(progress).toFixed(1)}%
           </span>

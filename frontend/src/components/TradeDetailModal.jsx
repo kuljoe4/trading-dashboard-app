@@ -8,7 +8,6 @@ import { useTradingStore } from '../store/trading'
 import { RefreshCw } from 'lucide-react'
 
 export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) => {
-  const [now, setNow] = useState(Date.now())
   const [isClosing, setIsClosing] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
   const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive } = useTradingStore(state => ({
@@ -24,18 +23,10 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
 
   useEffect(() => {
     if (!isOpen) return
-    const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => {
-      clearInterval(timer)
       setConfirmClose(false) // Reset confirm state when modal closes
     }
   }, [isOpen])
-
-  const duration = React.useMemo(() => {
-    if (!trade?.entry_ts) return '---'
-    const start = new Date(trade.entry_ts).getTime()
-    return formatDuration(now - start)
-  }, [trade?.entry_ts, now])
 
   if (!trade) return null
 
@@ -62,7 +53,7 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
         <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-4xl max-h-[90vh] overflow-y-auto no-scrollbar bg-surface/95 border border-border/50 rounded-xl p-3.5 md:p-5 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.6)] backdrop-blur-xl z-[101] animate-in fade-in zoom-in-95 duration-300 focus:outline-none">
           <VisuallyHidden>
             <Dialog.Description>
-              Detailed view of the active trade for {trade.symbol}, including P&L, duration, and exit signals.
+              Detailed view of the active trade for {trade.symbol}, including P&L and exit signals.
             </Dialog.Description>
           </VisuallyHidden>
           <Dialog.Title className="flex items-center justify-between mb-3 sticky -top-5 bg-surface/80 backdrop-blur-sm z-20 pb-2 pt-2">
@@ -84,15 +75,9 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
                       <RefreshCw size={9} className="animate-spin" /> Resuming Feed...
                     </span>
                   ) : (
-                    <>
-                      <span className={cn("px-1 py-0.5 rounded-full", isLong ? 'bg-green/10 text-green' : 'bg-red/10 text-red')}>
-                        {trade.direction}
-                      </span>
-                      <span className="text-dim/30">•</span>
-                      <span className="text-dim flex items-center gap-1">
-                        <Clock size={9} className="text-accent" /> {duration}
-                      </span>
-                    </>
+                    <span className={cn("px-1 py-0.5 rounded-full", isLong ? 'bg-green/10 text-green' : 'bg-red/10 text-red')}>
+                      {trade.direction}
+                    </span>
                   )}
                 </div>
               </div>

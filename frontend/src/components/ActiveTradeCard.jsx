@@ -2,16 +2,31 @@ import React, { useState, useEffect } from 'react'
 import { cn, Tooltip, CopyButton, MonitoredBadge } from './ui/primitives'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { sessionAPI } from '../api/client'
-import { ShieldCheck, RefreshCw } from 'lucide-react'
+import { ShieldCheck, RefreshCw, Clock } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { formatDuration } from '../lib/formatters'
 
 export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClick, isResuming, showResumingFeedback }) => {
+  const [now, setNow] = useState(Date.now())
+
+  useEffect(() => {
+    if (!trade.entry_ts) return
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [trade.entry_ts])
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
       onClick()
     }
   }
+
+  const duration = React.useMemo(() => {
+    if (!trade.entry_ts) return '---'
+    const start = new Date(trade.entry_ts).getTime()
+    return formatDuration(now - start)
+  }, [trade.entry_ts, now])
 
   const entry = Number(trade.entry_price || 0)
   const mark = Number(trade.mark_price || trade.last_price || 0)
@@ -90,6 +105,11 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             {trade.strategy_config?.trailing_stop_enabled && (
               <span className="bg-purple-400/10 border border-purple-400/25 text-purple-400 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1 animate-pulse shadow-[0_0_8px_rgba(168,85,247,0.15)]">
                 Trailing Active
+              </span>
+            )}
+            {trade.entry_ts && (
+              <span className="bg-accent/10 border border-accent/25 text-accent text-[8px] md:text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1">
+                <Clock size={10} className="text-accent" /> {duration}
               </span>
             )}
           </div>

@@ -136,6 +136,17 @@ export class KlineStoreService {
    * BOLT OPTIMIZATION: Calculate min/max extremes in a single pass with stable caching for completed candles.
    * This turns O(N) into O(1) for the vast majority of calls and eliminates hot-path string allocations/logging.
    */
+  private parseIntervalToMs(interval: string): number {
+    const unit = interval.slice(-1);
+    const value = parseInt(interval.slice(0, -1), 10);
+    switch (unit) {
+      case 'm': return value * 60 * 1000;
+      case 'h': return value * 60 * 60 * 1000;
+      case 'd': return value * 24 * 60 * 60 * 1000;
+      default: return 60 * 1000;
+    }
+  }
+
   getLookbackExtremes(
     symbol: string,
     interval: string,
@@ -144,15 +155,42 @@ export class KlineStoreService {
     const key = `${symbol}_${interval}`;
     const candles = this.klines.get(key) || [];
 
-    if (candles.length === 0) {
+    if (candles.length <= 1) {
       return { minLow: 0, maxHigh: 0 };
     }
 
-    // SRE: Exclude the current (incomplete) candle from structural lookback
-    // Indices: [length - period - 1, length - 1)
     const endIdx = candles.length - 1;
     const startIdx = Math.max(0, endIdx - period);
     const targetCandle = candles[endIdx - 1];
+
+    // SRE Debug: Observability checks for lookback freshness and time gaps
+    const expectedIntervalMs = this.parseIntervalToMs(interval);
+
+    // 1. Freshness Check: Verify if the last completed candle is too old.
+    // Skip if timestamp is ancient/mocked (e.g. unit tests with low numbers).
+    if (targetCandle.time > 1000000000000) {
+      const ageMs = Date.now() - targetCandle.time;
+      const maxAgeMs = expectedIntervalMs * 2.5;
+      if (ageMs > maxAgeMs) {
+        this.logger.warn(
+          `[Lookback Validation] STALE_DATA: Completed candle for ${symbol} (${interval}) is too old. Age: ${Math.round(ageMs / 1000)}s (Last Candle Time: ${targetCandle.time}), Max Allowed: ${Math.round(maxAgeMs / 1000)}s. Triggering fallback to Pct SL.`,
+        );
+        return { minLow: 0, maxHigh: 0 };
+      }
+    }
+
+    // 2. Gap Detection: Scan consecutive completed candles within the lookback window for any time gaps.
+    for (let i = startIdx + 1; i < endIdx; i++) {
+      const currentCandle = candles[i];
+      const prevCandle = candles[i - 1];
+      const delta = currentCandle.time - prevCandle.time;
+      if (delta > expectedIntervalMs * 1.5) {
+        this.logger.warn(
+          `[Lookback Validation] TIME_GAP: Detected data gap of ${Math.round(delta / 1000)}s between consecutive candles at times ${prevCandle.time} and ${currentCandle.time} for ${symbol} (${interval}). Expected Interval: ${Math.round(expectedIntervalMs / 1000)}s (Threshold: ${Math.round(expectedIntervalMs * 1.5 / 1000)}s). Lookback period: ${period}. Triggering fallback to Pct SL.`,
+        );
+        return { minLow: 0, maxHigh: 0 };
+      }
+    }
 
     // BOLT OPTIMIZATION: Try stable cache if we are scanning up to the last completed candle
     const stableKey = `${symbol}:${interval}:${period}`;

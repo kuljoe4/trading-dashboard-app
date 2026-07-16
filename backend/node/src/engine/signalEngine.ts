@@ -307,15 +307,15 @@ export class SignalEngineService {
 
     return {
       fired,
-      value: roundTo(current.close, 4),
-      threshold: roundTo(target, 4),
+      value: roundTo(current.close, 8),
+      threshold: roundTo(target, 8),
       unit: 'price',
       metric: 'Breakout HL',
       description: fired 
         ? `Price breached ${isLong ? 'LOW' : 'HIGH'} of ${lookback} periods`
         : `Monitoring ${lookback} period ${isLong ? 'Low' : 'High'} level`,
       threshold_is_price: true,
-      slPrice: roundTo(target, 4),
+      slPrice: roundTo(target, 8),
     };
   }
 
@@ -555,13 +555,13 @@ export class SignalEngineService {
       
       return {
         fired,
-        value: roundTo(currClose, 2),
-        threshold: roundTo(ma, 2),
+        value: roundTo(currClose, 8),
+        threshold: roundTo(ma, 8),
         unit: 'price',
         metric: 'MA Cross',
         description: `Price crossed MA(${period})`,
         threshold_is_price: true,
-        slPrice: roundTo(ma, 2),
+        slPrice: roundTo(ma, 8),
       };
     } catch (error) {
       this.logger.debug(`MA signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -609,14 +609,14 @@ export class SignalEngineService {
 
       return {
         fired,
-        value: roundTo(currClose, 2),
-        threshold: roundTo(ema, 2),
+        value: roundTo(currClose, 8),
+        threshold: roundTo(ema, 8),
         insufficientData: emaRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Cross' : 'Entry EMA Cross',
         description: `Price crossed EMA(${period})`,
         threshold_is_price: true,
-        slPrice: roundTo(ema, 2),
+        slPrice: roundTo(ema, 8),
       };
     } catch (error) {
       this.logger.debug(`EMA signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -673,14 +673,14 @@ export class SignalEngineService {
 
       return {
         fired,
-        value: roundTo(currFast, 2),
-        threshold: roundTo(currSlow, 2),
+        value: roundTo(currFast, 8),
+        threshold: roundTo(currSlow, 8),
         insufficientData: fastRes.insufficientData || slowRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual' : 'Entry EMA Dual',
         description: `EMA(${fastPeriod}) crossed EMA(${slowPeriod})`,
         threshold_is_price: true,
-        slPrice: roundTo(currSlow, 2),
+        slPrice: roundTo(currSlow, 8),
       };
     } catch (error) {
       this.logger.debug(`EMA Dual Cross signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -755,14 +755,14 @@ export class SignalEngineService {
 
       return {
         fired,
-        value: roundTo(completedClose, 2),
-        threshold: roundTo(threshold, 2),
+        value: roundTo(completedClose, 8),
+        threshold: roundTo(threshold, 8),
         insufficientData: fastRes.insufficientData || slowRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual Close' : 'Entry EMA Dual Close',
         description: `Last closed candle (${completedClose.toFixed(2)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${fastPeriod}) and EMA(${slowPeriod})`,
         threshold_is_price: true,
-        slPrice: roundTo(slowEma, 2),
+        slPrice: roundTo(slowEma, 8),
       };
     } catch (error) {
       this.logger.debug(`EMA Dual Close signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -830,14 +830,14 @@ export class SignalEngineService {
 
       return {
         fired,
-        value: roundTo(completedClose, 2),
-        threshold: roundTo(ema, 2),
+        value: roundTo(completedClose, 8),
+        threshold: roundTo(ema, 8),
         insufficientData: emaRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Close' : 'Entry EMA Close',
         description: `Last closed candle (${completedClose.toFixed(2)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${period})`,
         threshold_is_price: true,
-        slPrice: roundTo(ema, 2),
+        slPrice: roundTo(ema, 8),
       };
     } catch (error) {
       this.logger.debug(`EMA Close signal error: ${error instanceof Error ? error.message : String(error)}`);

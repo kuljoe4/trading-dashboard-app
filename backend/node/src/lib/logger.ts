@@ -37,6 +37,12 @@ export function updateLogLevels(debugMode: boolean) {
 }
 
 /**
+ * SENTINEL: Pattern to identify sensitive information in strings (e.g. error messages)
+ * for masking. Protects against accidental leakage of credentials in logs.
+ */
+const SENSITIVE_STRING_PATTERN = /(api_key|apikey|api-key|access_key|access-key|secret|password|pass|pwd|token|jwt|auth|credential|private|seed|mnemonic|passphrase|cookie|session|signature|salt|hash|master|pkey|cert|otp|pin|ssn|cvv|creditcard|value)\s*[=:]\s*[^\s&,]+/gi;
+
+/**
  * SENTINEL: Recursively sanitizes objects by masking sensitive fields
  * such as 'value' (from ValidationError) and API keys/secrets.
  * Protects against accidental leakage of credentials in logs.
@@ -46,8 +52,11 @@ export function sanitize(obj: any, visited = new WeakSet<any>(), depth = 0): any
   if (obj === null) return null;
 
   if (typeof obj === 'string') {
+    // SENTINEL: Mask sensitive info within strings (e.g. error messages)
+    let sanitizedString = obj.replace(SENSITIVE_STRING_PATTERN, (match, key) => `${key}=[MASKED]`);
+
     // SENTINEL: Truncate very long strings to prevent memory/log bloat
-    return obj.length > 4096 ? obj.substring(0, 4096) + '... [truncated]' : obj;
+    return sanitizedString.length > 4096 ? sanitizedString.substring(0, 4096) + '... [truncated]' : sanitizedString;
   }
 
   if (typeof obj !== 'object') {
@@ -75,11 +84,11 @@ export function sanitize(obj: any, visited = new WeakSet<any>(), depth = 0): any
   }
 
   // SENTINEL: Handle Error objects by preserving identity and core metadata
-  // while still allowing recursive sanitization of custom properties.
+  // while still allowing recursive sanitization of core and custom properties.
   const sanitized: any = obj instanceof Error ? {
     name: obj.name,
-    message: obj.message,
-    stack: obj.stack,
+    message: sanitize(obj.message, visited, depth + 1),
+    stack: sanitize(obj.stack, visited, depth + 1),
   } : {};
 
   // For Errors, we also want to capture any custom properties added to the object

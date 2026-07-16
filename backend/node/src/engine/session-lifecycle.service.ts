@@ -278,6 +278,7 @@ export class SessionLifecycleService {
 
   async stop(bc?: any, sid?: string, config?: SessionConfig) {
     this.running = false;
+    this.isUdsConnected = false;
     await this.progress("Initiating session shutdown...");
     if (this.listenKeyKeepAlive) clearInterval(this.listenKeyKeepAlive);
     if (this.udsLivenessCheck) clearInterval(this.udsLivenessCheck);

@@ -688,7 +688,7 @@ export function DashboardView({ initialStrategy }) {
 
 
   const [loading, setLoading] = useState(false)
-  const [showInsights, setShowInsights] = useState(true)
+  const [showInsights, setShowInsights] = useState(false)
 
   const correlationData = useMemo(() => {
     const list = tradeHistory || [];

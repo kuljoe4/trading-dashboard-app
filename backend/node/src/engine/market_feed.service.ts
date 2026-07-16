@@ -111,6 +111,19 @@ export class MarketFeedService {
     // BOLT: Global streams (!miniTicker, !markPrice) are decoupled
     // to resolve the discovery bootstrap deadlock.
     await this.startGlobalDiscovery();
+
+    const waitForWs = new Promise<void>((resolve) => {
+      const check = setInterval(() => {
+        if (this.tickerCache.getCacheSize() > 0) {
+          clearInterval(check);
+          resolve();
+        }
+      }, 100);
+      setTimeout(() => { clearInterval(check); resolve(); }, 5000);
+    });
+
+    await waitForWs;
+    if (this.tickerCache.getCacheSize() === 0) await this.fetchInitialTickers(restBase);
     this.startWatchlistManager(config);
 
     // SRE: Startup Self-Test (Citadel Protocol 2026)
@@ -309,6 +322,26 @@ export class MarketFeedService {
   }
 
   getSymbolFilters(symbol: string) { return this.exchangeInfo.get(symbol); }
+
+  private async fetchInitialTickers(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
+    try {
+      this.monitoringService.incrementApiRequests();
+      const response = await fetch(`${restBase}/fapi/v1/ticker/24hr`);
+      this.updateWeight(response.headers);
+      if (!response.ok) {
+        this.logger.warn(`Initial ticker bootstrap failed from ${restBase}: HTTP ${response.status}`);
+        return;
+      }
+
+      const tickers = await response.json();
+      if (Array.isArray(tickers)) {
+        const usdtTickers = tickers.filter((t: any) => t.symbol.endsWith('USDT'));
+        this.tickerCache.bulkUpdate(usdtTickers);
+      }
+    } catch (error) {
+      this.logger.error(`Initial ticker bootstrap failed from ${restBase}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 
   async stop() {
     this.running = false;

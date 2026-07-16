@@ -12,7 +12,7 @@ import {
   ChevronLeft, ChevronRight, Plus, Trash2, LayoutDashboard, History,
   Settings as SettingsIcon, Activity, Zap, ShieldCheck,
   BarChart3, XCircle, Pause, Play, Edit3, RefreshCw, Leaf,
-  Briefcase, TrendingUp, ArrowRight, AlertCircle, CheckCircle2, Info, Loader2
+  Briefcase, TrendingUp, TrendingDown, ArrowRight, AlertCircle, CheckCircle2, Info, Loader2
 } from 'lucide-react'
 import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -652,10 +652,11 @@ export function DashboardView({ initialStrategy }) {
     strategy_label: config.strategy_label || 'Momentum Strategy'
   }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, hitCount, config.strategy_label])
 
-  const lastSession = useMemo(() => {
-    if (!sessionList || sessionList.length === 0) return null;
-    return [...sessionList].sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())[0];
-  }, [sessionList]);
+  const { lastSession, lastTrade } = useMemo(() => {
+    const ls = (!sessionList || sessionList.length === 0) ? null : [...sessionList].sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())[0];
+    const lt = (tradeHistory && tradeHistory.length > 0) ? tradeHistory[0] : null;
+    return { lastSession: ls, lastTrade: lt };
+  }, [sessionList, tradeHistory]);
 
   const activePnlMap = useMemo(() => {
     const map = { [currentStrategy.strategy_label]: 0 };
@@ -1112,7 +1113,17 @@ export function DashboardView({ initialStrategy }) {
               <Activity size={14} className="text-accent" /> Global Metrics
             </SectionLabel>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 gap-y-4">
-              <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} tooltipText="Total available funds in the trading account." />
+              <StatCard
+                label="Account Balance"
+                value={`$${balance.toLocaleString()}`}
+                tooltipText="Total available funds in the trading account."
+                subValue={lastTrade && (
+                  <div className="flex items-center gap-1">
+                    {Number(lastTrade.pnl || 0) >= 0 ? <TrendingUp size={10} className="text-green" /> : <TrendingDown size={10} className="text-red" />}
+                    <span className={pnlClass(lastTrade.pnl)}>{fmtUSD(lastTrade.pnl)} Last</span>
+                  </div>
+                )}
+              />
               <StatCard
                 label="Active P&L"
                 value={fmtUSD(totalActivePnl)}

@@ -120,13 +120,19 @@ export class MarketFeedService {
     if (runMode !== 'paper') {
        setTimeout(() => {
           if (this.running && this.tickerCache.getCacheSize() === 0) {
-             const alertMsg = `CRITICAL: Market Feed Startup Failure - TickerCache remains empty after 25s. Scanner is offline. Mode=${runMode}`;
+             const alertMsg = `CRITICAL: Market Feed Startup Failure - TickerCache remains empty after 25s. Activating raw WebSocket fallback immediately. Mode=${runMode}`;
              this.logger.error(alertMsg);
              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: alertMsg, level: 'error' });
              this.eventEmitter.emit(ENGINE_EVENTS.ALERT, {
                 level: 'error',
                 title: 'Market Feed Failure',
-                message: 'No ticker data received from Binance. Check network and API status.',
+                message: 'No ticker data received from Binance. Switching to raw fallback.',
+             });
+
+             // Fast self-healing: set raw fallback and restart global discovery
+             this.forceRawDiscovery = true;
+             this.startGlobalDiscovery().catch(err => {
+                this.logger.error(`Failed to start raw global discovery: ${err.message}`);
              });
           } else if (this.running) {
              this.logger.log(`[MarketFeed] Startup Self-Test passed: ${this.tickerCache.getCacheSize()} symbols seeded.`);
@@ -343,10 +349,10 @@ export class MarketFeedService {
 
       // BOLT: Optimize health check frequency.
       // Although this loop fires every 2 minutes (watchlist refresh), we only
-      // evaluate stream health every 5 minutes to avoid excessive reconnection churn
+      // evaluate stream health every 2 minutes to avoid excessive reconnection churn
       // during transient exchange instability.
       const now = Date.now();
-      if (now - this.lastStreamHealthCheck >= 5 * 60 * 1000) {
+      if (now - this.lastStreamHealthCheck >= 2 * 60 * 1000) {
          this.lastStreamHealthCheck = now;
          this.checkStreamHealth();
       }
@@ -372,9 +378,9 @@ export class MarketFeedService {
       const mode = this.sessionState.config?.trading_mode || (this.sessionState.config?.paper_mode ? 'paper' : 'live');
       this.consecutiveDiscoveryFailures++;
 
-      // CIRCUIT BREAKER: After 3 consecutive silent failures, switch to the raw WebSocket path.
-      if (this.consecutiveDiscoveryFailures >= 3) {
-        this.logger.fatal(`[MarketFeed] CIRCUIT BREAKER: Discovery has failed 3 times via primary method. Forcing raw WebSocket fallback.`);
+      // CIRCUIT BREAKER: After 1 consecutive silent failure, immediately switch to the raw WebSocket path.
+      if (this.consecutiveDiscoveryFailures >= 1) {
+        this.logger.fatal(`[MarketFeed] CIRCUIT BREAKER: Discovery has failed via primary method. Forcing raw WebSocket fallback immediately.`);
         this.forceRawDiscovery = true;
       }
 

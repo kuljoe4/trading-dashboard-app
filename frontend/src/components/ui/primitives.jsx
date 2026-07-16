@@ -154,7 +154,7 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
 })
 
 // --- Stat Card ---
-export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing, tooltipText, compact }) => {
+export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing, tooltipText, compact, ariaLabel }) => {
   // BOLT: Clean up double-negative visuals: if value starts with '-', don't show negative arrow in label/icon.
   const sanitizedValue = typeof value === 'string' && (value.includes('▼') || value.includes('▲') || value.includes('▾') || value.includes('▴')) && value.includes('-')
     ? value.replace('-', '') // Remove the minus if an arrow is already present
@@ -169,7 +169,7 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
           : "p-3 md:p-4 lg:p-5 min-h-[64px] md:min-h-[80px] lg:min-h-[100px]"
       )}
       role="region"
-      aria-label={`${label}: ${value}${tooltipText ? '. ' + tooltipText : ''}`}
+      aria-label={ariaLabel || `${label}: ${value}${tooltipText ? '. ' + tooltipText : ''}`}
       aria-busy={syncing}
       tabIndex={tooltipText ? 0 : undefined}
     >

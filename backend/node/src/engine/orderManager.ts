@@ -2859,19 +2859,20 @@ export class OrderManagerService {
          if (options.alreadyRealized || options.feesAlreadyAccounted) {
             this.logger.debug(`[PnL Integrity] Using authoritative accumulated PnL for ${symbol}: ${trade.pnl}`);
          } else {
-            // CHRONOS: Incremental PnL Calculation for Live mode.
-            // Instead of an absolute calculation from entry price, we add the profit of the
-            // remaining quantity to the already accumulated trade.pnl (which contains
-            // realized slices and commissions from both REST and UDS).
-            const remainingPnlPoints = trade.direction === 'LONG'
+            // CHRONOS: Absolute PnL Calculation for Live mode.
+            // When alreadyRealized is false, it means we are performing a terminal closure
+            // (e.g. from Watchdog or external sync) where we have an authoritative average exit price.
+            // To ensure integrity across missed UDS slices, we calculate absolute gross profit
+            // from entry to exit on the total position size, then subtract all realized costs.
+
+            const totalPnlPoints = trade.direction === 'LONG'
               ? exitPrice - trade.entry_price
               : trade.entry_price - exitPrice;
 
-            const remainingGrossPnl = remainingPnlPoints * (trade.qty || 0);
-            // Funding fees and realized commissions are already in trade.pnl via handleAccountUpdate and entry/exit hardening.
-            const finalNetPnl = roundEight((Number(trade.pnl) || 0) + remainingGrossPnl);
+            const totalGrossPnl = totalPnlPoints * initialQty;
+            const finalNetPnl = roundEight(totalGrossPnl - (trade.realized_fee || 0) - (trade.funding_fee || 0));
 
-            this.logger.log(`[PnL Integrity] Finalizing Live trade ${symbol}: AccumulatedNet=${trade.pnl}, RemainingQty=${trade.qty}, RemainingGross=${remainingGrossPnl.toFixed(4)}, FinalNet=${finalNetPnl}`);
+            this.logger.log(`[PnL Integrity] Finalizing Live trade ${symbol}: AbsoluteGross=${totalGrossPnl.toFixed(4)}, Fees=${trade.realized_fee}, Funding=${trade.funding_fee}, FinalNet=${finalNetPnl} (Qty=${initialQty}, Exit=${exitPrice})`);
 
             trade.pnl = finalNetPnl;
          }

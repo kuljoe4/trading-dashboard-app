@@ -84,21 +84,21 @@ const RRLadder = memo(({ trade }) => {
         })}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-6">
-        <div className="p-3 md:p-4 bg-background/40 rounded-xl border border-border">
-          <div className="text-[10px] text-dim font-bold uppercase tracking-widest mb-1">Live RR</div>
-          <div className={cn("text-xl font-mono font-bold", liveRR >= 0 ? "text-green" : "text-red")}>{fmt(liveRR, 2)}</div>
+      <div className="grid grid-cols-3 gap-2 md:gap-6">
+        <div className="p-2 md:p-4 bg-background/40 rounded-xl border border-border">
+          <div className="text-[8px] md:text-[10px] text-dim font-bold uppercase tracking-widest mb-0.5 md:mb-1">Live RR</div>
+          <div className={cn("text-sm md:text-xl font-mono font-bold", liveRR >= 0 ? "text-green" : "text-red")}>{fmt(liveRR, 2)}</div>
         </div>
-        <div className="p-3 md:p-4 bg-background/40 rounded-xl border border-border">
-          <div className="text-[10px] text-dim font-bold uppercase tracking-widest mb-1">Peak RR</div>
-          <div className="text-xl font-mono font-bold text-accent">{fmt(maxRR, 2)}</div>
+        <div className="p-2 md:p-4 bg-background/40 rounded-xl border border-border">
+          <div className="text-[8px] md:text-[10px] text-dim font-bold uppercase tracking-widest mb-0.5 md:mb-1">Peak RR</div>
+          <div className="text-sm md:text-xl font-mono font-bold text-accent">{fmt(maxRR, 2)}</div>
         </div>
-        <div className="p-3 md:p-4 bg-background/40 rounded-xl border border-border">
-          <div className="text-[10px] text-dim font-bold uppercase tracking-widest mb-1">Secured SL</div>
-          <div className="text-xl font-mono font-bold text-text flex flex-col">
+        <div className="p-2 md:p-4 bg-background/40 rounded-xl border border-border">
+          <div className="text-[8px] md:text-[10px] text-dim font-bold uppercase tracking-widest mb-0.5 md:mb-1">Secured SL</div>
+          <div className="text-sm md:text-xl font-mono font-bold text-text flex flex-col leading-tight">
             <span>{price(currentSl)}</span>
-            <span className={cn("text-[10px]", pnlClass(getEstPnl(currentSl)))}>
-              Est. {fmtUSD(getEstPnl(currentSl))}
+            <span className={cn("text-[7px] md:text-[10px]", pnlClass(getEstPnl(currentSl)))}>
+              {fmtUSD(getEstPnl(currentSl))}
             </span>
           </div>
         </div>
@@ -125,12 +125,13 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
       if (progress === 0) {
         if (s.fired && s.active) {
           progress = 100;
-        } else if (s.threshold_is_price) {
-          const totalDist = isLong ? (threshold - entryPrice) : (entryPrice - threshold);
-          const progressDist = isLong ? (mark - entryPrice) : (entryPrice - mark);
-          if (totalDist > 0) progress = Math.max(0, Math.min(100, (progressDist / totalDist) * 100));
+        } else if (s.threshold_is_price && threshold !== entryPrice) {
+          // Robust Proximity: (Mark - Entry) / (Target - Entry)
+          const totalDist = threshold - entryPrice;
+          const currentDist = mark - entryPrice;
+          progress = Math.max(0, Math.min(100, (currentDist / totalDist) * 100));
         } else {
-          // Direction-aware convergence check for momentum/oscillators
+          // Direction-aware proximity check for indicators
           const hasOppositeSign = (value > 0 && threshold < 0) || (value < 0 && threshold > 0);
           if (hasOppositeSign) {
             progress = 0;
@@ -204,7 +205,7 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
                 </div>
               </div>
 
-              {/* Enhanced Convergence Bar (SignalGauge Style) */}
+              {/* Enhanced Proximity Bar (SignalGauge Style) */}
               <div className="space-y-1.5">
                 <div className="flex justify-between items-end px-1">
                    <div className="flex items-center gap-2">
@@ -212,7 +213,7 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
                         "w-1.5 h-1.5 rounded-full",
                         isFired ? "bg-red animate-pulse" : s.fired ? "bg-amber" : "bg-accent"
                       )} />
-                      <span className="text-[9px] font-black text-dim uppercase tracking-widest">Convergence</span>
+                      <span className="text-[9px] font-black text-dim uppercase tracking-widest">Proximity</span>
                    </div>
                    <span className={cn(
                       "text-[10px] font-mono font-black",

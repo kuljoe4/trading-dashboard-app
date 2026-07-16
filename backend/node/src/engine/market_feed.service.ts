@@ -89,6 +89,8 @@ export class MarketFeedService {
     if (bc) this.binanceClient = bc;
     if (this.running) await this.stop();
     this.running = true;
+    this.forceRawDiscovery = false;
+    this.consecutiveDiscoveryFailures = 0;
 
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
     const isTestnet = mode === 'testnet';
@@ -609,9 +611,16 @@ export class MarketFeedService {
     // to the /stream endpoint, ensuring ACK reliability and preventing URI length issues.
     const topics = ['!miniTicker@arr', '!markPrice@arr@1s'];
 
-    this.logger.log(`[MarketFeed] Starting unified discovery manager for: ${topics.join(', ')}`);
+    let wsUrl = wsBaseMarket;
+    if (this.forceRawDiscovery) {
+      wsUrl = `${wsBaseMarket}?streams=${topics.join('/')}`;
+      this.logger.log(`[MarketFeed] CIRCUIT BREAKER: Forcing raw WebSocket fallback connection. URL: ${wsUrl}`);
+    } else {
+      this.logger.log(`[MarketFeed] Starting unified discovery manager for: ${topics.join(', ')}`);
+    }
+
     const manager = new BinanceSubscriptionManager(
-        wsBaseMarket,
+        wsUrl,
         {
             isTestnet,
             onMessage: (data) => this.processStreamMessage(data)

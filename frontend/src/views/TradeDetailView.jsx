@@ -10,7 +10,7 @@ import { TradeDetailContent } from '../components/trade/TradeDetailContent'
 import { formatDuration } from '../lib/formatters'
 
 const TradeDetailView = ({ tradeId }) => {
-  const { activeTrades, wsStatus, updateStats } = useTradingStore()
+  const { activeTrades, wsStatus, updateStats, addAlert } = useTradingStore()
   const trade = (activeTrades || []).find(t => t.id === tradeId || t.symbol === tradeId)
   const [now, setNow] = useState(Date.now())
 
@@ -69,7 +69,6 @@ const TradeDetailView = ({ tradeId }) => {
     )
   }
 
-  const addAlert = useTradingStore(state => state.addAlert);
   const handleClose = async (symbol) => {
     setIsClosing(true)
     try {

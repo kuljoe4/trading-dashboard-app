@@ -68,7 +68,9 @@ export class MaintenanceService {
 
       const tradesToAudit = activeTrades.filter(trade => {
         if (!trade.binance_order_id) return false;
-        if (targetSymbol && trade.symbol === targetSymbol) return true;
+        if (targetSymbol) {
+          return trade.symbol === targetSymbol;
+        }
 
         const lastUpdateTs = trade.updated_at ? new Date(trade.updated_at).getTime() : 0;
         const secondsSinceUpdate = (Date.now() - lastUpdateTs) / 1000;

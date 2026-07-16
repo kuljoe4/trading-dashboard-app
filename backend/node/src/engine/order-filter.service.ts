@@ -141,11 +141,17 @@ export class OrderFilterService {
       const brackets = this.leverageBrackets.get(symbol);
       if (!brackets || !Array.isArray(brackets)) return { isAllowed: true };
 
-      const pos = await fetchPosition(symbol, { forceFresh: false });
+      let pos = await fetchPosition(symbol, { forceFresh: false });
+      let currentLeverage = (pos && parseInt(pos.leverage || '0') > 0) ? parseInt(pos.leverage) : 0;
+
+      if (currentLeverage <= 0) {
+         const freshPos = await fetchPosition(symbol, { forceFresh: true });
+         currentLeverage = (freshPos && parseInt(freshPos.leverage || '0') > 0) ? parseInt(freshPos.leverage) : 20;
+         pos = freshPos;
+      }
+
       const currentNotional = pos ? Math.abs(parseFloat(pos.notional || '0')) : 0;
       const totalNotional = currentNotional + notional;
-
-      const currentLeverage = pos ? parseInt(pos.leverage || '1') : 20;
 
       const activeBracket = [...brackets].reverse().find(b => currentLeverage <= b.initialLeverage) || brackets[0];
 

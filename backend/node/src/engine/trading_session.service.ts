@@ -1390,4 +1390,8 @@ export class TradingSessionService implements OnApplicationShutdown {
     }
     return { success: false, error: "Failed to close trade" };
   }
+
+  public updatePaperBalance(balance: number) {
+    this.sessionState.balancePaper = balance;
+  }
 }

@@ -424,6 +424,10 @@ export class RiskEngineService {
     bodyLow?: number,
     bodyHigh?: number
   ): { slPrice: number; rejected: boolean; reason?: string } {
+    if (config.sl_type === 'trailing') {
+      return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, minLow, maxHigh, symbol, patternLow, patternHigh, bodyLow, bodyHigh);
+    }
+
     if (config.sl_type === 'pct') {
       // Simple percentage-based SL
       const distance = entryPrice * ((config.sl_distance_pct ?? 0.8) / 100);

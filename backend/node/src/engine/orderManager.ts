@@ -72,7 +72,7 @@ export class OrderManagerService {
   constructor(
     private readonly signalEngine: SignalEngineService,
     private readonly marketFeed: MarketFeedService,
-    private readonly tickerCache: TickerCacheService,
+    public readonly tickerCache: TickerCacheService,
     private readonly monitoringService: MonitoringService,
     @Inject(forwardRef(() => PositionTrackerService))
     private readonly positionTracker: PositionTrackerService,
@@ -1065,7 +1065,7 @@ export class OrderManagerService {
           } else if (errMsg.includes('insufficient balance') || errMsg.includes('Margin is insufficient') || errMsg.includes('-2019') || errMsg.includes('-2010')) {
             agreementMsg = `CRITICAL: Insufficient funds on Binance USDS-M account to open ${symbol} (Error -2019/-2010).`;
           } else if (errMsg.includes('PERCENT_PRICE')) {
-            agreementMsg = `CRITICAL: ${symbol} entry failed. Price outside protection bands (PERCENT_PRICE). Try increasing SL distance.`;
+            agreementMsg = `CRITICAL: ${symbol} entry failed. Price outside protection bands (PERCENT_PRICE). This is due to extreme market volatility or high price deviation from mark price. SL distance has no effect on this filter.`;
           } else if (errMsg.includes('leverage') || errMsg.includes('allowable position') || errMsg.includes('max allowable position') || errMsg.includes('position at current leverage')) {
             agreementMsg = `CRITICAL: Position limit exceeded at current leverage for ${symbol}. Adjust leverage on Binance.`;
           }
@@ -2806,10 +2806,13 @@ export class OrderManagerService {
 
                     const limitData = (await limitResponse.data()) as BinanceOrderReceipt;
                     if (limitData.orderId) {
-                      this.logger.log(`Aggressive LIMIT fallback for ${symbol} successful: ${limitData.orderId}`);
+                      this.logger.log(`Aggressive LIMIT fallback for ${symbol} successful: ${limitData.orderId} | Executed Qty: ${limitData.executedQty || 0}`);
                       trade.binance_close_order_id = String(limitData.orderId);
-                      // SRE: Successfully placed a limit within bands, clear illiquid flag
-                      trade.illiquid_blocked = false;
+                      // SRE: Gate flag clear on executedQty > 0 to avoid clearing flag on zero-fill IOC.
+                      const execQty = parseFloat(limitData.executedQty || '0');
+                      if (execQty > 0) {
+                        trade.illiquid_blocked = false;
+                      }
                     }
                   } catch (limitErr) {
                     this.logger.error(`Aggressive LIMIT fallback failed for ${symbol}: ${limitErr instanceof Error ? limitErr.message : String(limitErr)}`);

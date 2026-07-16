@@ -1048,11 +1048,10 @@ export class SessionService implements OnModuleInit {
           } else {
             const msg = `[Reconciliation] Verified: Orphan ${trade.symbol} (${trade.id}) is flat on exchange. Marking closed. Reason: ${(trade as any).orphanReason}`;
             this.logger.log(msg);
-            await this.tradeRepository.update(trade.id, {
-              status: "CLOSED_ORPHANED",
-              exit_ts: new Date(),
-              is_reconciliation: true,
-            });
+            const tickerPrice = this.orderManager.tickerCache?.getPrice(trade.symbol) || Number(trade.current_sl || trade.entry_price || 0);
+            const context = await this.orderManager.recoverClosingContext(trade.symbol, trade as any, tickerPrice);
+            const updates = await this.finalizeOrphanedTrade(trade, mode, context.price, context.reason);
+            await this.tradeRepository.update(trade.id, updates);
             recalculationNeeded = true;
           }
         }
@@ -1073,11 +1072,10 @@ export class SessionService implements OnModuleInit {
                 `Live position for ${trade.symbol} was not found on exchange during reconciliation. Marking as orphaned.`,
                 "warn",
               );
-              await this.tradeRepository.update(trade.id, {
-                status: "CLOSED_ORPHANED",
-                exit_ts: new Date(),
-                is_reconciliation: true,
-              });
+              const tickerPrice = this.orderManager.tickerCache?.getPrice(trade.symbol) || Number(trade.current_sl || trade.entry_price || 0);
+              const context = await this.orderManager.recoverClosingContext(trade.symbol, trade as any, tickerPrice);
+              const updates = await this.finalizeOrphanedTrade(trade, mode, context.price, context.reason);
+              await this.tradeRepository.update(trade.id, updates);
               (trade as any).reconciled_out = true;
               recalculationNeeded = true;
               continue;
@@ -1191,11 +1189,8 @@ export class SessionService implements OnModuleInit {
         this.logger.warn(
           `[Reconciliation] Trade ${trade.symbol} (${trade.id}) is orphaned. Reason: ${(trade as any).orphanReason}. Marking as closed.`,
         );
-        await this.tradeRepository.update(trade.id, {
-          status: "CLOSED_ORPHANED",
-          exit_ts: new Date(),
-          is_reconciliation: true,
-        });
+        const updates = await this.finalizeOrphanedTrade(trade, mode);
+        await this.tradeRepository.update(trade.id, updates);
         await this.logMessage(
           `Trade ${trade.symbol} was orphaned (${(trade as any).orphanReason}) and marked closed.`,
           "warn",
@@ -1302,6 +1297,65 @@ export class SessionService implements OnModuleInit {
       this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
       this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
     }
+  }
+
+  private async finalizeOrphanedTrade(
+    trade: TradeEntity,
+    mode: "live" | "paper" | "testnet",
+    contextPrice?: number,
+    contextReason?: string
+  ): Promise<Partial<TradeEntity>> {
+    const isPaper = mode === "paper";
+    const tickerPrice = this.orderManager.tickerCache?.getPrice(trade.symbol) || Number(trade.current_sl || trade.entry_price || 0);
+    const exitPriceToUse = contextPrice || tickerPrice || Number(trade.current_sl || trade.entry_price || 0);
+
+    let finalPnl = Number(trade.pnl || 0);
+    let finalPnlPct = Number(trade.pnl_pct || 0);
+    let initialQty = Number(trade.qty || 1);
+    let realizedFee = Number(trade.realized_fee || 0);
+
+    if (!isPaper) {
+      const riskDist = Math.abs(Number(trade.entry_price) - Number(trade.initial_sl));
+      initialQty = (riskDist > 0 && trade.initial_risk_usdt) ? (trade.initial_risk_usdt / riskDist) : (Number(trade.qty) || 1);
+
+      const totalPnlPoints = trade.direction === 'LONG'
+        ? exitPriceToUse - Number(trade.entry_price)
+        : Number(trade.entry_price) - exitPriceToUse;
+
+      const totalGrossPnl = totalPnlPoints * initialQty;
+      finalPnl = roundEight(totalGrossPnl - realizedFee - (Number(trade.funding_fee) || 0));
+
+      const notional = Number(trade.entry_price) * initialQty;
+      const computedPnlPct = (notional !== 0) ? (finalPnl / notional) * 100 : 0;
+      finalPnlPct = roundEight(Number.isFinite(computedPnlPct) ? computedPnlPct : 0);
+    } else {
+      // Paper mode
+      const exitFee = roundEight(exitPriceToUse * Number(trade.qty) * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
+      realizedFee = roundEight((Number(trade.realized_fee) || 0) + exitFee);
+
+      const finalPnlPoints = trade.direction === 'LONG'
+        ? exitPriceToUse - Number(trade.entry_price)
+        : Number(trade.entry_price) - exitPriceToUse;
+
+      const finalGrossPnl = finalPnlPoints * (Number(trade.qty) || 0);
+      finalPnl = roundEight(finalGrossPnl - realizedFee - (Number(trade.funding_fee) || 0));
+
+      const notional = Number(trade.entry_price) * (Number(trade.qty) || 0);
+      const computedPnlPct = (notional !== 0) ? (finalPnl / notional) * 100 : 0;
+      finalPnlPct = roundEight(Number.isFinite(computedPnlPct) ? computedPnlPct : 0);
+    }
+
+    return {
+      status: "CLOSED_ORPHANED",
+      exit_price: exitPriceToUse,
+      exit_ts: new Date(),
+      is_reconciliation: true,
+      pnl: finalPnl,
+      pnl_pct: finalPnlPct,
+      qty: initialQty,
+      realized_fee: realizedFee,
+      exit_reason: contextReason || trade.exit_reason || "CLOSED_ORPHANED",
+    };
   }
 
   /**
@@ -1519,6 +1573,33 @@ export class SessionService implements OnModuleInit {
           );
         }
 
+        let finalStopOrderId = slId;
+        let finalStopOrderType = slType;
+        let finalSlPrice = slPrice || initialSl;
+
+        if (!slId && mode !== "paper") {
+          this.logger.log(`[Reconciliation] Proactively placing Stop Loss order on exchange for adopted ${exPos.symbol} @ ${initialSl}`);
+          try {
+            const tempTrade = {
+              symbol: exPos.symbol,
+              direction,
+              entry_price: entryPrice,
+              qty,
+              initial_sl: initialSl,
+              current_sl: initialSl,
+            } as any;
+            const slResult = await this.orderManager.placeStopLoss(tempTrade, initialSl, entryPrice);
+            if (slResult && slResult.orderId) {
+              finalStopOrderId = slResult.orderId;
+              finalStopOrderType = "algo";
+              finalSlPrice = slResult.price;
+              this.logger.log(`[Reconciliation] Successfully placed proactive SL on exchange for adopted ${exPos.symbol}: ${finalStopOrderId} @ ${finalSlPrice}`);
+            }
+          } catch (slPlaceErr) {
+            this.logger.error(`[Reconciliation] Failed to place proactive SL on exchange for adopted ${exPos.symbol}: ${slPlaceErr instanceof Error ? slPlaceErr.message : String(slPlaceErr)}`);
+          }
+        }
+
         // Create synthetic trade for tracking/protection
         const syntheticTrade = this.tradeRepository.create({
           id: uuid(),
@@ -1527,7 +1608,7 @@ export class SessionService implements OnModuleInit {
           entry_price: entryPrice,
           qty,
           initial_sl: initialSl,
-          current_sl: slPrice || initialSl,
+          current_sl: finalSlPrice,
           tp: tpPrice || null,
           rr_sequence_index: rrSequenceIndex,
           max_rr_achieved: maxRrAchieved,
@@ -1545,8 +1626,8 @@ export class SessionService implements OnModuleInit {
           close_blocked: false,
           illiquid_blocked: false,
           binance_order_id: "RECON-" + uuid().substring(0, 8),
-          binance_stop_order_id: slId,
-          binance_stop_order_type: slType as any,
+          binance_stop_order_id: finalStopOrderId,
+          binance_stop_order_type: finalStopOrderType as any,
           pnl: 0,
           risk_usdt: roundEight(Math.abs(entryPrice - initialSl) * qty),
           initial_risk_usdt: roundEight(Math.abs(entryPrice - initialSl) * qty),
@@ -2260,7 +2341,7 @@ export class SessionService implements OnModuleInit {
       });
       if (session && session.paperMode) {
         // Hot update the engine if running
-        // Note: This is a bit aggressive, usually user stops session, resets, then starts.
+        this.tradingSessionService.updatePaperBalance(defaultBalance);
       }
     }
 

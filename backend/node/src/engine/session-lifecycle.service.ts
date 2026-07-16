@@ -577,15 +577,49 @@ export class SessionLifecycleService {
           );
           if (trade) {
             const tradeIdShort8 = (trade.id || "N/A").substring(0, 8);
-            this.logger.log(
-              `[${tradeIdShort8}] [Lifecycle] Zero-weight reconciliation: Position for ${symbol} reached zero on exchange. Triggering local closure.`,
-            );
-            this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
-              symbol,
-              exitPrice: 0, // Will use ticker fallback
-              reason: EXIT_REASONS.EXCHANGE_SYNC,
-              isReconciliation: true,
-            });
+
+            // If the trade has an active SL order, it is highly likely the zero-amount update
+            // is due to an SL hit, and the ORDER_TRADE_UPDATE is arriving concurrently.
+            // We schedule a short delay to let the richer, flag-correct ORDER_TRADE_UPDATE execute first.
+            const hasStopOrder = !!trade.binance_stop_order_id;
+            const delayMs = hasStopOrder ? 100 : 0;
+
+            const executeSyncClose = () => {
+              if (!this.running) return;
+
+              const currentTrade = this.sessionState.activeTrades.find(t => t.symbol === symbol);
+              if (!currentTrade) {
+                this.logger.debug(`[${tradeIdShort8}] [Lifecycle] Trade for ${symbol} already removed. Skipping zero-weight closure.`);
+                return;
+              }
+
+              if (this.positionTracker.isClosing(symbol)) {
+                this.logger.debug(`[${tradeIdShort8}] [Lifecycle] Trade for ${symbol} is already closing. Skipping zero-weight closure.`);
+                return;
+              }
+
+              this.logger.log(
+                `[${tradeIdShort8}] [Lifecycle] Executing scheduled zero-weight reconciliation for ${symbol}.`,
+              );
+              this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
+                symbol,
+                exitPrice: 0, // Will use ticker fallback
+                reason: EXIT_REASONS.EXCHANGE_SYNC,
+                isReconciliation: true,
+              });
+            };
+
+            if (delayMs > 0) {
+              this.logger.log(
+                `[${tradeIdShort8}] [Lifecycle] Scheduled zero-weight reconciliation for ${symbol} in ${delayMs}ms to let concurrent SL trade updates arrive first.`,
+              );
+              setTimeout(executeSyncClose, delayMs);
+            } else {
+              this.logger.log(
+                `[${tradeIdShort8}] [Lifecycle] Zero-weight reconciliation: Position for ${symbol} reached zero on exchange. Triggering immediate local closure.`,
+              );
+              executeSyncClose();
+            }
           }
         }
       }

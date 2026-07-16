@@ -806,6 +806,114 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       return next;
     });
   }, []);
+
+  const handleToggleExitSignal = React.useCallback((baseKey, active) => {
+    setIsDirty(true);
+    setCfg(prev => {
+      const next = { ...prev };
+      const currentExitSignals = prev.exit_signals || [];
+
+      if (active) {
+        // Toggling OFF: remove base signal AND all its chained layers
+        next.exit_signals = currentExitSignals.filter(sig => sig !== baseKey && !sig.startsWith(`${baseKey}_`));
+
+        // Clean up delays, actions, and timeframes
+        const nextDelays = { ...(prev.exit_signal_delays || {}) };
+        const nextActions = { ...(prev.exit_signal_actions || {}) };
+        const nextTimeframes = { ...(prev.signal_timeframes || {}) };
+
+        delete nextDelays[baseKey];
+        delete nextActions[baseKey];
+        delete nextTimeframes[baseKey];
+
+        Object.keys(nextDelays).forEach(k => {
+          if (k.startsWith(`${baseKey}_`)) delete nextDelays[k];
+        });
+        Object.keys(nextActions).forEach(k => {
+          if (k.startsWith(`${baseKey}_`)) delete nextActions[k];
+        });
+        Object.keys(nextTimeframes).forEach(k => {
+          if (k.startsWith(`${baseKey}_`)) delete nextTimeframes[k];
+        });
+
+        next.exit_signal_delays = nextDelays;
+        next.exit_signal_actions = nextActions;
+        next.signal_timeframes = nextTimeframes;
+      } else {
+        // Toggling ON: add base signal
+        next.exit_signals = [...currentExitSignals, baseKey];
+
+        // Initialize base signal delay, action, timeframe
+        next.exit_signal_delays = { ...(prev.exit_signal_delays || {}), [baseKey]: 0 };
+        next.exit_signal_actions = { ...(prev.exit_signal_actions || {}), [baseKey]: 'close' };
+        next.signal_timeframes = { ...(prev.signal_timeframes || {}), [baseKey]: 'default' };
+      }
+      return next;
+    });
+  }, []);
+
+  const handleAddLayer = React.useCallback((baseKey) => {
+    setIsDirty(true);
+    setCfg(prev => {
+      const currentExitSignals = prev.exit_signals || [];
+      let suffixNum = 2;
+      while (currentExitSignals.includes(`${baseKey}_${suffixNum}`)) {
+        suffixNum++;
+      }
+      const newLayerKey = `${baseKey}_${suffixNum}`;
+
+      return {
+        ...prev,
+        exit_signals: [...currentExitSignals, newLayerKey],
+        exit_signal_delays: { ...(prev.exit_signal_delays || {}), [newLayerKey]: 0 },
+        exit_signal_actions: { ...(prev.exit_signal_actions || {}), [newLayerKey]: 'close' },
+        signal_timeframes: { ...(prev.signal_timeframes || {}), [newLayerKey]: 'default' }
+      };
+    });
+  }, []);
+
+  const handleRemoveLayer = React.useCallback((layerKey) => {
+    setIsDirty(true);
+    setCfg(prev => {
+      const nextDelays = { ...(prev.exit_signal_delays || {}) };
+      delete nextDelays[layerKey];
+
+      const nextActions = { ...(prev.exit_signal_actions || {}) };
+      delete nextActions[layerKey];
+
+      const nextTimeframes = { ...(prev.signal_timeframes || {}) };
+      delete nextTimeframes[layerKey];
+
+      return {
+        ...prev,
+        exit_signals: (prev.exit_signals || []).filter(sig => sig !== layerKey),
+        exit_signal_delays: nextDelays,
+        exit_signal_actions: nextActions,
+        signal_timeframes: nextTimeframes
+      };
+    });
+  }, []);
+
+  const handleUpdateLayer = React.useCallback((layerKey, field, value) => {
+    setIsDirty(true);
+    setCfg(prev => {
+      const next = { ...prev };
+      if (field === 'timeframe') {
+        const nextTimeframes = { ...(prev.signal_timeframes || {}) };
+        if (value === 'default') {
+          delete nextTimeframes[layerKey];
+        } else {
+          nextTimeframes[layerKey] = value;
+        }
+        next.signal_timeframes = nextTimeframes;
+      } else if (field === 'delay') {
+        next.exit_signal_delays = { ...(prev.exit_signal_delays || {}), [layerKey]: value };
+      } else if (field === 'action') {
+        next.exit_signal_actions = { ...(prev.exit_signal_actions || {}), [layerKey]: value };
+      }
+      return next;
+    });
+  }, []);
   
   const resetToLastSaved = React.useCallback(() => {
     sessionStorage.removeItem('config_draft');
@@ -1435,12 +1543,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {SIGNALS.map((signal) => (
                   <ExitSignalCard
-                   key={signal[0]}
-                   signal={signal}
-                   active={(cfg.exit_signals || []).includes(signal[0])}
-                   delayValue={(cfg.exit_signal_delays || {})[signal[0]]}
-                   onToggle={(key, active) => setField('exit_signals', active ? cfg.exit_signals.filter(s => s !== key) : [...(cfg.exit_signals || []), key])}
-                   onDelayChange={(key, val) => setField('exit_signal_delays', { ...(cfg.exit_signal_delays || {}), [key]: val })}
+                    key={signal[0]}
+                    signal={signal}
+                    active={(cfg.exit_signals || []).includes(signal[0])}
+                    layers={(cfg.exit_signals || []).filter(sig => sig === signal[0] || sig.startsWith(`${signal[0]}_`))}
+                    delays={cfg.exit_signal_delays || {}}
+                    actions={cfg.exit_signal_actions || {}}
+                    timeframes={cfg.signal_timeframes || {}}
+                    onToggle={handleToggleExitSignal}
+                    onAddLayer={handleAddLayer}
+                    onRemoveLayer={handleRemoveLayer}
+                    onUpdateLayer={handleUpdateLayer}
                   />
                 ))}
               </div>

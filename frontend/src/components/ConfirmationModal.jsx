@@ -28,11 +28,11 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 z-[10100] bg-black/80 cursor-pointer w-full h-full"
+                className="fixed inset-0 z-10100 bg-black/80 cursor-pointer w-full h-full"
               />
             </Dialog.Overlay>
             <Dialog.Content
-                className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[10110] outline-none w-[calc(100%-2rem)] max-w-md"
+                className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10110 outline-none w-[calc(100%-2rem)] max-w-md"
             >
               <motion.div
                 role="alertdialog"

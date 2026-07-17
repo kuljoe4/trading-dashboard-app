@@ -40,7 +40,6 @@ const StrategyDetailView = ({ s, onBack }) => {
         icon={Activity}
         title={s.strategy_label}
         subTitle={`Loop Monitoring · ${s.strategyId?.substring(0, 8)}`}
-        backAction={onBack}
       >
          <div className="flex items-center gap-2">
            <CopyButton value={s.strategyId} className="p-1" />

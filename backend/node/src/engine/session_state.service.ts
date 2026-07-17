@@ -252,8 +252,8 @@ export class SessionStateService {
         : (headers ? (headers[name.toLowerCase()] || headers[name]) : null);
     };
 
-    const used10s = getHeader('X-MBX-ORDER-COUNT-10S');
-    const used1m = getHeader('X-MBX-ORDER-COUNT-1M');
+    const used10s = getHeader('X-FAPI-ORDER-COUNT-10S') || getHeader('X-MBX-ORDER-COUNT-10S');
+    const used1m = getHeader('X-FAPI-ORDER-COUNT-1M') || getHeader('X-MBX-ORDER-COUNT-1M');
 
     if (used10s) {
       const parts = used10s.split(',');

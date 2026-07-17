@@ -709,22 +709,22 @@ export class MarketFeedService {
 
     const mode = this.sessionState.config?.trading_mode || (this.sessionState.config?.paper_mode ? 'paper' : 'live');
     const isTestnet = mode === 'testnet';
+    // Live uses the newer /market/stream endpoint with streams embedded in the URL.
+    // The classic /stream endpoint is starved by Binance from many IP ranges, and the
+    // SUBSCRIBE method is not served on /market/stream, so URL-param subscription is required.
     const wsBaseMarket = isTestnet
         ? 'wss://fstream.binancefuture.com/stream'
         : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
 
-    // Industry 2026 Unified Discovery Protocol:
-    // Aggregate discovery streams are managed via a stateful unified connection
-    // to the /stream endpoint, ensuring ACK reliability and preventing URI length issues.
     const topics = ['!miniTicker@arr', '!markPrice@arr@1s'];
 
+    // Testnet still serves the SUBSCRIBE method on /stream, so keep method-based there.
+    // Live must carry streams in the connection URL (?streams=...).
     let wsUrl = wsBaseMarket;
-    if (this.forceRawDiscovery) {
+    if (!isTestnet) {
       wsUrl = `${wsBaseMarket}?streams=${topics.join('/')}`;
-      this.logger.log(`[MarketFeed] CIRCUIT BREAKER: Forcing raw WebSocket fallback connection. URL: ${wsUrl}`);
-    } else {
-      this.logger.log(`[MarketFeed] Starting unified discovery manager for: ${topics.join(', ')}`);
     }
+    this.logger.log(`[MarketFeed] Starting unified discovery manager for: ${topics.join(', ')}`);
 
     const manager = new BinanceSubscriptionManager(
         wsUrl,
@@ -859,9 +859,11 @@ export class MarketFeedService {
     for (let i = 0; i < allStreams.length; i += CHUNK_SIZE) {
         const chunk = allStreams.slice(i, i + CHUNK_SIZE);
         this.logger.debug(`[MarketFeed] Initializing kline manager for chunk of ${chunk.length} streams...`);
-
+        // Live: embed streams in the URL (?streams=) since /market/stream does not serve the
+        // SUBSCRIBE method. Testnet keeps method-based subscription on /stream.
+        const managerWsUrl = isTestnet ? wsBaseMarket : `${wsBaseMarket}?streams=${chunk.join('/')}`;
         const manager = new BinanceSubscriptionManager(
-            wsBaseMarket,
+            managerWsUrl,
             {
                 isTestnet,
                 onMessage: (data) => this.processStreamMessage(data)

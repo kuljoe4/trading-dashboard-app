@@ -30,6 +30,9 @@ export class BinanceSubscriptionManager {
   private lastMsgTs = 0;
   private msgCount = 0;
   private stallWatchdogInterval: NodeJS.Timeout | null = null;
+  private reconnectAttempts = 0;
+  private static readonly RECONNECT_BASE_MS = 5000;
+  private static readonly RECONNECT_MAX_MS = 60000;
 
   constructor(
     private readonly wsUrl: string,
@@ -68,6 +71,7 @@ export class BinanceSubscriptionManager {
         }
         this.ws = ws;
         this.isConnecting = false;
+        this.reconnectAttempts = 0;
         this.logger.log(`[SubscriptionManager] WebSocket connected to ${this.wsUrl}`);
         this.startQueueProcessor();
         this.startPingInterval();
@@ -116,16 +120,9 @@ export class BinanceSubscriptionManager {
         this.stopPingInterval();
         this.cleanupPendingRequests('WebSocket closed');
 
-        // Auto-reconnect logic (only if NOT stopped)
+        // Auto-reconnect with capped exponential backoff (SRE: avoid reconnect storms / IP-ban patterns)
         if (!this.isStopped && this.isConnecting === false) {
-            if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
-            this.reconnectTimeout = setTimeout(() => {
-                this.reconnectTimeout = null;
-                if (!this.ws && !this.isConnecting && !this.isStopped) {
-                    this.connect().catch(() => {});
-                }
-            }, 5000);
-            this.reconnectTimeout.unref?.();
+            this.scheduleReconnect();
         }
       });
 
@@ -290,7 +287,7 @@ export class BinanceSubscriptionManager {
         this.ws.terminate();
         this.ws = null;
         this.isConnecting = false;
-        this.connect().catch(() => {});
+        this.scheduleReconnect();
       }
     }, 30000);
     this.stallWatchdogInterval.unref?.();
@@ -301,6 +298,28 @@ export class BinanceSubscriptionManager {
       clearInterval(this.stallWatchdogInterval);
       this.stallWatchdogInterval = null;
     }
+  }
+
+  /**
+   * SRE: Capped exponential backoff for reconnection. Prevents the self-amplifying
+   * reconnect storm (every ~2min) that reads as abusive to exchanges and risks IP bans.
+   * Delay grows 5s -> 10s -> 20s -> 40s -> capped 60s; resets on successful connect.
+   */
+  private scheduleReconnect() {
+    if (this.reconnectTimeout) return;
+    const delay = Math.min(
+      BinanceSubscriptionManager.RECONNECT_MAX_MS,
+      BinanceSubscriptionManager.RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempts),
+    );
+    this.reconnectAttempts++;
+    this.logger.warn(`[SubscriptionManager] Scheduling reconnect in ${delay}ms (attempt ${this.reconnectAttempts}).`);
+    this.reconnectTimeout = setTimeout(() => {
+      this.reconnectTimeout = null;
+      if (!this.ws && !this.isConnecting && !this.isStopped) {
+        this.connect().catch(() => {});
+      }
+    }, delay);
+    this.reconnectTimeout.unref?.();
   }
 
   private processQueue() {

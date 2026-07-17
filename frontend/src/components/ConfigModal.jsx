@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, useId } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info } from 'lucide-react'
-import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton } from './ui/primitives'
+import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton, VisuallyHidden } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 import { ConfirmationModal } from './ConfirmationModal'
 import { CONFIG_LIMITS } from '../constants/configLimits'
@@ -385,6 +385,7 @@ ManualMonitorInput.displayName = 'ManualMonitorInput'
 
 const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) => {
   const [name, setName] = useState(defaultName || '');
+  const inputId = useId();
 
   useEffect(() => {
     if (defaultName) setName(defaultName);
@@ -392,14 +393,24 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) 
 
   return (
     <div className="flex gap-2">
+      <VisuallyHidden>
+        <label htmlFor={inputId}>Preset Name</label>
+      </VisuallyHidden>
       <input
+        id={inputId}
         type="text"
         placeholder="Preset name (e.g. Scalp High Vol)"
         value={name}
         onChange={(e) => setName(e.target.value)}
         className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none"
       />
-      <Btn variant="primary" onClick={() => { if (name.trim()) { onSave(name); } }} loading={isSaving} className="aspect-square p-0 w-12 h-12 flex items-center justify-center">
+      <Btn
+        variant="primary"
+        onClick={() => { if (name.trim()) { onSave(name); } }}
+        loading={isSaving}
+        className="aspect-square p-0 w-12 h-12 flex items-center justify-center"
+        aria-label={success ? "Preset saved successfully" : "Save current configuration as preset"}
+      >
         {success ? <CheckCircle2 size={20} /> : <Save size={20} />}
       </Btn>
     </div>

@@ -123,6 +123,19 @@ export class MarketFeedService {
     // BOLT: Global streams (!miniTicker, !markPrice) are decoupled
     // to resolve the discovery bootstrap deadlock.
     await this.startGlobalDiscovery();
+
+    const waitForWs = new Promise<void>((resolve) => {
+      const check = setInterval(() => {
+        if (this.tickerCache.getCacheSize() > 0) {
+          clearInterval(check);
+          resolve();
+        }
+      }, 100);
+      setTimeout(() => { clearInterval(check); resolve(); }, 5000);
+    });
+
+    await waitForWs;
+    if (this.tickerCache.getCacheSize() === 0) await this.fetchInitialTickers(restBase);
     this.startWatchlistManager(config);
 
     // SRE: Proactive REST bootstrap. The public market WebSocket can be starved

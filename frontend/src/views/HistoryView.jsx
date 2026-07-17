@@ -481,6 +481,7 @@ export const HistoryView = () => {
                <input
                  type="text"
                  placeholder="Search history... [/]"
+                 aria-label="Search trade history"
                  value={search}
                  onChange={(e) => setSearch(e.target.value)}
                  onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
@@ -506,6 +507,7 @@ export const HistoryView = () => {
           <input
             type="text"
             placeholder="Search history... [/]"
+            aria-label="Search trade history"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => e.key === 'Escape' && setSearch('')}

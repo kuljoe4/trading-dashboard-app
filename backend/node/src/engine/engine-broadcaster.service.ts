@@ -453,13 +453,14 @@ export class EngineBroadcasterService {
       const tradesChanged = trades.length > 0 || anyPriceChangedSignificant;
       // BOLT: Standard threshold for total session PnL change (0.10 USDT)
       const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) >= 0.10;
+      const balanceChanged = Math.abs(tickData.balance - (this.lastTickData?.balance || 0)) >= 0.01;
       const gateChanged = tickData.gateState !== this.lastTickData?.gateState;
       const statsChanged = tickData._statsVersion !== this.lastTickData?._statsVersion;
 
       if (!shouldUpdateMonitoring) delete tickData.monitoring;
       else tickData._monitoring_ts = now;
 
-      if (tradesChanged || pnlChanged || gateChanged || statsChanged) {
+      if (tradesChanged || pnlChanged || balanceChanged || gateChanged || statsChanged) {
           shouldBroadcast = true;
       }
     }

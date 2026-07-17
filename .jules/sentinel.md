@@ -68,3 +68,8 @@
 **Vulnerability:** `AuditLogService.log` crashed with a `TypeError` when metadata fields (like `userAgent`) were passed as arrays (e.g., from multi-value `X-Forwarded-For` or `User-Agent` headers), as the `sanitizeMeta` function expected strings.
 **Learning:** Security utilities handling request metadata must be polymorphic. Express/NestJS can represent repeated headers as arrays, and assuming a string type leads to availability failures in the audit trail. Furthermore, fallback logging logic must prioritize the sanitization of sensitive fields (like `details`) even if the primary sanitization block fails.
 **Prevention:** Always check for `Array.isArray()` when processing header-derived metadata and join values into a string before sanitization and truncation. Ensure fallback loggers use a "fail-safe" approach that guarantees sanitization of high-risk fields.
+
+## 2026-07-17 - Logging Leakage via Unsanitized String Exceptions
+**Vulnerability:** Non-500 `HttpException` warning logs in `AllExceptionsFilter` bypassed the `sanitize` utility when the error message was a string primitive, risking the leakage of credentials and keys (like `api_key`) in logs.
+**Learning:** Type check conditionals (like `typeof message === 'object' ? ... : message`) can inadvertently bypass security filters for primitives, assuming they are inherently safe when they are actually the primary carrier of sensitive raw messages.
+**Prevention:** Always run all variations of user-derived error and exception messages through standard sanitization pipelines, regardless of whether they are structured objects or primitive string values.

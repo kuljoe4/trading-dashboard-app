@@ -56,7 +56,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       this.logger.error(`Unhandled Exception (${httpAdapter.getRequestUrl(ctx.getRequest())}): ${logBody}`);
     } else {
       // SENTINEL: Sanitize detailed messages to prevent accidental leakage of sensitive inputs
-      const detailedMessage = typeof message === 'object' ? JSON.stringify(sanitize(message)) : message;
+      const detailedMessage = typeof message === 'object' ? JSON.stringify(sanitize(message)) : sanitize(message);
       this.logger.warn(`HTTP Exception (${httpStatus}) [${httpAdapter.getRequestUrl(ctx.getRequest())}]: ${detailedMessage}`);
     }
 

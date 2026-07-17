@@ -576,6 +576,10 @@ ScannerPreview.displayName = 'ScannerPreview'
 export function DashboardView({ initialStrategy }) {
   const [selected, setSelected] = useState(initialStrategy || null)
   const [showTemporalRisk, setShowTemporalRisk] = useState(false)
+
+  useEffect(() => {
+    setSelected(initialStrategy || null);
+  }, [initialStrategy]);
   const [showConfig, setShowConfig] = useState(false)
   const [modalConfig, setModalConfig] = useState(null)
   const [showScanner, setShowScanner] = useState(false)
@@ -873,7 +877,9 @@ export function DashboardView({ initialStrategy }) {
 
   const handleOpenScanner = React.useCallback(() => setShowScanner(true), []);
   const handleEditPrimary = React.useCallback(() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }, [config]);
-  const handleSelectPrimary = React.useCallback(() => setSelected(currentStrategy.strategy_label), [currentStrategy.strategy_label]);
+  const handleSelectPrimary = React.useCallback(() => {
+    window.location.hash = `#/strategy/${encodeURIComponent(currentStrategy.strategy_label)}`;
+  }, [currentStrategy.strategy_label]);
 
   const handleEditVariant = React.useCallback((label) => {
     const idx = config.strategy_variants?.findIndex(v => v.strategy_label === label);
@@ -887,7 +893,7 @@ export function DashboardView({ initialStrategy }) {
   }, [config]);
 
   const handleSelectVariant = React.useCallback((label) => {
-    setSelected(label);
+    window.location.hash = `#/strategy/${encodeURIComponent(label)}`;
   }, []);
 
   if (selected) {
@@ -906,7 +912,7 @@ export function DashboardView({ initialStrategy }) {
       )}>
         <Sidebar selected={selected} />
         <Suspense fallback={<LoadingFallback />}>
-          <StrategyDetailView s={strategyData} onBack={() => setSelected(null)} />
+          <StrategyDetailView s={strategyData} onBack={() => { window.location.hash = '#/'; }} />
         </Suspense>
         <BottomNav selected={selected} />
       </div>

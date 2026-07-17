@@ -17,7 +17,10 @@ export const Sidebar = ({ selected }) => {
   const isExpanded = !collapsed || isHovered
 
   const isActive = (path) => {
-    if (path === '/') return !selected && window.location.hash === '#/'
+    if (path === '/') {
+      const h = window.location.hash;
+      return h === '#/' || h === '' || h.startsWith('#/strategy/');
+    }
     return window.location.hash.startsWith(`#${path}`)
   }
 
@@ -140,7 +143,10 @@ export const MobileHealthBar = () => {
 export const BottomNav = ({ selected }) => {
   const { wsStatus, monitoring, rateLimit, rateLimitLastSync, gateState, isEcoMode, healthEnabled, isSyncing, activeTrades } = useTradingStore()
   const isActive = (path) => {
-    if (path === '/') return !selected && window.location.hash === '#/'
+    if (path === '/') {
+      const h = window.location.hash;
+      return h === '#/' || h === '' || h.startsWith('#/strategy/');
+    }
     return window.location.hash.startsWith(`#${path}`)
   }
 

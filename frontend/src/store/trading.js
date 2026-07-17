@@ -511,8 +511,12 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   connectWS: () => {
     if (get().ws) return;
     set({ wsStatus: 'connecting' });
-    // DEPLOY-04: Force wss:// protocol for WebSockets if VITE_WS_URL is provided with incorrect protocol
-    let u = normalizeUrl(import.meta.env.VITE_WS_URL, 'wss') || `${window.location.protocol === 'https:' ? 'wss://' : 'ws://'}${window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '')}/session/ws`;
+    // DEPLOY-04: Match the WebSocket protocol to the page protocol.
+    // Use wss:// on HTTPS pages and ws:// on HTTP (dev) pages. Forcing wss://
+    // unconditionally breaks local dev where the Vite server is plain HTTP,
+    // causing "can't establish a connection to wss://localhost:3000".
+    const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    let u = normalizeUrl(import.meta.env.VITE_WS_URL, wsProto) || `${wsProto}://${window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '')}/session/ws`;
     if (u && !u.includes('/session/ws')) u = u.replace(/\/$/, '') + '/session/ws';
     const ak = localStorage.getItem('MOMENTUM_ADMIN_API_KEY') || import.meta.env.VITE_ADMIN_API_KEY;
     // SENTINEL: Use sub-protocol for auth instead of query parameter to prevent credential leakage in logs

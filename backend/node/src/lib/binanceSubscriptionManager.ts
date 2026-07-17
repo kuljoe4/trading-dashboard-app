@@ -29,6 +29,7 @@ export class BinanceSubscriptionManager {
   private ackTimeoutMs = 5000;
   private lastMsgTs = 0;
   private msgCount = 0;
+  private stallWatchdogInterval: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly wsUrl: string,
@@ -41,13 +42,23 @@ export class BinanceSubscriptionManager {
   public async connect(): Promise<void> {
     if (this.ws || this.isConnecting || this.isStopped) return;
     this.isConnecting = true;
+    this.lastMsgTs = 0;
+    this.msgCount = 0;
 
     return new Promise((resolve, reject) => {
       this.logger.log(`[SubscriptionManager] Connecting to ${this.wsUrl}`);
       const ws = new WebSocket(this.wsUrl, {
         handshakeTimeout: 15000,
         perMessageDeflate: false,
-        headers: {}
+        // Live Futures market-data WS (fstream.binance.com) requires browser-like
+        // headers from some network vantage points; without them Binance accepts
+        // the connection + SUBSCRIBE ACK but delivers ZERO data frames. Testnet
+        // (fstream.binancefuture.com) does not need them. Regression fix for the
+        // header removal in 3304f59 that broke live-mode streaming.
+        headers: this.options.isTestnet ? {} : {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Origin': 'https://www.binance.com'
+        }
       });
 
       ws.on('open', () => {
@@ -61,6 +72,7 @@ export class BinanceSubscriptionManager {
         this.startQueueProcessor();
         this.startPingInterval();
         this.startStatsInterval();
+        this.startStallWatchdog();
 
         // Re-subscribe to existing subscriptions if this is a reconnect
         if (this.activeSubscriptions.size > 0) {
@@ -83,6 +95,16 @@ export class BinanceSubscriptionManager {
         if (this.isConnecting) {
           this.isConnecting = false;
           reject(err);
+        } else if (!this.isStopped) {
+          // If a 'close' event does not follow, proactively schedule a reconnect.
+          if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+          this.reconnectTimeout = setTimeout(() => {
+            this.reconnectTimeout = null;
+            if (!this.ws && !this.isConnecting && !this.isStopped) {
+              this.connect().catch(() => {});
+            }
+          }, 5000);
+          this.reconnectTimeout.unref?.();
         }
       });
 
@@ -118,6 +140,7 @@ export class BinanceSubscriptionManager {
     this.stopQueueProcessor();
     this.stopPingInterval();
     this.stopStatsInterval();
+    this.stopStallWatchdog();
     if (this.reconnectTimeout) {
         clearTimeout(this.reconnectTimeout);
         this.reconnectTimeout = null;
@@ -248,6 +271,36 @@ export class BinanceSubscriptionManager {
           clearInterval(this.statsInterval);
           this.statsInterval = null;
       }
+  }
+
+  /**
+   * SRE: Self-healing data stall watchdog. The Binance public WS can sometimes
+   * accept a connection + SUBSCRIBE ACK yet deliver zero frames (silent stall).
+   * If we are OPEN, have active subscriptions, and have gone >2m without any
+   * frame, terminate and reconnect to force a fresh stream.
+   */
+  private startStallWatchdog() {
+    if (this.stallWatchdogInterval) return;
+    this.stallWatchdogInterval = setInterval(() => {
+      if (this.isStopped || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+      const now = Date.now();
+      if (this.activeSubscriptions.size > 0 && this.lastMsgTs > 0 && (now - this.lastMsgTs) > 120000) {
+        this.logger.warn(`[SubscriptionManager] Stall detected (${Math.round((now - this.lastMsgTs) / 1000)}s silent with ${this.activeSubscriptions.size} active subs). Force-reconnecting...`);
+        this.lastMsgTs = 0; // Prevent immediate re-trigger
+        this.ws.terminate();
+        this.ws = null;
+        this.isConnecting = false;
+        this.connect().catch(() => {});
+      }
+    }, 30000);
+    this.stallWatchdogInterval.unref?.();
+  }
+
+  private stopStallWatchdog() {
+    if (this.stallWatchdogInterval) {
+      clearInterval(this.stallWatchdogInterval);
+      this.stallWatchdogInterval = null;
+    }
   }
 
   private processQueue() {

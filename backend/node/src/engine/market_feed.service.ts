@@ -27,6 +27,8 @@ interface BinanceKline {
 
 @Injectable()
 export class MarketFeedService {
+  private static readonly STARTUP_SELFTEST_MS = 15000;
+
   async onModuleInit() {
     // Proactively load from DB on module init to seed the static cache
     // SRE: On boot, we don't have a session config yet. We load Production metadata
@@ -52,6 +54,12 @@ export class MarketFeedService {
   private backfillQueue: { symbol: string, interval: string }[] = [];
   private backfillProcessing = false;
   private binanceClient: any = null;
+
+  private currentConfig: SessionConfig | null = null;
+  private currentRestBase = ENGINE_CONSTANTS.BINANCE_REST_BASE;
+  private currentIsTestnet = false;
+  private restSeedInFlight = false;
+  private lastRestSeedTs = 0;
 
   private lastMiniTickerMsgTs = 0;
   private lastMarkTickerMsgTs = 0;
@@ -91,12 +99,16 @@ export class MarketFeedService {
     this.running = true;
     this.forceRawDiscovery = false;
     this.consecutiveDiscoveryFailures = 0;
+    this.currentConfig = config;
 
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
     const isTestnet = mode === 'testnet';
     const restBase = isTestnet
         ? 'https://testnet.binancefuture.com' // Corrected Testnet URL
         : ENGINE_CONSTANTS.BINANCE_REST_BASE;
+
+    this.currentRestBase = restBase;
+    this.currentIsTestnet = isTestnet;
 
     const wsBaseMarket = isTestnet
         ? 'wss://fstream.binancefuture.com/stream'
@@ -113,20 +125,28 @@ export class MarketFeedService {
     await this.startGlobalDiscovery();
     this.startWatchlistManager(config);
 
+    // SRE: Proactive REST bootstrap. The public market WebSocket can be starved
+    // in some live deployments (recurring live-mode deadlock where the socket
+    // connects and ACKs a SUBSCRIBE but delivers zero frames). Seed the
+    // TickerCache from REST immediately so the momentum scanner always has
+    // candidates and the watchlist can be built without waiting on the WS.
+    this.seedMarketDataFromRest().catch(err => {
+      this.logger.warn(`Initial REST market seed failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
+
     // SRE: Startup Self-Test (Citadel Protocol 2026)
-    // Assert TickerCache is seeded within 25s or alert loudly.
-    // 25s allows for manager connection, subscription, and first frame arrival.
+    // Assert TickerCache is seeded within 15s or alert loudly.
     const runMode = mode;
     if (runMode !== 'paper') {
        setTimeout(() => {
           if (this.running && this.tickerCache.getCacheSize() === 0) {
-             const alertMsg = `CRITICAL: Market Feed Startup Failure - TickerCache remains empty after 25s. Activating raw WebSocket fallback immediately. Mode=${runMode}`;
+             const alertMsg = `CRITICAL: Market Feed Startup Failure - TickerCache remains empty after ${MarketFeedService.STARTUP_SELFTEST_MS / 1000}s. Activating raw WebSocket fallback and REST seed. Mode=${runMode}`;
              this.logger.error(alertMsg);
              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: alertMsg, level: 'error' });
              this.eventEmitter.emit(ENGINE_EVENTS.ALERT, {
                 level: 'error',
                 title: 'Market Feed Failure',
-                message: 'No ticker data received from Binance. Switching to raw fallback.',
+                message: 'No ticker data received from Binance WebSocket. Using REST fallback.',
              });
 
              // Fast self-healing: set raw fallback and restart global discovery
@@ -134,10 +154,13 @@ export class MarketFeedService {
              this.startGlobalDiscovery().catch(err => {
                 this.logger.error(`Failed to start raw global discovery: ${err.message}`);
              });
+
+             // SRE: Guarantee the cache is populated even if the WS is starved.
+             this.seedMarketDataFromRest().catch(() => {});
           } else if (this.running) {
              this.logger.log(`[MarketFeed] Startup Self-Test passed: ${this.tickerCache.getCacheSize()} symbols seeded.`);
           }
-       }, 15000);
+       }, MarketFeedService.STARTUP_SELFTEST_MS);
     }
   }
 
@@ -310,6 +333,62 @@ export class MarketFeedService {
 
   getSymbolFilters(symbol: string) { return this.exchangeInfo.get(symbol); }
 
+  /**
+   * SRE/Resilience: Seed the TickerCache from REST market data when the
+   * public market WebSocket is starved or banned in a live deployment.
+   *
+   * Symptom this addresses: the discovery socket connects and receives a
+   * successful SUBSCRIBE ACK, yet delivers zero data frames for minutes
+   * (recurring "live mode doesn't work" deadlock). By seeding from REST we
+   * guarantee the momentum scanner always has candidates and the watchlist
+   * can be built, instead of stalling at "0 symbols monitored".
+   *
+   * Throttled/guarded: single in-flight request, minimum 5-minute re-seed
+   * cadence once populated, and routed through the centralized Binance queue.
+   */
+  private async seedMarketDataFromRest(): Promise<void> {
+    if (this.restSeedInFlight) return;
+    const now = Date.now();
+    const cacheSize = this.tickerCache.getCacheSize();
+    // Once seeded, only re-seed every 5 minutes to keep prices reasonably
+    // fresh without hammering the 40-weight endpoint.
+    if (cacheSize > 0 && (now - this.lastRestSeedTs) < 5 * 60 * 1000) return;
+
+    this.restSeedInFlight = true;
+    try {
+      const restBase = this.currentRestBase;
+      const url = `${restBase}/fapi/v1/ticker/24hr`;
+      this.logger.log(`[MarketFeed] Seeding TickerCache from REST market data (${url})...`);
+      const response = await this.binanceClientFactory.genericRequest(
+        () => fetch(url, { signal: AbortSignal.timeout(10000) }),
+        'ticker24hrPriceChangeStatistics',
+        false // Throttled, one-time critical seed
+      );
+      if (!response.ok) {
+        this.logger.warn(`[MarketFeed] REST market seed returned HTTP ${response.status}. Will retry on next cycle.`);
+        return;
+      }
+      const data = (await response.json()) as any[];
+      if (Array.isArray(data) && data.length > 0) {
+        this.tickerCache.bulkUpdate(data);
+        this.lastRestSeedTs = Date.now();
+        this.logger.log(`[MarketFeed] REST seed complete: ${data.length} symbols loaded into TickerCache.`);
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+          msg: `[MarketFeed] Market data restored via REST fallback (${data.length} symbols).`,
+          level: 'info'
+        });
+        // Refresh the watchlist now that the cache has candidates.
+        if (this.currentConfig) {
+          this.updateWatchlist(this.currentConfig).catch(() => {});
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`[MarketFeed] REST market data seed failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      this.restSeedInFlight = false;
+    }
+  }
+
   async stop() {
     this.running = false;
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
@@ -378,7 +457,27 @@ export class MarketFeedService {
       const mode = this.sessionState.config?.trading_mode || (this.sessionState.config?.paper_mode ? 'paper' : 'live');
       this.consecutiveDiscoveryFailures++;
 
-      // CIRCUIT BREAKER: After 1 consecutive silent failure, immediately switch to the raw WebSocket path.
+      // SRE: Decide severity from whether the scanner is actually starved.
+      // If the REST fallback has already seeded the TickerCache, the scanner
+      // still has candidates and trading proceeds - the WS is merely silent.
+      // Downgrade the alert so operators aren't misled into thinking the system
+      // is dead, and avoid pointless reconnect churn.
+      const cacheSize = this.tickerCache.getCacheSize();
+      const scannerAlive = cacheSize > 0;
+
+      if (scannerAlive) {
+        this.logger.warn(`[MarketFeed] Live market WebSocket silent (no frames in 60s); REST fallback active with ${cacheSize} symbols. Scanner operational. Mode=${mode}. Failure #${this.consecutiveDiscoveryFailures}`);
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+          msg: `[MarketFeed] Market WS silent; operating on REST fallback (${cacheSize} symbols). Scanner operational. Mode=${mode}`,
+          level: 'warn'
+        });
+        // No reconnect churn: rely on the periodic REST seed to keep the cache fresh.
+        return;
+      }
+
+      // Cache empty -> scanner genuinely offline. Escalate and force recovery.
+      // CIRCUIT BREAKER: After 1 consecutive silent failure, immediately switch
+      // to the raw WebSocket path.
       if (this.consecutiveDiscoveryFailures >= 1) {
         this.logger.fatal(`[MarketFeed] CIRCUIT BREAKER: Discovery has failed via primary method. Forcing raw WebSocket fallback immediately.`);
         this.forceRawDiscovery = true;
@@ -391,6 +490,8 @@ export class MarketFeedService {
       });
       // Force reconnect
       this.startGlobalDiscovery();
+      // SRE: If the public WS is starved, seed from REST so the scanner survives.
+      this.seedMarketDataFromRest().catch(() => {});
       return;
     }
 

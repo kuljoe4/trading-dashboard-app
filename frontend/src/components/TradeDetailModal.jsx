@@ -50,13 +50,16 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
     <Dialog.Root open={isOpen} onOpenChange={onClose}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-md z-[100] animate-in fade-in duration-300" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-4xl max-h-[90vh] overflow-y-auto no-scrollbar bg-surface/95 border border-border/50 rounded-xl p-3.5 md:p-5 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.6)] backdrop-blur-xl z-[101] animate-in fade-in zoom-in-95 duration-300 focus:outline-none">
+        <Dialog.Content 
+          aria-labelledby="modal-title"
+          aria-describedby="modal-description"
+          className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-4xl max-h-[90vh] overflow-y-auto no-scrollbar bg-surface/95 border border-border/50 rounded-xl p-3.5 md:p-5 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.6)] backdrop-blur-xl z-[101] animate-in fade-in zoom-in-95 duration-300 focus:outline-none">
           <VisuallyHidden>
-            <Dialog.Description>
+            <Dialog.Description id="modal-description">
               Detailed view of the active trade for {trade.symbol}, including P&L and exit signals.
             </Dialog.Description>
           </VisuallyHidden>
-          <Dialog.Title className="flex items-center justify-between mb-3 sticky -top-5 bg-surface/80 backdrop-blur-sm z-20 pb-2 pt-2">
+          <Dialog.Title id="modal-title" className="flex items-center justify-between mb-3 sticky -top-5 bg-surface/80 backdrop-blur-sm z-20 pb-2 pt-2">
             <div className="flex items-center gap-2.5">
               <div className={cn(
                 "w-8 h-8 rounded-xl flex items-center justify-center shadow-md transition-transform duration-500 hover:scale-105",

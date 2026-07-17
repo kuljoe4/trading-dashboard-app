@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { Activity, XCircle, Search, Copy, CheckCircle2, Info, X } from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useTradingStore } from '../store/trading'
-import { cn, CopyButton, Tooltip } from './ui/primitives'
+import { cn, CopyButton, Tooltip, VisuallyHidden } from './ui/primitives'
 
 const HIGHLIGHTS = {
   positive: ['BUY', 'PROFIT', 'TP', 'HIT', 'SUCCESS', 'STARTED', 'ENTER'],
@@ -62,9 +62,16 @@ const LogEntry = React.memo(({ log }) => {
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-md z-[100] animate-in fade-in duration-300" />
           <Dialog.Content
-            aria-describedby={undefined}
+            aria-labelledby="log-title"
+            aria-describedby="log-description"
             className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-surface/95 border border-border/50 rounded-xl p-4 md:p-5 shadow-2xl backdrop-blur-xl z-[101] animate-in fade-in zoom-in-95 duration-300 focus:outline-none"
           >
+            <VisuallyHidden>
+              <Dialog.Title id="log-title">Log Detail</Dialog.Title>
+              <Dialog.Description id="log-description">
+                Details for log entry at {logTimestamp} with level {logLevel}.
+              </Dialog.Description>
+            </VisuallyHidden>
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center gap-2.5">
                 <div className={cn(
@@ -76,7 +83,7 @@ const LogEntry = React.memo(({ log }) => {
                   <Info size={16} />
                 </div>
                 <div>
-                  <Dialog.Title className="text-xs font-black uppercase tracking-widest">Log Detail</Dialog.Title>
+                  <div className="text-xs font-black uppercase tracking-widest">Log Detail</div>
                   <div className="text-[9px] text-dim font-mono font-bold uppercase">{logTimestamp} • {logLevel}</div>
                 </div>
               </div>

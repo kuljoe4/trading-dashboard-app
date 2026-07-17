@@ -27,8 +27,8 @@
 **Action:** Use `useRef` and `useEffect` with a small debounce to focus the 'Cancel' button. Always wrap modal conditions in `AnimatePresence`. Link titles and descriptions to ARIA IDs.
 
 ## 2026-06-25 - Standardizing Information Discovery for Technical Jargon
-**Learning:** In technical domains like trading, acronyms and jargon (e.g., "RR", "Move", "Score") can be opaque to new users. Standardizing a discovery pattern using tooltips combined with subtle visual cues (`cursor-help` and `border-b border-dotted`) provides a non-intrusive way to educate users without cluttering the UI. This pattern is particularly effective for table headers and status badges where space is at a premium.
-**Action:** Use Radix UI `Tooltip` for all technical acronyms and status indicators. Apply `cursor-help` and `border-b border-dotted border-dim/30` to text-based triggers to signify discoverable information.
+**Learning:** In trading environments, visual density is high, making explicit text labels difficult to fit. A standard way to provide educational details without visual clutter is pairing tooltips with subtle visual cues (`cursor-help` and a dotted underline). This provides non-intrusive discovery of acronym definitions (like "RR", "MFE", "SL") for screen-reader and mouse users alike.
+**Action:** Use Radix UI `Tooltip` on technical headers and badges, styled with `cursor-help` and a light dotted border.
 
 ## 2026-07-04 - Stable Sidebar Tooltip Anchoring
 **Learning:** Tying navigation tooltips to volatile hover states (e.g., `isExpanded`) causes them to flicker or fail to appear during the "hover-to-expand" transition. Anchoring them strictly to the underlying `collapsed` state from the store ensures they remain active and reliable for keyboard users and quick-hover interactions in the narrow sidebar.
@@ -45,3 +45,7 @@
 ## 2026-07-13 - Keyboard Discoverability for Hover-Only Utilities
 **Learning:** Utility elements like "Copy" buttons or keyboard shortcut hints that are hidden by default to maintain data density are often inaccessible to keyboard users. Synchronizing their visibility with both `hover` and `focus-visible`/`focus-within` states ensures parity between mouse and keyboard interaction models without cluttering the baseline UI.
 **Action:** Use `group-focus-visible:opacity-100` or `group-focus-within:opacity-100` on parent containers to reveal hidden utility children when they or their parent receive keyboard focus.
+
+## 2026-07-16 - Screen Reader Accessibility in Forms and Search Fields
+**Learning:** High-density inputs (such as search boxes and preset naming fields) are frequently stripped of visible text labels to maintain a sleek, clean, modern UI. However, this pattern leaves screen-reader users completely disoriented. Providing an explicit `aria-label` or wrapping hidden labels in a custom `<VisuallyHidden>` component linked to inputs with a unique generated ID (via React's `useId`) restores accessibility parity without introducing any visual clutter or layout shifts.
+**Action:** Always provide an `aria-label` for search/filter inputs, and use `useId` paired with `<VisuallyHidden><label htmlFor={id}>` for un-labeled high-density text fields. Ensure all icon-only utility buttons have meaningful context-aware ARIA attributes.

@@ -3,6 +3,7 @@ import { ValidationPipe, LogLevel, Logger } from "@nestjs/common";
 import { Request, Response, NextFunction, json, urlencoded } from "express";
 import { DynamicLogger } from "./lib/logger";
 import { ConfigService } from "@nestjs/config";
+import { getDataSourceToken } from "@nestjs/typeorm";
 import { WebSocketServer } from "ws";
 import { AppModule } from "./app.module";
 import { AllExceptionsFilter } from "./lib/all-exceptions.filter";
@@ -133,9 +134,11 @@ async function bootstrap() {
   // Health check endpoint
   app.getHttpAdapter().get("/health", async (req, res) => {
     try {
-      // Audit Item 35: Add DB health check
-      const entityManager = app.get("EntityManager");
-      await entityManager.query("SELECT 1");
+      // Audit Item 35: Add DB health check. Resolve the TypeORM DataSource via
+      // its token (the string "EntityManager" is NOT a registered provider, which
+      // previously threw and made the /health probe fail).
+      const dataSource = app.get(getDataSourceToken());
+      await dataSource.query("SELECT 1");
       res.status(200).send({ status: "ok", db: "connected", timestamp: new Date().toISOString() });
     } catch (e) {
       res.status(503).send({ status: "error", db: "disconnected", timestamp: new Date().toISOString() });

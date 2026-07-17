@@ -376,8 +376,11 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
 })
 
 const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, hibernating, hibernationMode, activeTradesCount = 0, showResumingFeedback }) => {
-  if (!gateState && !scannerPaused && !showResumingFeedback) return null
-
+  // SRE/React: Hooks MUST be invoked unconditionally and in the same order on
+  // every render. An early `return null` previously sat ABOVE these hooks, which
+  // violates the Rules of Hooks and corrupts React's internal fiber (manifests as
+  // the cryptic "Expected static flag was missing" crash on GateBanner mount).
+  // The visibility guard is moved below the hooks.
   const config = useTradingStore(state => state.config);
   const [now, setNow] = React.useState(Date.now());
   React.useEffect(() => {
@@ -385,6 +388,8 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [gateState, nextSlotTs]);
+
+  if (!gateState && !scannerPaused && !showResumingFeedback) return null;
 
   const nextSlotSec = nextSlotTs ? Math.max(0, Math.ceil((nextSlotTs - now) / 1000)) : null;
 

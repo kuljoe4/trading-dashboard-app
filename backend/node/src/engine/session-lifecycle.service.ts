@@ -570,7 +570,7 @@ export class SessionLifecycleService {
             this.logger.debug(
               `[UDS] Ignoring zero-amount update for ${symbol} during lifecycle transition.`,
             );
-            return;
+            continue;
           }
 
           const trade = this.sessionState.activeTrades.find(

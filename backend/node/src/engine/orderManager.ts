@@ -2756,6 +2756,7 @@ export class OrderManagerService {
             const blockMsg = `CRITICAL: ${symbol} close attempt ceiling reached (REDUCE_ONLY). Automated closes are now BLOCKED. To unblock, please manual close or sync on Binance. [${errCode}] ${errMsg}`;
                     this.logger.error(blockMsg);
                     this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: blockMsg, level: 'error' });
+                    this.eventEmitter.emit(ENGINE_EVENTS.ALERT, { level: 'error', title: 'Close Blocked', message: blockMsg });
                   }
 
                   this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
@@ -2771,12 +2772,14 @@ export class OrderManagerService {
 
                // SRE: Distinct state for illiquid positions
                trade.illiquid_blocked = true;
+               this.eventEmitter.emit(ENGINE_EVENTS.ALERT, { level: 'error', title: 'Illiquid Blocked', message: `${symbol}: Position is illiquid (price outside Binance protection bands). Manual intervention on Binance is required to close.` });
 
                if (trade.close_attempts && trade.close_attempts >= MAX_CLOSE_ATTEMPTS) {
                   trade.close_blocked = true;
                   const blockMsg = `CRITICAL: ${symbol} close attempt ceiling reached. Automated closes are now BLOCKED for this symbol. To unblock, please manual close or sync on Binance.`;
                   this.logger.error(blockMsg);
                   this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: blockMsg, level: 'error' });
+                  this.eventEmitter.emit(ENGINE_EVENTS.ALERT, { level: 'error', title: 'Close Blocked', message: blockMsg });
                } else {
                   this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `CRITICAL: ${symbol} close failed (Price Protection). Attempting aggressive LIMIT fallback.`, level: 'warn' });
 
@@ -2829,6 +2832,7 @@ export class OrderManagerService {
                  const blockMsg = `CRITICAL: ${symbol} close attempt ceiling reached. Automated closes are now BLOCKED. [${errCode}] ${errMsg}`;
                  this.logger.error(blockMsg);
                  this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: blockMsg, level: 'error' });
+                 this.eventEmitter.emit(ENGINE_EVENTS.ALERT, { level: 'error', title: 'Close Blocked', message: blockMsg });
                }
 
                this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });

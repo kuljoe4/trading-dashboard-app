@@ -29,6 +29,10 @@ export class BinanceSubscriptionManager {
   private ackTimeoutMs = 5000;
   private lastMsgTs = 0;
   private msgCount = 0;
+  private stallWatchdogInterval: NodeJS.Timeout | null = null;
+  private reconnectAttempts = 0;
+  private static readonly RECONNECT_BASE_MS = 5000;
+  private static readonly RECONNECT_MAX_MS = 60000;
 
   constructor(
     private readonly wsUrl: string,
@@ -41,14 +45,21 @@ export class BinanceSubscriptionManager {
   public async connect(): Promise<void> {
     if (this.ws || this.isConnecting || this.isStopped) return;
     this.isConnecting = true;
+    this.lastMsgTs = 0;
+    this.msgCount = 0;
 
     return new Promise((resolve, reject) => {
       this.logger.log(`[SubscriptionManager] Connecting to ${this.wsUrl}`);
       const ws = new WebSocket(this.wsUrl, {
         handshakeTimeout: 15000,
         perMessageDeflate: false,
+        // Live Futures market-data WS (fstream.binance.com) requires browser-like
+        // headers from some network vantage points; without them Binance accepts
+        // the connection + SUBSCRIBE ACK but delivers ZERO data frames. Testnet
+        // (fstream.binancefuture.com) does not need them. Regression fix for the
+        // header removal in 3304f59 that broke live-mode streaming.
         headers: this.options.isTestnet ? {} : {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Origin': 'https://www.binance.com'
         }
       });
@@ -60,10 +71,12 @@ export class BinanceSubscriptionManager {
         }
         this.ws = ws;
         this.isConnecting = false;
+        this.reconnectAttempts = 0;
         this.logger.log(`[SubscriptionManager] WebSocket connected to ${this.wsUrl}`);
         this.startQueueProcessor();
         this.startPingInterval();
         this.startStatsInterval();
+        this.startStallWatchdog();
 
         // Re-subscribe to existing subscriptions if this is a reconnect
         if (this.activeSubscriptions.size > 0) {
@@ -86,6 +99,16 @@ export class BinanceSubscriptionManager {
         if (this.isConnecting) {
           this.isConnecting = false;
           reject(err);
+        } else if (!this.isStopped) {
+          // If a 'close' event does not follow, proactively schedule a reconnect.
+          if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+          this.reconnectTimeout = setTimeout(() => {
+            this.reconnectTimeout = null;
+            if (!this.ws && !this.isConnecting && !this.isStopped) {
+              this.connect().catch(() => {});
+            }
+          }, 5000);
+          this.reconnectTimeout.unref?.();
         }
       });
 
@@ -97,16 +120,9 @@ export class BinanceSubscriptionManager {
         this.stopPingInterval();
         this.cleanupPendingRequests('WebSocket closed');
 
-        // Auto-reconnect logic (only if NOT stopped)
+        // Auto-reconnect with capped exponential backoff (SRE: avoid reconnect storms / IP-ban patterns)
         if (!this.isStopped && this.isConnecting === false) {
-            if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
-            this.reconnectTimeout = setTimeout(() => {
-                this.reconnectTimeout = null;
-                if (!this.ws && !this.isConnecting && !this.isStopped) {
-                    this.connect().catch(() => {});
-                }
-            }, 5000);
-            this.reconnectTimeout.unref?.();
+            this.scheduleReconnect();
         }
       });
 
@@ -121,6 +137,7 @@ export class BinanceSubscriptionManager {
     this.stopQueueProcessor();
     this.stopPingInterval();
     this.stopStatsInterval();
+    this.stopStallWatchdog();
     if (this.reconnectTimeout) {
         clearTimeout(this.reconnectTimeout);
         this.reconnectTimeout = null;
@@ -251,6 +268,58 @@ export class BinanceSubscriptionManager {
           clearInterval(this.statsInterval);
           this.statsInterval = null;
       }
+  }
+
+  /**
+   * SRE: Self-healing data stall watchdog. The Binance public WS can sometimes
+   * accept a connection + SUBSCRIBE ACK yet deliver zero frames (silent stall).
+   * If we are OPEN, have active subscriptions, and have gone >2m without any
+   * frame, terminate and reconnect to force a fresh stream.
+   */
+  private startStallWatchdog() {
+    if (this.stallWatchdogInterval) return;
+    this.stallWatchdogInterval = setInterval(() => {
+      if (this.isStopped || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+      const now = Date.now();
+      if (this.activeSubscriptions.size > 0 && this.lastMsgTs > 0 && (now - this.lastMsgTs) > 120000) {
+        this.logger.warn(`[SubscriptionManager] Stall detected (${Math.round((now - this.lastMsgTs) / 1000)}s silent with ${this.activeSubscriptions.size} active subs). Force-reconnecting...`);
+        this.lastMsgTs = 0; // Prevent immediate re-trigger
+        this.ws.terminate();
+        this.ws = null;
+        this.isConnecting = false;
+        this.scheduleReconnect();
+      }
+    }, 30000);
+    this.stallWatchdogInterval.unref?.();
+  }
+
+  private stopStallWatchdog() {
+    if (this.stallWatchdogInterval) {
+      clearInterval(this.stallWatchdogInterval);
+      this.stallWatchdogInterval = null;
+    }
+  }
+
+  /**
+   * SRE: Capped exponential backoff for reconnection. Prevents the self-amplifying
+   * reconnect storm (every ~2min) that reads as abusive to exchanges and risks IP bans.
+   * Delay grows 5s -> 10s -> 20s -> 40s -> capped 60s; resets on successful connect.
+   */
+  private scheduleReconnect() {
+    if (this.reconnectTimeout) return;
+    const delay = Math.min(
+      BinanceSubscriptionManager.RECONNECT_MAX_MS,
+      BinanceSubscriptionManager.RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempts),
+    );
+    this.reconnectAttempts++;
+    this.logger.warn(`[SubscriptionManager] Scheduling reconnect in ${delay}ms (attempt ${this.reconnectAttempts}).`);
+    this.reconnectTimeout = setTimeout(() => {
+      this.reconnectTimeout = null;
+      if (!this.ws && !this.isConnecting && !this.isStopped) {
+        this.connect().catch(() => {});
+      }
+    }, delay);
+    this.reconnectTimeout.unref?.();
   }
 
   private processQueue() {

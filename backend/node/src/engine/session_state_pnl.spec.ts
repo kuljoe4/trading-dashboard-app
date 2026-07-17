@@ -72,5 +72,12 @@ describe('SessionStateService PnL Aggregation', () => {
     // Win rate check: 1 win out of 2 closed non-reconciliation trades
     expect(service.stats.hitCount).toBe(1);
     expect(service.stats.entryCount).toBe(4); // 4 trades in session-123
+
+    // Strategy-specific stats check
+    const strategyStats = service.cachedClosedTradesStats['Test Strategy'];
+    expect(strategyStats).toBeDefined();
+    expect(strategyStats.pnl).toBe(35.0);
+    expect(strategyStats.count).toBe(4); // Should be consistent with entryCount now
+    expect(strategyStats.hits).toBe(1);
   });
 });

@@ -60,3 +60,16 @@
 **Vulnerability:** Outgoing network requests during application initialization (e.g., clock synchronization) lacked timeouts and status validation.
 **Learning:** External dependencies that hang or fail silently during a synchronous-looking startup sequence can prevent the application from booting or reaching a ready state, leading to a self-inflicted Denial of Service.
 **Prevention:** Always enforce strict timeouts (e.g., 5s) and validate response status for all network requests initiated during the application bootstrap phase.
+## 2026-07-15 - Log Injection and Storage Exhaustion Protection
+**Vulnerability:** Metadata fields in audit logs (User-Agent, Actor) and application logs lacked length limits and character sanitization, creating risks of Log Injection and storage-based Denial of Service.
+**Learning:** Even internal/audit metadata must be treated as untrusted input. Maliciously crafted headers or extremely long strings can compromise log integrity or exhaust system resources (DB storage, memory).
+**Prevention:** Implement a strict "Sanitize & Truncate" policy at the persistence layer. Strip non-printable control characters to prevent log forging and enforce hard length limits (e.g., 4000 chars for logs, 1024 for User-Agents) to protect system availability.
+## 2026-07-15 - Robust Metadata Sanitization for Multi-Value Headers
+**Vulnerability:** `AuditLogService.log` crashed with a `TypeError` when metadata fields (like `userAgent`) were passed as arrays (e.g., from multi-value `X-Forwarded-For` or `User-Agent` headers), as the `sanitizeMeta` function expected strings.
+**Learning:** Security utilities handling request metadata must be polymorphic. Express/NestJS can represent repeated headers as arrays, and assuming a string type leads to availability failures in the audit trail. Furthermore, fallback logging logic must prioritize the sanitization of sensitive fields (like `details`) even if the primary sanitization block fails.
+**Prevention:** Always check for `Array.isArray()` when processing header-derived metadata and join values into a string before sanitization and truncation. Ensure fallback loggers use a "fail-safe" approach that guarantees sanitization of high-risk fields.
+
+## 2026-07-17 - Logging Leakage via Unsanitized String Exceptions
+**Vulnerability:** Non-500 `HttpException` warning logs in `AllExceptionsFilter` bypassed the `sanitize` utility when the error message was a string primitive, risking the leakage of credentials and keys (like `api_key`) in logs.
+**Learning:** Type check conditionals (like `typeof message === 'object' ? ... : message`) can inadvertently bypass security filters for primitives, assuming they are inherently safe when they are actually the primary carrier of sensitive raw messages.
+**Prevention:** Always run all variations of user-derived error and exception messages through standard sanitization pipelines, regardless of whether they are structured objects or primitive string values.

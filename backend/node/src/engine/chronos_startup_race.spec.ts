@@ -1,3 +1,5 @@
+import { OrderFilterService } from './order-filter.service';
+import { BroadcastService } from './broadcast.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SessionLifecycleService } from './session-lifecycle.service';
@@ -12,6 +14,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { ENGINE_EVENTS } from './events';
 import { Trade } from '../models/Trade';
+import { EXIT_REASONS } from '../models/constants';
 
 describe('Chronos: Startup Race Condition Protection', () => {
   let sessionLifecycleService: SessionLifecycleService;
@@ -22,12 +25,14 @@ describe('Chronos: Startup Race Condition Protection', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: OrderFilterService, useValue: { applyFilters: jest.fn((sym, val) => val), checkLeverageBracket: jest.fn(() => ({ isAllowed: true, maxNotional: 1000000 })) } },
+        { provide: BroadcastService, useValue: { broadcast: jest.fn(), setWsBroadcaster: jest.fn() } },
         SessionLifecycleService,
         SessionStateService,
         { provide: OrderManagerService, useValue: { setBinanceClient: jest.fn(), getTakerFeeRate: jest.fn().mockReturnValue(0.0004), isRatcheting: jest.fn() } },
         { provide: MarketFeedService, useValue: { start: jest.fn(), stop: jest.fn(), fetchExchangeInfo: jest.fn() } },
         { provide: MomentumScannerService, useValue: { start: jest.fn(), stop: jest.fn() } },
-        { provide: PositionTrackerService, useValue: { activeList: jest.fn().mockReturnValue([]), addTrade: jest.fn(), recalculateTotalRisk: jest.fn(), totalRisk: jest.fn() } },
+        { provide: PositionTrackerService, useValue: { activeList: jest.fn().mockReturnValue([]), addTrade: jest.fn(), recalculateTotalRisk: jest.fn(), totalRisk: jest.fn(), isClosing: jest.fn().mockReturnValue(false), isEntering: jest.fn().mockReturnValue(false) } },
         { provide: MonitoringService, useValue: { incrementApiRequests: jest.fn(), setUdsStatus: jest.fn(), recordUdsPing: jest.fn(), getMetrics: jest.fn().mockReturnValue({ application: {} }) } },
         { provide: AuditLogService, useValue: { log: jest.fn() } },
         { provide: getRepositoryToken(SettingsEntity), useValue: { findOne: jest.fn().mockResolvedValue({}), update: jest.fn() } },
@@ -91,5 +96,97 @@ describe('Chronos: Startup Race Condition Protection', () => {
 
     // Quantity should be updated to 0.8 from the replayed UDS event
     expect(trade.qty).toBe(0.8);
+  });
+
+  it('should schedule zero-position close with a delay if the trade has an active stop order, preventing EXCHANGE_SYNC race', async () => {
+    jest.useFakeTimers();
+    // Mark the service as running so the scheduled executeSyncClose doesn't early-return
+    (sessionLifecycleService as any).running = true;
+
+    const symbol = 'BTCUSDT';
+    const trade = {
+      id: 'trade-race',
+      symbol,
+      qty: 1.0,
+      entry_price: 50000,
+      binance_stop_order_id: 'sl-12345',
+      status: 'OPEN'
+    } as Trade;
+
+    sessionState.activeTrades = [trade];
+    jest.spyOn(positionTracker, 'isClosing').mockReturnValue(false);
+
+    const emitSpy = jest.spyOn(eventEmitter, 'emit');
+
+    const accountUpdate = {
+      e: 'ACCOUNT_UPDATE',
+      a: {
+        m: 'ORDER',
+        B: [],
+        P: [{ s: symbol, pa: '0', ep: '50000' }] // Position is 0!
+      }
+    };
+
+    // Trigger handleAccountUpdate
+    sessionLifecycleService.handleAccountUpdate(accountUpdate as any);
+
+    // It should schedule and NOT emit immediately because hasStopOrder is true
+    expect(emitSpy).not.toHaveBeenCalledWith(ENGINE_EVENTS.EXCHANGE_CLOSE, expect.any(Object));
+
+    // Fast-forward time by 100ms
+    jest.advanceTimersByTime(100);
+
+    // Now it should have executed and emitted EXCHANGE_CLOSE
+    expect(emitSpy).toHaveBeenCalledWith(ENGINE_EVENTS.EXCHANGE_CLOSE, expect.objectContaining({
+      symbol,
+      reason: EXIT_REASONS.EXCHANGE_SYNC,
+      isReconciliation: true
+    }));
+
+    jest.useRealTimers();
+  });
+
+  it('should skip scheduled zero-position close if the trade is already closing or removed before delay expires', async () => {
+    jest.useFakeTimers();
+    // Mark the service as running so the scheduled executeSyncClose doesn't early-return
+    (sessionLifecycleService as any).running = true;
+
+    const symbol = 'BTCUSDT';
+    const trade = {
+      id: 'trade-race-2',
+      symbol,
+      qty: 1.0,
+      entry_price: 50000,
+      binance_stop_order_id: 'sl-12345',
+      status: 'OPEN'
+    } as Trade;
+
+    sessionState.activeTrades = [trade];
+    const isClosingSpy = jest.spyOn(positionTracker, 'isClosing').mockReturnValue(false);
+
+    const emitSpy = jest.spyOn(eventEmitter, 'emit');
+
+    const accountUpdate = {
+      e: 'ACCOUNT_UPDATE',
+      a: {
+        m: 'ORDER',
+        B: [],
+        P: [{ s: symbol, pa: '0', ep: '50000' }]
+      }
+    };
+
+    // Trigger handleAccountUpdate
+    sessionLifecycleService.handleAccountUpdate(accountUpdate as any);
+
+    // Now, before the 100ms delay finishes, simulate that the trade started closing
+    isClosingSpy.mockReturnValue(true);
+
+    // Fast-forward time by 100ms
+    jest.advanceTimersByTime(100);
+
+    // It should have skipped emitting EXCHANGE_CLOSE
+    expect(emitSpy).not.toHaveBeenCalledWith(ENGINE_EVENTS.EXCHANGE_CLOSE, expect.any(Object));
+
+    jest.useRealTimers();
   });
 });

@@ -82,6 +82,7 @@ describe('SessionService Data Consistency Fixes', () => {
       {} as any, // marketFeed
       { emit: jest.fn() } as any,
       {} as any, // analytics
+      {} as any, // rrOptimization
       {} as any, // binanceClientFactory
       { log: jest.fn() } as any, // auditLog
       { get: jest.fn().mockReturnValue('postgres://user:pass@localhost:5432/db') } as any // configService
@@ -123,7 +124,16 @@ describe('SessionService Data Consistency Fixes', () => {
 
     await service.startSession(config, true);
 
-    expect(mockTradeRepository.update).toHaveBeenCalledWith('trade-1', { status: 'CLOSED_ORPHANED', exit_ts: expect.any(Date), is_reconciliation: true });
+    expect(mockTradeRepository.update).toHaveBeenCalledWith('trade-1', expect.objectContaining({
+      status: 'CLOSED_ORPHANED',
+      exit_ts: expect.any(Date),
+      is_reconciliation: true,
+      exit_price: expect.any(Number),
+      pnl: expect.any(Number),
+      pnl_pct: expect.any(Number),
+      qty: expect.any(Number),
+      exit_reason: expect.any(String),
+    }));
     expect(mockSessionRepository.update).toHaveBeenCalledWith('session-123', { totalPnl: -50 });
   });
 

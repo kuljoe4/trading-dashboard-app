@@ -6,13 +6,13 @@ import { useTradingStore } from '../store/trading'
 import { sessionAPI } from '../api/client'
 import { 
   StatCard, InteractiveLimitCard, SectionLabel, Btn, StatusBadge, PaperBadge, EcoBadge, DemoBadge, LiveBadge,
-    ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn, Tooltip, VisuallyHidden, ViewHeader
+    ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn, Tooltip, VisuallyHidden, ViewHeader, MonitoredBadge, InPosBadge
   } from '../components/ui/primitives'
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, LayoutDashboard, History,
   Settings as SettingsIcon, Activity, Zap, ShieldCheck,
   BarChart3, XCircle, Pause, Play, Edit3, RefreshCw, Leaf,
-  Briefcase, TrendingUp, ArrowRight, AlertCircle, CheckCircle2, Info, Loader2
+  Briefcase, TrendingUp, TrendingDown, ArrowRight, AlertCircle, CheckCircle2, Info, Loader2
 } from 'lucide-react'
 import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -52,7 +52,7 @@ const TemporalRiskGrid = React.memo(() => {
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4 mb-8 lg:mb-10">
       <InteractiveLimitCard
         label="Period Limit"
-        subValue={gateState === 'max_trades_period' ? (waitTime ? `Wait ~${waitTime}` : 'Wait...') : (isAdaptiveTightened ? 'x0.5 Applied' : (tradesInPeriod !== undefined ? `${Math.max(0, (maxTradesPeriod || config.max_trades_per_period) - tradesInPeriod)} Remaining` : null))}
+        subValue={tradesInPeriod !== undefined ? `${Math.max(0, (maxTradesPeriod || config.max_trades_per_period) - tradesInPeriod)} Remaining${isAdaptiveTightened ? ' (x0.5)' : ''}` : (isAdaptiveTightened ? 'x0.5 Applied' : null)}
         tooltip="Maximum trades allowed within the sliding period window."
         value={config.max_trades_per_period || 0}
         min={0}
@@ -78,7 +78,7 @@ const TemporalRiskGrid = React.memo(() => {
 
       <InteractiveLimitCard
         label="24h Limit"
-        subValue={gateReason?.includes('24h limit') ? `Wait ~${waitTime}` : (tradesIn24h !== undefined ? `${Math.max(0, (maxTrades24h || config.max_trades_24h) - tradesIn24h)} Remaining` : (config.max_trades_24h > 0 ? 'Rolling' : 'Inactive'))}
+        subValue={tradesIn24h !== undefined ? `${Math.max(0, (maxTrades24h || config.max_trades_24h) - tradesIn24h)} Remaining` : (config.max_trades_24h > 0 ? 'Rolling' : 'Inactive')}
         tooltip="Total trade entry quota for a rolling 24-hour period."
         value={config.max_trades_24h || 0}
         min={0}
@@ -209,7 +209,7 @@ const BanBanner = ({ apiStatus }) => {
 };
 
 // --- Strategy Card ---
-const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner, isMonitored, className, isResuming, showResumingFeedback }) => {
+export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner, isMonitored, className, isResuming, showResumingFeedback }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
@@ -218,118 +218,123 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
     onClick(s.strategy_label);
   }, [onClick, s.strategy_label]);
 
-  const handleEditClick = React.useCallback((e) => {
-    e.stopPropagation();
+  const handleEditClick = React.useCallback(() => {
     onEdit(s.strategy_label);
   }, [onEdit, s.strategy_label]);
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handleCardClick();
-    }
-  }
-
   return (
     <motion.div
-      whileHover={{ scale: 1.01 }}
-      onClick={handleCardClick}
-      onKeyDown={handleKeyDown}
-      role="button"
-      tabIndex={0}
+      whileHover={{ scale: 1.005 }}
       className={cn(
-        "bg-surface border border-border/40 rounded-2xl p-5 md:p-6 cursor-pointer transition-all relative group shadow-sm h-full focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none min-w-0",
-        tradingMode === 'paper' ? "hover:border-amber/30 hover:shadow-amber/5" :
-        tradingMode === 'testnet' ? "hover:border-purple/30 hover:shadow-purple/5" :
-        "hover:border-green/30 hover:shadow-green/5",
+        "bg-surface border border-border/50 rounded-2xl p-4 md:p-6 transition-all relative flex flex-col justify-between shadow-sm h-full min-w-0 overflow-hidden",
+        tradingMode === 'paper' ? "hover:border-amber/30 hover:shadow-amber/[0.02]" :
+        tradingMode === 'testnet' ? "hover:border-purple/30 hover:shadow-purple/[0.02]" :
+        "hover:border-green/30 hover:shadow-green/[0.02]",
         className
       )}
     >
       {paused && !isResuming && (
-        <div className="absolute inset-0 bg-background/40 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
+        <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
           <div className="bg-amber/10 border border-amber/20 text-amber px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-2xl">
             <Pause size={12} fill="currentColor" /> Session Paused
           </div>
         </div>
       )}
       {showResumingFeedback && (
-        <div className="absolute inset-0 bg-background/40 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
+        <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
           <div className="bg-accent/10 border border-accent/20 text-accent px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-2xl">
             <RefreshCw size={12} className="animate-spin" /> Resuming Feed...
           </div>
         </div>
       )}
-        <div className="flex justify-between items-start mb-5 md:mb-6 min-w-0 gap-3" aria-live="polite">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-2.5 md:mb-3 flex-wrap">
+
+      {/* Card Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 pb-4 border-b border-border/20 mb-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 mb-2 flex-wrap">
             <StatusBadge status={s.sessionActive} />
-            <div className="flex items-center gap-1.5 scale-90 origin-left">
+            <div className="flex items-center gap-1 scale-90 origin-left">
               {tradingMode === 'paper' && <PaperBadge />}
               {tradingMode === 'testnet' && <DemoBadge />}
               {tradingMode === 'live' && <LiveBadge />}
             </div>
           </div>
-          <div className="text-sm md:text-lg font-black tracking-tight truncate uppercase">{s.strategy_label}</div>
-          <div className="text-[9px] md:text-[10px] text-dim mt-1.5 font-black uppercase tracking-widest flex flex-col gap-1 overflow-hidden">
-            <div className="flex items-center gap-2 min-w-0 whitespace-nowrap">
-              <Zap size={10} className={cn("text-accent shrink-0", config.global_scanner_enabled === false && "text-dim")} />
-              <span className={cn("truncate", config.global_scanner_enabled === false && "line-through decoration-red/40 decoration-2")}>
-                {config.scan_interval} · {config.scan_pct_threshold}%
-              </span>
-            </div>
-            {isMonitored && (
-              <div className="flex items-center gap-2 whitespace-nowrap overflow-hidden">
-                <ShieldCheck size={12} className="text-accent shrink-0" />
-                <span className="truncate">Symbol Monitor Active</span>
-              </div>
-            )}
-          </div>
+          <h3 className="text-base md:text-lg font-black tracking-tight truncate uppercase leading-tight text-text">
+            {s.strategy_label}
+          </h3>
         </div>
-        <div className="text-right shrink-0">
-          <div className="flex gap-2 mb-2 relative z-20">
-            <Tooltip content={isExpanded ? "Hide Details" : "Show Details"}>
-              <button
-                onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
-                aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
-                aria-expanded={isExpanded}
-                className={cn(
-                  "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                  isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
-                )}
-              >
-                <Activity size={14} />
-              </button>
-            </Tooltip>
-            <Tooltip content="Edit Strategy">
-              <button
-                onClick={(e) => { e.stopPropagation(); onEdit(); }}
-                className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none"
-                aria-label="Edit strategy configuration"
-              >
-                <Edit3 size={14} />
-              </button>
-            </Tooltip>
-          </div>
-          <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter" style={{ color: pnlColor(s.activePnl) }}>
+
+        {/* Header Action Row */}
+        <div className="flex items-center gap-2 self-stretch md:self-auto justify-end relative z-20">
+          <Tooltip content={isExpanded ? "Hide Details" : "Show Details"}>
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
+              aria-expanded={isExpanded}
+              className={cn(
+                "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
+              )}
+            >
+              <Activity size={14} />
+            </button>
+          </Tooltip>
+          <Tooltip content="Edit Strategy">
+            <button
+              onClick={handleEditClick}
+              className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none"
+              aria-label="Edit strategy configuration"
+            >
+              <Edit3 size={14} />
+            </button>
+          </Tooltip>
+        </div>
+      </div>
+
+      {/* Card Body - Content Stats Grid */}
+      <div className="grid grid-cols-2 gap-4 py-1 flex-1">
+        <div className="flex flex-col gap-1">
+          <span className="text-[9px] text-dim font-black uppercase tracking-widest">Active P&L</span>
+          <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter leading-none" style={{ color: pnlColor(s.activePnl) }}>
             {fmtUSD(s.activePnl)}
           </div>
-          <div className="text-[9px] md:text-[10px] text-dim font-black uppercase tracking-widest mt-1.5 flex flex-col items-end gap-0.5">
-            <div className="flex items-center gap-1.5 whitespace-nowrap">
-              <span className="opacity-40">Session:</span>
-              <span style={{ color: pnlColor(s.totalPnl) }}>{fmtUSD(s.totalPnl)}</span>
-            </div>
-            <div className="opacity-60">{s.entryCount} ENT · {s.hitCount} HIT</div>
+          <span className="text-[9px] text-dim/60 font-semibold uppercase tracking-wider mt-1 block">Live open trades P&L</span>
+        </div>
+
+        <div className="flex flex-col gap-1 items-end text-right">
+          <span className="text-[9px] text-dim font-black uppercase tracking-widest">Session Return</span>
+          <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter leading-none" style={{ color: pnlColor(s.totalPnl) }}>
+            {fmtUSD(s.totalPnl)}
+          </div>
+          <span className="text-[9px] text-dim/60 font-semibold uppercase tracking-wider mt-1 block">
+            {s.entryCount} ENT · {s.hitCount} HIT
+          </span>
+        </div>
+
+        <div className="col-span-2 grid grid-cols-2 gap-3 pt-3 mt-1 border-t border-border/10">
+          <div className="flex items-center gap-2 min-w-0">
+            <Zap size={10} className={cn("text-accent shrink-0", config.global_scanner_enabled === false && "text-dim")} />
+            <span className={cn("text-[10px] font-bold uppercase tracking-wider text-dim truncate", config.global_scanner_enabled === false && "line-through decoration-red/40 decoration-2")}>
+              {config.scan_interval} · {config.scan_pct_threshold}%
+            </span>
+          </div>
+
+          <div className="flex items-center justify-end gap-1.5 min-w-0 text-right">
+            {isMonitored && (
+              <MonitoredBadge label="Symbol Monitor Active" className="scale-90 origin-right" />
+            )}
           </div>
         </div>
       </div>
 
+      {/* Collapsible Expanded Details */}
       <AnimatePresence>
         {isExpanded && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden"
+            className="overflow-hidden w-full relative z-20"
           >
             <div className="mb-2 mt-4 pt-4 border-t border-border/20">
               <div className="flex justify-between text-[10px] text-dim font-bold tracking-widest mb-2 uppercase">
@@ -348,7 +353,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
                   style={{ width: `${slPct}%` }}
                 />
               </div>
-              <ScannerPreview scannerResults={(scannerResults || []).filter(Boolean)} config={config} onOpen={(e) => { e.stopPropagation(); onOpenScanner(); }} />
+              <ScannerPreview scannerResults={scannerResults} config={config} onOpen={onOpenScanner} />
 
               <div className="mt-6 pt-6 border-t border-border/20">
                  <div className="flex items-center justify-between gap-4">
@@ -358,7 +363,7 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
                     </div>
                     <Btn
                       variant="ghost"
-                      onClick={(e) => { e.stopPropagation(); onPause(); }}
+                      onClick={onPause}
                       className={cn(
                         "px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all",
                         paused
@@ -374,19 +379,41 @@ const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, 
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Card Action Footer Button */}
+      <div className="mt-5 pt-4 border-t border-border/20 flex flex-col">
+        <button
+          onClick={handleCardClick}
+          aria-label={`Open Strategy Cockpit for ${s.strategy_label}`}
+          className={cn(
+            "w-full py-3 rounded-xl font-black text-xs uppercase tracking-widest border transition-all active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex items-center justify-center gap-2",
+            tradingMode === 'paper' ? "bg-amber/5 border-amber/20 text-amber hover:bg-amber/10" :
+            tradingMode === 'testnet' ? "bg-purple/5 border-purple/20 text-purple hover:bg-purple/10" :
+            "bg-green/5 border-green/20 text-green hover:bg-green/10"
+          )}
+        >
+          Open Strategy Cockpit <ArrowRight size={14} />
+        </button>
+      </div>
     </motion.div>
   );
 })
 
 const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, hibernating, hibernationMode, activeTradesCount = 0, showResumingFeedback }) => {
-  if (!gateState && !scannerPaused && !showResumingFeedback) return null
-
+  // SRE/React: Hooks MUST be invoked unconditionally and in the same order on
+  // every render. An early `return null` previously sat ABOVE these hooks, which
+  // violates the Rules of Hooks and corrupts React's internal fiber (manifests as
+  // the cryptic "Expected static flag was missing" crash on GateBanner mount).
+  // The visibility guard is moved below the hooks.
+  const config = useTradingStore(state => state.config);
   const [now, setNow] = React.useState(Date.now());
   React.useEffect(() => {
     if (gateState !== 'max_trades_period' || !nextSlotTs) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [gateState, nextSlotTs]);
+
+  if (!gateState && !scannerPaused && !showResumingFeedback) return null;
 
   const nextSlotSec = nextSlotTs ? Math.max(0, Math.ceil((nextSlotTs - now) / 1000)) : null;
 
@@ -402,26 +429,44 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
 
   const isGatedIdle = (gateState === 'sleeping' || gateState === 'max_trades_period' || gateState === 'sl_guard') && activeTradesCount === 0;
 
+  // Visual Cue Styling
+  const bannerStyle = cn(
+    "p-4 rounded-xl mb-6 text-xs font-bold border flex flex-col gap-2.5 shadow-sm transition-all duration-300 relative overflow-hidden",
+    showResumingFeedback ? "bg-accent/10 border-accent/30 text-accent shadow-[0_0_15px_rgba(91,111,255,0.1)]" :
+    scannerPaused ? "bg-red/10 border-red/20 text-red shadow-[0_0_15px_rgba(239,68,68,0.1)]" :
+    (gateState === 'sl_guard') ? "bg-red/5 border-red/20 text-red shadow-[0_0_12px_rgba(239,68,68,0.05)]" :
+    "bg-amber/10 border-amber/20 text-amber shadow-[0_0_12px_rgba(245,166,35,0.05)]",
+    (!showResumingFeedback && (hibernating || isGatedIdle)) && "bg-slate-500/10 border-slate-500/20 text-slate-400"
+  );
+
+  const totalPeriodSec = Math.max(1, (config?.trades_period_min || 60) * 60);
+  const progressPct = nextSlotSec !== null ? Math.min(100, Math.max(0, (nextSlotSec / totalPeriodSec) * 100)) : 0;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
-      className={cn(
-        "p-4 rounded-xl mb-6 text-xs font-bold border flex flex-col gap-2 shadow-sm transition-colors",
-        showResumingFeedback ? "bg-accent/10 border-accent/30 text-accent" :
-        scannerPaused ? "bg-red/10 border-red/20 text-red" : "bg-amber/10 border-amber/20 text-amber",
-        (!showResumingFeedback && (hibernating || isGatedIdle)) && "bg-accent/5 border-accent/20 text-accent/80"
-      )}
+      className={bannerStyle}
     >
       <div className="flex items-center gap-3">
-        {showResumingFeedback ? <RefreshCw size={16} className="animate-spin" /> : hibernating ? <Zap size={16} className={cn("animate-pulse opacity-50", hibernationMode === 'light' ? "text-accent" : "text-amber")} /> : gateState === 'sleeping' ? <Pause size={16} className="animate-pulse" /> : <XCircle size={16} className={scannerPaused ? "animate-pulse" : ""} />}
-        <span className="uppercase tracking-widest">
+        {showResumingFeedback ? (
+          <RefreshCw size={16} className="animate-spin text-accent" />
+        ) : hibernating ? (
+          <Zap size={16} className={cn("animate-pulse", hibernationMode === 'light' ? "text-accent" : "text-amber")} />
+        ) : gateState === 'sleeping' ? (
+          <Pause size={16} className="text-slate-400" />
+        ) : scannerPaused ? (
+          <XCircle size={16} className="text-red animate-pulse" />
+        ) : (
+          <PulseDot color="bg-amber" />
+        )}
+        <span className="uppercase tracking-widest flex-1">
           {showResumingFeedback ? 'Resuming Data Feed...' : hibernating ? (hibernationMode === 'light' ? 'Light Sleep Active' : 'Deep Sleep Active') : (messages[gateState] || 'Risk gate active.')}
         </span>
         {hibernating ? (
           <div
             className={cn(
-              "ml-auto px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border",
+              "ml-auto px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border shrink-0",
               hibernationMode === 'light' ? "bg-accent/10 border-accent/20 text-accent" : "bg-amber/20 border-amber/40 text-amber"
             )}
             title={hibernationMode === 'light' ? "Light Sleep Active: Market streams kept active for fast resumption." : "Deep Sleep (Hibernation) Active: All market data connections closed to save maximum CPU/Memory. Engine will wake up automatically when limit expires."}
@@ -430,7 +475,7 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
           </div>
         ) : isGatedIdle && (
           <Tooltip content="Resource Suppression Active: Market feed and scanner are throttled to save CPU/Memory while idle.">
-            <div className="ml-auto bg-accent/10 px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border border-accent/20">
+            <div className="ml-auto bg-accent/10 px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border border-accent/20 shrink-0">
               <Leaf size={10} /> RESOURCE SAVER
             </div>
           </Tooltip>
@@ -441,12 +486,24 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
           Backend: {reason}
         </div>
       )}
+
+      {/* Dynamic Micro-Progress Timeline Bar for Period Release Countdown */}
+      {nextSlotSec !== null && nextSlotSec > 0 && (
+        <div className="w-full bg-border/20 h-1 rounded-full overflow-hidden mt-1 relative border border-white/5">
+          <motion.div
+            initial={{ width: '100%' }}
+            animate={{ width: `${progressPct}%` }}
+            transition={{ duration: 1, ease: 'linear' }}
+            className="h-full bg-amber shadow-[0_0_8px_rgba(245,166,35,0.4)]"
+          />
+        </div>
+      )}
     </motion.div>
   )
 })
 GateBanner.displayName = 'GateBanner'
 
-const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) => {
+export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) => {
   const { activeTrades } = useTradingStore(state => ({ activeTrades: state.activeTrades || [] }), shallow);
   const threshold = config.scan_pct_threshold || 2
   const top = scannerResults.slice(0, 5)
@@ -497,15 +554,12 @@ const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) => {
                     <div className="flex-1 flex justify-center h-8">
                       <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={48} height={20} />
                     </div>
-                    <div className="flex flex-col items-end w-16">
-                      <em className={cn("text-xs font-bold font-mono text-right", colorClass)}>
+                    <div className="flex flex-col items-end w-16 h-[26px] justify-center">
+                      <em className={cn("text-xs font-bold font-mono text-right leading-none", colorClass)}>
                         {opp.pct >= 0 ? '+' : ''}{Number(opp.pct || 0).toFixed(2)}%
                       </em>
                       {(activeTrades || []).some(t => t.symbol === opp.symbol) && (
-                        <div className="flex items-center gap-1 opacity-60">
-                           <Zap size={8} className="text-green fill-green/20" />
-                           <span className="text-[7px] font-black text-green uppercase tracking-tighter">In Pos</span>
-                        </div>
+                        <InPosBadge className="opacity-60 scale-90 origin-right mt-0.5" />
                       )}
                     </div>
                     <div className="w-12 flex justify-end">
@@ -546,6 +600,10 @@ ScannerPreview.displayName = 'ScannerPreview'
 export function DashboardView({ initialStrategy }) {
   const [selected, setSelected] = useState(initialStrategy || null)
   const [showTemporalRisk, setShowTemporalRisk] = useState(false)
+
+  useEffect(() => {
+    setSelected(initialStrategy || null);
+  }, [initialStrategy]);
   const [showConfig, setShowConfig] = useState(false)
   const [modalConfig, setModalConfig] = useState(null)
   const [showScanner, setShowScanner] = useState(false)
@@ -563,7 +621,7 @@ export function DashboardView({ initialStrategy }) {
     updateStats, analytics,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
     healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs, isSyncingOnResume,
-    nextSlotTs
+    nextSlotTs, fetchTradeHistory, fetchLifetimeAnalytics, fetchAnalytics, tradeHistory
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -605,7 +663,11 @@ export function DashboardView({ initialStrategy }) {
     analytics: state.analytics,
     effectivePeriodMs: state.effectivePeriodMs,
     isSyncingOnResume: state.isSyncingOnResume,
-    nextSlotTs: state.nextSlotTs
+    nextSlotTs: state.nextSlotTs,
+    fetchTradeHistory: state.fetchTradeHistory,
+    fetchLifetimeAnalytics: state.fetchLifetimeAnalytics,
+    fetchAnalytics: state.fetchAnalytics,
+    tradeHistory: state.tradeHistory
   }), shallow)
 
   useEffect(() => {
@@ -623,10 +685,11 @@ export function DashboardView({ initialStrategy }) {
     strategy_label: config.strategy_label || 'Momentum Strategy'
   }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, hitCount, config.strategy_label])
 
-  const lastSession = useMemo(() => {
-    if (!sessionList || sessionList.length === 0) return null;
-    return [...sessionList].sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())[0];
-  }, [sessionList]);
+  const { lastSession, lastTrade } = useMemo(() => {
+    const ls = (!sessionList || sessionList.length === 0) ? null : [...sessionList].sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())[0];
+    const lt = (tradeHistory && tradeHistory.length > 0) ? tradeHistory[0] : null;
+    return { lastSession: ls, lastTrade: lt };
+  }, [sessionList, tradeHistory]);
 
   const activePnlMap = useMemo(() => {
     const map = { [currentStrategy.strategy_label]: 0 };
@@ -658,6 +721,42 @@ export function DashboardView({ initialStrategy }) {
 
 
   const [loading, setLoading] = useState(false)
+  const [showInsights, setShowInsights] = useState(false)
+
+  const correlationData = useMemo(() => {
+    const list = tradeHistory || [];
+    const buckets = [
+      { label: '< 5m', min: 0, max: 5 * 60 * 1000, grossWin: 0, grossLoss: 0, count: 0 },
+      { label: '5m - 30m', min: 5 * 60 * 1000, max: 30 * 60 * 1000, grossWin: 0, grossLoss: 0, count: 0 },
+      { label: '> 30m', min: 30 * 60 * 1000, max: Infinity, grossWin: 0, grossLoss: 0, count: 0 }
+    ];
+
+    list.forEach(t => {
+      if (!t.entry_ts || !t.exit_ts) return;
+      const entry = new Date(t.entry_ts).getTime();
+      const exit = new Date(t.exit_ts).getTime();
+      const duration = exit - entry;
+      if (duration < 0) return;
+
+      const bucket = buckets.find(b => duration >= b.min && duration < b.max);
+      if (bucket) {
+        const pnl = Number(t.pnl || 0);
+        if (pnl > 0) bucket.grossWin += pnl;
+        else if (pnl < 0) bucket.grossLoss += Math.abs(pnl);
+        bucket.count++;
+      }
+    });
+
+    return buckets.map(b => {
+      const pfVal = b.grossLoss > 0 ? (b.grossWin / b.grossLoss) : (b.grossWin > 0 ? b.grossWin : 0);
+      return {
+        label: b.label,
+        profitFactor: Number(Number(pfVal).toFixed(2)),
+        count: b.count,
+        avgDurationText: b.label
+      };
+    });
+  }, [tradeHistory]);
 
   useEffect(() => {
     let timer;
@@ -676,11 +775,14 @@ export function DashboardView({ initialStrategy }) {
   }, [showScanner]);
   useEffect(() => {
     fetchSessions();
+    fetchTradeHistory();
+    fetchAnalytics();
+    fetchLifetimeAnalytics(config?.paper_mode ? 'paper' : 'live');
 
     const toggleScanner = () => setShowScanner(prev => !prev);
     window.addEventListener('toggle-scanner', toggleScanner);
     return () => window.removeEventListener('toggle-scanner', toggleScanner);
-  }, []);
+  }, [fetchSessions, fetchTradeHistory, fetchAnalytics, fetchLifetimeAnalytics, config?.paper_mode]);
 
   const addAlert = useTradingStore(state => state.addAlert);
 
@@ -799,7 +901,9 @@ export function DashboardView({ initialStrategy }) {
 
   const handleOpenScanner = React.useCallback(() => setShowScanner(true), []);
   const handleEditPrimary = React.useCallback(() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }, [config]);
-  const handleSelectPrimary = React.useCallback(() => setSelected(currentStrategy.strategy_label), [currentStrategy.strategy_label]);
+  const handleSelectPrimary = React.useCallback(() => {
+    window.location.hash = `#/strategy/${encodeURIComponent(currentStrategy.strategy_label)}`;
+  }, [currentStrategy.strategy_label]);
 
   const handleEditVariant = React.useCallback((label) => {
     const idx = config.strategy_variants?.findIndex(v => v.strategy_label === label);
@@ -813,7 +917,7 @@ export function DashboardView({ initialStrategy }) {
   }, [config]);
 
   const handleSelectVariant = React.useCallback((label) => {
-    setSelected(label);
+    window.location.hash = `#/strategy/${encodeURIComponent(label)}`;
   }, []);
 
   if (selected) {
@@ -832,7 +936,7 @@ export function DashboardView({ initialStrategy }) {
       )}>
         <Sidebar selected={selected} />
         <Suspense fallback={<LoadingFallback />}>
-          <StrategyDetailView s={strategyData} onBack={() => setSelected(null)} />
+          <StrategyDetailView s={strategyData} onBack={() => { window.location.hash = '#/'; }} />
         </Suspense>
         <BottomNav selected={selected} />
       </div>
@@ -1044,7 +1148,20 @@ export function DashboardView({ initialStrategy }) {
               <Activity size={14} className="text-accent" /> Global Metrics
             </SectionLabel>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 gap-y-4">
-              <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} tooltipText="Total available funds in the trading account." />
+              <StatCard
+                label="Account Balance"
+                value={`$${balance.toLocaleString()}`}
+                tooltipText="Total available funds in the trading account."
+                ariaLabel={lastTrade ? `Account Balance: $${balance.toLocaleString()}. Last trade profit and loss was ${Number(lastTrade.pnl || 0) >= 0 ? 'plus' : 'minus'} $${Math.abs(lastTrade.pnl || 0).toFixed(2)}, representing a ${lastTrade.pnl_pct >= 0 ? 'positive' : 'negative'} ${Math.abs(lastTrade.pnl_pct || 0).toFixed(2)} percent change.` : undefined}
+                subValue={lastTrade && (
+                  <div className="flex items-center gap-1">
+                    {Number(lastTrade.pnl || 0) >= 0 ? <TrendingUp size={10} className="text-green" /> : <TrendingDown size={10} className="text-red" />}
+                    <span className={pnlClass(lastTrade.pnl)}>
+                      {fmtUSD(lastTrade.pnl)} ({lastTrade.pnl_pct >= 0 ? '+' : ''}{Number(lastTrade.pnl_pct || 0).toFixed(2)}%) Last
+                    </span>
+                  </div>
+                )}
+              />
               <StatCard
                 label="Active P&L"
                 value={fmtUSD(totalActivePnl)}
@@ -1114,108 +1231,251 @@ export function DashboardView({ initialStrategy }) {
         </div>
 
 
-        {/* ROI Trends & Insights */}
-        {(analytics?.roiTrends || !sessionActive) && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-            className="mb-8 lg:mb-12"
+        {/* ROI Trends & Insights - Collapsible */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4 }}
+          className="mb-8 lg:mb-12 flex flex-col"
+        >
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowInsights(!showInsights)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setShowInsights(!showInsights);
+              }
+            }}
+            className="group flex items-center justify-between w-full mb-4 text-left outline-none cursor-pointer select-none"
+            aria-expanded={showInsights}
+            aria-controls="performance-insights-grid"
           >
-            <div className="flex items-center justify-between mb-4">
-               <SectionLabel className="mb-0">
-                  <TrendingUp size={14} className="text-accent" /> Performance Insights
-               </SectionLabel>
-               <div className="flex items-center gap-3">
-                 <button
-                   onClick={() => window.location.hash = '#/history'}
-                   className="text-[10px] font-black uppercase tracking-widest text-accent hover:text-accent/80 transition-colors flex items-center gap-1.5"
-                 >
-                   View Full Analytics <ChevronRight size={12} />
-                 </button>
-                 <span className="text-[9px] text-dim font-black uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50">
-                    {analytics?.cumulativePnL?.length ? `As of ${new Date(analytics.cumulativePnL[analytics.cumulativePnL.length - 1].ts).toLocaleTimeString()}` : 'Updated Live'}
-                 </span>
+            <SectionLabel className="mb-0 flex-1">
+              <TrendingUp size={14} className="text-accent" /> Performance Insights
+            </SectionLabel>
+            <div className="flex items-center gap-3 shrink-0">
+               <button
+                 type="button"
+                 onClick={(e) => { e.stopPropagation(); window.location.hash = '#/history'; }}
+                 className="hidden sm:flex text-[10px] font-black uppercase tracking-widest text-accent hover:text-accent/80 transition-colors items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded px-1"
+               >
+                 View Full Analytics <ChevronRight size={12} />
+               </button>
+               <span className="hidden sm:inline text-[9px] text-dim font-black uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50">
+                  {analytics?.cumulativePnL?.length ? `As of ${new Date(analytics.cumulativePnL[analytics.cumulativePnL.length - 1].ts).toLocaleTimeString()}` : 'Updated Live'}
+               </span>
+               <div className={cn(
+                 "p-1.5 rounded-lg border border-border/40 bg-surface/50 text-dim group-hover:text-accent group-hover:border-accent/40 transition-all",
+                 showInsights && "text-accent border-accent/40 bg-accent/5 rotate-180"
+               )}>
+                 <ChevronLeft size={14} className="-rotate-90" />
                </div>
             </div>
+          </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Left Column: Equity Story */}
-              <div className="lg:col-span-2 bg-surface border border-border/40 rounded-2xl p-5 md:p-6 shadow-sm flex flex-col gap-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex flex-col gap-1">
-                    <div className="text-[10px] text-dim font-black uppercase tracking-widest">Equity Narrative</div>
-                    <div className="text-xs font-bold text-text">Lifetime Performance Curve</div>
+          <AnimatePresence>
+            {showInsights && (
+              <motion.div
+                id="performance-insights-grid"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
+                className="overflow-hidden"
+              >
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Left Column: Equity Story & Duration Correlation */}
+                  <div className="lg:col-span-2 bg-surface border border-border/40 rounded-2xl p-5 md:p-6 shadow-sm flex flex-col gap-6">
+
+                    <div className="flex justify-between items-start gap-4">
+                      <div className="flex flex-col gap-1">
+                        <div className="text-[10px] text-dim font-black uppercase tracking-widest">Equity Narrative</div>
+                        <div className="text-xs font-bold text-text">Performance Curve & Hold Time Correlation</div>
+                      </div>
+                      <div className="flex gap-4 shrink-0">
+                         <div className="flex flex-col items-end">
+                            <span className="text-[9px] text-dim font-black uppercase tracking-widest">7D ROI</span>
+                            <span className={cn("text-xs font-bold font-mono", analytics?.roiTrends ? pnlClass(analytics.roiTrends.sevenDay) : "text-dim")}>
+                              {analytics?.roiTrends ? `${analytics.roiTrends.sevenDay >= 0 ? '+' : ''}${analytics.roiTrends.sevenDay}%` : '---'}
+                            </span>
+                         </div>
+                         <div className="flex flex-col items-end">
+                            <span className="text-[9px] text-dim font-black uppercase tracking-widest">4W ROI</span>
+                            <span className={cn("text-xs font-bold font-mono", analytics?.roiTrends ? pnlClass(analytics.roiTrends.fourWeek) : "text-dim")}>
+                              {analytics?.roiTrends ? `${analytics.roiTrends.fourWeek >= 0 ? '+' : ''}${analytics.roiTrends.fourWeek}%` : '---'}
+                            </span>
+                         </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch flex-1">
+                      {/* Equity Curve */}
+                      <div className="flex flex-col justify-between h-full min-h-[140px] bg-background/20 rounded-xl p-4 border border-border/20">
+                        <span className="text-[10px] text-dim font-black uppercase tracking-widest mb-2">Growth Curve</span>
+                        <div className="h-[80px] w-full overflow-hidden">
+                          <Suspense fallback={<div className="h-full w-full bg-surface/10 animate-pulse" />}>
+                            <EquityCurve data={analytics?.cumulativePnL || []} height={80} hideAxes={true} />
+                          </Suspense>
+                        </div>
+                      </div>
+
+                      {/* Duration Correlation Chart */}
+                      <div className="flex flex-col justify-between h-full min-h-[140px] bg-background/20 rounded-xl p-4 border border-border/20">
+                        <span className="text-[10px] text-dim font-black uppercase tracking-widest mb-2">Duration Correlation (Profit Factor)</span>
+                        <div className="flex items-end justify-between h-[80px] pt-1 px-1">
+                          {correlationData.map((d) => {
+                            const pct = Math.min(100, (d.profitFactor / 3) * 100);
+                            const colorClass = d.profitFactor >= 2.0 ? 'bg-green shadow-[0_0_12px_rgba(34,197,94,0.3)]' :
+                                               d.profitFactor >= 1.0 ? 'bg-accent shadow-[0_0_12px_rgba(0,229,160,0.3)]' :
+                                               d.profitFactor > 0 ? 'bg-red-400' : 'bg-dim/40';
+                            return (
+                              <div key={d.label} className="flex flex-col items-center gap-1 flex-1 group relative">
+                                <Tooltip content={`Profit Factor: ${d.profitFactor} (${d.count} trades)`}>
+                                  <div className="w-8 flex flex-col items-center justify-end h-[50px]">
+                                    <motion.div
+                                      initial={{ height: 0 }}
+                                      animate={{ height: `${Math.max(4, pct)}%` }}
+                                      className={cn("w-3 rounded-t-sm transition-all", colorClass)}
+                                    />
+                                  </div>
+                                </Tooltip>
+                                <span className="text-[8px] text-dim font-black uppercase tracking-tight leading-none">{d.label}</span>
+                                <span className="text-[9px] font-mono font-bold leading-none mt-1 whitespace-nowrap">{d.profitFactor} PF</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Risk-Width Initial SL Distance Insights */}
+                    {analytics?.riskWidthBuckets && analytics.riskWidthBuckets.length > 0 && (
+                      <div className="border-t border-border/20 pt-4 flex flex-col gap-3">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[10px] text-dim font-black uppercase tracking-widest">Initial SL Distance Insights</span>
+                          <span className="text-[9px] text-dim/60 font-bold uppercase tracking-wide">Performance and average hold time based on stop loss width</span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
+                          {analytics.riskWidthBuckets.map((b) => {
+                            const durationSeconds = Math.round(b.avgDurationMs / 1000);
+                            const durationMinutes = Math.floor(durationSeconds / 60);
+                            const durationHrs = Math.floor(durationMinutes / 60);
+                            const durationFormatted = durationHrs > 0
+                              ? `${durationHrs}h ${durationMinutes % 60}m`
+                              : durationMinutes > 0
+                                ? `${durationMinutes}m ${durationSeconds % 60}s`
+                                : `${durationSeconds}s`;
+
+                            const winRatePct = Math.round(b.winRate);
+                            const pfColor = b.profitFactor >= 2.0 ? 'text-green' :
+                                            b.profitFactor >= 1.0 ? 'text-accent' :
+                                            b.tradesCount > 0 ? 'text-red' : 'text-dim';
+
+                            const barColor = b.profitFactor >= 1.0 ? 'bg-green' : 'bg-red';
+
+                            return (
+                              <div
+                                key={b.label}
+                                tabIndex={0}
+                                className="bg-background/25 border border-border/20 rounded-xl p-3.5 flex flex-col gap-2 hover:border-accent/30 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+                                aria-label={`${b.label} risk bucket. ${b.tradesCount} trades, profit factor is ${b.profitFactor}, average hold time is ${durationFormatted}, win rate is ${winRatePct}%`}
+                              >
+                                <div className="flex justify-between items-start">
+                                  <span className="text-[10px] font-black uppercase tracking-wider text-text/80">{b.label}</span>
+                                  <span className="text-[9px] font-mono text-dim font-bold">{b.tradesCount} Trades</span>
+                                </div>
+
+                                <div className="flex items-baseline justify-between">
+                                  <div className="flex flex-col">
+                                    <span className="text-[8px] text-dim font-black uppercase tracking-widest">Profit Factor</span>
+                                    <span className={cn("text-xs font-black font-mono leading-none mt-1.5", pfColor)}>
+                                      {b.profitFactor.toFixed(2)} PF
+                                    </span>
+                                  </div>
+                                  <div className="flex flex-col items-end">
+                                    <span className="text-[8px] text-dim font-black uppercase tracking-widest">Avg Duration</span>
+                                    <span className="text-xs font-bold font-mono text-text/90 leading-none mt-1.5">
+                                      {durationFormatted}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Win Rate Progress Bar */}
+                                <div className="space-y-1 mt-1">
+                                  <div className="flex justify-between text-[8px] text-dim/60 font-bold font-mono">
+                                    <span>WIN RATE</span>
+                                    <span>{winRatePct}%</span>
+                                  </div>
+                                  <div className="h-1 bg-border/20 rounded-full overflow-hidden relative">
+                                    <div
+                                      className={cn("h-full rounded-full transition-all duration-700", barColor)}
+                                      style={{ width: `${winRatePct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                   </div>
-                  <div className="flex gap-4">
-                     <div className="flex flex-col items-end">
-                        <span className="text-[9px] text-dim font-black uppercase tracking-widest">7D ROI</span>
-                        <span className={cn("text-xs font-bold font-mono", analytics?.roiTrends ? pnlClass(analytics.roiTrends.sevenDay) : "text-dim")}>
-                          {analytics?.roiTrends ? `${analytics.roiTrends.sevenDay >= 0 ? '+' : ''}${analytics.roiTrends.sevenDay}%` : '---'}
-                        </span>
+
+                  {/* Right Column: Key Stats Grid */}
+                  <div className="grid grid-cols-2 gap-3 md:gap-4">
+                     <div className="flex flex-col gap-3">
+                        <StatCard
+                          label="Returns"
+                          value={analytics ? `${Number(analytics.overallWinRate || 0).toFixed(1)}%` : '---'}
+                          subValue="Win Rate"
+                          tooltipText="Percentage of closed trades that resulted in a profit."
+                        />
+                        <StatCard
+                          label="Max DD"
+                          value={analytics ? `${Number(analytics.maxDrawdownPct || 0).toFixed(1)}%` : '---'}
+                          color="text-red"
+                          subValue="Drawdown"
+                          tooltipText="Maximum observed peak-to-trough decline in equity."
+                        />
                      </div>
-                     <div className="flex flex-col items-end">
-                        <span className="text-[9px] text-dim font-black uppercase tracking-widest">4W ROI</span>
-                        <span className={cn("text-xs font-bold font-mono", analytics?.roiTrends ? pnlClass(analytics.roiTrends.fourWeek) : "text-dim")}>
-                          {analytics?.roiTrends ? `${analytics.roiTrends.fourWeek >= 0 ? '+' : ''}${analytics.roiTrends.fourWeek}%` : '---'}
-                        </span>
+                     <div className="flex flex-col gap-3">
+                        <StatCard
+                          label="Risk Edge"
+                          value={analytics ? Number(analytics.profitFactor || 0).toFixed(2) : '---'}
+                          subValue="Profit Factor"
+                          tooltipText="Ratio of gross profit to gross loss. > 1.0 is profitable."
+                        />
+                        <StatCard
+                          label="Efficiency"
+                          value={analytics ? Number(analytics.sharpeRatio || 0).toFixed(2) : '---'}
+                          subValue="Sharpe Ratio"
+                          tooltipText="Risk-adjusted return. Higher is better."
+                        />
                      </div>
                   </div>
                 </div>
-                <div className="h-[80px] w-full overflow-hidden">
-                  <Suspense fallback={<div className="h-full w-full bg-surface/10 animate-pulse" />}>
-                    <EquityCurve data={analytics?.cumulativePnL || []} height={80} hideAxes={true} />
-                  </Suspense>
-                </div>
-              </div>
-
-              {/* Right Column: Key Stats Grid */}
-              <div className="grid grid-cols-2 gap-3 md:gap-4">
-                 <div className="flex flex-col gap-3">
-                    <StatCard
-                      label="Returns"
-                      value={analytics ? `${Number(analytics.overallWinRate || 0).toFixed(1)}%` : '---'}
-                      subValue="Win Rate"
-                      tooltipText="Percentage of closed trades that resulted in a profit."
-                    />
-                    <StatCard
-                      label="Max DD"
-                      value={analytics ? `${Number(analytics.maxDrawdownPct || 0).toFixed(1)}%` : '---'}
-                      color="text-red"
-                      subValue="Drawdown"
-                      tooltipText="Maximum observed peak-to-trough decline in equity."
-                    />
-                 </div>
-                 <div className="flex flex-col gap-3">
-                    <StatCard
-                      label="Risk Edge"
-                      value={analytics ? Number(analytics.profitFactor || 0).toFixed(2) : '---'}
-                      subValue="Profit Factor"
-                      tooltipText="Ratio of gross profit to gross loss. > 1.0 is profitable."
-                    />
-                    <StatCard
-                      label="Efficiency"
-                      value={analytics ? Number(analytics.sharpeRatio || 0).toFixed(2) : '---'}
-                      subValue="Sharpe Ratio"
-                      tooltipText="Risk-adjusted return. Higher is better."
-                    />
-                 </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
 
         {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 items-start gap-6">
 
           {/* Left Workspace */}
-          <div className="flex flex-col gap-6 lg:gap-10 no-scrollbar overflow-hidden">
+          <div className="flex flex-col gap-6 lg:gap-10 no-scrollbar">
             <motion.div
               initial={{ x: -20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               transition={{ delay: 0.3 }}
+              className="bg-surface border border-border rounded-2xl p-6 flex flex-col shadow-sm"
             >
-              <SectionLabel>Active Strategy</SectionLabel>
+              <SectionLabel className="mb-4 flex items-center gap-2">
+                <Zap size={14} className="text-accent" /> Active Strategy
+              </SectionLabel>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {sessionActive ? (
                   <>

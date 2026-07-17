@@ -112,27 +112,27 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
               onClick={(e) => { e.stopPropagation(); handleAction(onDecrement); }}
               disabled={!isLocked && value <= min}
               className={cn(
-                "w-10 h-10 rounded-lg border flex items-center justify-center transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                "w-11 h-11 rounded-lg border flex items-center justify-center transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                 isLocked
                   ? "bg-transparent border-transparent text-dim/20"
                   : "bg-background border-border text-dim hover:text-text hover:border-accent/40 shadow-sm"
               )}
               aria-label={isLocked ? "Tap to unlock" : `Decrease ${label}`}
             >
-              <Minus size={20} />
+              <Minus size={22} />
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); handleAction(onIncrement); }}
               disabled={!isLocked && value >= max}
               className={cn(
-                "w-10 h-10 rounded-lg border flex items-center justify-center transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                "w-11 h-11 rounded-lg border flex items-center justify-center transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                 isLocked
                   ? "bg-transparent border-transparent text-dim/20"
                   : "bg-background border-border text-dim hover:text-text hover:border-accent/40 shadow-sm"
               )}
               aria-label={isLocked ? "Tap to unlock" : `Increase ${label}`}
             >
-              <Plus size={20} />
+              <Plus size={22} />
             </button>
           </div>
         </div>
@@ -154,7 +154,7 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
 })
 
 // --- Stat Card ---
-export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing, tooltipText }) => {
+export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing, tooltipText, compact, ariaLabel }) => {
   // BOLT: Clean up double-negative visuals: if value starts with '-', don't show negative arrow in label/icon.
   const sanitizedValue = typeof value === 'string' && (value.includes('▼') || value.includes('▲') || value.includes('▾') || value.includes('▴')) && value.includes('-')
     ? value.replace('-', '') // Remove the minus if an arrow is already present
@@ -162,31 +162,39 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
 
   const content = (
     <div
-      className="bg-surface border border-border/60 p-3 md:p-4 lg:p-5 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[80px] lg:min-h-[100px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+      className={cn(
+        "bg-surface border border-border/60 rounded-xl md:rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col items-start min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset focus-visible:outline-none focus-visible:border-accent/30 focus-visible:bg-white/[0.01]",
+        compact
+          ? "p-2 md:p-2.5 min-h-[48px] md:min-h-[56px] lg:min-h-[64px]"
+          : "p-3 md:p-4 lg:p-5 min-h-[64px] md:min-h-[80px] lg:min-h-[100px]"
+      )}
       role="region"
-      aria-label={`${label}: ${value}${tooltipText ? '. ' + tooltipText : ''}`}
+      aria-label={ariaLabel || `${label}: ${value}${tooltipText ? '. ' + tooltipText : ''}`}
       aria-busy={syncing}
+      tabIndex={tooltipText ? 0 : undefined}
     >
       {syncing && (
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />
       )}
-      <div className="flex flex-col gap-0.5 w-full">
-        <div className="flex items-start gap-1.5 min-h-[2rem] md:min-h-[2.25rem]">
-            <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] flex-1" aria-hidden="true">{label}</div>
-            {tooltipText && <Info size={10} className="text-dim/30 group-hover:text-accent transition-colors" />}
+      <div className={cn("flex flex-col w-full", compact ? "gap-0" : "gap-0.5")}>
+        <div className={cn("flex items-start gap-1.5", compact ? "min-h-[1.25rem]" : "min-h-[2rem] md:min-h-[2.25rem]")}>
+            <div className={cn("text-dim tracking-[0.15em] uppercase font-black leading-[1.1] flex-1", compact ? "text-[8px] md:text-[9px]" : "text-[9px] md:text-[10px]")} aria-hidden="true">{label}</div>
+            {tooltipText && <Info size={compact ? 8 : 10} className="text-dim/30 group-hover:text-accent group-focus-visible:text-accent transition-colors" />}
         </div>
         <div className="flex flex-col">
           <div className={cn(
-            "text-sm md:text-base lg:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate",
+            "font-black font-mono tracking-tighter transition-all duration-500 truncate leading-none",
             color,
+            compact ? "text-xs md:text-sm lg:text-base" : "text-sm md:text-base lg:text-xl",
             syncing && "opacity-40 blur-[1px]"
           )}>{sanitizedValue}</div>
           {subValue && (
             <div className={cn(
-              "text-[8px] md:text-[9px] text-dim font-mono font-black uppercase flex items-center gap-1.5 whitespace-nowrap overflow-hidden",
+              "text-dim font-mono font-black uppercase flex items-center gap-1.5 whitespace-nowrap overflow-hidden",
+              compact ? "text-[7px] md:text-[7.5px] mt-0.5" : "text-[8px] md:text-[9px] mt-0.5",
               syncing && "text-accent/60 animate-pulse"
             )}>
-              {syncing && <Loader2 size={8} className="animate-spin shrink-0" aria-hidden="true" />}
+              {syncing && <Loader2 size={compact ? 6 : 8} className="animate-spin shrink-0" aria-hidden="true" />}
               <span className="truncate">{subValue}</span>
             </div>
           )}
@@ -306,6 +314,30 @@ export const LiveBadge = () => (
   </span>
 )
 
+export const MonitoredBadge = React.memo(({ className, label = "Monitored" }) => (
+  <div className={cn("flex items-center gap-1.5 whitespace-nowrap overflow-hidden", className)}>
+    <ShieldCheck size={12} className="text-accent shrink-0" />
+    <span className="text-[8px] md:text-[9px] font-black text-accent uppercase tracking-widest truncate">{label}</span>
+  </div>
+))
+MonitoredBadge.displayName = 'MonitoredBadge'
+
+export const InPosBadge = React.memo(({ className, label = "In Pos" }) => (
+  <div className={cn("flex items-center gap-1 whitespace-nowrap overflow-hidden", className)}>
+     <Zap size={10} className="text-green fill-green/20 shrink-0" />
+     <span className="text-[8px] font-black text-green uppercase tracking-tighter truncate">{label}</span>
+  </div>
+))
+InPosBadge.displayName = 'InPosBadge'
+
+export const SmartCandidateBadge = React.memo(({ className, label = "Predictive" }) => (
+  <div className={cn("flex items-center gap-1.5 whitespace-nowrap overflow-hidden", className)}>
+    <Activity size={10} className="text-purple-400 shrink-0" />
+    <span className="text-[8px] md:text-[9px] font-black text-purple-400 uppercase tracking-widest truncate">{label}</span>
+  </div>
+))
+SmartCandidateBadge.displayName = 'SmartCandidateBadge'
+
 // --- Condition Widget ---
 export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%", satisfied, sublabel }) => {
   const absThreshold = Math.max(Math.abs(threshold), 0.0001);
@@ -378,7 +410,12 @@ export const PnLBars = React.memo(({ trades }) => {
   const safeTrades = Array.isArray(trades) ? trades : [];
   if (safeTrades.length === 0) return <div className="h-[60px] flex items-center justify-center text-[10px] text-dim font-bold uppercase tracking-widest">No Trade Data</div>
 
-  const max = Math.max(...safeTrades.map(t => Math.abs(t.pnl || 0)), 1);
+  // BOLT: Single-pass O(N) loop to find maximum absolute PnL with zero intermediate allocations.
+  let max = 1;
+  for (let i = 0; i < safeTrades.length; i++) {
+    const val = Math.abs(safeTrades[i].pnl || 0);
+    if (val > max) max = val;
+  }
 
   return (
     <div

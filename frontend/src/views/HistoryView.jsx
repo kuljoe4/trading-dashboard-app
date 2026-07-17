@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
-import { getExpectancyStatus, getSharpeStatus, getSortinoStatus, calculatePerformanceMetrics } from '../lib/analytics'
+import { getExpectancyStatus, getSharpeStatus, getSortinoStatus, getRrRecommendationStatus, calculatePerformanceMetrics } from '../lib/analytics'
 import { sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader, Btn } from '../components/ui/primitives'
@@ -14,9 +14,10 @@ import { lazyWithRetry } from '../lib/lazy'
 // Lazy load heavy analytics components
 const EquityCurve = lazyWithRetry(() => import('../components/Analytics').then(m => ({ default: m.EquityCurve })))
 const TODPerformance = lazyWithRetry(() => import('../components/Analytics').then(m => ({ default: m.TODPerformance })))
+const RrOptimizationChart = lazyWithRetry(() => import('../components/Analytics').then(m => ({ default: m.RrOptimizationChart })))
 
 const price = (value) => {
-  if (value == null) return 'None'
+  if (value == null || isNaN(Number(value))) return 'None'
   const n = Number(value)
   return n >= 100 ? `$${n.toFixed(2)}` : `$${n.toFixed(6).replace(/0+$/, '').replace(/\.$/, '')}`
 }
@@ -35,7 +36,7 @@ const buildCurve = (trades = []) => {
 const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
   const pnl = safeNum(trade.pnl)
   const durationMs = trade.exit_ts && trade.entry_ts ? new Date(trade.exit_ts).getTime() - new Date(trade.entry_ts).getTime() : 0
-  const durationStr = durationMs ? (durationMs / 60000).toFixed(1) + 'm' : 'N/A'
+  const durationStr = durationMs ? Number(durationMs / 60000).toFixed(1) + 'm' : 'N/A'
   const isLong = trade.direction?.toLowerCase() === 'long'
 
   return (
@@ -44,7 +45,7 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
         <div className="flex flex-col gap-1 min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-black font-mono tracking-tight shrink-0">{trade.symbol}</span>
-            <CopyButton value={trade.symbol} tooltip="Copy Symbol" className="opacity-0 group-hover/trade:opacity-100 focus-visible:opacity-100 -ml-1 scale-75" />
+            <CopyButton value={trade.symbol} tooltip="Copy Symbol" className="opacity-0 group-hover/trade:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 -ml-1 scale-75" />
             <span className={cn("text-[8px] font-black px-1.5 py-0.5 rounded border uppercase shrink-0", isLong ? "text-green border-green/20 bg-green/5" : "text-red border-red/20 bg-red/5")}>
               {trade.direction}
             </span>
@@ -107,7 +108,7 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
         <div className="flex flex-col items-start min-w-0">
           <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Market Context</span>
           <span className={cn("text-[9px] font-black font-mono", pnlClass(trade.entry_daily_change_pct))}>
-            {(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} {Math.abs(trade.entry_daily_change_pct || 0).toFixed(2)}%
+            {(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} {Number(Math.abs(trade.entry_daily_change_pct || 0)).toFixed(2)}%
           </span>
         </div>
         <div className="flex flex-col items-start min-w-0 sm:max-w-[120px] col-span-2 sm:col-span-1">
@@ -170,7 +171,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
         winLossRatio: analytics.avgWinLossRatio || 0,
         winLossRatioStr: Number(analytics.avgWinLossRatio || 0).toFixed(2),
         pnlPct: analytics.overallPnlPct || 0,
-        expectancyStatus: getExpectancyStatus(session.analytics.overallWinRate / 100, session.analytics.avgWinLossRatio),
+        expectancyStatus: getExpectancyStatus(Number(session.analytics.overallWinRate || 0) / 100, Number(session.analytics.avgWinLossRatio || 0)),
         sharpeStatus: getSharpeStatus(session.analytics.sharpeRatio),
         sortinoStatus: getSortinoStatus(session.analytics.sortinoRatio),
         curve: session.analytics.cumulativePnL
@@ -225,7 +226,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
               </a>
               <div className="flex items-center gap-1">
                 <span className="text-[10px] text-dim font-mono bg-background/50 px-2 py-0.5 rounded border border-border/50">#{session.id.substring(0, 8)}</span>
-                <CopyButton value={session.id} tooltip="Copy Session ID" className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100" />
+                <CopyButton value={session.id} tooltip="Copy Session ID" className="opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 focus-visible:opacity-100" />
               </div>
               {session.paperMode && <PaperBadge />}
             </div>
@@ -260,7 +261,7 @@ const SessionGroup = React.memo(({ session, trades }) => {
             <div className="flex flex-col">
               <span className="text-[10px] text-dim font-black uppercase tracking-[0.15em] mb-1.5 opacity-60">Avg Time</span>
               <span className="text-xs font-bold text-text">
-                {avgDuration ? (avgDuration / 60000).toFixed(1) + 'm' : '---'}
+                {avgDuration ? Number(avgDuration / 60000).toFixed(1) + 'm' : '---'}
               </span>
             </div>
             <div className="flex flex-col">
@@ -480,6 +481,7 @@ export const HistoryView = () => {
                <input
                  type="text"
                  placeholder="Search history... [/]"
+                 aria-label="Search trade history"
                  value={search}
                  onChange={(e) => setSearch(e.target.value)}
                  onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
@@ -505,6 +507,7 @@ export const HistoryView = () => {
           <input
             type="text"
             placeholder="Search history... [/]"
+            aria-label="Search trade history"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
@@ -570,7 +573,7 @@ export const HistoryView = () => {
             subValue={
               <span className={cn("flex items-center gap-1", pnlClass(currentAnalytics?.overallPnlPct))}>
                 <span className="text-[0.8em] opacity-80">{(currentAnalytics?.overallPnlPct || 0) > 0 ? '▴' : (currentAnalytics?.overallPnlPct || 0) < 0 ? '▾' : ''}</span>
-                {Math.abs(currentAnalytics?.overallPnlPct || 0).toFixed(2)}% Performance
+                {Number(Math.abs(currentAnalytics?.overallPnlPct || 0)).toFixed(2)}% Performance
               </span>
             }
           />
@@ -591,7 +594,7 @@ export const HistoryView = () => {
               <div className="flex flex-col gap-0.5">
                 <span className={cn("flex items-center gap-1", lifetimeExpectancyStatus.color)}>
                   <lifetimeExpectancyStatus.icon size={10} />
-                  {Number(lifetimeExpectancyStatus.expectancy).toFixed(2)} Expectancy
+                  {Number(lifetimeExpectancyStatus.expectancy || 0).toFixed(2)} Expectancy
                 </span>
                 <span className={cn("text-[8px] font-black uppercase tracking-tight", lifetimeExpectancyStatus.color)}>
                   {lifetimeExpectancyStatus.label} Status
@@ -652,7 +655,7 @@ export const HistoryView = () => {
             subValue={
               <span className="flex items-center gap-1.5">
                 <Clock size={10} />
-                Avg: {currentAnalytics?.avgDuration ? (currentAnalytics.avgDuration / 60000).toFixed(1) + 'm' : '---'}
+                Avg: {currentAnalytics?.avgDuration ? Number(currentAnalytics.avgDuration / 60000).toFixed(1) + 'm' : '---'}
               </span>
             }
           />
@@ -671,6 +674,113 @@ export const HistoryView = () => {
              <TODPerformance data={currentAnalytics?.timeOfDay || []} />
           </div>
         </motion.div>
+
+        {currentAnalytics?.rrOptimization && (currentAnalytics.rrOptimization.status === 'OPTIMAL' || currentAnalytics.rrOptimization.status === 'PRELIMINARY') && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 lg:mb-12"
+          >
+            <div className="md:col-span-3 bg-surface border border-border rounded-3xl p-8 shadow-sm overflow-hidden relative">
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-10">
+                <div className="lg:col-span-3">
+                  <RrOptimizationChart
+                    data={currentAnalytics.rrOptimization.curve}
+                    recommendedRr={currentAnalytics.rrOptimization.recommendedRr}
+                  />
+                </div>
+                <div className="lg:col-span-2 flex flex-col gap-6">
+                  <div className="grid grid-cols-1 gap-3">
+                    {[
+                      { id: 'conservative', label: 'Conservative', rr: currentAnalytics.rrOptimization.conservativeRr, desc: 'High Probability' },
+                      { id: 'balanced', label: 'Balanced', rr: currentAnalytics.rrOptimization.balancedRr, desc: 'Optimal PF', active: true },
+                      { id: 'aggressive', label: 'Aggressive', rr: currentAnalytics.rrOptimization.aggressiveRr, desc: 'Max Expectancy' }
+                    ].map(tier => {
+                      const stats = currentAnalytics.rrOptimization.curve.find(c => c.threshold === tier.rr) || {};
+                      const status = getRrRecommendationStatus(tier.rr);
+                      return (
+                        <button
+                          key={tier.id}
+                          onClick={() => {
+                            const config = useTradingStore.getState().config;
+                            const patch = {};
+                            if (config.tp_mode === 'fixed') patch.tp_ratio = tier.rr;
+                            else {
+                              const next = [...(config.exit_rr_sequence || [0, 1, 2])];
+                              next[next.length - 1] = tier.rr;
+                              patch.exit_rr_sequence = next;
+                            }
+                            useTradingStore.getState().updateConfig(patch);
+                            updateStats({
+                              alerts: [{
+                                id: Math.random().toString(36).substring(2, 9),
+                                level: 'success',
+                                title: `${tier.label} RR Set`,
+                                message: `Target ${Number(tier.rr || 0).toFixed(1)}R ready in draft.`
+                              }]
+                            });
+                          }}
+                          className={cn(
+                            "flex items-center justify-between p-3 rounded-2xl border transition-all text-left group/tier relative overflow-hidden",
+                            tier.active ? "bg-accent/5 border-accent/20" : "bg-background/20 border-border/50 hover:border-accent/30 hover:bg-accent/5"
+                          )}
+                        >
+                          {tier.active && <div className="absolute top-0 right-0 px-2 py-0.5 bg-accent text-white text-[7px] font-black uppercase tracking-widest rounded-bl-lg">Balanced Pick</div>}
+                          <div className="flex flex-col">
+                            <span className="text-[9px] text-dim font-black uppercase tracking-widest mb-0.5">{tier.label}</span>
+                            <span className="text-lg font-black font-mono tracking-tighter text-text leading-none">{Number(tier.rr || 0).toFixed(1)}R</span>
+                            <span className="text-[8px] text-dim/60 font-bold uppercase mt-1">{tier.desc}</span>
+                          </div>
+                          <div className="flex flex-col items-end text-right">
+                             <div className="flex items-center gap-1">
+                               <span className="text-[9px] font-black font-mono text-accent">{Number(stats.profitFactor || 0).toFixed(2)}</span>
+                               <span className="text-[7px] text-dim font-bold uppercase">PF</span>
+                             </div>
+                             <div className="flex items-center gap-1">
+                               <span className="text-[9px] font-black font-mono text-text">{Number(stats.winRate || 0).toFixed(0)}%</span>
+                               <span className="text-[7px] text-dim font-bold uppercase">WR</span>
+                             </div>
+                             <div className={cn("mt-2 px-1.5 py-0.5 rounded text-[7px] font-black uppercase border", status.color.replace('text-', 'border-').concat('/20'), status.color)}>
+                               {status.label}
+                             </div>
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-surface border border-border rounded-3xl p-6 shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
+                    <Target size={16} />
+                  </div>
+                  <span className="text-[10px] text-dim font-black uppercase tracking-widest">Optimization Meta</span>
+                </div>
+                <p className="text-[11px] text-dim leading-relaxed font-medium">
+                  Analysis based on <span className="text-text font-bold">{currentAnalytics.rrOptimization.sampleSize}</span> trades.
+                  Calculated using MFE (Maximum Favorable Excursion) sweep to identify statistical edge.
+                </p>
+                <div className="mt-4 p-3 bg-background/50 rounded-xl border border-border/50">
+                  <div className="flex items-center gap-2 text-[9px] text-amber/80 font-bold uppercase mb-1">
+                    <AlertTriangle size={10} />
+                    <span>Breakeven Note</span>
+                  </div>
+                  <p className="text-[8px] text-dim/80 leading-tight">
+                    Scratches (PnL near 0) are excluded from the win-rate numerator to ensure conservative estimates.
+                  </p>
+                </div>
+              </div>
+              <div className="pt-4 border-t border-border/10">
+                <span className="text-[8px] text-dim/40 font-black uppercase tracking-[0.2em]">Implied historical model · No guarantees</span>
+              </div>
+            </div>
+          </motion.div>
+        )}
 
 
         <div>
@@ -751,10 +861,10 @@ export const HistoryView = () => {
                         aria-controls="orphans-list"
                         onClick={() => setOrphansExpanded(!orphansExpanded)}
                         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setOrphansExpanded(!orphansExpanded))}
-                        className="p-5 flex items-center justify-between cursor-pointer hover:bg-surface/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset"
+                        className="p-5 flex items-center justify-between cursor-pointer hover:bg-surface/50 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset group"
                       >
                         <div className="flex items-center gap-4">
-                          <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center border transition-colors", orphansExpanded ? "bg-accent/10 border-accent/20" : "bg-surface border-border")}>
+                          <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center border transition-colors group-focus-visible:border-accent/30", orphansExpanded ? "bg-accent/10 border-accent/20" : "bg-surface border-border")}>
                             {orphansExpanded ? <ChevronDown size={20} className="text-accent" /> : <ChevronRight size={20} className="text-dim" />}
                           </div>
                           <div>

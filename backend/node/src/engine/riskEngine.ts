@@ -34,7 +34,8 @@ export class RiskEngineService {
     config: SessionConfig,
     totalSlUsed: number,
     enteringCount = 0,
-    marketScore?: number
+    marketScore?: number,
+    prospectiveRiskPct?: number
   ): ReturnType<RiskEngineService['checkFrequencyAndPerformanceLimits']> {
     const now = Date.now();
 
@@ -54,7 +55,7 @@ export class RiskEngineService {
       return { canEnter: false, reason: `Max open trades for ${symbol} (${maxOpenTradesPerSymbol}) reached` };
     }
 
-    const riskPerTrade = config.risk_pct_per_trade ?? 1.0;
+    const riskPerTrade = prospectiveRiskPct !== undefined ? prospectiveRiskPct : (config.risk_pct_per_trade ?? 1.0);
     const totalRiskPct = balance > 0 ? (totalSlUsed / balance) * 100 : 0;
 
     // SRE: Tight Gating. Ensure prospective total risk (current + next entry) does not exceed ceiling.
@@ -62,7 +63,7 @@ export class RiskEngineService {
     if (totalRiskPct + riskPerTrade > maxTotalRiskPct + 0.0001) {
       return {
         canEnter: false,
-        reason: `Risk ceiling reached: ${totalRiskPct.toFixed(2)}% + ${riskPerTrade}% prospective > ${maxTotalRiskPct}% max`
+        reason: `Risk ceiling reached: ${totalRiskPct.toFixed(2)}% + ${riskPerTrade.toFixed(2)}% prospective > ${maxTotalRiskPct}% max`
       };
     }
 
@@ -168,7 +169,7 @@ export class RiskEngineService {
       return (h >>> 0) / 4294967296;
     };
 
-    const jitterFactor = effectiveJitterPct > 0
+    const jitterFactor = (effectiveJitterPct > 0 && symbol !== 'DUMMY')
       ? 1 + (getHash(jitterSeed) * effectiveJitterPct) / 100
       : 1;
 
@@ -423,6 +424,10 @@ export class RiskEngineService {
     bodyLow?: number,
     bodyHigh?: number
   ): { slPrice: number; rejected: boolean; reason?: string } {
+    if (config.sl_type === 'trailing') {
+      return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, minLow, maxHigh, symbol, patternLow, patternHigh, bodyLow, bodyHigh);
+    }
+
     if (config.sl_type === 'pct') {
       // Simple percentage-based SL
       const distance = entryPrice * ((config.sl_distance_pct ?? 0.8) / 100);

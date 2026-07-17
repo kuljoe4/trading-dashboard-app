@@ -1,6 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TradeEntity } from '../models/entities/Trade.entity';
 import { roundTo } from '../lib/math';
+import { RrOptimizationResult } from './rr-optimization.service';
+
+export interface RiskWidthBucket {
+  label: string;
+  minPct: number;
+  maxPct: number;
+  tradesCount: number;
+  winRate: number;
+  profitFactor: number;
+  avgDurationMs: number;
+  netPnl: number;
+}
 
 export interface AnalyticsResult {
   cumulativePnL: { ts: string; pnl: number }[];
@@ -32,6 +44,8 @@ export interface AnalyticsResult {
     sevenDay: number;
     fourWeek: number;
   };
+  rrOptimization?: RrOptimizationResult;
+  riskWidthBuckets?: RiskWidthBucket[];
 }
 
 @Injectable()
@@ -90,6 +104,13 @@ export class AnalyticsService {
     let currentWinStreak = 0;
     let currentLossStreak = 0;
     let totalDurationMs = 0;
+
+    // Risk Width Buckets - Fused aggregation
+    const riskWidthBuckets = [
+      { label: 'Tight (<0.6%)', minPct: 0, maxPct: 0.6, grossProfit: 0, grossLoss: 0, totalDuration: 0, wins: 0, count: 0, netPnl: 0 },
+      { label: 'Medium (0.6%-1.5%)', minPct: 0.6, maxPct: 1.5, grossProfit: 0, grossLoss: 0, totalDuration: 0, wins: 0, count: 0, netPnl: 0 },
+      { label: 'Wide (>1.5%)', minPct: 1.5, maxPct: Infinity, grossProfit: 0, grossLoss: 0, totalDuration: 0, wins: 0, count: 0, netPnl: 0 }
+    ];
 
     // Performance Engineering: Ensure a stable anchor for ROI calculations.
     // If startingBalance is provided (e.g. from session config), use it.
@@ -168,8 +189,28 @@ export class AnalyticsService {
       }
 
       const entryTs = t.entry_ts;
+      let duration = 0;
       if (entryTs) {
-        totalDurationMs += exitTsMs - entryTs.getTime();
+        duration = exitTsMs - entryTs.getTime();
+        totalDurationMs += duration;
+      }
+
+      // Fused Risk-Width processing
+      const entryVal = Number(t.entry_price || 0);
+      const slVal = Number(t.initial_sl || t.current_sl || 0);
+      if (entryVal > 0 && slVal > 0) {
+        const slDistPct = (Math.abs(entryVal - slVal) / entryVal) * 100;
+        const bucketIdx = slDistPct < 0.6 ? 0 : (slDistPct < 1.5 ? 1 : 2);
+        const b = riskWidthBuckets[bucketIdx];
+        b.count++;
+        b.netPnl += pnl;
+        b.totalDuration += duration;
+        if (pnl > 0) {
+          b.wins++;
+          b.grossProfit += pnl;
+        } else if (pnl < 0) {
+          b.grossLoss += Math.abs(pnl);
+        }
       }
     }
 
@@ -215,6 +256,17 @@ export class AnalyticsService {
       fourWeek: effectiveStartingBalance > 0 ? (fourWeekPnL / effectiveStartingBalance) * 100 : 0,
     };
 
+    const finalizedBuckets: RiskWidthBucket[] = riskWidthBuckets.map(b => ({
+      label: b.label,
+      minPct: b.minPct,
+      maxPct: b.maxPct,
+      tradesCount: b.count,
+      winRate: b.count > 0 ? roundTo((b.wins / b.count) * 100, 2) : 0,
+      profitFactor: b.grossLoss > 0 ? roundTo(b.grossProfit / b.grossLoss, 2) : (b.grossProfit > 0 ? 100 : 0),
+      avgDurationMs: b.count > 0 ? Math.round(b.totalDuration / b.count) : 0,
+      netPnl: roundTo(b.netPnl, 2)
+    }));
+
     return {
       cumulativePnL,
       maxDrawdown: roundTo(maxDD, 2),
@@ -239,6 +291,7 @@ export class AnalyticsService {
         sevenDay: roundTo(roiTrends.sevenDay, 2),
         fourWeek: roundTo(roiTrends.fourWeek, 2),
       },
+      riskWidthBuckets: finalizedBuckets,
     };
   }
 }

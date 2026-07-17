@@ -1,3 +1,5 @@
+import { OrderFilterService } from './order-filter.service';
+import { BroadcastService } from './broadcast.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { OrderManagerService } from './orderManager';
 import { Trade } from '../models/Trade';
@@ -20,12 +22,15 @@ describe('Chronos: Rate Limit Protection Gap Regression', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: OrderFilterService, useValue: { applyFilters: jest.fn((sym, val) => val), checkLeverageBracket: jest.fn(() => ({ isAllowed: true, maxNotional: 1000000 })) } },
+        { provide: BroadcastService, useValue: { broadcast: jest.fn(), setWsBroadcaster: jest.fn() } },
         OrderManagerService,
         {
           provide: SessionStateService,
           useValue: {
             binanceOrderLimit: { used_10s: 299, limit_10s: 300, used_1m: 500, limit_1m: 1200 },
             isRateLimited: jest.fn().mockReturnValue(false),
+            isBanned: jest.fn().mockReturnValue(false),
             isOrderRateLimited: jest.fn().mockReturnValue(false), // Current implementation might return false even at 299
             binanceRateLimit: { used_1m: 100, limit: 2400 },
             realTimeOrders: new Map(),

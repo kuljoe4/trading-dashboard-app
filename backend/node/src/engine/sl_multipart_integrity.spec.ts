@@ -1,3 +1,4 @@
+import { OrderFilterService } from './order-filter.service';
 import { OrderManagerService } from './orderManager';
 import { Trade } from '../models/Trade';
 import { roundEight } from '../lib/math';
@@ -24,7 +25,7 @@ describe('OrderManagerService - Multi-part SL Integrity', () => {
       }),
     };
     mockSessionState = {
-      isRateLimited: jest.fn().mockReturnValue(false),
+      isRateLimited: jest.fn().mockReturnValue(false), isBanned: jest.fn().mockReturnValue(false),
       isOrderRateLimited: jest.fn().mockReturnValue(false),
       binanceRateLimit: { used_1m: 0, limit: 2400 },
       realTimeOrders: new Map(),
@@ -43,10 +44,11 @@ describe('OrderManagerService - Multi-part SL Integrity', () => {
       { incrementApiRequests: jest.fn() } as any, // monitoringService
       { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn() } as any, // positionTracker
       mockSessionState,
+      { broadcast: jest.fn() } as any, // broadcastService
       { log: jest.fn() } as any, // auditLog
       eventEmitter as any,
       { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any // settingsRepository
-    );
+    , new OrderFilterService(mockMarketFeed as any, { getTicker: jest.fn(), getPrice: jest.fn() } as any, { broadcast: jest.fn() } as any));
 
     mockBinanceClient = {
       restAPI: {
@@ -125,15 +127,17 @@ describe('OrderManagerService - Multi-part SL Integrity', () => {
 
     await service.handleBinanceOrderUpdate(slice2 as any);
 
-    // Verify quantity restoration for final PnL
-    expect(trade.qty).toBe(0.1);
+    // CHRONOS: Under Incremental PnL Architecture, trade.qty is NOT restored in the handler.
+    // It is restored during final closure in closeTrade() to ensure history accuracy without double-counting.
+    expect(trade.qty).toBe(0.05); // Still at remaining from previous slice
     expect(trade.realized_fee).toBe(roundEight(2.0 + 0.984 + 0.982));
 
-    // Verify closure event was emitted with feesAlreadyAccounted flag
+    // Verify closure event was emitted with feesAlreadyAccounted and alreadyRealized flags
     expect(eventEmitter.emit).toHaveBeenCalledWith('trade.exchange_close', expect.objectContaining({
       symbol: 'BTCUSDT',
       exitPrice: 49100,
-      feesAlreadyAccounted: true
+      feesAlreadyAccounted: true,
+      alreadyRealized: true
     }));
   });
 

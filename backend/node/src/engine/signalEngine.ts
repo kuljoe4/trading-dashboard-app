@@ -40,7 +40,7 @@ export class SignalEngineService {
 
   private readonly signalHandlers: Record<
     string,
-    (symbol: string, config: any, interval: string, side?: 'LONG' | 'SHORT', purpose?: 'entry' | 'exit', candles?: Candle[]) => boolean | SignalDetail
+    (symbol: string, config: any, interval: string, side?: 'LONG' | 'SHORT', purpose?: 'entry' | 'exit', candles?: Candle[], minimal?: boolean) => boolean | SignalDetail
   > = {
     momentum_pct: this.momentumPctSignal.bind(this),
     breakout_hl: this.breakoutHlSignal.bind(this),
@@ -112,7 +112,8 @@ export class SignalEngineService {
     purpose: 'entry' | 'exit' = 'entry',
     minimal: boolean = false,
   ): { allFired: boolean; firedSignals: string[]; reason: string; details?: Record<string, SignalDetail> } {
-    if (!config.enabled_signals || config.enabled_signals.length === 0) {
+    const activeSignals = config.enabled_signals || [];
+    if (activeSignals.length === 0) {
       return {
         allFired: false,
         firedSignals: [],
@@ -120,11 +121,7 @@ export class SignalEngineService {
       };
     }
 
-    const firedSignals: string[] = [];
-    const failedSignals: string[] = [];
-    const details: Record<string, SignalDetail> = {};
-    const logic = config.signal_logic || 'all';
-
+    const logic = purpose === 'exit' ? (config.exit_signal_logic || 'any') : (config.signal_logic || 'all');
     const candles = this.klineStore.getRawCandles(symbol, interval);
 
     // Warm-up check for technical indicators
@@ -135,7 +132,7 @@ export class SignalEngineService {
           allFired: false,
           firedSignals: [],
           reason: `Indicator warm-up in progress (${candles.length}/${requiredWarmup} candles)`,
-          details: {
+          details: minimal ? undefined : {
             warmup: {
               fired: false,
               value: candles.length,
@@ -150,44 +147,77 @@ export class SignalEngineService {
       }
     }
 
-    for (const signalType of config.enabled_signals) {
-      const handler = this.signalHandlers[signalType];
+    // BOLT OPTIMIZATION: Avoid array/object allocations when minimal mode is active
+    const firedSignals: string[] = minimal ? [] : [];
+    const failedSignals: string[] = minimal ? [] : [];
+    const details: Record<string, SignalDetail> = minimal ? {} : {};
+
+    for (const signalType of activeSignals) {
+      // DYNAMIC SUFFIX ROUTING: Resolve base signal type for suffixed keys (e.g. ema_close_fast -> ema_close)
+      let baseSignalType = signalType;
+      let handler = this.signalHandlers[signalType];
+
       if (!handler) {
-        failedSignals.push(signalType);
-        if (minimal && logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
+        const lastUnderscore = signalType.lastIndexOf('_');
+        if (lastUnderscore > 0) {
+          const potentialBase = signalType.substring(0, lastUnderscore);
+          if (this.signalHandlers[potentialBase]) {
+            baseSignalType = potentialBase;
+            handler = this.signalHandlers[potentialBase];
+          }
+        }
+      }
+
+      if (!handler) {
+        if (minimal) {
+          if (logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
+        } else {
+          failedSignals.push(signalType);
+        }
         continue;
       }
 
       try {
-        const result = handler(symbol, config, interval, side, purpose, candles);
+        const signalInterval = config.signal_timeframes?.[signalType] || interval;
+        const signalCandles = (signalInterval !== interval)
+          ? this.klineStore.getRawCandles(symbol, signalInterval)
+          : candles;
+
+        const result = handler(symbol, config, signalInterval, side, purpose, signalCandles, minimal);
         const fired = typeof result === 'boolean' ? result : result.fired;
         
-        if (!minimal && typeof result !== 'boolean') {
-          details[signalType] = result;
-        }
-
-        if (fired) {
-          firedSignals.push(signalType);
-          if (minimal && logic === 'any') return { allFired: true, firedSignals: [], reason: 'minimal' };
+        if (!minimal) {
+          if (typeof result !== 'boolean') details[signalType] = { ...result, metric: result.metric || baseSignalType };
+          if (fired) firedSignals.push(signalType);
+          else failedSignals.push(signalType);
         } else {
-          failedSignals.push(signalType);
-          if (minimal && logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
+          // Early exit if logic is satisfied
+          if (fired && logic === 'any') return { allFired: true, firedSignals: [], reason: 'minimal' };
+          if (!fired && logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
         }
       } catch (error) {
         this.logger.warn(`Signal ${signalType} error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
-        failedSignals.push(signalType);
-        if (minimal && logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
+        if (minimal) {
+          if (logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
+        } else {
+          failedSignals.push(signalType);
+        }
       }
+    }
+
+    if (minimal) {
+      // If we finished the loop in minimal mode:
+      // - any: none fired -> false
+      // - all: all fired -> true
+      return { allFired: logic === 'all', firedSignals: [], reason: 'minimal' };
     }
 
     const allFired = logic === 'any'
       ? firedSignals.length > 0
       : failedSignals.length === 0;
 
-    if (minimal) return { allFired, firedSignals: [], reason: 'minimal' };
-
     const reason =
-      `Signals fired: ${firedSignals.length}/${config.enabled_signals.length}` +
+      `Signals fired: ${firedSignals.length}/${activeSignals.length}` +
       (firedSignals.length > 0 ? ` (${firedSignals.join(', ')})` : '') +
       (failedSignals.length > 0 ? `; Failed: ${failedSignals.join(', ')}` : '');
 
@@ -201,7 +231,8 @@ export class SignalEngineService {
     side?: 'LONG' | 'SHORT',
     purpose?: 'entry' | 'exit',
     passedCandles?: Candle[],
-  ): SignalDetail {
+    minimal?: boolean,
+  ): boolean | SignalDetail {
     const lookback = Math.max(config.scan_lookback || 3, 1);
     const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
     const threshold = config.scan_pct_threshold || 0;
@@ -222,6 +253,8 @@ export class SignalEngineService {
     const last = candles[candles.length - 1].close;
     const pct = ((last - first) / first) * 100;
     const fired = Math.abs(pct) >= threshold;
+
+    if (minimal) return fired;
     
     return {
       fired,
@@ -244,7 +277,8 @@ export class SignalEngineService {
     side?: 'LONG' | 'SHORT',
     purpose?: 'entry' | 'exit',
     passedCandles?: Candle[],
-  ): SignalDetail {
+    minimal?: boolean,
+  ): boolean | SignalDetail {
     const lookback = Math.max(config.scan_lookback || 3, 2);
     const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
     
@@ -269,17 +303,19 @@ export class SignalEngineService {
     const target = isLong ? minLow : maxHigh; // Target for EXIT is the opposite side of the range
     const fired = isLong ? current.close <= target : current.close >= target;
 
+    if (minimal) return fired;
+
     return {
       fired,
-      value: roundTo(current.close, 4),
-      threshold: roundTo(target, 4),
+      value: roundTo(current.close, 8),
+      threshold: roundTo(target, 8),
       unit: 'price',
       metric: 'Breakout HL',
       description: fired 
         ? `Price breached ${isLong ? 'LOW' : 'HIGH'} of ${lookback} periods`
         : `Monitoring ${lookback} period ${isLong ? 'Low' : 'High'} level`,
       threshold_is_price: true,
-      slPrice: roundTo(target, 4),
+      slPrice: roundTo(target, 8),
     };
   }
 
@@ -290,8 +326,15 @@ export class SignalEngineService {
     side?: 'LONG' | 'SHORT',
     purpose?: 'entry' | 'exit',
     passedCandles?: Candle[],
-  ): SignalDetail {
+    minimal?: boolean,
+  ): boolean | SignalDetail {
     try {
+      // DIRECTION-AWARE: For exit signals, we search for the opposite pattern direction
+      const evaluatedSide = (purpose === 'exit' && side)
+        ? (side === 'LONG' ? 'SHORT' : 'LONG')
+        : side;
+      side = evaluatedSide;
+
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
       const lookback = Math.max(config.engulfing_lookback || 1, 1);
       const streakReq = Math.min(Math.max(config.engulfing_streak || lookback, 1), lookback);
@@ -299,6 +342,7 @@ export class SignalEngineService {
       const mode = config.engulfing_mode || 'range';
       const volConfirm = config.engulfing_volume_confirm || false;
       const closeOnlyMode = mode === 'close_range' || mode === 'close_body';
+      const softMode = mode === 'soft_range' || mode === 'soft_body';
 
       if (candles.length < lookback + (closeOnlyMode ? 2 : 1)) {
         return { fired: false, value: 0, threshold: 0, unit: 'bool', metric: 'Engulfing', description: closeOnlyMode ? 'Waiting for closed confirmation candle' : 'Insufficient data', insufficientData: true };
@@ -383,15 +427,15 @@ export class SignalEngineService {
       
       const bodyEngulfs = currBodyHigh > aggregateBodyHigh && currBodyLow < aggregateBodyLow;
       const rangeEngulfs = curr.high > aggregateHigh && curr.low < aggregateLow;
-      const closeRangeEngulfs = side === 'SHORT' ? curr.close < aggregateLow : curr.close > aggregateHigh;
-      const closeBodyEngulfs = side === 'SHORT' ? curr.close < aggregateBodyLow : curr.close > aggregateBodyHigh;
 
-      // Volume confirmation always compares signal candle against the one immediately preceding it
+      const softRangeEngulfs = side === 'SHORT' ? curr.close < aggregateLow : curr.close > aggregateHigh;
+      const softBodyEngulfs = side === 'SHORT' ? curr.close < aggregateBodyLow : curr.close > aggregateBodyHigh;
+
       const volumeConfirms = curr.volume > candles[signalIdx - 1].volume;
 
       let fired = false;
       let reason = '';
-      let threshold = mode === 'close_body'
+      let threshold = (mode === 'close_body' || mode === 'soft_body')
         ? (side === 'SHORT' ? aggregateBodyLow : aggregateBodyHigh)
         : (side === 'SHORT' ? aggregateLow : aggregateHigh);
 
@@ -403,8 +447,10 @@ export class SignalEngineService {
           if (mode === 'body') fired = bodyEngulfs;
           else if (mode === 'range') fired = rangeEngulfs;
           else if (mode === 'strict') fired = bodyEngulfs && rangeEngulfs;
-          else if (mode === 'close_range') fired = closeRangeEngulfs;
-          else if (mode === 'close_body') fired = closeBodyEngulfs;
+          else if (mode === 'close_range') fired = softRangeEngulfs;
+          else if (mode === 'close_body') fired = softBodyEngulfs;
+          else if (mode === 'soft_range') fired = softRangeEngulfs;
+          else if (mode === 'soft_body') fired = softBodyEngulfs;
 
           if (fired && volConfirm && !volumeConfirms) {
             fired = false;
@@ -413,7 +459,7 @@ export class SignalEngineService {
             reason = mode === 'body' ? 'Body did not engulf' :
                      mode === 'range' ? 'Range did not engulf' :
                      mode === 'strict' ? 'Strict engulfing failed' :
-                     mode === 'close_body' ? `Close did not clear prior ${streakReq}-candle body high` :
+                     mode === 'close_body' || mode === 'soft_body' ? `Close did not clear prior ${streakReq}-candle body high` :
                      `Close did not clear prior ${streakReq}-candle high`;
           }
         }
@@ -425,8 +471,10 @@ export class SignalEngineService {
           if (mode === 'body') fired = bodyEngulfs;
           else if (mode === 'range') fired = rangeEngulfs;
           else if (mode === 'strict') fired = bodyEngulfs && rangeEngulfs;
-          else if (mode === 'close_range') fired = closeRangeEngulfs;
-          else if (mode === 'close_body') fired = closeBodyEngulfs;
+          else if (mode === 'close_range') fired = softRangeEngulfs;
+          else if (mode === 'close_body') fired = softBodyEngulfs;
+          else if (mode === 'soft_range') fired = softRangeEngulfs;
+          else if (mode === 'soft_body') fired = softBodyEngulfs;
 
           if (fired && volConfirm && !volumeConfirms) {
             fired = false;
@@ -435,34 +483,35 @@ export class SignalEngineService {
             reason = mode === 'body' ? 'Body did not engulf' :
                      mode === 'range' ? 'Range did not engulf' :
                      mode === 'strict' ? 'Strict engulfing failed' :
-                     mode === 'close_body' ? `Close did not clear prior ${streakReq}-candle body low` :
+                     mode === 'close_body' || mode === 'soft_body' ? `Close did not clear prior ${streakReq}-candle body low` :
                      `Close did not clear prior ${streakReq}-candle low`;
           }
         }
       } else {
-        // Generic (no side) - default to old behavior but with mode awareness
+        // Universal Signal check (no side provided)
         if (mode === 'body') fired = bodyEngulfs;
         else if (mode === 'range') fired = rangeEngulfs;
-        else if (mode === 'close_range') fired = curr.close > aggregateHigh || curr.close < aggregateLow;
-        else if (mode === 'close_body') fired = curr.close > aggregateBodyHigh || curr.close < aggregateBodyLow;
+        else if (mode === 'close_range' || mode === 'soft_range') fired = curr.close > aggregateHigh || curr.close < aggregateLow;
+        else if (mode === 'close_body' || mode === 'soft_body') fired = curr.close > aggregateBodyHigh || curr.close < aggregateBodyLow;
         else fired = bodyEngulfs && rangeEngulfs;
 
         if (fired && volConfirm && !volumeConfirms) fired = false;
       }
 
-      // Provide a predictive SL price for UI visualization
       const predictedSl = side === 'LONG' ? aggregateLow : aggregateHigh;
+
+      if (minimal) return fired;
 
       return {
         fired,
-        value: closeOnlyMode ? curr.close : (fired ? 1 : 0),
-        threshold: closeOnlyMode ? threshold : 1,
-        unit: closeOnlyMode ? 'price' : 'bool',
-        metric: closeOnlyMode ? 'Close Engulf' : 'Engulfing',
+        value: (closeOnlyMode || softMode) ? curr.close : (fired ? 1 : 0),
+        threshold: (closeOnlyMode || softMode) ? threshold : 1,
+        unit: (closeOnlyMode || softMode) ? 'price' : 'bool',
+        metric: (closeOnlyMode || softMode) ? 'Close Engulf' : 'Engulfing',
         description: fired
-          ? (closeOnlyMode ? `Closed candle close-engulfed ${streakReq}-candle streak` : `Engulfing pattern (${mode}) detected`)
+          ? (softMode ? `Live candle broke through ${streakReq}-candle cluster` : closeOnlyMode ? `Closed candle close-engulfed ${streakReq}-candle streak` : `Engulfing pattern (${mode}) detected`)
           : (reason || 'No engulfing pattern'),
-        threshold_is_price: closeOnlyMode,
+        threshold_is_price: closeOnlyMode || softMode,
         pattern_low: aggregateLow !== Infinity ? aggregateLow : undefined,
         pattern_high: aggregateHigh !== -Infinity ? aggregateHigh : undefined,
         body_low: aggregateBodyLow !== Infinity ? aggregateBodyLow : undefined,
@@ -486,7 +535,8 @@ export class SignalEngineService {
     side?: 'LONG' | 'SHORT',
     purpose?: 'entry' | 'exit',
     passedCandles?: Candle[],
-  ): SignalDetail {
+    minimal?: boolean,
+  ): boolean | SignalDetail {
     try {
       const period = parseInt(config.signal_params?.ma_period || '20', 10);
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
@@ -500,16 +550,18 @@ export class SignalEngineService {
       const diff = currClose - ma;
       const prevDiff = prevClose - ma;
       const fired = (prevDiff <= 0 && diff > 0) || (prevDiff >= 0 && diff < 0);
+
+      if (minimal) return fired;
       
       return {
         fired,
-        value: roundTo(currClose, 2),
-        threshold: roundTo(ma, 2),
+        value: roundTo(currClose, 8),
+        threshold: roundTo(ma, 8),
         unit: 'price',
         metric: 'MA Cross',
         description: `Price crossed MA(${period})`,
         threshold_is_price: true,
-        slPrice: roundTo(ma, 2),
+        slPrice: roundTo(ma, 8),
       };
     } catch (error) {
       this.logger.debug(`MA signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -524,7 +576,8 @@ export class SignalEngineService {
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
     passedCandles?: Candle[],
-  ): SignalDetail {
+    minimal?: boolean,
+  ): boolean | SignalDetail {
     try {
       const params = config.signal_params || {};
       const period = purpose === 'exit'
@@ -552,16 +605,18 @@ export class SignalEngineService {
         else fired = false;
       }
 
+      if (minimal) return fired;
+
       return {
         fired,
-        value: roundTo(currClose, 2),
-        threshold: roundTo(ema, 2),
+        value: roundTo(currClose, 8),
+        threshold: roundTo(ema, 8),
         insufficientData: emaRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Cross' : 'Entry EMA Cross',
         description: `Price crossed EMA(${period})`,
         threshold_is_price: true,
-        slPrice: roundTo(ema, 2),
+        slPrice: roundTo(ema, 8),
       };
     } catch (error) {
       this.logger.debug(`EMA signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -576,7 +631,8 @@ export class SignalEngineService {
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
     passedCandles?: Candle[],
-  ): SignalDetail {
+    minimal?: boolean,
+  ): boolean | SignalDetail {
     try {
       const params = config.signal_params || {};
       const fastPeriod = purpose === 'exit'
@@ -613,16 +669,18 @@ export class SignalEngineService {
         else fired = false;
       }
 
+      if (minimal) return fired;
+
       return {
         fired,
-        value: roundTo(currFast, 2),
-        threshold: roundTo(currSlow, 2),
+        value: roundTo(currFast, 8),
+        threshold: roundTo(currSlow, 8),
         insufficientData: fastRes.insufficientData || slowRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual' : 'Entry EMA Dual',
         description: `EMA(${fastPeriod}) crossed EMA(${slowPeriod})`,
         threshold_is_price: true,
-        slPrice: roundTo(currSlow, 2),
+        slPrice: roundTo(currSlow, 8),
       };
     } catch (error) {
       this.logger.debug(`EMA Dual Cross signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -642,7 +700,8 @@ export class SignalEngineService {
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
     passedCandles?: Candle[],
-  ): SignalDetail {
+    minimal?: boolean,
+  ): boolean | SignalDetail {
     try {
       const params = config.signal_params || {};
       const fastPeriod = purpose === 'exit'
@@ -692,16 +751,18 @@ export class SignalEngineService {
         else fired = false;
       }
 
+      if (minimal) return fired;
+
       return {
         fired,
-        value: roundTo(completedClose, 2),
-        threshold: roundTo(threshold, 2),
+        value: roundTo(completedClose, 8),
+        threshold: roundTo(threshold, 8),
         insufficientData: fastRes.insufficientData || slowRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual Close' : 'Entry EMA Dual Close',
         description: `Last closed candle (${completedClose.toFixed(2)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${fastPeriod}) and EMA(${slowPeriod})`,
         threshold_is_price: true,
-        slPrice: roundTo(slowEma, 2),
+        slPrice: roundTo(slowEma, 8),
       };
     } catch (error) {
       this.logger.debug(`EMA Dual Close signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -727,7 +788,8 @@ export class SignalEngineService {
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
     passedCandles?: Candle[],
-  ): SignalDetail {
+    minimal?: boolean,
+  ): boolean | SignalDetail {
     try {
       const params = config.signal_params || {};
       const period = purpose === 'exit'
@@ -764,16 +826,18 @@ export class SignalEngineService {
         else fired = false;
       }
 
+      if (minimal) return fired;
+
       return {
         fired,
-        value: roundTo(completedClose, 2),
-        threshold: roundTo(ema, 2),
+        value: roundTo(completedClose, 8),
+        threshold: roundTo(ema, 8),
         insufficientData: emaRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Close' : 'Entry EMA Close',
         description: `Last closed candle (${completedClose.toFixed(2)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${period})`,
         threshold_is_price: true,
-        slPrice: roundTo(ema, 2),
+        slPrice: roundTo(ema, 8),
       };
     } catch (error) {
       this.logger.debug(`EMA Close signal error: ${error instanceof Error ? error.message : String(error)}`);

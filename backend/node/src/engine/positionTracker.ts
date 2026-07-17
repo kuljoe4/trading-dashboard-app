@@ -60,6 +60,7 @@ export class PositionTrackerService {
     this.rrSequenceIndex.clear();
     this._totalRisk = 0;
     this._pendingRiskTotal = 0;
+    this.sessionState.setActiveTrades([]);
     this._activeListCache = null;
     this.logger.log('[PositionTracker] Internal state cleared.');
   }
@@ -76,6 +77,10 @@ export class PositionTrackerService {
 
   enteringCount(): number {
     return this.enteringSymbols.size;
+  }
+
+  getInFlightSymbols(): string[] {
+    return Array.from(this.inFlightEntries.keys());
   }
 
   getInFlightEntry(symbol: string): Trade | undefined {
@@ -143,7 +148,7 @@ export class PositionTrackerService {
     }
 
     // SRE: Ensure risk is correctly calculated before adding to total
-    this.refreshTradeRisk(trade);
+    this.refreshTradeRisk(trade, true);
 
     this.trades.set(trade.symbol, trade);
     // DATA-07: Initialize milestone tracker from trade state for persistent state recovery
@@ -157,6 +162,9 @@ export class PositionTrackerService {
 
     // SRE: Remove from in-flight registry now that it's in active trades
     this.clearInFlight(trade.symbol);
+
+    // BOLT: Proactively synchronize SessionState to prevent race conditions in UDS handlers
+    this.sessionState.setActiveTrades(Array.from(this.trades.values()));
 
     this._activeListCache = null;
     this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
@@ -280,14 +288,8 @@ export class PositionTrackerService {
            trade.current_sl = finalSl;
 
            // SRE: Live Risk Mitigation.
-           // If new SL is at or beyond breakeven (entry), the risk for this trade effectively becomes 0.
-           // This allows the engine to open new trades as the "locked" capital is released.
-           const prevRisk = trade.risk_usdt || 0;
+           // Automatically handles risk release and updates _totalRisk via refreshTradeRisk
            this.refreshTradeRisk(trade);
-           if (prevRisk > 0 && trade.risk_usdt === 0) {
-              this._totalRisk = roundEight(this._totalRisk - prevRisk);
-              this.logger.log(`[Risk Mitigation] ${symbol} reached breakeven. Risk released: ${prevRisk} USDT. New Total Risk: ${this._totalRisk}`);
-           }
 
            this.logSlAdjustment(trade, prevSl, finalSl, currentIndex, !!updateRes.price && updateRes.price !== newSl);
 
@@ -381,19 +383,83 @@ export class PositionTrackerService {
     );
 
     if (exitTriggered) {
-      trade.exit_signal_type = exitSignalType;
-      if (exitSignalType === 'combined') {
-        trade.exit_signal_reason = `All signals fired: ${config.exit_signals?.join(', ')}`;
-      } else {
-        const status = trade.exit_signals_status?.[exitSignalType || ''];
-        trade.exit_signal_reason = status?.description || `Signal ${exitSignalType} fired`;
-      }
+      // DYNAMIC MULTI-LAYER ACTIONS: Check if any of the active fired signals trigger a 'close' vs 'lock_sl'
+      const actions = config.exit_signal_actions || {};
+      const statusMap = trade.exit_signals_status || {};
+      const firedActiveKeys = Object.keys(statusMap).filter(k => statusMap[k].fired && statusMap[k].active);
 
-      return {
-        exitOccurred: true,
-        exitType: 'CLOSED_SIGNAL',
-        exitReason: `${EXIT_REASONS.SIGNAL}_${exitSignalType?.toUpperCase()}`,
-      };
+      const hasCloseAction = firedActiveKeys.some(k => !actions[k] || actions[k] === 'close');
+
+      if (hasCloseAction || config.exit_signal_logic === 'all') {
+        trade.exit_signal_type = exitSignalType;
+        if (exitSignalType === 'combined') {
+          trade.exit_signal_reason = `All signals fired: ${config.exit_signals?.join(', ')}`;
+        } else {
+          const status = trade.exit_signals_status?.[exitSignalType || ''];
+          trade.exit_signal_reason = status?.description || `Signal ${exitSignalType} fired`;
+        }
+
+        return {
+          exitOccurred: true,
+          exitType: 'CLOSED_SIGNAL',
+          exitReason: `${EXIT_REASONS.SIGNAL}_${exitSignalType?.toUpperCase()}`,
+        };
+      } else {
+        // ONLY lock_sl ACTIONS FIRED: Ratchet Stop Loss instead of market closing position
+        for (const sigKey of firedActiveKeys) {
+          if (actions[sigKey] === 'lock_sl') {
+            const sigStatus = statusMap[sigKey];
+            let proposedSlPrice = sigStatus.value; // Value can be the crossover/EMA price
+
+            if (!sigStatus.threshold_is_price || proposedSlPrice <= 0) {
+              proposedSlPrice = currentPrice; // Fallback to current price if threshold is not price
+            }
+
+            // Apply filters & rounding
+            const filtered = this.orderManager.applyFilters(symbol, proposedSlPrice, trade.qty, {
+              priceRounding: trade.direction === 'LONG' ? 'floor' : 'ceil',
+              skipNotionalCheck: true
+            });
+            let roundedSl = filtered.price;
+
+            // Apply Trailing Stop/Milestone boundary safety buffer
+            const bufferPct = config.trailing_guard_buffer_pct ?? CONFIG_LIMITS.TRAILING_GUARD_DEFAULT;
+            const buffer = currentPrice * (bufferPct / 100);
+            if (trade.direction === 'LONG') {
+              roundedSl = Math.min(roundedSl, currentPrice - buffer);
+            } else {
+              roundedSl = Math.max(roundedSl, currentPrice + buffer);
+            }
+
+            // Only update SL if it improves protection
+            const minDelta = trade.entry_price * 0.0001;
+            let shouldUpdate = false;
+            if (trade.direction === 'LONG') {
+              shouldUpdate = roundedSl > trade.current_sl + Math.max(0.00000001, minDelta);
+            } else {
+              shouldUpdate = roundedSl < trade.current_sl - Math.max(0.00000001, minDelta);
+            }
+
+            if (shouldUpdate && !this.orderManager.isRatcheting(symbol)) {
+              const prevSl = trade.current_sl;
+              this.logger.log(`[Multi-Layer Exit] ${symbol} triggering Lock SL for signal ${sigKey}: ${prevSl} -> ${roundedSl}`);
+
+              this.orderManager.updateStopLoss(trade, roundedSl, prevSl).then(updateRes => {
+                if (updateRes.success) {
+                  const finalSl = updateRes.price || roundedSl;
+                  trade.current_sl = finalSl;
+                  trade.updated_at = new Date();
+                  this.refreshTradeRisk(trade);
+                  this.logSlAdjustment(trade, prevSl, finalSl, -3, !!updateRes.price && updateRes.price !== roundedSl);
+                  this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+                }
+              }).catch(err => {
+                this.logger.error(`[Multi-Layer Exit] Failed to update SL via lock_sl action for ${symbol}: ${err.message}`);
+              });
+            }
+          }
+        }
+      }
     }
 
     return null;
@@ -406,7 +472,7 @@ export class PositionTrackerService {
     config?: SessionConfig,
     paperMode?: boolean,
     localOnly?: boolean,
-    options: { ignoreBlocked?: boolean, orderId?: string, feesAlreadyAccounted?: boolean } = {}
+    options: { ignoreBlocked?: boolean, orderId?: string, feesAlreadyAccounted?: boolean, alreadyRealized?: boolean, needsMarketClose?: boolean } = {}
   ): Promise<{ trade: Trade | null; exitOccurred: boolean; closeBlocked?: boolean, error?: string }> {
     // CHRONOS: Fallback to in-flight registry if not in active trades (Race Condition Guard)
     let trade = this.trades.get(symbol);
@@ -443,15 +509,17 @@ export class PositionTrackerService {
 
     // Remove from tracking after exchange close/recording
     const existing = this.trades.get(symbol);
-    if (existing) {
-      this._totalRisk = roundEight(this._totalRisk - (existing.risk_usdt || 0));
-    }
     this.trades.delete(symbol);
     this.clearInFlight(symbol);
     this.setEntering(symbol, false);
     this.closingSymbols.delete(symbol);
     this.rrSequenceIndex.delete(symbol);
     this._activeListCache = null;
+    this.recalculateTotalRisk();
+
+    // BOLT: Proactively synchronize SessionState to prevent race conditions in UI/UDS handlers
+    this.sessionState.setActiveTrades(Array.from(this.trades.values()));
+
     this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
 
     const finalizedExitPrice = result.trade.exit_price || exitPrice;
@@ -470,12 +538,11 @@ export class PositionTrackerService {
 
   removeTrade(symbol: string): void {
     const existing = this.trades.get(symbol);
-    if (existing) {
-      this._totalRisk = roundEight(this._totalRisk - (existing.risk_usdt || 0));
-    }
     this.trades.delete(symbol);
     this.rrSequenceIndex.delete(symbol);
+    this.sessionState.setActiveTrades(Array.from(this.trades.values()));
     this._activeListCache = null;
+    this.recalculateTotalRisk();
     this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
   }
 
@@ -484,7 +551,9 @@ export class PositionTrackerService {
    * Enforces the "Breakeven Risk Release" rule: risk is 0 if SL is at or beyond entry.
    * Otherwise, risk is based on the initial stop distance.
    */
-  public refreshTradeRisk(trade: Trade): void {
+  public refreshTradeRisk(trade: Trade, skipTotalRiskUpdate = false): void {
+    const prevRisk = trade.risk_usdt || 0;
+
     // SRE: Increased tolerance for breakeven detection (0.01% or 0.00000001)
     // to handle exchange-side rounding/flooring that might place SL 1 tick below entry.
     const tolerance = Math.max(0.00000001, trade.entry_price * 0.0001);
@@ -498,6 +567,11 @@ export class PositionTrackerService {
     } else {
       const slDistance = Math.abs(trade.entry_price - trade.initial_sl);
       trade.risk_usdt = roundEight(slDistance * trade.qty);
+    }
+
+    if (!skipTotalRiskUpdate && this.trades.has(trade.symbol) && prevRisk > 0 && trade.risk_usdt === 0) {
+      this._totalRisk = roundEight(Math.max(0, this._totalRisk - prevRisk));
+      this.logger.log(`[Risk Mitigation] ${trade.symbol} reached breakeven. Risk released: ${prevRisk} USDT. New Total Risk: ${this._totalRisk}`);
     }
   }
 
@@ -513,7 +587,7 @@ export class PositionTrackerService {
 
       // Update quantity before risk calculation for consistency
       trade.qty = payload.qty;
-      this.refreshTradeRisk(trade);
+      this.refreshTradeRisk(trade, true);
       trade.updated_at = new Date();
 
       this.recalculateTotalRisk();
@@ -527,7 +601,7 @@ export class PositionTrackerService {
   recalculateTotalRisk(): void {
     let activeRisk = 0;
     for (const t of this.trades.values()) {
-      this.refreshTradeRisk(t);
+      this.refreshTradeRisk(t, true);
       activeRisk += (t.risk_usdt || 0);
     }
     this._totalRisk = roundEight(activeRisk);
@@ -588,5 +662,64 @@ export class PositionTrackerService {
     }
 
     return bestIndex;
+  }
+
+  async checkTrailingStop(
+    symbol: string,
+    currentPrice: number,
+    config: SessionConfig,
+  ): Promise<void> {
+    const trade = this.trades.get(symbol);
+    if (!trade || trade.status !== 'OPEN' || !config.trailing_stop_enabled) return;
+
+    const distancePct = config.trailing_stop_distance_pct || 1.0;
+    const distance = trade.entry_price * (distancePct / 100);
+
+    let prospectiveSl: number;
+    if (trade.direction === 'LONG') {
+      prospectiveSl = currentPrice - distance;
+    } else {
+      prospectiveSl = currentPrice + distance;
+    }
+
+    const filtered = this.orderManager.applyFilters(symbol, prospectiveSl, trade.qty, {
+      priceRounding: trade.direction === 'LONG' ? 'floor' : 'ceil',
+      skipNotionalCheck: true
+    });
+    let newSl = filtered.price;
+
+    const bufferPct = config.trailing_guard_buffer_pct ?? CONFIG_LIMITS.TRAILING_GUARD_DEFAULT;
+    const buffer = currentPrice * (bufferPct / 100);
+
+    if (trade.direction === 'LONG') {
+      newSl = Math.min(newSl, currentPrice - buffer);
+    } else {
+      newSl = Math.max(newSl, currentPrice + buffer);
+    }
+
+    const minDelta = trade.entry_price * 0.0001;
+    let shouldUpdate = false;
+
+    if (trade.direction === 'LONG') {
+      shouldUpdate = newSl > trade.current_sl + Math.max(0.00000001, minDelta);
+    } else {
+      shouldUpdate = newSl < trade.current_sl - Math.max(0.00000001, minDelta);
+    }
+
+    if (shouldUpdate) {
+      if (this.orderManager.isRatcheting(symbol)) return;
+
+      const prevSl = trade.current_sl;
+      const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
+
+      if (updateRes.success) {
+        const finalSl = updateRes.price || newSl;
+        trade.current_sl = finalSl;
+        trade.updated_at = new Date();
+        this.refreshTradeRisk(trade);
+        this.logSlAdjustment(trade, prevSl, finalSl, -2, !!updateRes.price && updateRes.price !== newSl);
+        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+      }
+    }
   }
 }

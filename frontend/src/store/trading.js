@@ -1,7 +1,7 @@
 import { createWithEqualityFn } from 'zustand/traditional'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import { sessionAPI, normalizeUrl } from '../api/client'
-import { CONFIG_LIMITS, ENGINE_CONSTANTS } from '../constants/configLimits'
+import { sessionAPI, normalizeUrl } from '../api/client.js'
+import { CONFIG_LIMITS, ENGINE_CONSTANTS } from '../constants/configLimits.js'
 
 const toNumber = (v, f = 0) => { const p = Number(v); return Number.isFinite(p) ? p : f; }
 const MAX_LOG_LINES = 500;
@@ -82,7 +82,7 @@ export const normalizeOpportunity = (o = {}) => {
   return res;
 }
 
-const normalizeTrade = (t = {}, pt = null) => {
+export const normalizeTrade = (t = {}, pt = null) => {
   if (!t || typeof t !== 'object') return null;
   const p = pt || {};
 
@@ -92,12 +92,17 @@ const normalizeTrade = (t = {}, pt = null) => {
     try { sigStatus = JSON.parse(t._sig_json); } catch (e) {}
   }
 
-  const f = `${t.pnl}:${t.rr}:${t.current_price}:${t.sl_price}`;
+  const f = `${t.pnl}:${t.rr}:${t.current_price}:${t.sl_price}:${t.close_blocked}:${t.illiquid_blocked}:${t.qty}:${t.max_rr_achieved}`;
   if (p._fingerprint === f && !t._delta && !t._thin && !t._sig_json) return p;
   if (t._delta || t._thin) {
+    const ep = toNumber(t.entry_price ?? p.entry_price);
+    const cp = toNumber(t.current_price ?? p.current_price ?? ep, ep);
+    const isLong = (t.direction ?? p.direction ?? '').toString().toUpperCase() === 'LONG';
+    const calculatedPnlPct = ep > 0 ? ((cp - ep) / ep) * 100 * (isLong ? 1 : -1) : 0;
     return {
       ...p, ...t,
       pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl,
+      pnl_pct: t.pnl_pct !== undefined ? toNumber(t.pnl_pct) : (p.pnl_pct !== undefined ? toNumber(p.pnl_pct) : calculatedPnlPct),
       rr: t.rr !== undefined ? toNumber(t.rr) : p.rr,
       current_price: t.current_price !== undefined ? toNumber(t.current_price) : p.current_price,
       sl_price: t.sl_price !== undefined ? toNumber(t.sl_price) : p.sl_price,
@@ -120,7 +125,12 @@ const normalizeTrade = (t = {}, pt = null) => {
     };
   }
   const ep = toNumber(t.entry_price ?? t.entry ?? p.entry_price);
-  return { ...t, symbol: t.symbol ?? p.symbol ?? '---', strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy', direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(), entry_price: ep, current_price: toNumber(t.current_price ?? t.current ?? p.current_price ?? t.exit_price ?? ep, ep), sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price), initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl), tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp), pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl ?? 0, rr: (t.rr !== undefined) ? toNumber(t.rr) : p.rr ?? 0, max_rr: (t.max_rr !== undefined) ? toNumber(t.max_rr) : p.max_rr ?? 0, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [], exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [], tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'), tp_ratio: (t.tp_ratio !== undefined) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0, sl_adjustments: t.sl_adjustments || p.sl_adjustments || [], exit_reason: t.exit_reason ?? p.exit_reason, exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price), paper_mode: t.paper_mode ?? p.paper_mode ?? true, qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0), max_rr_achieved: toNumber(t.max_rr_achieved ?? t.max_rr ?? p.max_rr_achieved ?? 0), exit_signals_status: sigStatus || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, _fingerprint: f };
+  const cp = toNumber(t.current_price ?? t.current ?? p.current_price ?? t.exit_price ?? ep, ep);
+  const isLong = (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase() === 'LONG';
+  const calculatedPnlPct = ep > 0 ? ((cp - ep) / ep) * 100 * (isLong ? 1 : -1) : 0;
+  const pnlPct = t.pnl_pct !== undefined ? toNumber(t.pnl_pct) : (p.pnl_pct !== undefined ? toNumber(p.pnl_pct) : calculatedPnlPct);
+
+  return { ...t, symbol: t.symbol ?? p.symbol ?? '---', strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy', direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(), entry_price: ep, current_price: cp, sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price), initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl), tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp), pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl ?? 0, pnl_pct: pnlPct, rr: (t.rr !== undefined) ? toNumber(t.rr) : p.rr ?? 0, max_rr: (t.max_rr !== undefined) ? toNumber(t.max_rr) : p.max_rr ?? 0, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [], exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [], tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'), tp_ratio: (t.tp_ratio !== undefined) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0, sl_adjustments: t.sl_adjustments || p.sl_adjustments || [], exit_reason: t.exit_reason ?? p.exit_reason, exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price), paper_mode: t.paper_mode ?? p.paper_mode ?? true, qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0), max_rr_achieved: toNumber(t.max_rr_achieved ?? t.max_rr ?? p.max_rr_achieved ?? 0), exit_signals_status: sigStatus || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, _fingerprint: f };
 }
 
 const deepMerge = (target, source) => {
@@ -191,6 +201,7 @@ const defaultConfig = {
   frequency_shaping_enabled: false,
   frequency_tod_integration: false,
   paper_starting_balance: CONFIG_LIMITS.PAPER_STARTING_BALANCE_DEFAULT,
+  testnet_starting_balance: 10000.0,
   live_starting_balance: CONFIG_LIMITS.LIVE_STARTING_BALANCE_DEFAULT,
   hot_loop_interval_ms: CONFIG_LIMITS.HOT_LOOP_DEFAULT,
   main_loop_interval_ms: CONFIG_LIMITS.MAIN_LOOP_DEFAULT,
@@ -198,11 +209,16 @@ const defaultConfig = {
   auto_scale_min_notional: true,
   hibernation_mode: 'adaptive',
   debug_mode: false,
+  smart_watchlist_enabled: false,
+  smart_watchlist_sensitivity: 0.7,
+  trailing_stop_enabled: false,
+  trailing_stop_distance_pct: 1.0,
   scanner_weights: {
     momentum: 0.5,
     volatility: 0.3,
     trend: 0.2
   },
+  sl_out_of_bounds_action: 'clamp',
 };
 
 export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
@@ -324,6 +340,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         config: res.data.config,
         rateLimitLastSync: res.data.rateLimit ? new Date().toISOString() : undefined,
       });
+      // SRE: Proactively fetch analytics to keep Performance Insights populated
+      get().fetchAnalytics();
     } catch (e) {
       if (e.code === 'ERR_CANCELED') return;
       console.error("Manual sync failed", e);
@@ -373,11 +391,13 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         get().sync();
         get().fetchTradeHistory();
         get().fetchSessions();
+        get().fetchAnalytics();
       }
     }
   },
   fetchSessions: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.list(); set({ sessionList: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchLifetimeAnalytics: async (m = 'paper') => { set({ isSyncing: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
+  fetchAnalytics: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.analytics(); set({ analytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchTradeHistory: async (sid = 'all') => { set({ isSyncing: true }); try { const r = await sessionAPI.history(sid); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
   updateStats: (updates) => set((st) => {
     // BOLT: Session Stickiness Logic.
@@ -414,19 +434,19 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
        if (updates.totalSlUsed === 0 && st.totalSlUsed !== 0) merged.totalSlUsed = st.totalSlUsed;
 
        // 3. Collection Persistence: hold trades/scanner results until non-empty data arrives
-       if (Array.isArray(updates.activeTrades) && updates.activeTrades.length > 0) {
+       if (Array.isArray(updates.activeTrades)) {
          merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, currentActiveTrades.find(x => x.symbol === t.symbol))).filter(Boolean);
        } else if (currentActiveTrades.length > 0) {
          merged.activeTrades = currentActiveTrades;
        }
 
-       if (Array.isArray(updates.scannerResults) && updates.scannerResults.length > 0) {
+       if (Array.isArray(updates.scannerResults)) {
          merged.scannerResults = updates.scannerResults.map(o => normalizeOpportunity(o)).filter(Boolean);
        } else if (currentScannerResults.length > 0) {
          merged.scannerResults = currentScannerResults;
        }
 
-       if (Array.isArray(updates.tradeHistory) && updates.tradeHistory.length > 0) {
+       if (Array.isArray(updates.tradeHistory)) {
          merged.tradeHistory = updates.tradeHistory.map(t => normalizeTrade(t)).filter(Boolean);
        } else if (currentTradeHistory.length > 0) {
          merged.tradeHistory = currentTradeHistory;
@@ -491,8 +511,12 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   connectWS: () => {
     if (get().ws) return;
     set({ wsStatus: 'connecting' });
-    // DEPLOY-04: Force wss:// protocol for WebSockets if VITE_WS_URL is provided with incorrect protocol
-    let u = normalizeUrl(import.meta.env.VITE_WS_URL, 'wss') || `${window.location.protocol === 'https:' ? 'wss://' : 'ws://'}${window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '')}/session/ws`;
+    // DEPLOY-04: Match the WebSocket protocol to the page protocol.
+    // Use wss:// on HTTPS pages and ws:// on HTTP (dev) pages. Forcing wss://
+    // unconditionally breaks local dev where the Vite server is plain HTTP,
+    // causing "can't establish a connection to wss://localhost:3000".
+    const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    let u = normalizeUrl(import.meta.env.VITE_WS_URL, wsProto) || `${wsProto}://${window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '')}/session/ws`;
     if (u && !u.includes('/session/ws')) u = u.replace(/\/$/, '') + '/session/ws';
     const ak = localStorage.getItem('MOMENTUM_ADMIN_API_KEY') || import.meta.env.VITE_ADMIN_API_KEY;
     // SENTINEL: Use sub-protocol for auth instead of query parameter to prevent credential leakage in logs
@@ -522,12 +546,14 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
           let nt = currentActiveTrades;
           if (stop) nt = [];
-          else if (Array.isArray(d.activeTrades) && d.activeTrades.length > 0) {
-            const m = new Map(currentActiveTrades.map(t => [t.symbol, t]));
-            nt = d.activeTrades.map(t => normalizeTrade(t, m.get(t.symbol))).filter(Boolean);
-          } else if (isResuming && currentActiveTrades.length > 0) {
-            // Anti-flicker: preserve trades during resume if broadcast is empty
-            nt = currentActiveTrades;
+          else if (Array.isArray(d.activeTrades)) {
+            if (d.activeTrades.length > 0) {
+              const m = new Map(currentActiveTrades.map(t => [t.symbol, t]));
+              nt = d.activeTrades.map(t => normalizeTrade(t, m.get(t.symbol))).filter(Boolean);
+            } else if (!isResuming) {
+              // Authoritative clear when not in resumption window
+              nt = [];
+            }
           }
 
           // BOLT: Smart history merging to prevent flickering or data loss.
@@ -589,13 +615,16 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           const isResuming = st.isSyncingOnResume;
           const currentActiveTrades = Array.isArray(st.activeTrades) ? st.activeTrades : [];
           let nt = currentActiveTrades;
-          if (Array.isArray(d.trades) && d.trades.length > 0) {
-            const m = new Map(currentActiveTrades.map(t => [t.id, t]));
-            d.trades.forEach(t => { const p = m.get(t.id); const n = normalizeTrade(t, p); if (n) m.set(t.id, n); });
-            if (d._heartbeat) { const ids = new Set(d.trades.map(t => t.id)); for (const id of m.keys()) if (!ids.has(id)) m.delete(id); }
-            nt = Array.from(m.values());
-          } else if (isResuming && currentActiveTrades.length > 0) {
-            nt = currentActiveTrades;
+          if (Array.isArray(d.trades)) {
+            if (d.trades.length > 0) {
+              const m = new Map(currentActiveTrades.map(t => [t.id, t]));
+              d.trades.forEach(t => { const p = m.get(t.id); const n = normalizeTrade(t, p); if (n) m.set(t.id, n); });
+              if (d._heartbeat) { const ids = new Set(d.trades.map(t => t.id)); for (const id of m.keys()) if (!ids.has(id)) m.delete(id); }
+              nt = Array.from(m.values());
+            } else if (!isResuming) {
+              // Authoritative clear when not in resumption window
+              nt = [];
+            }
           }
 
           // BOLT: Prevent flickering during config sync. If local state is in-flight, ignore config updates from ticks.
@@ -679,13 +708,25 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         if (get().isSyncingOnResume) {
           console.log(`[Store] Received trade_event. Clearing isSyncingOnResume.`);
         }
-        set(st => ({
-          isSyncingOnResume: false,
-          activeTrades: d.event === 'closed' ? st.activeTrades.filter(x => x.symbol !== d.symbol) : (t ? [...st.activeTrades, t] : st.activeTrades),
-          tradeHistory: d.event === 'closed' && t ? [t, ...st.tradeHistory].slice(0, 50) : st.tradeHistory,
-          entryCount: d.stats?.entryCount ?? st.entryCount,
-          hitCount: d.stats?.hitCount ?? st.hitCount
-        }));
+        set(st => {
+          let nextActive = st.activeTrades;
+          if (d.event === 'closed') {
+            nextActive = st.activeTrades.filter(x => x.symbol !== d.symbol && x.id !== d.id);
+          } else if (t) {
+            // BOLT: Prevent "Multiples" Ghost Trades. Ensure only one trade per symbol exists in the store.
+            // This hardening ensures that even if backend sends redundant 'opened' events during retries,
+            // the UI only renders the most recent authoritative trade.
+            nextActive = [...st.activeTrades.filter(x => x.symbol !== t.symbol), t];
+          }
+
+          return {
+            isSyncingOnResume: false,
+            activeTrades: nextActive,
+            tradeHistory: d.event === 'closed' && t ? [t, ...st.tradeHistory].slice(0, 50) : st.tradeHistory,
+            entryCount: d.stats?.entryCount ?? st.entryCount,
+            hitCount: d.stats?.hitCount ?? st.hitCount
+          };
+        });
       } else if (d.type === 'gate') {
         if (get().isSyncingOnResume) {
           console.log(`[Store] Received gate update. Clearing isSyncingOnResume.`);

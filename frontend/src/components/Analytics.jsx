@@ -283,6 +283,156 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
   );
 };
 
+export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
+  const safeData = Array.isArray(data) ? data : [];
+  const containerRef = useRef(null);
+  const [hoverData, setHoverData] = useState(null);
+  const [hoverPos, setHoverDataPos] = useState(null);
+
+  if (safeData.length < 5) return null;
+
+  const maxPF = Math.max(1, ...safeData.map(d => d.profitFactor));
+  const minPF = 0;
+  const rangePF = maxPF - minPF;
+
+  const pointsPF = useMemo(() => {
+    return safeData.map((d, i) => {
+      const x = (i / (safeData.length - 1)) * 100;
+      const y = 100 - ((d.profitFactor - minPF) / (rangePF || 1)) * 100;
+      return { x, y, ...d };
+    });
+  }, [safeData, rangePF]);
+
+  const pathPF = useMemo(() => solveSmoothing(pointsPF), [pointsPF]);
+
+  const handleInteraction = (clientX) => {
+    if (!containerRef.current || !pointsPF.length) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const xPct = ((clientX - rect.left) / rect.width) * 100;
+
+    let closest = pointsPF[0];
+    let minDiff = Math.abs(pointsPF[0].x - xPct);
+
+    for (const p of pointsPF) {
+      const diff = Math.abs(p.x - xPct);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = p;
+      }
+    }
+
+    setHoverData(closest);
+    setHoverDataPos({ x: closest.x, y: closest.y });
+  };
+
+  const currentStats = hoverData || safeData.find(d => d.threshold === recommendedRr) || safeData[Math.floor(safeData.length / 2)];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] text-dim font-bold uppercase tracking-widest text-left">Edge Optimization Curve</span>
+          <div className="flex items-baseline gap-3">
+            <span className={cn("text-2xl font-black font-mono tracking-tighter", hoverData ? "text-accent" : "text-text")}>
+              {Number(currentStats.threshold || 0).toFixed(1)}R
+            </span>
+            <span className="text-[10px] text-dim font-black uppercase tracking-widest">
+              Target Selection
+            </span>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-x-8 gap-y-1">
+           <div className="flex flex-col">
+              <span className="text-[8px] text-dim font-black uppercase tracking-widest">Profit Factor</span>
+              <span className="text-xs font-black font-mono text-accent">{Number(currentStats.profitFactor || 0).toFixed(2)}</span>
+           </div>
+           <div className="flex flex-col">
+              <span className="text-[8px] text-dim font-black uppercase tracking-widest">Win Rate</span>
+              <span className="text-xs font-black font-mono text-text">{Number(currentStats.winRate || 0).toFixed(0)}%</span>
+           </div>
+        </div>
+      </div>
+
+      <div
+        ref={containerRef}
+        onMouseMove={(e) => handleInteraction(e.clientX)}
+        onMouseLeave={() => { setHoverData(null); setHoverDataPos(null); }}
+        onTouchMove={(e) => e.touches?.[0] && handleInteraction(e.touches[0].clientX)}
+        onTouchEnd={() => { setHoverData(null); setHoverDataPos(null); }}
+        className="relative h-[160px] w-full cursor-crosshair select-none touch-none"
+      >
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full overflow-visible">
+          <defs>
+            <linearGradient id="pf-gradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--color-accent)" stopOpacity="0.15" />
+              <stop offset="100%" stopColor="var(--color-accent)" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+
+          {/* Grid */}
+          <line x1="0" y1="25" x2="100" y2="25" stroke="currentColor" className="text-border/5" strokeWidth="0.1" />
+          <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" className="text-border/5" strokeWidth="0.1" />
+          <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" className="text-border/5" strokeWidth="0.1" />
+
+          {/* Area */}
+          <path
+            d={`${pathPF} L 100 100 L 0 100 Z`}
+            fill="url(#pf-gradient)"
+            className="transition-all duration-700"
+          />
+
+          {/* PF Line */}
+          <path
+            d={pathPF}
+            fill="none"
+            stroke="var(--color-accent)"
+            strokeWidth="0.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="transition-all duration-700"
+          />
+
+          {/* Vertical line at recommended RR */}
+          {!hoverPos && recommendedRr > 0 && (
+            <g>
+              <line
+                x1={((safeData.findIndex(d => d.threshold === recommendedRr) || 0) / (safeData.length - 1)) * 100}
+                y1="0"
+                x2={((safeData.findIndex(d => d.threshold === recommendedRr) || 0) / (safeData.length - 1)) * 100}
+                y2="100"
+                stroke="var(--color-accent)"
+                strokeWidth="0.4"
+                strokeDasharray="2,2"
+                className="opacity-40"
+              />
+              <circle
+                cx={((safeData.findIndex(d => d.threshold === recommendedRr) || 0) / (safeData.length - 1)) * 100}
+                cy={100 - ((safeData.find(d => d.threshold === recommendedRr)?.profitFactor || 0) / (rangePF || 1)) * 100}
+                r="1.5"
+                fill="var(--color-accent)"
+              />
+            </g>
+          )}
+
+          {/* Hover Crosshair */}
+          {hoverPos && (
+            <g>
+              <line x1={hoverPos.x} y1="0" x2={hoverPos.x} y2="100" stroke="var(--color-accent)" strokeWidth="0.3" strokeDasharray="1,2" />
+              <circle cx={hoverPos.x} cy={hoverPos.y} r="2.5" fill="var(--color-accent)" className="animate-pulse" />
+            </g>
+          )}
+        </svg>
+
+        <div className="absolute inset-x-0 -bottom-6 flex justify-between">
+          <span className="text-[8px] text-dim font-mono font-bold">{Number(safeData[0].threshold || 0).toFixed(1)}R</span>
+          <div className="h-px flex-1 mx-4 bg-border/10 self-center" />
+          <span className="text-[8px] text-dim font-mono font-bold">{Number(safeData[safeData.length - 1].threshold || 0).toFixed(1)}R</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const TODPerformance = ({ data = [] }) => {
   const safeData = Array.isArray(data) ? data : [];
   const validData = useMemo(() => safeData.filter(d => d && typeof d.pnl === 'number'), [safeData]);

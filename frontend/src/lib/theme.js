@@ -72,17 +72,24 @@ export const fmt = (n, d = 2) => {
 export const fmtVol = (v) => v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(2)}M` : `$${(v / 1_000).toFixed(1)}K`;
 
 // Simple catmull-rom to cubic bezier approximation for smooth lines
+/**
+ * BOLT OPTIMIZATION: Optimized path generation.
+ * Uses a manual loop and array.join('') to avoid O(N^2) string concatenation overhead
+ * in high-frequency chart updates (e.g., Sparklines, Equity Curve).
+ */
 export const solveSmoothing = (points) => {
-  if (points.length < 2) return '';
-  if (points.length === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+  const len = points.length;
+  if (len < 2) return '';
+  if (len === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
 
-  return points.reduce((acc, point, i, a) => {
-    if (i === 0) return `M ${point.x} ${point.y}`;
+  const path = new Array(len);
+  path[0] = `M ${points[0].x} ${points[0].y}`;
 
-    const prev = a[i - 1];
-    const curr = a[i];
-    const next = a[i + 1];
-    const prevPrev = a[i - 2] || prev;
+  for (let i = 1; i < len; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    const next = points[i + 1];
+    const prevPrev = points[i - 2] || prev;
 
     // Control points
     const cp1x = prev.x + (curr.x - prevPrev.x) / 6;
@@ -91,6 +98,8 @@ export const solveSmoothing = (points) => {
     const cp2x = curr.x - ((next ? next.x : curr.x) - prev.x) / 6;
     const cp2y = curr.y - ((next ? next.y : curr.y) - prev.y) / 6;
 
-    return `${acc} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${curr.x} ${curr.y}`;
-  }, '');
+    path[i] = ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${curr.x} ${curr.y}`;
+  }
+
+  return path.join('');
 };

@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { Activity, XCircle, Search, Copy, CheckCircle2, Info, X } from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useTradingStore } from '../store/trading'
-import { cn, CopyButton, Tooltip } from './ui/primitives'
+import { cn, CopyButton, Tooltip, VisuallyHidden } from './ui/primitives'
 
 const HIGHLIGHTS = {
   positive: ['BUY', 'PROFIT', 'TP', 'HIT', 'SUCCESS', 'STARTED', 'ENTER'],
@@ -53,7 +53,7 @@ const LogEntry = React.memo(({ log }) => {
         </div>
         <CopyButton
           value={logMessage}
-          className="opacity-0 group-hover/entry:opacity-100 focus-visible:opacity-100 -my-1"
+          className="opacity-0 group-hover/entry:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 -my-1"
           tooltip="Copy log message"
         />
       </div>
@@ -61,42 +61,52 @@ const LogEntry = React.memo(({ log }) => {
       <Dialog.Root open={isOpen} onOpenChange={setIsOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-md z-[100] animate-in fade-in duration-300" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-surface/95 border border-border/50 rounded-[2rem] p-6 shadow-2xl backdrop-blur-xl z-[101] animate-in fade-in zoom-in-95 duration-300 focus:outline-none">
-            <div className="flex justify-between items-start mb-6">
-              <div className="flex items-center gap-3">
+          <Dialog.Content
+            aria-labelledby="log-title"
+            aria-describedby="log-description"
+            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-surface/95 border border-border/50 rounded-xl p-4 md:p-5 shadow-2xl backdrop-blur-xl z-[101] animate-in fade-in zoom-in-95 duration-300 focus:outline-none"
+          >
+            <VisuallyHidden>
+              <Dialog.Title id="log-title">Log Detail</Dialog.Title>
+              <Dialog.Description id="log-description">
+                Details for log entry at {logTimestamp} with level {logLevel}.
+              </Dialog.Description>
+            </VisuallyHidden>
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-2.5">
                 <div className={cn(
-                  "w-10 h-10 rounded-xl flex items-center justify-center border",
+                  "w-8 h-8 rounded-lg flex items-center justify-center border",
                   logLevel === 'error' ? "bg-red/10 border-red/20 text-red" :
                   logLevel === 'warn' ? "bg-amber/10 border-amber/20 text-amber" :
                   "bg-accent/10 border-accent/20 text-accent"
                 )}>
-                  <Info size={20} />
+                  <Info size={16} />
                 </div>
                 <div>
-                  <Dialog.Title className="text-sm font-black uppercase tracking-widest">Log Detail</Dialog.Title>
-                  <div className="text-[10px] text-dim font-mono font-bold uppercase">{logTimestamp} • {logLevel}</div>
+                  <div className="text-xs font-black uppercase tracking-widest">Log Detail</div>
+                  <div className="text-[9px] text-dim font-mono font-bold uppercase">{logTimestamp} • {logLevel}</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <CopyButton value={logMessage} />
                 <Tooltip content="Close">
                   <Dialog.Close asChild>
-                    <button className="p-2 hover:bg-white/5 rounded-lg transition-colors text-dim hover:text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none" aria-label="Close">
-                      <X size={18} />
+                    <button className="p-1.5 hover:bg-white/5 rounded-lg transition-colors text-dim hover:text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none" aria-label="Close dialog">
+                      <X size={15} />
                     </button>
                   </Dialog.Close>
                 </Tooltip>
               </div>
             </div>
 
-            <div className="bg-background/40 border border-border/50 rounded-2xl p-4 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap max-h-[40vh] overflow-y-auto">
+            <div className="bg-background/40 border border-border/50 rounded-xl p-3.5 font-mono text-[11px] leading-relaxed break-words whitespace-pre-wrap max-h-[40vh] overflow-y-auto">
               {logMessage}
             </div>
 
-            <div className="mt-6 flex justify-end">
+            <div className="mt-4 flex justify-end">
               <button
                 onClick={() => setIsOpen(false)}
-                className="px-6 py-2 bg-surface border border-border rounded-xl text-[10px] font-black uppercase tracking-widest hover:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors"
+                className="px-4 py-1.5 bg-surface border border-border rounded-lg text-[9px] font-black uppercase tracking-widest hover:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors h-8"
               >
                 Dismiss
               </button>
@@ -199,7 +209,7 @@ export const DecisionLog = React.memo(() => {
                   aria-pressed={active}
                   onClick={() => toggleLogFilter(filter.level)}
                   className={cn(
-                    "px-3 py-1 rounded-full border text-[11px] font-bold transition-all whitespace-nowrap",
+                    "px-3 py-1 rounded-full border text-[11px] font-bold transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                     active ? "bg-surface border-border opacity-100" : "bg-transparent border-border/50 opacity-55 hover:opacity-80",
                     filter.level === 'warn' ? "text-amber" :
                     filter.level === 'error' ? "text-red" :

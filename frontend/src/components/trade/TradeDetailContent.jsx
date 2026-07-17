@@ -39,32 +39,39 @@ const RRLadder = memo(({ trade }) => {
   }
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-4 md:p-6 shadow-sm">
-      <div className="flex justify-between items-center mb-4 md:mb-6">
+    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">
+      <div className="flex justify-between items-center mb-3 md:mb-5">
         <div className="flex items-center gap-2">
           <SectionLabel className="mb-0">
              <Zap size={14} className="text-accent" fill="currentColor" /> Guard Ladder
           </SectionLabel>
         </div>
-        <div className="text-[10px] text-accent font-mono bg-accent/10 px-2 py-0.5 rounded border border-accent/20">Live Ratchet</div>
+        <div className="flex items-center gap-2">
+          {trade.strategy_config?.trailing_stop_enabled && (
+            <div className="text-[10px] text-purple-400 font-mono bg-purple-400/10 px-2 py-0.5 rounded border border-purple-400/20 flex items-center gap-1">
+              <Activity size={10} /> Trailing
+            </div>
+          )}
+          <div className="text-[10px] text-accent font-mono bg-accent/10 px-2 py-0.5 rounded border border-accent/20">Live Ratchet</div>
+        </div>
       </div>
 
-      <div className="flex gap-4 overflow-x-auto no-scrollbar mb-4 md:mb-8 pb-2">
+      <div className="flex gap-4 overflow-x-auto no-scrollbar mb-3 md:mb-8 pb-2">
         {(triggers || []).map((trigger, i) => {
           const done = maxRR >= trigger
           const current = i === activeIdx
           return (
-            <div key={`${trigger}-${i}`} className="min-w-[80px] flex-1">
+            <div key={`${trigger}-${i}`} className="min-w-[60px] md:min-w-[80px] flex-1">
               <div className={cn(
-                "text-xs font-bold mb-3 text-center",
+                "text-[10px] md:text-xs font-bold mb-1.5 md:mb-3 text-center",
                 current ? "text-accent" : done ? "text-green" : "text-dim"
               )}>{trigger}R</div>
               <div className={cn(
-                "h-2 rounded-full transition-all duration-500",
+                "h-1.5 md:h-2 rounded-full transition-all duration-500",
                 done ? (current ? "bg-accent shadow-[0_0_10px_rgba(91,111,255,0.4)]" : "bg-green") : "bg-border"
               )} />
               <div className={cn(
-                "text-[10px] font-bold mt-3 uppercase tracking-widest text-center flex flex-col",
+                "text-[9px] md:text-[10px] font-bold mt-1.5 md:mt-3 uppercase tracking-widest text-center flex flex-col",
                 done ? "text-text" : "text-dim"
               )}>
                 <span>SL {exits[i] === 0 ? 'BE' : `${exits[i]}R`}</span>
@@ -77,21 +84,21 @@ const RRLadder = memo(({ trade }) => {
         })}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-6">
-        <div className="p-3 md:p-4 bg-background/40 rounded-xl border border-border">
-          <div className="text-[10px] text-dim font-bold uppercase tracking-widest mb-1">Live RR</div>
-          <div className={cn("text-xl font-mono font-bold", liveRR >= 0 ? "text-green" : "text-red")}>{fmt(liveRR, 2)}</div>
+      <div className="grid grid-cols-3 gap-2 md:gap-6">
+        <div className="p-2 md:p-4 bg-background/40 rounded-xl border border-border">
+          <div className="text-[8px] md:text-[10px] text-dim font-bold uppercase tracking-widest mb-0.5 md:mb-1">Live RR</div>
+          <div className={cn("text-sm md:text-xl font-mono font-bold", liveRR >= 0 ? "text-green" : "text-red")}>{fmt(liveRR, 2)}</div>
         </div>
-        <div className="p-3 md:p-4 bg-background/40 rounded-xl border border-border">
-          <div className="text-[10px] text-dim font-bold uppercase tracking-widest mb-1">Peak RR</div>
-          <div className="text-xl font-mono font-bold text-accent">{fmt(maxRR, 2)}</div>
+        <div className="p-2 md:p-4 bg-background/40 rounded-xl border border-border">
+          <div className="text-[8px] md:text-[10px] text-dim font-bold uppercase tracking-widest mb-0.5 md:mb-1">Peak RR</div>
+          <div className="text-sm md:text-xl font-mono font-bold text-accent">{fmt(maxRR, 2)}</div>
         </div>
-        <div className="p-3 md:p-4 bg-background/40 rounded-xl border border-border">
-          <div className="text-[10px] text-dim font-bold uppercase tracking-widest mb-1">Secured SL</div>
-          <div className="text-xl font-mono font-bold text-text flex flex-col">
+        <div className="p-2 md:p-4 bg-background/40 rounded-xl border border-border">
+          <div className="text-[8px] md:text-[10px] text-dim font-bold uppercase tracking-widest mb-0.5 md:mb-1">Secured SL</div>
+          <div className="text-sm md:text-xl font-mono font-bold text-text flex flex-col leading-tight">
             <span>{price(currentSl)}</span>
-            <span className={cn("text-[10px]", pnlClass(getEstPnl(currentSl)))}>
-              Est. {fmtUSD(getEstPnl(currentSl))}
+            <span className={cn("text-[7px] md:text-[10px]", pnlClass(getEstPnl(currentSl)))}>
+              {fmtUSD(getEstPnl(currentSl))}
             </span>
           </div>
         </div>
@@ -113,14 +120,25 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
     return Object.entries(status || {}).map(([key, s]) => {
       const value = Number(s.value) || 0;
       const threshold = Number(s.threshold) || 1;
-      let progress = 0;
-      if (s.fired && s.active) progress = 100;
-      else if (s.threshold_is_price) {
-        const totalDist = isLong ? (threshold - entryPrice) : (entryPrice - threshold);
-        const progressDist = isLong ? (mark - entryPrice) : (entryPrice - mark);
-        if (totalDist > 0) progress = Math.max(0, Math.min(100, (progressDist / totalDist) * 100));
-      } else {
-        progress = Math.max(0, Math.min(100, (Math.abs(value) / Math.abs(threshold)) * 100));
+      let progress = s.distPct !== undefined ? s.distPct : 0;
+
+      if (progress === 0) {
+        if (s.fired && s.active) {
+          progress = 100;
+        } else if (s.threshold_is_price && threshold !== entryPrice) {
+          // Robust Proximity: (Mark - Entry) / (Target - Entry)
+          const totalDist = threshold - entryPrice;
+          const currentDist = mark - entryPrice;
+          progress = Math.max(0, Math.min(100, (currentDist / totalDist) * 100));
+        } else {
+          // Direction-aware proximity check for indicators
+          const hasOppositeSign = (value > 0 && threshold < 0) || (value < 0 && threshold > 0);
+          if (hasOppositeSign) {
+            progress = 0;
+          } else {
+            progress = Math.max(0, Math.min(100, (Math.abs(value) / Math.abs(threshold)) * 100));
+          }
+        }
       }
       return [key, { ...s, progress }];
     }).sort((a, b) => b[1].progress - a[1].progress);
@@ -132,33 +150,34 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
   const criteriaMet = logic === 'all' ? allFired : satisfiedCount > 0;
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-4 md:p-6 shadow-sm flex flex-col">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex flex-col gap-1">
-          <SectionLabel className={cn("mb-0 flex items-center gap-2", criteriaMet ? "text-red" : satisfiedCount > 0 ? "text-amber" : "text-dim")}>
-            {criteriaMet ? <Zap size={14} className="fill-red" /> : satisfiedCount > 0 ? <Activity size={14} /> : <ShieldCheck size={14} />}
-            {criteriaMet ? 'Ready to Exit' : satisfiedCount > 0 ? 'Risk Building' : 'Watching'}
+    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col">
+      <div className="flex items-center justify-between mb-2 md:mb-5">
+        <div className="flex flex-col gap-0.5">
+          <SectionLabel className={cn("mb-0 flex items-center gap-1.5", criteriaMet ? "text-red" : satisfiedCount > 0 ? "text-amber" : "text-dim")}>
+            {criteriaMet ? <Zap size={11} className="fill-red" /> : satisfiedCount > 0 ? <Activity size={11} /> : <ShieldCheck size={11} />}
+            <span className="md:inline hidden">{criteriaMet ? 'Ready to Exit' : satisfiedCount > 0 ? 'Risk Building' : 'Watching'}</span>
+            <span className="md:hidden inline">{criteriaMet ? 'EXIT' : satisfiedCount > 0 ? 'RISK' : 'WAIT'}</span>
           </SectionLabel>
-          <div className="text-[8px] text-dim font-bold uppercase tracking-widest opacity-60">
-            {logic === 'all' ? 'All conditions must align' : 'Any single signal triggers exit'}
+          <div className="text-[7px] md:text-[8px] text-dim font-bold uppercase tracking-widest opacity-60">
+            {logic === 'all' ? 'Match All' : 'Match Any'}
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3">
            <div className="flex -space-x-1">
               {entries.map(([key, s]) => (
                  <div key={key} className={cn(
-                   "w-3 h-3 rounded-full border border-surface transition-all duration-500",
+                   "w-2 h-2 md:w-3 md:h-3 rounded-full border border-surface transition-all duration-500",
                    s.fired && s.active ? "bg-green shadow-lg shadow-green/20" : "bg-dim/20"
                  )} />
               ))}
            </div>
-           <span className={cn("text-[10px] font-black uppercase tracking-tighter", satisfiedCount > 0 ? (allFired ? "text-red" : "text-amber") : "text-dim")}>
+           <span className={cn("text-[9px] md:text-[10px] font-black uppercase tracking-tighter", satisfiedCount > 0 ? (allFired ? "text-red" : "text-amber") : "text-dim")}>
               {satisfiedCount}/{totalCount}
            </span>
         </div>
       </div>
 
-      <div className="space-y-4 flex-1">
+      <div className="space-y-1.5 md:space-y-4 flex-1">
         {entries.map(([key, s]) => {
           const isFired = s.fired && s.active
           const threshold = Number(s.threshold) || 0
@@ -170,40 +189,30 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
           const estRr = (estPnl !== null && riskUsdt > 0) ? (estPnl / riskUsdt) : null;
 
           return (
-            <div key={key} className="space-y-3">
-              <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest">
-                <div className="flex items-center gap-2">
+            <div key={key} className="space-y-1 md:space-y-3">
+              <div className="flex justify-between items-center text-[9px] md:text-[10px] font-black uppercase tracking-widest">
+                <div className="flex items-center gap-1.5 md:gap-2">
                   <span className={isFired ? "text-red" : s.fired ? "text-amber" : "text-dim"}>{s.label || key}</span>
                   {s.remaining_delay > 0 && !isFired && (
-                    <span className="text-amber bg-amber/10 px-1 rounded flex items-center gap-1">
+                    <span className="text-amber bg-amber/10 px-1 rounded flex items-center gap-1 scale-90 md:scale-100">
                       <Clock size={8} /> {Math.ceil(s.remaining_delay)}s
                     </span>
                   )}
+                  <span className={cn(
+                    "md:hidden inline text-[8px] font-mono",
+                    isFired ? "text-red" : s.fired ? "text-amber" : "text-accent"
+                  )}>{Number(s.progress || 0).toFixed(0)}%</span>
                 </div>
-                <div className="flex items-center gap-2 font-mono">
+                <div className="md:flex hidden items-center gap-2 font-mono">
                   <span className="text-dim/60">Mark: {price(mark)}</span>
                   <ArrowRight size={10} className="text-dim/40" />
                   <span className={isFired ? "text-red" : "text-text"}>{price(threshold)}</span>
                 </div>
               </div>
 
-              {/* Enhanced Convergence Bar (SignalGauge Style) */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between items-end px-1">
-                   <div className="flex items-center gap-2">
-                      <div className={cn(
-                        "w-1.5 h-1.5 rounded-full",
-                        isFired ? "bg-red animate-pulse" : s.fired ? "bg-amber" : "bg-accent"
-                      )} />
-                      <span className="text-[9px] font-black text-dim uppercase tracking-widest">Convergence</span>
-                   </div>
-                   <span className={cn(
-                      "text-[10px] font-mono font-black",
-                      isFired ? "text-red" : s.fired ? "text-amber" : "text-accent"
-                    )}>{s.progress.toFixed(1)}%</span>
-                </div>
-
-                <div className="h-2 bg-background/80 rounded-full overflow-hidden relative border border-white/5 shadow-inner">
+              {/* Enhanced Proximity Bar (SignalGauge Style) */}
+              <div className="space-y-0.5 md:space-y-1.5">
+                <div className="h-1.5 md:h-2 bg-background/80 rounded-full overflow-hidden relative border border-white/5 shadow-inner">
                   <motion.div
                     initial={{ width: 0 }}
                     animate={{ width: `${s.progress}%` }}
@@ -215,26 +224,31 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
                   />
                 </div>
 
-                {estPnl !== null && (
-                  <div className="flex justify-between items-center px-1">
-                    <span className="text-[8px] text-dim/60 font-bold uppercase tracking-tighter">Est. Outcome</span>
-                    <div className={cn(
-                      "text-[9px] font-mono font-black",
-                      estPnl >= 0 ? "text-green" : "text-red"
-                    )}>
-                      {estPnl >= 0 ? '+' : ''}{fmtUSD(estPnl)} ({estRr?.toFixed(1)}R)
-                    </div>
-                  </div>
-                )}
+                <div className="flex justify-between items-center px-0.5 md:px-1">
+                   <div className="flex items-center gap-1.5 font-mono">
+                      <span className="text-[7.5px] md:text-[9px] text-dim uppercase font-bold md:inline hidden">{Number(s.progress || 0).toFixed(1)}% Proxy</span>
+                      <span className="text-[7.5px] md:text-[9px] text-dim/60">{price(mark)}</span>
+                      <ArrowRight size={8} className="text-dim/20" />
+                      <span className={cn("text-[7.5px] md:text-[9px]", isFired ? "text-red" : "text-text/80")}>{price(threshold)}</span>
+                   </div>
+                   {estPnl !== null && (
+                      <div className={cn(
+                        "text-[8px] md:text-[9px] font-mono font-black",
+                        estPnl >= 0 ? "text-green" : "text-red"
+                      )}>
+                        {estPnl >= 0 ? '+' : ''}{fmtUSD(estPnl)} ({Number(estRr || 0).toFixed(1)}R)
+                      </div>
+                   )}
+                </div>
               </div>
             </div>
           )
         })}
       </div>
 
-      <div className="mt-4 md:mt-6 flex items-center gap-3 p-3 md:p-4 bg-white/[0.03] border border-white/[0.08] rounded-2xl">
-        <Info size={12} className="text-dim" />
-        <p className="text-[8px] text-dim font-bold uppercase tracking-widest leading-relaxed">
+      <div className="mt-2.5 md:mt-6 flex items-center gap-2 md:gap-3 p-2.5 md:p-4 bg-white/[0.03] border border-white/[0.08] rounded-2xl">
+        <Info size={10} className="text-dim shrink-0" />
+        <p className="text-[7px] md:text-[8px] text-dim font-bold uppercase tracking-widest leading-normal">
           {logic === 'all'
             ? 'All technical conditions must be satisfied simultaneously to trigger an automated exit.'
             : 'Any single technical signal reaching its threshold will trigger an immediate trade liquidation.'}
@@ -293,7 +307,18 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       // Proximity should represent how "filled" the condition is.
       // If value is 0 and threshold is 10, distPct should be 0.
       // If value is 10 and threshold is 10, distPct should be 100.
-      const rawDistPct = threshold !== 0 ? (Math.abs(value) / Math.abs(threshold)) * 100 : 0
+      // DIRECTION-AWARE: If value and threshold have opposite signs (opposite momentum direction), proximity is 0.
+      let rawDistPct = 0;
+      if (s.fired) {
+        rawDistPct = 100;
+      } else if (threshold !== 0) {
+        const hasOppositeSign = (value > 0 && threshold < 0) || (value < 0 && threshold > 0);
+        if (hasOppositeSign) {
+          rawDistPct = 0;
+        } else {
+          rawDistPct = (Math.abs(value) / Math.abs(threshold)) * 100;
+        }
+      }
       const distPct = s.insufficientData ? 0 : Math.min(100, Math.max(0, rawDistPct))
 
       acc[key] = {
@@ -316,21 +341,21 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 md:gap-6">
         <div className="relative group flex-1">
           <div className="absolute -inset-1 bg-gradient-to-r from-accent/20 to-purple/20 rounded-xl md:rounded-[2rem] blur opacity-25 group-hover:opacity-40 transition duration-1000" />
-          <div className="relative bg-white/[0.03] border border-white/[0.05] rounded-xl md:rounded-[2rem] p-3 md:p-8 flex flex-col items-center text-center shadow-inner overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-10">
-              <Activity size={32} className="md:w-20 md:h-20" />
+            <div className="relative bg-white/[0.03] border border-white/[0.05] rounded-xl md:rounded-2xl py-2 md:py-4 px-3 md:px-6 flex flex-col items-center text-center shadow-inner overflow-hidden">
+              <div className="absolute top-0 right-0 p-2 md:p-4 opacity-10">
+                <Activity size={24} className="md:w-12 md:h-12" />
             </div>
-            <div className="flex items-center gap-2 mb-1 md:mb-2">
-              <span className="text-[7px] md:text-[10px] font-black text-dim uppercase tracking-[0.2em]">
+              <div className="flex items-center gap-2 mb-0.5 md:mb-1">
+                <span className="text-[7px] md:text-[9px] font-black text-dim uppercase tracking-[0.2em]">
                 {trade.exit_ts ? 'Realized P&L' : 'Live Return'}
               </span>
-              <div className={cn("text-lg md:text-4xl font-black font-mono tracking-tighter", pnlClass(trade.pnl))}>
+                <div className={cn("text-base md:text-2xl lg:text-3xl font-black font-mono tracking-tighter", pnlClass(trade.pnl))}>
                 {fmtUSD(trade.pnl)}
               </div>
             </div>
             <div className="flex items-center gap-2">
               <div className={cn("px-2 py-0.5 md:px-4 md:py-1.5 rounded-full text-[8px] md:text-xs font-black font-mono shadow-sm", trade.pnl >= 0 ? "bg-green/10 text-green" : "bg-red/10 text-red")}>
-                ROI: {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
+                ROI: {Number(pnlPct || 0) >= 0 ? '+' : ''}{Number(pnlPct || 0).toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
               </div>
               {trade.is_reconciliation && (
                 <div className="bg-amber/10 text-amber border border-amber/20 px-2 py-0.5 md:px-4 md:py-1.5 rounded-full text-[8px] md:text-xs font-black uppercase tracking-widest shadow-sm flex items-center gap-1.5">
@@ -343,23 +368,26 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       </div>
 
       {/* Price Runway */}
-      <div className="space-y-2 md:space-y-4">
+      <div className="space-y-1.5 md:space-y-2">
         <div className="flex justify-between items-end">
           <div className="flex flex-col gap-0.5">
-            <span className="text-[9px] font-black text-red uppercase tracking-widest flex items-center gap-1">
-              <ShieldAlert size={8} /> SL
+            <span className={cn(
+              "text-[8px] md:text-[9px] font-black uppercase tracking-widest flex items-center gap-1",
+              trade.strategy_config?.trailing_stop_enabled ? "text-purple-400 animate-pulse font-extrabold" : "text-red"
+            )}>
+              <ShieldAlert size={8} /> {trade.strategy_config?.trailing_stop_enabled ? 'Trailing SL' : 'SL'}
             </span>
-            <span className="font-mono text-[10px] font-bold text-dim">{price(sl)}</span>
+            <span className="font-mono text-[9px] md:text-[10px] font-bold text-dim leading-none">{price(sl)}</span>
           </div>
           <div className="flex flex-col items-end gap-0.5">
-            <span className="text-[9px] font-black text-green uppercase tracking-widest flex items-center gap-1">
+            <span className="text-[8px] md:text-[9px] font-black text-green uppercase tracking-widest flex items-center gap-1">
               TP <Zap size={8} fill="currentColor" />
             </span>
-            <span className="font-mono text-[10px] font-bold text-dim">{tp ? price(tp) : 'TRAILED'}</span>
+            <span className="font-mono text-[9px] md:text-[10px] font-bold text-dim leading-none">{tp ? price(tp) : 'TRAILED'}</span>
           </div>
         </div>
 
-        <div className="h-4 w-full bg-border/20 rounded-full overflow-hidden relative shadow-[inset_0_2px_4px_rgba(0,0,0,0.3)]">
+        <div className="h-2 w-full bg-border/20 rounded-full overflow-hidden relative shadow-[inset_0_1px_2px_rgba(0,0,0,0.3)]">
           <div className="absolute inset-0 bg-gradient-to-r from-red/5 via-transparent to-green/5 opacity-50" />
           <div className="absolute top-0 bottom-0 w-1 bg-white/20 z-10 blur-[1px]" style={{ left: '50%' }} />
           <div
@@ -373,96 +401,34 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
           </div>
         </div>
 
-        <div className="flex justify-center">
-          <div className="bg-surface border border-border/50 px-2 py-0.5 rounded-lg">
-            <span className="text-[9px] font-black text-dim uppercase tracking-widest">Entry: </span>
-            <span className="font-mono text-[10px] font-bold text-text/80">{price(entry)}</span>
+        <div className="flex justify-center scale-90">
+          <div className="bg-surface border border-border/50 px-1.5 py-0.2 rounded-md">
+            <span className="text-[8px] font-black text-dim uppercase tracking-widest">Entry: </span>
+            <span className="font-mono text-[9px] font-bold text-text/80">{price(entry)}</span>
           </div>
         </div>
       </div>
 
       {/* Primary Metrics Grid */}
-       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-         <StatCard label="Mark" value={price(mark)} color={pnlClass(trade.pnl)} syncing={isSyncing} />
-         <StatCard label="Size" value={qtyFormatted} subValue={trade.symbol.replace('USDT', '')} color="text-text" />
-         <StatCard label="Risk" value={riskFormatted} color="text-red" />
-         <StatCard label="Entry" value={price(entry)} color="text-dim" />
+       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-3">
+         <StatCard label="Mark" value={price(mark)} color={pnlClass(trade.pnl)} syncing={isSyncing} compact />
+         <StatCard label="Size" value={qtyFormatted} subValue={trade.symbol.replace('USDT', '')} color="text-text" compact />
+         <StatCard label="Risk" value={riskFormatted} color="text-red" compact />
+         <StatCard label="Entry" value={price(entry)} color="text-dim" compact />
       </div>
 
-      <div className={cn("grid gap-4 md:gap-8", layout === "grid" ? "grid-cols-1 lg:grid-cols-3" : "grid-cols-1")}>
-         <div className={cn(layout === "grid" ? "lg:col-span-2 space-y-4 md:space-y-8" : "space-y-4 md:space-y-8")}>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:gap-5">
+         <div className="lg:col-span-2 space-y-3 md:space-y-4">
             <RRLadder trade={trade} />
-         </div>
-
-         <div className="space-y-4 md:space-y-8">
-            <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} trade={trade} />
-
-            <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
-              <SectionLabel className="mb-6">
-                 <Info size={14} className="text-accent" /> Technical Meta
-              </SectionLabel>
-              <div className="space-y-4">
-                 {[
-                   { label: 'TP Mode', value: trade.tp_mode === 'exp_rr_seq' ? 'Expansion RR' : 'Fixed Ratio' },
-                    { label: 'Commission', value: fmtUSD(-(trade.realized_fee || 0)), color: 'text-red/70' },
-                    { label: 'Funding Fee', value: fmtUSD(-(trade.funding_fee || 0)), color: trade.funding_fee > 0 ? 'text-red/70' : 'text-green/70' },
-                   { label: 'ROI from Entry', value: `${pnlPct.toFixed(2)}%`, color: pnlPct >= 0 ? 'text-green' : 'text-red' },
-                   { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%` },
-                   { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%` },
-                   { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0) },
-                   {
-                     label: 'Daily Δ at Entry',
-                     value: `${(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} ${Math.abs(trade.entry_daily_change_pct || 0).toFixed(2)}%`,
-                     color: pnlClass(trade.entry_daily_change_pct)
-                   },
-                   trade.exit_ts && {
-                     label: 'Exit Signal',
-                     tooltip: trade.exit_signal_reason,
-                     value: (() => {
-                        const type = trade.exit_signal_type?.replace(/_/g, ' ') || (trade.exit_reason || 'Manual');
-                        const reason = trade.exit_signal_reason || '';
-                        if (type === 'STOP LOSS' || type === 'SL HIT' || type === 'TRAILING STOP') {
-                          if (reason.includes('INITIAL_SL')) return 'Initial Stop Loss';
-                          if (reason.includes('RR_sequence_milestone_0')) return 'Breakeven SL';
-                          if (reason.includes('RR_sequence_milestone')) {
-                            const match = reason.match(/milestone_(\d+)/);
-                            return match ? `Ratchet SL (M${match[1]})` : 'Ratchet SL';
-                          }
-                          if (type === 'TRAILING STOP') return 'Trailing Stop';
-                          return 'Stop Loss';
-                        }
-                        if (type === 'EXCHANGE MANUAL') return 'Exchange Manual';
-                        if (type === 'EXCHANGE FILL') return 'Exchange Fill';
-                        if (type === 'EXCHANGE SYNC') return 'Exchange Sync';
-                        return type;
-                     })(),
-                     color: 'text-accent'
-                   }
-                 ].filter(Boolean).map(item => (
-                   <div key={item.label} className="flex justify-between items-center py-3 border-b border-border/40 last:border-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
-                      </div>
-                      {item.tooltip ? (
-                        <Tooltip content={item.tooltip}>
-                          <span className={cn("text-xs font-bold font-mono cursor-help border-b border-dotted border-white/10", item.color)}>{item.value}</span>
-                        </Tooltip>
-                      ) : (
-                        <span className={cn("text-xs font-bold font-mono", item.color)}>{item.value}</span>
-                      )}
-                   </div>
-                 ))}
-              </div>
-            </div>
 
             {(trade.sl_adjustments || []).length > 0 && (
-              <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
-                <SectionLabel className="mb-6">
+              <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">
+                <SectionLabel className="mb-3 md:mb-5">
                   <ShieldCheck size={14} className="text-accent" /> Risk Mitigation Log
                 </SectionLabel>
                 <div className="space-y-2">
                   {(trade.sl_adjustments || []).slice(-3).reverse().map((adj, i) => (
-                    <div key={i} className="flex items-center justify-between text-[10px] bg-white/[0.02] border border-white/[0.05] p-4 rounded-2xl group/adj hover:border-accent/30 transition-colors">
+                    <div key={i} className="flex items-center justify-between text-[10px] bg-white/[0.02] border border-white/[0.05] p-3 md:p-4 rounded-2xl group/adj hover:border-accent/30 transition-colors">
                       <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-2">
                           <span className="font-mono font-bold text-text/90">{price(adj.prev_sl)}</span>
@@ -489,36 +455,103 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               </div>
             )}
          </div>
+
+         <div className="space-y-3 md:space-y-4">
+            <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} trade={trade} />
+
+            <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">
+              <SectionLabel className="mb-3 md:mb-5">
+                 <Info size={14} className="text-accent" /> Technical Meta
+              </SectionLabel>
+              <div className="space-y-1 md:space-y-3.5">
+                 {[
+                   { label: 'TP Mode', value: trade.tp_mode === 'exp_rr_seq' ? 'Expansion RR' : 'Fixed Ratio' },
+                    { label: 'Commission', value: fmtUSD(-(trade.realized_fee || 0)), color: 'text-red/70' },
+                    { label: 'Funding Fee', value: fmtUSD(-(trade.funding_fee || 0)), color: trade.funding_fee > 0 ? 'text-red/70' : 'text-green/70' },
+                   { label: 'ROI from Entry', value: `${pnlPct.toFixed(2)}%`, color: pnlPct >= 0 ? 'text-green' : 'text-red' },
+                   { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%` },
+                   trade.strategy_config?.trailing_stop_enabled && {
+                     label: 'Trailing Stop',
+                     value: `${trade.strategy_config.trailing_stop_distance_pct}%`,
+                     color: 'text-purple-400'
+                   },
+                   { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%` },
+                   { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0) },
+                   {
+                     label: 'Daily Δ at Entry',
+                     value: `${(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} ${Number(Math.abs(trade.entry_daily_change_pct || 0)).toFixed(2)}%`,
+                     color: pnlClass(trade.entry_daily_change_pct)
+                   },
+                   trade.exit_ts && {
+                     label: 'Exit Signal',
+                     tooltip: trade.exit_signal_reason,
+                     value: (() => {
+                        const type = trade.exit_signal_type?.replace(/_/g, ' ') || (trade.exit_reason || 'Manual');
+                        const reason = trade.exit_signal_reason || '';
+                        if (type === 'STOP LOSS' || type === 'SL HIT' || type === 'TRAILING STOP') {
+                          if (reason.includes('INITIAL_SL')) return 'Initial Stop Loss';
+                          if (reason.includes('RR_sequence_milestone_0')) return 'Breakeven SL';
+                          if (reason.includes('RR_sequence_milestone')) {
+                            const match = reason.match(/milestone_(\d+)/);
+                            return match ? `Ratchet SL (M${match[1]})` : 'Ratchet SL';
+                          }
+                          if (type === 'TRAILING STOP') return 'Trailing Stop';
+                          return 'Stop Loss';
+                        }
+                        if (type === 'EXCHANGE MANUAL') return 'Exchange Manual';
+                        if (type === 'EXCHANGE FILL') return 'Exchange Fill';
+                        if (type === 'EXCHANGE SYNC') return 'Exchange Sync';
+                        return type;
+                     })(),
+                     color: 'text-accent'
+                   }
+                 ].filter(Boolean).map(item => (
+                   <div key={item.label} className="flex justify-between items-center py-1 md:py-2.5 border-b border-border/40 last:border-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] md:text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
+                      </div>
+                      {item.tooltip ? (
+                        <Tooltip content={item.tooltip}>
+                          <span className={cn("text-xs font-bold font-mono cursor-help border-b border-dotted border-white/10", item.color)}>{item.value}</span>
+                        </Tooltip>
+                      ) : (
+                        <span className={cn("text-xs font-bold font-mono", item.color)}>{item.value}</span>
+                      )}
+                   </div>
+                 ))}
+              </div>
+            </div>
+         </div>
       </div>
 
-      <div className="mt-4 md:mt-8 pt-6 border-t border-border/40">
-        <SectionLabel className="mb-4 text-red">Danger Zone</SectionLabel>
-        <div className="bg-red/5 border border-red/10 rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-6 transition-all hover:bg-red/10">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-red/10 flex items-center justify-center text-red shrink-0">
-              <ShieldAlert size={24} />
+      <div className="mt-3 md:mt-5 pt-4 border-t border-border/40">
+        <SectionLabel className="mb-2.5 text-red">Danger Zone</SectionLabel>
+        <div className="bg-red/5 border border-red/10 rounded-2xl p-4 md:p-5 flex flex-col md:flex-row items-center justify-between gap-4 transition-all hover:bg-red/10">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red/10 flex items-center justify-center text-red shrink-0">
+              <ShieldAlert size={20} />
             </div>
             <div className="flex flex-col">
-              <h3 className="text-sm font-bold uppercase tracking-tight text-red">Force Liquidation</h3>
-              <p className="text-[10px] text-dim font-medium uppercase mt-1">Immediately close this position at current market price. This ignores all strategy logic.</p>
+              <h3 className="text-xs font-bold uppercase tracking-tight text-red">Force Liquidation</h3>
+              <p className="text-[9px] text-dim font-medium uppercase mt-0.5">Immediately close this position at current market price. This ignores all strategy logic.</p>
             </div>
           </div>
 
-          <div className="flex flex-col gap-2 w-full md:w-auto min-w-[200px]">
+          <div className="flex flex-col gap-1.5 w-full md:w-auto min-w-[180px]">
             {trade.close_blocked && (
-               <div className="bg-red/10 border border-red/20 rounded-xl p-3 flex flex-col gap-1 items-center text-center animate-pulse mb-2">
-                  <span className="text-[10px] font-black text-red uppercase tracking-widest flex items-center gap-1">
-                     <ShieldAlert size={12} /> Liquidation Blocked
+               <div className="bg-red/10 border border-red/20 rounded-xl p-2.5 flex flex-col gap-0.5 items-center text-center animate-pulse mb-1.5">
+                  <span className="text-[9px] font-black text-red uppercase tracking-widest flex items-center gap-1">
+                     <ShieldAlert size={10} /> Liquidation Blocked
                   </span>
-                  <span className="text-[8px] text-red/60 font-bold uppercase leading-tight">
+                  <span className="text-[7.5px] text-red/60 font-bold uppercase leading-tight">
                      Max retries exceeded. Manual intervention on Binance is required.
                   </span>
                </div>
             )}
             {!trade.close_blocked && trade.close_attempts > 0 && (
-               <div className="bg-amber/10 border border-amber/20 rounded-xl p-2 flex items-center justify-center gap-2 mb-2">
-                  <Loader2 className="animate-spin text-amber" size={10} />
-                  <span className="text-[8px] font-black text-amber uppercase tracking-widest">
+               <div className="bg-amber/10 border border-amber/20 rounded-xl p-1.5 flex items-center justify-center gap-1.5 mb-1.5">
+                  <Loader2 className="animate-spin text-amber" size={9} />
+                  <span className="text-[7.5px] font-black text-amber uppercase tracking-widest">
                      Closure Retry {trade.close_attempts}/5
                   </span>
                </div>
@@ -528,9 +561,9 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               onClick={() => setConfirmClose(true)}
               disabled={isClosing}
               loading={isClosing}
-              className="w-full h-12 uppercase tracking-widest font-black"
+              className="w-full h-10 py-1 text-[11px] uppercase tracking-widest font-black"
             >
-              <Trash2 size={16} /> Force Close
+              <Trash2 size={14} /> Force Close
             </Btn>
           </div>
         </div>

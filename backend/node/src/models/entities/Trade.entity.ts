@@ -125,6 +125,9 @@ export class TradeEntity {
   @Column({ default: false })
   close_blocked: boolean;
 
+  @Column({ default: false })
+  illiquid_blocked: boolean;
+
   @UpdateDateColumn()
   updated_at: Date;
 

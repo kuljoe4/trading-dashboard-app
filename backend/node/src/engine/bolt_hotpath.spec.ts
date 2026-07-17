@@ -11,7 +11,7 @@ describe('Bolt Optimizations: Hot-Path Performance', () => {
       {} as any,
       {} as any,
       {} as any,
-      {} as any,
+      { setActiveTrades: jest.fn() } as any,
       { emit: jest.fn() } as any
     );
   });

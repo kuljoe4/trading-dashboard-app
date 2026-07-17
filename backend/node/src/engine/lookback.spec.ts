@@ -47,6 +47,51 @@ describe('Lookback SL Logic', () => {
       expect(result.minLow).not.toBe(7); // Current candle low is 7
       expect(result.minLow).not.toBe(6); // index 0 low is 6, outside period 3
     });
+
+    it('should detect a time gap in consecutive completed candles and return fallback 0', async () => {
+      const symbol = 'BTCUSDT';
+      const interval = '1m'; // 1m expected delta = 60,000ms
+
+      const gapCandles: any[] = [
+        [100000, 10, 12, 6, 11, 0, 0, 100],
+        [160000, 11, 13, 9, 12, 0, 0, 100], // delta = 60000 (Expected, no gap)
+        [260000, 12, 14, 10, 13, 0, 0, 100], // delta = 100000 (Gap! > 1.5 * 60,000 = 90,000ms)
+        [320000, 13, 15, 11, 14, 0, 0, 100], // current/incomplete candle
+      ];
+
+      for (const c of gapCandles) {
+        await klineStore.upsertCandle(symbol, interval, c);
+      }
+
+      const result = klineStore.getLookbackExtremes(symbol, interval, 3);
+
+      // Gap detected, so it should fallback to 0
+      expect(result.minLow).toBe(0);
+      expect(result.maxHigh).toBe(0);
+    });
+
+    it('should detect stale completed candle data and return fallback 0', async () => {
+      const symbol = 'BTCUSDT';
+      const interval = '1m'; // 1m expected delta = 60,000ms
+      const staleTime = Date.now() - (60000 * 3); // 3 minutes ago (stale, max allowed is 2.5 minutes)
+
+      const staleCandles: any[] = [
+        [staleTime - 120000, 10, 12, 6, 11, 0, 0, 100],
+        [staleTime - 60000, 11, 13, 9, 12, 0, 0, 100],
+        [staleTime, 12, 14, 10, 13, 0, 0, 100], // Last completed candle (too old relative to Date.now())
+        [Date.now(), 13, 15, 11, 14, 0, 0, 100], // current/incomplete candle
+      ];
+
+      for (const c of staleCandles) {
+        await klineStore.upsertCandle(symbol, interval, c);
+      }
+
+      const result = klineStore.getLookbackExtremes(symbol, interval, 3);
+
+      // Stale data detected, fallback to 0
+      expect(result.minLow).toBe(0);
+      expect(result.maxHigh).toBe(0);
+    });
   });
 
   describe('RiskEngineService.computeSl', () => {

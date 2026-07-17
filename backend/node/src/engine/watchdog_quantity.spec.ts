@@ -1,4 +1,7 @@
+import { OrderFilterService } from './order-filter.service';
+import { BroadcastService } from './broadcast.service';
 import { Test, TestingModule } from '@nestjs/testing';
+import { SessionStateService } from './session_state.service';
 import { MaintenanceService } from './maintenance.service';
 import { PositionTrackerService } from './positionTracker';
 import { OrderManagerService } from './orderManager';
@@ -15,6 +18,9 @@ describe('Watchdog Quantity Parity', () => {
   beforeEach(async () => {
     module = await Test.createTestingModule({
       providers: [
+        { provide: OrderFilterService, useValue: { applyFilters: jest.fn((sym, val) => val), checkLeverageBracket: jest.fn(() => ({ isAllowed: true, maxNotional: 1000000 })) } },
+        { provide: BroadcastService, useValue: { broadcast: jest.fn(), setWsBroadcaster: jest.fn() } },
+        { provide: SessionStateService, useValue: { isBanned: jest.fn().mockReturnValue(false), setActiveTrades: jest.fn(), realTimePositions: new Map(), config: { trailing_guard_buffer_pct: 0.5 } } },
         MaintenanceService,
         {
           provide: PositionTrackerService,
@@ -32,6 +38,7 @@ describe('Watchdog Quantity Parity', () => {
             fetchOpenOrders: jest.fn(),
             fetchPosition: jest.fn(),
             isRatcheting: jest.fn().mockReturnValue(false),
+            isBanned: jest.fn().mockReturnValue(false),
             placeStopLoss: jest.fn(),
             cancelBinanceOrder: jest.fn().mockResolvedValue(true),
             closeTrade: jest.fn(),

@@ -20,6 +20,7 @@ describe('PositionTrackerService', () => {
       applyFilters: jest.fn().mockImplementation((symbol, price, qty) => ({ price, qty })),
       isRatcheting: jest.fn().mockReturnValue(false),
       closeTrade: jest.fn(),
+      checkExitSignals: jest.fn(),
     };
     mockTickerCache = {};
     mockKlineStore = {};
@@ -33,7 +34,9 @@ describe('PositionTrackerService', () => {
       mockOrderManager,
       mockTickerCache,
       mockKlineStore,
-      {} as any,
+      {
+        setActiveTrades: jest.fn(),
+      } as any,
       mockEventEmitter
     );
   });
@@ -455,6 +458,194 @@ describe('PositionTrackerService', () => {
        expect(trade.qty).toBe(5);
        expect(trade.risk_usdt).toBe(100);
        expect(service.totalRisk()).toBe(100);
+    });
+  });
+
+  describe('checkExitConditions with lock_sl action', () => {
+    it('should lock SL instead of closing when lock_sl action is configured', async () => {
+      const trade = {
+        symbol: 'LOCK_SL_TEST',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 95,
+        current_sl: 95,
+        qty: 1,
+        status: 'OPEN',
+        risk_usdt: 5,
+        updated_at: new Date(),
+        exit_signals_status: {}
+      } as any;
+      service.addTrade(trade);
+
+      const config = {
+        exit_signals: ['ema_close_fast'],
+        exit_signal_actions: {
+          ema_close_fast: 'lock_sl'
+        },
+        exit_signal_logic: 'any',
+        trailing_guard_buffer_pct: 0.1
+      } as any;
+
+      mockOrderManager.checkExitSignals.mockReturnValue({
+        exitTriggered: true,
+        exitSignalType: 'ema_close_fast'
+      });
+
+      // Mock signal status as populated by checkExitSignals
+      trade.exit_signals_status = {
+        ema_close_fast: {
+          fired: true,
+          active: true,
+          value: 99.5, // EMA value
+          threshold_is_price: true
+        }
+      };
+
+      mockOrderManager.applyFilters.mockReturnValue({ price: 99.5 });
+      mockOrderManager.updateStopLoss.mockResolvedValue({ success: true, price: 99.5 });
+
+      const result = service.checkExitConditions('LOCK_SL_TEST', 100, config);
+
+      // Result should be null because it didn't trigger a close event
+      expect(result).toBeNull();
+      expect(trade.status).toBe('OPEN');
+
+      // But updateStopLoss should have been triggered asynchronously
+      await new Promise(resolve => setTimeout(resolve, 50));
+      expect(mockOrderManager.updateStopLoss).toHaveBeenCalledWith(trade, 99.5, 95);
+    });
+
+    it('should close position if close action is configured', async () => {
+      const trade = {
+        symbol: 'CLOSE_TEST',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 95,
+        current_sl: 95,
+        qty: 1,
+        status: 'OPEN',
+        risk_usdt: 5,
+        updated_at: new Date(),
+        exit_signals_status: {}
+      } as any;
+      service.addTrade(trade);
+
+      const config = {
+        exit_signals: ['ema_close_slow'],
+        exit_signal_actions: {
+          ema_close_slow: 'close'
+        },
+        exit_signal_logic: 'any'
+      } as any;
+
+      mockOrderManager.checkExitSignals.mockReturnValue({
+        exitTriggered: true,
+        exitSignalType: 'ema_close_slow'
+      });
+
+      trade.exit_signals_status = {
+        ema_close_slow: {
+          fired: true,
+          active: true,
+          value: 98,
+          threshold_is_price: true
+        }
+      };
+
+      const result = service.checkExitConditions('CLOSE_TEST', 100, config);
+
+      expect(result).not.toBeNull();
+      expect(result?.exitOccurred).toBe(true);
+      expect(result?.exitType).toBe('CLOSED_SIGNAL');
+    });
+  });
+
+  describe('checkTrailingStop', () => {
+    it('should move SL up for LONG trade when price improves', async () => {
+      const trade = {
+        symbol: 'TRAIL_LONG',
+        direction: 'LONG',
+        entry_price: 100,
+        current_sl: 98,
+        qty: 1,
+        status: 'OPEN',
+        risk_usdt: 2,
+        updated_at: new Date()
+      } as any;
+      service.addTrade(trade);
+
+      const config = {
+        trailing_stop_enabled: true,
+        trailing_stop_distance_pct: 1.0, // 1% = .00 distance
+        trailing_guard_buffer_pct: 0.05
+      } as any;
+
+      mockOrderManager.applyFilters.mockReturnValue({ price: 104 }); // Price 105 - 1% = 104
+      mockOrderManager.updateStopLoss.mockResolvedValue({ success: true, price: 104 });
+
+      await service.checkTrailingStop('TRAIL_LONG', 105, config);
+
+      expect(mockOrderManager.updateStopLoss).toHaveBeenCalledWith(trade, 104, 98);
+      expect(trade.current_sl).toBe(104);
+    });
+
+    it('should move SL down for SHORT trade when price improves', async () => {
+      const trade = {
+        symbol: 'TRAIL_SHORT',
+        direction: 'SHORT',
+        entry_price: 100,
+        current_sl: 102,
+        qty: 1,
+        status: 'OPEN',
+        risk_usdt: 2,
+        updated_at: new Date()
+      } as any;
+      service.addTrade(trade);
+
+      const config = {
+        trailing_stop_enabled: true,
+        trailing_stop_distance_pct: 1.0, // 1% = .00 distance
+      } as any;
+
+      mockOrderManager.applyFilters.mockReturnValue({ price: 96 }); // Price 95 + 1% = 96
+      mockOrderManager.updateStopLoss.mockResolvedValue({ success: true, price: 96 });
+
+      await service.checkTrailingStop('TRAIL_SHORT', 95, config);
+
+      expect(mockOrderManager.updateStopLoss).toHaveBeenCalledWith(trade, 96, 102);
+      expect(trade.current_sl).toBe(96);
+    });
+
+    it('sets risk_usdt to 0 and decrements totalRisk when trailing stop ratchets to breakeven or better', async () => {
+      const trade = {
+        symbol: 'TRAIL_BE',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90,
+        current_sl: 90,
+        qty: 10,
+        status: 'OPEN',
+        risk_usdt: 100,
+        updated_at: new Date()
+      } as any;
+      service.addTrade(trade);
+      expect(service.totalRisk()).toBe(100);
+
+      const config = {
+        trailing_stop_enabled: true,
+        trailing_stop_distance_pct: 1.0,
+        trailing_guard_buffer_pct: 0.05
+      } as any;
+
+      // Price moves from 100 to 110. Trailing stop prospective is 110 - 1% = 109 (which is above entry 100)
+      mockOrderManager.applyFilters.mockReturnValue({ price: 109 });
+      mockOrderManager.updateStopLoss.mockResolvedValue({ success: true, price: 109 });
+
+      await service.checkTrailingStop('TRAIL_BE', 110, config);
+
+      expect(trade.current_sl).toBe(109);
+      expect(trade.risk_usdt).toBe(0);
+      expect(service.totalRisk()).toBe(0);
     });
   });
 });

@@ -1,8 +1,11 @@
+import { OrderFilterService } from './order-filter.service';
+import { BroadcastService } from './broadcast.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { MaintenanceService } from './maintenance.service';
 import { PositionTrackerService } from './positionTracker';
 import { OrderManagerService } from './orderManager';
 import { TickerCacheService } from './ticker_cache.service';
+import { SessionStateService } from './session_state.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Trade } from '../models/Trade';
 
@@ -15,6 +18,8 @@ describe('Watchdog Robustness', () => {
   beforeEach(async () => {
     module = await Test.createTestingModule({
       providers: [
+        { provide: OrderFilterService, useValue: { applyFilters: jest.fn((sym, val) => val), checkLeverageBracket: jest.fn(() => ({ isAllowed: true, maxNotional: 1000000 })) } },
+        { provide: BroadcastService, useValue: { broadcast: jest.fn(), setWsBroadcaster: jest.fn() } },
         MaintenanceService,
         {
           provide: PositionTrackerService,
@@ -22,6 +27,7 @@ describe('Watchdog Robustness', () => {
             activeList: jest.fn(),
             isEntering: jest.fn().mockReturnValue(false),
             isClosing: jest.fn().mockReturnValue(false),
+            getInFlightSymbols: jest.fn().mockReturnValue([]),
             recalculateTotalRisk: jest.fn(),
             addTrade: jest.fn(),
             reconcileMilestoneFromSl: jest.fn((trade, slPrice, config) => {
@@ -38,6 +44,7 @@ describe('Watchdog Robustness', () => {
             fetchOpenOrders: jest.fn(),
             fetchPosition: jest.fn(),
             isRatcheting: jest.fn().mockReturnValue(false),
+            isBanned: jest.fn().mockReturnValue(false),
             placeStopLoss: jest.fn(),
             cancelBinanceOrder: jest.fn(),
             closeTrade: jest.fn(),
@@ -50,6 +57,12 @@ describe('Watchdog Robustness', () => {
           provide: TickerCacheService,
           useValue: {
             getPrice: jest.fn(),
+          },
+        },
+        {
+          provide: SessionStateService,
+          useValue: {
+            realTimePositions: new Map(),
           },
         },
         {
@@ -154,5 +167,28 @@ describe('Watchdog Robustness', () => {
     expect(trade.current_sl).toBe(50000);
     expect(trade.rr_sequence_index).toBe(0); // Successfully reconciled index 0
     expect(positionTracker.addTrade).toHaveBeenCalledWith(trade);
+  });
+
+  it('reconcileLiveState should exclude symbols that are currently closing from ghost position adoption', async () => {
+    const config = {
+      paper_mode: false,
+    };
+
+    // Mock that positionTracker says BTCUSDT is closing
+    (positionTracker.activeList as jest.Mock).mockReturnValue([]);
+    (positionTracker.isClosing as jest.Mock).mockImplementation((symbol) => symbol === 'BTCUSDT');
+
+    // Exchange has an active position for BTCUSDT
+    (orderManager.fetchAllPositions as jest.Mock).mockResolvedValue([
+      { symbol: 'BTCUSDT', positionAmt: '1.0', entryPrice: '50000' }
+    ]);
+    (orderManager.fetchAllOpenOrders as jest.Mock).mockResolvedValue([]);
+
+    const eventEmitter = module.get<EventEmitter2>(EventEmitter2);
+
+    await service.reconcileLiveState(true, config as any);
+
+    // Should NOT emit adoption event since BTCUSDT is closing
+    expect(eventEmitter.emit).not.toHaveBeenCalledWith('reconciliation.adopt_positions', expect.any(Object));
   });
 });

@@ -1,3 +1,4 @@
+import { OrderFilterService } from './order-filter.service';
 import { MomentumScannerService } from './momentum_scanner.service'
 import { OrderManagerService } from './orderManager'
 
@@ -59,11 +60,13 @@ describe('MomentumScannerService Environment Filtering', () => {
         { getTicker: jest.fn(), getPrice: jest.fn() } as any, // tickerCache
         { incrementApiRequests: jest.fn() } as any, // monitoringService
         { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn() } as any, // positionTracker
-        { isRateLimited: () => false, isOrderRateLimited: () => false, realTimePositions: new Map(), realTimeOrders: new Map(), binanceRateLimit: { used_1m: 0, limit: 2400 } } as any, // sessionState
+        { isRateLimited: () => false, isOrderRateLimited: () => false, isBanned: () => false, realTimePositions: new Map(), realTimeOrders: new Map(), binanceRateLimit: { used_1m: 0, limit: 2400 } } as any, // sessionState
+        { broadcast: jest.fn() } as any, // broadcastService
         mockAuditLog as any,
         { emit: jest.fn() } as any,
         { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any // settingsRepository
-    );
+    , new OrderFilterService(marketFeed as any, { getTicker: jest.fn(), getPrice: jest.fn() } as any, // sessionState
+        { broadcast: jest.fn() } as any));
     (orderManager as any).marketFeed = marketFeed;
     const mockRest = {
       newOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ orderId: 'mock', avgPrice: '50000', executedQty: '1' }), headers: {} }),

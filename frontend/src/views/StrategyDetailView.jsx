@@ -6,6 +6,7 @@ import {
   StatCard, SectionLabel, StatusBadge, PaperBadge, DemoBadge, LiveBadge,
   ConditionWidget, PnLBars, CopyButton, cn, ViewHeader
 } from '../components/ui/primitives'
+import { ScannerPreview } from './DashboardView'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChevronLeft, Activity, BarChart3, TrendingUp, Zap
@@ -39,7 +40,6 @@ const StrategyDetailView = ({ s, onBack }) => {
         icon={Activity}
         title={s.strategy_label}
         subTitle={`Loop Monitoring · ${s.strategyId?.substring(0, 8)}`}
-        backAction={onBack}
       >
          <div className="flex items-center gap-2">
            <CopyButton value={s.strategyId} className="p-1" />
@@ -62,10 +62,16 @@ const StrategyDetailView = ({ s, onBack }) => {
 
       <div className="mb-10">
         <SectionLabel>Automation Gating</SectionLabel>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-10">
           <ConditionWidget label={`Scanner: % Move (${config.scan_interval})`} value={bestOpp.pct} threshold={config.scan_pct_threshold} satisfied={scanMet} sublabel={`Top Opp: ${bestOpp.symbol} ${bestOpp.dir.toUpperCase()}`} />
           <ConditionWidget label="Signal Authorization" value={firedCount} threshold={signalLogic === 'all' ? signalsCount : 1} unit={`/${signalsCount} signals`} satisfied={entryMet} sublabel={signalResult.reason || "Waiting for structural signal"} />
         </div>
+
+        <ScannerPreview
+          scannerResults={(scannerResults || []).filter(Boolean)}
+          config={config}
+          onOpen={() => window.dispatchEvent(new CustomEvent('toggle-scanner'))}
+        />
       </div>
 
     </motion.div>

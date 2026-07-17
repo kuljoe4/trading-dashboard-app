@@ -21,6 +21,7 @@ const baseUrlEnv = typeof import.meta !== 'undefined' && typeof import.meta.env 
 const baseURL = normalizeUrl(baseUrlEnv) || (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:3000' : '')
 const api = axios.create({
   baseURL,
+  timeout: 15000, // 15 seconds default timeout to prevent indefinite hangs
 })
 
 // Dynamically inject Admin API Key
@@ -104,6 +105,7 @@ const sessionConfigAllowedKeys = [
   'exit_signals',
   'exit_signal_logic',
   'exit_signal_delays',
+  'exit_signal_actions',
   'risk_pct_per_trade',
   'max_open_trades',
   'max_open_trades_per_symbol',
@@ -139,6 +141,21 @@ const sessionConfigAllowedKeys = [
   'hibernation_grace_period_sec',
   'trailing_guard_buffer_pct',
   'scanner_weights',
+  'sl_out_of_bounds_action',
+  'scanner_signal_depth',
+  'engulfing_mode',
+  'engulfing_timing',
+  'engulfing_volume_confirm',
+  'engulfing_lookback',
+  'engulfing_streak',
+  'engulfing_sequential',
+  'risk_hardening_enabled',
+  'max_single_trade_risk_pct',
+  'smart_watchlist_enabled',
+  'smart_watchlist_sensitivity',
+  'trailing_stop_enabled',
+  'trailing_stop_distance_pct',
+  'signal_timeframes',
 ]
 
 const sanitizeSessionConfig = (config) => {

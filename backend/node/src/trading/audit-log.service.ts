@@ -26,9 +26,21 @@ export class AuditLogService {
   }) {
     let sanitizedParams: any;
     try {
-      // SENTINEL: Sanitize details to prevent accidental credential leakage in audit logs
+      // SENTINEL: Truncate and sanitize metadata to prevent storage exhaustion and injection.
+      // Robustly handles array inputs (e.g. from multi-value headers) by joining them.
+      const sanitizeMeta = (val: any, max: number) => {
+        if (!val) return undefined;
+        const str = Array.isArray(val) ? val.join(', ') : String(val);
+        return str.replace(/[^\x20-\x7E]/g, '').substring(0, max);
+      };
+
       sanitizedParams = {
         ...params,
+        actor: sanitizeMeta(params.actor, 255),
+        ip: sanitizeMeta(params.ip, 45),
+        userAgent: sanitizeMeta(params.userAgent, 1024),
+        resourceId: sanitizeMeta(params.resourceId, 100),
+        // SENTINEL: Sanitize details to prevent accidental credential leakage in audit logs
         details: params.details ? sanitize(params.details) : undefined,
       };
 
@@ -45,11 +57,18 @@ export class AuditLogService {
       // Fallback: If DB driver is disconnected (shutdown path), persist audit logs to disk
       try {
         const isDriverError = errMsg.includes('Driver not Connected') || errMsg.includes('Not connected');
+        // SENTINEL: Ensure fallback log is sanitized even if the main try block failed partially.
+        // We prioritize sanitizing 'details' to prevent credential leakage.
+        const fallbackData = sanitizedParams || {
+            ...params,
+            details: params.details ? sanitize(params.details) : undefined
+        };
+
         if (isDriverError) {
           const fallbackDir = path.join(process.cwd(), 'logs');
           const fallbackFile = path.join(fallbackDir, 'audit-fallback.log');
           await fs.mkdir(fallbackDir, { recursive: true });
-          const line = `${new Date().toISOString()} ${JSON.stringify(sanitizedParams || params)}\n`;
+          const line = `${new Date().toISOString()} ${JSON.stringify(fallbackData)}\n`;
           await fs.appendFile(fallbackFile, line, { encoding: 'utf8' });
           this.logger.warn(`Audit log written to fallback file: ${fallbackFile}`);
         }

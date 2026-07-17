@@ -1,3 +1,4 @@
+import { OrderFilterService } from './order-filter.service';
 import { OrderManagerService } from './orderManager';
 import { Trade } from '../models/Trade';
 import { ExecutionStatus } from '../models/ExecutionResult';
@@ -34,9 +35,11 @@ describe('OrderManagerService', () => {
         config: {},
         hasOrderCapacity: () => true
       } as any, // sessionState
+      { broadcast: jest.fn() } as any, // broadcastService
       { log: jest.fn() } as any, // auditLog
       { emit: jest.fn() } as any, { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any
-    );
+    , new OrderFilterService({ getSymbolFilters: (symbol: string) => ({ filters: [] }) } as any, { getTicker: jest.fn(), getPrice: jest.fn() } as any, // sessionState
+      { broadcast: jest.fn() } as any));
     
     mockBinanceClient = {
       restAPI: {
@@ -51,8 +54,10 @@ describe('OrderManagerService', () => {
         accountTradeList: jest.fn().mockResolvedValue({ data: () => Promise.resolve([]), headers: {} }),
         currentAllOpenOrders: jest.fn().mockResolvedValue({ data: () => Promise.resolve([]), headers: {} }),
         cancelAllOpenOrders: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
+        cancelAllAlgoOpenOrders: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
         newAlgoOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ algoId: '77777', algoStatus: 'NEW' }), headers: {} }),
         cancelAlgoOrder: jest.fn().mockResolvedValue({ data: () => Promise.resolve({}), headers: {} }),
+        notionalAndLeverageBrackets: jest.fn().mockResolvedValue({ data: () => Promise.resolve([{ symbol: 'BTCUSDT', brackets: [{ initialLeverage: 20, notionalCap: 1000000 }] }]), headers: {} }),
       },
     };
   });
@@ -176,7 +181,9 @@ describe('OrderManagerService', () => {
         qty: 0.1,
         entry_price: 50000,
         current_sl: 49000,
-        binance_order_id: '11111'
+        binance_order_id: '11111',
+        binance_stop_order_id: '22222', // Must have an existing SL to trigger re-arm logic if it fails
+        status: 'OPEN'
       } as Trade;
 
       (service as any).marketFeed.getSymbolFilters = jest.fn().mockReturnValue({ filters: [] });
@@ -188,7 +195,7 @@ describe('OrderManagerService', () => {
         await service.closeTrade('BTCUSDT', trade, 45000, 'SIGNAL');
       } catch (e) {}
 
-      // Check re-arm attempt
+      // Check re-arm attempt (it should be called because it was cancelled and then re-placed after failure)
       expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalledWith(expect.objectContaining({ triggerPrice: '49000.00000000' }));
     });
   });

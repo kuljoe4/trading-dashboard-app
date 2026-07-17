@@ -1,3 +1,5 @@
+import { OrderFilterService } from './order-filter.service';
+import { BroadcastService } from './broadcast.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PositionTrackerService } from './positionTracker';
 import { OrderManagerService } from './orderManager';
@@ -19,6 +21,8 @@ describe('SL Integrity (Chronos Audit)', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        { provide: OrderFilterService, useValue: { applyFilters: jest.fn((sym, val) => val), checkLeverageBracket: jest.fn(() => ({ isAllowed: true, maxNotional: 1000000 })) } },
+        { provide: BroadcastService, useValue: { broadcast: jest.fn(), setWsBroadcaster: jest.fn() } },
         PositionTrackerService,
         MaintenanceService,
         {
@@ -27,6 +31,7 @@ describe('SL Integrity (Chronos Audit)', () => {
             updateStopLoss: jest.fn(),
             applyFilters: jest.fn((s, p, q) => ({ price: p, qty: q })),
             isRatcheting: jest.fn().mockReturnValue(false),
+            isBanned: jest.fn().mockReturnValue(false),
             fetchPosition: jest.fn(),
             fetchOpenOrders: jest.fn(),
             cancelBinanceOrder: jest.fn(),
@@ -45,7 +50,7 @@ describe('SL Integrity (Chronos Audit)', () => {
         { provide: RiskEngineService, useValue: {} },
         { provide: SignalEngineService, useValue: {} },
         { provide: KlineStoreService, useValue: {} },
-        { provide: SessionStateService, useValue: { realTimePositions: new Map(), realTimeOrders: new Map() } },
+        { provide: SessionStateService, useValue: { realTimePositions: new Map(), realTimeOrders: new Map(), setActiveTrades: jest.fn(), isBanned: jest.fn().mockReturnValue(false) } },
       ],
     }).compile();
 

@@ -70,6 +70,7 @@ describe('SessionService Validation', () => {
       { fetchExchangeInfo: jest.fn().mockResolvedValue({}) } as any, // marketFeed
       { emit: jest.fn() } as any, // EventEmitter2
       mockAnalyticsService,
+      { calculateRrOptimization: jest.fn() } as any,
       mockBinanceClientFactory,
       mockAuditLogService,
       { get: jest.fn().mockReturnValue('postgres://user:pass@localhost:5432/db') } as any // ConfigService
@@ -217,6 +218,7 @@ describe('SessionService Validation', () => {
         {} as any, // marketFeed
         { emit: jest.fn() } as any, // EventEmitter2
         mockAnalyticsService,
+        { calculateRrOptimization: jest.fn() } as any,
         mockBinanceClientFactory,
         mockAuditLogService,
         { get: jest.fn().mockReturnValue('postgres://user:pass@localhost:5432/db') } as any // ConfigService

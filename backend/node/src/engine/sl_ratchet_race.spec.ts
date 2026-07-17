@@ -1,3 +1,4 @@
+import { OrderFilterService } from './order-filter.service';
 import { OrderManagerService } from './orderManager';
 import { Trade } from '../models/Trade';
 import { ExecutionStatus } from '../models/ExecutionResult';
@@ -28,6 +29,7 @@ describe('SL Ratchet Race Conditions & Protection Gaps', () => {
     };
     mockSessionState = {
       isRateLimited: jest.fn().mockReturnValue(false),
+      isBanned: jest.fn().mockReturnValue(false),
       isOrderRateLimited: jest.fn().mockReturnValue(false),
       hasOrderCapacity: jest.fn().mockReturnValue(true),
       config: { trailing_guard_buffer_pct: 0.1 },
@@ -45,9 +47,10 @@ describe('SL Ratchet Race Conditions & Protection Gaps', () => {
       { incrementApiRequests: jest.fn() } as any,
       { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn(), isRatcheting: jest.fn() } as any,
       mockSessionState,
+      { broadcast: jest.fn() } as any, // broadcastService
       mockAuditLog,
       mockEventEmitter as any, { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any
-    );
+    , new OrderFilterService(mockMarketFeed as any, mockTickerCache as any, { broadcast: jest.fn() } as any));
 
     mockBinanceClient = {
       restAPI: {

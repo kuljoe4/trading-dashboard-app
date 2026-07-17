@@ -8,6 +8,7 @@ import { ENGINE_CONSTANTS } from '../models/constants';
 @Injectable()
 export class SessionStateService {
   private readonly logger = new Logger(SessionStateService.name);
+  private static readonly DEFAULT_STRATEGY_LABEL = 'Momentum Strategy';
 
   public balancePaper = 0;
   public balanceLive = 0;
@@ -102,8 +103,13 @@ export class SessionStateService {
     this.countedStrategyHits.clear();
 
     let totalPnlAcc = 0;
+    const processedTradeIds = new Set<string>();
+
     const processTrade = (trade: Trade) => {
-      const label = trade.strategy_label || config.strategy_label || 'Momentum Strategy';
+      if (processedTradeIds.has(trade.id)) return;
+      processedTradeIds.add(trade.id);
+
+      const label = trade.strategy_label || config.strategy_label || SessionStateService.DEFAULT_STRATEGY_LABEL;
       if (!trade.strategy_label) trade.strategy_label = label;
 
       if (!this.cachedClosedTradesStats[label]) {
@@ -137,10 +143,10 @@ export class SessionStateService {
       // consistency with global stats and prevent PnL leakage upon session resume.
       stats.pnl = roundEight(stats.pnl + pnl);
 
-      if (trade.status !== 'OPEN') {
-        if (!trade.is_reconciliation) {
-          stats.count++;
-          if (pnl > 0) stats.hits++;
+      if (!trade.is_reconciliation) {
+        stats.count++;
+        if (trade.status !== 'OPEN' && pnl > 0) {
+          stats.hits++;
         }
       }
     };
@@ -246,8 +252,8 @@ export class SessionStateService {
         : (headers ? (headers[name.toLowerCase()] || headers[name]) : null);
     };
 
-    const used10s = getHeader('X-MBX-ORDER-COUNT-10S');
-    const used1m = getHeader('X-MBX-ORDER-COUNT-1M');
+    const used10s = getHeader('X-FAPI-ORDER-COUNT-10S') || getHeader('X-MBX-ORDER-COUNT-10S');
+    const used1m = getHeader('X-FAPI-ORDER-COUNT-1M') || getHeader('X-MBX-ORDER-COUNT-1M');
 
     if (used10s) {
       const parts = used10s.split(',');
@@ -340,11 +346,34 @@ export class SessionStateService {
     };
   }
 
+  private getStrategyLabelForTrade(tradeId: string): string | null {
+    const active = this.activeTrades.find(t => t.id === tradeId);
+    if (active) return active.strategy_label || this.config?.strategy_label || SessionStateService.DEFAULT_STRATEGY_LABEL;
+
+    const closed = this.closedTrades.find(t => t.id === tradeId);
+    if (closed) return closed.strategy_label || this.config?.strategy_label || SessionStateService.DEFAULT_STRATEGY_LABEL;
+
+    return this.config?.strategy_label || SessionStateService.DEFAULT_STRATEGY_LABEL;
+  }
+
   updateStatsOnEntry(tradeId?: string) {
     if (tradeId) {
       if (!this.countedGlobalEntries.has(tradeId)) {
         this.stats.entryCount++;
         this.countedGlobalEntries.add(tradeId);
+
+        // Update Strategy Stats
+        const label = this.getStrategyLabelForTrade(tradeId);
+        if (label) {
+          if (!this.cachedClosedTradesStats[label]) {
+            this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
+          }
+          const stats = this.cachedClosedTradesStats[label];
+          if (!this.countedStrategyEntries.has(tradeId)) {
+            stats.count++;
+            this.countedStrategyEntries.add(tradeId);
+          }
+        }
       }
     } else {
       this.stats.entryCount++;
@@ -364,6 +393,25 @@ export class SessionStateService {
       const delta = roundEight(pnl - applied);
       this.stats.totalPnl = roundEight(this.stats.totalPnl + delta);
       this.appliedGlobalPnL.set(tradeId, pnl);
+
+      // Update Strategy Stats
+      const label = this.getStrategyLabelForTrade(tradeId);
+      if (label) {
+        if (!this.cachedClosedTradesStats[label]) {
+          this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
+        }
+        const stats = this.cachedClosedTradesStats[label];
+        const appliedStr = this.appliedStrategyPnL.get(tradeId) || 0;
+        const deltaStr = roundEight(pnl - appliedStr);
+
+        stats.pnl = roundEight(stats.pnl + deltaStr);
+        this.appliedStrategyPnL.set(tradeId, pnl);
+
+        if (!isReconciliation && isWin && !this.countedStrategyHits.has(tradeId)) {
+          stats.hits++;
+          this.countedStrategyHits.add(tradeId);
+        }
+      }
     } else {
       if (!isReconciliation && isWin) this.stats.hitCount++;
       this.stats.totalPnl = roundEight(this.stats.totalPnl + pnl);
@@ -373,7 +421,7 @@ export class SessionStateService {
   }
 
   addClosedTrade(trade: Trade) {
-    const label = trade.strategy_label || this.config?.strategy_label || 'Momentum Strategy';
+    const label = trade.strategy_label || this.config?.strategy_label || SessionStateService.DEFAULT_STRATEGY_LABEL;
     if (!trade.strategy_label) trade.strategy_label = label;
 
     // Reconciliation trades should contribute to PnL (for accurate balance) but NOT to counts/hits
@@ -408,12 +456,13 @@ export class SessionStateService {
       this.closedTrades.unshift(trade);
       if (this.closedTrades.length > 500) {
         this.closedTrades = this.closedTrades.slice(0, 500);
+        this.pruneIdempotencyCaches();
       }
     }
   }
 
   rollbackClosedTrade(trade: Trade, prevAppliedPnL: number = 0) {
-    const label = trade.strategy_label || 'Momentum Strategy';
+    const label = trade.strategy_label || SessionStateService.DEFAULT_STRATEGY_LABEL;
 
     // Rollback Strategy Stats
     const appliedStr = this.appliedStrategyPnL.get(trade.id) || 0;
@@ -463,6 +512,43 @@ export class SessionStateService {
 
   setActiveTrades(trades: Trade[]) {
     this.activeTrades = trades;
+  }
+
+  /**
+   * CHRONOS: Prunes idempotency maps and sets to prevent unbounded growth during long sessions.
+   * Keeps data for trades currently in history or active list.
+   */
+  pruneIdempotencyCaches() {
+    const validIds = new Set([
+      ...this.activeTrades.map(t => t.id),
+      ...this.closedTrades.map(t => t.id)
+    ]);
+
+    for (const tradeId of this.appliedGlobalPnL.keys()) {
+      if (!validIds.has(tradeId)) this.appliedGlobalPnL.delete(tradeId);
+    }
+    for (const tradeId of this.countedGlobalEntries) {
+      if (!validIds.has(tradeId)) this.countedGlobalEntries.delete(tradeId);
+    }
+    for (const tradeId of this.countedGlobalHits) {
+      if (!validIds.has(tradeId)) this.countedGlobalHits.delete(tradeId);
+    }
+
+    for (const tradeId of this.appliedStrategyPnL.keys()) {
+      if (!validIds.has(tradeId)) this.appliedStrategyPnL.delete(tradeId);
+    }
+    for (const tradeId of this.countedStrategyEntries) {
+      if (!validIds.has(tradeId)) this.countedStrategyEntries.delete(tradeId);
+    }
+    for (const tradeId of this.countedStrategyHits) {
+      if (!validIds.has(tradeId)) this.countedStrategyHits.delete(tradeId);
+    }
+
+    for (const tradeId of this.appliedStatsPnL.keys()) {
+      if (!validIds.has(tradeId)) this.appliedStatsPnL.delete(tradeId);
+    }
+
+    this.logger.debug(`Idempotency caches pruned. Valid trades: ${validIds.size}`);
   }
 
   /**

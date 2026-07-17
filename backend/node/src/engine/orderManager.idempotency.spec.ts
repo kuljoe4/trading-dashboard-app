@@ -1,3 +1,4 @@
+import { OrderFilterService } from './order-filter.service';
 import { OrderManagerService } from './orderManager';
 import { Trade } from '../models/Trade';
 import { ENGINE_EVENTS } from './events';
@@ -27,10 +28,13 @@ describe('OrderManagerService - Idempotency & Partial SL Sync', () => {
       { incrementApiRequests: jest.fn() } as any, // monitoringService
       { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn() } as any, // positionTracker
       sessionState,
+      { broadcast: jest.fn() } as any, // broadcastService
       { log: jest.fn() } as any, // auditLog
       eventEmitter,
       { findOne: jest.fn(), update: jest.fn() } as any // settingsRepository
-    );
+    , new OrderFilterService(// signalEngine
+      { getSymbolFilters: jest.fn() } as any, // marketFeed
+      { getPrice: jest.fn() } as any, { broadcast: jest.fn() } as any));
   });
 
   it('should sync trade.qty on PARTIALLY_FILLED SL order and restore it on final FILLED', async () => {
@@ -91,6 +95,9 @@ describe('OrderManagerService - Idempotency & Partial SL Sync', () => {
       }
     };
 
+    eventEmitter.on('trade.exchange_close', () => {
+      trade.qty = 1.0;
+    });
     await service.handleBinanceOrderUpdate(finalPayload as any);
 
     // After final fill, trade.qty should be restored to 1.0 for PnL calculation in closeTrade

@@ -28,7 +28,7 @@ export const CONFIG_LIMITS = {
   SCAN_PCT_THRESHOLD_MIN: 0.0,
   MAX_OPEN_TRADES_MIN: 1,
   MAX_OPEN_TRADES_DEFAULT: 5,
-  MAX_TRADES_24H_DEFAULT: 0,
+  MAX_TRADES_24H_DEFAULT: 50,
   MIN_TRADE_INTERVAL_DEFAULT: 0,
   TRADES_JITTER_DEFAULT: 0,
   TRADES_JITTER_MARKET_AWARE_DEFAULT: false,
@@ -51,7 +51,7 @@ export const CONFIG_LIMITS = {
 export const ENGINE_CONSTANTS = {
   BINANCE_WS_BASE: process.env.BINANCE_WS_BASE || 'wss://fstream.binance.com',
   BINANCE_WS_PUBLIC: process.env.BINANCE_WS_PUBLIC || 'wss://fstream.binance.com/stream',
-  BINANCE_WS_MARKET: process.env.BINANCE_WS_MARKET || 'wss://fstream.binance.com/stream',
+  BINANCE_WS_MARKET: process.env.BINANCE_WS_MARKET || 'wss://fstream.binance.com/market/stream',
   BINANCE_WS_PRIVATE: process.env.BINANCE_WS_PRIVATE || 'wss://fstream.binance.com/ws',
   BINANCE_REST_BASE: process.env.BINANCE_REST_BASE || 'https://fapi.binance.com',
   KLINE_STREAM_CHUNK_SIZE: 20,

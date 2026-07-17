@@ -1,4 +1,4 @@
-import React, { useState, lazy, Suspense } from 'react'
+import React, { useState, lazy, Suspense, useMemo } from 'react'
 import { useTradingStore } from '../store/trading'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
 import { SectionLabel, StatCard, cn, ViewHeader, Btn } from '../components/ui/primitives'
@@ -13,11 +13,13 @@ import { lazyWithRetry } from '../lib/lazy'
 const TradeDetailModal = lazyWithRetry(() => import('../components/TradeDetailModal').then(m => ({ default: m.TradeDetailModal })))
 
 const TradesView = () => {
-  const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled, peakRr, isThrottled, wsStatus, isSyncingOnResume, sessionActive } = useTradingStore()
+  const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled, isThrottled, wsStatus, isSyncingOnResume, sessionActive } = useTradingStore()
   const [selectedTradeId, setSelectedTradeId] = useState(null)
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
   const showResumingFeedback = sessionActive && isResuming
+
+  const peakRr = useMemo(() => (activeTrades || []).reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
 
   const selectedTrade = (activeTrades || []).find(t => t.id === selectedTradeId || t.symbol === selectedTradeId)
 
@@ -64,7 +66,7 @@ const TradesView = () => {
             />
           );
         })()}
-        <StatCard label="Active Risk" value={`${totalRiskPct.toFixed(2)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
+        <StatCard label="Active Risk" value={`${Number(totalRiskPct || 0).toFixed(2)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
         <StatCard label="Peak RR" value={`+${Number(peakRr || 0).toFixed(2)}`} color="text-accent" />
         <StatCard label="Positions" value={activeTrades.length.toString()} color="text-accent" />
       </div>

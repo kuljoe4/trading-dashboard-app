@@ -5,6 +5,7 @@ import { SessionConfig } from '../models/SessionConfig';
 import { PositionTrackerService } from './positionTracker';
 import { OrderManagerService } from './orderManager';
 import { TickerCacheService } from './ticker_cache.service';
+import { SessionStateService } from './session_state.service';
 import { ENGINE_EVENTS } from './events';
 import { roundEight } from '../lib/math';
 import { EXIT_REASONS } from '../models/constants';
@@ -21,6 +22,7 @@ export class MaintenanceService {
     private readonly positionTracker: PositionTrackerService,
     private readonly orderManager: OrderManagerService,
     private readonly tickerCache: TickerCacheService,
+    private readonly sessionState: SessionStateService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -66,7 +68,9 @@ export class MaintenanceService {
 
       const tradesToAudit = activeTrades.filter(trade => {
         if (!trade.binance_order_id) return false;
-        if (targetSymbol && trade.symbol === targetSymbol) return true;
+        if (targetSymbol) {
+          return trade.symbol === targetSymbol;
+        }
 
         const lastUpdateTs = trade.updated_at ? new Date(trade.updated_at).getTime() : 0;
         const secondsSinceUpdate = (Date.now() - lastUpdateTs) / 1000;
@@ -140,7 +144,25 @@ export class MaintenanceService {
              continue;
           }
 
-          if (trade.close_blocked) continue;
+          if (trade.close_blocked || trade.illiquid_blocked) {
+             const lastAttempt = trade.last_close_attempt_ts || 0;
+             const minutesSinceLastAttempt = (Date.now() - lastAttempt) / 60000;
+
+             // SRE: Rescue stuck trades. If a trade is blocked but hasn't been attempted for 15+ minutes,
+             // trigger a forced nuclear close to attempt recovery.
+             if (minutesSinceLastAttempt >= 15) {
+                this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} has been blocked (illiquid=${!!trade.illiquid_blocked}) for ${minutesSinceLastAttempt.toFixed(1)}m. Triggering forced recovery close.`);
+                this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
+                   symbol: trade.symbol,
+                   exitPrice: 0,
+                   reason: EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE,
+                   needsMarketClose: true,
+                   feesAlreadyAccounted: false,
+                   ignoreBlocked: true
+                });
+             }
+             continue;
+          }
 
           // Merge trade-specific config for accurate reconciliation
           const tradeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
@@ -161,7 +183,7 @@ export class MaintenanceService {
 
           if (!pos || Math.abs(parseFloat(pos.positionAmt)) === 0) {
               this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} is active locally but NO position found on Binance. Triggering Sync Closure.`);
-              this.eventEmitter.emit('trade.exchange_close', { symbol: trade.symbol, exitPrice: 0, reason: EXIT_REASONS.EXCHANGE_SYNC, feesAlreadyAccounted: false });
+              this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, { symbol: trade.symbol, exitPrice: 0, reason: EXIT_REASONS.EXCHANGE_SYNC, feesAlreadyAccounted: false });
               continue;
           }
 
@@ -249,7 +271,7 @@ export class MaintenanceService {
             const secondsSinceUpdate = (Date.now() - lastUpdate) / 1000;
             if (secondsSinceUpdate > 120) {
               this.logger.error(`[Watchdog] NUCLEAR OPTION: ${trade.symbol} unprotected for ${secondsSinceUpdate.toFixed(0)}s. Market closing position.`);
-              this.eventEmitter.emit('trade.exchange_close', { symbol: trade.symbol, exitPrice: 0, reason: EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE, feesAlreadyAccounted: false });
+              this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, { symbol: trade.symbol, exitPrice: 0, reason: EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE, feesAlreadyAccounted: false });
               continue;
             }
             this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} missing SL. Re-placing...`);
@@ -345,9 +367,45 @@ export class MaintenanceService {
       const localOpenTrades = this.positionTracker.activeList();
       const localSymbols = new Set(localOpenTrades.map((t) => t.symbol));
 
+      // CHRONOS: Include in-flight/entering symbols in the "known" set to prevent
+      // incorrect ghost adoption during the entry window.
+      const inFlightSymbols = this.positionTracker.getInFlightSymbols();
+      inFlightSymbols.forEach(s => localSymbols.add(s));
+
       this.logger.debug(
-        `[Reconciliation] Local symbols: [${Array.from(localSymbols).join(",")}], Exchange symbols: [${Array.from(activeExMap.keys()).join(",")}]`,
+        `[Reconciliation] Local symbols (inc. in-flight): [${Array.from(localSymbols).join(",")}], Exchange symbols: [${Array.from(activeExMap.keys()).join(",")}]`,
       );
+
+      // 0. Audit Real-time Position Cache (Cache -> Exchange)
+      // This fixes the "Ghost Position" lockout by clearing stale entries in the UDS cache
+      // for symbols that have no local trade but show a non-zero amount.
+      let phantomCount = 0;
+      for (const [symbol, cachedPos] of this.sessionState.realTimePositions.entries()) {
+        if (cachedPos.amount !== 0) {
+          const exPos = activeExMap.get(symbol);
+          if (!exPos || Math.abs(parseFloat(exPos.positionAmt)) === 0) {
+            this.logger.warn(`[Reconciliation] Detected ghost position in cache for ${symbol} (Cache: ${cachedPos.amount}, Exchange: 0). Zeroing cache.`);
+            this.sessionState.realTimePositions.set(symbol, { amount: 0, entryPrice: 0 });
+            phantomCount++;
+          }
+        }
+      }
+
+      // Also ensure cache is up-to-date for all exchange positions
+      for (const [symbol, exPos] of activeExMap.entries()) {
+        const amt = parseFloat(exPos.positionAmt);
+        const ep = parseFloat(exPos.entryPrice);
+        const cached = this.sessionState.realTimePositions.get(symbol);
+
+        if (!cached || Math.abs(cached.amount - amt) > 0.00000001 || Math.abs(cached.entryPrice - ep) > 0.00000001) {
+          this.logger.debug(`[Reconciliation] Updating real-time cache for ${symbol} from exchange truth: ${amt} @ ${ep}`);
+          this.sessionState.realTimePositions.set(symbol, { amount: amt, entryPrice: ep });
+        }
+      }
+
+      if (phantomCount > 0) {
+        this.logger.log(`[Reconciliation] [Audit] ${phantomCount} phantom positions corrected in real-time cache.`);
+      }
 
       // 1. Audit Local Trades (Local -> Exchange)
       for (const trade of localOpenTrades) {
@@ -378,7 +436,7 @@ export class MaintenanceService {
 
       // 2. Audit Exchange Positions (Exchange -> Local)
       const ghostPositions = activeExPositions.filter(
-        (p) => !localSymbols.has(p.symbol),
+        (p) => !localSymbols.has(p.symbol) && !this.positionTracker.isClosing(p.symbol),
       );
 
       if (ghostPositions.length > 0) {

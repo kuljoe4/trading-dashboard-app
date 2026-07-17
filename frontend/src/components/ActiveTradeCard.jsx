@@ -1,17 +1,32 @@
 import React, { useState, useEffect } from 'react'
-import { cn, Tooltip, CopyButton } from './ui/primitives'
+import { cn, Tooltip, CopyButton, MonitoredBadge } from './ui/primitives'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { sessionAPI } from '../api/client'
-import { ShieldCheck, RefreshCw } from 'lucide-react'
+import { ShieldCheck, RefreshCw, Clock } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { formatDuration } from '../lib/formatters'
 
 export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClick, isResuming, showResumingFeedback }) => {
+  const [now, setNow] = useState(Date.now())
+
+  useEffect(() => {
+    if (!trade.entry_ts) return
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [trade.entry_ts])
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
       onClick()
     }
   }
+
+  const duration = React.useMemo(() => {
+    if (!trade.entry_ts) return '---'
+    const start = new Date(trade.entry_ts).getTime()
+    return formatDuration(now - start)
+  }, [trade.entry_ts, now])
 
   const entry = Number(trade.entry_price || 0)
   const mark = Number(trade.mark_price || trade.last_price || 0)
@@ -27,7 +42,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
 
   let ariaText = `Trade status for ${trade.symbol}`
   if (entry && mark && sl) {
-    const pnlLabel = trade.pnl >= 0 ? 'profit' : 'loss'
+    const pnlLabel = Number(trade.pnl || 0) >= 0 ? 'profit' : 'loss'
     const rrValue = Number(trade.rr || 0).toFixed(2)
 
     if (tp) {
@@ -60,7 +75,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         "bg-surface border border-border/40 rounded-2xl p-4 md:p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.98] group relative overflow-hidden",
         isResuming && "opacity-80 border-accent/20 bg-accent/[0.01]"
       )}
-      aria-label={`View details for ${trade.symbol} ${trade.direction} trade, ${fmtUSD(trade.pnl)} P&L, ${Number(trade.rr || 0).toFixed(2)} RR`}
+      aria-label={`View details for ${trade.symbol} ${trade.direction} trade, P&L is ${fmtUSD(trade.pnl)}, live risk-to-reward is ${Number(trade.rr || 0).toFixed(2)}R, peak risk-to-reward is ${Number(trade.max_rr || trade.rr || 0).toFixed(2)}R`}
     >
       {showResumingFeedback && (
         <div className="absolute inset-0 bg-accent/5 backdrop-blur-[1px] z-10 flex items-center justify-center pointer-events-none">
@@ -73,7 +88,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         <div className="flex flex-col gap-1 min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm md:text-base font-black font-mono tracking-tight shrink-0">{trade.symbol || '---'}</span>
-            <CopyButton value={trade.symbol} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity scale-75 -ml-1" />
+            <CopyButton value={trade.symbol} className="opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 focus-visible:opacity-100 transition-opacity scale-75 -ml-1" />
             <span className={cn("text-[9px] md:text-xs font-black px-1.5 py-0.5 rounded border uppercase shrink-0", isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5')}>
               {isLong ? '▲' : '▼'} {trade.direction || '---'}
             </span>
@@ -83,12 +98,21 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               </span>
             )}
           </div>
-          {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
-            <div className="flex items-center gap-1 whitespace-nowrap overflow-hidden">
-              <ShieldCheck size={10} className="text-accent shrink-0" />
-              <span className="text-[9px] font-black text-accent uppercase tracking-widest opacity-80 truncate">Monitored</span>
-            </div>
-          )}
+          <div className="flex gap-2 items-center flex-wrap">
+            {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
+              <MonitoredBadge className="opacity-80" />
+            )}
+            {trade.strategy_config?.trailing_stop_enabled && (
+              <span className="bg-purple-400/10 border border-purple-400/25 text-purple-400 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1 animate-pulse shadow-[0_0_8px_rgba(168,85,247,0.15)]">
+                Trailing Active
+              </span>
+            )}
+            {trade.entry_ts && (
+              <span className="bg-accent/10 border border-accent/25 text-accent text-[8px] md:text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1">
+                <Clock size={10} className="text-accent" /> {duration}
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-col items-end shrink-0 min-w-[80px]">
@@ -101,9 +125,12 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             </div>
           </Tooltip>
           <div className="flex items-center gap-2">
-            <Tooltip content="Current Reward-to-Risk ratio based on Entry and SL distance">
-              <span className="text-[10px] md:text-[11px] font-black font-mono text-dim/60 uppercase tracking-widest cursor-help">
-                {Number(trade.rr || 0).toFixed(2)}R
+            <Tooltip content={`Current RR: ${Number(trade.rr || 0).toFixed(2)}R | Peak RR: ${Number(trade.max_rr || trade.rr || 0).toFixed(2)}R`}>
+              <span
+                className="text-[10px] md:text-[11px] font-black font-mono text-dim uppercase tracking-widest cursor-help flex items-center gap-1"
+                aria-label={`Live risk-to-reward is ${Number(trade.rr || 0).toFixed(2)}R, Peak risk-to-reward is ${Number(trade.max_rr || trade.rr || 0).toFixed(2)}R`}
+              >
+                {Number(trade.rr || 0).toFixed(2)}R <span className="text-[9px] text-accent/80 font-black tracking-normal" aria-hidden="true">(Peak: {Number(trade.max_rr || trade.rr || 0).toFixed(2)}R)</span>
               </span>
             </Tooltip>
             {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
@@ -145,12 +172,12 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         <div className="flex justify-between text-[9px] font-bold text-dim uppercase tracking-widest font-mono">
           <div className="flex flex-col items-start">
             <span className="text-red/60">SL</span>
-            <span className="text-[8px] opacity-40">{entry ? ((Math.abs(entry - sl) / entry) * 100).toFixed(1) : 0}%</span>
+            <span className="text-[8px] opacity-40">{entry ? Number((Math.abs(entry - sl) / entry) * 100).toFixed(1) : 0}%</span>
           </div>
           <span className="text-text/20">Entry</span>
           <div className="flex flex-col items-end">
             <span className="text-green/60">{tp ? 'TP' : '3R'}</span>
-            <span className="text-[8px] opacity-40">{tp && entry ? ((Math.abs(tp - entry) / entry) * 100).toFixed(1) : '---'}</span>
+            <span className="text-[8px] opacity-40">{tp && entry ? Number((Math.abs(tp - entry) / entry) * 100).toFixed(1) : '---'}</span>
           </div>
         </div>
       </div>

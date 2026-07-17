@@ -154,6 +154,35 @@ describe('RiskEngineService - Frequency Limits', () => {
     });
   });
 
+  describe('Prospective Post-Scaling Risk Validation', () => {
+    it('should block entry if prospective scaled risk exceeds max_total_risk_pct', () => {
+      const activeTrades: any[] = [];
+      const closedTrades: any[] = [];
+      const balance = 1000;
+      const config = {
+        risk_pct_per_trade: 1.0, // nominal risk is 1.0%
+        max_total_risk_pct: 2.0 // limit is 2.0%
+      } as any;
+      const totalSlUsed = 1.5 * 10; // currently using 1.5% risk (15 USDT on 1000 USDT balance)
+
+      // Nominal check would succeed: 1.5% + 1.0% = 2.5% > 2.0% (wait, 1.5 + 1.0 is already 2.5% which exceeds 2.0%)
+      // Let's adjust totalSlUsed to 0.5% (5 USDT). Total = 0.5% + 1.0% = 1.5% < 2.0% (Nominal succeeds)
+      const currentSlUsed = 5; // 0.5% of 1000
+
+      // Case A: Nominal check: 0.5% + 1.0% = 1.5% < 2.0% (Should succeed)
+      const resultNominal = service.canEnter(activeTrades, closedTrades, balance, 'BTCUSDT', config, currentSlUsed);
+      expect(resultNominal.canEnter).toBe(true);
+
+      // Case B: Post-scaling check where scaled risk is 1.8% (due to min-notional scaling):
+      // Total risk would be 0.5% + 1.8% = 2.3% > 2.0% max limit. (Should be blocked!)
+      const prospectiveScaledRiskPct = 1.8;
+      const resultScaled = service.canEnter(activeTrades, closedTrades, balance, 'BTCUSDT', config, currentSlUsed, 0, undefined, prospectiveScaledRiskPct);
+      expect(resultScaled.canEnter).toBe(false);
+      expect(resultScaled.reason).toContain('Risk ceiling reached');
+      expect(resultScaled.reason).toContain('1.80% prospective');
+    });
+  });
+
   describe('Performance Benchmark', () => {
     it('should be significantly faster on subsequent calls due to caching', () => {
       const now = Date.now();

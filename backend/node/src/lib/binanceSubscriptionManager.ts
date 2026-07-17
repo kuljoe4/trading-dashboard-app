@@ -47,10 +47,7 @@ export class BinanceSubscriptionManager {
       const ws = new WebSocket(this.wsUrl, {
         handshakeTimeout: 15000,
         perMessageDeflate: false,
-        headers: this.options.isTestnet ? {} : {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-          'Origin': 'https://www.binance.com'
-        }
+        headers: {}
       });
 
       ws.on('open', () => {

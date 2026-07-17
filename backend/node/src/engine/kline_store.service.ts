@@ -147,6 +147,29 @@ export class KlineStoreService {
     }
   }
 
+  /**
+   * Helper to verify if the last completed candle is too old relative to the expected interval.
+   * Returns true if stale, false otherwise.
+   */
+  private isLookbackStale(
+    targetCandle: Candle,
+    expectedIntervalMs: number,
+    symbol: string,
+    interval: string
+  ): boolean {
+    if (targetCandle.time > 1000000000000) {
+      const ageMs = Date.now() - targetCandle.time;
+      const maxAgeMs = expectedIntervalMs * 2.5;
+      if (ageMs > maxAgeMs) {
+        this.logger.warn(
+          `[Lookback Validation] STALE_DATA: Completed candle for ${symbol} (${interval}) is too old. Age: ${Math.round(ageMs / 1000)}s (Last Candle Time: ${targetCandle.time}), Max Allowed: ${Math.round(maxAgeMs / 1000)}s. Triggering fallback to Pct SL.`,
+        );
+        return true;
+      }
+    }
+    return false;
+  }
+
   getLookbackExtremes(
     symbol: string,
     interval: string,
@@ -187,17 +210,21 @@ export class KlineStoreService {
     // SRE Debug: Observability checks for lookback freshness and time gaps
     const expectedIntervalMs = this.parseIntervalToMs(interval);
 
-    // 1. Freshness Check: Verify if the last completed candle is too old.
-    // Skip if timestamp is ancient/mocked (e.g. unit tests with low numbers).
-    if (targetCandle.time > 1000000000000) {
-      const ageMs = Date.now() - targetCandle.time;
-      const maxAgeMs = expectedIntervalMs * 2.5;
-      if (ageMs > maxAgeMs) {
-        this.logger.warn(
-          `[Lookback Validation] STALE_DATA: Completed candle for ${symbol} (${interval}) is too old. Age: ${Math.round(ageMs / 1000)}s (Last Candle Time: ${targetCandle.time}), Max Allowed: ${Math.round(maxAgeMs / 1000)}s. Triggering fallback to Pct SL.`,
-        );
+    // BOLT OPTIMIZATION: Try stable cache FIRST before any O(N) loops.
+    // Since completed candles are immutable, the gap detection and extremes result remains static.
+    // We only need to check freshness dynamically (which is O(1) time comparison).
+    const stableKey = `${symbol}:${interval}:${period}`;
+    const stable = this.hlStableCache.get(stableKey);
+
+    if (stable && stable.time === targetCandle.time && stable.count === period) {
+      if (this.isLookbackStale(targetCandle, expectedIntervalMs, symbol, interval)) {
         return { minLow: 0, maxHigh: 0 };
       }
+      return { minLow: stable.minLow, maxHigh: stable.maxHigh };
+    }
+
+    if (this.isLookbackStale(targetCandle, expectedIntervalMs, symbol, interval)) {
+      return { minLow: 0, maxHigh: 0 };
     }
 
     // 2. Gap Detection: Scan consecutive completed candles within the lookback window for any time gaps.

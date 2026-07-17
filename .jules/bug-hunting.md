@@ -177,3 +177,21 @@ Findings:
 - System is stable and synchronized.
 Confidence: High
 Next Task: Stop investigation (Root cause of test failures identified as stale tests; missing fields restored).
+
+Cycle: #15
+Task: Diagnose live market-data blackout (0 frames) on staging/Railway while testnet streams normally.
+Objective: Determine why live `fstream.binance.com` delivers no data though testnet works with identical client code, and restore live streaming without increasing Binance API footprint / IP-ban risk.
+Evidence:
+- Staging (current `deploy`) connected to `wss://fstream.binance.com/stream`, got SUBSCRIBE ACK `{"result":null,"id":1}` but 0 data frames, session after session.
+- Production (PR #746) connected to `wss://fstream.binance.com/market/stream?streams=...` and received frames (discovery `!miniTicker@arr`, combined klines).
+- Local direct test (same network): `/market/stream?streams=btcusdt@kline_1m` -> 23 frames/12s; `/stream` (+SUBSCRIBE method) -> 0; `/public/stream` -> 0; `/market/stream` + SUBSCRIBE method -> 1 (ACK only).
+- Restoring live WS browser headers (reverting commit 3304f59) did NOT change the result -> headers were a red herring.
+- Both the market WS and the User Data Stream were starved on the classic endpoint; order flow fell back to REST `queryOrder` (log: 'UDS cache empty. Fetching authoritative price via queryOrder').
+Findings:
+- Root cause: the classic `/stream` endpoint is starved by Binance from many IP ranges (handshake + SUBSCRIBE ACK succeed, 0 data frames). The `SUBSCRIBE` method is NOT served on `/market/stream`, so it must be replaced by `?streams=` URL-param subscription.
+- Fix applied: `BINANCE_WS_MARKET` -> `wss://fstream.binance.com/market/stream`; `MarketFeedService` builds the connection URL with `?streams=` for live (testnet unchanged). This restored streaming AND removed the self-amplifying reconnect storm (the storm was caused by the starved endpoint never confirming).
+- Secondary fixes: (a) `handleAccountUpdate` `return`->`continue` (batched ACCOUNT_UPDATE could drop other symbols' syncs/closures); (b) capped exponential reconnect backoff 5s->60s; (c) emit `ENGINE_EVENTS.ALERT` for `close_blocked`/`illiquid_blocked`; (d) REST seed kept one-time only (safety net, never periodic).
+Hypotheses:
+1. Staging should now stream live market data like production after redeploy.
+Confidence: High
+Next Task: Stop investigation (root cause resolved; verify on staging deploy).

@@ -218,50 +218,40 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
     onClick(s.strategy_label);
   }, [onClick, s.strategy_label]);
 
-  const handleEditClick = React.useCallback((e) => {
-    e.stopPropagation();
+  const handleEditClick = React.useCallback(() => {
     onEdit(s.strategy_label);
   }, [onEdit, s.strategy_label]);
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handleCardClick();
-    }
-  }
-
   return (
     <motion.div
-      whileHover={{ scale: 1.01 }}
-      onClick={handleCardClick}
-      onKeyDown={handleKeyDown}
-      role="button"
-      tabIndex={0}
+      whileHover={{ scale: 1.005 }}
       className={cn(
-        "bg-background/40 border border-border/30 rounded-2xl p-4 md:p-6 cursor-pointer transition-all relative group shadow-sm h-full focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none min-w-0 hover:bg-background/60",
-        tradingMode === 'paper' ? "hover:border-amber/30 hover:shadow-amber/5" :
-        tradingMode === 'testnet' ? "hover:border-purple/30 hover:shadow-purple/5" :
-        "hover:border-green/30 hover:shadow-green/5",
+        "bg-surface border border-border/50 rounded-2xl p-4 md:p-6 transition-all relative flex flex-col justify-between shadow-sm h-full min-w-0 overflow-hidden",
+        tradingMode === 'paper' ? "hover:border-amber/30 hover:shadow-amber/[0.02]" :
+        tradingMode === 'testnet' ? "hover:border-purple/30 hover:shadow-purple/[0.02]" :
+        "hover:border-green/30 hover:shadow-green/[0.02]",
         className
       )}
     >
       {paused && !isResuming && (
-        <div className="absolute inset-0 bg-background/40 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
+        <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
           <div className="bg-amber/10 border border-amber/20 text-amber px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-2xl">
             <Pause size={12} fill="currentColor" /> Session Paused
           </div>
         </div>
       )}
       {showResumingFeedback && (
-        <div className="absolute inset-0 bg-background/40 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
+        <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
           <div className="bg-accent/10 border border-accent/20 text-accent px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-2xl">
             <RefreshCw size={12} className="animate-spin" /> Resuming Feed...
           </div>
         </div>
       )}
-        <div className="flex justify-between items-start mb-3.5 md:mb-5 min-w-0 gap-3" aria-live="polite">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 mb-1.5 md:mb-2.5 flex-wrap">
+
+      {/* Card Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 pb-4 border-b border-border/20 mb-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 mb-2 flex-wrap">
             <StatusBadge status={s.sessionActive} />
             <div className="flex items-center gap-1 scale-90 origin-left">
               {tradingMode === 'paper' && <PaperBadge />}
@@ -269,64 +259,82 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
               {tradingMode === 'live' && <LiveBadge />}
             </div>
           </div>
-          <div className="text-sm md:text-lg font-black tracking-tight truncate uppercase leading-tight">{s.strategy_label}</div>
-          <div className="text-[9px] md:text-[10px] text-dim mt-1.5 font-black uppercase tracking-widest flex flex-col gap-1 overflow-hidden min-h-[2.5rem] justify-center">
-            <div className="flex items-center gap-2 min-w-0 whitespace-nowrap">
-              <Zap size={10} className={cn("text-accent shrink-0", config.global_scanner_enabled === false && "text-dim")} />
-              <span className={cn("truncate", config.global_scanner_enabled === false && "line-through decoration-red/40 decoration-2")}>
-                {config.scan_interval} · {config.scan_pct_threshold}%
-              </span>
-            </div>
-            {isMonitored && (
-              <MonitoredBadge label="Symbol Monitor Active" />
-            )}
-          </div>
+          <h3 className="text-base md:text-lg font-black tracking-tight truncate uppercase leading-tight text-text">
+            {s.strategy_label}
+          </h3>
         </div>
-        <div className="text-right shrink-0">
-          <div className="flex gap-2 mb-2 relative z-20 h-8 items-center justify-end">
-            <Tooltip content={isExpanded ? "Hide Details" : "Show Details"}>
-              <button
-                onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
-                aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
-                aria-expanded={isExpanded}
-                className={cn(
-                  "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                  isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
-                )}
-              >
-                <Activity size={14} />
-              </button>
-            </Tooltip>
-            <Tooltip content="Edit Strategy">
-              <button
-                onClick={(e) => { e.stopPropagation(); onEdit(); }}
-                className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none"
-                aria-label="Edit strategy configuration"
-              >
-                <Edit3 size={14} />
-              </button>
-            </Tooltip>
-          </div>
+
+        {/* Header Action Row */}
+        <div className="flex items-center gap-2 self-stretch md:self-auto justify-end relative z-20">
+          <Tooltip content={isExpanded ? "Hide Details" : "Show Details"}>
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
+              aria-expanded={isExpanded}
+              className={cn(
+                "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
+              )}
+            >
+              <Activity size={14} />
+            </button>
+          </Tooltip>
+          <Tooltip content="Edit Strategy">
+            <button
+              onClick={handleEditClick}
+              className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none"
+              aria-label="Edit strategy configuration"
+            >
+              <Edit3 size={14} />
+            </button>
+          </Tooltip>
+        </div>
+      </div>
+
+      {/* Card Body - Content Stats Grid */}
+      <div className="grid grid-cols-2 gap-4 py-1 flex-1">
+        <div className="flex flex-col gap-1">
+          <span className="text-[9px] text-dim font-black uppercase tracking-widest">Active P&L</span>
           <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter leading-none" style={{ color: pnlColor(s.activePnl) }}>
             {fmtUSD(s.activePnl)}
           </div>
-          <div className="text-[9px] md:text-[10px] text-dim font-black uppercase tracking-widest mt-1.5 flex flex-col items-end gap-0.5 min-h-[2.5rem] justify-center">
-            <div className="flex items-center gap-1.5 whitespace-nowrap">
-              <span className="opacity-40">Session:</span>
-              <span style={{ color: pnlColor(s.totalPnl) }}>{fmtUSD(s.totalPnl)}</span>
-            </div>
-            <div className="opacity-60">{s.entryCount} ENT · {s.hitCount} HIT</div>
+          <span className="text-[9px] text-dim/60 font-semibold uppercase tracking-wider mt-1 block">Live open trades P&L</span>
+        </div>
+
+        <div className="flex flex-col gap-1 items-end text-right">
+          <span className="text-[9px] text-dim font-black uppercase tracking-widest">Session Return</span>
+          <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter leading-none" style={{ color: pnlColor(s.totalPnl) }}>
+            {fmtUSD(s.totalPnl)}
+          </div>
+          <span className="text-[9px] text-dim/60 font-semibold uppercase tracking-wider mt-1 block">
+            {s.entryCount} ENT · {s.hitCount} HIT
+          </span>
+        </div>
+
+        <div className="col-span-2 grid grid-cols-2 gap-3 pt-3 mt-1 border-t border-border/10">
+          <div className="flex items-center gap-2 min-w-0">
+            <Zap size={10} className={cn("text-accent shrink-0", config.global_scanner_enabled === false && "text-dim")} />
+            <span className={cn("text-[10px] font-bold uppercase tracking-wider text-dim truncate", config.global_scanner_enabled === false && "line-through decoration-red/40 decoration-2")}>
+              {config.scan_interval} · {config.scan_pct_threshold}%
+            </span>
+          </div>
+
+          <div className="flex items-center justify-end gap-1.5 min-w-0 text-right">
+            {isMonitored && (
+              <MonitoredBadge label="Symbol Monitor Active" className="scale-90 origin-right" />
+            )}
           </div>
         </div>
       </div>
 
+      {/* Collapsible Expanded Details */}
       <AnimatePresence>
         {isExpanded && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden"
+            className="overflow-hidden w-full relative z-20"
           >
             <div className="mb-2 mt-4 pt-4 border-t border-border/20">
               <div className="flex justify-between text-[10px] text-dim font-bold tracking-widest mb-2 uppercase">
@@ -345,7 +353,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
                   style={{ width: `${slPct}%` }}
                 />
               </div>
-              <ScannerPreview scannerResults={(scannerResults || []).filter(Boolean)} config={config} onOpen={(e) => { e.stopPropagation(); onOpenScanner(); }} />
+              <ScannerPreview scannerResults={scannerResults} config={config} onOpen={onOpenScanner} />
 
               <div className="mt-6 pt-6 border-t border-border/20">
                  <div className="flex items-center justify-between gap-4">
@@ -355,7 +363,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
                     </div>
                     <Btn
                       variant="ghost"
-                      onClick={(e) => { e.stopPropagation(); onPause(); }}
+                      onClick={onPause}
                       className={cn(
                         "px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all",
                         paused
@@ -371,6 +379,22 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Card Action Footer Button */}
+      <div className="mt-5 pt-4 border-t border-border/20 flex flex-col">
+        <button
+          onClick={handleCardClick}
+          aria-label={`Open Strategy Cockpit for ${s.strategy_label}`}
+          className={cn(
+            "w-full py-3 rounded-xl font-black text-xs uppercase tracking-widest border transition-all active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex items-center justify-center gap-2",
+            tradingMode === 'paper' ? "bg-amber/5 border-amber/20 text-amber hover:bg-amber/10" :
+            tradingMode === 'testnet' ? "bg-purple/5 border-purple/20 text-purple hover:bg-purple/10" :
+            "bg-green/5 border-green/20 text-green hover:bg-green/10"
+          )}
+        >
+          Open Strategy Cockpit <ArrowRight size={14} />
+        </button>
+      </div>
     </motion.div>
   );
 })

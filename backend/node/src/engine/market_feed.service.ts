@@ -347,6 +347,31 @@ export class MarketFeedService {
   getSymbolFilters(symbol: string) { return this.exchangeInfo.get(symbol); }
 
   /**
+   * SRE: Bootstrap initial tickers from the configured Binance REST base when the
+   * market WebSocket startup is delayed. Falls back to REST so the scanner has
+   * candidates even if the WS is starved (see also seedMarketDataFromRest).
+   */
+  private async fetchInitialTickers(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
+    try {
+      this.monitoringService.incrementApiRequests();
+      const response = await fetch(`${restBase}/fapi/v1/ticker/24hr`);
+      this.updateWeight(response.headers);
+      if (!response.ok) {
+        this.logger.warn(`Initial ticker bootstrap failed from ${restBase}: HTTP ${response.status}`);
+        return;
+      }
+
+      const tickers = await response.json();
+      if (Array.isArray(tickers)) {
+        const usdtTickers = tickers.filter((t: any) => t.symbol.endsWith('USDT'));
+        this.tickerCache.bulkUpdate(usdtTickers);
+      }
+    } catch (error) {
+      this.logger.error(`Initial ticker bootstrap failed from ${restBase}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
    * SRE/Resilience: Seed the TickerCache from REST market data when the
    * public market WebSocket is starved or banned in a live deployment.
    *

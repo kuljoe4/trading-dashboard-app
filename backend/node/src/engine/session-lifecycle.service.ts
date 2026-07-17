@@ -477,7 +477,9 @@ export class SessionLifecycleService {
         }
 
         this.sessionState.balanceLive = nb;
-        this.sessionState.balancePaper = nb;
+        if (this.sessionState.config?.paper_mode) {
+          this.sessionState.balancePaper = nb;
+        }
         this.sessionState.lastExchangeBalance = nb;
         this.sessionState.lastUdsBalanceUpdate = Date.now();
 

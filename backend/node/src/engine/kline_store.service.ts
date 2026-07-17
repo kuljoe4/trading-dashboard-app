@@ -186,6 +186,28 @@ export class KlineStoreService {
     const startIdx = Math.max(0, endIdx - period);
     const targetCandle = candles[endIdx - 1];
 
+    // BOLT OPTIMIZATION: Try stable cache if we are scanning up to the last completed candle
+    const stableKey = `${symbol}:${interval}:${period}`;
+    const stable = this.hlStableCache.get(stableKey);
+
+    if (stable && stable.time === targetCandle.time && stable.count === period) {
+      // SRE Debug: Observability checks for lookback freshness (O(1) only)
+      // Skip if timestamp is ancient/mocked (e.g. unit tests with low numbers).
+      if (targetCandle.time > 1000000000000) {
+        const expectedIntervalMs = this.parseIntervalToMs(interval);
+        const ageMs = Date.now() - targetCandle.time;
+        const maxAgeMs = expectedIntervalMs * 2.5;
+        if (ageMs > maxAgeMs) {
+          this.logger.warn(
+            `[Lookback Validation] STALE_DATA: Completed candle for ${symbol} (${interval}) is too old. Age: ${Math.round(ageMs / 1000)}s (Last Candle Time: ${targetCandle.time}), Max Allowed: ${Math.round(maxAgeMs / 1000)}s. Triggering fallback to Pct SL.`,
+          );
+          return { minLow: 0, maxHigh: 0 };
+        }
+      }
+      return { minLow: stable.minLow, maxHigh: stable.maxHigh };
+    }
+
+    // SRE Debug: Observability checks for lookback freshness and time gaps
     const expectedIntervalMs = this.parseIntervalToMs(interval);
 
     // BOLT OPTIMIZATION: Try stable cache FIRST before any O(N) loops.

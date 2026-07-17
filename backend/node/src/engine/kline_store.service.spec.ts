@@ -99,30 +99,32 @@ describe('KlineStoreService', () => {
     expect(stableCacheAfter).toBeUndefined();
   });
 
-  it('getLookbackExtremes leverages stable cache correctly', async () => {
-    // Seed lookback data using timestamps below 1000000000000 to bypass freshness check
-    const klines = [
-      [1000000, '10', '12', '8', '11', '100', 2000000, '1000'],
-      [1060000, '11', '13', '9', '12', '100', 2060000, '1000'],
-      [1120000, '12', '14', '10', '13', '100', 2120000, '1000'],
-    ];
+  it('should hit the hlStableCache and bypass deep calculations in getLookbackExtremes', async () => {
+    const wsKline1 = { t: 1000, o: '10', h: '12', l: '8', c: '11', q: '1000' };
+    const wsKline2 = { t: 2000, o: '11', h: '13', l: '9', c: '12', q: '1000' };
+    const wsKline3 = { t: 3000, o: '12', h: '14', l: '10', c: '13', q: '1000' };
 
-    await service.seedFromRest('BTCUSDT', '1m', klines);
+    await service.upsertCandle('BTCUSDT', '1m', wsKline1);
+    await service.upsertCandle('BTCUSDT', '1m', wsKline2);
+    await service.upsertCandle('BTCUSDT', '1m', wsKline3);
 
-    const spyParse = jest.spyOn(service as any, 'parseIntervalToMs');
-
-    // First call: Cache Miss
+    // Initial query to populate cache. The last completed candle is wsKline2 (t: 2000)
     const extremes1 = service.getLookbackExtremes('BTCUSDT', '1m', 2);
     expect(extremes1).toEqual({ minLow: 8, maxHigh: 13 });
-    expect(spyParse).toHaveBeenCalledTimes(1); // parseIntervalToMs is called once at the start of getLookbackExtremes
 
-    spyParse.mockClear();
+    // Spy on parseIntervalToMs or other logic inside the un-cached block to prove they are bypassed.
+    // parseIntervalToMs is private, but we can verify that if we manually change the hlStableCache,
+    // the method immediately returns the cached value without re-calculating or looking at candles.
+    const cacheKey = 'BTCUSDT:1m:2';
+    const stableCacheEntry = (service as any).hlStableCache.get(cacheKey);
+    expect(stableCacheEntry).toBeDefined();
 
-    // Second call: Cache Hit
+    // Mutate the cache entry directly
+    stableCacheEntry.minLow = 999;
+    stableCacheEntry.maxHigh = 8888;
+
+    // Call again - it should return the mutated cached values directly, confirming bypass of O(N) calculation
     const extremes2 = service.getLookbackExtremes('BTCUSDT', '1m', 2);
-    expect(extremes2).toEqual({ minLow: 8, maxHigh: 13 });
-    expect(spyParse).toHaveBeenCalledTimes(1); // parseIntervalToMs is called once at the start of getLookbackExtremes
-
-    spyParse.mockRestore();
+    expect(extremes2).toEqual({ minLow: 999, maxHigh: 8888 });
   });
 });

@@ -98,4 +98,31 @@ describe('KlineStoreService', () => {
     const stableCacheAfter = (service as any).hlStableCache.get('BTCUSDT:1m:1');
     expect(stableCacheAfter).toBeUndefined();
   });
+
+  it('getLookbackExtremes leverages stable cache correctly', async () => {
+    // Seed lookback data using timestamps below 1000000000000 to bypass freshness check
+    const klines = [
+      [1000000, '10', '12', '8', '11', '100', 2000000, '1000'],
+      [1060000, '11', '13', '9', '12', '100', 2060000, '1000'],
+      [1120000, '12', '14', '10', '13', '100', 2120000, '1000'],
+    ];
+
+    await service.seedFromRest('BTCUSDT', '1m', klines);
+
+    const spyParse = jest.spyOn(service as any, 'parseIntervalToMs');
+
+    // First call: Cache Miss
+    const extremes1 = service.getLookbackExtremes('BTCUSDT', '1m', 2);
+    expect(extremes1).toEqual({ minLow: 8, maxHigh: 13 });
+    expect(spyParse).toHaveBeenCalledTimes(1); // parseIntervalToMs is called once at the start of getLookbackExtremes
+
+    spyParse.mockClear();
+
+    // Second call: Cache Hit
+    const extremes2 = service.getLookbackExtremes('BTCUSDT', '1m', 2);
+    expect(extremes2).toEqual({ minLow: 8, maxHigh: 13 });
+    expect(spyParse).toHaveBeenCalledTimes(1); // parseIntervalToMs is called once at the start of getLookbackExtremes
+
+    spyParse.mockRestore();
+  });
 });

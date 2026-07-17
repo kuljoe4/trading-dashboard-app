@@ -179,3 +179,7 @@
 ## 2026-07-13 - [Optimization] Hot-Path UI Extreme Calculation Standard
 **Learning:** Spread-based 'Math.min(...arr)' and '.map()' chains in high-frequency React components (like PnLBars and Sparkline) create significant GC pressure and unnecessary O(N) passes. Fusing these into a single-pass 'for' loop with direct variable comparison reduces execution time and eliminates transient array allocations.
 **Action:** Always use single-pass 'for' loops for min/max calculations in charting and scaling components that update on every price tick.
+
+## 2026-07-17 - [Optimization] Prioritized Stable Cache for Lookback Validation
+**Learning:** O(N) structural lookbacks with gap and freshness validation run costly loops and comparisons on every single watchdog audit or tick cycle. Since completed candles are static and immutable, any gap validation or extremes result remains 100% static for a given lookback period. Placing the stable cache lookup at the very top of `getLookbackExtremes` before these validation loops converts multiple O(N) loops into a single O(1) Map lookup, while dynamically executing only the O(1) freshness check.
+**Action:** Always place stable caches at the absolute beginning of technical analysis functions, bypassing immutable validation loops and only executing dynamic checks (like freshness) on cache hits.

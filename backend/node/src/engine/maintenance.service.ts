@@ -308,7 +308,12 @@ export class MaintenanceService {
                 );
 
                 if (cancelSuccess) {
-                  await this.orderManager.placeStopLoss(trade, trade.current_sl);
+                  const slDistPct = tradeConfig?.sl_distance_pct || 2.0;
+                  const fallbackSl = trade.direction === 'LONG'
+                    ? trade.entry_price * (1 - slDistPct / 100)
+                    : trade.entry_price * (1 + slDistPct / 100);
+                  const reArmPrice = trade.current_sl > 0 ? trade.current_sl : fallbackSl;
+                  await this.orderManager.placeStopLoss(trade, reArmPrice);
                   trade.updated_at = new Date();
                   this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
                 }

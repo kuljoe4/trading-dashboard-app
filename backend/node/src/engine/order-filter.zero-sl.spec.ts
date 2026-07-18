@@ -55,4 +55,15 @@ describe('OrderFilterService - non-positive SL/TP rejection', () => {
     // Outside PERCENT_PRICE band and 100% from mark -> rejected (qty 0) but that is expected.
     expect(result.qty).toBe(0);
   });
+
+  it('clamps a positive SL/TP price to tickSize instead of rounding to 0', () => {
+    // price 0.00001 is positive, but less than tickSize 0.0001. Floor rounding would round it to 0.
+    // It must now be clamped to tickSize (0.0001).
+    const result = service.applyFilters('SYNUSDT', 0.00001, 1, {
+      priceRounding: 'floor',
+      skipNotionalCheck: true,
+    });
+    expect(result.price).toBe(0.0001);
+    expect(result.qty).toBe(1);
+  });
 });

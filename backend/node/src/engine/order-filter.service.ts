@@ -44,6 +44,12 @@ export class OrderFilterService {
       if (rounding === 'floor') finalPrice = roundEight(Math.floor((price + epsilon) / tickSize) * tickSize);
       else if (rounding === 'ceil') finalPrice = roundEight(Math.ceil((price - epsilon) / tickSize) * tickSize);
       else finalPrice = roundEight(Math.round(price / tickSize) * tickSize);
+
+      // SRE: If the input price was positive, rounding must never result in a non-positive price (such as 0).
+      // Clamp to at least tickSize to ensure a valid stop price.
+      if (price > 0 && finalPrice <= 0) {
+        finalPrice = tickSize;
+      }
     }
 
     // PERCENT_PRICE Validation & Clamping

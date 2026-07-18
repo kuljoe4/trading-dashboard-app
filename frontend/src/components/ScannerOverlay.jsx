@@ -411,7 +411,7 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
         tabIndex={0}
         aria-expanded={isExpanded}
         className={cn(
-          "flex md:grid md:grid-cols-[25px_90px_1fr_60px_1fr_1fr_45px] items-center px-3 py-1 md:py-1.5 md:px-4 transition-all h-[42px] md:h-[46px] group cursor-pointer outline-none focus-visible:bg-white/5",
+          "flex md:grid md:grid-cols-[25px_90px_1fr_50px_1fr_1.2fr_135px] items-center px-3 py-1 md:py-1.5 md:px-4 transition-all h-[42px] md:h-[46px] group cursor-pointer outline-none focus-visible:bg-white/5",
           !passing && "opacity-45 grayscale-[0.5]",
           isSingleMonitor && "bg-accent/5",
           passing && "hover:bg-white/5 active:bg-white/10",
@@ -466,15 +466,15 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
                <div className="text-[9px] font-black uppercase tracking-widest border-b border-white/10 pb-1">Score Breakdown</div>
                <div className="flex justify-between items-center text-[9px]">
                   <span className="text-dim uppercase font-bold">Momentum</span>
-                  <span className="font-mono text-accent">{Number((config?.scanner_weights?.momentum || 0) * (opp.score_breakdown?.momentum || 0)).toFixed(1)}</span>
+                  <span className="font-mono text-accent">{Number(opp.score_breakdown?.momentum || 0).toFixed(1)}</span>
                </div>
                <div className="flex justify-between items-center text-[9px]">
                   <span className="text-dim uppercase font-bold">Volatility</span>
-                  <span className="font-mono text-amber">{Number((config?.scanner_weights?.volatility || 0) * (opp.score_breakdown?.volatility || 0)).toFixed(1)}</span>
+                  <span className="font-mono text-amber">{Number(opp.score_breakdown?.volatility || 0).toFixed(1)}</span>
                </div>
                <div className="flex justify-between items-center text-[9px]">
                   <span className="text-dim uppercase font-bold">Trend</span>
-                  <span className="font-mono text-purple-400">{Number((config?.scanner_weights?.trend || 0) * (opp.score_breakdown?.trend || 0)).toFixed(1)}</span>
+                  <span className="font-mono text-purple-400">{Number(opp.score_breakdown?.trend || 0).toFixed(1)}</span>
                </div>
                <div className="border-t border-white/10 pt-1 flex justify-between items-center font-black">
                   <span className="text-[8px] uppercase tracking-tighter">Total</span>
@@ -484,9 +484,9 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
           }>
             <div className="flex-1 flex items-center gap-1.5 cursor-help" aria-label="Score breakdown bar">
               <div className="flex-1 h-1 bg-white/5 rounded-full overflow-hidden flex min-w-[35px] border border-white/5">
-                <div className="h-full bg-accent/80" style={{ width: `${(config?.scanner_weights?.momentum || 0.5) * (opp.score_breakdown?.momentum || 0)}%` }} />
-                <div className="h-full bg-amber/80" style={{ width: `${(config?.scanner_weights?.volatility || 0.3) * (opp.score_breakdown?.volatility || 0)}%` }} />
-                <div className="h-full bg-purple/80" style={{ width: `${(config?.scanner_weights?.trend || 0.2) * (opp.score_breakdown?.trend || 0)}%` }} />
+                <div className="h-full bg-accent/80" style={{ width: `${opp.score_breakdown?.momentum || 0}%` }} />
+                <div className="h-full bg-amber/80" style={{ width: `${opp.score_breakdown?.volatility || 0}%` }} />
+                <div className="h-full bg-purple/80" style={{ width: `${opp.score_breakdown?.trend || 0}%` }} />
               </div>
               <div className="relative">
                 <span className={cn(
@@ -699,7 +699,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
 
       <ActiveWindowsList windows={filteredWindows} />
 
-      <div className="grid grid-cols-[25px_90px_1fr_60px_1fr_1fr_45px] items-center px-4 py-1.5 text-[9px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase h-[32px] shrink-0 md:grid hidden">
+      <div className="grid grid-cols-[25px_90px_1fr_50px_1fr_1.2fr_135px] items-center px-4 py-1.5 text-[9px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase h-[32px] shrink-0 md:grid hidden">
         <span>#</span>
         <div className="flex flex-col leading-none">
           <span>Symbol</span>

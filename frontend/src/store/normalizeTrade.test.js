@@ -83,3 +83,30 @@ test('normalizeTrade calculates pnl_pct fallback and preserves explicitly set pn
   const normC = normalizeTrade(tradeC);
   assert.strictEqual(normC.pnl_pct, 10.0);
 });
+
+test('normalizeTrade preserves all TradeEntity custom/additional fields during delta updates', (t) => {
+  const previousState = {
+    symbol: 'BTCUSDT',
+    entry_daily_change_pct: 1.25,
+    rr_sequence_index: 2,
+    close_attempts: 1,
+    last_close_attempt_ts: 1780000000000,
+    strategy_label: 'Custom Strategy',
+    strategy_config: { key: 'value' }
+  };
+
+  const deltaUpdate = {
+    _delta: true,
+    pnl: 150
+  };
+
+  const nextState = normalizeTrade(deltaUpdate, previousState);
+
+  assert.strictEqual(nextState.pnl, 150);
+  assert.strictEqual(nextState.entry_daily_change_pct, 1.25, 'entry_daily_change_pct should be preserved');
+  assert.strictEqual(nextState.rr_sequence_index, 2, 'rr_sequence_index should be preserved');
+  assert.strictEqual(nextState.close_attempts, 1, 'close_attempts should be preserved');
+  assert.strictEqual(nextState.last_close_attempt_ts, 1780000000000, 'last_close_attempt_ts should be preserved');
+  assert.strictEqual(nextState.strategy_label, 'Custom Strategy', 'strategy_label should be preserved');
+  assert.deepStrictEqual(nextState.strategy_config, { key: 'value' }, 'strategy_config should be preserved');
+});

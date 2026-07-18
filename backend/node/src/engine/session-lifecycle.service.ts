@@ -485,6 +485,18 @@ export class SessionLifecycleService {
         this.sessionState.lastExchangeBalance = nb;
         this.sessionState.lastUdsBalanceUpdate = Date.now();
 
+        // Mark all current trades as UDS-confirmed since we have a fresh absolute balance update
+        if (this.sessionState.activeTrades) {
+          for (const t of this.sessionState.activeTrades) {
+            this.sessionState.udsConfirmedClosedTrades.add(t.id);
+          }
+        }
+        if (this.sessionState.closedTrades) {
+          for (const t of this.sessionState.closedTrades) {
+            this.sessionState.udsConfirmedClosedTrades.add(t.id);
+          }
+        }
+
         // Broadcast balance update to frontend
         this.broadcastService.broadcast('balance_update', { balance: nb });
 
@@ -568,6 +580,21 @@ export class SessionLifecycleService {
         // ZERO-WEIGHT RECONCILIATION: If position reaches 0 and we have an active trade,
         // it means it was closed on exchange (SL, TP, or manual).
         if (amount === 0 && (!prevPos || prevPos.amount !== 0)) {
+          let tEntity = this.sessionState.activeTrades?.find(
+            (t) => t.symbol === symbol,
+          );
+          if (!tEntity && this.sessionState.closedTrades) {
+            tEntity = this.sessionState.closedTrades.find(
+              (t) => t.symbol === symbol && t.status !== "OPEN",
+            );
+          }
+          if (tEntity) {
+            this.sessionState.udsConfirmedClosedTrades.add(tEntity.id);
+            this.logger.debug(
+              `[UDS] Marked trade ${tEntity.id} for ${symbol} as UDS-confirmed closed.`,
+            );
+          }
+
           // SRE: Race condition guard - ignore UDS zero-fills if we are already in the process of entering, ratcheting, or closing
           if (
             this.orderManager.isRatcheting(symbol) ||

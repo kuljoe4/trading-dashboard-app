@@ -307,14 +307,16 @@ const ExitSignalCard = React.memo(({
 })
 ExitSignalCard.displayName = 'ExitSignalCard'
 
-const ManualMonitorInput = React.memo(({ onAdd, scannerResults = [] }) => {
+const ManualMonitorInput = React.memo(({ onAdd }) => {
   const [value, setValue] = useState('');
   const [isOpen, setIsOpen] = useState(false);
+  const scannerResults = useTradingStore(state => state.scannerResults || []);
 
   const options = useMemo(() => {
-    if (!value) return scannerResults.slice(0, 5);
-    return scannerResults
-      .filter(r => r.symbol.toLowerCase().includes(value.toLowerCase()))
+    const safeResults = Array.isArray(scannerResults) ? scannerResults : [];
+    if (!value) return safeResults.slice(0, 5);
+    return safeResults
+      .filter(r => r && r.symbol && r.symbol.toLowerCase().includes(value.toLowerCase()))
       .slice(0, 5);
   }, [value, scannerResults]);
 
@@ -642,9 +644,8 @@ const flattenConfig = (config) => {
   } catch (e) { return { ...config }; }
 };
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
-  const { addAlert, scannerResults, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics } = useTradingStore(state => ({
+  const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics } = useTradingStore(state => ({
     addAlert: state.addAlert,
-    scannerResults: state.scannerResults,
     isThrottled: state.isThrottled,
     wsStatus: state.wsStatus,
     isSyncingOnResume: state.isSyncingOnResume,
@@ -1399,7 +1400,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                  {(cfg.single_symbol_configs || []).length > 0 && <button type="button" onClick={() => setField('single_symbol_configs', [])} className="text-[10px] font-black uppercase tracking-widest text-red/60 hover:text-red transition-colors flex items-center gap-1.5"><Trash2 size={12} /> Clear All</button>}
                </div>
                <ManualMonitorInput
-                 scannerResults={scannerResults}
                  onAdd={(val) => setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), { symbol: val, enabled: true, follow_schedule: true }])}
                />
                <div className="flex flex-wrap gap-2 mt-4">

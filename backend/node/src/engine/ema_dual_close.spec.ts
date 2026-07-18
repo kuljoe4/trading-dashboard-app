@@ -99,6 +99,7 @@ describe('SignalEngineService - ema_dual_close', () => {
 
     const config = new SessionConfig();
     config.enabled_signals = ['ema_dual_close'];
+    config.exit_signals = ['ema_dual_close'];
     config.signal_params = {
       exit_ema_fast: 5,
       exit_ema_slow: 10,
@@ -117,6 +118,7 @@ describe('SignalEngineService - ema_dual_close', () => {
 
     const config = new SessionConfig();
     config.enabled_signals = ['ema_dual_close'];
+    config.exit_signals = ['ema_dual_close'];
     config.signal_params = {
       exit_ema_fast: 5,
       exit_ema_slow: 10,

@@ -73,3 +73,9 @@
 **Vulnerability:** Non-500 `HttpException` warning logs in `AllExceptionsFilter` bypassed the `sanitize` utility when the error message was a string primitive, risking the leakage of credentials and keys (like `api_key`) in logs.
 **Learning:** Type check conditionals (like `typeof message === 'object' ? ... : message`) can inadvertently bypass security filters for primitives, assuming they are inherently safe when they are actually the primary carrier of sensitive raw messages.
 **Prevention:** Always run all variations of user-derived error and exception messages through standard sanitization pipelines, regardless of whether they are structured objects or primitive string values.
+
+## 2026-07-18 - Fixing Stale Account Balance Updates
+- **Problem:** Binance `ACCOUNT_UPDATE` events were being processed by `SessionLifecycleService` and correctly updating the internal `sessionState.balanceLive`, but the new balance was not being broadcast to the frontend WebSocket clients.
+- **Root Cause:** Missing `BroadcastService.broadcast` call in the `handleAccountUpdate` method after updating the internal state.
+- **Action:** Injected `BroadcastService` into `SessionLifecycleService` and added `this.broadcastService.broadcast('balance_update', { balance: nb })` inside `handleAccountUpdate` when a real-time balance update is processed.
+- **System Impact:** The trading dashboard now receives real-time balance updates whenever Binance sends an `ACCOUNT_UPDATE` event, ensuring consistent and accurate UI displays.

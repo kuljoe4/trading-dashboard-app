@@ -77,3 +77,7 @@
 ## 2026-07-17 - Binance FAPI Order Limit Blind Spot
 **Learning:** The USDS-M Futures (FAPI) exchange returns distinct order limit headers (`X-FAPI-ORDER-COUNT-10S` and `X-FAPI-ORDER-COUNT-1M`) instead of Spot limit headers (`X-MBX-ORDER-COUNT-10S` and `X-MBX-ORDER-COUNT-1M`). Tracking only Spot headers left the Futures engine blind to Futures order counts, causing order capacity guards to be completely bypassed and risking HTTP 429 bans (Error -1015, TOO_MANY_ORDERS).
 **Action:** Always parse both `X-FAPI-ORDER-COUNT-*` and `X-MBX-ORDER-COUNT-*` rate-limiting headers in a case-insensitive manner to ensure proper priority-based throttling and capacity checks for Futures connections.
+
+## 2026-07-18 - In-Flight Entry Abandonment & Stop-Session Ghost Positions
+**Learning:** During session termination, the engine relies on `positionTracker.activeList()` to close out outstanding exchange risk. However, this list excludes pending "in-flight" entry orders. If an entry fills on the exchange during or immediately prior to stopping the session, the engine will stop tracking the symbol, close the UDS, and clear local state without attempting to close the trade, creating a completely unmonitored "ghost position".
+**Action:** Before retrieving the active trades list during session stop, always query the exchange (via FAPI `queryOrder` with deterministic client order IDs) for any in-flight entry symbols. If an entry is filled or partially filled, promote it to the active tracking list so it is included in the graceful market close sequence.

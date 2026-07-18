@@ -263,12 +263,13 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
      }, 10000);
   },
   
-  _subscriptions: { trades: new Map(), strategies: new Map(), globalTrades: 0, scanner: 0 },
+  _subscriptions: { trades: new Map(), strategies: new Map(), scannerSymbols: new Map(), globalTrades: 0, scanner: 0 },
   _focusTimer: null,
   registerInterest: (type, id) => {
     const subs = { ...get()._subscriptions };
     if (type === 'trade') subs.trades.set(id, (subs.trades.get(id) || 0) + 1);
     else if (type === 'strategy') subs.strategies.set(id, (subs.strategies.get(id) || 0) + 1);
+    else if (type === 'scanner_symbol') subs.scannerSymbols.set(id, (subs.scannerSymbols.get(id) || 0) + 1);
     else if (type === 'global_trades') subs.globalTrades++;
     else if (type === 'scanner') subs.scanner++;
     set({ _subscriptions: subs });
@@ -278,6 +279,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     const subs = { ...get()._subscriptions };
     if (type === 'trade') { const count = (subs.trades.get(id) || 0) - 1; if (count <= 0) subs.trades.delete(id); else subs.trades.set(id, count); }
     else if (type === 'strategy') { const count = (subs.strategies.get(id) || 0) - 1; if (count <= 0) subs.strategies.delete(id); else subs.strategies.set(id, count); }
+    else if (type === 'scanner_symbol') { const count = (subs.scannerSymbols.get(id) || 0) - 1; if (count <= 0) subs.scannerSymbols.delete(id); else subs.scannerSymbols.set(id, count); }
     else if (type === 'global_trades') subs.globalTrades = Math.max(0, subs.globalTrades - 1);
     else if (type === 'scanner') subs.scanner = Math.max(0, subs.scanner - 1);
     set({ _subscriptions: subs });
@@ -291,6 +293,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       if (ws?.readyState === WebSocket.OPEN) {
         if (subs.trades.size > 0) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: true, tradeId: Array.from(subs.trades.keys())[0] }));
         else if (subs.strategies.size > 0) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: true, strategyLabel: Array.from(subs.strategies.keys())[0] }));
+        else if (subs.scannerSymbols.size > 0) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: false, scannerSymbol: Array.from(subs.scannerSymbols.keys())[0] }));
         else if (subs.globalTrades > 0 || subs.scanner > 0) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: false }));
       }
     }, 100) });

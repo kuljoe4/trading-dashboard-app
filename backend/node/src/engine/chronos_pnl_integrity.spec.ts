@@ -110,6 +110,7 @@ describe('Chronos: PnL and Balance Integrity', () => {
         {},
         {},
         { emit: jest.fn() },
+        { broadcast: jest.fn() },
         { findOne: jest.fn(), update: jest.fn() }
       );
       realLifecycle.handleAccountUpdate(accountUpdate);
@@ -163,6 +164,7 @@ describe('Chronos: PnL and Balance Integrity', () => {
         {},
         {},
         { emit: jest.fn() },
+        { broadcast: jest.fn() },
         { findOne: jest.fn(), update: jest.fn() }
       );
 

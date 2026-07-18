@@ -13,6 +13,7 @@ describe('SessionLifecycleService Paper Balance Preservation', () => {
   let mockMonitoringService: any;
   let mockAuditLog: any;
   let eventEmitter: EventEmitter2;
+  let mockBroadcastService: any;
   let mockSettingsRepo: any;
 
   beforeEach(() => {
@@ -24,6 +25,7 @@ describe('SessionLifecycleService Paper Balance Preservation', () => {
     mockMonitoringService = {};
     mockAuditLog = { log: jest.fn() };
     eventEmitter = new EventEmitter2();
+    mockBroadcastService = { broadcast: jest.fn() };
     mockSettingsRepo = {};
 
     service = new SessionLifecycleService(
@@ -35,6 +37,7 @@ describe('SessionLifecycleService Paper Balance Preservation', () => {
       mockMonitoringService as any,
       mockAuditLog as any,
       eventEmitter,
+      mockBroadcastService as any,
       mockSettingsRepo as any
     );
   });

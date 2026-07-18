@@ -49,6 +49,7 @@ describe('SessionLifecycleService - batched ACCOUNT_UPDATE (continue, not return
       { incrementApiRequests: jest.fn() } as any,
       { log: jest.fn() } as any,
       eventEmitter,
+      { broadcast: jest.fn() } as any,
       { findOne: jest.fn() } as any
     );
   });

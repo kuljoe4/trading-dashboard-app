@@ -1844,9 +1844,10 @@ export class OrderManagerService {
     let activeCount = 0;
 
     // BOLT OPTIMIZATION: Call signalEngine once for all exit signals
+    // Pass original config directly to avoid redundant SessionConfig cloning/allocations
     const consolidatedResult = this.signalEngine.checkEntry(
       symbol,
-      { ...config, enabled_signals: config.exit_signals },
+      config,
       interval,
       trade.direction,
       'exit'

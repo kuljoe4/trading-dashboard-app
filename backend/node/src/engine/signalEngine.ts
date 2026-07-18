@@ -112,12 +112,16 @@ export class SignalEngineService {
     purpose: 'entry' | 'exit' = 'entry',
     minimal: boolean = false,
   ): { allFired: boolean; firedSignals: string[]; reason: string; details?: Record<string, SignalDetail> } {
-    const activeSignals = config.enabled_signals || [];
+    // BOLT OPTIMIZATION: Dynamically select correct active signals depending on purpose.
+    // Avoids requiring caller to clone the config object on every check.
+    const activeSignals = purpose === 'exit'
+      ? (config.exit_signals || [])
+      : (config.enabled_signals || []);
     if (activeSignals.length === 0) {
       return {
         allFired: false,
         firedSignals: [],
-        reason: 'No signals enabled',
+        reason: purpose === 'exit' ? 'No exit signals enabled' : 'No signals enabled',
       };
     }
 

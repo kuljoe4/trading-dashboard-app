@@ -13,6 +13,7 @@ import { MonitoringService } from "./monitoring.service";
 import { ENGINE_EVENTS } from "./events";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { AuditLogService } from "../trading/audit-log.service";
+import { BroadcastService } from "./broadcast.service";
 import { ConfigValidationException } from "../lib/exceptions";
 import { roundEight } from "../lib/math";
 import { sanitize } from "../lib/logger";
@@ -52,6 +53,7 @@ export class SessionLifecycleService {
     private readonly monitoringService: MonitoringService,
     private readonly auditLog: AuditLogService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly broadcastService: BroadcastService,
     @InjectRepository(SettingsEntity)
     private readonly settingsRepository: Repository<SettingsEntity>,
   ) {}
@@ -482,6 +484,9 @@ export class SessionLifecycleService {
         }
         this.sessionState.lastExchangeBalance = nb;
         this.sessionState.lastUdsBalanceUpdate = Date.now();
+
+        // Broadcast balance update to frontend
+        this.broadcastService.broadcast('balance_update', { balance: nb });
 
         // CHRONOS: Handle Authoritative Funding Fee Attribution
         // When reason is FUNDING_FEE, the 'bc' field contains the net funding impact.

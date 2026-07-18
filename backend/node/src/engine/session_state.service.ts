@@ -74,6 +74,9 @@ export class SessionStateService {
   // SRE: Entry Pipeline Lock to prevent concurrent entry evaluations and dispatches
   public entryInProgress = false;
 
+  public udsConfirmedClosedTrades: Set<string> = new Set();
+  public localTradePnLAdjustments: Map<string, number> = new Map();
+
   reset(config: SessionConfig, initialHistory: Trade[] = [], currentBalance?: number, sessionId?: string, initialOpen: Trade[] = []) {
     this.config = config;
 
@@ -101,6 +104,8 @@ export class SessionStateService {
     this.appliedStrategyPnL.clear();
     this.countedStrategyEntries.clear();
     this.countedStrategyHits.clear();
+    this.udsConfirmedClosedTrades.clear();
+    this.localTradePnLAdjustments.clear();
 
     let totalPnlAcc = 0;
     const processedTradeIds = new Set<string>();

@@ -462,12 +462,30 @@ export class TradingSessionService implements OnApplicationShutdown {
           this.sessionState.balancePaper + pnlDelta,
         );
       } else {
-        // CHRONOS: Stop applying PnL delta to balanceLive in real-time.
-        // ACCOUNT_UPDATE provides the authoritative absolute wallet balance (Zero Weight).
-        // Applying deltas here risks double-counting if the UDS event arrived first.
-        this.logger.debug(
-          `[PnL Integrity] Skipping delta application to balanceLive for ${trade.symbol}. Authoritative UDS will sync absolute balance.`,
-        );
+        // Option A: Local PnL Fallback
+        const udsAlreadyApplied = this.sessionState.udsConfirmedClosedTrades.has(trade.id) ||
+          (Date.now() - this.sessionState.lastUdsBalanceUpdate < 1000);
+        if (udsAlreadyApplied) {
+          this.logger.debug(
+            `[PnL Integrity] UDS ACCOUNT_UPDATE already arrived and set absolute balance for ${trade.symbol}. Skipping local fallback delta.`,
+          );
+        } else {
+          this.logger.log(
+            `[PnL Integrity] Applying local fallback PnL delta of ${pnlDelta} to balanceLive for ${trade.symbol} (UDS pending).`,
+          );
+          this.sessionState.balanceLive = roundEight(
+            this.sessionState.balanceLive + pnlDelta,
+          );
+
+          // Track this local adjustment
+          const existingAdjustment = this.sessionState.localTradePnLAdjustments.get(trade.id) || 0;
+          this.sessionState.localTradePnLAdjustments.set(
+            trade.id,
+            roundEight(existingAdjustment + pnlDelta),
+          );
+
+          this.broadcastService.broadcast('balance_update', { balance: this.sessionState.balanceLive });
+        }
       }
       // Update appliedPnL to reflect the change
       this.appliedPnL.set(trade.id, roundEight(prevApplied + pnlDelta));
@@ -952,13 +970,35 @@ export class TradingSessionService implements OnApplicationShutdown {
     } else if (this.binanceClient) {
       if (pnlDelta !== 0) {
         this.appliedPnL.set(t.id, totalPnl);
+
+        // Option A: Local PnL Fallback
+        const udsAlreadyApplied = this.sessionState.udsConfirmedClosedTrades.has(t.id) ||
+          (Date.now() - this.sessionState.lastUdsBalanceUpdate < 1000);
+        if (udsAlreadyApplied) {
+          this.logger.debug(
+            `[PnL Integrity] UDS ACCOUNT_UPDATE already arrived and set absolute balance for ${t.symbol}. Skipping local fallback delta.`,
+          );
+        } else {
+          this.logger.log(
+            `[PnL Integrity] Applying local fallback PnL delta of ${pnlDelta} to balanceLive for ${t.symbol} (UDS pending).`,
+          );
+          this.sessionState.balanceLive = roundEight(
+            this.sessionState.balanceLive + pnlDelta,
+          );
+
+          // Track this local adjustment
+          const existingAdjustment = this.sessionState.localTradePnLAdjustments.get(t.id) || 0;
+          this.sessionState.localTradePnLAdjustments.set(
+            t.id,
+            roundEight(existingAdjustment + pnlDelta),
+          );
+
+          this.broadcastService.broadcast('balance_update', { balance: this.sessionState.balanceLive });
+        }
       } else if (previouslyApplied === totalPnl) {
         return;
       }
 
-      // CITADEL: 100% Reliance on User Data Stream.
-      // We explicitly skip all reactive REST balance polling to preserve IP reputation
-      // and weight. BalanceLive is updated asynchronously by handleAccountUpdate.
       if (this.onBalanceUpdate)
         this.onBalanceUpdate(this.getBalance(), t.pnl || 0);
 

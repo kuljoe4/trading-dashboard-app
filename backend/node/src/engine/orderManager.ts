@@ -1138,8 +1138,8 @@ export class OrderManagerService {
    * Place a STOP_MARKET order on Binance for stop loss protection
    */
   async placeStopLoss(trade: Trade, slPrice: number, fillPrice?: number): Promise<{ orderId: string; price: number, error?: string } | null> {
-    if (slPrice <= 0) {
-      this.logger.error(`[placeStopLoss] ${trade.symbol}: CRITICAL - Requested SL price ${slPrice} is non-positive. Skipping stop loss placement.`);
+    if (isNaN(slPrice) || !isFinite(slPrice) || slPrice <= 0) {
+      this.logger.error(`[placeStopLoss] ${trade.symbol}: CRITICAL - Requested SL price ${slPrice} is invalid or non-positive. Skipping stop loss placement.`);
       return { orderId: 'FAILED_INVALID_PRICE', price: 0, error: 'Stop loss price must be positive' };
     }
 
@@ -1172,7 +1172,7 @@ export class OrderManagerService {
     }
 
     if (currentMarketPrice && currentMarketPrice > 0) {
-      const isBreached = trade.direction === 'LONG' ? currentMarketPrice <= currentSlPrice : currentMarketPrice >= currentSlPrice;
+      const isBreached = currentSlPrice > 0 && (trade.direction === 'LONG' ? currentMarketPrice <= currentSlPrice : currentMarketPrice >= currentSlPrice);
       if (isBreached) {
         // PROFITABILITY GUARD: Only adapt if current SL is already in profit (above breakeven)
         // Breakeven includes a 0.1% buffer for taker fees (0.04% * 2 + safety)

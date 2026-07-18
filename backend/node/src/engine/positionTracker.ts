@@ -230,8 +230,8 @@ export class PositionTrackerService {
         targetSl = trade.entry_price - risk * exitRr;
       }
 
-      if (targetSl <= 0) {
-        this.logger.debug(`[RrSequence] Derived target SL ${targetSl} for ${symbol} is non-positive. Skipping adjustment.`);
+      if (isNaN(targetSl) || !isFinite(targetSl) || targetSl <= 0) {
+        this.logger.debug(`[RrSequence] Derived target SL ${targetSl} for ${symbol} is invalid or non-positive. Skipping adjustment.`);
         return;
       }
 
@@ -416,7 +416,7 @@ export class PositionTrackerService {
             const sigStatus = statusMap[sigKey];
             let proposedSlPrice = sigStatus.value; // Value can be the crossover/EMA price
 
-            if (!sigStatus.threshold_is_price || proposedSlPrice <= 0) {
+            if (!sigStatus.threshold_is_price || isNaN(proposedSlPrice) || !isFinite(proposedSlPrice) || proposedSlPrice <= 0) {
               proposedSlPrice = currentPrice; // Fallback to current price if threshold is not price
             }
 
@@ -687,8 +687,8 @@ export class PositionTrackerService {
       prospectiveSl = currentPrice + distance;
     }
 
-    if (prospectiveSl <= 0) {
-      this.logger.debug(`[TrailingStop] Prospective SL ${prospectiveSl} for ${symbol} is non-positive. Skipping trailing stop update.`);
+    if (isNaN(prospectiveSl) || !isFinite(prospectiveSl) || prospectiveSl <= 0) {
+      this.logger.debug(`[TrailingStop] Prospective SL ${prospectiveSl} for ${symbol} is invalid or non-positive. Skipping trailing stop update.`);
       return;
     }
 

@@ -5,17 +5,13 @@ import { PulseDot, Sparkline, cn, CopyButton, Tooltip, CandlestickChart, Monitor
 import { SignalGauge } from './ui/SignalGauge'
 import { useTradingStore } from '../store/trading'
 import { useResourceFocus } from '../hooks/useResourceFocus'
+import { useNow } from '../hooks/useNow'
 import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert, RefreshCw } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { shallow } from 'zustand/shallow'
 
 const FreshnessIndicator = React.memo(({ ts }) => {
-  const [now, setNow] = useState(Date.now());
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const now = useNow();
 
   if (!ts || ts <= 0) return null;
   const age = Math.max(0, now - ts);
@@ -28,15 +24,24 @@ const FreshnessIndicator = React.memo(({ ts }) => {
 });
 FreshnessIndicator.displayName = 'FreshnessIndicator';
 
-const ActiveWindowsList = React.memo(({ windows }) => {
-  if (!windows || windows.length === 0) return (
+const ActiveWindowsList = React.memo(({ search }) => {
+  const activeWindows = useTradingStore(state => state.activeWindows || []);
+
+  const filteredWindows = useMemo(() => {
+    const windows = Array.isArray(activeWindows) ? activeWindows.filter(Boolean) : []
+    if (!search) return windows
+    const term = search.toLowerCase().trim()
+    return windows.filter(w => w.symbol.toLowerCase().includes(term))
+  }, [activeWindows, search])
+
+  if (filteredWindows.length === 0) return (
     <div className="h-0 p-0 opacity-0 border-none transition-all duration-300" />
   );
 
   return (
     <div className="bg-accent/5 border-b border-border overflow-x-auto no-scrollbar shrink-0 transition-all duration-300 ease-in-out h-[42px] p-2.5 opacity-100">
       <div className="flex gap-4">
-        {windows.map((window) => (
+        {filteredWindows.map((window) => (
           <div key={window.symbol} className="flex items-center gap-1.5 px-2 py-1 bg-surface border border-border rounded whitespace-nowrap h-[26px]">
             <strong className={cn("text-[11px] font-mono", window.direction === 'long' ? "text-green" : "text-red")}>
               {window.symbol}
@@ -50,13 +55,16 @@ const ActiveWindowsList = React.memo(({ windows }) => {
 });
 ActiveWindowsList.displayName = 'ActiveWindowsList';
 
-const ScanStatus = React.memo(({ lastScanTs, intervalSec = 5, isUpdating }) => {
-  const [now, setNow] = useState(Date.now());
+const ScanStatus = React.memo(() => {
+  const { lastScanTs, intervalSec } = useTradingStore(state => ({
+    lastScanTs: state.lastScanTs,
+    intervalSec: state.config?.scan_check_interval_sec || 5
+  }), shallow);
 
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const now = useNow();
+  const lastUpdateRef = useRef(lastScanTs)
+  const isUpdating = lastScanTs !== lastUpdateRef.current
+  if (isUpdating) lastUpdateRef.current = lastScanTs
 
   const scanAge = lastScanTs > 0 ? Math.max(0, now - lastScanTs) : null;
   const nextSlotSec = Math.max(0, intervalSec - Math.floor((scanAge || 0) / 1000));
@@ -547,12 +555,10 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
 });
 
 export const ScannerOverlay = React.memo(({ onClose }) => {
-  const { scannerResults, activeWindows, config, scannerPaused, lastScanTs, hibernating, hibernationMode, activeTrades, sessionActive, isThrottled, wsStatus, isSyncingOnResume } = useTradingStore(state => ({
+  const { scannerResults, config, scannerPaused, hibernating, hibernationMode, activeTrades, sessionActive, isThrottled, wsStatus, isSyncingOnResume } = useTradingStore(state => ({
     scannerResults: state.scannerResults,
-    activeWindows: state.activeWindows,
     config: state.config,
     scannerPaused: state.scannerPaused,
-    lastScanTs: state.lastScanTs,
     hibernating: state.hibernating,
     hibernationMode: state.hibernationMode,
     activeTrades: state.activeTrades,
@@ -568,10 +574,6 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
   const activeTradeSymbols = useMemo(() => new Set((activeTrades || []).map(t => t.symbol)), [activeTrades])
   const threshold = config.scan_pct_threshold || 2.0
   const [search, setSearch] = useState('')
-  const lastUpdateRef = useRef(lastScanTs)
-
-  const isUpdating = lastScanTs !== lastUpdateRef.current
-  if (isUpdating) lastUpdateRef.current = lastScanTs
 
   // UX-MOBILE: Ensure search input is visible when focused
   const handleInputFocus = React.useCallback((e) => {
@@ -586,13 +588,6 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
     const term = search.toLowerCase().trim()
     return results.filter(r => r.symbol.toLowerCase().includes(term))
   }, [scannerResults, search])
-
-  const filteredWindows = useMemo(() => {
-    const windows = Array.isArray(activeWindows) ? activeWindows.filter(Boolean) : []
-    if (!search) return windows
-    const term = search.toLowerCase().trim()
-    return windows.filter(w => w.symbol.toLowerCase().includes(term))
-  }, [activeWindows, search])
 
   // BOLT OPTIMIZATION: Pre-calculate a Set of monitored symbols to avoid O(N*M) lookup in the render loop.
   // Reduces complexity from O(N*M) to O(N+M), improving render performance when many symbols are monitored.
@@ -656,11 +651,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                 </div>
               )}
             </div>
-            <ScanStatus
-              lastScanTs={lastScanTs}
-              intervalSec={config.scan_check_interval_sec || 5}
-              isUpdating={isUpdating}
-            />
+            <ScanStatus />
           </div>
         </div>
 
@@ -697,7 +688,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
         </div>
       </div>
 
-      <ActiveWindowsList windows={filteredWindows} />
+      <ActiveWindowsList search={search} />
 
       <div className="grid grid-cols-[25px_90px_1fr_60px_1fr_1fr_45px] items-center px-4 py-1.5 text-[9px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase h-[32px] shrink-0 md:grid hidden">
         <span>#</span>

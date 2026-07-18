@@ -280,10 +280,49 @@ export class TradingSessionService implements OnApplicationShutdown {
     if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
     if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
 
-    const active = this.positionTracker.activeList();
     const mode =
       this.config?.trading_mode || (this.config?.paper_mode ? "paper" : "live");
     const isPaper = mode === "paper";
+
+    // CHRONOS: Resolve in-flight entries before stopping to prevent ghost positions
+    if (!isPaper && this.binanceClient) {
+      const inFlightSymbols = this.positionTracker.getInFlightSymbols();
+      for (const symbol of inFlightSymbols) {
+        const t = this.positionTracker.getInFlightEntry(symbol);
+        if (t) {
+          try {
+            const entryOrderId = `ent-${t.id.replace(/-/g, "").substring(0, 20)}`;
+            const queryRes = await this.binanceClient.restAPI.queryOrder({
+              symbol: t.symbol,
+              origClientOrderId: entryOrderId,
+            });
+            const queryData = (await queryRes.data()) as any;
+            if (queryData && queryData.orderId) {
+              const executedQty = parseFloat(queryData.executedQty || "0");
+              if (executedQty > 0) {
+                this.logger.log(
+                  `[Shutdown] Promoting filled/partially-filled in-flight entry for ${t.symbol} (Qty: ${executedQty}) to active list for closure.`,
+                );
+                t.binance_order_id = String(queryData.orderId);
+                t.qty = executedQty;
+                const avgPrice = parseFloat(
+                  queryData.avgPrice || queryData.price || "0",
+                );
+                if (avgPrice > 0) t.entry_price = avgPrice;
+
+                this.positionTracker.addTrade(t);
+              }
+            }
+          } catch (e: any) {
+            this.logger.debug(
+              `[Shutdown] In-flight entry check for ${t.symbol} failed (likely order never reached exchange): ${e.message}`,
+            );
+          }
+        }
+      }
+    }
+
+    const active = this.positionTracker.activeList();
 
     for (const t of active) {
       const cp = await this.tickerCache.getPrice(t.symbol);

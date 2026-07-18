@@ -5,17 +5,13 @@ import { PulseDot, Sparkline, cn, CopyButton, Tooltip, CandlestickChart, Monitor
 import { SignalGauge } from './ui/SignalGauge'
 import { useTradingStore } from '../store/trading'
 import { useResourceFocus } from '../hooks/useResourceFocus'
+import { useNow } from '../hooks/useNow'
 import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert, RefreshCw } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { shallow } from 'zustand/shallow'
 
 const FreshnessIndicator = React.memo(({ ts }) => {
-  const [now, setNow] = useState(Date.now());
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const now = useNow();
 
   if (!ts || ts <= 0) return null;
   const age = Math.max(0, now - ts);
@@ -28,15 +24,24 @@ const FreshnessIndicator = React.memo(({ ts }) => {
 });
 FreshnessIndicator.displayName = 'FreshnessIndicator';
 
-const ActiveWindowsList = React.memo(({ windows }) => {
-  if (!windows || windows.length === 0) return (
+const ActiveWindowsList = React.memo(({ search }) => {
+  const activeWindows = useTradingStore(state => state.activeWindows || []);
+
+  const filteredWindows = useMemo(() => {
+    const windows = Array.isArray(activeWindows) ? activeWindows.filter(Boolean) : []
+    if (!search) return windows
+    const term = search.toLowerCase().trim()
+    return windows.filter(w => w.symbol.toLowerCase().includes(term))
+  }, [activeWindows, search])
+
+  if (filteredWindows.length === 0) return (
     <div className="h-0 p-0 opacity-0 border-none transition-all duration-300" />
   );
 
   return (
     <div className="bg-accent/5 border-b border-border overflow-x-auto no-scrollbar shrink-0 transition-all duration-300 ease-in-out h-[42px] p-2.5 opacity-100">
       <div className="flex gap-4">
-        {windows.map((window) => (
+        {filteredWindows.map((window) => (
           <div key={window.symbol} className="flex items-center gap-1.5 px-2 py-1 bg-surface border border-border rounded whitespace-nowrap h-[26px]">
             <strong className={cn("text-[11px] font-mono", window.direction === 'long' ? "text-green" : "text-red")}>
               {window.symbol}
@@ -50,13 +55,16 @@ const ActiveWindowsList = React.memo(({ windows }) => {
 });
 ActiveWindowsList.displayName = 'ActiveWindowsList';
 
-const ScanStatus = React.memo(({ lastScanTs, intervalSec = 5, isUpdating }) => {
-  const [now, setNow] = useState(Date.now());
+const ScanStatus = React.memo(() => {
+  const { lastScanTs, intervalSec } = useTradingStore(state => ({
+    lastScanTs: state.lastScanTs,
+    intervalSec: state.config?.scan_check_interval_sec || 5
+  }), shallow);
 
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const now = useNow();
+  const lastUpdateRef = useRef(lastScanTs)
+  const isUpdating = lastScanTs !== lastUpdateRef.current
+  if (isUpdating) lastUpdateRef.current = lastScanTs
 
   const scanAge = lastScanTs > 0 ? Math.max(0, now - lastScanTs) : null;
   const nextSlotSec = Math.max(0, intervalSec - Math.floor((scanAge || 0) / 1000));
@@ -121,23 +129,36 @@ const buildAuthoritativeMarkers = (ohlc = [], signalResult = {}) => {
   return markers;
 };
 
-const FunnelStep = React.memo(({ label, detail, complete, icon: Icon }) => (
-  <div className={cn(
-    "relative flex items-start gap-3 rounded-2xl border p-3 transition-colors",
-    complete ? "bg-green/5 border-green/20" : "bg-background/30 border-border/70"
-  )}>
-    <div className={cn(
-      "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border",
-      complete ? "bg-green/10 border-green/30 text-green" : "bg-surface border-border text-dim"
-    )}>
-      <Icon size={15} />
+const DecisionPipeline = React.memo(({ steps }) => {
+  return (
+    <div className="flex items-center justify-between gap-1.5 bg-background/25 border border-border/40 rounded-xl p-2">
+      {steps.map((step, idx) => {
+        const Icon = step.icon;
+        const isLast = idx === steps.length - 1;
+        return (
+          <React.Fragment key={step.label}>
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              <div className={cn(
+                "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[9px] leading-none font-bold",
+                step.complete ? "bg-green/10 border-green/30 text-green" : "bg-surface border-border text-dim"
+              )}>
+                <Icon size={10} />
+              </div>
+              <div className="min-w-0 leading-none">
+                <div className="text-[8px] font-black uppercase tracking-wider text-text/90 truncate">{step.label}</div>
+                <div className="text-[7.5px] font-semibold text-dim truncate mt-0.5" title={step.detail}>{step.detail}</div>
+              </div>
+            </div>
+            {!isLast && (
+              <div className="h-3 w-px bg-border/40 shrink-0 mx-1" />
+            )}
+          </React.Fragment>
+        );
+      })}
     </div>
-    <div className="min-w-0">
-      <div className="text-[10px] font-black uppercase tracking-[0.18em] text-text/90">{label}</div>
-      <div className="mt-1 text-[10px] font-semibold leading-snug text-dim">{detail}</div>
-    </div>
-  </div>
-));
+  );
+});
+DecisionPipeline.displayName = 'DecisionPipeline';
 
 const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, threshold, status, scannerPaused, hibernating, hibernationMode }) => {
   useResourceFocus('scanner_symbol', opp.symbol);
@@ -212,6 +233,7 @@ const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, th
                     signals={opp.ohlc_history.filter(d => opp.signalResult?.firedSignals?.includes(d.time))}
                     decisionMarkers={decisionMarkers}
                     slPrice={chartSl}
+                    showOscillator={false}
                   />
                   <div className="flex justify-between w-full mt-3 md:mt-4 px-1">
                      <div className="flex flex-col">
@@ -257,20 +279,20 @@ const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, th
            <div className="text-[9px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-1.5 px-0.5">
              <LayoutGrid size={10} className="text-accent" /> Decision Funnel
            </div>
-           <div className="bg-surface/50 border border-border rounded-xl p-3 md:p-4 flex flex-col gap-3 md:gap-4 relative overflow-hidden group/scoring shadow-sm">
+                 <div className="bg-surface/50 border border-border rounded-xl p-3 md:p-4 flex flex-col gap-2.5 md:gap-3 relative overflow-hidden group/scoring shadow-sm">
               {/* Score Bars Section */}
-              <div className="grid grid-cols-3 gap-2 pb-3 md:pb-4 border-b border-white/5">
+                    <div className="grid grid-cols-3 gap-3 pb-2 border-b border-white/5">
                  {[
                    { label: 'Momentum', value: opp.score_breakdown?.momentum, color: 'bg-accent', text: 'text-accent' },
                    { label: 'Volatility', value: opp.score_breakdown?.volatility, color: 'bg-amber', text: 'text-amber' },
                    { label: 'Trend', value: opp.score_breakdown?.trend, color: 'bg-purple-400', text: 'text-purple-400' }
                  ].map((metric) => (
-                  <div key={metric.label} className="space-y-1">
-                    <div className="flex justify-between items-center text-[7.5px] md:text-[8px] font-black uppercase tracking-widest leading-none">
+                        <div key={metric.label} className="space-y-0.5">
+                          <div className="flex justify-between items-center text-[7.5px] font-black uppercase tracking-wider leading-none">
                        <span className="text-dim/80 truncate mr-1">{metric.label}</span>
                        <span className={cn(metric.text)}>{Number(metric.value || 0).toFixed(0)}%</span>
                     </div>
-                    <div className="h-1 bg-background/80 rounded-full overflow-hidden border border-white/5">
+                          <div className="h-0.5 bg-background/80 rounded-full overflow-hidden">
                        <motion.div
                          initial={{ width: 0 }}
                          animate={{ width: `${metric.value || 0}%` }}
@@ -282,14 +304,10 @@ const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, th
               </div>
 
               {/* Decision path */}
-              <div className="grid grid-cols-1 gap-2">
-                {funnelSteps.map((step) => (
-                  <FunnelStep key={step.label} {...step} />
-                ))}
-              </div>
+                    <DecisionPipeline steps={funnelSteps} />
 
               {/* Signal Checklist */}
-              <div className="space-y-3">
+                    <div className="space-y-2.5">
                 <div className="flex items-center justify-between">
                    <div className="text-[9px] font-black text-dim uppercase tracking-widest">Technical Checklist</div>
                    <div className={cn(
@@ -547,12 +565,10 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
 });
 
 export const ScannerOverlay = React.memo(({ onClose }) => {
-  const { scannerResults, activeWindows, config, scannerPaused, lastScanTs, hibernating, hibernationMode, activeTrades, sessionActive, isThrottled, wsStatus, isSyncingOnResume } = useTradingStore(state => ({
+  const { scannerResults, config, scannerPaused, hibernating, hibernationMode, activeTrades, sessionActive, isThrottled, wsStatus, isSyncingOnResume } = useTradingStore(state => ({
     scannerResults: state.scannerResults,
-    activeWindows: state.activeWindows,
     config: state.config,
     scannerPaused: state.scannerPaused,
-    lastScanTs: state.lastScanTs,
     hibernating: state.hibernating,
     hibernationMode: state.hibernationMode,
     activeTrades: state.activeTrades,
@@ -568,10 +584,6 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
   const activeTradeSymbols = useMemo(() => new Set((activeTrades || []).map(t => t.symbol)), [activeTrades])
   const threshold = config.scan_pct_threshold || 2.0
   const [search, setSearch] = useState('')
-  const lastUpdateRef = useRef(lastScanTs)
-
-  const isUpdating = lastScanTs !== lastUpdateRef.current
-  if (isUpdating) lastUpdateRef.current = lastScanTs
 
   // UX-MOBILE: Ensure search input is visible when focused
   const handleInputFocus = React.useCallback((e) => {
@@ -586,13 +598,6 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
     const term = search.toLowerCase().trim()
     return results.filter(r => r.symbol.toLowerCase().includes(term))
   }, [scannerResults, search])
-
-  const filteredWindows = useMemo(() => {
-    const windows = Array.isArray(activeWindows) ? activeWindows.filter(Boolean) : []
-    if (!search) return windows
-    const term = search.toLowerCase().trim()
-    return windows.filter(w => w.symbol.toLowerCase().includes(term))
-  }, [activeWindows, search])
 
   // BOLT OPTIMIZATION: Pre-calculate a Set of monitored symbols to avoid O(N*M) lookup in the render loop.
   // Reduces complexity from O(N*M) to O(N+M), improving render performance when many symbols are monitored.
@@ -656,11 +661,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                 </div>
               )}
             </div>
-            <ScanStatus
-              lastScanTs={lastScanTs}
-              intervalSec={config.scan_check_interval_sec || 5}
-              isUpdating={isUpdating}
-            />
+            <ScanStatus />
           </div>
         </div>
 
@@ -697,7 +698,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
         </div>
       </div>
 
-      <ActiveWindowsList windows={filteredWindows} />
+      <ActiveWindowsList search={search} />
 
       <div className="grid grid-cols-[25px_90px_1fr_60px_1fr_1fr_45px] items-center px-4 py-1.5 text-[9px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase h-[32px] shrink-0 md:grid hidden">
         <span>#</span>

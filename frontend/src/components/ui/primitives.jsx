@@ -539,13 +539,16 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
 }
 
 // --- Copy Button ---
-export const CopyButton = React.memo(({ value, className, tooltip = "Copy", successTooltip = "Copied!" }) => {
+export const CopyButton = React.memo(({ value, getValue, className, tooltip = "Copy", successTooltip = "Copied!" }) => {
   const [copied, setCopied] = React.useState(false)
 
   const handleCopy = async (e) => {
     e.stopPropagation()
     try {
-      await navigator.clipboard.writeText(value)
+      // `getValue` defers expensive serialization until the user actually clicks copy,
+      // avoiding e.g. cloning/stringifying a large config object on every parent render.
+      const text = typeof getValue === 'function' ? getValue() : value
+      await navigator.clipboard.writeText(text)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch (err) {

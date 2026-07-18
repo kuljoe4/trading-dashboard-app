@@ -113,7 +113,7 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
   const isLong = trade.direction === 'LONG'
   const entryPrice = Number(trade.entry_price || 0)
   const qty = Number(trade.qty || 0)
-  const riskUsdt = Number(trade.risk_usdt || trade.initial_risk_usdt || 0)
+  const riskUsdt = Number(trade.risk_usdt ?? trade.initial_risk_usdt ?? 0)
 
   // Sort entries by proximity (triggerProgress descending)
   const entries = useMemo(() => {

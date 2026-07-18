@@ -63,6 +63,44 @@ describe('EngineBroadcasterService BOLT Optimizations', () => {
     });
   });
 
+  describe('risk_usdt serialization (SL breakeven release)', () => {
+    const buildTrade = (overrides: Partial<Trade> = {}) => {
+      const t = new Trade();
+      t.id = 't1';
+      t.symbol = 'BTCUSDT';
+      t.entry_price = 50000;
+      t.qty = 0.1;
+      t.direction = 'LONG';
+      t.current_sl = 49000;
+      t.initial_sl = 49000;
+      t.initial_risk_usdt = 100;
+      Object.assign(t, overrides);
+      return t;
+    };
+    const config = { strategy_label: 'Test' } as SessionConfig;
+
+    it('serializeTrade includes risk_usdt (full fidelity)', () => {
+      const t = buildTrade({ risk_usdt: 100 });
+      const out: any = (service as any).serializeTrade(t, config, 51000);
+      expect(out.risk_usdt).toBe(100);
+      expect(out.initial_risk_usdt).toBe(100);
+    });
+
+    it('serializeTrade serializes a released (0) risk_usdt without falling back to initial', () => {
+      // At breakeven, PositionTracker.refreshTradeRisk sets risk_usdt = 0.
+      // The released state MUST be preserved (0), not overwritten by initial_risk_usdt.
+      const t = buildTrade({ current_sl: 50000, risk_usdt: 0 });
+      const out: any = (service as any).serializeTrade(t, config, 51000);
+      expect(out.risk_usdt).toBe(0);
+    });
+
+    it('serializeTickTrade includes risk_usdt', () => {
+      const t = buildTrade({ risk_usdt: 0 });
+      const out = service.serializeTickTrade(t, config, 51000, 100, 1);
+      expect(out.risk_usdt).toBe(0);
+    });
+  });
+
   describe('broadcastTick delta tracking', () => {
     it('should reuse objects in lastSentTrades if no significant change occurred', () => {
       const trade = new Trade();

@@ -98,4 +98,41 @@ describe('OrderManagerService - close_blocked / illiquid_blocked ALERT (regressi
       expect.objectContaining({ level: 'error', title: 'Close Blocked' })
     );
   });
+
+  it('illiquid_blocked shortcut actively attempts the aggressive LIMIT fallback (dead-code fix)', async () => {
+    // Regression guard for the previously-dead reroute: an already-illiquid trade used to
+    // `throw new Error('PERCENT_PRICE')` at the TOP of closeTrade (outside the MARKET-close
+    // try/catch), so it propagated to the outer catch and silently returned exitOccurred:false
+    // WITHOUT ever placing the LIMIT order. The LIMIT fallback must now actually run.
+    const newOrder = jest.fn().mockResolvedValue({
+      data: async () => ({ orderId: 99999, executedQty: '0', origQty: '1.0' }),
+    });
+    (service as any).binanceClient = { restAPI: { newOrder } };
+
+    const trade: any = {
+      id: 'trade-illiquid',
+      symbol: 'SOLUSDT',
+      qty: 1.0,
+      direction: 'LONG',
+      entry_price: 100,
+      current_sl: 90,
+      status: 'OPEN',
+      binance_order_id: 'entry-illiquid',
+      binance_stop_order_id: 'sl-illiquid',
+      close_attempts: 2, // below ceiling so the LIMIT is attempted (not escalated to close_blocked)
+      last_close_attempt_ts: Date.now() - 60000, // satisfy backoff so we reach the fallback
+      illiquid_blocked: true,
+      close_blocked: false,
+    };
+
+    const res = await service.closeTrade('SOLUSDT', trade, 100, 'SIGNAL_EXIT');
+
+    // The LIMIT fallback MUST have been attempted for an already-illiquid trade.
+    expect(newOrder).toHaveBeenCalledTimes(1);
+    expect(newOrder).toHaveBeenCalledWith(expect.objectContaining({ type: 'LIMIT', reduceOnly: true }));
+    // We do not synchronously finalize closure; the LIMIT fills via UDS (or the watchdog closes).
+    expect(res.exitOccurred).toBe(false);
+    // The shortcut intentionally does NOT cancel the existing SL, so protection stays in place.
+    expect(trade.binance_stop_order_id).toBe('sl-illiquid');
+  });
 });

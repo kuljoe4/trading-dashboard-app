@@ -1005,6 +1005,10 @@ export class TradingSessionService implements OnApplicationShutdown {
         return;
       }
 
+      // NOTE: The registered balance-update callback (SessionService) only persists to the DB
+      // when `pnl === 0` (initial balance / funding), so for a live close with non-zero pnl this
+      // call is effectively a no-op. Live trade persistence happens via onTradeUpdate / saveTradeAtomic.
+      // Kept for symmetry with other modes (and the pnl===0 paths that do persist).
       if (this.onBalanceUpdate)
         this.onBalanceUpdate(this.getBalance(), t.pnl || 0);
 

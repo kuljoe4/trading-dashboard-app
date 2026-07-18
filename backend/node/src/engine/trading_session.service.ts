@@ -849,6 +849,11 @@ export class TradingSessionService implements OnApplicationShutdown {
       history: o.history,
       ohlc_history: o.ohlc_history,
       signalResult: o.signalResult,
+      score_breakdown: o.score_breakdown ? {
+        momentum: roundTo(o.score_breakdown.momentum, 1),
+        volatility: roundTo(o.score_breakdown.volatility, 1),
+        trend: roundTo(o.score_breakdown.trend, 1),
+      } : undefined,
     }));
     this.refreshActiveWindows(this.lastScannerResults);
   }

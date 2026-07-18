@@ -693,6 +693,16 @@ export class OrderManagerService {
         return { status: ExecutionStatus.CIRCUIT_OPEN, error: 'Order rate limit protection active' };
       }
     }
+
+    if (slPrice <= 0) {
+      this.logger.error(`${symbol}: CRITICAL - Stop Loss price ${slPrice} must be positive. Rejecting order.`);
+      return { status: ExecutionStatus.ORDER_REJECTED, error: 'Stop loss price must be positive' };
+    }
+
+    if (tpPrice !== null && tpPrice <= 0) {
+      this.logger.error(`${symbol}: CRITICAL - Take Profit price ${tpPrice} must be positive. Rejecting order.`);
+      return { status: ExecutionStatus.ORDER_REJECTED, error: 'Take profit price must be positive' };
+    }
     
     try {
       // PERF: Fetch filters once and reuse across all filter operations
@@ -1128,6 +1138,11 @@ export class OrderManagerService {
    * Place a STOP_MARKET order on Binance for stop loss protection
    */
   async placeStopLoss(trade: Trade, slPrice: number, fillPrice?: number): Promise<{ orderId: string; price: number, error?: string } | null> {
+    if (slPrice <= 0) {
+      this.logger.error(`[placeStopLoss] ${trade.symbol}: CRITICAL - Requested SL price ${slPrice} is non-positive. Skipping stop loss placement.`);
+      return { orderId: 'FAILED_INVALID_PRICE', price: 0, error: 'Stop loss price must be positive' };
+    }
+
     let currentSlPrice = slPrice;
     let adaptiveAttempts = 0;
     const MAX_ADAPTIVE_ATTEMPTS = 3;

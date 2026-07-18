@@ -333,27 +333,34 @@ async function bootstrap() {
       }
 
       if (payload.type === "scanner") {
-        // Optimization: Prune sparkline history for Dashboard to save bandwidth
-        if (!client.focusMode) {
-          const pruned = {
-            ...payload,
-            opportunities: (payload.opportunities || []).map((o: any) => {
-              const { history, signalResult, ...thin } = o;
-              return thin;
-            }),
-            variant_opportunities: (
-              basePayload.variant_opportunities || []
-            ).map((v: any) => ({
-              ...v,
-              opportunities: (v.opportunities || []).map((o: any) => {
-                const { history, signalResult, ...thin } = o;
-                return thin;
-              }),
-            })),
-          };
-          client.send(JSON.stringify(pruned));
-          return;
-        }
+        // Optimization: Prune sparkline history and ohlc_history to save bandwidth
+        const pruneOpp = (opp: any) => {
+          const keepOhlc = client.focusScannerSymbol && opp.symbol === client.focusScannerSymbol;
+          if (client.focusMode) {
+            if (keepOhlc) return opp;
+            const { ohlc_history, ...rest } = opp;
+            return rest;
+          } else {
+            const { history, signalResult, ohlc_history, ...thin } = opp;
+            return {
+              ...thin,
+              ...(keepOhlc ? { ohlc_history } : {})
+            };
+          }
+        };
+
+        const pruned = {
+          ...payload,
+          opportunities: (payload.opportunities || []).map(pruneOpp),
+          variant_opportunities: (
+            basePayload.variant_opportunities || []
+          ).map((v: any) => ({
+            ...v,
+            opportunities: (v.opportunities || []).map(pruneOpp),
+          })),
+        };
+        client.send(JSON.stringify(pruned));
+        return;
       }
       if (payload.type === "log" && client.logFilters) {
         if (client.logFilters[payload.level] === false) return;
@@ -396,6 +403,7 @@ async function bootstrap() {
     socket.focusMode = false;
     socket.focusTradeId = null;
     socket.focusStrategyLabel = null;
+    socket.focusScannerSymbol = null;
     socket.isActive = true; // Default to active on connect
     socket.logFilters = { info: true, warn: true, error: true };
     socket.msgCount = 0;
@@ -443,6 +451,7 @@ async function bootstrap() {
           socket.focusMode = data.enabled === true;
           socket.focusTradeId = data.tradeId || null;
           socket.focusStrategyLabel = data.strategyLabel || null;
+          socket.focusScannerSymbol = data.scannerSymbol || null;
 
           // If becoming focused, immediately broadcast the current session state to the client
           // to prevent UI "data gaps" during transition.

@@ -4,6 +4,7 @@ import { formatDuration } from '../lib/formatters'
 import { PulseDot, Sparkline, cn, CopyButton, Tooltip, CandlestickChart, MonitoredBadge, InPosBadge, SmartCandidateBadge } from './ui/primitives'
 import { SignalGauge } from './ui/SignalGauge'
 import { useTradingStore } from '../store/trading'
+import { useResourceFocus } from '../hooks/useResourceFocus'
 import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert, RefreshCw } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { shallow } from 'zustand/shallow'
@@ -138,24 +139,8 @@ const FunnelStep = React.memo(({ label, detail, complete, icon: Icon }) => (
   </div>
 ));
 
-const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scannerPaused, hibernating, hibernationMode }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
-
-  const threshold = config?.scan_pct_threshold || 2.0;
-  const dir = (opp.dir || opp.direction || '').toLowerCase();
-  const isLong = dir ? dir === 'long' : opp.pct >= 0;
-  const passing = Math.abs(opp.pct) >= threshold;
-  const isSingleMonitor = isMonitored ?? config?.single_symbol_configs?.some(sc => sc.symbol === opp.symbol && sc.enabled);
-
-  const getStatus = () => {
-    if (opp.score > 85 && opp.signalResult?.allFired) return { label: 'Strong Setup', color: 'bg-green/10 text-green border-green/20' };
-    if (opp.signalResult?.allFired) return { label: 'Ready', color: 'bg-accent/10 text-accent border-accent/20' };
-    if (passing) return { label: 'Watching', color: 'bg-amber/10 text-amber border-amber/20' };
-    return { label: 'Waiting', color: 'bg-surface text-dim border-border' };
-  };
-
-  const status = getStatus();
-  const proximity = Number(Math.min(100, (Math.abs(opp.pct || 0) / (threshold || 1)) * 100)).toFixed(0);
+const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, threshold, status, scannerPaused, hibernating, hibernationMode }) => {
+  useResourceFocus('scanner_symbol', opp.symbol);
 
   const summarySentence = useMemo(() => {
     const dirText = isLong ? "Momentum" : "Downward pressure";
@@ -171,8 +156,6 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
   const decisionMarkers = engulfingEnabled ? buildAuthoritativeMarkers(opp.ohlc_history, signalStatus) : [];
   const engulfSignal = checklistSignals.engulfing;
 
-  // BOLT: Determine the prospective Stop Loss price for visualization on the chart.
-  // Prioritizes structural streak extremes if configured, falls back to pct-based distance.
   const chartSl = useMemo(() => {
     if (config?.sl_type === 'streak_extreme' || config?.sl_type === 'engulfing_boundary') {
        return engulfSignal?.slPrice || (isLong ? engulfSignal?.pattern_low : engulfSignal?.pattern_high);
@@ -194,12 +177,224 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
     { label: 'Authorization', detail: opp.signalResult?.reason || 'Waiting for signal engine decision.', complete: !!opp.signalResult?.allFired, icon: ShieldCheck },
   ];
 
+  return (
+    <>
+      <div className="bg-white/5 border-b border-white/5 px-3 md:px-5 py-1.5 flex items-center justify-between gap-2.5">
+         <div className="flex items-center gap-2 md:gap-2.5 min-w-0">
+           <div className={cn("px-1.5 py-0.2 md:px-2 md:py-0.5 rounded-full text-[7.5px] md:text-[8.5px] font-black uppercase tracking-widest border shadow-sm shrink-0", status.color)}>
+             {status.label}
+           </div>
+           <span className="text-[9px] md:text-[10px] text-dim font-medium italic opacity-80 truncate">{summarySentence}</span>
+         </div>
+         {opp.score > 85 && (
+           <div className="flex items-center gap-1.5">
+              <Zap size={10} className="text-accent fill-accent animate-pulse" />
+              <span className="text-[8px] font-black uppercase tracking-[0.2em] text-accent">High Authority</span>
+           </div>
+         )}
+      </div>
+      <div className="p-3 md:p-4 grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-5 border-t border-white/5">
+        {/* Panel 1: Timeline & Overlays */}
+        <div className="flex flex-col gap-2.5">
+          <div className="text-[9px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-1.5 px-0.5">
+             <Activity size={10} className="text-accent" /> Timeline & Overlays
+          </div>
+          <div className="bg-surface/50 border border-border rounded-xl p-3 md:p-4 flex items-center justify-center min-h-[180px] md:min-h-[240px] relative overflow-hidden group/viz">
+             <div className="absolute inset-0 opacity-[0.03] pointer-events-none group-hover/viz:opacity-[0.05] transition-opacity" style={{ backgroundImage: 'radial-gradient(var(--color-accent) 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
+             {Array.isArray(opp.ohlc_history) && opp.ohlc_history.length >= 2 ? (
+               <div className="w-full flex flex-col items-center relative z-10">
+                  <CandlestickChart
+                    data={opp.ohlc_history}
+                    height={130}
+                    threshold={threshold}
+                    isLong={isLong}
+                    entryPrice={opp.price}
+                    signals={opp.ohlc_history.filter(d => opp.signalResult?.firedSignals?.includes(d.time))}
+                    decisionMarkers={decisionMarkers}
+                    slPrice={chartSl}
+                  />
+                  <div className="flex justify-between w-full mt-3 md:mt-4 px-1">
+                     <div className="flex flex-col">
+                        <span className="text-[7.5px] md:text-[8px] text-dim uppercase font-black tracking-widest mb-0.5">Entry Level</span>
+                        <span className="text-2xs md:text-xs font-mono font-black text-text/90">${opp.price.toLocaleString()}</span>
+                     </div>
+                     <div className="flex items-center gap-2.5 md:gap-4">
+                        <div className="flex flex-col items-end">
+                          <span className="text-[7.5px] md:text-[8px] text-dim uppercase font-black tracking-widest mb-0.5">Threshold</span>
+                          <span className="text-2xs md:text-xs font-mono font-black text-amber">${(opp.price * (1 + (isLong ? threshold : -threshold) / 100)).toLocaleString()}</span>
+                        </div>
+                        <div className="flex flex-col items-end">
+                          <span className="text-[7.5px] md:text-[8px] text-dim uppercase font-black tracking-widest mb-0.5">Delta</span>
+                          <span className={cn("text-2xs md:text-xs font-mono font-black", isLong ? "text-green" : "text-red")}>
+                            {isLong ? "▲" : "▼"} {Number(Math.abs(opp.pct || 0)).toFixed(2)}%
+                          </span>
+                        </div>
+                     </div>
+                  </div>
+               </div>
+             ) : (
+               <div className="flex flex-col items-center justify-center gap-3 py-3 w-full">
+                  <div className="relative">
+                    <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center shadow-inner">
+                       {hibernating ? <Zap size={20} className="text-amber/40 animate-pulse" /> : <Activity size={20} className="text-dim/20 animate-pulse" />}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-center gap-1">
+                    <div className="text-[9px] text-dim font-black uppercase tracking-[0.2em] animate-pulse text-center leading-none">
+                       {hibernating ? (hibernationMode === 'light' ? 'Light Sleep' : 'Deep Sleep') : scannerPaused ? "Scanner Gated" : "Synchronizing"}
+                    </div>
+                    <p className="text-[8px] text-dim/40 font-bold uppercase tracking-tight text-center leading-none">
+                      {hibernating ? (hibernationMode === 'light' ? "Streams active, telemetry paused" : "Telemetry paused to save CPU") : scannerPaused ? "Awaiting next valid window" : "Establishing authoritative data link..."}
+                    </p>
+                  </div>
+               </div>
+             )}
+          </div>
+        </div>
+
+        {/* Panel 2: Decision Funnel */}
+        <div className="flex flex-col gap-2.5">
+           <div className="text-[9px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-1.5 px-0.5">
+             <LayoutGrid size={10} className="text-accent" /> Decision Funnel
+           </div>
+           <div className="bg-surface/50 border border-border rounded-xl p-3 md:p-4 flex flex-col gap-3 md:gap-4 relative overflow-hidden group/scoring shadow-sm">
+              {/* Score Bars Section */}
+              <div className="grid grid-cols-3 gap-2 pb-3 md:pb-4 border-b border-white/5">
+                 {[
+                   { label: 'Momentum', value: opp.score_breakdown?.momentum, color: 'bg-accent', text: 'text-accent' },
+                   { label: 'Volatility', value: opp.score_breakdown?.volatility, color: 'bg-amber', text: 'text-amber' },
+                   { label: 'Trend', value: opp.score_breakdown?.trend, color: 'bg-purple-400', text: 'text-purple-400' }
+                 ].map((metric) => (
+                  <div key={metric.label} className="space-y-1">
+                    <div className="flex justify-between items-center text-[7.5px] md:text-[8px] font-black uppercase tracking-widest leading-none">
+                       <span className="text-dim/80 truncate mr-1">{metric.label}</span>
+                       <span className={cn(metric.text)}>{Number(metric.value || 0).toFixed(0)}%</span>
+                    </div>
+                    <div className="h-1 bg-background/80 rounded-full overflow-hidden border border-white/5">
+                       <motion.div
+                         initial={{ width: 0 }}
+                         animate={{ width: `${metric.value || 0}%` }}
+                         className={cn("h-full", metric.color)}
+                       />
+                    </div>
+                  </div>
+                 ))}
+              </div>
+
+              {/* Decision path */}
+              <div className="grid grid-cols-1 gap-2">
+                {funnelSteps.map((step) => (
+                  <FunnelStep key={step.label} {...step} />
+                ))}
+              </div>
+
+              {/* Signal Checklist */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                   <div className="text-[9px] font-black text-dim uppercase tracking-widest">Technical Checklist</div>
+                   <div className={cn(
+                     "px-1.5 py-0.2 rounded text-[8px] font-black uppercase tracking-tighter border",
+                     opp.signalResult?.allFired ? "bg-green/10 text-green border-green/20" : "bg-red/10 text-red border-red/20"
+                   )}>
+                      {opp.signalResult?.allFired ? 'All Fired' : 'Awaiting'}
+                   </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <SignalGauge
+                    label="Velocity"
+                    value={Math.abs(opp.pct)}
+                    threshold={threshold}
+                    unit="%"
+                    fired={passing}
+                    active={true}
+                    type="entry"
+                  />
+                  {Object.entries(checklistSignals).map(([key, s]) => (
+                    <SignalGauge
+                      key={key}
+                      label={s.label || key}
+                      value={s.value}
+                      threshold={s.threshold}
+                      unit={s.unit}
+                      fired={s.fired}
+                      active={s.active}
+                      remainingDelay={s.remaining_delay}
+                      configDelay={s.config_delay}
+                      insufficientData={s.insufficientData}
+                      type="entry"
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Final Verdict */}
+              <div className="mt-auto pt-3 md:pt-4 border-t border-white/5 flex items-center justify-between gap-3">
+                 <div className="flex items-center gap-2.5">
+                    <div className={cn(
+                      "w-8 h-8 md:w-9 md:h-9 rounded-lg md:rounded-xl flex items-center justify-center border transition-transform duration-500 shrink-0",
+                      opp.signalResult?.allFired ? "bg-green text-white border-green/30" : "bg-red text-white border-red/30"
+                    )}>
+                      {opp.signalResult?.allFired ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                    </div>
+                    <div className="flex flex-col gap-0.5">
+                       <div className="text-[11px] md:text-xs font-black uppercase tracking-tight leading-none">
+                          {opp.signalResult?.allFired ? 'Signal Authorized' : 'Signal Denied'}
+                       </div>
+                       {!opp.signalResult?.allFired && (
+                         <div className="text-[9px] text-red-400/90 font-bold italic leading-none">
+                            {opp.signalResult?.reason || 'Critical logic mismatch'}
+                         </div>
+                       )}
+                    </div>
+                 </div>
+                 <div className="flex flex-col items-end shrink-0">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                       <span className="text-[8px] text-dim font-black uppercase tracking-[0.2em] leading-none">Composite</span>
+                       <FreshnessIndicator ts={opp.lastUpdate} />
+                    </div>
+                    <div className="flex items-baseline gap-1 leading-none">
+                       <span className={cn("text-lg md:text-xl font-mono font-black tracking-tighter leading-none", opp.score > 85 ? "text-accent" : "text-text")}>
+                          {Number(opp.score || 0).toFixed(1)}
+                       </span>
+                       <span className="text-[8.5px] text-dim font-bold uppercase tracking-widest opacity-40 leading-none">/ 100</span>
+                    </div>
+                 </div>
+              </div>
+           </div>
+        </div>
+      </div>
+    </>
+  );
+});
+ExpandedScannerRowContent.displayName = 'ExpandedScannerRowContent';
+
+const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scannerPaused, hibernating, hibernationMode }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const threshold = config?.scan_pct_threshold || 2.0;
+  const dir = (opp.dir || opp.direction || '').toLowerCase();
+  const isLong = dir ? dir === 'long' : opp.pct >= 0;
+  const passing = Math.abs(opp.pct) >= threshold;
+  const isSingleMonitor = isMonitored;
+
+  const getStatus = () => {
+    if (opp.score > 85 && opp.signalResult?.allFired) return { label: 'Strong Setup', color: 'bg-green/10 text-green border-green/20' };
+    if (opp.signalResult?.allFired) return { label: 'Ready', color: 'bg-accent/10 text-accent border-accent/20' };
+    if (passing) return { label: 'Watching', color: 'bg-amber/10 text-amber border-amber/20' };
+    return { label: 'Waiting', color: 'bg-surface text-dim border-border' };
+  };
+
+  const status = getStatus();
+  const proximity = Number(Math.min(100, (Math.abs(opp.pct || 0) / (threshold || 1)) * 100)).toFixed(0);
+
   // DEBUG: Track telemetry presence in expanded state to identify synchronization gaps
   useEffect(() => {
     if (config?.debug_mode && isExpanded && (!opp.ohlc_history || opp.ohlc_history.length === 0)) {
       console.warn(`[Scanner Debug] Expanded ${opp.symbol} has no telemetry. Gated: ${scannerPaused}, Hibernating: ${hibernating}`);
     }
   }, [isExpanded, opp.symbol, opp.ohlc_history, scannerPaused, hibernating, config?.debug_mode]);
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
@@ -333,191 +528,17 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
               opp.score > 85 && "bg-accent/[0.03] border-l-2 border-accent/40 shadow-[inset_10px_0_20px_-10px_rgba(91,111,255,0.1)]"
             )}
           >
-            <div className="bg-white/5 border-b border-white/5 px-3 md:px-5 py-1.5 flex items-center justify-between gap-2.5">
-               <div className="flex items-center gap-2 md:gap-2.5 min-w-0">
-                 <div className={cn("px-1.5 py-0.2 md:px-2 md:py-0.5 rounded-full text-[7.5px] md:text-[8.5px] font-black uppercase tracking-widest border shadow-sm shrink-0", status.color)}>
-                   {status.label}
-                 </div>
-                 <span className="text-[9px] md:text-[10px] text-dim font-medium italic opacity-80 truncate">{summarySentence}</span>
-               </div>
-               {opp.score > 85 && (
-                 <div className="flex items-center gap-1.5">
-                    <Zap size={10} className="text-accent fill-accent animate-pulse" />
-                    <span className="text-[8px] font-black uppercase tracking-[0.2em] text-accent">High Authority</span>
-                 </div>
-               )}
-            </div>
-            <div className="p-3 md:p-4 grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-5 border-t border-white/5">
-              {/* Panel 1: Timeline & Overlays */}
-              <div className="flex flex-col gap-2.5">
-                <div className="text-[9px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-1.5 px-0.5">
-                   <Activity size={10} className="text-accent" /> Timeline & Overlays
-                </div>
-                <div className="bg-surface/50 border border-border rounded-xl p-3 md:p-4 flex items-center justify-center min-h-[180px] md:min-h-[240px] relative overflow-hidden group/viz">
-                   <div className="absolute inset-0 opacity-[0.03] pointer-events-none group-hover/viz:opacity-[0.05] transition-opacity" style={{ backgroundImage: 'radial-gradient(var(--color-accent) 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
-                   {Array.isArray(opp.ohlc_history) && opp.ohlc_history.length >= 2 ? (
-                     <div className="w-full flex flex-col items-center relative z-10">
-                        <CandlestickChart
-                          data={opp.ohlc_history}
-                          height={130}
-                          threshold={threshold}
-                          isLong={isLong}
-                          entryPrice={opp.price}
-                          signals={opp.ohlc_history.filter(d => signalStatus.firedSignals?.includes(d.time))}
-                          decisionMarkers={decisionMarkers}
-                          slPrice={chartSl}
-                        />
-                        <div className="flex justify-between w-full mt-3 md:mt-4 px-1">
-                           <div className="flex flex-col">
-                              <span className="text-[7.5px] md:text-[8px] text-dim uppercase font-black tracking-widest mb-0.5">Entry Level</span>
-                              <span className="text-2xs md:text-xs font-mono font-black text-text/90">${opp.price.toLocaleString()}</span>
-                           </div>
-                           <div className="flex items-center gap-2.5 md:gap-4">
-                              <div className="flex flex-col items-end">
-                                <span className="text-[7.5px] md:text-[8px] text-dim uppercase font-black tracking-widest mb-0.5">Threshold</span>
-                                <span className="text-2xs md:text-xs font-mono font-black text-amber">${(opp.price * (1 + (isLong ? threshold : -threshold) / 100)).toLocaleString()}</span>
-                              </div>
-                              <div className="flex flex-col items-end">
-                                <span className="text-[7.5px] md:text-[8px] text-dim uppercase font-black tracking-widest mb-0.5">Delta</span>
-                                <span className={cn("text-2xs md:text-xs font-mono font-black", isLong ? "text-green" : "text-red")}>
-                                  {isLong ? "▲" : "▼"} {Number(Math.abs(opp.pct || 0)).toFixed(2)}%
-                                </span>
-                              </div>
-                           </div>
-                        </div>
-                     </div>
-                   ) : (
-                     <div className="flex flex-col items-center justify-center gap-3 py-3 w-full">
-                        <div className="relative">
-                          <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center shadow-inner">
-                             {hibernating ? <Zap size={20} className="text-amber/40 animate-pulse" /> : <Activity size={20} className="text-dim/20 animate-pulse" />}
-                          </div>
-                        </div>
-                        <div className="flex flex-col items-center gap-1">
-                          <div className="text-[9px] text-dim font-black uppercase tracking-[0.2em] animate-pulse text-center leading-none">
-                             {hibernating ? (hibernationMode === 'light' ? 'Light Sleep' : 'Deep Sleep') : scannerPaused ? "Scanner Gated" : "Synchronizing"}
-                          </div>
-                          <p className="text-[8px] text-dim/40 font-bold uppercase tracking-tight text-center leading-none">
-                            {hibernating ? (hibernationMode === 'light' ? "Streams active, telemetry paused" : "Telemetry paused to save CPU") : scannerPaused ? "Awaiting next valid window" : "Establishing authoritative data link..."}
-                          </p>
-                        </div>
-                     </div>
-                   )}
-                </div>
-              </div>
-
-              {/* Panel 2: Decision Funnel */}
-              <div className="flex flex-col gap-2.5">
-                 <div className="text-[9px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-1.5 px-0.5">
-                   <LayoutGrid size={10} className="text-accent" /> Decision Funnel
-                 </div>
-                 <div className="bg-surface/50 border border-border rounded-xl p-3 md:p-4 flex flex-col gap-3 md:gap-4 relative overflow-hidden group/scoring shadow-sm">
-                    {/* Score Bars Section */}
-                    <div className="grid grid-cols-3 gap-2 pb-3 md:pb-4 border-b border-white/5">
-                       {[
-                         { label: 'Momentum', value: opp.score_breakdown?.momentum, color: 'bg-accent', text: 'text-accent' },
-                         { label: 'Volatility', value: opp.score_breakdown?.volatility, color: 'bg-amber', text: 'text-amber' },
-                         { label: 'Trend', value: opp.score_breakdown?.trend, color: 'bg-purple-400', text: 'text-purple-400' }
-                       ].map((metric) => (
-                        <div key={metric.label} className="space-y-1">
-                          <div className="flex justify-between items-center text-[7.5px] md:text-[8px] font-black uppercase tracking-widest leading-none">
-                             <span className="text-dim/80 truncate mr-1">{metric.label}</span>
-                             <span className={cn(metric.text)}>{Number(metric.value || 0).toFixed(0)}%</span>
-                          </div>
-                          <div className="h-1 bg-background/80 rounded-full overflow-hidden border border-white/5">
-                             <motion.div
-                               initial={{ width: 0 }}
-                               animate={{ width: `${metric.value || 0}%` }}
-                               className={cn("h-full", metric.color)}
-                             />
-                          </div>
-                        </div>
-                       ))}
-                    </div>
-
-                    {/* Decision path */}
-                    <div className="grid grid-cols-1 gap-2">
-                      {funnelSteps.map((step) => (
-                        <FunnelStep key={step.label} {...step} />
-                      ))}
-                    </div>
-
-                    {/* Signal Checklist */}
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                         <div className="text-[9px] font-black text-dim uppercase tracking-widest">Technical Checklist</div>
-                         <div className={cn(
-                           "px-1.5 py-0.2 rounded text-[8px] font-black uppercase tracking-tighter border",
-                           opp.signalResult?.allFired ? "bg-green/10 text-green border-green/20" : "bg-red/10 text-red border-red/20"
-                         )}>
-                            {opp.signalResult?.allFired ? 'All Fired' : 'Awaiting'}
-                         </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <SignalGauge
-                          label="Velocity"
-                          value={Math.abs(opp.pct)}
-                          threshold={threshold}
-                          unit="%"
-                          fired={passing}
-                          active={true}
-                          type="entry"
-                        />
-                        {Object.entries(checklistSignals).map(([key, s]) => (
-                          <SignalGauge
-                            key={key}
-                            label={s.label || key}
-                            value={s.value}
-                            threshold={s.threshold}
-                            unit={s.unit}
-                            fired={s.fired}
-                            active={s.active}
-                            remainingDelay={s.remaining_delay}
-                            configDelay={s.config_delay}
-                            insufficientData={s.insufficientData}
-                            type="entry"
-                          />
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Final Verdict */}
-                    <div className="mt-auto pt-3 md:pt-4 border-t border-white/5 flex items-center justify-between gap-3">
-                       <div className="flex items-center gap-2.5">
-                          <div className={cn(
-                            "w-8 h-8 md:w-9 md:h-9 rounded-lg md:rounded-xl flex items-center justify-center border transition-transform duration-500 shrink-0",
-                            opp.signalResult?.allFired ? "bg-green text-white border-green/30" : "bg-red text-white border-red/30"
-                          )}>
-                            {opp.signalResult?.allFired ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
-                          </div>
-                          <div className="flex flex-col gap-0.5">
-                             <div className="text-[11px] md:text-xs font-black uppercase tracking-tight leading-none">
-                                {opp.signalResult?.allFired ? 'Signal Authorized' : 'Signal Denied'}
-                             </div>
-                             {!opp.signalResult?.allFired && (
-                               <div className="text-[9px] text-red-400/90 font-bold italic leading-none">
-                                  {opp.signalResult?.reason || 'Critical logic mismatch'}
-                               </div>
-                             )}
-                          </div>
-                       </div>
-                       <div className="flex flex-col items-end shrink-0">
-                          <div className="flex items-center gap-1.5 mb-0.5">
-                             <span className="text-[8px] text-dim font-black uppercase tracking-[0.2em] leading-none">Composite</span>
-                             <FreshnessIndicator ts={opp.lastUpdate} />
-                          </div>
-                          <div className="flex items-baseline gap-1 leading-none">
-                             <span className={cn("text-lg md:text-xl font-mono font-black tracking-tighter leading-none", opp.score > 85 ? "text-accent" : "text-text")}>
-                                {Number(opp.score || 0).toFixed(1)}
-                             </span>
-                             <span className="text-[8.5px] text-dim font-bold uppercase tracking-widest opacity-40 leading-none">/ 100</span>
-                          </div>
-                       </div>
-                    </div>
-                 </div>
-              </div>
-            </div>
+            <ExpandedScannerRowContent
+              opp={opp}
+              config={config}
+              isLong={isLong}
+              passing={passing}
+              threshold={threshold}
+              status={status}
+              scannerPaused={scannerPaused}
+              hibernating={hibernating}
+              hibernationMode={hibernationMode}
+            />
           </motion.div>
         )}
       </AnimatePresence>

@@ -129,23 +129,36 @@ const buildAuthoritativeMarkers = (ohlc = [], signalResult = {}) => {
   return markers;
 };
 
-const FunnelStep = React.memo(({ label, detail, complete, icon: Icon }) => (
-  <div className={cn(
-    "relative flex items-start gap-3 rounded-2xl border p-3 transition-colors",
-    complete ? "bg-green/5 border-green/20" : "bg-background/30 border-border/70"
-  )}>
-    <div className={cn(
-      "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border",
-      complete ? "bg-green/10 border-green/30 text-green" : "bg-surface border-border text-dim"
-    )}>
-      <Icon size={15} />
+const DecisionPipeline = React.memo(({ steps }) => {
+  return (
+    <div className="flex items-center justify-between gap-1.5 bg-background/25 border border-border/40 rounded-xl p-2">
+      {steps.map((step, idx) => {
+        const Icon = step.icon;
+        const isLast = idx === steps.length - 1;
+        return (
+          <React.Fragment key={step.label}>
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+              <div className={cn(
+                "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[9px] leading-none font-bold",
+                step.complete ? "bg-green/10 border-green/30 text-green" : "bg-surface border-border text-dim"
+              )}>
+                <Icon size={10} />
+              </div>
+              <div className="min-w-0 leading-none">
+                <div className="text-[8px] font-black uppercase tracking-wider text-text/90 truncate">{step.label}</div>
+                <div className="text-[7.5px] font-semibold text-dim truncate mt-0.5" title={step.detail}>{step.detail}</div>
+              </div>
+            </div>
+            {!isLast && (
+              <div className="h-3 w-px bg-border/40 shrink-0 mx-1" />
+            )}
+          </React.Fragment>
+        );
+      })}
     </div>
-    <div className="min-w-0">
-      <div className="text-[10px] font-black uppercase tracking-[0.18em] text-text/90">{label}</div>
-      <div className="mt-1 text-[10px] font-semibold leading-snug text-dim">{detail}</div>
-    </div>
-  </div>
-));
+  );
+});
+DecisionPipeline.displayName = 'DecisionPipeline';
 
 const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, threshold, status, scannerPaused, hibernating, hibernationMode }) => {
   useResourceFocus('scanner_symbol', opp.symbol);
@@ -220,6 +233,7 @@ const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, th
                     signals={opp.ohlc_history.filter(d => opp.signalResult?.firedSignals?.includes(d.time))}
                     decisionMarkers={decisionMarkers}
                     slPrice={chartSl}
+                    showOscillator={false}
                   />
                   <div className="flex justify-between w-full mt-3 md:mt-4 px-1">
                      <div className="flex flex-col">
@@ -265,20 +279,20 @@ const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, th
            <div className="text-[9px] text-dim font-black uppercase tracking-[0.2em] flex items-center gap-1.5 px-0.5">
              <LayoutGrid size={10} className="text-accent" /> Decision Funnel
            </div>
-           <div className="bg-surface/50 border border-border rounded-xl p-3 md:p-4 flex flex-col gap-3 md:gap-4 relative overflow-hidden group/scoring shadow-sm">
+                 <div className="bg-surface/50 border border-border rounded-xl p-3 md:p-4 flex flex-col gap-2.5 md:gap-3 relative overflow-hidden group/scoring shadow-sm">
               {/* Score Bars Section */}
-              <div className="grid grid-cols-3 gap-2 pb-3 md:pb-4 border-b border-white/5">
+                    <div className="grid grid-cols-3 gap-3 pb-2 border-b border-white/5">
                  {[
                    { label: 'Momentum', value: opp.score_breakdown?.momentum, color: 'bg-accent', text: 'text-accent' },
                    { label: 'Volatility', value: opp.score_breakdown?.volatility, color: 'bg-amber', text: 'text-amber' },
                    { label: 'Trend', value: opp.score_breakdown?.trend, color: 'bg-purple-400', text: 'text-purple-400' }
                  ].map((metric) => (
-                  <div key={metric.label} className="space-y-1">
-                    <div className="flex justify-between items-center text-[7.5px] md:text-[8px] font-black uppercase tracking-widest leading-none">
+                        <div key={metric.label} className="space-y-0.5">
+                          <div className="flex justify-between items-center text-[7.5px] font-black uppercase tracking-wider leading-none">
                        <span className="text-dim/80 truncate mr-1">{metric.label}</span>
                        <span className={cn(metric.text)}>{Number(metric.value || 0).toFixed(0)}%</span>
                     </div>
-                    <div className="h-1 bg-background/80 rounded-full overflow-hidden border border-white/5">
+                          <div className="h-0.5 bg-background/80 rounded-full overflow-hidden">
                        <motion.div
                          initial={{ width: 0 }}
                          animate={{ width: `${metric.value || 0}%` }}
@@ -290,14 +304,10 @@ const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, th
               </div>
 
               {/* Decision path */}
-              <div className="grid grid-cols-1 gap-2">
-                {funnelSteps.map((step) => (
-                  <FunnelStep key={step.label} {...step} />
-                ))}
-              </div>
+                    <DecisionPipeline steps={funnelSteps} />
 
               {/* Signal Checklist */}
-              <div className="space-y-3">
+                    <div className="space-y-2.5">
                 <div className="flex items-center justify-between">
                    <div className="text-[9px] font-black text-dim uppercase tracking-widest">Technical Checklist</div>
                    <div className={cn(

@@ -7,7 +7,7 @@ import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { formatDuration } from '../lib/formatters'
 import { motion, AnimatePresence } from 'framer-motion'
-import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap, BarChart3, LineChart, Target, Trash2, Search, XCircle, Info } from 'lucide-react'
+import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, Zap, BarChart3, LineChart, Target, Trash2, Search, XCircle, Info, AlertTriangle } from 'lucide-react'
 
 import { Sidebar, BottomNav } from '../components/Navigation'
 import { lazyWithRetry } from '../lib/lazy'

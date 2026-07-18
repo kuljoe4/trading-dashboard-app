@@ -482,6 +482,7 @@ export class SessionLifecycleService {
         if (this.sessionState.config?.paper_mode) {
           this.sessionState.balancePaper = nb;
         }
+        const prevBalance = this.sessionState.lastExchangeBalance;
         this.sessionState.lastExchangeBalance = nb;
         this.sessionState.lastUdsBalanceUpdate = Date.now();
 
@@ -498,7 +499,12 @@ export class SessionLifecycleService {
         }
 
         // Broadcast balance update to frontend
-        this.broadcastService.broadcast('balance_update', { balance: nb });
+        // BOLT/Eco: Only egress when the balance actually changed. ACCOUNT_UPDATE fires per
+        // fill and can include a USDT entry even when nothing materially changed for this
+        // asset, so avoid needless frontend broadcasts (consistent with the eco/egress policy).
+        if (bc !== 0 || nb !== prevBalance) {
+          this.broadcastService.broadcast('balance_update', { balance: nb });
+        }
 
         // CHRONOS: Handle Authoritative Funding Fee Attribution
         // When reason is FUNDING_FEE, the 'bc' field contains the net funding impact.
@@ -613,11 +619,14 @@ export class SessionLifecycleService {
           if (trade) {
             const tradeIdShort8 = (trade.id || "N/A").substring(0, 8);
 
-            // If the trade has an active SL order, it is highly likely the zero-amount update
-            // is due to an SL hit, and the ORDER_TRADE_UPDATE is arriving concurrently.
-            // We schedule a short delay to let the richer, flag-correct ORDER_TRADE_UPDATE execute first.
-            const hasStopOrder = !!trade.binance_stop_order_id;
-            const delayMs = hasStopOrder ? 100 : 0;
+            // CHRONOS/Race: When a position hits zero on exchange, an SL hit (with an attached
+            // stop order) usually arrives its ORDER_TRADE_UPDATE slightly AFTER the
+            // ACCOUNT_UPDATE. We delay the zero-weight reconciliation briefly to let the richer,
+            // flag-correct ORDER_TRADE_UPDATE execute first and provide an authoritative fill
+            // price. Previously this was a fixed 100ms guess and trades WITHOUT a stop order got
+            // 0ms, reintroducing the race. We now use a modest, named-constant delay uniformly so
+            // any concurrent order-fill + zero-position event is reconciled after the UDS settles.
+            const delayMs = ENGINE_CONSTANTS.UDS_ZERO_POSITION_DELAY_MS;
 
             const executeSyncClose = () => {
               if (!this.running) return;

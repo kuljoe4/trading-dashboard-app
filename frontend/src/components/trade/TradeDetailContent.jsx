@@ -113,31 +113,29 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
   const isLong = trade.direction === 'LONG'
   const entryPrice = Number(trade.entry_price || 0)
   const qty = Number(trade.qty || 0)
-  const riskUsdt = Number(trade.risk_usdt || trade.initial_risk_usdt || 0)
+  const riskUsdt = Number(trade.risk_usdt ?? trade.initial_risk_usdt ?? 0)
 
   // Sort entries by proximity (triggerProgress descending)
   const entries = useMemo(() => {
     return Object.entries(status || {}).map(([key, s]) => {
       const value = Number(s.value) || 0;
       const threshold = Number(s.threshold) || 1;
-      let progress = s.distPct !== undefined ? s.distPct : 0;
+      let progress = 0;
 
-      if (progress === 0) {
-        if (s.fired && s.active) {
-          progress = 100;
-        } else if (s.threshold_is_price && threshold !== entryPrice) {
-          // Robust Proximity: (Mark - Entry) / (Target - Entry)
-          const totalDist = threshold - entryPrice;
-          const currentDist = mark - entryPrice;
-          progress = Math.max(0, Math.min(100, (currentDist / totalDist) * 100));
+      if (s.fired && s.active) {
+        progress = 100;
+      } else if (s.threshold_is_price && threshold !== entryPrice) {
+        // Robust Proximity: (Mark - Entry) / (Target - Entry)
+        const totalDist = threshold - entryPrice;
+        const currentDist = mark - entryPrice;
+        progress = Math.max(0, Math.min(100, (currentDist / totalDist) * 100));
+      } else {
+        // Direction-aware proximity check for indicators
+        const hasOppositeSign = (value > 0 && threshold < 0) || (value < 0 && threshold > 0);
+        if (hasOppositeSign) {
+          progress = 0;
         } else {
-          // Direction-aware proximity check for indicators
-          const hasOppositeSign = (value > 0 && threshold < 0) || (value < 0 && threshold > 0);
-          if (hasOppositeSign) {
-            progress = 0;
-          } else {
-            progress = Math.max(0, Math.min(100, (Math.abs(value) / Math.abs(threshold)) * 100));
-          }
+          progress = Math.max(0, Math.min(100, (Math.abs(value) / Math.abs(threshold)) * 100));
         }
       }
       return [key, { ...s, progress }];
@@ -311,6 +309,11 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       let rawDistPct = 0;
       if (s.fired) {
         rawDistPct = 100;
+      } else if (s.threshold_is_price && entry !== 0 && threshold !== entry) {
+        // Robust Proximity: (Mark - Entry) / (Target - Entry)
+        const totalDist = threshold - entry;
+        const currentDist = mark - entry;
+        rawDistPct = (currentDist / totalDist) * 100;
       } else if (threshold !== 0) {
         const hasOppositeSign = (value > 0 && threshold < 0) || (value < 0 && threshold > 0);
         if (hasOppositeSign) {

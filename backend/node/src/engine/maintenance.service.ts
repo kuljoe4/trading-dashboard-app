@@ -275,7 +275,16 @@ export class MaintenanceService {
               continue;
             }
             this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} missing SL. Re-placing...`);
-            await this.orderManager.placeStopLoss(trade, trade.current_sl);
+            // SRE: Never re-arm with a zeroed/non-positive SL price. If local current_sl is 0
+            // (e.g. adopted/synthetic trade without a valid baseline), derive a real protective
+            // SL from entry_price and the session sl_distance_pct so placeStopLoss receives a
+            // valid price instead of a 0 that would be silently clamped to the band edge.
+            const slDistPct = tradeConfig?.sl_distance_pct || 2.0;
+            const fallbackSl = trade.direction === 'LONG'
+              ? trade.entry_price * (1 - slDistPct / 100)
+              : trade.entry_price * (1 + slDistPct / 100);
+            const reArmPrice = trade.current_sl > 0 ? trade.current_sl : fallbackSl;
+            await this.orderManager.placeStopLoss(trade, reArmPrice);
             trade.updated_at = new Date();
           } else {
             // SRE: Quantity Parity Audit. Ensure the exchange SL matches the real position quantity.

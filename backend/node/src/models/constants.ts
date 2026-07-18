@@ -67,6 +67,11 @@ export const ENGINE_CONSTANTS = {
   SPARKLINE_HISTORY_LEN: 20,
   WS_RECONNECT_DELAY_MS: 2000,
   WS_HANDSHAKE_TIMEOUT_MS: 15000,
+  // CHRONOS: Grace window (ms) applied before scheduling zero-weight position reconciliation
+  // when a position reaches 0 on exchange. This lets a concurrently-arriving ORDER_TRADE_UPDATE
+  // (with the authoritative fill price) execute first. Applied uniformly to all trades (not
+  // just those with a stop order) to avoid re-introducing the SL/ACCOUNT_UPDATE race.
+  UDS_ZERO_POSITION_DELAY_MS: 300,
   REST_BACKFILL_LIMIT: 200,
   USER_DATA_POLL_INTERVAL_MS: 30000,
   WS_HEARTBEAT_INTERVAL_MS: 30000,

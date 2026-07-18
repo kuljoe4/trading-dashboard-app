@@ -2213,7 +2213,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
            <div className="flex gap-1.5 items-center">
              <Tooltip content="Copy Configuration to Clipboard">
                <CopyButton
-                  value={JSON.stringify(buildConfigToSave(), null, 2)}
+                  getValue={() => JSON.stringify(buildConfigToSave(), null, 2)}
                   className="w-9 h-9 flex items-center justify-center border border-border rounded-lg hover:bg-white/5 transition-all"
                />
              </Tooltip>

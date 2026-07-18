@@ -78,6 +78,16 @@ export class OrderFilterService {
               }
             } else {
               const deviation = Math.abs(finalPrice - markPrice) / markPrice;
+
+              // SRE: A non-positive stop-loss / take-profit price is NEVER valid on Binance.
+              // Silently "proceeding with filtered price" when the stop is 0 masks a real bug
+              // (e.g. a zeroed entry_price/current_sl or a missing price feed) and lets a broken
+              // order into the pipeline. Reject hard so the caller cannot place it.
+              if (finalPrice <= 0) {
+                this.logger.error(`${symbol}: CRITICAL - SL/TP price ${finalPrice} is non-positive (Mark: ${markPrice}). Rejecting order.`);
+                return { price: 0, qty: 0 };
+              }
+
               if (deviation > 0.1) {
                 this.logger.warn(`${symbol}: SL/TP Price ${finalPrice} significantly far from Mark (${(deviation * 100).toFixed(2)}%). Proceeding with filtered price.`);
               }

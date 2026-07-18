@@ -9,7 +9,7 @@ const DEFAULT_LOG_FILTERS = { info: true, warn: true, error: true };
 
 const getObjectSource = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
 
-export const normalizeOpportunity = (o = {}) => {
+export const normalizeOpportunity = (o = {}, prev = null) => {
   if (!o || typeof o !== 'object') return null;
   const source = getObjectSource(o);
   const m = toNumber(source.pct ?? source.momentum ?? source.percent_change);
@@ -79,6 +79,30 @@ export const normalizeOpportunity = (o = {}) => {
     console.warn(`[Normalization Warning] ${res.symbol}: Condition satisfied but firedSignals is empty. Check backend signal detail resolution.`);
   }
 
+  // BOLT OPTIMIZATION: fingerprint-gated reference reuse.
+  // Scanner broadcasts arrive more frequently than trade ticks, and the previous implementation
+  // allocated a brand-new object on every broadcast, defeating React.memo on ScannerRow. We now
+  // compute a cheap fingerprint over the display-relevant fields and reuse the previous object
+  // reference when nothing meaningful changed, so unchanged rows skip re-rendering.
+  // history/ohlc_history/score_breakdown/signalResult are intentionally NOT in the fingerprint:
+  // they are slow-changing telemetry retained from the previous object when the new payload omits
+  // them (gated/partial updates), exactly like normalizeTrade's _fingerprint retention.
+  const sig = res.signalResult;
+  const sigDigest = sig ? `${sig.allFired ? 1 : 0}|${(sig.firedSignals || []).join(',')}|${sig.reason}` : '';
+  const sb = res.score_breakdown;
+  const sbDigest = sb ? `${sb.momentum}:${sb.volatility}:${sb.trend}` : '';
+  const f = `${res.symbol}:${res.pct}:${res.momentum}:${res.dir}:${res.vol}:${res.score}:${res.price}:${res.volume_rank}:${sbDigest}:${sigDigest}`;
+  if (prev && prev._fingerprint === f && !o._delta && !o._thin) {
+    return prev;
+  }
+
+  res._fingerprint = f;
+  if (prev) {
+    if (!res.history || res.history.length === 0) res.history = prev.history;
+    if (!res.ohlc_history || res.ohlc_history.length === 0) res.ohlc_history = prev.ohlc_history;
+    if (!res.score_breakdown) res.score_breakdown = prev.score_breakdown;
+    if (!res.signalResult) res.signalResult = prev.signalResult;
+  }
   return res;
 }
 
@@ -670,10 +694,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           return {
             isSyncingOnResume: false,
             scannerResults: (d.opportunities || []).map(o => {
-              const n = normalizeOpportunity(o);
+              const sym = String(o.symbol || '').replace(/[^A-Z0-9]/gi, '').substring(0, 20);
+              const p = prevMap.get(sym);
+              const n = normalizeOpportunity(o, p);
               if (!n) return null;
-              const p = prevMap.get(n.symbol);
-              if (!p) return n;
+              if (n === p) return p; // unchanged: reuse previous reference so React.memo bails out
 
               // BOLT: Aggressive data retention. Preserve telemetry and breakdowns across gated updates.
               return {
@@ -687,10 +712,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             variantScannerResults: d.variant_opportunities ? d.variant_opportunities.reduce((acc, v) => {
               const prevOppMap = new Map((st.variantScannerResults[v.strategy_label] || []).map(r => [r.symbol, r]));
               acc[v.strategy_label] = v.opportunities.map(o => {
-                const n = normalizeOpportunity(o);
+                const sym = String(o.symbol || '').replace(/[^A-Z0-9]/gi, '').substring(0, 20);
+                const p = prevOppMap.get(sym);
+                const n = normalizeOpportunity(o, p);
                 if (!n) return null;
-                const p = prevOppMap.get(n.symbol);
-                if (!p) return n;
+                if (n === p) return p; // unchanged: reuse previous reference so React.memo bails out
                 return {
                   ...n,
                   history: (n.history && n.history.length > 0) ? n.history : p.history,

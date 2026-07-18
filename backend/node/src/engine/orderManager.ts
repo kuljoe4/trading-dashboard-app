@@ -2309,6 +2309,78 @@ export class OrderManagerService {
     return { isValid: true };
   }
 
+  /**
+   * CHRONOS/Resilience: Aggressive LIMIT-inside-band fallback for positions that cannot be
+   * closed via MARKET order because the price is outside Binance's PERCENT_PRICE protection
+   * bands (structurally illiquid). Places a reduce-only IOC LIMIT order clamped inside the
+   * exchange bands. Shared by:
+   *   (a) the PERCENT_PRICE catch inside closeTrade's MARKET-close path, and
+   *   (b) the illiquid_blocked shortcut at the top of closeTrade.
+   *
+   * Enforces the close-attempt ceiling internally: once attempts are exhausted the trade is
+   * escalated to `close_blocked` (requiring manual intervention) instead of burning more orders.
+   *
+   * Returns true if a LIMIT order was attempted (regardless of fill), false if the ceiling was
+   * already reached and the call was escalated to close_blocked instead.
+   */
+  private async attemptAggressiveLimitClose(symbol: string, trade: Trade, exitPrice: number): Promise<boolean> {
+    const MAX_CLOSE_ATTEMPTS = 5;
+
+    // CIRCUIT: If the attempt ceiling is reached, escalate to close_blocked and stop trying.
+    if (trade.close_attempts && trade.close_attempts >= MAX_CLOSE_ATTEMPTS) {
+      trade.close_blocked = true;
+      const blockMsg = `CRITICAL: ${symbol} close attempt ceiling reached. Automated closes are now BLOCKED for this symbol. To unblock, please manual close or sync on Binance.`;
+      this.logger.error(blockMsg);
+      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: blockMsg, level: 'error' });
+      this.eventEmitter.emit(ENGINE_EVENTS.ALERT, { level: 'error', title: 'Close Blocked', message: blockMsg });
+      return false;
+    }
+
+    if (!this.binanceClient) return false;
+
+    this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `CRITICAL: ${symbol} close failed (Price Protection). Attempting aggressive LIMIT fallback.`, level: 'warn' });
+
+    try {
+      const ticker = this.tickerCache.getTicker(symbol);
+      const limitPrice = ticker?.mark_price || ticker?.price || exitPrice;
+      const filteredLimit = this.applyFilters(symbol, limitPrice, trade.qty, {
+        priceRounding: trade.direction === 'LONG' ? 'floor' : 'ceil',
+        clampToPercentPrice: true // Ensure LIMIT is inside exchange bands
+      });
+
+      const filters = this.marketFeed.getSymbolFilters(symbol);
+      // BOLT OPTIMIZATION: Use pre-parsed precision
+      const limitQtyPrecision = filters?.qtyPrecision ?? 8;
+
+      const clientOrderId = `cls-lim-${trade.id.replace(/-/g, '').substring(0, 16)}`;
+      const limitResponse = await this.binanceClient.restAPI.newOrder({
+        symbol,
+        side: trade.direction === 'LONG' ? 'SELL' : 'BUY',
+        type: 'LIMIT',
+        quantity: Number(filteredLimit.qty || 0).toFixed(limitQtyPrecision),
+        price: Number(filteredLimit.price || 0).toFixed(8),
+        timeInForce: 'IOC',
+        reduceOnly: true,
+        newClientOrderId: clientOrderId
+      } as any);
+
+      const limitData = (await limitResponse.data()) as BinanceOrderReceipt;
+      if (limitData.orderId) {
+        this.logger.log(`Aggressive LIMIT fallback for ${symbol} successful: ${limitData.orderId} | Executed Qty: ${limitData.executedQty || 0}`);
+        trade.binance_close_order_id = String(limitData.orderId);
+        // SRE: Gate flag clear on executedQty > 0 to avoid clearing flag on zero-fill IOC.
+        const execQty = parseFloat(limitData.executedQty || '0');
+        if (execQty > 0) {
+          trade.illiquid_blocked = false;
+        }
+      }
+      return true;
+    } catch (limitErr) {
+      this.logger.error(`Aggressive LIMIT fallback failed for ${symbol}: ${limitErr instanceof Error ? limitErr.message : String(limitErr)}`);
+      return true;
+    }
+  }
+
   async closeTrade(
     symbol: string,
     trade: Trade,
@@ -2335,18 +2407,14 @@ export class OrderManagerService {
          return { trade, exitOccurred: false, closeBlocked: true };
       }
 
-      // CHRONOS: Routing for illiquid positions. If a symbol is structurally illiquid,
-      // we skip the MARKET attempt and go straight to the aggressive LIMIT fallback.
-      if (trade.illiquid_blocked && !localOnly && !options.ignoreBlocked) {
-         this.logger.warn(`[${symbol}] Routing illiquid position directly to LIMIT fallback.`);
-         throw new Error('PERCENT_PRICE'); // Trigger catch block for fallback routing
-      }
-
       if (!paperMode && this.checkCircuitBreaker()) {
          this.logger.warn(`[${symbol}] Circuit breaker is open. Proceeding with emergency close despite systemic failures.`);
       }
 
       // Structural Close Attempt Throttling & Backoff
+      // BOLT/CHRONOS: Computed up-front (before the illiquid shortcut below) so that
+      // already-illiquid positions also respect the exponential backoff and do not spam
+      // exchange requests on every close attempt.
       const nowTs = Date.now();
       const attempts = trade.close_attempts || 0;
       const lastAttempt = trade.last_close_attempt_ts || 0;
@@ -2369,6 +2437,23 @@ export class OrderManagerService {
       // even if the subsequent logic fails or returns early.
       if (!paperMode && !localOnly) {
          trade.last_close_attempt_ts = nowTs;
+      }
+
+      // CHRONOS: Routing for illiquid positions. If a symbol is structurally illiquid,
+      // we skip the MARKET attempt and route directly to the aggressive LIMIT fallback.
+      // Previously this rerouted via a synthetic `throw new Error('PERCENT_PRICE')`, but that
+      // throw fired OUTSIDE the MARKET-close try/catch, so it propagated to the outer catch and
+      // silently returned exitOccurred:false without ever placing the LIMIT order. We now invoke
+      // the LIMIT fallback directly so an already-illiquid position actively retries closure
+      // (the watchdog still escalates to a nuclear close after 15 min, and the attempt ceiling is
+      // enforced inside the fallback).
+      if (trade.illiquid_blocked && !localOnly && !options.ignoreBlocked) {
+         this.logger.warn(`[${symbol}] Routing illiquid position directly to aggressive LIMIT fallback.`);
+         await this.attemptAggressiveLimitClose(symbol, trade, exitPrice);
+         this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+         // The LIMIT may still be filling via UDS; we do not synchronously finalize closure here,
+         // consistent with the PERCENT_PRICE catch path which also defers finalization.
+         return { trade, exitOccurred: false };
       }
 
       // BOLT: Authoritative Price Recovery. If this is an external closure (localOnly) or we lack a price,
@@ -2775,53 +2860,10 @@ export class OrderManagerService {
                trade.illiquid_blocked = true;
                this.eventEmitter.emit(ENGINE_EVENTS.ALERT, { level: 'error', title: 'Illiquid Blocked', message: `${symbol}: Position is illiquid (price outside Binance protection bands). Manual intervention on Binance is required to close.` });
 
-               if (trade.close_attempts && trade.close_attempts >= MAX_CLOSE_ATTEMPTS) {
-                  trade.close_blocked = true;
-                  const blockMsg = `CRITICAL: ${symbol} close attempt ceiling reached. Automated closes are now BLOCKED for this symbol. To unblock, please manual close or sync on Binance.`;
-                  this.logger.error(blockMsg);
-                  this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: blockMsg, level: 'error' });
-                  this.eventEmitter.emit(ENGINE_EVENTS.ALERT, { level: 'error', title: 'Close Blocked', message: blockMsg });
-               } else {
-                  this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `CRITICAL: ${symbol} close failed (Price Protection). Attempting aggressive LIMIT fallback.`, level: 'warn' });
-
-                  try {
-                    const ticker = this.tickerCache.getTicker(symbol);
-                    const limitPrice = ticker?.mark_price || ticker?.price || exitPrice;
-                    const filteredLimit = this.applyFilters(symbol, limitPrice, trade.qty, {
-                      priceRounding: trade.direction === 'LONG' ? 'floor' : 'ceil',
-                      clampToPercentPrice: true // Ensure LIMIT is inside exchange bands
-                    });
-
-                    const filters = this.marketFeed.getSymbolFilters(symbol);
-                    // BOLT OPTIMIZATION: Use pre-parsed precision
-                    const limitQtyPrecision = filters?.qtyPrecision ?? 8;
-
-                    const clientOrderId = `cls-lim-${trade.id.replace(/-/g, '').substring(0, 16)}`;
-                    const limitResponse = await this.binanceClient.restAPI.newOrder({
-                      symbol,
-                      side: trade.direction === 'LONG' ? 'SELL' : 'BUY',
-                      type: 'LIMIT',
-                      quantity: Number(filteredLimit.qty || 0).toFixed(limitQtyPrecision),
-                      price: Number(filteredLimit.price || 0).toFixed(8),
-                      timeInForce: 'IOC',
-                      reduceOnly: true,
-                      newClientOrderId: clientOrderId
-                    } as any);
-
-                    const limitData = (await limitResponse.data()) as BinanceOrderReceipt;
-                    if (limitData.orderId) {
-                      this.logger.log(`Aggressive LIMIT fallback for ${symbol} successful: ${limitData.orderId} | Executed Qty: ${limitData.executedQty || 0}`);
-                      trade.binance_close_order_id = String(limitData.orderId);
-                      // SRE: Gate flag clear on executedQty > 0 to avoid clearing flag on zero-fill IOC.
-                      const execQty = parseFloat(limitData.executedQty || '0');
-                      if (execQty > 0) {
-                        trade.illiquid_blocked = false;
-                      }
-                    }
-                  } catch (limitErr) {
-                    this.logger.error(`Aggressive LIMIT fallback failed for ${symbol}: ${limitErr instanceof Error ? limitErr.message : String(limitErr)}`);
-                  }
-               }
+               // CHRONOS: Route into the shared aggressive LIMIT fallback. This enforces the
+               // attempt ceiling internally (escalating to close_blocked when exhausted) and is
+               // the same code path used by the illiquid_blocked shortcut at the top of closeTrade.
+               await this.attemptAggressiveLimitClose(symbol, trade, exitPrice);
 
                this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
                throw err;

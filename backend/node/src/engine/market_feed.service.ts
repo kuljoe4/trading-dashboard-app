@@ -754,7 +754,20 @@ export class MarketFeedService {
         ? 'wss://fstream.binancefuture.com/stream'
         : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
 
-    const topics = ['!miniTicker@arr', '!markPrice@arr@1s'];
+    // RAW DISCOVERY FALLBACK (Citadel Protocol 2026): When the primary global aggregate streams
+    // (!miniTicker@arr / !markPrice@arr) are starved for this IP range, subscribe instead to
+    // individual symbol-scoped miniTicker/markPrice streams built from the candidate set we
+    // already know (config.symbols + active trades + the REST-seeded TickerCache top volume).
+    // This is a genuinely different subscription set (not the all-symbol broadcast) and avoids
+    // the starved aggregate path. The REST seed (seedMarketDataFromRest) still keeps the full
+    // candidate pool populated so the scanner can discover new symbols.
+    let topics: string[];
+    if (this.forceRawDiscovery && !isTestnet) {
+      topics = this.buildRawDiscoveryTopics();
+      this.logger.warn(`[MarketFeed] RAW discovery fallback active: subscribing to ${topics.length} symbol-scoped streams (aggregate stream starved).`);
+    } else {
+      topics = ['!miniTicker@arr', '!markPrice@arr@1s'];
+    }
 
     // Testnet still serves the SUBSCRIBE method on /stream, so keep method-based there.
     // Live must carry streams in the connection URL (?streams=...).
@@ -779,6 +792,47 @@ export class MarketFeedService {
     this._globalDiscoveryConfirmed = false;
   }
 
+  /**
+   * Builds the symbol-scoped discovery topic list used by the RAW discovery fallback.
+   * Instead of the global `!miniTicker@arr` / `!markPrice@arr` broadcast (which can be starved
+   * for certain IP ranges), we subscribe to individual `<symbol>@miniTicker` and
+   * `<symbol>@markPrice@1s` streams for the symbols we already know about. The candidate pool is
+   * config.symbols + currently active trades + the top-volume symbols from the REST-seeded
+   * TickerCache, so real-time prices for the scanner's working set stay fresh even when the
+   * aggregate stream is dead. Falls back to the aggregate stream if we somehow know zero symbols.
+   */
+  private buildRawDiscoveryTopics(): string[] {
+    const symbols = new Set<string>();
+    const cfg = this.currentConfig;
+
+    if (cfg?.symbols && Array.isArray(cfg.symbols)) {
+      for (const s of cfg.symbols) symbols.add(String(s).toLowerCase());
+    }
+    for (const t of this.sessionState.activeTrades) {
+      if (t && t.symbol) symbols.add(t.symbol.toLowerCase());
+    }
+    try {
+      const top = this.tickerCache.topByVolume(200, (cfg?.excluded_symbols as string[]) || []);
+      for (const tk of top) {
+        if (tk && tk.symbol) symbols.add(tk.symbol.toLowerCase());
+      }
+    } catch {
+      // TickerCache may be empty during very early startup; rely on the REST seed instead.
+    }
+
+    if (symbols.size === 0) {
+      // Nothing known yet: fall back to the aggregate stream so we can still discover symbols.
+      return ['!miniTicker@arr', '!markPrice@arr@1s'];
+    }
+
+    const topics: string[] = [];
+    for (const s of symbols) {
+      topics.push(`${s}@miniTicker`);
+      topics.push(`${s}@markPrice@1s`);
+    }
+    return topics;
+  }
+
   private async stopGlobalDiscovery() {
     for (const manager of this.discoveryManagers.values()) {
         await manager.stop();
@@ -796,8 +850,9 @@ export class MarketFeedService {
       const stream = msg.stream || defaultStream || '';
       const payload = msg.data || msg;
 
-      // Health tracking for discovery streams (Aggregate streams start with '!' or contain '@arr')
-      if (stream.startsWith('!') || stream.includes('@arr')) {
+      // Health tracking for discovery streams (Aggregate streams start with '!' or contain '@arr'.
+      // Symbol-scoped raw-discovery streams (@miniTicker / @markPrice) are also treated as live.)
+      if (stream.startsWith('!') || stream.includes('@arr') || stream.includes('@miniTicker') || stream.includes('@markPrice')) {
           this._globalDiscoveryConfirmed = true;
           this.consecutiveDiscoveryFailures = 0;
           if (!this.hasEverReceivedData) {
@@ -831,6 +886,12 @@ export class MarketFeedService {
         const tickers: any[] = Array.isArray(payload) ? payload : [];
         if (tickers.length > 0) {
           this.tickerCache.bulkUpdate(tickers);
+        }
+      } else if (stream.includes('@miniTicker')) {
+        // Symbol-scoped miniTicker (RAW discovery fallback). Payload is a single ticker object.
+        this.lastMiniTickerMsgTs = Date.now();
+        if (payload && (payload.s || payload.symbol)) {
+          this.tickerCache.updateTicker(payload.s || payload.symbol, payload.c, payload.q, payload.o);
         }
       } else if (stream.includes('!markPrice@arr')) {
         this.lastMarkTickerMsgTs = Date.now();

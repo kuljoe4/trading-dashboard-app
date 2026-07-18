@@ -230,6 +230,11 @@ export class PositionTrackerService {
         targetSl = trade.entry_price - risk * exitRr;
       }
 
+      if (targetSl <= 0) {
+        this.logger.debug(`[RrSequence] Derived target SL ${targetSl} for ${symbol} is non-positive. Skipping adjustment.`);
+        return;
+      }
+
       // DATA-07: Ensure the target SL is filtered/rounded to exchange tick size BEFORE comparison.
       // This prevents infinite cancel-replace loops caused by precision mismatches between
       // internal float math (e.g. 0.1886835) and exchange tick sizes (e.g. 0.1887).
@@ -680,6 +685,11 @@ export class PositionTrackerService {
       prospectiveSl = currentPrice - distance;
     } else {
       prospectiveSl = currentPrice + distance;
+    }
+
+    if (prospectiveSl <= 0) {
+      this.logger.debug(`[TrailingStop] Prospective SL ${prospectiveSl} for ${symbol} is non-positive. Skipping trailing stop update.`);
+      return;
     }
 
     const filtered = this.orderManager.applyFilters(symbol, prospectiveSl, trade.qty, {

@@ -133,8 +133,8 @@ describe('Chronos: Startup Race Condition Protection', () => {
     // It should schedule and NOT emit immediately because hasStopOrder is true
     expect(emitSpy).not.toHaveBeenCalledWith(ENGINE_EVENTS.EXCHANGE_CLOSE, expect.any(Object));
 
-    // Fast-forward time by 100ms
-    jest.advanceTimersByTime(100);
+    // Fast-forward time by 300ms (matching UDS_ZERO_POSITION_DELAY_MS)
+    jest.advanceTimersByTime(300);
 
     // Now it should have executed and emitted EXCHANGE_CLOSE
     expect(emitSpy).toHaveBeenCalledWith(ENGINE_EVENTS.EXCHANGE_CLOSE, expect.objectContaining({
@@ -178,11 +178,11 @@ describe('Chronos: Startup Race Condition Protection', () => {
     // Trigger handleAccountUpdate
     sessionLifecycleService.handleAccountUpdate(accountUpdate as any);
 
-    // Now, before the 100ms delay finishes, simulate that the trade started closing
+    // Now, before the delay finishes, simulate that the trade started closing
     isClosingSpy.mockReturnValue(true);
 
-    // Fast-forward time by 100ms
-    jest.advanceTimersByTime(100);
+    // Fast-forward time by 300ms (matching UDS_ZERO_POSITION_DELAY_MS)
+    jest.advanceTimersByTime(300);
 
     // It should have skipped emitting EXCHANGE_CLOSE
     expect(emitSpy).not.toHaveBeenCalledWith(ENGINE_EVENTS.EXCHANGE_CLOSE, expect.any(Object));

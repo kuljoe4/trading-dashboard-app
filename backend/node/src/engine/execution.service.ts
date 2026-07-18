@@ -248,6 +248,11 @@ export class ExecutionService {
         }
 
         let slPrice = slResult.slPrice;
+        if (slPrice <= 0) {
+           this.logger.warn(`${opp.symbol}: Skip entry opportunity - computed SL price ${slPrice} is non-positive.`);
+           continue;
+        }
+
         const slFiltered = this.orderManager.applyFilters(opp.symbol, slPrice, 1, {
           priceRounding: opp.direction.toUpperCase() === 'LONG' ? 'floor' : 'ceil',
           skipNotionalCheck: true
@@ -279,6 +284,11 @@ export class ExecutionService {
         }
         const qty = sizeResult.qty;
         const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig);
+
+        if (tpPrice !== null && tpPrice <= 0) {
+           this.logger.warn(`${opp.symbol}: Skip entry opportunity - computed TP price ${tpPrice} is non-positive.`);
+           continue;
+        }
 
         const prospectiveRiskUsdt = Math.abs(price - slPrice) * qty;
         const prospectiveRiskPct = balance > 0 ? (prospectiveRiskUsdt / balance) * 100 : 0;

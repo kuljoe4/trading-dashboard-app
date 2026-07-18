@@ -113,6 +113,7 @@ describe('Chronos: PnL and Balance Integrity', () => {
         { broadcast: jest.fn() },
         { findOne: jest.fn(), update: jest.fn() }
       );
+      sessionState.activeTrades = [trade];
       realLifecycle.handleAccountUpdate(accountUpdate);
 
       expect(sessionState.balanceLive).toBe(1010);

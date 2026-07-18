@@ -27,7 +27,7 @@ import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { ENGINE_EVENTS } from './events';
 import { Trade } from '../models/Trade';
 
-describe('Option A - Local PnL Fallback and UDS Synchronization Integrity', () => {
+describe('Option A - Local PnL Fallback and UDS Integration Test Suite', () => {
   let tradingSessionService: TradingSessionService;
   let sessionLifecycleService: SessionLifecycleService;
   let sessionState: SessionStateService;
@@ -128,8 +128,8 @@ describe('Option A - Local PnL Fallback and UDS Synchronization Integrity', () =
       { findOne: jest.fn(), update: jest.fn() }
     );
 
-    // Mock activeTrades to contain this trade so handleAccountUpdate adds it to udsConfirmedClosedTrades
-    sessionState.activeTrades = [trade];
+    // Add trade to closedTrades so realLifecycle.handleAccountUpdate marks it as udsConfirmedClosedTrades
+    sessionState.closedTrades = [trade];
     realLifecycle.handleAccountUpdate(accountUpdate as any);
 
     // Assert absolute balance is set
@@ -144,7 +144,7 @@ describe('Option A - Local PnL Fallback and UDS Synchronization Integrity', () =
     expect(sessionState.balanceLive).toBe(1015);
   });
 
-  it('should handle state recovery if UDS ACCOUNT_UPDATE arrives second, overwriting the fallback accurately', async () => {
+  it('should handle state recovery if UDS ACCOUNT_UPDATE arrives second, authoritatively overwriting the fallback and self-correcting minor fee/commission drift', async () => {
     const trade = {
       id: 'trade-race-uds-second',
       symbol: 'BTCUSDT',
@@ -159,12 +159,12 @@ describe('Option A - Local PnL Fallback and UDS Synchronization Integrity', () =
     await tradingSessionService.handleTradeUpdate({ trade });
     expect(sessionState.balanceLive).toBe(1020);
 
-    // 2. ACCOUNT_UPDATE arrives second, setting the authoritative balance to 1020
+    // 2. ACCOUNT_UPDATE arrives second, setting the authoritative balance to 1018 (e.g. after subtraction of 2.0 USDT fee/commissions)
     const accountUpdate = {
       e: 'ACCOUNT_UPDATE',
       a: {
         m: 'ORDER',
-        B: [{ a: 'USDT', wb: '1020' }],
+        B: [{ a: 'USDT', wb: '1018' }],
         P: []
       }
     };
@@ -182,9 +182,39 @@ describe('Option A - Local PnL Fallback and UDS Synchronization Integrity', () =
       { findOne: jest.fn(), update: jest.fn() }
     );
 
+    sessionState.closedTrades = [trade];
     realLifecycle.handleAccountUpdate(accountUpdate as any);
 
-    // Assert: Authoritative exchange balance is set and trade is added to confirmed list
-    expect(sessionState.balanceLive).toBe(1020);
+    // Assert: Authoritative exchange balance overwrites the local fallback completely, correcting any drift!
+    expect(sessionState.balanceLive).toBe(1018);
+    expect(sessionState.udsConfirmedClosedTrades.has(trade.id)).toBe(true);
+  });
+
+  it('should clear udsConfirmedClosedTrades and localTradePnLAdjustments on rollbackTradeClosure', async () => {
+    const trade = {
+      id: 'trade-to-rollback',
+      symbol: 'BTCUSDT',
+      pnl: 10,
+      status: 'CLOSED_SIGNAL'
+    } as Trade;
+
+    sessionState.balanceLive = 1000;
+    (tradingSessionService as any).appliedPnL.set(trade.id, 0);
+
+    // 1. Close trade locally to trigger local PnL Fallback
+    await tradingSessionService.handleTradeUpdate({ trade });
+    expect(sessionState.balanceLive).toBe(1010);
+    expect(sessionState.localTradePnLAdjustments.get(trade.id)).toBe(10);
+
+    // 2. Simulate UDS arrival marking it as confirmed
+    sessionState.udsConfirmedClosedTrades.add(trade.id);
+
+    // 3. Trigger rollback (e.g. from OrderManager failure)
+    await (tradingSessionService as any).rollbackTradeClosure(trade, 1000, 1000, 0);
+
+    // Assert: State is restored and tracking collections are cleaned up
+    expect(sessionState.balanceLive).toBe(1000);
+    expect(sessionState.udsConfirmedClosedTrades.has(trade.id)).toBe(false);
+    expect(sessionState.localTradePnLAdjustments.has(trade.id)).toBe(false);
   });
 });

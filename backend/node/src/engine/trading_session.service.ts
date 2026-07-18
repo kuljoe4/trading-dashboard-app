@@ -462,16 +462,19 @@ export class TradingSessionService implements OnApplicationShutdown {
           this.sessionState.balancePaper + pnlDelta,
         );
       } else {
-        // Option A: Local PnL Fallback
-        const udsAlreadyApplied = this.sessionState.udsConfirmedClosedTrades.has(trade.id) ||
-          (Date.now() - this.sessionState.lastUdsBalanceUpdate < 1000);
+        // HYBRID PNL MODEL fallback (Option A):
+        // Rather than skipping delta application entirely, we apply a temporary, fee-approximate
+        // local estimate to balanceLive to bridge the latency gap until the absolute UDS event arrives.
+        // Once UDS ACCOUNT_UPDATE absolute balance is received, it authoritatively overwrites balanceLive,
+        // correcting any minor fee/commission drift. To prevent double-counting, we guard with udsConfirmedClosedTrades.
+        const udsAlreadyApplied = this.sessionState.udsConfirmedClosedTrades.has(trade.id);
         if (udsAlreadyApplied) {
           this.logger.debug(
             `[PnL Integrity] UDS ACCOUNT_UPDATE already arrived and set absolute balance for ${trade.symbol}. Skipping local fallback delta.`,
           );
         } else {
           this.logger.log(
-            `[PnL Integrity] Applying local fallback PnL delta of ${pnlDelta} to balanceLive for ${trade.symbol} (UDS pending).`,
+            `[PnL Integrity] Applying temporary local fallback PnL delta (fee-approximate) of ${pnlDelta} to balanceLive for ${trade.symbol} (UDS pending).`,
           );
           this.sessionState.balanceLive = roundEight(
             this.sessionState.balanceLive + pnlDelta,
@@ -971,16 +974,19 @@ export class TradingSessionService implements OnApplicationShutdown {
       if (pnlDelta !== 0) {
         this.appliedPnL.set(t.id, totalPnl);
 
-        // Option A: Local PnL Fallback
-        const udsAlreadyApplied = this.sessionState.udsConfirmedClosedTrades.has(t.id) ||
-          (Date.now() - this.sessionState.lastUdsBalanceUpdate < 1000);
+        // HYBRID PNL MODEL fallback (Option A):
+        // Rather than skipping delta application entirely, we apply a temporary, fee-approximate
+        // local estimate to balanceLive to bridge the latency gap until the absolute UDS event arrives.
+        // Once UDS ACCOUNT_UPDATE absolute balance is received, it authoritatively overwrites balanceLive,
+        // correcting any minor fee/commission drift. To prevent double-counting, we guard with udsConfirmedClosedTrades.
+        const udsAlreadyApplied = this.sessionState.udsConfirmedClosedTrades.has(t.id);
         if (udsAlreadyApplied) {
           this.logger.debug(
             `[PnL Integrity] UDS ACCOUNT_UPDATE already arrived and set absolute balance for ${t.symbol}. Skipping local fallback delta.`,
           );
         } else {
           this.logger.log(
-            `[PnL Integrity] Applying local fallback PnL delta of ${pnlDelta} to balanceLive for ${t.symbol} (UDS pending).`,
+            `[PnL Integrity] Applying temporary local fallback PnL delta (fee-approximate) of ${pnlDelta} to balanceLive for ${t.symbol} (UDS pending).`,
           );
           this.sessionState.balanceLive = roundEight(
             this.sessionState.balanceLive + pnlDelta,
@@ -1028,6 +1034,8 @@ export class TradingSessionService implements OnApplicationShutdown {
     this.sessionState.balancePaper = pp;
     this.sessionState.balanceLive = pl;
     this.appliedPnL.set(t.id, pa);
+    this.sessionState.udsConfirmedClosedTrades.delete(t.id);
+    this.sessionState.localTradePnLAdjustments.delete(t.id);
     this.sessionState.rollbackClosedTrade(t);
     t.status = "OPEN";
     this.positionTracker.addTrade(t);

@@ -2621,9 +2621,13 @@ export class OrderManagerService {
                 }
 
                 if (msg.includes('ReduceOnly') || msg.includes('conflict') || msg.includes('-2022') || msg.includes('side does not match')) {
-                   this.logger.warn(`[${symbol}] MARKET close conflicted (ReduceOnly). Executing exhaustive symbol flush and retrying (Attempt ${closeAttempts})...`);
-                   await this.exhaustiveSymbolFlush(symbol);
-                   continue;
+                   if (closeAttempts < MAX_INTERNAL_CLOSE_ATTEMPTS) {
+                      this.logger.warn(`[${symbol}] MARKET close conflicted (ReduceOnly). Executing exhaustive symbol flush and retrying (Attempt ${closeAttempts})...`);
+                      await this.exhaustiveSymbolFlush(symbol);
+                      continue;
+                   } else {
+                      this.logger.warn(`[${symbol}] MARKET close conflicted (ReduceOnly) on final attempt ${closeAttempts}. Propagating to outer Sync Recovery.`);
+                   }
                 }
 
                 throw new Error(msg);
@@ -2656,9 +2660,13 @@ export class OrderManagerService {
               }
 
               if (errMsg.includes('ReduceOnly') || errMsg.includes('-2022') || errMsg.includes('side does not match')) {
-                 this.logger.warn(`[${symbol}] MARKET close exception (ReduceOnly). Executing exhaustive symbol flush and retrying (Attempt ${closeAttempts})...`);
-                 await this.exhaustiveSymbolFlush(symbol);
-                 continue;
+                 if (closeAttempts < MAX_INTERNAL_CLOSE_ATTEMPTS) {
+                    this.logger.warn(`[${symbol}] MARKET close exception (ReduceOnly). Executing exhaustive symbol flush and retrying (Attempt ${closeAttempts})...`);
+                    await this.exhaustiveSymbolFlush(symbol);
+                    continue;
+                 } else {
+                    this.logger.warn(`[${symbol}] MARKET close exception (ReduceOnly) on final attempt ${closeAttempts}. Propagating to outer Sync Recovery.`);
+                 }
               }
 
               throw err;

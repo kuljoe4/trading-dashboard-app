@@ -17,6 +17,11 @@ export class TickerCacheService {
   private readonly TOP_VOLUME_CACHE_TTL_MS = 60000;
   private readonly TOP_VOLUME_CACHE_MAX_KEYS = 12;
 
+  // BOLT OPTIMIZATION: Read-only array cache of ticker values to prevent O(N) Array.from allocations.
+  // Since tickers are updated in-place (reference mutation), the cached array elements are always correct.
+  // We only invalidate the cache when a brand new symbol (a new key) is added to the tickers Map.
+  private latestTickersCache: Ticker[] | null = null;
+
   /**
    * BOLT OPTIMIZATION: Optimized to use object reuse and avoid redundant parseFloat.
    * Reduces GC pressure by avoiding ~18,000 object allocations per minute in the hot loop.
@@ -76,6 +81,7 @@ export class TickerCacheService {
         volume_24h: (v !== undefined && !Number.isNaN(v)) ? v : 0,
         open_24h: (o !== undefined && !Number.isNaN(o) && o > 0) ? o : undefined,
       });
+      this.latestTickersCache = null; // Invalidate cache on new symbol addition
     }
   }
 
@@ -94,7 +100,10 @@ export class TickerCacheService {
   }
 
   getLatestTickers(): Ticker[] {
-    return Array.from(this.tickers.values());
+    if (!this.latestTickersCache) {
+      this.latestTickersCache = Array.from(this.tickers.values());
+    }
+    return this.latestTickersCache;
   }
 
   getCacheSize(): number {
@@ -112,7 +121,7 @@ export class TickerCacheService {
     }
 
     const excludedSet = excluded.length > 0 ? new Set(excluded) : null;
-    const all = Array.from(this.tickers.values());
+    const all = this.getLatestTickers();
     this.logger.verbose(`topByVolume requested ${n} symbols. Cache size: ${all.length}. Cache miss - recomputing.`);
 
     const result = all
@@ -139,6 +148,7 @@ export class TickerCacheService {
   clear() {
     this.tickers.clear();
     this._topByVolumeCache = {};
+    this.latestTickersCache = null; // Invalidate cache on clear
     this.logger.verbose('TickerCache cleared');
   }
 }

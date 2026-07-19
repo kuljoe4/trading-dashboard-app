@@ -420,6 +420,175 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) 
 })
 SavePresetInput.displayName = 'SavePresetInput'
 
+const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const [rangeFilter, setRangeFilter] = useState('all'); // 'all' | 'pos' | 'neg' | 'high_mover' | 'extreme'
+  const scannerResults = useTradingStore(state => state.scannerResults || []);
+
+  const filteredOptions = useMemo(() => {
+    const safeResults = Array.isArray(scannerResults) ? scannerResults : [];
+
+    // Sort all opportunities by 24h change pct descending
+    const sorted = [...safeResults].sort((a, b) => (b.pct || 0) - (a.pct || 0));
+
+    return sorted.filter(opp => {
+      if (!opp || !opp.symbol) return false;
+
+      const matchesSearch = opp.symbol.toLowerCase().includes(searchTerm.toLowerCase());
+      if (!matchesSearch) return false;
+
+      if (rangeFilter === 'pos') {
+        return (opp.pct || 0) > 0;
+      }
+      if (rangeFilter === 'neg') {
+        return (opp.pct || 0) < 0;
+      }
+      if (rangeFilter === 'high_mover') {
+        return Math.abs(opp.pct || 0) >= 2.0;
+      }
+      if (rangeFilter === 'extreme') {
+        return Math.abs(opp.pct || 0) >= 5.0;
+      }
+
+      return true;
+    });
+  }, [scannerResults, searchTerm, rangeFilter]);
+
+  const handleSelect = (symbol) => {
+    if (symbol && !value.includes(symbol)) {
+      onChange([...value, symbol]);
+    }
+    setSearchTerm('');
+    setIsOpen(false);
+  };
+
+  const handleRemove = (symbol) => {
+    onChange(value.filter(s => s !== symbol));
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col md:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-dim/40" />
+          <input
+            type="text"
+            placeholder="Search symbol to add... (e.g. BTCUSDT)"
+            value={searchTerm}
+            onFocus={() => setIsOpen(true)}
+            onChange={(e) => { setSearchTerm(e.target.value.toUpperCase()); setIsOpen(true); }}
+            className="w-full bg-surface border border-border rounded-xl pl-10 pr-10 py-3 text-sm font-mono focus:border-accent outline-none hover:border-border-hover transition-colors"
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => setSearchTerm('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-1.5 items-center bg-background/40 p-1.5 rounded-xl border border-border/40">
+          <span className="text-[9px] font-black text-dim uppercase tracking-wider px-1.5">Filters:</span>
+          {[
+            { id: 'all', label: 'All' },
+            { id: 'pos', label: 'Positive' },
+            { id: 'neg', label: 'Negative' },
+            { id: 'high_mover', label: 'Movers >2%' },
+            { id: 'extreme', label: 'Extreme >5%' }
+          ].map(f => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => { setRangeFilter(f.id); setIsOpen(true); }}
+              className={cn(
+                "px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                rangeFilter === f.id
+                  ? "bg-accent/15 border border-accent/30 text-accent font-black"
+                  : "bg-surface/50 border border-border/30 text-dim hover:text-text"
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="relative bg-surface border border-border rounded-xl shadow-xl z-50 max-h-60 overflow-y-auto no-scrollbar"
+          >
+            {filteredOptions.length === 0 ? (
+              <div className="p-4 text-center text-xs text-dim">No matching symbols found</div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-1 p-2">
+                {filteredOptions.map(opp => {
+                  const isSelected = value.includes(opp.symbol);
+                  const isPos = opp.pct >= 0;
+                  return (
+                    <button
+                      key={opp.symbol}
+                      type="button"
+                      disabled={isSelected}
+                      onClick={() => handleSelect(opp.symbol)}
+                      className={cn(
+                        "flex justify-between items-center px-3 py-2 rounded-lg text-xs font-mono border transition-all text-left focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                        isSelected
+                          ? "bg-white/5 border-border/30 text-dim/40 cursor-not-allowed"
+                          : "bg-background/20 border-border/30 hover:border-accent/40 hover:bg-white/5 text-text"
+                      )}
+                    >
+                      <span className="font-bold">{opp.symbol}</span>
+                      <span className={cn(
+                        "text-[10px] font-bold",
+                        isSelected ? "text-dim/30" : isPos ? "text-green" : "text-red"
+                      )}>
+                        {isPos ? '+' : ''}{Number(opp.pct || 0).toFixed(2)}%
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="flex flex-wrap gap-2 mt-4">
+        {value.length === 0 ? (
+          <p className="text-[10px] text-dim/40 font-bold uppercase tracking-widest p-4 border border-dashed border-border/40 rounded-xl w-full text-center">
+            No symbols in Static Watchlist (Global discovery will be used)
+          </p>
+        ) : (
+          value.map((sym, i) => {
+            const opp = scannerResults.find(r => r?.symbol === sym);
+            const pctText = opp ? ` (${(opp.pct >= 0 ? '+' : '') + Number(opp.pct).toFixed(2)}%)` : '';
+            return (
+              <Chip
+                key={sym}
+                active
+                activeClass="bg-accent/10 border-accent/40 text-accent font-bold"
+                aria-label={`Remove ${sym}`}
+                onClick={() => handleRemove(sym)}
+              >
+                {sym}{pctText} <X size={10} className="inline ml-1" />
+              </Chip>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+});
+WatchlistDropdownInput.displayName = 'WatchlistDropdownInput';
+
 const ListInput = React.memo(({ value, onChange, placeholder }) => {
   const [localValue, setLocalValue] = useState(() => value?.join(', ') || '');
 
@@ -1387,7 +1556,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             </CollapsibleSection>
 
             <CollapsibleSection id="scan_watchlist" icon={Plus} title="Static Watchlist" subtitle="Rank only these symbols">
-              <ListInput placeholder="BTCUSDT, ETHUSDT, SOLUSDT..." value={cfg.symbols} onChange={(val) => setField('symbols', val)} />
+              <div className="space-y-4">
+                <WatchlistDropdownInput value={cfg.symbols || []} onChange={(val) => setField('symbols', val)} />
+                <div className="pt-4 border-t border-border/40">
+                  <span className="text-[10px] font-black text-dim uppercase tracking-wider mb-2 block">Edit Comma-Separated List (Advanced)</span>
+                  <ListInput placeholder="BTCUSDT, ETHUSDT, SOLUSDT..." value={cfg.symbols} onChange={(val) => setField('symbols', val)} />
+                </div>
+              </div>
             </CollapsibleSection>
 
             <CollapsibleSection id="scan_exclusion" icon={XCircle} title="Exclusion List" subtitle="Symbols to never trade">

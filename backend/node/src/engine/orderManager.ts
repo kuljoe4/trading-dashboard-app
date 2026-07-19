@@ -327,6 +327,7 @@ export class OrderManagerService {
              (trade.binance_stop_order_id === orderId) ||
              (order.cp === true) ||
              (order.ot === 'LIQUIDATION') ||
+             (order.ot === 'STOP' || order.ot === 'STOP_MARKET' || order.ot === 'TRAILING_STOP_MARKET') ||
              (clientOrderId && (clientOrderId.startsWith('cls-') || clientOrderId.startsWith('tp-') || clientOrderId.startsWith('sig-') || clientOrderId.startsWith('sl-')));
 
            if (status === 'FILLED' || status === 'PARTIALLY_FILLED') {
@@ -2146,6 +2147,20 @@ export class OrderManagerService {
     try {
       let orderId = targetOrderId;
 
+      // If no orderId provided, check if the trade has an active stop loss order we can query
+      if (!orderId && trade.binance_stop_order_id) {
+         try {
+            const stopOrderRes = await this.binanceClient.restAPI.queryOrder({ symbol, orderId: BigInt(trade.binance_stop_order_id) });
+            const stopOrderData = (await stopOrderRes.data()) as BinanceOrderReceipt;
+            if (stopOrderData && (stopOrderData.status === 'FILLED' || stopOrderData.status === 'PARTIALLY_FILLED')) {
+               orderId = trade.binance_stop_order_id;
+               this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] [Sync] Found filled tracked stop-loss order ${orderId} on exchange. Using for recovery.`);
+            }
+         } catch (e) {
+            this.logger.debug(`[${(trade.id || 'N/A').substring(0, 8)}] [Sync] Failed to query stop order ${trade.binance_stop_order_id}: ${e instanceof Error ? e.message : String(e)}`);
+         }
+      }
+
       // If no orderId provided, try to find the most recent one in trade history
       if (!orderId) {
         const tradesRes = await this.binanceClient.restAPI.accountTradeList({ symbol, limit: 10 });
@@ -2819,6 +2834,11 @@ export class OrderManagerService {
 
                if (positionAmt === 0) {
                   this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] Confirmed: ${symbol} position is already zero on exchange (Amt: ${positionAmt}). Triggering Sync Recovery.`);
+
+                  // Forcing liquidation when there's no position on the exchange should be treated as a successful closure
+                  // without re-sending any stop-loss orders to the exchange.
+                  closeSuccess = true;
+
                   const context = await this.recoverClosingContext(symbol, trade, exitPrice);
                   exitPrice = context.price;
 

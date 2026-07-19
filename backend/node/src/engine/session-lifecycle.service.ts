@@ -811,6 +811,7 @@ export class SessionLifecycleService {
           }
 
           if (data.e === "ACCOUNT_UPDATE" && data.a) {
+            this.logger.log(`[UDS] Successfully received and processing ACCOUNT_UPDATE event (Reason: ${data.a.m}).`);
             if (this.isBuffering) {
               this.logger.debug(
                 `[Chronos] Buffering ACCOUNT_UPDATE event (Reason: ${data.a.m})`,
@@ -820,6 +821,7 @@ export class SessionLifecycleService {
               this.handleAccountUpdate(data);
             }
           } else if (data.e === "ORDER_TRADE_UPDATE") {
+            this.logger.log(`[UDS] Successfully received and processing ORDER_TRADE_UPDATE event for ${data.o?.s} (Status: ${data.o?.X}, ExecutionType: ${data.o?.x}).`);
             if (this.isBuffering) {
               this.logger.debug(
                 `[Chronos] Buffering ORDER_TRADE_UPDATE event for ${data.o?.s}`,

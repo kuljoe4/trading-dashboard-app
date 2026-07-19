@@ -347,6 +347,15 @@ export class PositionTrackerService {
     if ((trade.direction === 'LONG' && currentPrice <= trade.current_sl) ||
         (trade.direction === 'SHORT' && currentPrice >= trade.current_sl)) {
 
+      // CHRONOS: In Live mode, if the stop loss order is already active on the exchange,
+      // we must let the exchange execute it authoritatively rather than racing a local market order against it.
+      // We only allow local exit trigger if we are in paper mode, OR if the trade lacks an active stop loss order ID.
+      const isPaper = config.paper_mode ?? true;
+      if (!isPaper && trade.binance_stop_order_id) {
+        this.logger.debug(`[Chronos] ${symbol} price reached SL (${currentPrice} vs ${trade.current_sl}), but exchange-side SL order ${trade.binance_stop_order_id} is active. Skipping local exit to let exchange execute.`);
+        return null;
+      }
+
       const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
       trade.exit_signal_type = 'STOP_LOSS';
       trade.exit_signal_reason = `${slType}: Price ${currentPrice} reached SL ${trade.current_sl}`;

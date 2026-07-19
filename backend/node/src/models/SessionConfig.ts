@@ -148,9 +148,9 @@ export class SessionConfig {
   })
   signal_params?: Record<string, any>;
 
-  @IsEnum(['range', 'body', 'strict', 'close_range', 'close_body'])
+  @IsEnum(['range', 'body', 'strict', 'close_range', 'close_body', 'soft_range', 'soft_body'])
   @IsOptional()
-  engulfing_mode?: 'range' | 'body' | 'strict' | 'close_range' | 'close_body' = 'range';
+  engulfing_mode?: 'range' | 'body' | 'strict' | 'close_range' | 'close_body' | 'soft_range' | 'soft_body' = 'range';
 
   @IsEnum(['is_opportunity', 'after_opportunity'])
   @IsOptional()

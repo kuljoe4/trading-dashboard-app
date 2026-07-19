@@ -216,7 +216,7 @@ export class BinanceClientFactory implements OnModuleInit {
             return ws as any;
         }
 
-        this.logger.debug(`[BinanceClient] Routing WS connection to gateway: ${gatewayURL} | isPrivate=${isPrivate} | isHF=${isHF} | stream=${params.stream?.substring(0, 30)}...`);
+        this.logger.log(`[BinanceClient] Routing WS connection to gateway: ${gatewayURL} | isPrivate=${isPrivate} | isHF=${isHF} | stream=${params.stream?.substring(0, 30)}...`);
 
         const originalWsURL = (client.websocketStreams as any).wsURL;
         (client.websocketStreams as any).wsURL = gatewayURL;

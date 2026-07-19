@@ -10,6 +10,49 @@ import { SignalGauge } from '../ui/SignalGauge'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ConfirmationModal } from '../ConfirmationModal'
 
+const calculateProximity = (signal, mark, entryPrice) => {
+  if (!signal) return 0;
+
+  const value = Number(signal.value);
+  const threshold = Number(signal.threshold);
+  const entry = Number(entryPrice);
+  const currentMark = Number(mark);
+
+  if (signal.insufficientData) {
+    return 0;
+  }
+
+  // A signal is fully fired/triggered if both fired and active are true (active defaults to true)
+  const isActive = signal.active !== false;
+  if (signal.fired && isActive) {
+    return 100;
+  }
+
+  // Handle price-based signals
+  if (signal.threshold_is_price) {
+    if (entry === 0 || threshold === 0 || threshold === entry) {
+      return 0;
+    }
+    const totalDist = threshold - entry;
+    const currentDist = currentMark - entry;
+    const progress = (currentDist / totalDist) * 100;
+    return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(100, progress)) : 0;
+  }
+
+  // Handle indicator-based signals
+  if (threshold === 0) {
+    return 0;
+  }
+
+  const hasOppositeSign = (value > 0 && threshold < 0) || (value < 0 && threshold > 0);
+  if (hasOppositeSign) {
+    return 0;
+  }
+
+  const progress = (Math.abs(value) / Math.abs(threshold)) * 100;
+  return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(100, progress)) : 0;
+};
+
 const Metric = memo(({ label, value }) => (
   <div className="flex flex-col gap-1.5 group/metric">
     <div className="flex items-center gap-1">
@@ -118,26 +161,7 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
   // Sort entries by proximity (triggerProgress descending)
   const entries = useMemo(() => {
     return Object.entries(status || {}).map(([key, s]) => {
-      const value = Number(s.value) || 0;
-      const threshold = Number(s.threshold) || 1;
-      let progress = 0;
-
-      if (s.fired && s.active) {
-        progress = 100;
-      } else if (s.threshold_is_price && threshold !== entryPrice) {
-        // Robust Proximity: (Mark - Entry) / (Target - Entry)
-        const totalDist = threshold - entryPrice;
-        const currentDist = mark - entryPrice;
-        progress = Math.max(0, Math.min(100, (currentDist / totalDist) * 100));
-      } else {
-        // Direction-aware proximity check for indicators
-        const hasOppositeSign = (value > 0 && threshold < 0) || (value < 0 && threshold > 0);
-        if (hasOppositeSign) {
-          progress = 0;
-        } else {
-          progress = Math.max(0, Math.min(100, (Math.abs(value) / Math.abs(threshold)) * 100));
-        }
-      }
+      const progress = calculateProximity(s, mark, entryPrice);
       return [key, { ...s, progress }];
     }).sort((a, b) => b[1].progress - a[1].progress);
   }, [status, mark, isLong, entryPrice]);
@@ -299,30 +323,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
     // Enhanced Exit Signals with proximity
     const exitSignals = trade.exit_signals_status || {}
     const enhancedExitSignals = Object.entries(exitSignals).reduce((acc, [key, s]) => {
-      const value = Number(s.value) || 0
-      const threshold = Number(s.threshold) || 1
-
-      // Proximity should represent how "filled" the condition is.
-      // If value is 0 and threshold is 10, distPct should be 0.
-      // If value is 10 and threshold is 10, distPct should be 100.
-      // DIRECTION-AWARE: If value and threshold have opposite signs (opposite momentum direction), proximity is 0.
-      let rawDistPct = 0;
-      if (s.fired) {
-        rawDistPct = 100;
-      } else if (s.threshold_is_price && entry !== 0 && threshold !== entry) {
-        // Robust Proximity: (Mark - Entry) / (Target - Entry)
-        const totalDist = threshold - entry;
-        const currentDist = mark - entry;
-        rawDistPct = (currentDist / totalDist) * 100;
-      } else if (threshold !== 0) {
-        const hasOppositeSign = (value > 0 && threshold < 0) || (value < 0 && threshold > 0);
-        if (hasOppositeSign) {
-          rawDistPct = 0;
-        } else {
-          rawDistPct = (Math.abs(value) / Math.abs(threshold)) * 100;
-        }
-      }
-      const distPct = s.insufficientData ? 0 : Math.min(100, Math.max(0, rawDistPct))
+      const distPct = calculateProximity(s, mark, entry);
 
       acc[key] = {
         ...s,

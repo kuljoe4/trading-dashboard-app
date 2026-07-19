@@ -89,6 +89,32 @@ describe('OrderManagerService - PnL Consistency', () => {
       headers: { get: (k: string) => (k === 'X-MBX-USED-WEIGHT-1M' ? '10' : null) }
     });
 
+    mockBinanceClient.restAPI.accountTradeList = jest.fn().mockResolvedValue({
+      data: () => Promise.resolve([
+        {
+          symbol: 'BTCUSDT',
+          orderId: '987654',
+          side: 'SELL',
+          price: '49500.00',
+          qty: '0.1',
+          time: Date.now() - 1000,
+        },
+      ]),
+      headers: {},
+    });
+
+    mockBinanceClient.restAPI.queryOrder = jest.fn().mockResolvedValue({
+      data: () => Promise.resolve({
+        orderId: 987654,
+        avgPrice: '49500.00',
+        type: 'STOP_MARKET',
+        clientOrderId: 'sl-order',
+        status: 'FILLED',
+        stopPrice: '49000.00',
+      }),
+      headers: {},
+    });
+
     const result = await service.closeTrade('BTCUSDT', trade, exitPrice, 'SL_HIT', false);
 
     expect(result.exitOccurred).toBe(true);

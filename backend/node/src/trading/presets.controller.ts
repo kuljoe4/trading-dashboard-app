@@ -103,6 +103,10 @@ export class PresetsController {
     ) {
       throw new BadRequestException("Invalid preset name format or length");
     }
+    // SEC-SENTINEL: Validate input pattern to prevent directory traversal or malicious character attacks
+    if (!/^[a-zA-Z0-9_\s.\-]+$/.test(name)) {
+      throw new BadRequestException("Invalid characters in preset name");
+    }
     const clientIp =
       req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
 

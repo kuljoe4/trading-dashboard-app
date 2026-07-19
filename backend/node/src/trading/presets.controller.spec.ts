@@ -136,5 +136,45 @@ describe("PresetsController", () => {
         BadRequestException,
       );
     });
+
+    it("should throw BadRequestException if preset name contains invalid characters", async () => {
+      const req = { ip: "127.0.0.1", headers: {} } as any;
+      const maliciousNames = [
+        "../test",
+        "test; DROP TABLE StrategyPreset;",
+        "test<script>alert(1)</script>",
+        "test\0",
+        "test/../../"
+      ];
+      for (const name of maliciousNames) {
+        await expect(controller.deletePreset(name, req)).rejects.toThrow(
+          BadRequestException,
+        );
+      }
+    });
+  });
+
+  describe("CreateStrategyPresetDto Validation", () => {
+    const { validate } = require("class-validator");
+    const { CreateStrategyPresetDto } = require("./dto/strategy-preset.dto");
+
+    it("should fail validation if preset name has invalid characters", async () => {
+      const dto = new CreateStrategyPresetDto();
+      dto.name = "malicious<script>";
+      dto.config = new SessionConfig();
+
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0].constraints).toHaveProperty("matches");
+    });
+
+    it("should pass validation if preset name is valid", async () => {
+      const dto = new CreateStrategyPresetDto();
+      dto.name = "Valid Preset Name - 1.2";
+      dto.config = new SessionConfig();
+
+      const errors = await validate(dto);
+      expect(errors.length).toBe(0);
+    });
   });
 });

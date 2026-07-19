@@ -76,14 +76,6 @@
 **Action:** Prioritize synchronous signatures for all in-memory technical analysis and risk evaluation logic. Reserved 'async' only for I/O bound operations like database persistence or external API calls.
 ## 2026-05-27 - [Aggressive Eco Mode] **Learning:** Unwatched background loops and global market streams are the primary drivers of Railway egress and CPU cost. **Action:** Implement dynamic loop throttling (ECO-MODE) and conditional market feed skipping based on listener counts.
 
-## 2024-05-27 - [Optimization] Memoized Strategy Joins
-**Learning:** Re-calculating strategy-specific data (PnL, filtered trades) inside a main view's render loop bypasses 'React.memo' optimizations on child components, as new object literals are created on every tick.
-**Action:** Extract list-item data derivation into memoized sub-components or 'useMemo' blocks to ensure props remain stable and only trigger re-renders when their underlying data Materially changes.
-
-## 2024-05-27 - [Reliability] Maintaining Scanner Consistency
-**Learning:** Slicing real-time data arrays in the backend to save egress can cause UI flickering if the frontend component expects the full dataset (e.g., in a detailed overlay). Bandwidth optimization should focus on stripping heavy non-essential fields (like history arrays) rather than truncating the primary list.
-**Action:** Always ensure backend data payloads match the maximum possible requirement of active UI components, using field-level stripping for optimization instead of array truncation.
-
 ## 2024-05-27 - [Optimization] Stable Store Selectors
 **Learning:** Store selectors that return new object literals on every call cause consumer components to re-render even if the underlying data is identical.
 **Action:** Use Zustand's 'shallow' comparison or 'useMemo' for selectors that return objects/arrays to prevent redundant component tree updates.
@@ -218,3 +210,7 @@ These are durable rules extracted from the zero-price-SL + BE-risk-release incid
 5. **A warning that fires every tick is a bug signal, not noise.** The `SL/TP Price 0` log flooded every ~5s for an hour — that is a masked defect, not benign. Any per-tick WARN for the same symbol/condition needs a hard guard or rejection, never an unbounded "proceeding".
 6. **Verify the live outcome, not just the log silence.** After fixing a stop/risk path, confirm the value actually reaches the exchange (or is serialized to the UI), since the original symptom ("SL didn't fire") is downstream of the warning.
 Test-every-fix culture: each of the above got a regression spec (zero-SL rejection, `risk_usdt` serialization incl. `0`-at-BE).
+
+## 2026-07-19 - [Optimization] Ticker Cache Array Projection
+**Learning:** Calling 'Array.from(map.values())' in a high-frequency ticker stream creates O(N) array allocations that increase garbage collection pressure. Since the value objects inside the map are mutated in-place to avoid allocations, the references remain valid and we only need to invalidate the array cache when a new key is added or the map is cleared.
+**Action:** Always memoize array projections of in-place mutated maps and invalidate only when keys are added/removed to avoid redundant allocations in hot loops.

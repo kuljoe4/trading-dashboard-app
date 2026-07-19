@@ -49,3 +49,7 @@
 ## 2026-07-16 - Screen Reader Accessibility in Forms and Search Fields
 **Learning:** High-density inputs (such as search boxes and preset naming fields) are frequently stripped of visible text labels to maintain a sleek, clean, modern UI. However, this pattern leaves screen-reader users completely disoriented. Providing an explicit `aria-label` or wrapping hidden labels in a custom `<VisuallyHidden>` component linked to inputs with a unique generated ID (via React's `useId`) restores accessibility parity without introducing any visual clutter or layout shifts.
 **Action:** Always provide an `aria-label` for search/filter inputs, and use `useId` paired with `<VisuallyHidden><label htmlFor={id}>` for un-labeled high-density text fields. Ensure all icon-only utility buttons have meaningful context-aware ARIA attributes.
+
+## 2026-07-23 - Focus-Visible Keyboard Accessibility & Custom Toggles
+**Learning:** Interactive toggles, custom switches, and selection options (such as those in Settings and Config modals) frequently lack outline styles, leaving keyboard navigators blind to which element is active. Applying precise `focus-visible:ring-2` styles (with offset rings/colors matching the layout context) provides robust keyboard indicators for screen-readers and WCAG compliance.
+**Action:** Enforce focus-visible accessibility across all toggles, switches, and selection chips, ensuring consistent visual feedback for keyboard-driven navigation.

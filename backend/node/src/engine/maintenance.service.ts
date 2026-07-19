@@ -122,13 +122,14 @@ export class MaintenanceService {
       } else {
         this.logger.log(`[Watchdog] Performing targeted audit for ${uniqueSymbols.length} symbols...`);
         for (const symbol of uniqueSymbols) {
-           // Zero-Weight Path: Try cache first
-           const pos = await this.orderManager.fetchPosition(symbol, { forceFresh: false });
+           // SRE: Targeted audits must fetch the authoritative exchange state (forceFresh: true)
+           // to serve as a reliable fallback/safety net when UDS is delayed or stalled.
+           const pos = await this.orderManager.fetchPosition(symbol, { forceFresh: true });
            if (pos && Math.abs(parseFloat(pos.positionAmt)) > 0) {
              activePositionsMap.set(symbol, pos);
            }
 
-           const orders = await this.orderManager.fetchOpenOrders(symbol, { forceFresh: false });
+           const orders = await this.orderManager.fetchOpenOrders(symbol, { forceFresh: true });
            slOrdersBySymbol.set(symbol, orders.filter(isSlOrder));
         }
       }

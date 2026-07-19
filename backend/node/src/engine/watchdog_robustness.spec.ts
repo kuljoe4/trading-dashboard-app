@@ -106,7 +106,7 @@ describe('Watchdog Robustness', () => {
 
     await service.protectionWatchdog(true, { paper_mode: false } as any);
 
-    expect(orderManager.fetchPosition).toHaveBeenCalledWith('BTCUSDT', { forceFresh: false });
+    expect(orderManager.fetchPosition).toHaveBeenCalledWith('BTCUSDT', { forceFresh: true });
     expect(orderManager.placeStopLoss).toHaveBeenCalled();
   });
 

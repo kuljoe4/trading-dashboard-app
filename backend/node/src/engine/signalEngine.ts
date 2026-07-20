@@ -54,6 +54,7 @@ export class SignalEngineService {
     ema_dual_close: this.emaDualCloseSignal.bind(this),
     macd_impulse: this.macdImpulseSignal.bind(this),
     macd_fade: this.macdFadeSignal.bind(this),
+    macd_pbc: this.macdPbcSignal.bind(this),
     supertrend: this.supertrendSignal.bind(this),
   };
 
@@ -86,11 +87,12 @@ export class SignalEngineService {
       } else if (signalType === 'engulfing') {
         const lookback = parseInt(params.engulfing_lookback || config.engulfing_lookback || '1', 10);
         maxReq = Math.max(maxReq, lookback + 1);
-      } else if (signalType === 'macd_impulse' || signalType === 'macd_fade') {
+      } else if (signalType === 'macd_impulse' || signalType === 'macd_fade' || signalType === 'macd_pbc') {
         const fast = parseInt(params.macd_fast || '12', 10);
         const slow = parseInt(params.macd_slow || '26', 10);
         const signal = parseInt(params.macd_signal || '9', 10);
-        maxReq = Math.max(maxReq, (Math.max(fast, slow) + signal) * 2);
+        const emaPeriod = parseInt(params.macd_pbc_trend_ema || '50', 10);
+        maxReq = Math.max(maxReq, (Math.max(fast, slow) + signal) * 2, emaPeriod * 2);
       } else if (signalType === 'supertrend') {
         const period = parseInt(params.supertrend_period || '10', 10);
         maxReq = Math.max(maxReq, period * 5);
@@ -107,11 +109,12 @@ export class SignalEngineService {
           const fast = parseInt(params.exit_ema_fast || '9', 10);
           const slow = parseInt(params.exit_ema_slow || '21', 10);
           maxReq = Math.max(maxReq, Math.max(fast, slow) * 2);
-        } else if (signalType === 'macd_impulse' || signalType === 'macd_fade') {
+        } else if (signalType === 'macd_impulse' || signalType === 'macd_fade' || signalType === 'macd_pbc') {
           const fast = parseInt(params.macd_fast || '12', 10);
           const slow = parseInt(params.macd_slow || '26', 10);
           const signal = parseInt(params.macd_signal || '9', 10);
-          maxReq = Math.max(maxReq, (Math.max(fast, slow) + signal) * 2);
+          const emaPeriod = parseInt(params.macd_pbc_trend_ema || '50', 10);
+          maxReq = Math.max(maxReq, (Math.max(fast, slow) + signal) * 2, emaPeriod * 2);
         } else if (signalType === 'supertrend') {
           const period = parseInt(params.supertrend_period || '10', 10);
           maxReq = Math.max(maxReq, period * 5);
@@ -1374,6 +1377,161 @@ export class SignalEngineService {
         threshold: 2,
         unit: 'bars',
         metric: 'MACD Impulse',
+        description: 'Signal error',
+      };
+    }
+  }
+
+  /**
+   * Premium MACD Pullback-to-Continuation (PBC) Signal.
+   * Leverages a Trend EMA (e.g., 50 EMA) to filter general trend direction,
+   * identifies a clear histogram pullback (color flip, contraction, or zero-line crossover),
+   * and triggers entry on continuation slope confirmation (increasing green bars for long, decreasing red bars for short).
+   * Also computes the pullback swing high/low dynamically to set as the exact Stop Loss (`slPrice`).
+   */
+  private macdPbcSignal(
+    symbol: string,
+    config: any,
+    interval: string,
+    side?: 'LONG' | 'SHORT',
+    purpose?: 'entry' | 'exit',
+    passedCandles?: Candle[],
+    minimal?: boolean,
+  ): boolean | SignalDetail {
+    try {
+      const params = config.signal_params || {};
+      const fastPeriod = parseInt(params.macd_fast || '12', 10);
+      const slowPeriod = parseInt(params.macd_slow || '26', 10);
+      const signalPeriod = parseInt(params.macd_signal || '9', 10);
+      const trendEmaPeriod = parseInt(params.macd_pbc_trend_ema || '50', 10);
+      const lookbackWindow = parseInt(params.macd_pbc_lookback || '10', 10);
+
+      const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
+      const minRequired = Math.max((Math.max(fastPeriod, slowPeriod) + signalPeriod) * 2, trendEmaPeriod * 2);
+
+      if (candles.length < minRequired) {
+        return {
+          fired: false,
+          value: 0,
+          threshold: 0,
+          unit: '',
+          metric: 'MACD PBC',
+          description: 'Insufficient candle data',
+          insufficientData: true,
+        };
+      }
+
+      // 1. Calculate Trend Filter (EMA 50 / specified period)
+      const currentCandle = candles[candles.length - 1];
+      const emaRes = this.calculateEMA(candles, trendEmaPeriod, interval, symbol, `EMA(${trendEmaPeriod})`);
+      const trendEma = emaRes.value;
+
+      // Ensure trend direction matches requested entry side
+      const isBullishTrend = currentCandle.close > trendEma;
+      if (side === 'LONG' && !isBullishTrend) {
+        return {
+          fired: false,
+          value: roundTo(currentCandle.close, 8),
+          threshold: roundTo(trendEma, 8),
+          unit: 'price',
+          metric: 'MACD PBC',
+          description: `Price (${currentCandle.close}) is below Trend EMA(${trendEmaPeriod}) (${trendEma.toFixed(4)})`,
+          threshold_is_price: true,
+        };
+      }
+      if (side === 'SHORT' && isBullishTrend) {
+        return {
+          fired: false,
+          value: roundTo(currentCandle.close, 8),
+          threshold: roundTo(trendEma, 8),
+          unit: 'price',
+          metric: 'MACD PBC',
+          description: `Price (${currentCandle.close}) is above Trend EMA(${trendEmaPeriod}) (${trendEma.toFixed(4)})`,
+          threshold_is_price: true,
+        };
+      }
+
+      // 2. Calculate MACD Histogram
+      const { histogram, insufficientData } = this.calculateMACD(
+        candles,
+        fastPeriod,
+        slowPeriod,
+        signalPeriod,
+      );
+
+      const hLen = histogram.length;
+      const currHist = histogram[hLen - 1];
+      const prevHist = histogram[hLen - 2];
+      const prevPrevHist = histogram[hLen - 3];
+
+      let fired = false;
+      let description = '';
+      let slPrice = 0;
+
+      // Find Swing High / Low over pullback window
+      const startScanIdx = Math.max(0, candles.length - lookbackWindow);
+      let extremeVal = side === 'LONG' ? Infinity : -Infinity;
+      for (let i = startScanIdx; i < candles.length; i++) {
+        if (side === 'LONG') {
+          if (candles[i].low < extremeVal) extremeVal = candles[i].low;
+        } else {
+          if (candles[i].high > extremeVal) extremeVal = candles[i].high;
+        }
+      }
+      slPrice = extremeVal;
+
+      if (side === 'LONG') {
+        // Long entry criteria:
+        // - We had a pullback (at least one previous histogram bar is less than or equal to a prior one, or histogram went below 0)
+        // - Currently, histogram is positive AND expanding (current > previous)
+        const hadPullback = (prevHist < prevPrevHist) || prevHist <= 0 || prevPrevHist <= 0;
+        const isExpandingPositive = currHist > 0 && currHist > prevHist;
+
+        if (isExpandingPositive && hadPullback) {
+          fired = true;
+          description = `MACD Pullback-to-Continuation LONG confirmed. Slope reversed: ${roundTo(prevHist, 8)} -> ${roundTo(currHist, 8)}. Stop-Loss armed at Swing Low: ${roundTo(slPrice, 8)}`;
+        } else if (!isExpandingPositive) {
+          description = `Histogram is not expanding positive: ${roundTo(prevHist, 8)} -> ${roundTo(currHist, 8)}`;
+        } else {
+          description = `No pullback detected in prior 2 bars: ${roundTo(prevPrevHist, 8)} -> ${roundTo(prevHist, 8)}`;
+        }
+      } else if (side === 'SHORT') {
+        // Short entry criteria:
+        // - We had a pullback (at least one previous histogram bar is greater than or equal to a prior one, or histogram went above 0)
+        // - Currently, histogram is negative AND expanding downwards (current < previous)
+        const hadPullback = (prevHist > prevPrevHist) || prevHist >= 0 || prevPrevHist >= 0;
+        const isExpandingNegative = currHist < 0 && currHist < prevHist;
+
+        if (isExpandingNegative && hadPullback) {
+          fired = true;
+          description = `MACD Pullback-to-Continuation SHORT confirmed. Slope reversed: ${roundTo(prevHist, 8)} -> ${roundTo(currHist, 8)}. Stop-Loss armed at Swing High: ${roundTo(slPrice, 8)}`;
+        } else if (!isExpandingNegative) {
+          description = `Histogram is not expanding negative: ${roundTo(prevHist, 8)} -> ${roundTo(currHist, 8)}`;
+        } else {
+          description = `No pullback detected in prior 2 bars: ${roundTo(prevPrevHist, 8)} -> ${roundTo(prevHist, 8)}`;
+        }
+      }
+
+      if (minimal) return fired;
+
+      return {
+        fired,
+        value: roundTo(currHist, 8),
+        threshold: roundTo(prevHist, 8),
+        insufficientData: insufficientData || emaRes.insufficientData,
+        unit: 'histogram',
+        metric: 'MACD PBC',
+        description,
+        slPrice: fired ? roundTo(slPrice, 8) : undefined,
+      };
+    } catch (error) {
+      this.logger.debug(`MACD PBC signal error: ${error instanceof Error ? error.message : String(error)}`);
+      return {
+        fired: false,
+        value: 0,
+        threshold: 0,
+        unit: 'histogram',
+        metric: 'MACD PBC',
         description: 'Signal error',
       };
     }

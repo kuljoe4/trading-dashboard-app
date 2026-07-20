@@ -128,6 +128,67 @@ describe('MACD and Supertrend Signal Engine Tests', () => {
     });
   });
 
+  describe('MACD Pullback-to-Continuation (PBC) Signal', () => {
+    it('should fire on LONG when price is above Trend EMA and histogram slope reverses positive', () => {
+      const config = new SessionConfig();
+      config.enabled_signals = ['macd_pbc'];
+      config.signal_params = {
+        macd_fast: 12,
+        macd_slow: 26,
+        macd_signal: 9,
+        macd_pbc_trend_ema: 50,
+        macd_pbc_lookback: 5,
+      };
+
+      // Generate prices steadily above 50 EMA (represented by slow growth)
+      // and construct a pullback (histogram goes from contracting to expanding positive)
+      const prices = Array(120).fill(100);
+      for (let i = 0; i < 120; i++) {
+        prices[i] = 100 + i * 2; // steady uptrend, close is always above 50 EMA
+      }
+
+      // Pullback & Continuation on last candles
+      prices[115] = 300;
+      prices[116] = 295; // pullback low
+      prices[117] = 330; // pullback tick
+      prices[118] = 380; // continuation rise 1
+      prices[119] = 450; // continuation rise 2
+
+      const candles = generateCandles(prices);
+      klineStore.getRawCandles.mockReturnValue(candles);
+
+      const result = service.checkEntry('BTCUSDT', config, '1m', 'LONG');
+      expect(result.details?.macd_pbc?.fired).toBe(true);
+      expect(result.details?.macd_pbc?.slPrice).toBeDefined();
+      expect(result.details?.macd_pbc?.slPrice).toBeLessThan(330);
+    });
+
+    it('should reject LONG when price is below Trend EMA', () => {
+      const config = new SessionConfig();
+      config.enabled_signals = ['macd_pbc'];
+      config.signal_params = {
+        macd_fast: 12,
+        macd_slow: 26,
+        macd_signal: 9,
+        macd_pbc_trend_ema: 50,
+        macd_pbc_lookback: 5,
+      };
+
+      // Generate prices steadily below 50 EMA
+      const prices = Array(120).fill(100);
+      for (let i = 0; i < 120; i++) {
+        prices[i] = 1000 - i * 5; // massive downtrend
+      }
+
+      const candles = generateCandles(prices);
+      klineStore.getRawCandles.mockReturnValue(candles);
+
+      const result = service.checkEntry('BTCUSDT', config, '1m', 'LONG');
+      expect(result.details?.macd_pbc?.fired).toBe(false);
+      expect(result.details?.macd_pbc?.description).toContain('is below Trend EMA');
+    });
+  });
+
   describe('MACD Fade exit signal (Phase 5)', () => {
     it('should fire on 2 consecutive contracting histogram bars or color flip', () => {
       const config = new SessionConfig();

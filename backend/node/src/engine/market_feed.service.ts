@@ -624,13 +624,19 @@ export class MarketFeedService {
 
             symbols = smartCandidates.map(t => t.symbol);
 
-            // Ensure we also include the standard top volume symbols to avoid missing established liquidity
-            const topByVolume = await this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), config.excluded_symbols || []);
-            const volumeSymbols = topByVolume.map(t => t.symbol);
+            // Ensure we also include the standard top volume or change-pct symbols to avoid missing established liquidity
+            const discoveryMode = config.discovery_mode || 'volume';
+            const topSymbols = discoveryMode === 'change_pct'
+              ? await this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), config.excluded_symbols || [])
+              : await this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), config.excluded_symbols || []);
+            const volumeSymbols = topSymbols.map(t => t.symbol);
 
             symbols = Array.from(new Set([...symbols, ...volumeSymbols]));
           } else {
-            const top = await this.tickerCache.topByVolume(watchlistSize + offset, config.excluded_symbols || []);
+            const discoveryMode = config.discovery_mode || 'volume';
+            const top = discoveryMode === 'change_pct'
+              ? await this.tickerCache.topByChangePct(watchlistSize + offset, config.excluded_symbols || [])
+              : await this.tickerCache.topByVolume(watchlistSize + offset, config.excluded_symbols || []);
             const slicedTop = top.slice(offset);
 
             // COMPLIANCE: Filter by getSymbolFilters() to exclude non-crypto symbols (Gold, Equities)

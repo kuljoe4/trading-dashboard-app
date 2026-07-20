@@ -112,6 +112,10 @@ export class SessionConfig {
   @IsOptional()
   watchlist_offset?: number = 0;
 
+  @IsEnum(['volume', 'change_pct'])
+  @IsOptional()
+  discovery_mode?: 'volume' | 'change_pct' = 'volume';
+
   @IsEnum(['both', 'long', 'short'])
   @IsOptional()
   entry_side?: 'both' | 'long' | 'short' = 'both';

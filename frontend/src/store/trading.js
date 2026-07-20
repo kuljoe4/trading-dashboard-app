@@ -202,6 +202,7 @@ const defaultConfig = {
   entry_side: 'both',
   watchlist_size: CONFIG_LIMITS.WATCHLIST_DEFAULT,
   watchlist_offset: 0,
+  discovery_mode: 'volume',
   enabled_signals: ['momentum_pct'],
   signal_logic: 'all',
   tp_mode: 'fixed',

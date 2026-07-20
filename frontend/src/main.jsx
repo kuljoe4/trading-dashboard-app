@@ -154,7 +154,11 @@ const App = () => {
       if (e.key === '/') {
         e.preventDefault();
         const searchInputs = Array.from(document.querySelectorAll('input[placeholder*="Search"]'));
-        const searchInput = searchInputs.pop();
+        // Prioritize the first visible search input on the screen
+        const visibleSearchInput = searchInputs.find(
+          (input) => input.offsetWidth > 0 || input.offsetHeight > 0 || input.offsetParent !== null
+        );
+        const searchInput = visibleSearchInput || searchInputs.pop();
         if (searchInput) {
           searchInput.focus();
           searchInput.select();

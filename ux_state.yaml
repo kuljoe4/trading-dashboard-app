@@ -41,7 +41,7 @@ findings:
     recommendation: "Enhance ActiveTradeCard with a scale-aware progress bar."
 
   - id: UX-005
-    status: open
+    status: resolved
     severity: low
     category: components
     screens:
@@ -143,13 +143,13 @@ findings:
     recommendation: "Strictly enforced field preservation for fees and mark prices in `normalizeTrade`."
 
   - id: UX-016
-    status: open
+    status: resolved
     severity: low
     category: performance
     screens:
       - scanner
     notes: "ScannerOverlay re-renders every 200ms during high volatility."
-    recommendation: "Memoize individual scanner row components."
+    recommendation: "Memoize individual scanner row components, use centralized global timer useNow, pre-allocate lookups, and apply WS dynamic kline pruning."
 
   - id: UX-017
     status: resolved
@@ -161,13 +161,13 @@ findings:
     recommendation: "Refine fmtUSD to only use arrows for direction without preparation of a redundant minus sign."
 
   - id: UX-018
-    status: open
+    status: resolved
     severity: low
     category: responsive
     screens:
       - active-trade-bar
     notes: "Mobile layout overlap risk for ActiveTradeBar in floating state."
-    recommendation: "Add padding or adjust z-index/bottom offset for small screens."
+    recommendation: "Reposition ActiveTradeBar to bottom-20 on mobile to clear bottom navigation and utilize flex containment scroll."
 
   - id: UX-019
     status: resolved
@@ -180,7 +180,7 @@ findings:
 
   - id: UX-020
     status: resolved
-    severity: low
+    severity: medium
     category: accessibility
     screens:
       - active-trade-card
@@ -215,6 +215,53 @@ findings:
     notes: "Manual 'Monitored' badge styling differs between ScannerRow and StrategyCard."
     recommendation: "Standardize the ShieldCheck badge and Monitored text across all components."
 
+  - id: UX-024
+    status: resolved
+    severity: medium
+    category: accessibility
+    screens:
+      - history
+      - scanner
+    notes: "Search input elements in HistoryView and ScannerOverlay require descriptive labels for screen-readers."
+    recommendation: "Enforce descriptive aria-label attributes on both desktop and mobile search fields."
+
+  - id: UX-025
+    status: resolved
+    severity: low
+    category: accessibility
+    screens:
+      - history
+    notes: "Keyboard focus shortcuts for search inputs should prioritize visible inputs over hidden mobile-view inputs."
+    recommendation: "Query search inputs and filter for visibility before triggering focus standard."
+
+  - id: UX-026
+    status: resolved
+    severity: low
+    category: performance
+    screens:
+      - scanner
+    notes: "Thread wakeup overhead caused by independent out-of-phase setInterval timer loops."
+    recommendation: "Transition to a centralized listener-based timer hook driven by a single global interval."
+
+  - id: UX-027
+    status: resolved
+    severity: medium
+    category: interaction
+    screens:
+      - trade-detail
+    notes: "Exit and proximity metrics evaluate price progress using absolute value ratio math."
+    recommendation: "Formulate direction-aware proximity formula ((mark - entry)/(threshold - entry)) * 100 for price-based exits."
+
+  - id: UX-028
+    status: resolved
+    severity: medium
+    category: accessibility
+    screens:
+      - config-modal
+      - settings
+    notes: "Custom Radix switches and environment selections lack focus-visible rings."
+    recommendation: "Enforce custom focus-visible:ring-2 styles on all toggle switches and environment buttons."
+
 design_decisions:
   - DD-001: "Operator Cockpit vision - prioritize information density and real-time awareness over marketing aesthetics."
   - DD-002: "WebSocket-first data flow with delta merging to minimize network egress while keeping UI fresh."
@@ -222,6 +269,9 @@ design_decisions:
   - DD-004: "Zustand for state management to ensure atomic updates across related components."
   - DD-005: "Risk Projection - Live estimated notional calculation during configuration to prevent exchange rejections."
   - DD-006: "Drawer-based navigation for Mobile - Use Vaul for scanner and config surfaces to preserve context."
+  - DD-007: "Unified Timer Observer (useNow) - Collapse independent interval loops into a single central ticker."
+  - DD-008: "Dynamic WS Telemetry Gating - Register focus on expanded items to prune non-focused kline telemetry."
+  - DD-009: "Direction-Aware Price Runway - Formula-based visual indicators relative to entry and direction instead of absolute ratios."
 
 metrics:
   overall_score: 9.7

@@ -52,6 +52,9 @@ export class SignalEngineService {
     ema_dual_cross: this.emaDualCrossSignal.bind(this),
     ema_close: this.emaCloseSignal.bind(this),
     ema_dual_close: this.emaDualCloseSignal.bind(this),
+    macd_impulse: this.macdImpulseSignal.bind(this),
+    macd_fade: this.macdFadeSignal.bind(this),
+    supertrend: this.supertrendSignal.bind(this),
   };
 
   constructor(private readonly klineStore: KlineStoreService) {}
@@ -83,6 +86,14 @@ export class SignalEngineService {
       } else if (signalType === 'engulfing') {
         const lookback = parseInt(params.engulfing_lookback || config.engulfing_lookback || '1', 10);
         maxReq = Math.max(maxReq, lookback + 1);
+      } else if (signalType === 'macd_impulse' || signalType === 'macd_fade') {
+        const fast = parseInt(params.macd_fast || '12', 10);
+        const slow = parseInt(params.macd_slow || '26', 10);
+        const signal = parseInt(params.macd_signal || '9', 10);
+        maxReq = Math.max(maxReq, (Math.max(fast, slow) + signal) * 2);
+      } else if (signalType === 'supertrend') {
+        const period = parseInt(params.supertrend_period || '10', 10);
+        maxReq = Math.max(maxReq, period * 5);
       }
     }
 
@@ -96,6 +107,14 @@ export class SignalEngineService {
           const fast = parseInt(params.exit_ema_fast || '9', 10);
           const slow = parseInt(params.exit_ema_slow || '21', 10);
           maxReq = Math.max(maxReq, Math.max(fast, slow) * 2);
+        } else if (signalType === 'macd_impulse' || signalType === 'macd_fade') {
+          const fast = parseInt(params.macd_fast || '12', 10);
+          const slow = parseInt(params.macd_slow || '26', 10);
+          const signal = parseInt(params.macd_signal || '9', 10);
+          maxReq = Math.max(maxReq, (Math.max(fast, slow) + signal) * 2);
+        } else if (signalType === 'supertrend') {
+          const period = parseInt(params.supertrend_period || '10', 10);
+          maxReq = Math.max(maxReq, period * 5);
         }
       }
     }
@@ -1108,5 +1127,557 @@ export class SignalEngineService {
    */
   private calculateEMA(candles: any[], period: number, interval: string, symbol?: string, metric?: string): { value: number; insufficientData: boolean } {
     return this.calculateEMAAt(candles, candles.length - 1, period, interval, symbol, metric);
+  }
+
+  /**
+   * Calculates MACD values (MACD Line, Signal Line, and Histogram) matching standard mathematical definitions.
+   * Designed with O(1) loop structures and no external library allocations.
+   */
+  public calculateMACD(
+    candles: Candle[],
+    fastPeriod: number,
+    slowPeriod: number,
+    signalPeriod: number,
+  ): { macdLine: number[]; signalLine: number[]; histogram: number[]; insufficientData: boolean } {
+    const len = candles.length;
+    const minNeeded = Math.max(fastPeriod, slowPeriod) + signalPeriod;
+    const insufficientData = len < minNeeded * 2;
+
+    const macdLine = new Array<number>(len).fill(0);
+    const signalLine = new Array<number>(len).fill(0);
+    const histogram = new Array<number>(len).fill(0);
+
+    if (len < minNeeded) {
+      return { macdLine, signalLine, histogram, insufficientData: true };
+    }
+
+    const fastMult = 2 / (fastPeriod + 1);
+    const slowMult = 2 / (slowPeriod + 1);
+    const signalMult = 2 / (signalPeriod + 1);
+
+    // Initial SMA for fast and slow EMAs
+    let fastEma = 0;
+    let slowEma = 0;
+
+    let fastSum = 0;
+    for (let i = 0; i < fastPeriod; i++) fastSum += candles[i].close;
+    fastEma = fastSum / fastPeriod;
+
+    let slowSum = 0;
+    for (let i = 0; i < slowPeriod; i++) slowSum += candles[i].close;
+    slowEma = slowSum / slowPeriod;
+
+    for (let i = 0; i < len; i++) {
+      if (i >= fastPeriod) {
+        fastEma += fastMult * (candles[i].close - fastEma);
+      } else if (i === fastPeriod - 1) {
+        fastEma = fastSum / fastPeriod;
+      }
+
+      if (i >= slowPeriod) {
+        slowEma += slowMult * (candles[i].close - slowEma);
+      } else if (i === slowPeriod - 1) {
+        slowEma = slowSum / slowPeriod;
+      }
+
+      macdLine[i] = fastEma - slowEma;
+    }
+
+    // Now, calculate Signal EMA of MACD Line.
+    // The MACD line is fully mature starting from slowPeriod - 1.
+    const startIdx = slowPeriod - 1;
+    let signalSum = 0;
+    for (let i = startIdx; i < startIdx + signalPeriod; i++) {
+      signalSum += macdLine[i];
+    }
+    let signalEma = signalSum / signalPeriod;
+
+    for (let i = 0; i < len; i++) {
+      if (i < startIdx + signalPeriod - 1) {
+        signalLine[i] = 0;
+        histogram[i] = 0;
+      } else if (i === startIdx + signalPeriod - 1) {
+        signalLine[i] = signalEma;
+        histogram[i] = macdLine[i] - signalEma;
+      } else {
+        signalEma += signalMult * (macdLine[i] - signalEma);
+        signalLine[i] = signalEma;
+        histogram[i] = macdLine[i] - signalEma;
+      }
+    }
+
+    return { macdLine, signalLine, histogram, insufficientData };
+  }
+
+  /**
+   * Premium MACD Impulse Signal. Matches Phase 4 of the institutional momentum pullback strategy.
+   * Enforces exact sequence color counts and optional strict expanding checks.
+   */
+  private macdImpulseSignal(
+    symbol: string,
+    config: any,
+    interval: string,
+    side?: 'LONG' | 'SHORT',
+    purpose?: 'entry' | 'exit',
+    passedCandles?: Candle[],
+    minimal?: boolean,
+  ): boolean | SignalDetail {
+    try {
+      const params = config.signal_params || {};
+      const fastPeriod = parseInt(params.macd_fast || '12', 10);
+      const slowPeriod = parseInt(params.macd_slow || '26', 10);
+      const signalPeriod = parseInt(params.macd_signal || '9', 10);
+      const strictExpansion = params.macd_strict_expansion === true || params.macd_strict_expansion === 'true';
+
+      const maxPeriod = Math.max(fastPeriod, slowPeriod) + signalPeriod;
+      const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
+
+      if (candles.length < maxPeriod + 5) {
+        return {
+          fired: false,
+          value: 0,
+          threshold: 0,
+          unit: '',
+          metric: 'MACD Impulse',
+          description: 'Insufficient candle data',
+          insufficientData: true,
+        };
+      }
+
+      const { histogram, insufficientData } = this.calculateMACD(
+        candles,
+        fastPeriod,
+        slowPeriod,
+        signalPeriod,
+      );
+
+      if (histogram.length < 5) {
+        return {
+          fired: false,
+          value: 0,
+          threshold: 0,
+          unit: '',
+          metric: 'MACD Impulse',
+          description: 'No histogram generated',
+          insufficientData: true,
+        };
+      }
+
+      const currHist = histogram[histogram.length - 1];
+
+      let fired = false;
+      let count = 0;
+      let description = '';
+
+      if (side === 'LONG') {
+        if (currHist <= 0) {
+          return {
+            fired: false,
+            value: 0,
+            threshold: 1,
+            unit: 'bars',
+            metric: 'MACD Impulse',
+            description: `Histogram is not bullish (Green) | Value: ${roundTo(currHist, 8)}`,
+          };
+        }
+
+        // Count consecutive green bars backward
+        let idx = histogram.length - 1;
+        while (idx >= 0 && histogram[idx] > 0) {
+          count++;
+          idx--;
+        }
+
+        if (count === 1 || count === 2) {
+          fired = true;
+          description = `MACD Impulse Green #${count}`;
+
+          if (strictExpansion) {
+            if (count === 1) {
+              const prevRed = idx >= 0 ? histogram[idx] : 0;
+              if (currHist <= Math.abs(prevRed)) {
+                fired = false;
+                description = `Rejected: Green #1 (${roundTo(currHist, 8)}) is not strictly expanding over previous Red (${roundTo(prevRed, 8)})`;
+              }
+            } else { // count === 2
+              const prevGreen = histogram[histogram.length - 2];
+              if (currHist <= prevGreen) {
+                fired = false;
+                description = `Rejected: Green #2 (${roundTo(currHist, 8)}) is not expanding over Green #1 (${roundTo(prevGreen, 8)})`;
+              }
+            }
+          }
+        } else {
+          fired = false;
+          description = `Rejected: Green bar count is ${count} (Entry Window: 1-2)`;
+        }
+      } else if (side === 'SHORT') {
+        if (currHist >= 0) {
+          return {
+            fired: false,
+            value: 0,
+            threshold: 1,
+            unit: 'bars',
+            metric: 'MACD Impulse',
+            description: `Histogram is not bearish (Red) | Value: ${roundTo(currHist, 8)}`,
+          };
+        }
+
+        // Count consecutive red bars backward
+        let idx = histogram.length - 1;
+        while (idx >= 0 && histogram[idx] < 0) {
+          count++;
+          idx--;
+        }
+
+        if (count === 1 || count === 2) {
+          fired = true;
+          description = `MACD Impulse Red #${count}`;
+
+          if (strictExpansion) {
+            if (count === 1) {
+              const prevGreen = idx >= 0 ? histogram[idx] : 0;
+              if (Math.abs(currHist) <= Math.abs(prevGreen)) {
+                fired = false;
+                description = `Rejected: Red #1 (${roundTo(currHist, 8)}) is not strictly expanding over previous Green (${roundTo(prevGreen, 8)})`;
+              }
+            } else { // count === 2
+              const prevRed = histogram[histogram.length - 2];
+              if (Math.abs(currHist) <= Math.abs(prevRed)) {
+                fired = false;
+                description = `Rejected: Red #2 (${roundTo(currHist, 8)}) is not expanding over Red #1 (${roundTo(prevRed, 8)})`;
+              }
+            }
+          }
+        } else {
+          fired = false;
+          description = `Rejected: Red bar count is ${count} (Entry Window: 1-2)`;
+        }
+      }
+
+      if (minimal) return fired;
+
+      return {
+        fired,
+        value: count,
+        threshold: 2,
+        insufficientData,
+        unit: 'bars',
+        metric: 'MACD Impulse',
+        description,
+      };
+    } catch (error) {
+      this.logger.debug(`MACD Impulse signal error: ${error instanceof Error ? error.message : String(error)}`);
+      return {
+        fired: false,
+        value: 0,
+        threshold: 2,
+        unit: 'bars',
+        metric: 'MACD Impulse',
+        description: 'Signal error',
+      };
+    }
+  }
+
+  /**
+   * Premium MACD Fade Exit Signal. Matches Phase 5 of the institutional momentum pullback strategy.
+   * Detects 2 consecutive contracting histogram bars or a complete direction/color reversal.
+   */
+  private macdFadeSignal(
+    symbol: string,
+    config: any,
+    interval: string,
+    side?: 'LONG' | 'SHORT',
+    purpose?: 'entry' | 'exit',
+    passedCandles?: Candle[],
+    minimal?: boolean,
+  ): boolean | SignalDetail {
+    try {
+      const params = config.signal_params || {};
+      const fastPeriod = parseInt(params.macd_fast || '12', 10);
+      const slowPeriod = parseInt(params.macd_slow || '26', 10);
+      const signalPeriod = parseInt(params.macd_signal || '9', 10);
+
+      const maxPeriod = Math.max(fastPeriod, slowPeriod) + signalPeriod;
+      const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
+
+      if (candles.length < maxPeriod + 5) {
+        return {
+          fired: false,
+          value: 0,
+          threshold: 0,
+          unit: '',
+          metric: 'MACD Fade',
+          description: 'Insufficient candle data',
+          insufficientData: true,
+        };
+      }
+
+      const { histogram, insufficientData } = this.calculateMACD(
+        candles,
+        fastPeriod,
+        slowPeriod,
+        signalPeriod,
+      );
+
+      if (histogram.length < 5) {
+        return {
+          fired: false,
+          value: 0,
+          threshold: 0,
+          unit: '',
+          metric: 'MACD Fade',
+          description: 'No histogram generated',
+          insufficientData: true,
+        };
+      }
+
+      const currHist = histogram[histogram.length - 1];
+      const prevHist = histogram[histogram.length - 2];
+      const prevPrevHist = histogram[histogram.length - 3];
+
+      let fired = false;
+      let description = '';
+
+      if (side === 'LONG') {
+        // Long position exit: green bars are contracting (decreasing) or flipped red
+        if (currHist < 0) {
+          fired = true;
+          description = `MACD flipped bearish (Red histogram: ${roundTo(currHist, 8)})`;
+        } else if (currHist < prevHist && prevHist < prevPrevHist) {
+          fired = true;
+          description = `MACD contracting for 2 bars: ${roundTo(prevPrevHist, 8)} -> ${roundTo(prevHist, 8)} -> ${roundTo(currHist, 8)}`;
+        } else {
+          fired = false;
+          description = 'MACD momentum holding or expanding';
+        }
+      } else if (side === 'SHORT') {
+        // Short position exit: red bars are contracting (increasing towards 0) or flipped green
+        if (currHist > 0) {
+          fired = true;
+          description = `MACD flipped bullish (Green histogram: ${roundTo(currHist, 8)})`;
+        } else if (currHist > prevHist && prevHist > prevPrevHist) {
+          fired = true;
+          description = `MACD contracting for 2 bars: ${roundTo(prevPrevHist, 8)} -> ${roundTo(prevHist, 8)} -> ${roundTo(currHist, 8)}`;
+        } else {
+          fired = false;
+          description = 'MACD momentum holding or expanding';
+        }
+      }
+
+      if (minimal) return fired;
+
+      return {
+        fired,
+        value: roundTo(currHist, 8),
+        threshold: roundTo(prevHist, 8),
+        insufficientData,
+        unit: '',
+        metric: 'MACD Fade',
+        description,
+      };
+    } catch (error) {
+      this.logger.debug(`MACD Fade signal error: ${error instanceof Error ? error.message : String(error)}`);
+      return {
+        fired: false,
+        value: 0,
+        threshold: 0,
+        unit: '',
+        metric: 'MACD Fade',
+        description: 'Signal error',
+      };
+    }
+  }
+
+  /**
+   * Premium Supertrend calculation matching standard mathematical definition.
+   * Leverages Wilder's RMA for ATR calculation.
+   */
+  public calculateSupertrend(
+    candles: Candle[],
+    period: number,
+    multiplier: number,
+  ): { supertrend: number[]; direction: ('up' | 'down')[]; insufficientData: boolean } {
+    const len = candles.length;
+    const insufficientData = len < period * 3;
+
+    const supertrend = new Array<number>(len).fill(0);
+    const direction = new Array<'up' | 'down'>(len).fill('up');
+
+    if (len < period + 1) {
+      return { supertrend, direction, insufficientData: true };
+    }
+
+    // 1. Calculate True Range (TR)
+    const tr = new Array<number>(len).fill(0);
+    tr[0] = candles[0].high - candles[0].low;
+    for (let i = 1; i < len; i++) {
+      const hL = candles[i].high - candles[i].low;
+      const hC = Math.abs(candles[i].high - candles[i - 1].close);
+      const lC = Math.abs(candles[i].low - candles[i - 1].close);
+      tr[i] = Math.max(hL, hC, lC);
+    }
+
+    // 2. Calculate ATR using RMAs (Wilder's Moving Average)
+    const atr = new Array<number>(len).fill(0);
+    let trSum = 0;
+    for (let i = 0; i < period; i++) {
+      trSum += tr[i];
+    }
+    atr[period - 1] = trSum / period;
+
+    for (let i = period; i < len; i++) {
+      atr[i] = (atr[i - 1] * (period - 1) + tr[i]) / period;
+    }
+
+    // 3. Calculate basic bands and Supertrend
+    const basicUpper = new Array<number>(len).fill(0);
+    const basicLower = new Array<number>(len).fill(0);
+    const finalUpper = new Array<number>(len).fill(0);
+    const finalLower = new Array<number>(len).fill(0);
+
+    for (let i = 0; i < len; i++) {
+      const hl2 = (candles[i].high + candles[i].low) / 2;
+      basicUpper[i] = hl2 + multiplier * atr[i];
+      basicLower[i] = hl2 - multiplier * atr[i];
+    }
+
+    // Initialize the first valid index (at period - 1)
+    finalUpper[period - 1] = basicUpper[period - 1];
+    finalLower[period - 1] = basicLower[period - 1];
+    supertrend[period - 1] = basicUpper[period - 1];
+    direction[period - 1] = 'down';
+
+    for (let i = period; i < len; i++) {
+      const prevClose = candles[i - 1].close;
+      const prevFinalUpper = finalUpper[i - 1];
+      const prevFinalLower = finalLower[i - 1];
+
+      // Final Upper Band
+      if (basicUpper[i] < prevFinalUpper || prevClose > prevFinalUpper) {
+        finalUpper[i] = basicUpper[i];
+      } else {
+        finalUpper[i] = prevFinalUpper;
+      }
+
+      // Final Lower Band
+      if (basicLower[i] > prevFinalLower || prevClose < prevFinalLower) {
+        finalLower[i] = basicLower[i];
+      } else {
+        finalLower[i] = prevFinalLower;
+      }
+
+      // Supertrend Line & Direction
+      const prevST = supertrend[i - 1];
+      if (prevST === prevFinalUpper) {
+        if (candles[i].close > finalUpper[i]) {
+          supertrend[i] = finalLower[i];
+          direction[i] = 'up'; // bullish breakout
+        } else {
+          supertrend[i] = finalUpper[i];
+          direction[i] = 'down';
+        }
+      } else { // prevST === prevFinalLower
+        if (candles[i].close < finalLower[i]) {
+          supertrend[i] = finalUpper[i];
+          direction[i] = 'down'; // bearish breakout
+        } else {
+          supertrend[i] = finalLower[i];
+          direction[i] = 'up';
+        }
+      }
+    }
+
+    return { supertrend, direction, insufficientData };
+  }
+
+  /**
+   * Premium Supertrend Signal. Supports bullish/bearish crossovers and trend filtering.
+   */
+  private supertrendSignal(
+    symbol: string,
+    config: any,
+    interval: string,
+    side?: 'LONG' | 'SHORT',
+    purpose?: 'entry' | 'exit',
+    passedCandles?: Candle[],
+    minimal?: boolean,
+  ): boolean | SignalDetail {
+    try {
+      const params = config.signal_params || {};
+      const period = parseInt(params.supertrend_period || '10', 10);
+      const multiplier = parseFloat(params.supertrend_multiplier || '3');
+      const mode = params.supertrend_mode || 'trend'; // 'trend' | 'crossover'
+
+      const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
+
+      if (candles.length < period + 5) {
+        return {
+          fired: false,
+          value: 0,
+          threshold: 0,
+          unit: 'price',
+          metric: 'Supertrend',
+          description: 'Insufficient candle data',
+          insufficientData: true,
+        };
+      }
+
+      const { supertrend, direction, insufficientData } = this.calculateSupertrend(
+        candles,
+        period,
+        multiplier,
+      );
+
+      const currClose = candles[candles.length - 1].close;
+      const currST = supertrend[supertrend.length - 1];
+      const currDir = direction[direction.length - 1];
+      const prevDir = direction[direction.length - 2];
+
+      let fired = false;
+      let description = '';
+
+      if (side === 'LONG') {
+        if (mode === 'crossover') {
+          fired = prevDir === 'down' && currDir === 'up';
+          description = fired ? 'Supertrend crossed bullish (uptrend began)' : 'No bullish crossover';
+        } else { // 'trend'
+          fired = currDir === 'up';
+          description = fired ? 'Supertrend is bullish' : 'Supertrend is bearish';
+        }
+      } else if (side === 'SHORT') {
+        if (mode === 'crossover') {
+          fired = prevDir === 'up' && currDir === 'down';
+          description = fired ? 'Supertrend crossed bearish (downtrend began)' : 'No bearish crossover';
+        } else { // 'trend'
+          fired = currDir === 'down';
+          description = fired ? 'Supertrend is bearish' : 'Supertrend is bullish';
+        }
+      }
+
+      if (minimal) return fired;
+
+      return {
+        fired,
+        value: roundTo(currClose, 8),
+        threshold: roundTo(currST, 8),
+        insufficientData,
+        unit: 'price',
+        metric: purpose === 'exit' ? 'Exit Supertrend' : 'Supertrend',
+        description,
+        threshold_is_price: true,
+        slPrice: roundTo(currST, 8),
+      };
+    } catch (error) {
+      this.logger.debug(`Supertrend signal error: ${error instanceof Error ? error.message : String(error)}`);
+      return {
+        fired: false,
+        value: 0,
+        threshold: 0,
+        unit: 'price',
+        metric: 'Supertrend',
+        description: 'Signal error',
+      };
+    }
   }
 }

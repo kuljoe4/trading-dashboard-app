@@ -364,11 +364,13 @@ export const HistoryView = () => {
     if (sortBy === 'pnl') {
       filtered.sort((a, b) => Number(b.totalPnl || 0) - Number(a.totalPnl || 0));
     } else if (sortBy === 'winrate') {
-      filtered.sort((a, b) => {
-        const wrA = a.analytics?.overallWinRate || calculatePerformanceMetrics(a.trades).winRate;
-        const wrB = b.analytics?.overallWinRate || calculatePerformanceMetrics(b.trades).winRate;
-        return wrB - wrA;
-      });
+      // BOLT OPTIMIZATION: Pre-calculate win rates to avoid expensive recalculation in the O(N log N) sorting loop (Schwartzian transform)
+      const mapped = filtered.map(s => ({
+        s,
+        winRate: s.analytics?.overallWinRate || calculatePerformanceMetrics(s.trades).winRate
+      }));
+      mapped.sort((a, b) => b.winRate - a.winRate);
+      filtered = mapped.map(item => item.s);
     }
 
     return filtered.slice(0, visibleSessions);

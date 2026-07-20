@@ -4,54 +4,11 @@ import {
   Info, ShieldAlert, CheckCircle2, BarChart3, TrendingUp, XCircle, Loader2, Trash2, ArrowRight
 } from 'lucide-react'
 import { fmtUSD, pnlColor, pnlClass, fmt } from '../../lib/theme'
-import { price, formatDuration } from '../../lib/formatters'
+import { price, formatDuration, calculateProximity } from '../../lib/formatters'
 import { StatCard, SectionLabel, cn, CopyButton, Tooltip, PulseDot, Btn } from '../ui/primitives'
 import { SignalGauge } from '../ui/SignalGauge'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ConfirmationModal } from '../ConfirmationModal'
-
-const calculateProximity = (signal, mark, entryPrice) => {
-  if (!signal) return 0;
-
-  const value = Number(signal.value);
-  const threshold = Number(signal.threshold);
-  const entry = Number(entryPrice);
-  const currentMark = Number(mark);
-
-  if (signal.insufficientData) {
-    return 0;
-  }
-
-  // A signal is fully fired/triggered if both fired and active are true (active defaults to true)
-  const isActive = signal.active !== false;
-  if (signal.fired && isActive) {
-    return 100;
-  }
-
-  // Handle price-based signals
-  if (signal.threshold_is_price) {
-    if (entry === 0 || threshold === 0 || threshold === entry) {
-      return 0;
-    }
-    const totalDist = threshold - entry;
-    const currentDist = currentMark - entry;
-    const progress = (currentDist / totalDist) * 100;
-    return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(100, progress)) : 0;
-  }
-
-  // Handle indicator-based signals
-  if (threshold === 0) {
-    return 0;
-  }
-
-  const hasOppositeSign = (value > 0 && threshold < 0) || (value < 0 && threshold > 0);
-  if (hasOppositeSign) {
-    return 0;
-  }
-
-  const progress = (Math.abs(value) / Math.abs(threshold)) * 100;
-  return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(100, progress)) : 0;
-};
 
 const Metric = memo(({ label, value }) => (
   <div className="flex flex-col gap-1.5 group/metric">
@@ -215,7 +172,11 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
               <div className="flex justify-between items-center text-[9px] md:text-[10px] font-black uppercase tracking-widest">
                 <div className="flex items-center gap-1.5 md:gap-2">
                   <span className={isFired ? "text-red" : s.fired ? "text-amber" : "text-dim"}>{s.label || key}</span>
-                  {s.remaining_delay > 0 && !isFired && (
+                  {s.insufficientData ? (
+                    <span className="text-dim bg-background/50 border border-border/40 px-1 rounded flex items-center gap-1 scale-90 md:scale-100">
+                      Collecting
+                    </span>
+                  ) : s.remaining_delay > 0 && !isFired && (
                     <span className="text-amber bg-amber/10 px-1 rounded flex items-center gap-1 scale-90 md:scale-100">
                       <Clock size={8} /> {Math.ceil(s.remaining_delay)}s
                     </span>
@@ -223,7 +184,7 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
                   <span className={cn(
                     "md:hidden inline text-[8px] font-mono",
                     isFired ? "text-red" : s.fired ? "text-amber" : "text-accent"
-                  )}>{Number(s.progress || 0).toFixed(0)}%</span>
+                  )}>{s.insufficientData ? '---' : `${Number(s.progress || 0).toFixed(0)}%`}</span>
                 </div>
                 <div className="md:flex hidden items-center gap-2 font-mono">
                   <span className="text-dim/60">Mark: {price(mark)}</span>
@@ -248,7 +209,9 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
 
                 <div className="flex justify-between items-center px-0.5 md:px-1">
                    <div className="flex items-center gap-1.5 font-mono">
-                      <span className="text-[7.5px] md:text-[9px] text-dim uppercase font-bold md:inline hidden">{Number(s.progress || 0).toFixed(1)}% Proxy</span>
+                      <span className="text-[7.5px] md:text-[9px] text-dim uppercase font-bold md:inline hidden">
+                        {s.insufficientData ? 'Collecting' : `${Number(s.progress || 0).toFixed(1)}% Proxy`}
+                      </span>
                       <span className="text-[7.5px] md:text-[9px] text-dim/60">{price(mark)}</span>
                       <ArrowRight size={8} className="text-dim/20" />
                       <span className={cn("text-[7.5px] md:text-[9px]", isFired ? "text-red" : "text-text/80")}>{price(threshold)}</span>

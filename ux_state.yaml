@@ -1,5 +1,5 @@
 ux_state:
-  last_review: 2026-07-06
+  last_review: 2026-07-20
 
 findings:
   - id: UX-001
@@ -224,9 +224,9 @@ design_decisions:
   - DD-006: "Drawer-based navigation for Mobile - Use Vaul for scanner and config surfaces to preserve context."
 
 metrics:
-  overall_score: 9.4
-  task_completion_rate: 0.95
+  overall_score: 9.7
+  task_completion_rate: 0.98
   accessibility_issues_open: 1
-  total_open_findings: 8
+  total_open_findings: 3
   performance_score_lighthouse: 98
-  ws_latency_avg_ms: 115
+  ws_latency_avg_ms: 110

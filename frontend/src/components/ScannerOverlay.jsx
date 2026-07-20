@@ -437,13 +437,19 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
         )}>
         <div className="flex flex-col justify-center gap-0.5 w-6 shrink-0 md:w-auto md:shrink leading-none">
           <span className="text-[9px] text-dim font-black font-mono leading-none opacity-40 group-hover:opacity-100 transition-opacity">{(i + 1).toString().padStart(2, '0')}</span>
-          {opp.volume_rank && (
+          {opp.change_rank !== undefined ? (
+            <div className="flex items-center">
+              <span className="text-[7.5px] bg-purple/10 border border-purple/20 px-1 py-0.2 rounded-[3px] text-purple font-black uppercase tracking-tighter shadow-sm leading-none">
+                C{opp.change_rank}
+              </span>
+            </div>
+          ) : opp.volume_rank !== undefined ? (
             <div className="flex items-center">
               <span className="text-[7.5px] bg-accent/10 border border-accent/20 px-1 py-0.2 rounded-[3px] text-accent font-black uppercase tracking-tighter shadow-sm leading-none">
                 V{opp.volume_rank}
               </span>
             </div>
-          )}
+          ) : null}
         </div>
         <div className="flex flex-col justify-center overflow-hidden flex-1 md:flex-none">
            <div className="flex items-baseline gap-0.5 leading-none">
@@ -584,6 +590,9 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
   const activeTradeSymbols = useMemo(() => new Set((activeTrades || []).map(t => t.symbol)), [activeTrades])
   const threshold = config.scan_pct_threshold || 2.0
   const [search, setSearch] = useState('')
+  const [discoveryMode, setDiscoveryMode] = useState('all') // 'all' | 'volume' | 'pct_change'
+  const [sortBy, setSortBy] = useState('score') // 'score' | 'pct_desc' | 'pct_asc' | 'vol_desc'
+  const [rangeFilter, setRangeFilter] = useState('all') // 'all' | 'pos' | 'neg' | 'movers' | 'extreme'
 
   // UX-MOBILE: Ensure search input is visible when focused
   const handleInputFocus = React.useCallback((e) => {
@@ -593,11 +602,64 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
   }, []);
 
   const filteredResults = useMemo(() => {
-    const results = Array.isArray(scannerResults) ? scannerResults.filter(Boolean) : []
-    if (!search) return results
-    const term = search.toLowerCase().trim()
-    return results.filter(r => r.symbol.toLowerCase().includes(term))
-  }, [scannerResults, search])
+    let results = Array.isArray(scannerResults) ? scannerResults.filter(Boolean) : []
+
+    // Pre-calculate full lists for ranking reference
+    const sortedByVolume = [...results].sort((a, b) => (b.vol || b.volume || 0) - (a.vol || a.volume || 0));
+    const sortedByChange = [...results].sort((a, b) => Math.abs(b.pct || 0) - Math.abs(a.pct || 0));
+
+    // 1. Map ranks so they remain consistent regardless of secondary search/range filters
+    results = results.map(r => {
+      const volIdx = sortedByVolume.findIndex(o => o.symbol === r.symbol);
+      const chgIdx = sortedByChange.findIndex(o => o.symbol === r.symbol);
+      return {
+        ...r,
+        volume_rank: volIdx !== -1 ? volIdx + 1 : r.volume_rank,
+        change_rank: chgIdx !== -1 ? chgIdx + 1 : undefined
+      };
+    });
+
+    // 2. Filter by search
+    if (search) {
+      const term = search.toLowerCase().trim()
+      results = results.filter(r => r.symbol.toLowerCase().includes(term))
+    }
+
+    // 3. Filter by range
+    if (rangeFilter === 'pos') {
+      results = results.filter(r => (r.pct || 0) > 0)
+    } else if (rangeFilter === 'neg') {
+      results = results.filter(r => (r.pct || 0) < 0)
+    } else if (rangeFilter === 'movers') {
+      results = results.filter(r => Math.abs(r.pct || 0) >= 2.0)
+    } else if (rangeFilter === 'extreme') {
+      results = results.filter(r => Math.abs(r.pct || 0) >= 5.0)
+    }
+
+    // 4. Apply Discovery Mode Slicing (Top 24)
+    if (discoveryMode === 'volume') {
+      results = results
+        .sort((a, b) => (a.volume_rank || 999) - (b.volume_rank || 999))
+        .slice(0, 24);
+    } else if (discoveryMode === 'pct_change') {
+      results = results
+        .sort((a, b) => (a.change_rank || 999) - (b.change_rank || 999))
+        .slice(0, 24);
+    }
+
+    // 5. Apply sorting
+    if (sortBy === 'score') {
+      results = [...results].sort((a, b) => (b.score || 0) - (a.score || 0))
+    } else if (sortBy === 'pct_desc') {
+      results = [...results].sort((a, b) => (b.pct || 0) - (a.pct || 0))
+    } else if (sortBy === 'pct_asc') {
+      results = [...results].sort((a, b) => (a.pct || 0) - (b.pct || 0))
+    } else if (sortBy === 'vol_desc') {
+      results = [...results].sort((a, b) => (b.vol || b.volume || 0) - (a.vol || a.volume || 0))
+    }
+
+    return results;
+  }, [scannerResults, search, rangeFilter, discoveryMode, sortBy])
 
   // BOLT OPTIMIZATION: Pre-calculate a Set of monitored symbols to avoid O(N*M) lookup in the render loop.
   // Reduces complexity from O(N*M) to O(N+M), improving render performance when many symbols are monitored.
@@ -625,7 +687,19 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                  )}
               </div>
                 <div className="flex flex-col">
-                  <span className="text-[13px] font-black tracking-tight hidden sm:inline uppercase leading-none">{showResumingFeedback ? 'Resuming...' : 'Live Scanner'}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[13px] font-black tracking-tight hidden sm:inline uppercase leading-none">{showResumingFeedback ? 'Resuming...' : 'Live Scanner'}</span>
+                    <span className={cn(
+                      "text-[8px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded-full border shadow-sm leading-none",
+                      discoveryMode === 'all'
+                        ? "bg-accent/10 border-accent/20 text-accent"
+                        : discoveryMode === 'volume'
+                        ? "bg-green/10 border-green/20 text-green"
+                        : "bg-purple/10 border-purple/20 text-purple"
+                    )}>
+                      {discoveryMode === 'all' ? 'All' : discoveryMode === 'volume' ? 'Volume Rank' : 'Change Rank'}
+                    </span>
+                  </div>
                   <div className="flex items-center gap-1.5 opacity-60 mt-0.5">
                     <div className="text-[7.5px] text-dim font-black uppercase tracking-tighter leading-none">Weights</div>
                     <div className="px-1 py-0.2 rounded bg-background border border-border/50 font-mono text-[7.5px] font-bold text-text/60 leading-none">
@@ -699,6 +773,73 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
       </div>
 
       <ActiveWindowsList search={search} />
+
+      {/* Real-time Discovery & Leaderboard Toolbar */}
+      <div className="bg-background/25 border-b border-border/40 p-2.5 flex flex-col gap-2 shrink-0 sm:flex-row sm:items-center sm:justify-between">
+        {/* Discovery Mode Selector */}
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 sm:pb-0">
+          <span className="text-[9px] font-black text-dim uppercase tracking-wider shrink-0 mr-1.5">Discovery:</span>
+          {[
+            { id: 'all', label: 'All Scanned', color: 'accent' },
+            { id: 'volume', label: 'Top 24 Volume', color: 'green' },
+            { id: 'pct_change', label: 'Top 24h Change', color: 'purple' }
+          ].map(m => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => setDiscoveryMode(m.id)}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                discoveryMode === m.id
+                  ? m.color === 'accent'
+                    ? "bg-accent/15 border-accent/40 text-accent"
+                    : m.color === 'green'
+                    ? "bg-green/15 border-green/40 text-green"
+                    : "bg-purple/15 border-purple/40 text-purple"
+                  : "bg-surface/50 border-border/30 text-dim hover:text-text hover:border-border/60"
+              )}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Filters and Sorting dropdowns */}
+        <div className="flex items-center gap-2">
+          {/* Filter Dropdown */}
+          <div className="flex items-center gap-1.5 flex-1 sm:flex-none">
+            <span className="text-[9px] font-black text-dim uppercase tracking-wider hidden md:inline">Filter:</span>
+            <select
+              value={rangeFilter}
+              onChange={(e) => setRangeFilter(e.target.value)}
+              className="bg-surface border border-border/40 rounded-lg px-2.5 py-1 text-[10px] font-bold text-text/80 outline-none hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent h-7 w-full sm:w-36 transition-colors"
+              aria-label="Filter by 24h change range"
+            >
+              <option value="all">All Movements</option>
+              <option value="pos">Positive (&gt;0%)</option>
+              <option value="neg">Negative (&lt;0%)</option>
+              <option value="movers">Movers (&gt;2%)</option>
+              <option value="extreme">Extreme (&gt;5%)</option>
+            </select>
+          </div>
+
+          {/* Sort Dropdown */}
+          <div className="flex items-center gap-1.5 flex-1 sm:flex-none">
+            <span className="text-[9px] font-black text-dim uppercase tracking-wider hidden md:inline">Sort:</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="bg-surface border border-border/40 rounded-lg px-2.5 py-1 text-[10px] font-bold text-text/80 outline-none hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent h-7 w-full sm:w-44 transition-colors"
+              aria-label="Sort options"
+            >
+              <option value="score">Scanner Score (Default)</option>
+              <option value="pct_desc">Change % (High → Low)</option>
+              <option value="pct_asc">Change % (Low → High)</option>
+              <option value="vol_desc">Volume (High → Low)</option>
+            </select>
+          </div>
+        </div>
+      </div>
 
       <div className="grid grid-cols-[25px_90px_1fr_50px_1fr_1.2fr_135px] items-center px-4 py-1.5 text-[9px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase h-[32px] shrink-0 md:grid hidden">
         <span>#</span>

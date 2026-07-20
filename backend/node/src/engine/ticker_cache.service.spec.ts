@@ -60,4 +60,35 @@ describe('TickerCacheService', () => {
       expect(ticker?.mark_price).toBe(51000);
     });
   });
+
+  describe('topByChangePct', () => {
+    it('should return tickers sorted by absolute 24-hour change percentage descending', () => {
+      // Setup tickers with different 24h change pct
+      // BTC: price=110, open=100 -> change = +10%
+      // ETH: price=95, open=100 -> change = -5% (absolute 5%)
+      // SOL: price=120, open=100 -> change = +20%
+      // ADA: price=101, open=100 -> change = +1%
+      service.updateTicker('BTCUSDT', 110, 1000000, 100);
+      service.updateTicker('ETHUSDT', 95, 2000000, 100);
+      service.updateTicker('SOLUSDT', 120, 500000, 100);
+      service.updateTicker('ADAUSDT', 101, 100000, 100);
+
+      const top = service.topByChangePct(3);
+      expect(top.length).toBe(3);
+      expect(top[0].symbol).toBe('SOLUSDT'); // 20%
+      expect(top[1].symbol).toBe('BTCUSDT'); // 10%
+      expect(top[2].symbol).toBe('ETHUSDT'); // 5%
+    });
+
+    it('should respect exclusions', () => {
+      service.updateTicker('BTCUSDT', 110, 1000000, 100);
+      service.updateTicker('ETHUSDT', 95, 2000000, 100);
+      service.updateTicker('SOLUSDT', 120, 500000, 100);
+
+      const top = service.topByChangePct(2, ['SOLUSDT']);
+      expect(top.length).toBe(2);
+      expect(top[0].symbol).toBe('BTCUSDT');
+      expect(top[1].symbol).toBe('ETHUSDT');
+    });
+  });
 });

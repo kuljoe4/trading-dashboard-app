@@ -105,20 +105,23 @@ export class MomentumScannerService {
             tasks.set(t.symbol, { config, is_smart: true });
           });
 
-          // Also include volume-based leaders
-          const topByVolume = this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), config.excluded_symbols || []);
-          topByVolume.forEach((t, i) => {
+          // Also include volume-based or change-pct-based leaders
+          const discoveryMode = config.discovery_mode || 'volume';
+          const topSymbols = discoveryMode === 'change_pct'
+            ? this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), config.excluded_symbols || [])
+            : this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), config.excluded_symbols || []);
+          topSymbols.forEach((t, i) => {
              if (!tasks.has(t.symbol)) {
                 tasks.set(t.symbol, { config, volume_rank: i + 1 });
              }
           });
         } else {
-          const topByVolume = this.tickerCache.topByVolume(
-            watchlistSize + offset,
-            config.excluded_symbols || [],
-          );
-          for (let i = offset; i < topByVolume.length; i++) {
-            const t = topByVolume[i];
+          const discoveryMode = config.discovery_mode || 'volume';
+          const topSymbols = discoveryMode === 'change_pct'
+            ? this.tickerCache.topByChangePct(watchlistSize + offset, config.excluded_symbols || [])
+            : this.tickerCache.topByVolume(watchlistSize + offset, config.excluded_symbols || []);
+          for (let i = offset; i < topSymbols.length; i++) {
+            const t = topSymbols[i];
             tasks.set(t.symbol, { config, volume_rank: i + 1 });
           }
         }

@@ -14,6 +14,7 @@ export class TickerCacheService {
   private tickers: Map<string, Ticker> = new Map();
   private hasReceivedFirstData = false;
   private _topByVolumeCache: { [key: string]: { data: Ticker[], timestamp: number } } = {};
+  private _topByChangeCache: { [key: string]: { data: Ticker[], timestamp: number } } = {};
   private readonly TOP_VOLUME_CACHE_TTL_MS = 60000;
   private readonly TOP_VOLUME_CACHE_MAX_KEYS = 12;
 
@@ -142,12 +143,48 @@ export class TickerCacheService {
     return result;
   }
 
+  topByChangePct(n: number, excluded: string[] = []): Ticker[] {
+    const cacheKey = excluded.length === 0 ? String(n) : `${n}_${[...excluded].sort().join(',')}`;
+    const cached = this._topByChangeCache[cacheKey];
+    const now = Date.now();
+
+    if (cached && (now - cached.timestamp < this.TOP_VOLUME_CACHE_TTL_MS)) {
+      return cached.data;
+    }
+
+    const excludedSet = excluded.length > 0 ? new Set(excluded) : null;
+    const all = this.getLatestTickers();
+    this.logger.verbose(`topByChangePct requested ${n} symbols. Cache size: ${all.length}. Cache miss - recomputing.`);
+
+    const result = all
+      .filter(t => !excludedSet?.has(t.symbol) && t.price && t.open_24h && t.open_24h > 0)
+      .sort((a, b) => {
+        const changeA = Math.abs(((a.price - (a.open_24h || 0)) / (a.open_24h || 1)) * 100);
+        const changeB = Math.abs(((b.price - (b.open_24h || 0)) / (b.open_24h || 1)) * 100);
+        return changeB - changeA;
+      })
+      .slice(0, n);
+
+    const cacheKeys = Object.keys(this._topByChangeCache);
+    if (cacheKeys.length >= this.TOP_VOLUME_CACHE_MAX_KEYS && !this._topByChangeCache[cacheKey]) {
+      delete this._topByChangeCache[cacheKeys[0]];
+    }
+
+    this._topByChangeCache[cacheKey] = {
+      data: result,
+      timestamp: now
+    };
+
+    return result;
+  }
+
   /**
    * Clear all ticker data to free up memory (Deep Sleep)
    */
   clear() {
     this.tickers.clear();
     this._topByVolumeCache = {};
+    this._topByChangeCache = {};
     this.latestTickersCache = null; // Invalidate cache on clear
     this.logger.verbose('TickerCache cleared');
   }

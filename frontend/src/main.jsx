@@ -75,26 +75,52 @@ const App = () => {
     return () => window.removeEventListener('unhandledrejection', handleRejection);
   }, []);
 
-  // Initialize Auth
+  // Initialize Auth with robust retry and exponential backoff to handle cold starts resiliently
   useEffect(() => {
-    async function initAuth() {
+    let active = true;
+
+    async function initAuthWithRetry(attempt = 1, maxAttempts = 4, delay = 1000) {
+      if (!active) return;
+      console.log(`[Auth] Fetching auth config (Attempt ${attempt}/${maxAttempts})...`);
       try {
-        // Enforce a hard 5-second timeout on the initial config check
-        // to prevent full-app deadlocks on flaky or stalled connections.
+        // Enforce a hard 5-second timeout on each config check
         const res = await api.get('/auth/config', { timeout: 5000 });
+        if (!active) return;
+
+        console.log(`[Auth] Auth config fetched successfully on attempt ${attempt}`);
         if (res.data.adminApiKey) {
           setAdminApiKey(res.data.adminApiKey);
         } else {
-          // Even if no key is returned, resolve auth to prevent deadlocks
           initializeAuth();
         }
       } catch (e) {
+        if (!active) return;
         if (e.code === 'ERR_CANCELED') return;
-        console.error("Failed to fetch auth config", e);
-        initializeAuth();
+
+        const isTimeout = e.code === 'ECONNABORTED' || e.message?.toLowerCase().includes('timeout');
+        console.warn(
+          `[Auth] Attempt ${attempt}/${maxAttempts} failed. ` +
+          `Error: ${e.message || String(e)}. ` +
+          `Type: ${isTimeout ? 'Timeout' : 'Network/Server Error'}.`
+        );
+
+        if (attempt < maxAttempts) {
+          console.log(`[Auth] Retrying in ${delay}ms...`);
+          setTimeout(() => {
+            initAuthWithRetry(attempt + 1, maxAttempts, delay * 2);
+          }, delay);
+        } else {
+          console.error(`[Auth] All ${maxAttempts} attempts exhausted. Proceeding with fallback resolution.`);
+          initializeAuth();
+        }
       }
     }
-    initAuth();
+
+    initAuthWithRetry();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {

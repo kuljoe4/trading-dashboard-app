@@ -79,6 +79,9 @@ const SIGNALS = [
   ['ema_dual_close', 'EMA Dual Close', 'Entry when candle closes above both EMAs.'],
   ['ma', 'MA Cross', 'Entry when price crosses simple Moving Average.'],
   ['engulfing', 'Engulfing', 'Entry on bullish or bearish engulfing pattern.'],
+  ['macd_impulse', 'MACD Impulse', 'Phase 4 momentum pullback entry.'],
+  ['macd_fade', 'MACD Fade', 'Phase 5 momentum exit when histogram weakens.'],
+  ['supertrend', 'Supertrend', 'Entry & Exit trend follower based on ATR.'],
 ]
 
 const SectionHeader = React.memo(({ icon: Icon, title, subtitle, className }) => (
@@ -613,6 +616,13 @@ const flattenConfig = (config) => {
       signal_params_entry_ema_slow: params.entry_ema_slow,
       signal_params_exit_ema_fast: params.exit_ema_fast,
       signal_params_exit_ema_slow: params.exit_ema_slow,
+      signal_params_macd_fast: params.macd_fast || 12,
+      signal_params_macd_slow: params.macd_slow || 26,
+      signal_params_macd_signal: params.macd_signal || 9,
+      signal_params_macd_strict_expansion: params.macd_strict_expansion !== undefined ? params.macd_strict_expansion : true,
+      signal_params_supertrend_period: params.supertrend_period || 10,
+      signal_params_supertrend_multiplier: params.supertrend_multiplier || 3,
+      signal_params_supertrend_mode: params.supertrend_mode || 'trend',
       scanner_weights_momentum: weights.momentum * 100,
       scanner_weights_volatility: weights.volatility * 100,
       scanner_weights_trend: weights.trend * 100,
@@ -960,12 +970,18 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
     // Explicitly sanitize inputs for security and data integrity
     const sp = { ...(typeof cfg.signal_params === 'string' ? JSON.parse(cfg.signal_params || '{}') : cfg.signal_params || {}) };
-    ['ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period', 'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow'].forEach(k => {
+    ['ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period', 'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow', 'macd_fast', 'macd_slow', 'macd_signal', 'supertrend_period', 'supertrend_multiplier'].forEach(k => {
       const val = cfg[`signal_params_${k}`];
       if (val !== undefined && val !== null) {
         sp[k] = Number(val);
       }
     });
+    if (cfg.signal_params_macd_strict_expansion !== undefined) {
+      sp.macd_strict_expansion = cfg.signal_params_macd_strict_expansion === true || cfg.signal_params_macd_strict_expansion === 'true';
+    }
+    if (cfg.signal_params_supertrend_mode !== undefined) {
+      sp.supertrend_mode = cfg.signal_params_supertrend_mode;
+    }
     c.signal_params = sp;
 
     // Ensure numeric values where expected
@@ -1512,6 +1528,39 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     {renderField('Exit Slow', 'signal_params_exit_ema_slow', 'number', null, { min: 1 })}
                   </div>
                 </div>
+
+                {((cfg.enabled_signals || []).includes('macd_impulse') || (cfg.exit_signals || []).includes('macd_fade')) && (
+                  <div className="bg-background/20 p-4 rounded-2xl border border-border/50 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                    <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em]">MACD Momentum Parameters</div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                      {renderField('MACD Fast', 'signal_params_macd_fast', 'number', null, { min: 1 })}
+                      {renderField('MACD Slow', 'signal_params_macd_slow', 'number', null, { min: 1 })}
+                      {renderField('MACD Signal', 'signal_params_macd_signal', 'number', null, { min: 1 })}
+                      {((cfg.enabled_signals || []).includes('macd_impulse')) && (
+                        <div className="flex flex-col gap-1.5 justify-center">
+                          <div className="flex justify-between items-center">
+                            <label className="text-[10px] text-dim font-black tracking-widest uppercase">Strict Expanding</label>
+                            <Toggle value={cfg.signal_params_macd_strict_expansion !== false} onChange={(v) => setField('signal_params_macd_strict_expansion', v)} />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {((cfg.enabled_signals || []).includes('supertrend') || (cfg.exit_signals || []).includes('supertrend')) && (
+                  <div className="bg-background/20 p-4 rounded-2xl border border-border/50 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                    <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em]">Supertrend Parameters</div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+                      {renderField('ATR Period', 'signal_params_supertrend_period', 'number', null, { min: 1 })}
+                      {renderField('Multiplier', 'signal_params_supertrend_multiplier', 'number', null, { min: 0.1, step: 0.1 })}
+                      {renderField('Supertrend Mode', 'signal_params_supertrend_mode', 'text', [
+                        { value: 'trend', label: 'Trend State' },
+                        { value: 'crossover', label: 'Crossover Trigger' }
+                      ])}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {(cfg.enabled_signals || []).includes('ema_dual_close') && (

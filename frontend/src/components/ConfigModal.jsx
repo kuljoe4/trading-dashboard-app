@@ -81,6 +81,7 @@ const SIGNALS = [
   ['engulfing', 'Engulfing', 'Entry on bullish or bearish engulfing pattern.'],
   ['macd_impulse', 'MACD Impulse', 'Phase 4 momentum pullback entry.'],
   ['macd_fade', 'MACD Fade', 'Phase 5 momentum exit when histogram weakens.'],
+  ['macd_pbc', 'MACD PBC', 'Premium Pullback-to-Continuation pullback entry.'],
   ['supertrend', 'Supertrend', 'Entry & Exit trend follower based on ATR.'],
 ]
 
@@ -789,6 +790,8 @@ const flattenConfig = (config) => {
       signal_params_macd_slow: params.macd_slow || 26,
       signal_params_macd_signal: params.macd_signal || 9,
       signal_params_macd_strict_expansion: params.macd_strict_expansion !== undefined ? params.macd_strict_expansion : true,
+      signal_params_macd_pbc_trend_ema: params.macd_pbc_trend_ema || 50,
+      signal_params_macd_pbc_lookback: params.macd_pbc_lookback || 10,
       signal_params_supertrend_period: params.supertrend_period || 10,
       signal_params_supertrend_multiplier: params.supertrend_multiplier || 3,
       signal_params_supertrend_mode: params.supertrend_mode || 'trend',
@@ -1139,7 +1142,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
     // Explicitly sanitize inputs for security and data integrity
     const sp = { ...(typeof cfg.signal_params === 'string' ? JSON.parse(cfg.signal_params || '{}') : cfg.signal_params || {}) };
-    ['ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period', 'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow', 'macd_fast', 'macd_slow', 'macd_signal', 'supertrend_period', 'supertrend_multiplier'].forEach(k => {
+    ['ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period', 'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow', 'macd_fast', 'macd_slow', 'macd_signal', 'supertrend_period', 'supertrend_multiplier', 'macd_pbc_trend_ema', 'macd_pbc_lookback'].forEach(k => {
       const val = cfg[`signal_params_${k}`];
       if (val !== undefined && val !== null) {
         sp[k] = Number(val);
@@ -1705,7 +1708,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   </div>
                 </div>
 
-                {((cfg.enabled_signals || []).includes('macd_impulse') || (cfg.exit_signals || []).includes('macd_fade')) && (
+                {((cfg.enabled_signals || []).includes('macd_impulse') || (cfg.enabled_signals || []).includes('macd_pbc') || (cfg.exit_signals || []).includes('macd_fade')) && (
                   <div className="bg-background/20 p-4 rounded-2xl border border-border/50 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
                     <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em]">MACD Momentum Parameters</div>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -1719,6 +1722,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                             <Toggle value={cfg.signal_params_macd_strict_expansion !== false} onChange={(v) => setField('signal_params_macd_strict_expansion', v)} />
                           </div>
                         </div>
+                      )}
+                      {((cfg.enabled_signals || []).includes('macd_pbc')) && (
+                        <>
+                          {renderField('PBC Trend EMA', 'signal_params_macd_pbc_trend_ema', 'number', null, { min: 1 })}
+                          {renderField('PBC Lookback', 'signal_params_macd_pbc_lookback', 'number', null, { min: 1 })}
+                        </>
                       )}
                     </div>
                   </div>

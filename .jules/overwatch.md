@@ -17,3 +17,8 @@
 **Vulnerability:** `BinanceClientFactory` performed a naked `fetch` for clock sync before loading persistent ban status. `MarketFeedService` lacked guards to prevent WebSocket handshake bursts during active IP bans.
 **Learning:** Initializing network state must be strictly ordered: Load persistent cooldowns -> Register throttle -> Throttled sync. WebSocket connections are "costly" handshakes that must respect IP reputation same as REST.
 **Prevention:** Always load ban status as the first action in `onModuleInit`. Wrap ALL startup fetch calls in `genericRequest`. Implement `isBanned()` guards in stream managers.
+
+## 2026-07-21 - WebSocket Handshake Rate-Limit / Ban Hammering Gap
+**Vulnerability:** `BinanceSubscriptionManager` was completely unaware of the centralized/persistent IP ban status, continuing to schedule reconnection attempts and hammer exchange endpoints even when a 24-hour IP ban was active. It also failed to propagate handshake status codes like 418/429 back to the centralized ban tracking systems.
+**Learning:** Reconnection policies and stream-level managers must be tightly integrated with centralized rate-limiting and ban protection services to avoid compounding IP ban penalties.
+**Prevention:** Pass an `isBanned` predicate and `onBan` status propagation callback from `MarketFeedService` (hooked into `SessionStateService`) to all `BinanceSubscriptionManager` instances, checking ban status before every connection attempt and gracefully deferring.

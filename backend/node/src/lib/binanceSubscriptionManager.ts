@@ -39,11 +39,20 @@ export class BinanceSubscriptionManager {
     private readonly options: {
       isTestnet: boolean;
       onMessage: (data: any) => void;
+      isBanned?: () => boolean;
+      onBan?: (msg: string) => void;
     }
   ) {}
 
   public async connect(): Promise<void> {
     if (this.ws || this.isConnecting || this.isStopped) return;
+
+    if (this.options.isBanned?.()) {
+      this.logger.warn(`[SubscriptionManager] Connection deferred: IP is currently banned.`);
+      this.scheduleReconnect();
+      throw new Error('Connection deferred: IP is currently banned.');
+    }
+
     this.isConnecting = true;
     this.lastMsgTs = 0;
     this.msgCount = 0;
@@ -95,7 +104,14 @@ export class BinanceSubscriptionManager {
       });
 
       ws.on('error', (err: any) => {
-        this.logger.error(`[SubscriptionManager] WebSocket error: ${err.message}`);
+        const msg = err.message || '';
+        this.logger.error(`[SubscriptionManager] WebSocket error: ${msg}`);
+
+        if (msg.includes('429') || msg.includes('418')) {
+          this.logger.fatal(`[CRITICAL] WebSocket handshake failed with rate-limit/ban status (${msg}).`);
+          this.options.onBan?.(msg);
+        }
+
         if (this.isConnecting) {
           this.isConnecting = false;
           reject(err);

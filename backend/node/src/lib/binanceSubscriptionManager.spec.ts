@@ -97,4 +97,32 @@ describe('BinanceSubscriptionManager', () => {
 
     jest.useRealTimers();
   });
+
+  it('should defer connection and throw error if isBanned returns true', async () => {
+    const isBannedMock = jest.fn().mockReturnValue(true);
+    const bannedManager = new BinanceSubscriptionManager(
+      'ws://localhost:8080',
+      { isTestnet: true, onMessage: mockOnMessage, isBanned: isBannedMock }
+    );
+
+    await expect(bannedManager.connect()).rejects.toThrow('Connection deferred: IP is currently banned.');
+    expect(isBannedMock).toHaveBeenCalled();
+    await bannedManager.stop();
+  });
+
+  it('should call onBan callback if error message indicates 418 or 429 status', async () => {
+    const onBanMock = jest.fn();
+    const errorManager = new BinanceSubscriptionManager(
+      'ws://localhost:8080',
+      { isTestnet: true, onMessage: mockOnMessage, onBan: onBanMock }
+    );
+
+    const connectPromise = errorManager.connect();
+    const errorHandler = mockWs.on.mock.calls.find((call: any) => call[0] === 'error')[1];
+    errorHandler(new Error('Unexpected server response: 418'));
+
+    await expect(connectPromise).rejects.toThrow('Unexpected server response: 418');
+    expect(onBanMock).toHaveBeenCalledWith('Unexpected server response: 418');
+    await errorManager.stop();
+  });
 });

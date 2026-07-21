@@ -506,7 +506,7 @@ GateBanner.displayName = 'GateBanner'
 export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) => {
   const { activeTrades } = useTradingStore(state => ({ activeTrades: state.activeTrades || [] }), shallow);
   const threshold = config.scan_pct_threshold || 2
-  const top = scannerResults.slice(0, 5)
+  const top = (scannerResults || []).slice(0, 5)
   // Pre-allocate 5 slots to prevent layout shift
   const placeholders = Array.from({ length: Math.max(0, 5 - top.length) })
 

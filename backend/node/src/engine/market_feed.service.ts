@@ -787,7 +787,15 @@ export class MarketFeedService {
         wsUrl,
         {
             isTestnet,
-            onMessage: (data) => this.processStreamMessage(data)
+            onMessage: (data) => this.processStreamMessage(data),
+            isBanned: () => this.sessionState.isBanned(),
+            onBan: (msg) => {
+               this.logger.fatal(`[MarketFeed] WebSocket rate-limit/ban status detected: ${msg}. Propagating ban...`);
+               const until = Date.now() + (24 * 60 * 60 * 1000); // 24h fallback for ban
+               BinanceRequestQueue.setCooldownUntil(until);
+               this.settingsRepository.update('default', { api_ban_until: until, api_ban_reason: msg }).catch(() => {});
+               this.eventEmitter.emit('binance.api_limit_reached', { type: 'BAN', message: msg, until });
+            }
         }
     );
     this.discoveryManagers.set('unified', manager);
@@ -971,7 +979,15 @@ export class MarketFeedService {
             managerWsUrl,
             {
                 isTestnet,
-                onMessage: (data) => this.processStreamMessage(data)
+                onMessage: (data) => this.processStreamMessage(data),
+                isBanned: () => this.sessionState.isBanned(),
+                onBan: (msg) => {
+                   this.logger.fatal(`[MarketFeed] WebSocket rate-limit/ban status detected: ${msg}. Propagating ban...`);
+                   const until = Date.now() + (24 * 60 * 60 * 1000); // 24h fallback for ban
+                   BinanceRequestQueue.setCooldownUntil(until);
+                   this.settingsRepository.update('default', { api_ban_until: until, api_ban_reason: msg }).catch(() => {});
+                   this.eventEmitter.emit('binance.api_limit_reached', { type: 'BAN', message: msg, until });
+                }
             }
         );
         this.klineManagers.push(manager);

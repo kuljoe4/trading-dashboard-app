@@ -831,6 +831,29 @@ export class SessionLifecycleService {
               // REDUCE LOG NOISE: OrderManagerService already logs this with more detail
               this.eventEmitter.emit("binance.order_update", data);
             }
+          } else if (data.e === "MARGIN_CALL") {
+            this.logger.warn(`[UDS] CRITICAL: MARGIN_CALL event received from exchange!`);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+              msg: `CRITICAL RISK ALERT: Margin call received from Binance! Please check your account margin levels immediately. Details: ${JSON.stringify(sanitize(data))}`,
+              level: 'error'
+            });
+            this.eventEmitter.emit(ENGINE_EVENTS.ALERT, {
+              level: 'error',
+              title: 'Margin Call',
+              message: 'Binance is warning of low margin. Risk of immediate liquidation.'
+            });
+          } else if (data.e === "ACCOUNT_CONFIG_UPDATE") {
+            this.logger.log(`[UDS] ACCOUNT_CONFIG_UPDATE event received: ${JSON.stringify(sanitize(data))}`);
+            if (data.ac) {
+              const symbol = data.ac.s;
+              const leverage = data.ac.l;
+              if (symbol && leverage) {
+                this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+                  msg: `[UDS] Sync: Account configuration updated for ${symbol}. Leverage adjusted to ${leverage}x.`,
+                  level: 'info'
+                });
+              }
+            }
           } else if (data.e === "listenKeyExpired") {
             this.logger.warn(
               "[Lifecycle] ListenKey expired, restarting user data stream...",

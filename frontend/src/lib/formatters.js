@@ -43,3 +43,60 @@ export const durationFromTimestamp = (entryTs) => {
   const entry = new Date(entryTs).getTime();
   return formatDuration(now - entry);
 };
+
+/**
+ * Robust UI Proximity Bar Standard:
+ * Proximity and progress metrics across both entry and exit views (including `SignalGauge.jsx` and `TradeDetailContent.jsx`)
+ * are evaluated via this centralized direction-aware helper function.
+ * Enforces safe validation guarding against `NaN`, `Infinity`, and division-by-zero errors (such as when `threshold === 0`
+ * or `threshold === entryPrice`) and correctly processes direction momentum progress for both LONG and SHORT configurations.
+ * Features an opposite-sign guard for indicators, clamps progress to 99% if the signal hasn't fired yet to avoid visual mismatches,
+ * and handles `insufficientData` gracefully.
+ */
+export const calculateProximity = (signal, mark, entryPrice) => {
+  if (!signal) return 0;
+
+  const value = Number(signal.value);
+  const threshold = Number(signal.threshold);
+  const entry = Number(entryPrice);
+  const currentMark = Number(mark);
+
+  const insufficientData = !!signal.insufficientData;
+  const isFired = !!signal.fired;
+  const isActive = signal.active !== false;
+  const thresholdIsPrice = !!(signal.threshold_is_price || signal.thresholdIsPrice);
+
+  if (insufficientData) {
+    return 0;
+  }
+
+  if (isFired && isActive) {
+    return 100;
+  }
+
+  const maxVal = isFired ? 100 : 99;
+
+  // Handle price-based signals
+  if (thresholdIsPrice) {
+    if (entry === 0 || threshold === 0 || threshold === entry) {
+      return 0;
+    }
+    const totalDist = threshold - entry;
+    const currentDist = currentMark - entry;
+    const progress = (currentDist / totalDist) * 100;
+    return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
+  }
+
+  // Handle indicator-based signals
+  if (threshold === 0) {
+    return 0;
+  }
+
+  const hasOppositeSign = (value > 0 && threshold < 0) || (value < 0 && threshold > 0);
+  if (hasOppositeSign) {
+    return 0;
+  }
+
+  const progress = (Math.abs(value) / Math.abs(threshold)) * 100;
+  return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
+};

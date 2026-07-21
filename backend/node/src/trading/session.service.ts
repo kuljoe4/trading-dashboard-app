@@ -570,6 +570,23 @@ export class SessionService implements OnModuleInit {
       }
     }
 
+    if (allEnabled.includes("supertrend")) {
+      const stPeriodVal = signalParams.supertrend_period;
+      const stPeriod = parseInt(
+        stPeriodVal !== undefined && stPeriodVal !== null && stPeriodVal !== ''
+          ? String(stPeriodVal)
+          : "10",
+        10
+      );
+      if (!isNaN(stPeriod)) {
+        if (stPeriod * 5 >= maxCandles) {
+          throw new BadRequestException(
+            `Supertrend ATR period ${stPeriod} is too large for current KLINE_MAX_CANDLES (${maxCandles}). The required warmup (${stPeriod * 5} candles) exceeds or equals KLINE_MAX_CANDLES. Please use an ATR Period < ${Math.floor(maxCandles / 5)} or increase KLINE_MAX_CANDLES.`,
+          );
+        }
+      }
+    }
+
     // 5. Risk Constraints
     const riskPerTrade = config.risk_pct_per_trade ?? 0;
     const maxTotalRisk = config.max_total_risk_pct ?? 100;

@@ -1737,7 +1737,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   <div className="bg-background/20 p-4 rounded-2xl border border-border/50 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
                     <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em]">Supertrend Parameters</div>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                      {renderField('ATR Period', 'signal_params_supertrend_period', 'number', null, { min: 1 })}
+                      {renderField('ATR Period', 'signal_params_supertrend_period', 'number', null, { min: 1, max: 39 })}
                       {renderField('Multiplier', 'signal_params_supertrend_multiplier', 'number', null, { min: 0.1, step: 0.1 })}
                       {renderField('Supertrend Mode', 'signal_params_supertrend_mode', 'text', [
                         { value: 'trend', label: 'Trend State' },

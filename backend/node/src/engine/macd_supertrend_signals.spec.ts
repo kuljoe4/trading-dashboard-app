@@ -217,12 +217,18 @@ describe('MACD and Supertrend Signal Engine Tests', () => {
   });
 
   describe('Supertrend Signal (Entry & Exit)', () => {
-    it('should correctly calculate Supertrend direction and crossover', () => {
-      const prices = Array(100).fill(100);
-      // Flat price, then massive break upwards
-      for (let i = 95; i < 100; i++) {
-        prices[i] = 200 + (i - 95) * 50;
+    it('should correctly calculate Supertrend LONG entry signals (trend and crossover)', () => {
+      const prices = Array(100).fill(200);
+      // To establish 'down' direction first, set prices to 100 for index 0 to 80,
+      // then rise to 200 for index 81 to 97 (this is the flat 'up' state). Wait,
+      // actually if we want a BULLISH crossover at 98, we should set index 0-97 to 100 ('down'),
+      // then rise sharply to 200 at 98. Since default is 'down', flat 100 means index 97 is 'down'.
+      // Then index 98 goes to 200 which is higher than upper band, flipping direction to 'up'.
+      for (let i = 0; i <= 97; i++) {
+        prices[i] = 100;
       }
+      prices[98] = 200;
+      prices[99] = 200;
 
       const candles = generateCandles(prices);
       klineStore.getRawCandles.mockReturnValue(candles);
@@ -235,13 +241,137 @@ describe('MACD and Supertrend Signal Engine Tests', () => {
         supertrend_mode: 'trend',
       };
 
-      const trendResult = service.checkEntry('BTCUSDT', config, '1m', 'LONG');
+      // 1. LONG entry in trend mode should fire because trend is bullish at 98
+      const trendResult = service.checkEntry('BTCUSDT', config, '1m', 'LONG', 'entry');
       expect(trendResult.details?.supertrend?.fired).toBe(true);
+      expect(trendResult.details?.supertrend?.description).toContain('is bullish');
 
-      // Crossover should also be true on the flip index
+      // 2. LONG entry in crossover mode should fire because direction flipped from down to up
       config.signal_params.supertrend_mode = 'crossover';
-      const crossoverResult = service.checkEntry('BTCUSDT', config, '1m', 'LONG');
-      expect(crossoverResult.details?.supertrend).toBeDefined();
+      const crossoverResult = service.checkEntry('BTCUSDT', config, '1m', 'LONG', 'entry');
+      expect(crossoverResult.details?.supertrend?.fired).toBe(true);
+      expect(crossoverResult.details?.supertrend?.description).toContain('crossed bullish');
+    });
+
+    it('should correctly calculate Supertrend LONG exit signals (trend and crossover)', () => {
+      const prices = Array(100).fill(100);
+      // To establish 'up' direction first, set prices to 100 for index 0 to 70,
+      // then rise to 200 for index 71 to 97 (this triggers and sustains the bullish 'up' state).
+      // Then drop to 100 at 98 (triggers bearish 'down' state).
+      for (let i = 0; i <= 70; i++) prices[i] = 100;
+      for (let i = 71; i <= 97; i++) prices[i] = 200;
+      prices[98] = 100;
+      prices[99] = 100;
+
+      const candles = generateCandles(prices);
+      klineStore.getRawCandles.mockReturnValue(candles);
+
+      const config = new SessionConfig();
+      config.exit_signals = ['supertrend'];
+      config.signal_params = {
+        supertrend_period: 10,
+        supertrend_multiplier: 1.5,
+        supertrend_mode: 'trend',
+      };
+
+      // 3. LONG exit in trend mode should fire because trend turned bearish
+      const trendResult = service.checkEntry('BTCUSDT', config, '1m', 'LONG', 'exit');
+      expect(trendResult.details?.supertrend?.fired).toBe(true);
+      expect(trendResult.details?.supertrend?.description).toContain('Exit Supertrend is bearish');
+
+      // 4. LONG exit in crossover mode should fire because direction flipped from up to down
+      config.signal_params.supertrend_mode = 'crossover';
+      const crossoverResult = service.checkEntry('BTCUSDT', config, '1m', 'LONG', 'exit');
+      expect(crossoverResult.details?.supertrend?.fired).toBe(true);
+      expect(crossoverResult.details?.supertrend?.description).toContain('Exit Supertrend crossed bearish');
+    });
+
+    it('should correctly calculate Supertrend SHORT entry signals (trend and crossover)', () => {
+      const prices = Array(100).fill(100);
+      // To establish 'up' direction first, set prices to 100 for index 0 to 70,
+      // then rise to 200 for index 71 to 97 (bullish 'up' state).
+      // Then drop to 100 at 98 (triggers bearish 'down' state).
+      for (let i = 0; i <= 70; i++) prices[i] = 100;
+      for (let i = 71; i <= 97; i++) prices[i] = 200;
+      prices[98] = 100;
+      prices[99] = 100;
+
+      const candles = generateCandles(prices);
+      klineStore.getRawCandles.mockReturnValue(candles);
+
+      const config = new SessionConfig();
+      config.enabled_signals = ['supertrend'];
+      config.signal_params = {
+        supertrend_period: 10,
+        supertrend_multiplier: 1.5,
+        supertrend_mode: 'trend',
+      };
+
+      // 5. SHORT entry in trend mode should fire because trend is bearish
+      const trendResult = service.checkEntry('BTCUSDT', config, '1m', 'SHORT', 'entry');
+      expect(trendResult.details?.supertrend?.fired).toBe(true);
+      expect(trendResult.details?.supertrend?.description).toContain('is bearish');
+
+      // 6. SHORT entry in crossover mode should fire because direction flipped from up to down
+      config.signal_params.supertrend_mode = 'crossover';
+      const crossoverResult = service.checkEntry('BTCUSDT', config, '1m', 'SHORT', 'entry');
+      expect(crossoverResult.details?.supertrend?.fired).toBe(true);
+      expect(crossoverResult.details?.supertrend?.description).toContain('crossed bearish');
+    });
+
+    it('should correctly calculate Supertrend SHORT exit signals (trend and crossover)', () => {
+      const prices = Array(100).fill(200);
+      // Establish 'down' direction first: flat 100 means index 97 is 'down'.
+      // Then index 98 goes to 200 (triggers bullish 'up' state).
+      for (let i = 0; i <= 97; i++) {
+        prices[i] = 100;
+      }
+      prices[98] = 200;
+      prices[99] = 200;
+
+      const candles = generateCandles(prices);
+      klineStore.getRawCandles.mockReturnValue(candles);
+
+      const config = new SessionConfig();
+      config.exit_signals = ['supertrend'];
+      config.signal_params = {
+        supertrend_period: 10,
+        supertrend_multiplier: 1.5,
+        supertrend_mode: 'trend',
+      };
+
+      // 7. SHORT exit in trend mode should fire because trend turned bullish
+      const trendResult = service.checkEntry('BTCUSDT', config, '1m', 'SHORT', 'exit');
+      expect(trendResult.details?.supertrend?.fired).toBe(true);
+      expect(trendResult.details?.supertrend?.description).toContain('Exit Supertrend is bullish');
+
+      // 8. SHORT exit in crossover mode should fire because direction flipped from down to up
+      config.signal_params.supertrend_mode = 'crossover';
+      const crossoverResult = service.checkEntry('BTCUSDT', config, '1m', 'SHORT', 'exit');
+      expect(crossoverResult.details?.supertrend?.fired).toBe(true);
+      expect(crossoverResult.details?.supertrend?.description).toContain('Exit Supertrend crossed bullish');
+    });
+
+    it('should gracefully handle 0, empty, and default parameters without crashing (P3)', () => {
+      const prices = Array(100).fill(100);
+      prices[98] = 200;
+      prices[99] = 200;
+
+      const candles = generateCandles(prices);
+      klineStore.getRawCandles.mockReturnValue(candles);
+
+      const config = new SessionConfig();
+      config.enabled_signals = ['supertrend'];
+      config.signal_params = {
+        supertrend_period: '', // Empty
+        supertrend_multiplier: null, // Null
+        supertrend_mode: 'trend',
+      };
+
+      // Should default to period 10, multiplier 3, and evaluate correctly
+      const trendResult = service.checkEntry('BTCUSDT', config, '1m', 'LONG', 'entry');
+      expect(trendResult.details?.supertrend?.fired).toBe(true);
+      expect(trendResult.details?.supertrend?.description).toContain('is bullish');
     });
   });
 });

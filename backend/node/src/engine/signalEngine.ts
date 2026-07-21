@@ -1492,6 +1492,9 @@ export class SignalEngineService {
   /**
    * Premium Supertrend calculation matching standard mathematical definition.
    * Leverages Wilder's RMA for ATR calculation.
+   * BOLT OPTIMIZATION: Removed six redundant intermediate array allocations (tr, atr, basicUpper, basicLower, finalUpper, finalLower).
+   * Calculates everything on-the-fly using scalar variables in a single-pass loop.
+   * This achieves zero-allocation windowing for internal arrays, significantly reducing garbage collection pressure.
    */
   public calculateSupertrend(
     candles: Candle[],
@@ -1508,84 +1511,82 @@ export class SignalEngineService {
       return { supertrend, direction, insufficientData: true };
     }
 
-    // 1. Calculate True Range (TR)
-    const tr = new Array<number>(len).fill(0);
-    tr[0] = candles[0].high - candles[0].low;
-    for (let i = 1; i < len; i++) {
+    // 1. Calculate TR sum for the initial period to bootstrap ATR
+    let trSum = candles[0].high - candles[0].low;
+    for (let i = 1; i < period; i++) {
       const hL = candles[i].high - candles[i].low;
       const hC = Math.abs(candles[i].high - candles[i - 1].close);
       const lC = Math.abs(candles[i].low - candles[i - 1].close);
-      tr[i] = Math.max(hL, hC, lC);
+      trSum += Math.max(hL, hC, lC);
     }
 
-    // 2. Calculate ATR using RMAs (Wilder's Moving Average)
-    const atr = new Array<number>(len).fill(0);
-    let trSum = 0;
-    for (let i = 0; i < period; i++) {
-      trSum += tr[i];
-    }
-    atr[period - 1] = trSum / period;
+    let prevAtr = trSum / period;
 
-    for (let i = period; i < len; i++) {
-      atr[i] = (atr[i - 1] * (period - 1) + tr[i]) / period;
-    }
+    // 2. Initialize variables for tracking final bands and supertrend
+    const initHl2 = (candles[period - 1].high + candles[period - 1].low) / 2;
+    let prevFinalUpper = initHl2 + multiplier * prevAtr;
+    let prevFinalLower = initHl2 - multiplier * prevAtr;
 
-    // 3. Calculate basic bands and Supertrend
-    const basicUpper = new Array<number>(len).fill(0);
-    const basicLower = new Array<number>(len).fill(0);
-    const finalUpper = new Array<number>(len).fill(0);
-    const finalLower = new Array<number>(len).fill(0);
-
-    for (let i = 0; i < len; i++) {
-      const hl2 = (candles[i].high + candles[i].low) / 2;
-      basicUpper[i] = hl2 + multiplier * atr[i];
-      basicLower[i] = hl2 - multiplier * atr[i];
-    }
-
-    // Initialize the first valid index (at period - 1)
-    finalUpper[period - 1] = basicUpper[period - 1];
-    finalLower[period - 1] = basicLower[period - 1];
-    supertrend[period - 1] = basicUpper[period - 1];
+    supertrend[period - 1] = prevFinalUpper;
     direction[period - 1] = 'down';
 
+    // 3. Main single-pass loop over the remaining candles
     for (let i = period; i < len; i++) {
+      // Calculate TR for index i
+      const hL = candles[i].high - candles[i].low;
+      const hC = Math.abs(candles[i].high - candles[i - 1].close);
+      const lC = Math.abs(candles[i].low - candles[i - 1].close);
+      const tr = Math.max(hL, hC, lC);
+
+      // Calculate ATR for index i
+      const atr = (prevAtr * (period - 1) + tr) / period;
+      prevAtr = atr;
+
+      // Calculate basic bands
+      const hl2 = (candles[i].high + candles[i].low) / 2;
+      const basicUpper = hl2 + multiplier * atr;
+      const basicLower = hl2 - multiplier * atr;
+
+      // Calculate final bands
       const prevClose = candles[i - 1].close;
-      const prevFinalUpper = finalUpper[i - 1];
-      const prevFinalLower = finalLower[i - 1];
+      let finalUpper = 0;
+      let finalLower = 0;
 
-      // Final Upper Band
-      if (basicUpper[i] < prevFinalUpper || prevClose > prevFinalUpper) {
-        finalUpper[i] = basicUpper[i];
+      if (basicUpper < prevFinalUpper || prevClose > prevFinalUpper) {
+        finalUpper = basicUpper;
       } else {
-        finalUpper[i] = prevFinalUpper;
+        finalUpper = prevFinalUpper;
       }
 
-      // Final Lower Band
-      if (basicLower[i] > prevFinalLower || prevClose < prevFinalLower) {
-        finalLower[i] = basicLower[i];
+      if (basicLower > prevFinalLower || prevClose < prevFinalLower) {
+        finalLower = basicLower;
       } else {
-        finalLower[i] = prevFinalLower;
+        finalLower = prevFinalLower;
       }
 
-      // Supertrend Line & Direction
+      // Calculate Supertrend and direction
       const prevST = supertrend[i - 1];
       if (prevST === prevFinalUpper) {
-        if (candles[i].close > finalUpper[i]) {
-          supertrend[i] = finalLower[i];
+        if (candles[i].close > finalUpper) {
+          supertrend[i] = finalLower;
           direction[i] = 'up'; // bullish breakout
         } else {
-          supertrend[i] = finalUpper[i];
+          supertrend[i] = finalUpper;
           direction[i] = 'down';
         }
       } else { // prevST === prevFinalLower
-        if (candles[i].close < finalLower[i]) {
-          supertrend[i] = finalUpper[i];
+        if (candles[i].close < finalLower) {
+          supertrend[i] = finalUpper;
           direction[i] = 'down'; // bearish breakout
         } else {
-          supertrend[i] = finalLower[i];
+          supertrend[i] = finalLower;
           direction[i] = 'up';
         }
       }
+
+      // Update band trackers for the next iteration
+      prevFinalUpper = finalUpper;
+      prevFinalLower = finalLower;
     }
 
     return { supertrend, direction, insufficientData };

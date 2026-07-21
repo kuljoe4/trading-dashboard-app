@@ -84,3 +84,8 @@
 - **Root Cause:** Missing `BroadcastService.broadcast` call in the `handleAccountUpdate` method after updating the internal state.
 - **Action:** Injected `BroadcastService` into `SessionLifecycleService` and added `this.broadcastService.broadcast('balance_update', { balance: nb })` inside `handleAccountUpdate` when a real-time balance update is processed.
 - **System Impact:** The trading dashboard now receives real-time balance updates whenever Binance sends an `ACCOUNT_UPDATE` event, ensuring consistent and accurate UI displays.
+
+## 2026-07-21 - Unbounded Startup Network Request Timeout
+**Vulnerability:** Outgoing REST requests initiated during application initialization/startup (specifically `fetchInitialTickers` in `MarketFeedService`) lacked a timeout signal, exposing the application to permanent hangs or self-inflicted Denial of Service (DoS) during cold boots if the exchange REST gateway is unresponsive or rate-limiting.
+**Learning:** All startup REST/HTTP queries must have bounded execution guarantees to protect the event loop and ensure successful bootstrap sequences under unstable network/gateway conditions.
+**Prevention:** Always couple startup `fetch` requests with explicit timeout signals (e.g. `AbortSignal.timeout(5000)`) and robust `try/catch` handlers that allow the system to proceed gracefully if the external dependency is slow or unreachable.

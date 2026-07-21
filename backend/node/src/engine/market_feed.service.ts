@@ -354,7 +354,11 @@ export class MarketFeedService {
   private async fetchInitialTickers(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
     try {
       this.monitoringService.incrementApiRequests();
-      const response = await fetch(`${restBase}/fapi/v1/ticker/24hr`);
+      // SENTINEL: Enforce a strict 5-second timeout on the startup REST fetch request
+      // to prevent unbounded network hangs from blocking the application boot sequence.
+      const response = await fetch(`${restBase}/fapi/v1/ticker/24hr`, {
+        signal: AbortSignal.timeout(5000),
+      });
       this.updateWeight(response.headers);
       if (!response.ok) {
         this.logger.warn(`Initial ticker bootstrap failed from ${restBase}: HTTP ${response.status}`);

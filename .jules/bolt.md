@@ -218,3 +218,7 @@ Test-every-fix culture: each of the above got a regression spec (zero-SL rejecti
 ## 2026-07-20 - [Optimization] Schwartzian Transform Sorting for Win Rate
 **Learning:** Sorting collections (like sessions) with custom keys (like win rates) computed on-the-fly inside the `.sort()` comparator creates $O(N \log N)$ executions of the key-computation logic. Since win rate computation (`calculatePerformanceMetrics`) is computationally expensive (performs trade array sorting and multiple passes), this creates significant CPU overhead as history grows.
 **Action:** Pre-calculate sorting keys in a single $O(N)$ map pass (Schwartzian transform) before invoking `.sort()`, completely eliminating redundant computations.
+
+## 2026-07-21 - [Optimization] Single-Pass Allocation-Free Supertrend
+**Learning:** Technical indicators like Supertrend often follow elegant multi-pass formulations (calculating TR, ATR, basic bands, final bands, and final supertrends as separate sequential arrays). In high-frequency polling/scanning loops, allocating multiple intermediate $O(N)$ arrays (up to 6 arrays of size 500 per tick) creates heavy garbage collection pressure and CPU cache degradation. Fusing these calculations into a single-pass loop using scalar tracking variables eliminates all intermediate array allocations.
+**Action:** Eliminate auxiliary internal arrays in technical indicators by tracking required state across loop iterations with local scalar variables, keeping only the final output arrays.

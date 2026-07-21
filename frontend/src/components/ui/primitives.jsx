@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { cn } from "./utils"
 import * as ProgressPrimitive from "@radix-ui/react-progress"
 import * as TooltipPrimitive from "@radix-ui/react-tooltip"
-import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock, Info, RefreshCw } from 'lucide-react'
+import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock, Info, RefreshCw, ShieldCheck, Activity } from 'lucide-react'
 import { Sparkline as SparklineChart, CandlestickChart as CandlestickChartBase } from '../DataCharts'
 import { useTradingStore } from '../../store/trading'
 import { useTooltipContext, Tooltip } from './tooltip'

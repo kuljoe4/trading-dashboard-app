@@ -57,3 +57,7 @@
 ## 2026-07-20 - Global Visible-First Shortcut Focus
 **Learning:** Global keyboard shortcuts that focus input fields (such as `/` for search) can easily misbehave in responsive designs that contain multiple hidden inputs in the DOM (e.g. mobile search elements hidden on desktop). Prioritizing search inputs using visibility properties (`offsetWidth`, `offsetHeight`, `offsetParent`) prevents focus from being trapped by hidden elements, ensuring a consistent user experience across viewport sizes.
 **Action:** Always filter matched shortcut-targeted inputs for viewport visibility before applying `.focus()` and `.select()`.
+
+## 2026-07-20 - Focus Ring Styling for Custom Switches and Chip Buttons
+**Learning:** Custom interactive elements like toggles and chips built from raw HTML buttons do not automatically inherit focus indicators, leaving keyboard navigators blind to their focused state in a high-density dark UI. Explicitly applying `focus-visible:ring-2` with focus-visible outline overrides ensures WCAG compliance and accessible navigation without cluttering the normal static layout.
+**Action:** Always pair raw HTML toggle and selection button elements with descriptive `focus-visible:ring-2` focus states in dark mode dashboards.

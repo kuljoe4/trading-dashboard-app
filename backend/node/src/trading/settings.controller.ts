@@ -45,10 +45,10 @@ export class SettingsController {
     const testnetApiKey = decrypt(settings?.binance_testnet_api_key);
 
     return {
-      api_key: apiKey
+      api_key: (apiKey && typeof apiKey === 'string')
         ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`
         : '',
-      testnet_api_key: testnetApiKey
+      testnet_api_key: (testnetApiKey && typeof testnetApiKey === 'string')
         ? `${testnetApiKey.slice(0, 4)}...${testnetApiKey.slice(-4)}`
         : '',
     };

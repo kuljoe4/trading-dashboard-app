@@ -1,3 +1,8 @@
+## 2026-07-20 - Stored XSS Mitigation via HTML Tag Gating
+**Vulnerability:** Expanding preset name character whitelist to support logical comparisons (`<` and `>`) introduces a high-severity Stored XSS vector, as attackers could save arbitrary HTML tags and scripts (e.g. `<script>`).
+**Learning:** Permitting logical comparisons inside validation schemas must be coupled with strict negative lookaheads/checks that detect and reject HTML/XML tag starts (`<` followed by an alphabet char, `!`, or `/`) to maintain absolute security while preserving full descriptive capabilities.
+**Prevention:** Always pair mathematical or relational character allowances with explicit defenses blocking the generation of executable HTML/JS tag initializations.
+
 ## 2026-07-02 - Information Disclosure via Insecure Error Logging
 **Vulnerability:** Use of `JSON.stringify(error)` in `SettingsController` catch blocks.
 **Learning:** Error objects in Node.js, especially those from network request libraries or database drivers, frequently encapsulate the entire request context. This includes sensitive headers (like `X-MBX-APIKEY`) and raw payloads. Stringifying these objects for logging purposes creates a high risk of leaking plaintext credentials into persistent application logs.
@@ -79,3 +84,8 @@
 - **Root Cause:** Missing `BroadcastService.broadcast` call in the `handleAccountUpdate` method after updating the internal state.
 - **Action:** Injected `BroadcastService` into `SessionLifecycleService` and added `this.broadcastService.broadcast('balance_update', { balance: nb })` inside `handleAccountUpdate` when a real-time balance update is processed.
 - **System Impact:** The trading dashboard now receives real-time balance updates whenever Binance sends an `ACCOUNT_UPDATE` event, ensuring consistent and accurate UI displays.
+
+## 2026-07-21 - Unbounded Startup Network Request Timeout
+**Vulnerability:** Outgoing REST requests initiated during application initialization/startup (specifically `fetchInitialTickers` in `MarketFeedService`) lacked a timeout signal, exposing the application to permanent hangs or self-inflicted Denial of Service (DoS) during cold boots if the exchange REST gateway is unresponsive or rate-limiting.
+**Learning:** All startup REST/HTTP queries must have bounded execution guarantees to protect the event loop and ensure successful bootstrap sequences under unstable network/gateway conditions.
+**Prevention:** Always couple startup `fetch` requests with explicit timeout signals (e.g. `AbortSignal.timeout(5000)`) and robust `try/catch` handlers that allow the system to proceed gracefully if the external dependency is slow or unreachable.

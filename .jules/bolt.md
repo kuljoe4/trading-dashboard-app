@@ -167,7 +167,7 @@
 
 ## 2026-07-10 - [Optimization] Pre-parsing & WeakMap Caching for Trading Windows
 **Learning:** Performing string manipulation ('replace') and 'parseInt' on configuration objects within high-frequency loops (like a 15s main loop checking trading windows) adds unnecessary CPU overhead. Replaced functional '.some()' with a manual 'for' loop and implemented 'WeakMap' caching for pre-parsed numeric window bounds.
-**Action:** Use 'WeakMap' to cache derived or parsed data from configuration objects to turn O(N) string/parsing operations into O(1) lookups in hot paths, and favor manual loops over functional iterators in high-frequency logic. Benchmark showed a ~5.8x performance improvement (3173ns -> 543ns per call).
+**Action:** Use 'WeakMap' to cache derived or parsed data from configuration objects to turn O(N) string/parsing operations into O(1) lookups in hot paths, and favor manual loops over frequency iterators in high-frequency logic. Benchmark showed a ~5.8x performance improvement (3173ns -> 543ns per call).
 ## 2026-07-13 - [Optimization] Hot-Path UI Extreme Calculation Standard
 **Learning:** Spread-based 'Math.min(...arr)' and '.map()' chains in high-frequency React components (like PnLBars and Sparkline) create significant GC pressure and unnecessary O(N) passes. Fusing these into a single-pass 'for' loop with direct variable comparison reduces execution time and eliminates transient array allocations.
 **Action:** Always use single-pass 'for' loops for min/max calculations in charting and scaling components that update on every price tick.
@@ -214,3 +214,11 @@ Test-every-fix culture: each of the above got a regression spec (zero-SL rejecti
 ## 2026-07-19 - [Optimization] Ticker Cache Array Projection
 **Learning:** Calling 'Array.from(map.values())' in a high-frequency ticker stream creates O(N) array allocations that increase garbage collection pressure. Since the value objects inside the map are mutated in-place to avoid allocations, the references remain valid and we only need to invalidate the array cache when a new key is added or the map is cleared.
 **Action:** Always memoize array projections of in-place mutated maps and invalidate only when keys are added/removed to avoid redundant allocations in hot loops.
+
+## 2026-07-20 - [Optimization] Schwartzian Transform Sorting for Win Rate
+**Learning:** Sorting collections (like sessions) with custom keys (like win rates) computed on-the-fly inside the `.sort()` comparator creates $O(N \log N)$ executions of the key-computation logic. Since win rate computation (`calculatePerformanceMetrics`) is computationally expensive (performs trade array sorting and multiple passes), this creates significant CPU overhead as history grows.
+**Action:** Pre-calculate sorting keys in a single $O(N)$ map pass (Schwartzian transform) before invoking `.sort()`, completely eliminating redundant computations.
+
+## 2026-07-21 - [Optimization] Single-Pass Allocation-Free Supertrend
+**Learning:** Technical indicators like Supertrend often follow elegant multi-pass formulations (calculating TR, ATR, basic bands, final bands, and final supertrends as separate sequential arrays). In high-frequency polling/scanning loops, allocating multiple intermediate $O(N)$ arrays (up to 6 arrays of size 500 per tick) creates heavy garbage collection pressure and CPU cache degradation. Fusing these calculations into a single-pass loop using scalar tracking variables eliminates all intermediate array allocations.
+**Action:** Eliminate auxiliary internal arrays in technical indicators by tracking required state across loop iterations with local scalar variables, keeping only the final output arrays.

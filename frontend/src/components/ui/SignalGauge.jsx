@@ -2,7 +2,7 @@ import React from 'react'
 import { motion } from 'framer-motion'
 import { cn, Tooltip } from './primitives'
 import { Zap, Activity, Clock, CheckCircle2 } from 'lucide-react'
-import { price } from '../../lib/formatters'
+import { price, calculateProximity } from '../../lib/formatters'
 
 export const SignalGauge = React.memo(({
   label,
@@ -28,21 +28,15 @@ export const SignalGauge = React.memo(({
   const numValue = Number(value) || 0
   const numThreshold = Number(threshold) || 0
 
-  // Calculate progress/convergence
-  let progress = 0
-  if (!insufficientData) {
-    if (isFired) {
-      progress = 100
-    } else if (thresholdIsPrice && entryPrice && markPrice && numThreshold !== entryPrice) {
-      // Standardized Proximity: (Mark - Entry) / (Target - Entry)
-      // Handles both Long/Short and Profit/Exit targets naturally.
-      const totalDist = numThreshold - entryPrice
-      const currentDist = markPrice - entryPrice
-      progress = Math.max(0, Math.min(100, (currentDist / totalDist) * 100))
-    } else if (numThreshold !== 0) {
-      progress = Math.max(0, Math.min(100, (Math.abs(numValue) / Math.abs(numThreshold)) * 100))
-    }
-  }
+  // Calculate progress/convergence using centralized direction-aware helper
+  const progress = calculateProximity({
+    value,
+    threshold,
+    fired,
+    active,
+    insufficientData,
+    threshold_is_price: thresholdIsPrice
+  }, markPrice, entryPrice);
 
   const getStatus = () => {
     if (insufficientData) return { label: 'Collecting', color: 'text-dim bg-background/50 border-border/40' }

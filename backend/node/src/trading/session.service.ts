@@ -1637,9 +1637,6 @@ export class SessionService implements OnModuleInit {
         });
 
         await this.tradeRepository.save(syntheticTrade);
-        // BOLT: Add to PositionTracker immediately so it's initialized correctly for the engine
-        const tradeModel = plainToInstance(Trade, syntheticTrade);
-        this.tradingSessionService.addTrade(tradeModel as any);
 
         imported.push(syntheticTrade);
       } catch (innerErr) {

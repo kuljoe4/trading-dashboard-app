@@ -1670,6 +1670,18 @@ export class OrderManagerService {
 
       if (exchangeState && exchangeState.orderId) {
         const status = exchangeState.status?.toUpperCase();
+        if (status === 'FILLED') {
+           this.logger.log(`[SL Ratchet] Existing SL order ${exchangeState.orderId} is already FILLED. Short-circuiting to EXCHANGE_CLOSE.`);
+           const exitPrice = parseFloat(exchangeState.avgPrice || exchangeState.price || '0') || this.tickerCache.getPrice(trade.symbol) || trade.current_sl;
+           this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
+              symbol: trade.symbol,
+              exitPrice,
+              reason: EXIT_REASONS.EXCHANGE_SYNC,
+              orderId: String(exchangeState.orderId),
+              feesAlreadyAccounted: false
+           });
+           return { success: false };
+        }
         if (status === 'NEW' || status === 'PARTIALLY_FILLED') {
            const currentExchangeSl = parseFloat(exchangeState.stopPrice || exchangeState.triggerPrice || '0');
 
@@ -2479,6 +2491,8 @@ export class OrderManagerService {
       // enforced inside the fallback).
       if (trade.illiquid_blocked && !localOnly && !options.ignoreBlocked) {
          this.logger.warn(`[${symbol}] Routing illiquid position directly to aggressive LIMIT fallback.`);
+         trade.close_attempts = (trade.close_attempts || 0) + 1;
+         trade.last_close_attempt_ts = nowTs;
          await this.attemptAggressiveLimitClose(symbol, trade, exitPrice);
          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
          // The LIMIT may still be filling via UDS; we do not synchronously finalize closure here,

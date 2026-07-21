@@ -354,7 +354,11 @@ export class MarketFeedService {
   private async fetchInitialTickers(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
     try {
       this.monitoringService.incrementApiRequests();
-      const response = await fetch(`${restBase}/fapi/v1/ticker/24hr`);
+      // SENTINEL: Enforce a strict 5-second timeout on the startup REST fetch request
+      // to prevent unbounded network hangs from blocking the application boot sequence.
+      const response = await fetch(`${restBase}/fapi/v1/ticker/24hr`, {
+        signal: AbortSignal.timeout(5000),
+      });
       this.updateWeight(response.headers);
       if (!response.ok) {
         this.logger.warn(`Initial ticker bootstrap failed from ${restBase}: HTTP ${response.status}`);
@@ -624,13 +628,19 @@ export class MarketFeedService {
 
             symbols = smartCandidates.map(t => t.symbol);
 
-            // Ensure we also include the standard top volume symbols to avoid missing established liquidity
-            const topByVolume = await this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), config.excluded_symbols || []);
-            const volumeSymbols = topByVolume.map(t => t.symbol);
+            // Ensure we also include the standard top volume or change-pct symbols to avoid missing established liquidity
+            const discoveryMode = config.discovery_mode || 'volume';
+            const topSymbols = discoveryMode === 'change_pct'
+              ? await this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), config.excluded_symbols || [])
+              : await this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), config.excluded_symbols || []);
+            const volumeSymbols = topSymbols.map(t => t.symbol);
 
             symbols = Array.from(new Set([...symbols, ...volumeSymbols]));
           } else {
-            const top = await this.tickerCache.topByVolume(watchlistSize + offset, config.excluded_symbols || []);
+            const discoveryMode = config.discovery_mode || 'volume';
+            const top = discoveryMode === 'change_pct'
+              ? await this.tickerCache.topByChangePct(watchlistSize + offset, config.excluded_symbols || [])
+              : await this.tickerCache.topByVolume(watchlistSize + offset, config.excluded_symbols || []);
             const slicedTop = top.slice(offset);
 
             // COMPLIANCE: Filter by getSymbolFilters() to exclude non-crypto symbols (Gold, Equities)
@@ -781,7 +791,15 @@ export class MarketFeedService {
         wsUrl,
         {
             isTestnet,
-            onMessage: (data) => this.processStreamMessage(data)
+            onMessage: (data) => this.processStreamMessage(data),
+            isBanned: () => this.sessionState.isBanned(),
+            onBan: (msg) => {
+               this.logger.fatal(`[MarketFeed] WebSocket rate-limit/ban status detected: ${msg}. Propagating ban...`);
+               const until = Date.now() + (24 * 60 * 60 * 1000); // 24h fallback for ban
+               BinanceRequestQueue.setCooldownUntil(until);
+               this.settingsRepository.update('default', { api_ban_until: until, api_ban_reason: msg }).catch(() => {});
+               this.eventEmitter.emit('binance.api_limit_reached', { type: 'BAN', message: msg, until });
+            }
         }
     );
     this.discoveryManagers.set('unified', manager);
@@ -965,7 +983,15 @@ export class MarketFeedService {
             managerWsUrl,
             {
                 isTestnet,
-                onMessage: (data) => this.processStreamMessage(data)
+                onMessage: (data) => this.processStreamMessage(data),
+                isBanned: () => this.sessionState.isBanned(),
+                onBan: (msg) => {
+                   this.logger.fatal(`[MarketFeed] WebSocket rate-limit/ban status detected: ${msg}. Propagating ban...`);
+                   const until = Date.now() + (24 * 60 * 60 * 1000); // 24h fallback for ban
+                   BinanceRequestQueue.setCooldownUntil(until);
+                   this.settingsRepository.update('default', { api_ban_until: until, api_ban_reason: msg }).catch(() => {});
+                   this.eventEmitter.emit('binance.api_limit_reached', { type: 'BAN', message: msg, until });
+                }
             }
         );
         this.klineManagers.push(manager);

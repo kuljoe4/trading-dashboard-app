@@ -233,7 +233,7 @@ export function SettingsView() {
                   aria-checked={healthEnabled}
                   aria-label="Toggle System Health Bar"
                   className={cn(
-                    "w-12 h-6 rounded-full transition-colors relative shrink-0",
+                    "w-12 h-6 rounded-full transition-colors relative shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
                     healthEnabled ? "bg-green" : "bg-border"
                   )}
                 >
@@ -260,7 +260,7 @@ export function SettingsView() {
                   aria-checked={streamingEnabled}
                   aria-label="Toggle Real-time Streaming"
                   className={cn(
-                    "w-12 h-6 rounded-full transition-colors relative shrink-0",
+                    "w-12 h-6 rounded-full transition-colors relative shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
                     streamingEnabled ? "bg-green" : "bg-border"
                   )}
                 >
@@ -286,7 +286,7 @@ export function SettingsView() {
                         type="button"
                         onClick={() => toggleLogFilter(level)}
                         className={cn(
-                          "rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-tight transition-all",
+                          "rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-tight transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                           enabled ? 'border-accent bg-accent/10 text-text' : 'border-border text-dim bg-transparent'
                         )}
                       >

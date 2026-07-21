@@ -176,5 +176,32 @@ describe("PresetsController", () => {
       const errors = await validate(dto);
       expect(errors.length).toBe(0);
     });
+
+    it("should pass validation for descriptive mathematical and logical characters", async () => {
+      const dto = new CreateStrategyPresetDto();
+      dto.name = "EMA Cross [9,21] > 2.5% (Long+Short)";
+      dto.config = new SessionConfig();
+
+      const errors = await validate(dto);
+      expect(errors.length).toBe(0);
+    });
+
+    it("should fail validation for SQL injection attempt or dangerous characters", async () => {
+      const dto = new CreateStrategyPresetDto();
+      dto.name = "Preset; DROP TABLE StrategyPreset;";
+      dto.config = new SessionConfig();
+
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+    });
+
+    it("should fail validation for HTML tag structures (Stored XSS mitigation)", async () => {
+      const dto = new CreateStrategyPresetDto();
+      dto.name = "<img src=x onerror=alert(1)>";
+      dto.config = new SessionConfig();
+
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+    });
   });
 });

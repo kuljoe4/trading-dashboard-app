@@ -202,6 +202,7 @@ const defaultConfig = {
   entry_side: 'both',
   watchlist_size: CONFIG_LIMITS.WATCHLIST_DEFAULT,
   watchlist_offset: 0,
+  discovery_mode: 'volume',
   enabled_signals: ['momentum_pct'],
   signal_logic: 'all',
   tp_mode: 'fixed',
@@ -271,12 +272,13 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
      let targetId = id;
 
      set(st => {
-       const existing = st.alerts.find(a => a.title === newAlert.title && a.message === newAlert.message && (now - a.ts < 5000));
+       const alerts = st.alerts || [];
+       const existing = alerts.find(a => a.title === newAlert.title && a.message === newAlert.message && (now - a.ts < 5000));
        if (existing) {
           targetId = existing.id;
-          return { alerts: st.alerts.map(a => a.id === existing.id ? { ...a, ts: now, count: (a.count || 1) + 1 } : a) };
+          return { alerts: alerts.map(a => a.id === existing.id ? { ...a, ts: now, count: (a.count || 1) + 1 } : a) };
        }
-       return { alerts: [newAlert, ...st.alerts].slice(0, 10) };
+       return { alerts: [newAlert, ...alerts].slice(0, 10) };
      });
 
      // BOLT-PERF: Move side effects out of the updater function for better maintainability and pure state transitions.
@@ -680,7 +682,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       } else if (d.type === 'log') set(st => {
         const n = normalizeLog(d);
         if (!n) return st;
-        return { logs: [n, ...st.logs].slice(0, MAX_LOG_LINES) };
+        const logs = st.logs || [];
+        return { logs: [n, ...logs].slice(0, MAX_LOG_LINES) };
       });
       else if (d.type === 'scanner') {
         const now = Date.now(); if (now - lsu < 200) return; lsu = now;
@@ -748,10 +751,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             nextActive = [...st.activeTrades.filter(x => x.symbol !== t.symbol), t];
           }
 
+          const tradeHistory = st.tradeHistory || [];
           return {
             isSyncingOnResume: false,
             activeTrades: nextActive,
-            tradeHistory: d.event === 'closed' && t ? [t, ...st.tradeHistory].slice(0, 50) : st.tradeHistory,
+            tradeHistory: d.event === 'closed' && t ? [t, ...tradeHistory].slice(0, 50) : tradeHistory,
             entryCount: d.stats?.entryCount ?? st.entryCount,
             hitCount: d.stats?.hitCount ?? st.hitCount
           };

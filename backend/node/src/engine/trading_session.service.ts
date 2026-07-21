@@ -76,6 +76,8 @@ export class TradingSessionService implements OnApplicationShutdown {
   private _lastGatedScanTs = 0;
   private hibernateGraceTimeout: NodeJS.Timeout | null = null;
   private inFlightExchangeCloses: Set<string> = new Set();
+  private lastFullReconciliationTs = 0;
+  private lastWatchdogTs = 0;
 
   private cachedStrategyConfigs: SessionConfig[] | null = null;
   private cachedScanSignatures: Map<SessionConfig, string> = new Map();
@@ -681,6 +683,24 @@ export class TradingSessionService implements OnApplicationShutdown {
       const activeTrades = this.positionTracker.activeList();
       await this.refreshRiskGating();
       const now = Date.now();
+
+      // SRE: Run periodic macro full state reconciliation every 5 minutes (300,000ms)
+      const fiveMinutes = 300000;
+      if (!this.lastFullReconciliationTs || now - this.lastFullReconciliationTs >= fiveMinutes) {
+        this.lastFullReconciliationTs = now;
+        this.reconcileLiveState().catch(err => {
+          this.logger.error(`[Reconciliation] Periodic macro reconciliation failed: ${err.message || err}`);
+        });
+      }
+
+      // SRE: Run periodic micro protection watchdog audit every 2 minutes (120,000ms)
+      const twoMinutes = 120000;
+      if (!this.lastWatchdogTs || now - this.lastWatchdogTs >= twoMinutes) {
+        this.lastWatchdogTs = now;
+        this.maintenanceService.protectionWatchdog(this.running, this.config, undefined).catch(err => {
+          this.logger.error(`[Watchdog] Periodic micro protection watchdog failed: ${err.message || err}`);
+        });
+      }
 
       // PERF: Adaptive Scanning Frequency.
       // When gated (Light Sleep), we throttle scanning to 3x the normal interval.

@@ -160,7 +160,7 @@ describe('Forced Liquidation & UDS Stop-Loss Recovery', () => {
     const result = await orderManager.closeTrade('BTCUSDT', trade, 49000, EXIT_REASONS.MANUAL_CLOSE, false, false);
 
     expect(result.exitOccurred).toBe(true);
-    expect(trade.status).toBe('CLOSED');
+    expect(trade.status).toBe('CLOSED_SL');
     // Ensure we did NOT re-place any stop loss since closeSuccess was set to true on zero position!
     expect(placeStopLossSpy).not.toHaveBeenCalled();
   });

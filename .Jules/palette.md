@@ -61,3 +61,7 @@
 ## 2026-07-20 - Focus Ring Styling for Custom Switches and Chip Buttons
 **Learning:** Custom interactive elements like toggles and chips built from raw HTML buttons do not automatically inherit focus indicators, leaving keyboard navigators blind to their focused state in a high-density dark UI. Explicitly applying `focus-visible:ring-2` with focus-visible outline overrides ensures WCAG compliance and accessible navigation without cluttering the normal static layout.
 **Action:** Always pair raw HTML toggle and selection button elements with descriptive `focus-visible:ring-2` focus states in dark mode dashboards.
+
+## 2026-07-21 - Keyboard Focus Rings on Horizontal Tab Selectors
+**Learning:** Horizontal button/chip filters (e.g. environment or sorting selection groups) built with native button elements can easily lose default focus ring visibility, rendering key-navigators blind to their focus position. Enforcing custom high-contrast `focus-visible:ring-2` focus outlines is essential for complete keyboard accessibility in dense dark-mode interfaces.
+**Action:** Always verify all horizontal selector button arrays include explicit `focus-visible:ring-2` focus rings alongside existing custom backgrounds and hover animations.

@@ -491,7 +491,7 @@ export const HistoryView = () => {
                />
                {search && (
                  <Tooltip content="Clear Search">
-                  <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear Search">
+                  <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:text-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full p-0.5" aria-label="Clear Search">
                     <XCircle size={14} />
                   </button>
                  </Tooltip>
@@ -517,7 +517,7 @@ export const HistoryView = () => {
           />
           {search && (
             <Tooltip content="Clear Search">
-              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear Search">
+              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:text-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full p-0.5" aria-label="Clear Search">
                 <XCircle size={16} />
               </button>
             </Tooltip>
@@ -534,7 +534,7 @@ export const HistoryView = () => {
                   localStorage.setItem('history_trade_mode', m);
                 }}
                 className={cn(
-                  "px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all",
+                  "px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                   lifetimeMode === m ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:text-text"
                 )}
               >
@@ -555,7 +555,7 @@ export const HistoryView = () => {
                     key={opt.id}
                     onClick={() => setSortBy(opt.id)}
                     className={cn(
-                      "px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all",
+                      "px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                       sortBy === opt.id ? "bg-accent/10 text-accent" : "text-dim hover:text-text"
                     )}
                   >
@@ -724,7 +724,7 @@ export const HistoryView = () => {
                             });
                           }}
                           className={cn(
-                            "flex items-center justify-between p-3 rounded-2xl border transition-all text-left group/tier relative overflow-hidden",
+                            "flex items-center justify-between p-3 rounded-2xl border transition-all text-left group/tier relative overflow-hidden focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                             tier.active ? "bg-accent/5 border-accent/20" : "bg-background/20 border-border/50 hover:border-accent/30 hover:bg-accent/5"
                           )}
                         >
@@ -812,7 +812,7 @@ export const HistoryView = () => {
                     <p className="text-[11px] text-dim/60 mt-1 mb-6">Try a different search term or clear the filter.</p>
                     <button
                       onClick={() => setSearch('')}
-                      className="px-6 py-2 bg-accent/10 border border-accent/20 text-accent rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-all active:scale-95"
+                      className="px-6 py-2 bg-accent/10 border border-accent/20 text-accent rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                     >
                       Clear Search
                     </button>

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useId } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info } from 'lucide-react'
+import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton, VisuallyHidden } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 import { ConfirmationModal } from './ConfirmationModal'
@@ -193,7 +193,8 @@ const ExitSignalCard = React.memo(({
   onToggle,
   onAddLayer,
   onRemoveLayer,
-  onUpdateLayer
+  onUpdateLayer,
+  engulfingMode
 }) => {
   const [key, label, desc] = signal;
 
@@ -216,6 +217,14 @@ const ExitSignalCard = React.memo(({
 
       {active && (
         <div className="space-y-3.5 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
+          {key === 'engulfing' && (engulfingMode === 'soft_range' || engulfingMode === 'soft_body') && (
+            <div className="text-[9.5px] font-semibold text-amber bg-amber/10 border border-amber/20 rounded-xl p-2.5 flex items-start gap-2 leading-snug text-left">
+              <AlertTriangle className="shrink-0 text-amber mt-0.5 animate-pulse" size={13} />
+              <span>
+                <strong>Whipsaw Risk:</strong> Soft engulfing modes evaluate off live candles. Without an exit delay, tick-by-tick fluctuations can cause rapid enter/exit oscillation. Suggest adding a delay (e.g. 15-30s).
+              </span>
+            </div>
+          )}
           {layers.map((layerKey, idx) => {
             const isBase = layerKey === key;
             const delayValue = delays[layerKey] || 0;
@@ -1647,7 +1656,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   <div className="bg-accent/5 p-4 rounded-2xl border border-accent/20">
                     <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em] mb-4">Engulfing Expert Parameters</div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <Tooltip content="Body: Open/Close must engulf previous Open/Close. Range: High/Low must engulf. Strict: Both must engulf. Close > H/L waits for a closed confirmation candle whose close clears the prior lookback high/low, then enters on the next live candle.">
+                      <Tooltip content="Body: Open/Close must engulf. Range: High/Low must engulf. Strict: Both must engulf. Close > H/L (Closed) waits for a closed confirmation candle. Partial Range/Body (Soft modes) evaluate off the live candle, which trades whipsaw protection for earlier execution.">
                         {renderField('Engulfing Mode', 'engulfing_mode', 'text', [
                           { value: 'range', label: 'Range (H/L)' },
                           { value: 'body', label: 'Body (O/C)' },
@@ -1799,6 +1808,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     onAddLayer={handleAddLayer}
                     onRemoveLayer={handleRemoveLayer}
                     onUpdateLayer={handleUpdateLayer}
+                    engulfingMode={cfg.engulfing_mode}
                   />
                 ))}
               </div>
@@ -2073,7 +2083,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 {renderField('Strategy Type', 'sl_type', 'text', [
                   { value: 'pct', label: 'Fixed Percentage' },
                   { value: 'lookback_low/high', label: 'High/Low Stop' },
-                  { value: 'streak_extreme', label: 'Streak Extreme' }
+                  { value: 'streak_extreme', label: 'Streak Extreme' },
+                  { value: 'supertrend', label: 'Supertrend Line' }
                 ])}
                 {renderField('Out of Bounds', 'sl_out_of_bounds_action', 'text', [
                   { value: 'clamp', label: 'Clamp to Limits' },

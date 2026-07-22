@@ -55,7 +55,7 @@ export const Sparkline = React.memo(({ data = [], width = 60, height = 24, color
  * BOLT: High-performance SVG-based Candlestick chart.
  * Handles OHLC data with zero external dependencies and minimal memory footprint.
  */
-export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 100, height = 50, signals = [], threshold, isLong, entryPrice, showOscillator = true, decisionMarkers = [], slPrice }) => {
+export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 100, height = 50, signals = [], threshold, isLong, entryPrice, showOscillator = true, decisionMarkers = [], slPrice, supertrendLine = null }) => {
   const containerRef = useRef(null);
   const [width, setWidth] = useState(initialWidth);
   const [hoverData, setHoverData] = useState(null);
@@ -75,17 +75,17 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
   const oscillatorHeight = showOscillator ? height * 0.2 : 0;
   const gapBetween = showOscillator ? height * 0.1 : 0;
 
-  const { bars, min, max, range, barWidth, gap, thresholdY, slY } = React.useMemo(() => {
+  const { bars, min, max, range, barWidth, gap, thresholdY, slY, supertrendPoints } = React.useMemo(() => {
     try {
     const safeData = Array.isArray(data) ? data : [];
-    if (safeData.length < 2) return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0, thresholdY: null, slY: null };
+    if (safeData.length < 2) return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0, thresholdY: null, slY: null, supertrendPoints: [] };
     // SEC: Validate all data points to prevent Infinity/NaN from breaking SVG layout or causing hangs
     const validData = safeData.filter(d =>
        d && Number.isFinite(d.low) && Number.isFinite(d.high) &&
        Number.isFinite(d.open) && Number.isFinite(d.close)
     );
 
-    if (validData.length < 2) return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0, thresholdY: null, slY: null };
+    if (validData.length < 2) return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0, thresholdY: null, slY: null, supertrendPoints: [] };
 
     // BOLT: Local declarations for min/max to avoid TDZ (Temporal Dead Zone) from destructuring.
     // Also initialize from data extremes to ensure correct initial scale.
@@ -95,6 +95,16 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
     for (let i = 0; i < validData.length; i++) {
       if (validData[i].low < dMin) dMin = validData[i].low;
       if (validData[i].high > dMax) dMax = validData[i].high;
+    }
+
+    if (Array.isArray(supertrendLine)) {
+      for (let i = 0; i < supertrendLine.length; i++) {
+        const val = supertrendLine[i]?.value;
+        if (val && val > 0) {
+          if (val < dMin) dMin = val;
+          if (val > dMax) dMax = val;
+        }
+      }
     }
 
     const thresholdPrice = entryPrice ? entryPrice * (1 + (isLong ? threshold : -threshold) / 100) : null;
@@ -119,6 +129,22 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
     const dRange = (dMax - dMin) || 1;
     const bWidth = (width / data.length) * 0.7;
     const bGap = (width / data.length) * 0.3;
+
+    const supertrendPoints = [];
+    if (Array.isArray(supertrendLine) && supertrendLine.length === validData.length) {
+      for (let i = 0; i < validData.length; i++) {
+        const val = supertrendLine[i]?.value;
+        if (val && val > 0) {
+          const x = i * (width / validData.length) + bGap / 2 + bWidth / 2;
+          const y = chartHeight - ((val - dMin) / dRange) * chartHeight;
+          supertrendPoints.push({
+            x,
+            y,
+            direction: supertrendLine[i]?.direction || 'up'
+          });
+        }
+      }
+    }
 
     const bars = validData.map((d, i) => {
       const x = i * (width / validData.length) + bGap / 2;
@@ -147,12 +173,12 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
     const thresholdY = thresholdPrice ? chartHeight - ((thresholdPrice - dMin) / dRange) * chartHeight : null;
     const slY = slPrice ? chartHeight - ((slPrice - dMin) / dRange) * chartHeight : null;
 
-    return { bars, min: dMin, max: dMax, range: dRange, barWidth: bWidth, gap: bGap, thresholdY, slY };
+    return { bars, min: dMin, max: dMax, range: dRange, barWidth: bWidth, gap: bGap, thresholdY, slY, supertrendPoints };
     } catch (err) {
       console.error('[CandlestickChart] Geometry calculation failed', err);
-      return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0, thresholdY: null, slY: null };
+      return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0, thresholdY: null, slY: null, supertrendPoints: [] };
     }
-  }, [data, width, chartHeight, threshold, isLong, entryPrice, decisionMarkers, slPrice]);
+  }, [data, width, chartHeight, threshold, isLong, entryPrice, decisionMarkers, slPrice, supertrendLine]);
 
   const oscMax = React.useMemo(() => {
     // BOLT: Zero-allocation max calculation for high-frequency oscillator lane
@@ -187,6 +213,30 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
       onMouseLeave={handleMouseLeave}
     >
     <svg width={width} height={height} className="overflow-visible select-none">
+      {/* Supertrend Line */}
+      {supertrendPoints && supertrendPoints.length > 0 && (
+        <g>
+          {supertrendPoints.map((pt, i) => {
+            if (i === 0) return null;
+            const prevPt = supertrendPoints[i - 1];
+            const color = pt.direction === 'up' ? '#00e5a0' : '#ff4466';
+            return (
+              <line
+                key={i}
+                x1={prevPt.x}
+                y1={prevPt.y}
+                x2={pt.x}
+                y2={pt.y}
+                stroke={color}
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                opacity="0.8"
+              />
+            );
+          })}
+        </g>
+      )}
+
       {/* SL Line */}
       {slY !== null && (
         <g>

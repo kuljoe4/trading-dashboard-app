@@ -224,6 +224,9 @@ export class ExecutionService {
         const bodyLow = engulfingDetail?.body_low;
         const bodyHigh = engulfingDetail?.body_high;
 
+        const supertrendDetail = signalResult.details?.supertrend || signalResult.details?.['exit_supertrend'];
+        const supertrendSlPrice = supertrendDetail?.slPrice;
+
         const slResult = this.riskEngine.computeSl(
           price,
           opp.direction.toUpperCase() as 'LONG' | 'SHORT',
@@ -234,7 +237,8 @@ export class ExecutionService {
           patternLow,
           patternHigh,
           bodyLow,
-          bodyHigh
+          bodyHigh,
+          supertrendSlPrice
         );
 
         if (slResult.rejected) {

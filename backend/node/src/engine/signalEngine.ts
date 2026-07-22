@@ -21,6 +21,7 @@ interface SignalDetail {
   streak_start_ts?: number;
   streak_end_ts?: number;
   slPrice?: number;
+  mode?: string;
 }
 
 @Injectable()
@@ -547,6 +548,7 @@ export class SignalEngineService {
         streak_start_ts: candles[foundStreakStart]?.time,
         streak_end_ts: candles[foundStreakEnd - 1]?.time,
         slPrice: predictedSl !== Infinity && predictedSl !== -Infinity ? predictedSl : undefined,
+        mode,
       };
     } catch (error) {
       this.logger.debug(`Engulfing signal error: ${error instanceof Error ? error.message : String(error)}`);

@@ -72,3 +72,46 @@ describe('Sentinel: Metadata Security', () => {
     expect(sanitized.nested.val).toContain('... [truncated]');
   });
 });
+
+import { validate } from 'class-validator';
+import { plainToInstance } from 'class-transformer';
+import { UpdateKeysDto } from '../trading/dto/update-keys.dto';
+import { ValidateKeysDto } from '../trading/dto/validate-keys.dto';
+
+describe('Sentinel: Key Input Hardening', () => {
+  it('should accept standard valid keys and secrets', async () => {
+    const dto = plainToInstance(UpdateKeysDto, {
+      api_key: 'abcdef123456_-.+=/ ',
+      api_secret: 'ABCDEF123456_-.+=/',
+    });
+    const errors = await validate(dto);
+    expect(errors.length).toBe(0);
+  });
+
+  it('should reject keys containing script tags', async () => {
+    const dto = plainToInstance(UpdateKeysDto, {
+      api_key: '<script>alert(1)</script>',
+    });
+    const errors = await validate(dto);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].constraints?.matches).toBeDefined();
+  });
+
+  it('should reject secrets containing quote symbols', async () => {
+    const dto = plainToInstance(ValidateKeysDto, {
+      testnet_api_secret: "some_secret_with_quote'OR'1=1",
+    });
+    const errors = await validate(dto);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].constraints?.matches).toBeDefined();
+  });
+
+  it('should reject keys containing control characters', async () => {
+    const dto = plainToInstance(ValidateKeysDto, {
+      api_key: "api_key_with_newline\n_and_returns\r",
+    });
+    const errors = await validate(dto);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].constraints?.matches).toBeDefined();
+  });
+});

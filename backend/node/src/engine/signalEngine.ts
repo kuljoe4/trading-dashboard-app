@@ -1764,8 +1764,17 @@ export class SignalEngineService {
   ): boolean | SignalDetail {
     try {
       const params = config.signal_params || {};
-      const period = parseInt(params.supertrend_period || '10', 10);
-      const multiplier = parseFloat(params.supertrend_multiplier || '3');
+      const period = parseInt(
+        params.supertrend_period !== undefined && params.supertrend_period !== null && params.supertrend_period !== ''
+          ? String(params.supertrend_period)
+          : '10',
+        10
+      );
+      const multiplier = parseFloat(
+        params.supertrend_multiplier !== undefined && params.supertrend_multiplier !== null && params.supertrend_multiplier !== ''
+          ? String(params.supertrend_multiplier)
+          : '3'
+      );
       const mode = params.supertrend_mode || 'trend'; // 'trend' | 'crossover'
 
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
@@ -1788,29 +1797,53 @@ export class SignalEngineService {
         multiplier,
       );
 
-      const currClose = candles[candles.length - 1].close;
-      const currST = supertrend[supertrend.length - 1];
-      const currDir = direction[direction.length - 1];
-      const prevDir = direction[direction.length - 2];
+      // Use the last COMPLETED candle (index len - 2) to prevent whipsaws from live candle fluctuations
+      const completedCandleIdx = candles.length - 2;
+      const currClose = candles[completedCandleIdx].close;
+      const currST = supertrend[completedCandleIdx];
+      const currDir = direction[completedCandleIdx];
+      const prevDir = direction[completedCandleIdx - 1];
 
       let fired = false;
       let description = '';
 
+      const isExit = purpose === 'exit';
+
       if (side === 'LONG') {
-        if (mode === 'crossover') {
-          fired = prevDir === 'down' && currDir === 'up';
-          description = fired ? 'Supertrend crossed bullish (uptrend began)' : 'No bullish crossover';
-        } else { // 'trend'
-          fired = currDir === 'up';
-          description = fired ? 'Supertrend is bullish' : 'Supertrend is bearish';
+        if (isExit) {
+          if (mode === 'crossover') {
+            fired = prevDir === 'up' && currDir === 'down';
+            description = fired ? 'Exit Supertrend crossed bearish (trend reversal)' : 'No bearish crossover for exit';
+          } else { // 'trend'
+            fired = currDir === 'down';
+            description = fired ? 'Exit Supertrend is bearish (trend reversal)' : 'Supertrend is still bullish';
+          }
+        } else {
+          if (mode === 'crossover') {
+            fired = prevDir === 'down' && currDir === 'up';
+            description = fired ? 'Supertrend crossed bullish (uptrend began)' : 'No bullish crossover';
+          } else { // 'trend'
+            fired = currDir === 'up';
+            description = fired ? 'Supertrend is bullish' : 'Supertrend is bearish';
+          }
         }
       } else if (side === 'SHORT') {
-        if (mode === 'crossover') {
-          fired = prevDir === 'up' && currDir === 'down';
-          description = fired ? 'Supertrend crossed bearish (downtrend began)' : 'No bearish crossover';
-        } else { // 'trend'
-          fired = currDir === 'down';
-          description = fired ? 'Supertrend is bearish' : 'Supertrend is bullish';
+        if (isExit) {
+          if (mode === 'crossover') {
+            fired = prevDir === 'down' && currDir === 'up';
+            description = fired ? 'Exit Supertrend crossed bullish (trend reversal)' : 'No bullish crossover for exit';
+          } else { // 'trend'
+            fired = currDir === 'up';
+            description = fired ? 'Exit Supertrend is bullish (trend reversal)' : 'Supertrend is still bearish';
+          }
+        } else {
+          if (mode === 'crossover') {
+            fired = prevDir === 'up' && currDir === 'down';
+            description = fired ? 'Supertrend crossed bearish (downtrend began)' : 'No bearish crossover';
+          } else { // 'trend'
+            fired = currDir === 'down';
+            description = fired ? 'Supertrend is bearish' : 'Supertrend is bullish';
+          }
         }
       }
 

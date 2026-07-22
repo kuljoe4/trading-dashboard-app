@@ -89,3 +89,7 @@
 ## 2026-07-20 - Dual-Adding Adopted Trades and PositionTracker Overlap
 **Learning:** During position reconciliation and adoption, the engine suffered from duplicate registration paths where newly adopted synthetic trades were added to the `PositionTracker` both internally inside `adoptExchangePositions` and again by the event-driven caller (`handleAdoptPositions`). This layer violation caused multiple risk recalculations, double `WATCHLIST_NEEDS_UPDATE` emissions, and general tracking redundancy.
 **Action:** Remove direct in-memory modifications/state changes (`tradingSessionService.addTrade`) from utility parsing methods (like `adoptExchangePositions`). Let the calling controllers or event handlers manage engine state injection exclusively to ensure clean separation of concerns and exact single-registration safety.
+
+## 2026-07-22 - Silent UDS Keepalive Expiration & Recovery Gap
+**Learning:** Periodic listen key keepalive calls (`keepaliveUserDataStream`) can fail if the exchange invalidates the listen key (e.g. error code `-1125` or `This listenKey does not exist`). Logging and ignoring this failure leaves the engine in a silent UDS blind spot where it can no longer track active positions, fills, or stops, triggering "ghost positions" and double execution.
+**Action:** Detect listen key expiration errors (`-1125`, "expired", "does not exist") in the keepalive catch block and proactively trigger `startUserDataStream(bc, true)` to acquire a fresh listen key and rebuild the stream, preventing silent stream termination.

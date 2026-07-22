@@ -974,10 +974,18 @@ export class SessionLifecycleService {
           });
         } catch (err: any) {
           const msg = err.message || "";
+          const errCode = err.code || (err.response?.data?.code) || 0;
+          const isExpired = errCode === -1125 || msg.includes("-1125") || msg.toLowerCase().includes("does not exist") || msg.toLowerCase().includes("expired");
+
           // BOLT: Suppress "IP banned" errors during keepalive as they are expected during a ban
           // and handled by the centralized request queue.
           if (msg.includes("IP banned")) {
             this.logger.debug(`Keepalive suppressed during active IP ban.`);
+          } else if (isExpired) {
+            this.logger.error(`[Chronos] User Data Stream listenKey expired/invalidated (Code: ${errCode}, Msg: ${msg}). Rebuilding stream immediately...`);
+            this.startUserDataStream(bc, true).catch((streamErr) => {
+              this.logger.error(`[Chronos] Failed to rebuild user data stream after keepalive expiration: ${streamErr.message}`);
+            });
           } else {
             this.logger.debug(`Error keeping alive user data stream: ${msg}`);
           }

@@ -38,6 +38,9 @@ export class SignalEngineService {
   private readonly emaStableCache = new Map<string, { time: number; value: number; count: number }>();
   private readonly smaStableCache = new Map<string, { time: number; value: number; count: number }>();
 
+  // BOLT OPTIMIZATION: Stable cache for MACD calculations to bypass redundant passes on same dataset
+  private readonly macdCache = new Map<string, { macdLine: number[]; signalLine: number[]; histogram: number[]; insufficientData: boolean }>();
+
   private readonly signalHandlers: Record<
     string,
     (symbol: string, config: any, interval: string, side?: 'LONG' | 'SHORT', purpose?: 'entry' | 'exit', candles?: Candle[], minimal?: boolean) => boolean | SignalDetail
@@ -1134,13 +1137,15 @@ export class SignalEngineService {
 
   /**
    * Calculates MACD values (MACD Line, Signal Line, and Histogram) matching standard mathematical definitions.
-   * Designed with O(1) loop structures and no external library allocations.
+   * Designed with O(1) loop structures, no external library allocations, and stable O(1) caching.
    */
   public calculateMACD(
     candles: Candle[],
     fastPeriod: number,
     slowPeriod: number,
     signalPeriod: number,
+    symbol?: string,
+    interval?: string,
   ): { macdLine: number[]; signalLine: number[]; histogram: number[]; insufficientData: boolean } {
     const len = candles.length;
     const minNeeded = Math.max(fastPeriod, slowPeriod) + signalPeriod;
@@ -1153,6 +1158,17 @@ export class SignalEngineService {
     if (len < minNeeded) {
       return { macdLine, signalLine, histogram, insufficientData: true };
     }
+
+    // BOLT OPTIMIZATION: Check stable cache using robust compound key to avoid collision across assets and timeframes
+    const firstCandle = candles[0];
+    const midCandle = candles[Math.floor(len / 2)];
+    const lastCandle = candles[len - 1];
+    const cacheKey = symbol && interval ?
+      `${symbol}:${interval}:${fastPeriod}:${slowPeriod}:${signalPeriod}:${len}:${firstCandle.time}:${midCandle.time}:${lastCandle.time}:${lastCandle.close}` :
+      `anon:${fastPeriod}:${slowPeriod}:${signalPeriod}:${len}:${firstCandle.time}:${midCandle.time}:${lastCandle.time}:${lastCandle.close}`;
+
+    const cached = this.macdCache.get(cacheKey);
+    if (cached) return cached;
 
     const fastMult = 2 / (fastPeriod + 1);
     const slowMult = 2 / (slowPeriod + 1);
@@ -1209,7 +1225,20 @@ export class SignalEngineService {
       }
     }
 
-    return { macdLine, signalLine, histogram, insufficientData };
+    const result = { macdLine, signalLine, histogram, insufficientData };
+
+    // Bounded cache eviction (O(1) iterator eviction instead of O(N) Array.from)
+    if (this.macdCache.size >= 1000) {
+      const iter = this.macdCache.keys();
+      for (let i = 0; i < 100; i++) {
+        const next = iter.next();
+        if (next.done) break;
+        this.macdCache.delete(next.value);
+      }
+    }
+    this.macdCache.set(cacheKey, result);
+
+    return result;
   }
 
   /**
@@ -1252,6 +1281,8 @@ export class SignalEngineService {
         fastPeriod,
         slowPeriod,
         signalPeriod,
+        symbol,
+        interval,
       );
 
       if (histogram.length < 5) {
@@ -1457,6 +1488,8 @@ export class SignalEngineService {
         fastPeriod,
         slowPeriod,
         signalPeriod,
+        symbol,
+        interval,
       );
 
       const hLen = histogram.length;
@@ -1576,6 +1609,8 @@ export class SignalEngineService {
         fastPeriod,
         slowPeriod,
         signalPeriod,
+        symbol,
+        interval,
       );
 
       if (histogram.length < 5) {

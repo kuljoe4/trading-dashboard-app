@@ -2091,6 +2091,70 @@ export class OrderManagerService {
     }
   }
 
+  public async queryOrderStatus(
+    symbol: string,
+    orderId: string,
+    orderType: 'standard' | 'algo' = 'standard'
+  ): Promise<{ status: string; price: number; avgPrice: number; type?: string; stopPrice?: number } | null> {
+    if (!this.binanceClient || this.paperMode) return null;
+
+    // SRE: Attempt standard or algo query based on orderType, with automatic fallback
+    try {
+      if (orderType === 'algo') {
+        try {
+          const queryRes = await (this.binanceClient.restAPI as any).queryAlgoOrder({ symbol, algoId: orderId });
+          this.updateWeight(queryRes?.headers);
+          const data = (await queryRes.data()) as BinanceAlgoOrderReceipt;
+          if (data) {
+            return {
+              status: data.algoStatus || (data as any).status,
+              price: parseFloat((data as any).price || '0'),
+              avgPrice: parseFloat((data as any).avgPrice || '0'),
+              type: data.algoType || (data as any).type,
+              stopPrice: parseFloat((data as any).triggerPrice || (data as any).stopPrice || '0')
+            };
+          }
+        } catch (algoErr: any) {
+          this.logger.debug(`queryOrderStatus: algo query failed for ${orderId}, falling back to standard: ${algoErr.message}`);
+        }
+      }
+
+      // Fallback or primary standard query
+      const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, orderId: BigInt(orderId) });
+      this.updateWeight(queryRes?.headers);
+      const data = (await queryRes.data()) as BinanceOrderReceipt;
+      if (data) {
+        return {
+          status: data.status,
+          price: parseFloat(data.price || '0'),
+          avgPrice: parseFloat(data.avgPrice || '0'),
+          type: data.type,
+          stopPrice: parseFloat(data.stopPrice || (data as any).triggerPrice || '0')
+        };
+      }
+    } catch (err: any) {
+      // Also try algo query if standard was primary but failed
+      if (orderType !== 'algo') {
+        try {
+          const queryRes = await (this.binanceClient.restAPI as any).queryAlgoOrder({ symbol, algoId: orderId });
+          this.updateWeight(queryRes?.headers);
+          const data = (await queryRes.data()) as BinanceAlgoOrderReceipt;
+          if (data) {
+            return {
+              status: data.algoStatus || (data as any).status,
+              price: parseFloat((data as any).price || '0'),
+              avgPrice: parseFloat((data as any).avgPrice || '0'),
+              type: data.algoType || (data as any).type,
+              stopPrice: parseFloat((data as any).triggerPrice || (data as any).stopPrice || '0')
+            };
+          }
+        } catch (innerAlgoErr) {}
+      }
+      this.logger.debug(`Failed to query order ${orderId} for ${symbol}: ${err.message || err}`);
+    }
+    return null;
+  }
+
   public async fetchPosition(symbol: string, options: { forceFresh?: boolean } = {}): Promise<BinancePositionV3 | null> {
     // Zero-Weight Path: Prefer local real-time cache from User Data Stream
     if (!options.forceFresh) {
@@ -2162,7 +2226,17 @@ export class OrderManagerService {
       // If no orderId provided, check if the trade has an active stop loss order we can query
       if (!orderId && trade.binance_stop_order_id) {
          try {
-            const stopOrderRes = await this.binanceClient.restAPI.queryOrder({ symbol, orderId: BigInt(trade.binance_stop_order_id) });
+            const queryParams: any = { symbol };
+            try {
+              if (/^\d+$/.test(trade.binance_stop_order_id)) {
+                queryParams.orderId = BigInt(trade.binance_stop_order_id);
+              } else {
+                queryParams.origClientOrderId = trade.binance_stop_order_id;
+              }
+            } catch (err) {
+              queryParams.origClientOrderId = trade.binance_stop_order_id;
+            }
+            const stopOrderRes = await this.binanceClient.restAPI.queryOrder(queryParams);
             const stopOrderData = (await stopOrderRes.data()) as BinanceOrderReceipt;
             if (stopOrderData && (stopOrderData.status === 'FILLED' || stopOrderData.status === 'PARTIALLY_FILLED')) {
                orderId = trade.binance_stop_order_id;
@@ -2198,7 +2272,17 @@ export class OrderManagerService {
       if (orderId) {
          try {
             this.logger.log(`[Sync] Recovering authoritative order context for ID ${orderId}...`);
-            const orderRes = await this.binanceClient.restAPI.queryOrder({ symbol, orderId: BigInt(orderId) });
+            const queryParams: any = { symbol };
+            try {
+              if (/^\d+$/.test(orderId)) {
+                queryParams.orderId = BigInt(orderId);
+              } else {
+                queryParams.origClientOrderId = orderId;
+              }
+            } catch (err) {
+              queryParams.origClientOrderId = orderId;
+            }
+            const orderRes = await this.binanceClient.restAPI.queryOrder(queryParams);
             const orderData = (await orderRes.data()) as BinanceOrderReceipt;
 
             if (orderData && orderData.type) {
@@ -2439,6 +2523,8 @@ export class OrderManagerService {
        return { trade, exitOccurred: false };
     }
 
+    const stopOrderId = trade.binance_stop_order_id;
+
     try {
       this.closureLocks.set(symbol, true);
 
@@ -2506,7 +2592,7 @@ export class OrderManagerService {
         const tickerPrice = this.tickerCache.getPrice(symbol);
         const estimate = exitPrice || tickerPrice || trade.current_sl;
 
-        const context = await this.recoverClosingContext(symbol, trade, estimate, options.orderId);
+        const context = await this.recoverClosingContext(symbol, trade, estimate, options.orderId || stopOrderId);
 
         // Only update if we found a valid authoritative price
         if (context.price > 0 && Math.abs(context.price - exitPrice) > 0.00000001) {
@@ -2853,7 +2939,7 @@ export class OrderManagerService {
                   // without re-sending any stop-loss orders to the exchange.
                   closeSuccess = true;
 
-                  const context = await this.recoverClosingContext(symbol, trade, exitPrice);
+                  const context = await this.recoverClosingContext(symbol, trade, exitPrice, stopOrderId);
                   exitPrice = context.price;
 
                   if (context.reason) {

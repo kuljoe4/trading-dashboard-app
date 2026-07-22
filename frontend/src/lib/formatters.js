@@ -100,3 +100,112 @@ export const calculateProximity = (signal, mark, entryPrice) => {
   const progress = (Math.abs(value) / Math.abs(threshold)) * 100;
   return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
 };
+
+/**
+ * Premium Wilder's RMA/ATR-based Supertrend calculation on the frontend.
+ * Matches the backend calculation in signalEngine.ts exactly.
+ */
+export const calculateSupertrend = (candles = [], period = 10, multiplier = 3) => {
+  const len = candles.length;
+  const supertrend = new Array(len).fill(0);
+  const direction = new Array(len).fill('up'); // 'up' | 'down'
+
+  if (len < period + 1) {
+    return { supertrend, direction, insufficientData: true };
+  }
+
+  // Safe getter for OHLC values from different possible shapes
+  const getCandle = (c) => ({
+    open: Number(c.open ?? c.o ?? 0),
+    high: Number(c.high ?? c.h ?? 0),
+    low: Number(c.low ?? c.l ?? 0),
+    close: Number(c.close ?? c.c ?? 0),
+  });
+
+  // 1. Calculate TR sum for the initial period to bootstrap ATR
+  const c0 = getCandle(candles[0]);
+  let trSum = c0.high - c0.low;
+  for (let i = 1; i < period; i++) {
+    const ci = getCandle(candles[i]);
+    const ciPrev = getCandle(candles[i - 1]);
+    const hL = ci.high - ci.low;
+    const hC = Math.abs(ci.high - ciPrev.close);
+    const lC = Math.abs(ci.low - ciPrev.close);
+    trSum += Math.max(hL, hC, lC);
+  }
+
+  let prevAtr = trSum / period;
+
+  // 2. Initialize variables for tracking final bands and supertrend
+  const cpMinus1 = getCandle(candles[period - 1]);
+  const initHl2 = (cpMinus1.high + cpMinus1.low) / 2;
+  let prevFinalUpper = initHl2 + multiplier * prevAtr;
+  let prevFinalLower = initHl2 - multiplier * prevAtr;
+
+  supertrend[period - 1] = prevFinalUpper;
+  direction[period - 1] = 'down';
+
+  // 3. Main single-pass loop over the remaining candles
+  for (let i = period; i < len; i++) {
+    const ci = getCandle(candles[i]);
+    const ciPrev = getCandle(candles[i - 1]);
+
+    // Calculate TR
+    const hL = ci.high - ci.low;
+    const hC = Math.abs(ci.high - ciPrev.close);
+    const lC = Math.abs(ci.low - ciPrev.close);
+    const tr = Math.max(hL, hC, lC);
+
+    // Calculate ATR (Wilder's RMA smoothing)
+    const atr = (prevAtr * (period - 1) + tr) / period;
+    prevAtr = atr;
+
+    // Calculate basic bands
+    const hl2 = (ci.high + ci.low) / 2;
+    const basicUpper = hl2 + multiplier * atr;
+    const basicLower = hl2 - multiplier * atr;
+
+    // Calculate final bands
+    const prevClose = ciPrev.close;
+    let finalUpper = 0;
+    let finalLower = 0;
+
+    if (basicUpper < prevFinalUpper || prevClose > prevFinalUpper) {
+      finalUpper = basicUpper;
+    } else {
+      finalUpper = prevFinalUpper;
+    }
+
+    if (basicLower > prevFinalLower || prevClose < prevFinalLower) {
+      finalLower = basicLower;
+    } else {
+      finalLower = prevFinalLower;
+    }
+
+    // Calculate Supertrend and direction
+    const prevST = supertrend[i - 1];
+    if (prevST === prevFinalUpper) {
+      if (ci.close > finalUpper) {
+        supertrend[i] = finalLower;
+        direction[i] = 'up'; // bullish breakout
+      } else {
+        supertrend[i] = finalUpper;
+        direction[i] = 'down';
+      }
+    } else { // prevST === prevFinalLower
+      if (ci.close < finalLower) {
+        supertrend[i] = finalUpper;
+        direction[i] = 'down'; // bearish breakout
+      } else {
+        supertrend[i] = finalLower;
+        direction[i] = 'up';
+      }
+    }
+
+    // Update band trackers for next iteration
+    prevFinalUpper = finalUpper;
+    prevFinalLower = finalLower;
+  }
+
+  return { supertrend, direction, insufficientData: false };
+};

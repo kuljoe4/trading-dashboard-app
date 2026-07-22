@@ -21,6 +21,7 @@ interface SignalDetail {
   streak_start_ts?: number;
   streak_end_ts?: number;
   slPrice?: number;
+  mode?: string;
 }
 
 @Injectable()
@@ -37,6 +38,9 @@ export class SignalEngineService {
   // BOLT OPTIMIZATION: Stable caches for completed candles to allow O(1) incremental updates
   private readonly emaStableCache = new Map<string, { time: number; value: number; count: number }>();
   private readonly smaStableCache = new Map<string, { time: number; value: number; count: number }>();
+
+  // BOLT OPTIMIZATION: Stable cache for MACD calculations to bypass redundant passes on same dataset
+  private readonly macdCache = new Map<string, { macdLine: number[]; signalLine: number[]; histogram: number[]; insufficientData: boolean }>();
 
   private readonly signalHandlers: Record<
     string,
@@ -547,6 +551,7 @@ export class SignalEngineService {
         streak_start_ts: candles[foundStreakStart]?.time,
         streak_end_ts: candles[foundStreakEnd - 1]?.time,
         slPrice: predictedSl !== Infinity && predictedSl !== -Infinity ? predictedSl : undefined,
+        mode,
       };
     } catch (error) {
       this.logger.debug(`Engulfing signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -1134,13 +1139,15 @@ export class SignalEngineService {
 
   /**
    * Calculates MACD values (MACD Line, Signal Line, and Histogram) matching standard mathematical definitions.
-   * Designed with O(1) loop structures and no external library allocations.
+   * Designed with O(1) loop structures, no external library allocations, and stable O(1) caching.
    */
   public calculateMACD(
     candles: Candle[],
     fastPeriod: number,
     slowPeriod: number,
     signalPeriod: number,
+    symbol?: string,
+    interval?: string,
   ): { macdLine: number[]; signalLine: number[]; histogram: number[]; insufficientData: boolean } {
     const len = candles.length;
     const minNeeded = Math.max(fastPeriod, slowPeriod) + signalPeriod;
@@ -1153,6 +1160,17 @@ export class SignalEngineService {
     if (len < minNeeded) {
       return { macdLine, signalLine, histogram, insufficientData: true };
     }
+
+    // BOLT OPTIMIZATION: Check stable cache using robust compound key to avoid collision across assets and timeframes
+    const firstCandle = candles[0];
+    const midCandle = candles[Math.floor(len / 2)];
+    const lastCandle = candles[len - 1];
+    const cacheKey = symbol && interval ?
+      `${symbol}:${interval}:${fastPeriod}:${slowPeriod}:${signalPeriod}:${len}:${firstCandle.time}:${midCandle.time}:${lastCandle.time}:${lastCandle.close}` :
+      `anon:${fastPeriod}:${slowPeriod}:${signalPeriod}:${len}:${firstCandle.time}:${midCandle.time}:${lastCandle.time}:${lastCandle.close}`;
+
+    const cached = this.macdCache.get(cacheKey);
+    if (cached) return cached;
 
     const fastMult = 2 / (fastPeriod + 1);
     const slowMult = 2 / (slowPeriod + 1);
@@ -1209,7 +1227,20 @@ export class SignalEngineService {
       }
     }
 
-    return { macdLine, signalLine, histogram, insufficientData };
+    const result = { macdLine, signalLine, histogram, insufficientData };
+
+    // Bounded cache eviction (O(1) iterator eviction instead of O(N) Array.from)
+    if (this.macdCache.size >= 1000) {
+      const iter = this.macdCache.keys();
+      for (let i = 0; i < 100; i++) {
+        const next = iter.next();
+        if (next.done) break;
+        this.macdCache.delete(next.value);
+      }
+    }
+    this.macdCache.set(cacheKey, result);
+
+    return result;
   }
 
   /**
@@ -1252,6 +1283,8 @@ export class SignalEngineService {
         fastPeriod,
         slowPeriod,
         signalPeriod,
+        symbol,
+        interval,
       );
 
       if (histogram.length < 5) {
@@ -1457,6 +1490,8 @@ export class SignalEngineService {
         fastPeriod,
         slowPeriod,
         signalPeriod,
+        symbol,
+        interval,
       );
 
       const hLen = histogram.length;
@@ -1576,6 +1611,8 @@ export class SignalEngineService {
         fastPeriod,
         slowPeriod,
         signalPeriod,
+        symbol,
+        interval,
       );
 
       if (histogram.length < 5) {
@@ -1764,8 +1801,17 @@ export class SignalEngineService {
   ): boolean | SignalDetail {
     try {
       const params = config.signal_params || {};
-      const period = parseInt(params.supertrend_period || '10', 10);
-      const multiplier = parseFloat(params.supertrend_multiplier || '3');
+      const period = parseInt(
+        params.supertrend_period !== undefined && params.supertrend_period !== null && params.supertrend_period !== ''
+          ? String(params.supertrend_period)
+          : '10',
+        10
+      );
+      const multiplier = parseFloat(
+        params.supertrend_multiplier !== undefined && params.supertrend_multiplier !== null && params.supertrend_multiplier !== ''
+          ? String(params.supertrend_multiplier)
+          : '3'
+      );
       const mode = params.supertrend_mode || 'trend'; // 'trend' | 'crossover'
 
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
@@ -1788,29 +1834,53 @@ export class SignalEngineService {
         multiplier,
       );
 
-      const currClose = candles[candles.length - 1].close;
-      const currST = supertrend[supertrend.length - 1];
-      const currDir = direction[direction.length - 1];
-      const prevDir = direction[direction.length - 2];
+      // Use the last COMPLETED candle (index len - 2) to prevent whipsaws from live candle fluctuations
+      const completedCandleIdx = candles.length - 2;
+      const currClose = candles[completedCandleIdx].close;
+      const currST = supertrend[completedCandleIdx];
+      const currDir = direction[completedCandleIdx];
+      const prevDir = direction[completedCandleIdx - 1];
 
       let fired = false;
       let description = '';
 
+      const isExit = purpose === 'exit';
+
       if (side === 'LONG') {
-        if (mode === 'crossover') {
-          fired = prevDir === 'down' && currDir === 'up';
-          description = fired ? 'Supertrend crossed bullish (uptrend began)' : 'No bullish crossover';
-        } else { // 'trend'
-          fired = currDir === 'up';
-          description = fired ? 'Supertrend is bullish' : 'Supertrend is bearish';
+        if (isExit) {
+          if (mode === 'crossover') {
+            fired = prevDir === 'up' && currDir === 'down';
+            description = fired ? 'Exit Supertrend crossed bearish (trend reversal)' : 'No bearish crossover for exit';
+          } else { // 'trend'
+            fired = currDir === 'down';
+            description = fired ? 'Exit Supertrend is bearish (trend reversal)' : 'Supertrend is still bullish';
+          }
+        } else {
+          if (mode === 'crossover') {
+            fired = prevDir === 'down' && currDir === 'up';
+            description = fired ? 'Supertrend crossed bullish (uptrend began)' : 'No bullish crossover';
+          } else { // 'trend'
+            fired = currDir === 'up';
+            description = fired ? 'Supertrend is bullish' : 'Supertrend is bearish';
+          }
         }
       } else if (side === 'SHORT') {
-        if (mode === 'crossover') {
-          fired = prevDir === 'up' && currDir === 'down';
-          description = fired ? 'Supertrend crossed bearish (downtrend began)' : 'No bearish crossover';
-        } else { // 'trend'
-          fired = currDir === 'down';
-          description = fired ? 'Supertrend is bearish' : 'Supertrend is bullish';
+        if (isExit) {
+          if (mode === 'crossover') {
+            fired = prevDir === 'down' && currDir === 'up';
+            description = fired ? 'Exit Supertrend crossed bullish (trend reversal)' : 'No bullish crossover for exit';
+          } else { // 'trend'
+            fired = currDir === 'up';
+            description = fired ? 'Exit Supertrend is bullish (trend reversal)' : 'Supertrend is still bearish';
+          }
+        } else {
+          if (mode === 'crossover') {
+            fired = prevDir === 'up' && currDir === 'down';
+            description = fired ? 'Supertrend crossed bearish (downtrend began)' : 'No bearish crossover';
+          } else { // 'trend'
+            fired = currDir === 'down';
+            description = fired ? 'Supertrend is bearish' : 'Supertrend is bullish';
+          }
         }
       }
 

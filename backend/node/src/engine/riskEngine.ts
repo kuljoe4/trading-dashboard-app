@@ -422,10 +422,49 @@ export class RiskEngineService {
     patternLow?: number,
     patternHigh?: number,
     bodyLow?: number,
-    bodyHigh?: number
+    bodyHigh?: number,
+    supertrendSlPrice?: number
   ): { slPrice: number; rejected: boolean; reason?: string } {
     if (config.sl_type === 'trailing') {
-      return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, minLow, maxHigh, symbol, patternLow, patternHigh, bodyLow, bodyHigh);
+      return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, minLow, maxHigh, symbol, patternLow, patternHigh, bodyLow, bodyHigh, supertrendSlPrice);
+    }
+
+    if (config.sl_type === 'supertrend') {
+      if (supertrendSlPrice === undefined || supertrendSlPrice <= 0 || isNaN(supertrendSlPrice) || !isFinite(supertrendSlPrice)) {
+        this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} Supertrend stop-loss price unavailable or invalid (value: ${supertrendSlPrice}). Falling back to Pct SL.`);
+        return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, minLow, maxHigh, symbol, patternLow, patternHigh, bodyLow, bodyHigh, supertrendSlPrice);
+      }
+
+      const minPct = config.sl_min_pct ?? 0.3;
+      const maxPct = config.sl_max_pct ?? 3.0;
+      const action = config.sl_out_of_bounds_action || 'clamp';
+
+      let finalSl = supertrendSlPrice;
+      const distancePct = Math.abs(finalSl - entryPrice) / entryPrice * 100;
+
+      let rejected = false;
+      let reason = undefined;
+
+      if (distancePct < minPct) {
+        if (action === 'clamp') {
+          const minDistance = entryPrice * (minPct / 100);
+          finalSl = direction === 'LONG' ? entryPrice - minDistance : entryPrice + minDistance;
+        } else {
+          rejected = true;
+          reason = `Supertrend SL distance (${distancePct.toFixed(2)}%) is below minimum of ${minPct}%`;
+        }
+      } else if (distancePct > maxPct) {
+        if (action === 'clamp') {
+          const maxDistance = entryPrice * (maxPct / 100);
+          finalSl = direction === 'LONG' ? entryPrice - maxDistance : entryPrice + maxDistance;
+        } else {
+          rejected = true;
+          reason = `Supertrend SL distance (${distancePct.toFixed(2)}%) exceeds maximum of ${maxPct}%`;
+        }
+      }
+
+      this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Supertrend SL: ${Number(finalSl || 0).toFixed(5)} (dist: ${distancePct.toFixed(2)}%)`);
+      return { slPrice: finalSl, rejected, reason };
     }
 
     if (config.sl_type === 'pct') {

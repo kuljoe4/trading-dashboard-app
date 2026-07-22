@@ -107,6 +107,110 @@ const RRLadder = memo(({ trade }) => {
   )
 })
 
+const getBaseSignalType = (key) => {
+  const signalHandlers = [
+    'momentum_pct', 'breakout_hl', 'engulfing', 'ma', 'ema', 'ema_cross',
+    'ema_price_cross', 'ema_dual_cross', 'ema_close', 'ema_dual_close',
+    'macd_impulse', 'macd_fade', 'macd_pbc', 'supertrend'
+  ];
+  if (signalHandlers.includes(key)) return key;
+  const lastUnderscore = key.lastIndexOf('_');
+  if (lastUnderscore > 0) {
+    const potentialBase = key.substring(0, lastUnderscore);
+    if (signalHandlers.includes(potentialBase)) {
+      return potentialBase;
+    }
+  }
+  return key;
+};
+
+const getSignalInfo = (key, config) => {
+  const base = getBaseSignalType(key);
+  const tf = config?.signal_timeframes?.[key] || config?.scan_interval || config?.interval || '1m';
+  const params = [];
+  const sp = config?.signal_params || {};
+
+  switch (base) {
+    case 'macd_fade':
+    case 'macd_impulse':
+    case 'macd_pbc': {
+      const fast = sp.macd_fast ?? 12;
+      const slow = sp.macd_slow ?? 26;
+      const sig = sp.macd_signal ?? 9;
+      params.push({ label: 'Fast', value: fast });
+      params.push({ label: 'Slow', value: slow });
+      params.push({ label: 'Signal', value: sig });
+      if (base === 'macd_pbc') {
+        const trendEma = sp.macd_pbc_trend_ema ?? 50;
+        const lb = sp.macd_pbc_lookback ?? 10;
+        params.push({ label: 'Trend EMA', value: trendEma });
+        params.push({ label: 'Lookback', value: lb });
+      } else if (base === 'macd_impulse') {
+        const strict = sp.macd_strict_expansion === true || sp.macd_strict_expansion === 'true';
+        params.push({ label: 'Strict', value: strict ? 'Yes' : 'No' });
+      }
+      break;
+    }
+    case 'supertrend': {
+      const period = sp.supertrend_period ?? 10;
+      const mult = sp.supertrend_multiplier ?? 3;
+      const mode = sp.supertrend_mode ?? 'trend';
+      params.push({ label: 'Period', value: period });
+      params.push({ label: 'Mult', value: mult });
+      params.push({ label: 'Mode', value: mode });
+      break;
+    }
+    case 'engulfing': {
+      const lookback = config?.engulfing_lookback ?? sp.engulfing_lookback ?? 1;
+      const streak = config?.engulfing_streak ?? sp.engulfing_streak ?? 1;
+      const mode = config?.engulfing_mode ?? sp.engulfing_mode ?? 'range';
+      const volConfirm = config?.engulfing_volume_confirm ?? sp.engulfing_volume_confirm ?? false;
+      params.push({ label: 'Lookback', value: lookback });
+      params.push({ label: 'Streak', value: streak });
+      params.push({ label: 'Mode', value: mode });
+      params.push({ label: 'Vol Conf', value: volConfirm ? 'Yes' : 'No' });
+      break;
+    }
+    case 'ema':
+    case 'ema_cross':
+    case 'ema_price_cross':
+    case 'ema_close': {
+      const period = sp.exit_ema_period ?? sp.ema_period ?? 12;
+      params.push({ label: 'Period', value: period });
+      break;
+    }
+    case 'ema_dual_cross':
+    case 'ema_dual_close': {
+      const fast = sp.exit_ema_fast ?? sp.entry_ema_fast ?? 9;
+      const slow = sp.exit_ema_slow ?? sp.entry_ema_slow ?? 21;
+      params.push({ label: 'Fast', value: fast });
+      params.push({ label: 'Slow', value: slow });
+      break;
+    }
+    case 'ma': {
+      const period = sp.ma_period ?? 20;
+      params.push({ label: 'Period', value: period });
+      break;
+    }
+    case 'momentum_pct': {
+      const threshold = config?.scan_pct_threshold ?? sp.scan_pct_threshold ?? 2.0;
+      const lookback = config?.scan_lookback ?? sp.scan_lookback ?? 3;
+      params.push({ label: 'Threshold', value: `${threshold}%` });
+      params.push({ label: 'Lookback', value: lookback });
+      break;
+    }
+    case 'breakout_hl': {
+      const lookback = config?.scan_lookback ?? sp.scan_lookback ?? 3;
+      params.push({ label: 'Lookback', value: lookback });
+      break;
+    }
+    default:
+      break;
+  }
+
+  return { timeframe: tf, params };
+};
+
 const ExitMonitor = memo(({ status, logic, trade }) => {
   if (!status || Object.keys(status).length === 0) return null;
   const mark = Number(trade.current_price || trade.mark_price || 0)
@@ -167,11 +271,16 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
             : null;
           const estRr = (estPnl !== null && riskUsdt > 0) ? (estPnl / riskUsdt) : null;
 
+          const { timeframe, params } = getSignalInfo(key, trade.strategy_config);
+
           return (
-            <div key={key} className="space-y-1 md:space-y-3">
+            <div key={key} className="space-y-1 md:space-y-3 p-2 bg-white/[0.01] border border-white/[0.02] rounded-xl hover:bg-white/[0.02] hover:border-white/[0.05] transition-all">
               <div className="flex justify-between items-center text-[9px] md:text-[10px] font-black uppercase tracking-widest">
                 <div className="flex items-center gap-1.5 md:gap-2">
                   <span className={isFired ? "text-red" : s.fired ? "text-amber" : "text-dim"}>{s.label || key}</span>
+                  <span className="text-[8px] font-mono text-accent bg-accent/10 px-1.5 py-0.5 rounded font-bold uppercase shrink-0">
+                    {timeframe}
+                  </span>
                   {s.insufficientData ? (
                     <span className="text-dim bg-background/50 border border-border/40 px-1 rounded flex items-center gap-1 scale-90 md:scale-100">
                       Collecting
@@ -225,6 +334,29 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
                       </div>
                    )}
                 </div>
+              </div>
+
+              {/* Technical signal parameters and relevant live details */}
+              <div className="flex flex-col gap-1 mt-1 pt-1 border-t border-white/[0.03]">
+                {/* Parameters badges */}
+                {params.length > 0 && (
+                  <div className="flex flex-wrap gap-1 items-center">
+                    <span className="text-[7px] text-dim/50 uppercase font-black tracking-wider">Params:</span>
+                    {params.map((p, pIdx) => (
+                      <span key={pIdx} className="text-[7.5px] font-mono text-dim/80 bg-white/[0.04] px-1.5 py-0.5 rounded border border-white/[0.05]">
+                        <span className="text-dim/50 uppercase mr-0.5">{p.label}:</span>
+                        <span className="font-bold text-text/80">{p.value}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {/* Live description/relevancy details */}
+                {s.description && (
+                  <p className="text-[8px] md:text-[9px] text-dim/70 leading-relaxed font-medium">
+                    <span className="text-accent/60 mr-1 font-mono">➔</span>
+                    {s.description}
+                  </p>
+                )}
               </div>
             </div>
           )

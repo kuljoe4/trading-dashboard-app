@@ -181,9 +181,9 @@ export class SessionConfig {
   engulfing_sequential?: boolean = true;
 
   // Stop Loss Configuration
-  @IsEnum(['pct', 'lookback_low/high', 'engulfing_boundary', 'streak_extreme', 'trailing'])
+  @IsEnum(['pct', 'lookback_low/high', 'engulfing_boundary', 'streak_extreme', 'trailing', 'supertrend'])
   @IsOptional()
-  sl_type?: 'pct' | 'lookback_low/high' | 'engulfing_boundary' | 'streak_extreme' | 'trailing' = "pct";
+  sl_type?: 'pct' | 'lookback_low/high' | 'engulfing_boundary' | 'streak_extreme' | 'trailing' | 'supertrend' = "pct";
 
   @IsNumber()
   @Min(CONFIG_LIMITS.SL_DISTANCE_MIN)

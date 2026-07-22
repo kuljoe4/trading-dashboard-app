@@ -1,3 +1,8 @@
+## 2026-07-22 - API Key and Secret Input Validation Hardening
+**Vulnerability:** API key and secret inputs lacked character-level gating, exposing endpoints to potentially hazardous inputs containing Stored XSS payloads, SQL/Command Injection characters, or carriage returns/newlines for Log Injection/CRLF attacks.
+**Learning:** To allow safe Copy-Paste and Masked representations (e.g., `abcd...efgh`), the validation regex must permit dots `.` and spaces ` ` alongside standard base64/alphanumeric characters, while strictly excluding newlines, carriage returns, tabs, quotes, and HTML tag delimiters.
+**Prevention:** Enforce `/^[a-zA-Z0-9_\-\.\+/= ]*$/` on API keys and secrets via NestJS class-validator `@Matches` decorators to secure the application boundary while preserving user convenience.
+
 ## 2026-07-20 - Stored XSS Mitigation via HTML Tag Gating
 **Vulnerability:** Expanding preset name character whitelist to support logical comparisons (`<` and `>`) introduces a high-severity Stored XSS vector, as attackers could save arbitrary HTML tags and scripts (e.g. `<script>`).
 **Learning:** Permitting logical comparisons inside validation schemas must be coupled with strict negative lookaheads/checks that detect and reject HTML/XML tag starts (`<` followed by an alphabet char, `!`, or `/`) to maintain absolute security while preserving full descriptive capabilities.

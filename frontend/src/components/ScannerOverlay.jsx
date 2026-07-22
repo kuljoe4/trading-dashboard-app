@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { fmtVol } from '../lib/theme'
-import { formatDuration } from '../lib/formatters'
+import { formatDuration, calculateSupertrend } from '../lib/formatters'
 import { PulseDot, Sparkline, cn, CopyButton, Tooltip, CandlestickChart, MonitoredBadge, InPosBadge, SmartCandidateBadge } from './ui/primitives'
 import { SignalGauge } from './ui/SignalGauge'
 import { useTradingStore } from '../store/trading'
@@ -101,29 +101,51 @@ const ScanStatus = React.memo(() => {
 ScanStatus.displayName = 'ScanStatus';
 
 
-const buildAuthoritativeMarkers = (ohlc = [], signalResult = {}) => {
-  if (!Array.isArray(ohlc) || !signalResult) return [];
-  const engulfing = signalResult.details?.engulfing;
-  if (!engulfing || engulfing.streak_start_ts === undefined) return [];
-
+const buildAuthoritativeMarkers = (ohlc = [], signalResult = {}, config = {}) => {
+  if (!Array.isArray(ohlc)) return [];
   const markers = [];
-  const startTs = engulfing.streak_start_ts;
-  const endTs = engulfing.streak_end_ts;
 
-  let sCount = 1;
-  (ohlc || []).forEach((candle, idx) => {
-    const ts = candle.time || candle.t;
-    if (ts >= startTs && ts <= endTs) {
-      markers.push({ index: idx, label: `S${sCount++}`, color: '#64748b' });
+  const engulfingEnabled = (config?.enabled_signals || []).includes('engulfing');
+  if (engulfingEnabled && signalResult) {
+    const engulfing = signalResult.details?.engulfing || signalResult.signals?.engulfing;
+    if (engulfing && engulfing.streak_start_ts !== undefined) {
+      const startTs = engulfing.streak_start_ts;
+      const endTs = engulfing.streak_end_ts;
+
+      let sCount = 1;
+      ohlc.forEach((candle, idx) => {
+        const ts = candle.time || candle.t;
+        if (ts >= startTs && ts <= endTs) {
+          markers.push({ index: idx, label: `S${sCount++}`, color: '#64748b' });
+        }
+      });
+
+      const engulfFired = signalResult.fired || engulfing.fired;
+      if (engulfFired) {
+         const isSoft = engulfing.mode?.startsWith('soft_') || engulfing.description?.toLowerCase().includes('live');
+         const signalCandleTs = (engulfing.unit === 'price' && !isSoft) ? ohlc[ohlc.length - 2]?.time : ohlc[ohlc.length - 1]?.time;
+         const sigIdx = ohlc.findIndex(c => (c.time || c.t) === signalCandleTs);
+         if (sigIdx !== -1) {
+            markers.push({ index: sigIdx, label: 'CONF', color: '#00e5a0' });
+         }
+      }
     }
-  });
+  }
 
-  if (signalResult.fired) {
-     const signalCandleTs = engulfing.unit === 'price' ? ohlc[ohlc.length - 2]?.time : ohlc[ohlc.length - 1]?.time;
-     const sigIdx = ohlc.findIndex(c => (c.time || c.t) === signalCandleTs);
-     if (sigIdx !== -1) {
-        markers.push({ index: sigIdx, label: 'CONF', color: '#00e5a0' });
-     }
+  const supertrendEnabled = (config?.enabled_signals || []).includes('supertrend');
+  if (supertrendEnabled) {
+    const period = parseInt(config?.signal_params?.supertrend_period || 10, 10);
+    const multiplier = parseFloat(config?.signal_params?.supertrend_multiplier || 3);
+    const { direction } = calculateSupertrend(ohlc, period, multiplier);
+
+    // Find where trend direction flips
+    for (let i = Math.max(1, period); i < ohlc.length; i++) {
+      if (direction[i - 1] !== direction[i]) {
+        const label = direction[i] === 'up' ? 'ST-UP' : 'ST-DN';
+        const color = direction[i] === 'up' ? '#00e5a0' : '#ff4466';
+        markers.push({ index: i, label, color });
+      }
+    }
   }
 
   return markers;
@@ -174,7 +196,23 @@ const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, th
   const signalStatus = opp.signalResult || {};
   const checklistSignals = opp.signalResult?.signals || {};
   const engulfingEnabled = (config?.enabled_signals || []).includes('engulfing');
-  const decisionMarkers = engulfingEnabled ? buildAuthoritativeMarkers(opp.ohlc_history, signalStatus) : [];
+  const supertrendEnabled = (config?.enabled_signals || []).includes('supertrend');
+  const decisionMarkers = useMemo(() => {
+    if (!engulfingEnabled && !supertrendEnabled) return [];
+    return buildAuthoritativeMarkers(opp.ohlc_history, signalStatus, config);
+  }, [opp.ohlc_history, signalStatus, config, engulfingEnabled, supertrendEnabled]);
+
+  const supertrendLine = useMemo(() => {
+    if (!supertrendEnabled || !Array.isArray(opp.ohlc_history) || opp.ohlc_history.length === 0) return null;
+    const period = parseInt(config?.signal_params?.supertrend_period || 10, 10);
+    const multiplier = parseFloat(config?.signal_params?.supertrend_multiplier || 3);
+    const { supertrend, direction } = calculateSupertrend(opp.ohlc_history, period, multiplier);
+    return supertrend.map((val, idx) => ({
+      value: val,
+      direction: direction[idx]
+    }));
+  }, [supertrendEnabled, opp.ohlc_history, config]);
+
   const engulfSignal = checklistSignals.engulfing;
 
   const chartSl = useMemo(() => {
@@ -184,12 +222,15 @@ const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, th
     if (config?.sl_type === 'lookback_low/high') {
        return checklistSignals.breakout_hl?.slPrice;
     }
+    if (config?.sl_type === 'supertrend') {
+       return checklistSignals.supertrend?.slPrice || checklistSignals.exit_supertrend?.slPrice;
+    }
     if (config?.sl_type === 'pct') {
        const dist = opp.price * ((config.sl_distance_pct || 0.8) / 100);
        return isLong ? opp.price - dist : opp.price + dist;
     }
     return null;
-  }, [config, opp.price, isLong, engulfSignal, checklistSignals.breakout_hl]);
+  }, [config, opp.price, isLong, engulfSignal, checklistSignals.breakout_hl, checklistSignals.supertrend, checklistSignals.exit_supertrend]);
 
   const closeEngulfEnabled = engulfingEnabled && config?.signal_params?.engulfing_mode?.startsWith('close');
   const funnelSteps = [
@@ -234,6 +275,7 @@ const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, th
                     decisionMarkers={decisionMarkers}
                     slPrice={chartSl}
                     showOscillator={false}
+                    supertrendLine={supertrendLine}
                   />
                   <div className="flex justify-between w-full mt-3 md:mt-4 px-1">
                      <div className="flex flex-col">

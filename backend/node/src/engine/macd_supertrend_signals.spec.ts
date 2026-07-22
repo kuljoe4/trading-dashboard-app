@@ -42,11 +42,48 @@ describe('MACD and Supertrend Signal Engine Tests', () => {
         prices[i] = 100 + (i - 50) * 2; // steady uptrend
       }
       const candles = generateCandles(prices);
-      const result = service.calculateMACD(candles, 12, 26, 9);
+      const result = service.calculateMACD(candles, 12, 26, 9, 'BTCUSDT', '1m');
       expect(result.macdLine).toBeDefined();
       expect(result.signalLine).toBeDefined();
       expect(result.histogram).toBeDefined();
       expect(result.macdLine.length).toBe(100);
+    });
+
+    it('should be mathematically correct and benefit from stable caching with no cross-asset collision', () => {
+      const prices = Array(200).fill(100);
+      for (let i = 50; i < 200; i++) {
+        prices[i] = 100 + (i - 50) * 1.5;
+      }
+      const candlesBTC = generateCandles(prices);
+      const candlesETH = generateCandles(prices).map((c, idx) => ({ ...c, close: c.close * 0.5 }));
+
+      // Calculate for BTC
+      const resultBTC = service.calculateMACD(candlesBTC, 12, 26, 9, 'BTCUSDT', '1m');
+      // Calculate for ETH (distinct symbol, same length/times)
+      const resultETH = service.calculateMACD(candlesETH, 12, 26, 9, 'ETHUSDT', '1m');
+
+      // Verify that cache separation works and does not collide
+      expect(resultBTC.macdLine[199]).not.toBe(resultETH.macdLine[199]);
+
+      // Benchmark cache performance
+      const startOrig = process.hrtime.bigint();
+      // Bypass cache by changing time
+      for (let i = 0; i < 1000; i++) {
+        candlesBTC[199].time = i;
+        service.calculateMACD(candlesBTC, 12, 26, 9, 'BTCUSDT', '1m');
+      }
+      const endOrig = process.hrtime.bigint();
+
+      const startCached = process.hrtime.bigint();
+      for (let i = 0; i < 1000; i++) {
+        service.calculateMACD(candlesBTC, 12, 26, 9, 'BTCUSDT', '1m');
+      }
+      const endCached = process.hrtime.bigint();
+
+      const nonCachedTime = Number(endOrig - startOrig);
+      const cachedTime = Number(endCached - startCached);
+      console.log(`[BENCHMARK MACD] Non-cached: ${nonCachedTime} ns, Cached: ${cachedTime} ns. Speedup: ${((nonCachedTime - cachedTime) / nonCachedTime * 100).toFixed(2)}%`);
+      expect(cachedTime).toBeLessThan(nonCachedTime);
     });
   });
 

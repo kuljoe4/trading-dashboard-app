@@ -6,6 +6,7 @@ import { useTradingStore } from './store/trading';
 import api, { sessionAPI, setAdminApiKey, initializeAuth } from './api/client';
 import { useVisibility } from './hooks/useVisibility';
 import { AuthOverlay } from './components/AuthOverlay';
+import { ShortcutsModal } from './components/ShortcutsModal';
 import { lazyWithRetry } from './lib/lazy';
 import './index.css';
 
@@ -168,8 +169,21 @@ const App = () => {
     };
   }, [debugToolsEnabled]);
 
+  const [showShortcuts, setShowShortcuts] = useState(false);
+
+  useEffect(() => {
+    const toggleShortcuts = () => setShowShortcuts(prev => !prev);
+    window.addEventListener('toggle-shortcuts', toggleShortcuts);
+    return () => window.removeEventListener('toggle-shortcuts', toggleShortcuts);
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+        e.target.blur();
+        return;
+      }
+
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
 
       if (e.key === '1' || e.key.toLowerCase() === 'c') window.location.hash = '#/';
@@ -177,6 +191,10 @@ const App = () => {
       if (e.key === '3' || e.key.toLowerCase() === 'h') window.location.hash = '#/history';
       if (e.key === '4') window.location.hash = '#/settings';
       if (e.key.toLowerCase() === 's') window.dispatchEvent(new Event('toggle-scanner'));
+      if (e.key === '?') {
+        e.preventDefault();
+        setShowShortcuts(prev => !prev);
+      }
       if (e.key === '/') {
         e.preventDefault();
         const searchInputs = Array.from(document.querySelectorAll('input[placeholder*="Search"]'));
@@ -282,6 +300,7 @@ const App = () => {
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={0}>
       <AuthOverlay />
+      <ShortcutsModal isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
       <div className="min-h-screen bg-background text-text font-sans selection:bg-accent selection:text-white">
         <Suspense fallback={<LoadingView />}>
           {renderView()}

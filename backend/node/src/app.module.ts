@@ -16,6 +16,7 @@ import { AuthModule } from './auth/auth.module';
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
         url: configService.get<string>('DATABASE_URL'),
+        autoLoadEntities: true,
         entities: [],
         synchronize: false, // Explicitly disable synchronize in all environments
         // PERFORMANCE: Optimize PostgreSQL for trading workloads (Reduce checkpoint spikes)

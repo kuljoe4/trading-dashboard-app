@@ -29,8 +29,8 @@ export const formatDuration = (ms) => {
   const d = Math.floor(h / 24);
 
   if (d > 0) return `${d}d ${h % 24}h`;
-  if (h > 0) return `${h}h ${m % 60}m`;
-  if (m > 0) return `${m}m ${s % 60}s`;
+  if (h > 0) return `${h}h ${m % 60}min`;
+  if (m > 0) return `${m}min ${s % 60}s`;
   return `${s}s`;
 };
 

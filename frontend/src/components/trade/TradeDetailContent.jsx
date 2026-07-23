@@ -287,7 +287,7 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
                     </span>
                   ) : s.remaining_delay > 0 && !isFired && (
                     <span className="text-amber bg-amber/10 px-1 rounded flex items-center gap-1 scale-90 md:scale-100">
-                      <Clock size={8} /> {Math.ceil(s.remaining_delay)}s
+                      <Clock size={8} /> {formatDuration(s.remaining_delay * 1000)}
                     </span>
                   )}
                   <span className={cn(

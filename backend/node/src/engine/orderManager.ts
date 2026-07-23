@@ -2689,6 +2689,8 @@ export class OrderManagerService {
           if (!localOnly) {
           // HARDENING: Idempotent Closure Loop. Handles network timeouts and Duplicate clientOrderId
           // by querying exchange state to verify if the close order was accepted.
+          // BINANCE BEST PRACTICE: Place close order FIRST (consumes reduce-only capacity),
+          // THEN cancel SL. Reversing this causes REDUCE_ONLY rejection when ghost SL exists.
           let orderData: any = null;
           let closeAttempts = 0;
           const MAX_INTERNAL_CLOSE_ATTEMPTS = 3;
@@ -2696,15 +2698,6 @@ export class OrderManagerService {
           while (closeAttempts < MAX_INTERNAL_CLOSE_ATTEMPTS) {
             closeAttempts++;
             try {
-              // SRE: Fix -2022 ReduceOnly Conflict.
-              // Proactively cancel the tracked Stop Loss order before MARKET close
-              // to clear the exchange's reduce-only capacity for this position.
-              if (trade.binance_stop_order_id) {
-                 this.logger.debug(`[${symbol}] [Sync] Proactively cancelling SL ${trade.binance_stop_order_id} before MARKET close to clear reduce-only capacity.`);
-                 await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type || 'standard');
-                 trade.binance_stop_order_id = undefined;
-              }
-
               const response = await this.binanceClient.restAPI.newOrder({
                 symbol,
                 side: closeDirection,
@@ -2788,6 +2781,13 @@ export class OrderManagerService {
             }
           }
 
+          // AFTER successful close order placement (or duplicate recovery), cancel SL
+          if (closeSuccess && trade.binance_stop_order_id) {
+             this.logger.debug(`[${symbol}] [Sync] Close order placed successfully. Now cancelling SL ${trade.binance_stop_order_id} to clear reduce-only capacity.`);
+             await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type || 'standard');
+             trade.binance_stop_order_id = undefined;
+          }
+          
           if (closeSuccess) {
             // IDEMPOTENCY: Mark close as executed to avoid duplicate UDS processing
             if (orderData.status === 'FILLED' || orderData.executedQty === orderData.origQty) {

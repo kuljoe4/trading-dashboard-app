@@ -2,7 +2,7 @@ import React from 'react'
 import { motion } from 'framer-motion'
 import { cn, Tooltip } from './primitives'
 import { Zap, Activity, Clock, CheckCircle2 } from 'lucide-react'
-import { price, calculateProximity } from '../../lib/formatters'
+import { price, calculateProximity, formatDuration } from '../../lib/formatters'
 
 export const SignalGauge = React.memo(({
   label,
@@ -74,7 +74,7 @@ export const SignalGauge = React.memo(({
               {isDelayed && (
                 <div className="flex items-center gap-1 text-amber bg-amber/10 px-1 py-0.5 rounded border border-amber/20 text-[8px] font-black">
                   <Clock size={8} />
-                  <span>{Math.ceil(remainingDelay)}s</span>
+                  <span>{formatDuration(remainingDelay * 1000)}</span>
                 </div>
               )}
             </div>

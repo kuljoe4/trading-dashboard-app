@@ -134,28 +134,21 @@ export class MarketFeedService {
 
     // Discovery Managers initialization is now deferred to startGlobalDiscovery
 
-    // RESEARCH-02: Optimized Startup. loadFromDb() called via fetchExchangeInfo()
-    // will now be called before any session start.
-    await this.fetchExchangeInfo(restBase);
+    // CITADEL PROTOCOL: Sequential, jittered startup warmup
+    const warmupSteps = [
+      () => this.fetchExchangeInfo(restBase),
+      () => this.startGlobalDiscovery(),
+      () => this.startWatchlistManager(config),
+      () => this.seedMarketDataFromRest()
+    ];
 
-    // BOLT: Global streams (!miniTicker, !markPrice) are decoupled
-    // to resolve the discovery bootstrap deadlock.
-    await this.startGlobalDiscovery();
-
-    // CITADEL PURGE: Stop the silent 5s timeout and eliminate the catastrophic 40-weight fallback loop.
-    // Seeding from REST is handled by the throttled seedMarketDataFromRest() call below,
-    // saving 40 weight units on every single session start.
-    // Saved W_cumulative_startup = 40 weight units per session start.
-    this.startWatchlistManager(config);
-
-    // SRE: Proactive REST bootstrap. The public market WebSocket can be starved
-    // in some live deployments (recurring live-mode deadlock where the socket
-    // connects and ACKs a SUBSCRIBE but delivers zero frames). Seed the
-    // TickerCache from REST immediately so the momentum scanner always has
-    // candidates and the watchlist can be built without waiting on the WS.
-    this.seedMarketDataFromRest().catch(err => {
-      this.logger.warn(`Initial REST market seed failed: ${err instanceof Error ? err.message : String(err)}`);
-    });
+    for (const step of warmupSteps) {
+      await step().catch(err => {
+        this.logger.warn(`Startup step failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
+      // Add jittered delay (150-300ms)
+      await new Promise(resolve => setTimeout(resolve, 150 + Math.random() * 150));
+    }
 
     // SRE: Startup Self-Test (Citadel Protocol 2026)
     // Assert TickerCache is seeded within 15s or alert loudly.
@@ -370,6 +363,11 @@ export class MarketFeedService {
    * cadence once populated, and routed through the centralized Binance queue.
    */
   private async seedMarketDataFromRest(): Promise<void> {
+    // P0 FIX: Fail-fast ban guard - do not dispatch REST calls while IP is banned
+    if (this.sessionState.isBanned()) {
+      this.logger.debug(`[MarketFeed] REST seed skipped: IP is currently banned.`);
+      return;
+    }
     if (this.restSeedInFlight) return;
     const now = Date.now();
     const cacheSize = this.tickerCache.getCacheSize();
@@ -434,7 +432,7 @@ export class MarketFeedService {
   }
 
   private lastStreamHealthCheck = 0;
-  private startWatchlistManager(config: SessionConfig) {
+  private async startWatchlistManager(config: SessionConfig) {
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
     this.zeroWatchlistCycles = 0;
     this.updateWatchlist(config);
@@ -1031,6 +1029,13 @@ export class MarketFeedService {
 
     // STRATEGY: Sequential backfill to avoid rate-limit bursts
     while (this.backfillQueue.length > 0 && this.running) {
+      // P0 FIX: Fail-fast ban guard - do not dispatch REST calls while IP is banned
+      if (this.sessionState.isBanned()) {
+        this.logger.warn(`Backfill queue paused: IP is currently banned. Waiting for cooldown...`);
+        await new Promise(resolve => setTimeout(resolve, 30000));
+        continue;
+      }
+
       // SRE: Highly aggressive rate limit for background tasks (50% of limit threshold)
       // This preserves weight for critical entry/exit operations.
       const rateLimit = this.sessionState.getBinanceRateLimit();

@@ -243,6 +243,14 @@ export class SessionStateService {
     this.logger.log(`API Status restored: Recovery event received from Gateway.`);
   }
 
+  @OnEvent('binance.api_limit_reached')
+  handleApiLimitReached(payload: { banUntil: number; reason: string }) {
+    this.apiStatus.isBanned = true;
+    this.apiStatus.banUntil = payload.banUntil;
+    this.apiStatus.lastErrorMessage = payload.reason;
+    this.logger.warn(`[SessionState] Centralized ban event received: Until ${new Date(payload.banUntil).toISOString()}, Reason: ${payload.reason}`);
+  }
+
   updateOrderRateLimits(headers: any | null, limits?: { limit10s?: number, limit1m?: number }) {
     if (limits) {
        if (limits.limit10s) this.binanceOrderLimit.limit_10s = limits.limit10s;

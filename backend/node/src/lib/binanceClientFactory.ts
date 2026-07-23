@@ -451,6 +451,22 @@ export class BinanceRequestQueue {
     while (this.queue.length > 0) {
       const now = Date.now();
 
+      // SRE: Proactive Order Rate Limit Throttling
+      // Use actual order limit usage from sessionState to enforce adaptive delays.
+      const orderLimits = this.sessionState?.binanceOrderLimit;
+      if (orderLimits) {
+          const orderUsageRatio10s = orderLimits.used_10s / (orderLimits.limit_10s || 100);
+          const orderUsageRatio1m = orderLimits.used_1m / (orderLimits.limit_1m || 1000);
+
+          if (orderUsageRatio10s > 0.8 || orderUsageRatio1m > 0.8) {
+             // Apply severe throttling if close to order count limits
+             await new Promise(resolve => setTimeout(resolve, 2000));
+          } else if (orderUsageRatio10s > 0.5 || orderUsageRatio1m > 0.5) {
+             // Apply moderate throttling
+             await new Promise(resolve => setTimeout(resolve, 500));
+          }
+      }
+
       // SRE: Rolling Window Decay (In-loop check)
       if (this.shouldRollover(now)) {
         this.executeRollover(now);

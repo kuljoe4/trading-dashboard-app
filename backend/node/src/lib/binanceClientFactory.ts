@@ -475,7 +475,7 @@ export class BinanceRequestQueue {
         const isCritical = ['newOrder', 'cancelOrder', 'newAlgoOrder', 'cancelAlgoOrder', 'cancelAllOpenOrders', 'exchangeInformation', 'futuresAccountBalanceV2', 'futuresAccountBalanceV3'].includes(item.label);
 
         // Tier 3: OPERATIONAL (80%) - State audits and trade history
-        const isOperational = ['queryOrder', 'accountTradeList', 'positionInformationV3'].includes(item.label);
+        const isOperational = ['queryOrder', 'accountTradeList', 'positionInformationV3', 'currentAllOpenOrders', 'currentAllAlgoOpenOrders'].includes(item.label);
 
         // Tier 4: BACKGROUND (50%) - Non-essential backfills and deep-scans.
         // BOLT: Removed ticker24hrPriceChangeStatistics to eliminate risk of 40-weight fallback loops.

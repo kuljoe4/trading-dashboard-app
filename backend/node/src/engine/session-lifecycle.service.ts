@@ -306,16 +306,16 @@ export class SessionLifecycleService {
       this.listenKey = null;
     }
 
-    await this.progress("Cleaning up market feeds...");
-    await this.marketFeed.stop();
-    await this.momentumScanner.stop();
-    await this.progress("Shutdown complete.");
-
     await this.auditLog.log({
       action: "SESSION_STOP",
       resourceId: sid || undefined,
       details: { strategy: config?.strategy_label },
     });
+
+    await this.progress("Cleaning up market feeds...");
+    await this.marketFeed.stop();
+    await this.momentumScanner.stop();
+    await this.progress("Shutdown complete.");
 
     return { status: "stopped" };
   }

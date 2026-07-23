@@ -52,11 +52,14 @@ export class AuditLogService {
       await this.auditLogRepository.save(entry);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      this.logger.error(`Failed to save audit log: ${errMsg}`);
+      
+      // Fallback: If DB driver is disconnected (shutdown path), persist audit logs to disk silently
+      const isDriverError = errMsg.includes('Driver not Connected') || errMsg.includes('Not connected');
+      if (!isDriverError) {
+        this.logger.error(`Failed to save audit log: ${errMsg}`);
+      }
 
-      // Fallback: If DB driver is disconnected (shutdown path), persist audit logs to disk
       try {
-        const isDriverError = errMsg.includes('Driver not Connected') || errMsg.includes('Not connected');
         // SENTINEL: Ensure fallback log is sanitized even if the main try block failed partially.
         // We prioritize sanitizing 'details' to prevent credential leakage.
         const fallbackData = sanitizedParams || {

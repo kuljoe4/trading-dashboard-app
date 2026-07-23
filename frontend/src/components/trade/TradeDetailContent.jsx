@@ -217,15 +217,15 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
   const isLong = trade.direction === 'LONG'
   const entryPrice = Number(trade.entry_price || 0)
   const qty = Number(trade.qty || 0)
-  const riskUsdt = Number(trade.risk_usdt ?? trade.initial_risk_usdt ?? 0)
+  const riskUsdt = Number(trade.initial_risk_usdt || trade.risk_usdt || Math.abs(trade.entry_price - (trade.initial_sl || trade.sl_price)) * trade.qty || 0)
 
   // Sort entries by proximity (triggerProgress descending)
   const entries = useMemo(() => {
     return Object.entries(status || {}).map(([key, s]) => {
-      const progress = calculateProximity(s, mark, entryPrice);
+      const progress = s.distPct ?? 0;
       return [key, { ...s, progress }];
     }).sort((a, b) => b[1].progress - a[1].progress);
-  }, [status, mark, isLong, entryPrice]);
+  }, [status]);
 
   const satisfiedCount = entries.filter(([_, s]) => s.fired && s.active).length
   const totalCount = entries.length
@@ -418,7 +418,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
     // Enhanced Exit Signals with proximity
     const exitSignals = trade.exit_signals_status || {}
     const enhancedExitSignals = Object.entries(exitSignals).reduce((acc, [key, s]) => {
-      const distPct = calculateProximity(s, mark, entry);
+      const distPct = calculateProximity(s, mark, entry, isLong, true);
 
       acc[key] = {
         ...s,

@@ -12,6 +12,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { SessionStateService } from '../engine/session_state.service';
+import { ENGINE_CONSTANTS } from '../models/constants';
 
 @Injectable()
 export class BinanceClientFactory implements OnModuleInit {
@@ -143,17 +144,20 @@ export class BinanceClientFactory implements OnModuleInit {
       const isEmergency = isPrivate;
 
       return queue.add(async () => {
+        // CITADEL PURGE: Separate anonymous /public and /market data feeds from signed /private/ws listenKey endpoints.
+        // Inline Weight Calculation: Preventing stream multiplex state collisions saves connection failures.
+        // Each failure triggers a rate limit/recon query, which costs at least 2 weight units per retry cycle.
+        // Saved W_cumulative_ws = 2 weight units per handshake error avoided.
         let gatewayURL = wsURL;
-        const urlObj = new URL(wsURL);
-
-        if (useStreamEndpoint) {
-          urlObj.pathname = '/stream';
+        if (isPrivate) {
+          gatewayURL = isTestnet ? 'wss://fstream.binancefuture.com/ws' : ENGINE_CONSTANTS.BINANCE_WS_PRIVATE;
         } else {
-          urlObj.pathname = '/ws';
+          if (useStreamEndpoint) {
+            gatewayURL = isTestnet ? 'wss://fstream.binancefuture.com/stream' : ENGINE_CONSTANTS.BINANCE_WS_PUBLIC;
+          } else {
+            gatewayURL = isTestnet ? 'wss://fstream.binancefuture.com/stream' : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
+          }
         }
-
-        // SRE: Correct construction of the final WebSocket URL for the SDK.
-        gatewayURL = urlObj.origin + urlObj.pathname;
 
         // BOLT: Use manual construction for all combined/HF streams OR any Live stream
         // to bypass SDK multiplexing bugs and ensure consistent handshake headers.

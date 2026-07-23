@@ -142,18 +142,10 @@ export class MarketFeedService {
     // to resolve the discovery bootstrap deadlock.
     await this.startGlobalDiscovery();
 
-    const waitForWs = new Promise<void>((resolve) => {
-      const check = setInterval(() => {
-        if (this.tickerCache.getCacheSize() > 0) {
-          clearInterval(check);
-          resolve();
-        }
-      }, 100);
-      setTimeout(() => { clearInterval(check); resolve(); }, 5000);
-    });
-
-    await waitForWs;
-    if (this.tickerCache.getCacheSize() === 0) await this.fetchInitialTickers(restBase);
+    // CITADEL PURGE: Stop the silent 5s timeout and eliminate the catastrophic 40-weight fallback loop.
+    // Seeding from REST is handled by the throttled seedMarketDataFromRest() call below,
+    // saving 40 weight units on every single session start.
+    // Saved W_cumulative_startup = 40 weight units per session start.
     this.startWatchlistManager(config);
 
     // SRE: Proactive REST bootstrap. The public market WebSocket can be starved
@@ -363,35 +355,6 @@ export class MarketFeedService {
   }
 
   getSymbolFilters(symbol: string) { return this.exchangeInfo.get(symbol); }
-
-  /**
-   * SRE: Bootstrap initial tickers from the configured Binance REST base when the
-   * market WebSocket startup is delayed. Falls back to REST so the scanner has
-   * candidates even if the WS is starved (see also seedMarketDataFromRest).
-   */
-  private async fetchInitialTickers(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
-    try {
-      this.monitoringService.incrementApiRequests();
-      // SENTINEL: Enforce a strict 5-second timeout on the startup REST fetch request
-      // to prevent unbounded network hangs from blocking the application boot sequence.
-      const response = await fetch(`${restBase}/fapi/v1/ticker/24hr`, {
-        signal: AbortSignal.timeout(5000),
-      });
-      this.updateWeight(response.headers);
-      if (!response.ok) {
-        this.logger.warn(`Initial ticker bootstrap failed from ${restBase}: HTTP ${response.status}`);
-        return;
-      }
-
-      const tickers = await response.json();
-      if (Array.isArray(tickers)) {
-        const usdtTickers = tickers.filter((t: any) => t.symbol.endsWith('USDT'));
-        this.tickerCache.bulkUpdate(usdtTickers);
-      }
-    } catch (error) {
-      this.logger.error(`Initial ticker bootstrap failed from ${restBase}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
 
   /**
    * SRE/Resilience: Seed the TickerCache from REST market data when the

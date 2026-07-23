@@ -15,7 +15,7 @@ export class TickerCacheService {
   private hasReceivedFirstData = false;
   private _topByVolumeCache: { [key: string]: { data: Ticker[], timestamp: number } } = {};
   private _topByChangeCache: { [key: string]: { data: Ticker[], timestamp: number } } = {};
-  private readonly TOP_VOLUME_CACHE_TTL_MS = 60000;
+  private readonly TOP_VOLUME_CACHE_TTL_MS = 300000;
   private readonly TOP_VOLUME_CACHE_MAX_KEYS = 12;
 
   // BOLT OPTIMIZATION: Read-only array cache of ticker values to prevent O(N) Array.from allocations.

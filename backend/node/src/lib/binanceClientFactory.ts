@@ -246,7 +246,7 @@ export class BinanceClientFactory implements OnModuleInit {
 
     // SRE: Ensure a single queue instance per factory to maintain consistent weight tracking
     if (!this.queue) {
-       this.queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository);
+       this.queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository, this.sessionState);
     }
     const queue = this.queue;
 
@@ -302,7 +302,8 @@ export class BinanceRequestQueue {
   constructor(
     private readonly logger: Logger,
     private readonly eventEmitter: EventEmitter2,
-    private readonly settingsRepository: Repository<SettingsEntity>
+    private readonly settingsRepository: Repository<SettingsEntity>,
+    private readonly sessionState: SessionStateService
   ) {
     this.setupRolloverCheck();
   }

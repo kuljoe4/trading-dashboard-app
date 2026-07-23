@@ -86,7 +86,7 @@ export class BinanceClientFactory implements OnModuleInit {
    */
   async genericRequest<T>(fn: () => Promise<T>, label: string, isEmergency = false): Promise<T> {
     if (!this.queue) {
-      this.queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository);
+      this.queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository, this.sessionState);
     }
 
     return this.queue.add(async () => {

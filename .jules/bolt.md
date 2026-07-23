@@ -222,3 +222,7 @@ Test-every-fix culture: each of the above got a regression spec (zero-SL rejecti
 ## 2026-07-21 - [Optimization] Single-Pass Allocation-Free Supertrend
 **Learning:** Technical indicators like Supertrend often follow elegant multi-pass formulations (calculating TR, ATR, basic bands, final bands, and final supertrends as separate sequential arrays). In high-frequency polling/scanning loops, allocating multiple intermediate $O(N)$ arrays (up to 6 arrays of size 500 per tick) creates heavy garbage collection pressure and CPU cache degradation. Fusing these calculations into a single-pass loop using scalar tracking variables eliminates all intermediate array allocations.
 **Action:** Eliminate auxiliary internal arrays in technical indicators by tracking required state across loop iterations with local scalar variables, keeping only the final output arrays.
+
+## 2026-07-23 - [Optimization] Numeric Timestamp Sorting over Date Instantiation
+**Learning:** Instantiating `new Date()` inside `.sort()` comparators in high-frequency state updates or heavily populated historical tables is a major source of CPU load and Garbage Collection (GC) pressure. Pre-calculating numerical milliseconds (`startTimeMs` / `exit_ts_ms`) during initial normalization/fetching converts complex string-to-date parsing into a simple O(1) mathematical subtraction.
+**Action:** Always pre-calculate numeric equivalents for all date-based fields during data normalization or ingestion, and use them directly in sorting and filtering loops.

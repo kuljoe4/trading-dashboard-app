@@ -110,3 +110,29 @@ test('normalizeTrade preserves all TradeEntity custom/additional fields during d
   assert.strictEqual(nextState.strategy_label, 'Custom Strategy', 'strategy_label should be preserved');
   assert.deepStrictEqual(nextState.strategy_config, { key: 'value' }, 'strategy_config should be preserved');
 });
+
+test('normalizeTrade calculates and preserves exit_ts_ms', (t) => {
+  const tradeWithExitTs = {
+    exit_ts: '2026-07-20T12:00:00.000Z',
+    createdAt: '2026-07-20T10:00:00.000Z'
+  };
+
+  const normWithExitTs = normalizeTrade(tradeWithExitTs);
+  assert.strictEqual(normWithExitTs.exit_ts_ms, new Date('2026-07-20T12:00:00.000Z').getTime());
+
+  const tradeWithCreatedAt = {
+    createdAt: '2026-07-20T10:00:00.000Z'
+  };
+
+  const normWithCreatedAt = normalizeTrade(tradeWithCreatedAt);
+  assert.strictEqual(normWithCreatedAt.exit_ts_ms, new Date('2026-07-20T10:00:00.000Z').getTime());
+
+  // Test delta update preservation of exit_ts_ms
+  const deltaUpdate = {
+    _delta: true,
+    pnl: 50
+  };
+
+  const normDelta = normalizeTrade(deltaUpdate, normWithExitTs);
+  assert.strictEqual(normDelta.exit_ts_ms, new Date('2026-07-20T12:00:00.000Z').getTime());
+});

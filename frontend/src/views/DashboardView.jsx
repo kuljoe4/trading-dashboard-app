@@ -686,7 +686,12 @@ export function DashboardView({ initialStrategy }) {
   }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, hitCount, config.strategy_label])
 
   const { lastSession, lastTrade } = useMemo(() => {
-    const ls = (!sessionList || sessionList.length === 0) ? null : [...sessionList].sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())[0];
+    // BOLT OPTIMIZATION: Sort using numerical startTimeMs to avoid parsing date strings in a loop
+    const ls = (!sessionList || sessionList.length === 0) ? null : [...sessionList].sort((a, b) => {
+      const bTime = b.startTimeMs ?? (b.startTime ? new Date(b.startTime).getTime() : 0);
+      const aTime = a.startTimeMs ?? (a.startTime ? new Date(a.startTime).getTime() : 0);
+      return bTime - aTime;
+    })[0];
     const lt = (tradeHistory && tradeHistory.length > 0) ? tradeHistory[0] : null;
     return { lastSession: ls, lastTrade: lt };
   }, [sessionList, tradeHistory]);

@@ -123,6 +123,12 @@ export const normalizeTrade = (t = {}, pt = null) => {
     const cp = toNumber(t.current_price ?? p.current_price ?? ep, ep);
     const isLong = (t.direction ?? p.direction ?? '').toString().toUpperCase() === 'LONG';
     const calculatedPnlPct = ep > 0 ? ((cp - ep) / ep) * 100 * (isLong ? 1 : -1) : 0;
+
+    // BOLT OPTIMIZATION: Pre-calculate exit_ts_ms to avoid redundant parsing inside sort comparators.
+    const exit_ts = t.exit_ts ?? p.exit_ts;
+    const createdAt = t.createdAt ?? p.createdAt;
+    const exit_ts_ms = exit_ts ? new Date(exit_ts).getTime() : (createdAt ? new Date(createdAt).getTime() : 0);
+
     return {
       ...p, ...t,
       pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl,
@@ -145,7 +151,8 @@ export const normalizeTrade = (t = {}, pt = null) => {
       last_price: t.last_price !== undefined ? toNumber(t.last_price) : p.last_price,
       realized_fee: t.realized_fee !== undefined ? toNumber(t.realized_fee) : p.realized_fee,
       funding_fee: t.funding_fee !== undefined ? toNumber(t.funding_fee) : p.funding_fee,
-      is_reconciliation: t.is_reconciliation ?? p.is_reconciliation
+      is_reconciliation: t.is_reconciliation ?? p.is_reconciliation,
+      exit_ts_ms
     };
   }
   const ep = toNumber(t.entry_price ?? t.entry ?? p.entry_price);
@@ -154,7 +161,12 @@ export const normalizeTrade = (t = {}, pt = null) => {
   const calculatedPnlPct = ep > 0 ? ((cp - ep) / ep) * 100 * (isLong ? 1 : -1) : 0;
   const pnlPct = t.pnl_pct !== undefined ? toNumber(t.pnl_pct) : (p.pnl_pct !== undefined ? toNumber(p.pnl_pct) : calculatedPnlPct);
 
-  return { ...t, symbol: t.symbol ?? p.symbol ?? '---', strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy', direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(), entry_price: ep, current_price: cp, sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price), initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl), tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp), pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl ?? 0, pnl_pct: pnlPct, rr: (t.rr !== undefined) ? toNumber(t.rr) : p.rr ?? 0, max_rr: (t.max_rr !== undefined) ? toNumber(t.max_rr) : p.max_rr ?? 0, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [], exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [], tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'), tp_ratio: (t.tp_ratio !== undefined) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0, sl_adjustments: t.sl_adjustments || p.sl_adjustments || [], exit_reason: t.exit_reason ?? p.exit_reason, exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price), paper_mode: t.paper_mode ?? p.paper_mode ?? true, qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0), max_rr_achieved: toNumber(t.max_rr_achieved ?? t.max_rr ?? p.max_rr_achieved ?? 0), exit_signals_status: sigStatus || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, _fingerprint: f };
+  // BOLT OPTIMIZATION: Pre-calculate exit_ts_ms to avoid redundant parsing inside sort comparators.
+  const exit_ts = t.exit_ts ?? p.exit_ts;
+  const createdAt = t.createdAt ?? p.createdAt;
+  const exit_ts_ms = exit_ts ? new Date(exit_ts).getTime() : (createdAt ? new Date(createdAt).getTime() : 0);
+
+  return { ...t, symbol: t.symbol ?? p.symbol ?? '---', strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy', direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(), entry_price: ep, current_price: cp, sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price), initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl), tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp), pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl ?? 0, pnl_pct: pnlPct, rr: (t.rr !== undefined) ? toNumber(t.rr) : p.rr ?? 0, max_rr: (t.max_rr !== undefined) ? toNumber(t.max_rr) : p.max_rr ?? 0, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [], exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [], tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'), tp_ratio: (t.tp_ratio !== undefined) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0, sl_adjustments: t.sl_adjustments || p.sl_adjustments || [], exit_reason: t.exit_reason ?? p.exit_reason, exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price), paper_mode: t.paper_mode ?? p.paper_mode ?? true, qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0), max_rr_achieved: toNumber(t.max_rr_achieved ?? t.max_rr ?? p.max_rr_achieved ?? 0), exit_signals_status: sigStatus || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, _fingerprint: f, exit_ts_ms };
 }
 
 const deepMerge = (target, source) => {
@@ -424,7 +436,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       }
     }
   },
-  fetchSessions: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.list(); set({ sessionList: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
+  fetchSessions: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.list(); const sessions = (r.data || []).map(s => ({ ...s, startTimeMs: s.startTime ? new Date(s.startTime).getTime() : 0 })); set({ sessionList: sessions }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchLifetimeAnalytics: async (m = 'paper') => { set({ isSyncing: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchAnalytics: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.analytics(); set({ analytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchTradeHistory: async (sid = 'all') => { set({ isSyncing: true }); try { const r = await sessionAPI.history(sid); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
@@ -593,7 +605,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             const incoming = d.history.map(t => normalizeTrade(t)).filter(Boolean);
             const m = new Map(currentTradeHistory.map(t => [t.id, t]));
             incoming.forEach(t => m.set(t.id, t));
-            nextHistory = Array.from(m.values()).sort((a, b) => new Date(b.exit_ts || b.createdAt).getTime() - new Date(a.exit_ts || a.createdAt).getTime());
+            nextHistory = Array.from(m.values()).sort((a, b) => (b.exit_ts_ms || 0) - (a.exit_ts_ms || 0));
           }
 
           // BOLT: Prevent flickering during config sync

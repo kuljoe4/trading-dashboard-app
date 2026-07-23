@@ -12,6 +12,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { SessionStateService } from '../engine/session_state.service';
+import { ENGINE_CONSTANTS } from '../models/constants';
 
 @Injectable()
 export class BinanceClientFactory implements OnModuleInit {
@@ -85,7 +86,7 @@ export class BinanceClientFactory implements OnModuleInit {
    */
   async genericRequest<T>(fn: () => Promise<T>, label: string, isEmergency = false): Promise<T> {
     if (!this.queue) {
-      this.queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository);
+      this.queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository, this.sessionState);
     }
 
     return this.queue.add(async () => {
@@ -143,17 +144,20 @@ export class BinanceClientFactory implements OnModuleInit {
       const isEmergency = isPrivate;
 
       return queue.add(async () => {
+        // CITADEL PURGE: Separate anonymous /public and /market data feeds from signed /private/ws listenKey endpoints.
+        // Inline Weight Calculation: Preventing stream multiplex state collisions saves connection failures.
+        // Each failure triggers a rate limit/recon query, which costs at least 2 weight units per retry cycle.
+        // Saved W_cumulative_ws = 2 weight units per handshake error avoided.
         let gatewayURL = wsURL;
-        const urlObj = new URL(wsURL);
-
-        if (useStreamEndpoint) {
-          urlObj.pathname = '/stream';
+        if (isPrivate) {
+          gatewayURL = isTestnet ? 'wss://fstream.binancefuture.com/ws' : ENGINE_CONSTANTS.BINANCE_WS_PRIVATE;
         } else {
-          urlObj.pathname = '/ws';
+          if (useStreamEndpoint) {
+            gatewayURL = isTestnet ? 'wss://fstream.binancefuture.com/stream' : ENGINE_CONSTANTS.BINANCE_WS_PUBLIC;
+          } else {
+            gatewayURL = isTestnet ? 'wss://fstream.binancefuture.com/stream' : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
+          }
         }
-
-        // SRE: Correct construction of the final WebSocket URL for the SDK.
-        gatewayURL = urlObj.origin + urlObj.pathname;
 
         // BOLT: Use manual construction for all combined/HF streams OR any Live stream
         // to bypass SDK multiplexing bugs and ensure consistent handshake headers.
@@ -242,7 +246,7 @@ export class BinanceClientFactory implements OnModuleInit {
 
     // SRE: Ensure a single queue instance per factory to maintain consistent weight tracking
     if (!this.queue) {
-       this.queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository);
+       this.queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository, this.sessionState);
     }
     const queue = this.queue;
 
@@ -298,7 +302,8 @@ export class BinanceRequestQueue {
   constructor(
     private readonly logger: Logger,
     private readonly eventEmitter: EventEmitter2,
-    private readonly settingsRepository: Repository<SettingsEntity>
+    private readonly settingsRepository: Repository<SettingsEntity>,
+    private readonly sessionState: SessionStateService
   ) {
     this.setupRolloverCheck();
   }
@@ -447,6 +452,22 @@ export class BinanceRequestQueue {
     while (this.queue.length > 0) {
       const now = Date.now();
 
+      // SRE: Proactive Order Rate Limit Throttling
+      // Use actual order limit usage from sessionState to enforce adaptive delays.
+      const orderLimits = this.sessionState?.binanceOrderLimit;
+      if (orderLimits) {
+          const orderUsageRatio10s = orderLimits.used_10s / (orderLimits.limit_10s || 100);
+          const orderUsageRatio1m = orderLimits.used_1m / (orderLimits.limit_1m || 1000);
+
+          if (orderUsageRatio10s > 0.8 || orderUsageRatio1m > 0.8) {
+             // Apply severe throttling if close to order count limits
+             await new Promise(resolve => setTimeout(resolve, 2000));
+          } else if (orderUsageRatio10s > 0.5 || orderUsageRatio1m > 0.5) {
+             // Apply moderate throttling
+             await new Promise(resolve => setTimeout(resolve, 500));
+          }
+      }
+
       // SRE: Rolling Window Decay (In-loop check)
       if (this.shouldRollover(now)) {
         this.executeRollover(now);
@@ -475,7 +496,7 @@ export class BinanceRequestQueue {
         const isCritical = ['newOrder', 'cancelOrder', 'newAlgoOrder', 'cancelAlgoOrder', 'cancelAllOpenOrders', 'exchangeInformation', 'futuresAccountBalanceV2', 'futuresAccountBalanceV3'].includes(item.label);
 
         // Tier 3: OPERATIONAL (80%) - State audits and trade history
-        const isOperational = ['queryOrder', 'accountTradeList', 'positionInformationV3'].includes(item.label);
+        const isOperational = ['queryOrder', 'accountTradeList', 'positionInformationV3', 'currentAllOpenOrders', 'currentAllAlgoOpenOrders'].includes(item.label);
 
         // Tier 4: BACKGROUND (50%) - Non-essential backfills and deep-scans.
         // BOLT: Removed ticker24hrPriceChangeStatistics to eliminate risk of 40-weight fallback loops.

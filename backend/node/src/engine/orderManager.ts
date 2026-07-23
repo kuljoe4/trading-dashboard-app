@@ -1946,24 +1946,28 @@ export class OrderManagerService {
     return { exitTriggered, exitSignalType };
   }
 
-  public async fetchAllPositions(): Promise<BinancePositionV3[]> {
+  public async fetchAllPositions(retries = 3): Promise<BinancePositionV3[]> {
     if (!this.binanceClient) return [];
     if (!this.paperMode && this.sessionState.isRateLimited(0.95)) return [];
-    try {
-      this.monitoringService.incrementApiRequests();
-      // Finding 7: Use V3 for targeted active positions
-      const response = await this.binanceClient.restAPI.positionInformationV3();
-      this.updateWeight(response.headers);
-      const data = (await response.data()) as BinancePositionV3[];
-      if (!Array.isArray(data)) {
-        // SENTINEL: Avoid stringifying potentially large or sensitive response objects.
-        throw new Error(`Invalid position data received (type: ${typeof data})`);
-      }
-      return data;
-    } catch (err) {
-      this.logger.error(`Failed to fetch all positions: ${err instanceof Error ? err.message : String(err)}`);
-      throw err; // Rethrow so Watchdog doesn't assume 0 positions
+    
+    for (let i = 0; i < retries; i++) {
+        try {
+          this.monitoringService.incrementApiRequests();
+          // Finding 7: Use V3 for targeted active positions
+          const response = await this.binanceClient.restAPI.positionInformationV3();
+          this.updateWeight(response.headers);
+          const data = (await response.data()) as BinancePositionV3[];
+          if (!Array.isArray(data)) {
+            throw new Error(`Invalid position data received (type: ${typeof data})`);
+          }
+          return data;
+        } catch (err) {
+          this.logger.warn(`Failed to fetch all positions (Attempt ${i + 1}/${retries}): ${err instanceof Error ? err.message : String(err)}`);
+          if (i === retries - 1) throw err;
+          await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, i))); // Exponential backoff
+        }
     }
+    return []; // Should not reach here
   }
 
   public async fetchOpenOrders(symbol: string, options: { forceFresh?: boolean } = {}): Promise<(BinanceOrderReceipt | BinanceAlgoOrderReceipt)[]> {
@@ -2689,6 +2693,8 @@ export class OrderManagerService {
           if (!localOnly) {
           // HARDENING: Idempotent Closure Loop. Handles network timeouts and Duplicate clientOrderId
           // by querying exchange state to verify if the close order was accepted.
+          // BINANCE BEST PRACTICE: Place close order FIRST (consumes reduce-only capacity),
+          // THEN cancel SL. Reversing this causes REDUCE_ONLY rejection when ghost SL exists.
           let orderData: any = null;
           let closeAttempts = 0;
           const MAX_INTERNAL_CLOSE_ATTEMPTS = 3;
@@ -2696,15 +2702,6 @@ export class OrderManagerService {
           while (closeAttempts < MAX_INTERNAL_CLOSE_ATTEMPTS) {
             closeAttempts++;
             try {
-              // SRE: Fix -2022 ReduceOnly Conflict.
-              // Proactively cancel the tracked Stop Loss order before MARKET close
-              // to clear the exchange's reduce-only capacity for this position.
-              if (trade.binance_stop_order_id) {
-                 this.logger.debug(`[${symbol}] [Sync] Proactively cancelling SL ${trade.binance_stop_order_id} before MARKET close to clear reduce-only capacity.`);
-                 await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type || 'standard');
-                 trade.binance_stop_order_id = undefined;
-              }
-
               const response = await this.binanceClient.restAPI.newOrder({
                 symbol,
                 side: closeDirection,
@@ -2788,6 +2785,13 @@ export class OrderManagerService {
             }
           }
 
+          // AFTER successful close order placement (or duplicate recovery), cancel SL
+          if (closeSuccess && trade.binance_stop_order_id) {
+             this.logger.debug(`[${symbol}] [Sync] Close order placed successfully. Now cancelling SL ${trade.binance_stop_order_id} to clear reduce-only capacity.`);
+             await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type || 'standard');
+             trade.binance_stop_order_id = undefined;
+          }
+          
           if (closeSuccess) {
             // IDEMPOTENCY: Mark close as executed to avoid duplicate UDS processing
             if (orderData.status === 'FILLED' || orderData.executedQty === orderData.origQty) {

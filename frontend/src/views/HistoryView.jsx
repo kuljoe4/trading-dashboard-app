@@ -336,10 +336,19 @@ export const HistoryView = () => {
       return acc;
     }, {});
 
-    return (sessionList || []).filter(Boolean).map(session => ({
-      ...session,
-      trades: tradesBySession[session.id] || []
-    })).sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
+    // BOLT OPTIMIZATION: Use pre-calculated startTimeMs directly (Schwartzian transform)
+    // to avoid instantiating new Date objects inside the sort comparator loop.
+    const mapped = (sessionList || []).filter(Boolean).map(session => {
+      const startTimeMs = session.startTimeMs ?? (session.startTime ? new Date(session.startTime).getTime() : 0);
+      return {
+        ...session,
+        startTimeMs,
+        trades: tradesBySession[session.id] || []
+      };
+    });
+
+    mapped.sort((a, b) => b.startTimeMs - a.startTimeMs);
+    return mapped;
   }, [sessionList, tradeHistory])
 
   const [sortBy, setSortBy] = useState('time'); // 'time', 'pnl', 'winrate'

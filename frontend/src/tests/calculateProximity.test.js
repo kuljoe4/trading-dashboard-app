@@ -58,4 +58,40 @@ test('calculateProximity unit tests', async (t) => {
     const res = calculateProximity(signal, 100, 100);
     assert.strictEqual(res, 50); // 2.5/5.0 -> 50%
   });
+
+  await t.test('handles direction-aware exit signals for LONG when profitable', () => {
+    const signal = {
+      value: 120,
+      threshold: 105,
+      fired: false,
+      threshold_is_price: true
+    };
+    // Entry = 100, Threshold = 105, Mark = 120
+    // Reference = 5, Distance = 15. Progress = (1 - (15 / 5)) * 100 = -200 -> clamped to 0
+    const res = calculateProximity(signal, 120, 100, true, true);
+    assert.strictEqual(res, 0);
+
+    // Entry = 100, Threshold = 105, Mark = 106
+    // Reference = 5, Distance = 1. Progress = (1 - (1 / 5)) * 100 = 80
+    const resNear = calculateProximity(signal, 106, 100, true, true);
+    assert.strictEqual(resNear, 80);
+  });
+
+  await t.test('handles direction-aware exit signals for SHORT when profitable', () => {
+    const signal = {
+      value: 95,
+      threshold: 105,
+      fired: false,
+      threshold_is_price: true
+    };
+    // Entry = 110, Threshold = 105, Mark = 95
+    // Reference = 5, Distance = 10. Progress = (1 - (10 / 5)) * 100 = -100 -> clamped to 0
+    const res = calculateProximity(signal, 95, 110, false, true);
+    assert.strictEqual(res, 0);
+
+    // Entry = 110, Threshold = 105, Mark = 104
+    // Reference = 5, Distance = 1. Progress = (1 - (1 / 5)) * 100 = 80
+    const resNear = calculateProximity(signal, 104, 110, false, true);
+    assert.strictEqual(resNear, 80);
+  });
 });

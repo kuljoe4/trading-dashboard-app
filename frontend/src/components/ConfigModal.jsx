@@ -266,21 +266,42 @@ const ExitSignalCard = React.memo(({
                       <option value="15m">15m</option>
                       <option value="30m">30m</option>
                       <option value="1h">1h</option>
+                      <option value="4h">4h</option>
+                      <option value="1d">1d</option>
                     </select>
                   </div>
 
-                  {/* Delay Input */}
+                  {/* Delay Input (Hours:Minutes) */}
                   <div className="flex flex-col gap-1 text-left">
-                    <label htmlFor={`delay-${layerKey}`} className="text-[8px] text-dim uppercase tracking-wider font-bold">Delay (s)</label>
-                    <input
-                      id={`delay-${layerKey}`}
-                      type="number"
-                      min="0"
-                      value={delayValue || ''}
-                      placeholder="0s"
-                      onChange={(e) => onUpdateLayer(layerKey, 'delay', parseInt(e.target.value) || 0)}
-                      className="bg-surface border border-border/40 rounded-lg px-2 py-1 text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-7"
-                    />
+                    <label className="text-[8px] text-dim uppercase tracking-wider font-bold">Delay (h:m)</label>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="0h"
+                        value={Math.floor((delayValue || 0) / 3600) || ''}
+                        onChange={(e) => {
+                          const h = parseInt(e.target.value) || 0;
+                          const m = Math.floor(((delayValue || 0) % 3600) / 60);
+                          onUpdateLayer(layerKey, 'delay', (h * 3600) + (m * 60));
+                        }}
+                        className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-7 w-12"
+                      />
+                      <span className="text-dim font-bold">:</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="59"
+                        placeholder="0m"
+                        value={Math.floor(((delayValue || 0) % 3600) / 60) || ''}
+                        onChange={(e) => {
+                          const h = Math.floor((delayValue || 0) / 3600);
+                          const m = parseInt(e.target.value) || 0;
+                          onUpdateLayer(layerKey, 'delay', (h * 3600) + (m * 60));
+                        }}
+                        className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-7 w-12"
+                      />
+                    </div>
                   </div>
 
                   {/* Action Selection */}
@@ -1486,7 +1507,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
 
               <div className={cn("grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6", cfg.global_scanner_enabled === false && "opacity-40 pointer-events-none")}>
-                {renderField('Timeframe', 'scan_interval', 'text', ['1m', '5m', '15m', '1h'])}
+                {renderField('Timeframe', 'scan_interval', 'text', ['1m', '5m', '15m', '1h', '4h', '1d'])}
                 {renderField('% Threshold', 'scan_pct_threshold', 'number', null, { min: CONFIG_LIMITS.SCAN_PCT_THRESHOLD_MIN, step: 0.1 })}
                 {renderField('Watchlist size', 'watchlist_size', 'number', null, { min: CONFIG_LIMITS.WATCHLIST_MIN, max: CONFIG_LIMITS.WATCHLIST_MAX })}
                 {renderField('Watchlist Offset', 'watchlist_offset', 'number', null, { min: 0, max: 100 })}
@@ -2095,7 +2116,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 ) : (
                   <div className="grid grid-cols-2 gap-4">
                     {renderField('Lookback Period', 'sl_lookback_period', 'number', null, { min: 1 })}
-                    {renderField('Lookback TF', 'sl_lookback_timeframe', 'text', ['1m', '5m', '15m', '1h'])}
+                    {renderField('Lookback TF', 'sl_lookback_timeframe', 'text', ['1m', '5m', '15m', '1h', '4h', '1d'])}
                   </div>
                 )}
                 {cfg.sl_type !== 'pct' && renderField('Max Allowed SL %', 'sl_pct_limit', 'number', null, { min: 0.1, step: 0.1 })}

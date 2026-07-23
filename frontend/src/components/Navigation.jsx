@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { SystemMetrics } from './SystemMetrics'
-import { LayoutDashboard, Briefcase, History, Settings as SettingsIcon, ChevronLeft, ChevronRight, Zap, Plus } from 'lucide-react'
+import { LayoutDashboard, Briefcase, History, Settings as SettingsIcon, ChevronLeft, ChevronRight, Zap, Plus, Keyboard } from 'lucide-react'
 import { useTradingStore } from '../store/trading'
 import { cn, Tooltip } from './ui/primitives'
 
@@ -93,6 +93,25 @@ export const Sidebar = ({ selected }) => {
               <span className="flex-1 flex items-center justify-between">
                 <span>Scanner</span>
                 <span className="ml-auto text-[10px] font-mono text-dim/50 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">[S]</span>
+              </span>
+            )}
+          </button>
+        </Tooltip>
+
+        <Tooltip content={!isExpanded ? "Keyboard Shortcuts [?]" : null} side="right">
+          <button
+            onClick={() => window.dispatchEvent(new Event('toggle-shortcuts'))}
+            aria-label="Keyboard Shortcuts [?]"
+            className={cn(
+              "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all text-dim hover:text-text hover:bg-white/5 relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+              isExpanded ? "flex-row px-4 gap-3" : "justify-center px-0"
+            )}
+          >
+            <Keyboard size={20} className="shrink-0" />
+            {isExpanded && (
+              <span className="flex-1 flex items-center justify-between">
+                <span>Shortcuts</span>
+                <span className="ml-auto text-[10px] font-mono text-dim/50 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">[?]</span>
               </span>
             )}
           </button>

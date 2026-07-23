@@ -1,10 +1,11 @@
-import { IsString, IsNumber, IsOptional, IsEnum, IsArray, IsBoolean, Min, Max, IsObject, ValidateNested, MaxLength, ArrayMaxSize } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsEnum, IsArray, IsBoolean, Min, Max, IsObject, ValidateNested, MaxLength, ArrayMaxSize, Matches } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { CONFIG_LIMITS } from './constants';
 
 export class SingleSymbolConfig {
   @IsString()
   @MaxLength(20)
+  @Matches(/^[a-zA-Z0-9_\-]*$/, { message: 'Symbol must contain only alphanumeric characters, underscores, or hyphens' })
   symbol: string = "";
 
   @IsBoolean()
@@ -30,6 +31,8 @@ export class SessionConfig {
   @IsString()
   @IsOptional()
   @MaxLength(100)
+  @Matches(/^[a-zA-Z0-9_\s.\-()><=%+,\[\]]*$/, { message: 'Strategy label can only contain alphanumeric characters, spaces, underscores, dots, hyphens, and safe descriptive characters like (), ><=, %, +, ,, and []' })
+  @Matches(/^(?!.*<[a-zA-Z!/]).*$/, { message: 'Strategy label cannot contain HTML tags or tag-like structures' })
   strategy_label?: string = "Momentum Strategy";
 
   @IsArray()
@@ -124,18 +127,24 @@ export class SessionConfig {
   @IsString({ each: true })
   @IsOptional()
   @ArrayMaxSize(100)
+  @MaxLength(20, { each: true })
+  @Matches(/^[a-zA-Z0-9_\-]*$/, { each: true, message: 'Symbols must contain only alphanumeric characters, underscores, or hyphens' })
   excluded_symbols?: string[];
 
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
   @ArrayMaxSize(100)
+  @MaxLength(20, { each: true })
+  @Matches(/^[a-zA-Z0-9_\-]*$/, { each: true, message: 'Symbols must contain only alphanumeric characters, underscores, or hyphens' })
   symbols?: string[];
 
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
   @ArrayMaxSize(CONFIG_LIMITS.MAX_SIGNALS)
+  @MaxLength(50, { each: true })
+  @Matches(/^[a-zA-Z0-9_]*$/, { each: true, message: 'Signals must contain only alphanumeric characters and underscores' })
   enabled_signals?: string[] = ['momentum_pct'];
 
   @IsEnum(['any', 'all'])
@@ -247,6 +256,8 @@ export class SessionConfig {
   @IsString({ each: true })
   @IsOptional()
   @ArrayMaxSize(CONFIG_LIMITS.MAX_SIGNALS)
+  @MaxLength(50, { each: true })
+  @Matches(/^[a-zA-Z0-9_]*$/, { each: true, message: 'Signals must contain only alphanumeric characters and underscores' })
   exit_signals?: string[] = [];
 
   @IsEnum(['any', 'all'])

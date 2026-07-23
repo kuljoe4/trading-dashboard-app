@@ -7,6 +7,8 @@ describe('BinanceRequestQueue Shared State', () => {
   let eventEmitter: EventEmitter2;
   let settingsRepository: any;
 
+  let sessionState: any;
+
   beforeEach(() => {
     logger = {
       debug: jest.fn(),
@@ -22,6 +24,14 @@ describe('BinanceRequestQueue Shared State', () => {
     settingsRepository = {
       update: jest.fn().mockResolvedValue({}),
     } as any;
+    sessionState = {
+        binanceOrderLimit: {
+            used_10s: 0,
+            limit_10s: 100,
+            used_1m: 0,
+            limit_1m: 1000
+        }
+    } as any;
 
     // Reset static members via any cast if necessary or just rely on the fact they are shared
     (BinanceRequestQueue as any).lastRequestTs = 0;
@@ -30,8 +40,8 @@ describe('BinanceRequestQueue Shared State', () => {
   });
 
   it('should share state between multiple instances', async () => {
-    const queue1 = new BinanceRequestQueue(logger, eventEmitter, settingsRepository);
-    const queue2 = new BinanceRequestQueue(logger, eventEmitter, settingsRepository);
+    const queue1 = new BinanceRequestQueue(logger, eventEmitter, settingsRepository, sessionState);
+    const queue2 = new BinanceRequestQueue(logger, eventEmitter, settingsRepository, sessionState);
 
     const headers = {
       get: (name: string) => (name === 'X-MBX-USED-WEIGHT-1M' ? '2000' : null),
@@ -46,7 +56,7 @@ describe('BinanceRequestQueue Shared State', () => {
   });
 
   it('should log structured telemetry on execution', async () => {
-    const queue = new BinanceRequestQueue(logger, eventEmitter, settingsRepository);
+    const queue = new BinanceRequestQueue(logger, eventEmitter, settingsRepository, sessionState);
     const successFn = jest.fn().mockResolvedValue('ok');
 
     await queue.add(successFn, 'test-success');
@@ -57,7 +67,7 @@ describe('BinanceRequestQueue Shared State', () => {
   });
 
   it('should shed load (reject) non-critical calls when weight is > 75%', async () => {
-    const queue = new BinanceRequestQueue(logger, eventEmitter, settingsRepository);
+    const queue = new BinanceRequestQueue(logger, eventEmitter, settingsRepository, sessionState);
 
     // Set weight to 80% (1920/2400)
     const headers = { get: (name: string) => (name === 'X-MBX-USED-WEIGHT-1M' ? '2000' : null) };
@@ -74,7 +84,7 @@ describe('BinanceRequestQueue Shared State', () => {
   });
 
   it('should enter safe cooldown and emit event on IP ban (418)', async () => {
-    const queue = new BinanceRequestQueue(logger, eventEmitter, settingsRepository);
+    const queue = new BinanceRequestQueue(logger, eventEmitter, settingsRepository, sessionState);
 
     // RESEARCH: Verify that we NO LONGER call process.exit(1)
     let exitCalled = false;
@@ -108,7 +118,7 @@ describe('BinanceRequestQueue Shared State', () => {
   });
 
   it('should emit recovery event when ban cooldown expires', async () => {
-    const queue = new BinanceRequestQueue(logger, eventEmitter, settingsRepository);
+    const queue = new BinanceRequestQueue(logger, eventEmitter, settingsRepository, sessionState);
 
     // 1. Manually trigger a ban state
     (BinanceRequestQueue as any).lastRequestTs = Date.now() + 5000;

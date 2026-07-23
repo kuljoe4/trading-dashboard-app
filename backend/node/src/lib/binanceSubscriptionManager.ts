@@ -289,7 +289,7 @@ export class BinanceSubscriptionManager {
   /**
    * SRE: Self-healing data stall watchdog. The Binance public WS can sometimes
    * accept a connection + SUBSCRIBE ACK yet deliver zero frames (silent stall).
-   * If we are OPEN, have active subscriptions, and have gone >2m without any
+   * If we are OPEN, have active subscriptions, and have gone >7m without any
    * frame, terminate and reconnect to force a fresh stream.
    */
   private startStallWatchdog() {
@@ -297,7 +297,7 @@ export class BinanceSubscriptionManager {
     this.stallWatchdogInterval = setInterval(() => {
       if (this.isStopped || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
       const now = Date.now();
-      if (this.activeSubscriptions.size > 0 && this.lastMsgTs > 0 && (now - this.lastMsgTs) > 120000) {
+      if (this.activeSubscriptions.size > 0 && this.lastMsgTs > 0 && (now - this.lastMsgTs) > 420000) {
         this.logger.warn(`[SubscriptionManager] Stall detected (${Math.round((now - this.lastMsgTs) / 1000)}s silent with ${this.activeSubscriptions.size} active subs). Force-reconnecting...`);
         this.lastMsgTs = 0; // Prevent immediate re-trigger
         this.ws.terminate();

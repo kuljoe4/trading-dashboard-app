@@ -49,6 +49,13 @@ export class ExecutionService {
 
   async checkExits(config: SessionConfig, onTradeUpdate?: (t: Trade, b: number) => Promise<void>) {
     if (this.positionTracker.activeCount() === 0) return;
+
+    // BOLT: Global Ban Guard. If the system is banned, skip processing exits
+    // to avoid potential API ban exacerbation.
+    if (!config.paper_mode && this.sessionState.isBanned()) {
+      return;
+    }
+
     const activeTrades = this.positionTracker.activeList();
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);
 

@@ -72,6 +72,24 @@ export class MarketFeedService {
   private discoveryManagers: Map<string, BinanceSubscriptionManager> = new Map();
   private klineManagers: BinanceSubscriptionManager[] = [];
 
+  private discoveredSymbolsCache: {
+    symbols: string[];
+    timestamp: number;
+    signature: string;
+  } | null = null;
+
+  private getWatchlistConfigSignature(config: SessionConfig): string {
+    return JSON.stringify({
+      smart: config.smart_watchlist_enabled,
+      size: config.watchlist_size,
+      offset: config.watchlist_offset,
+      mode: config.discovery_mode,
+      threshold: config.scan_pct_threshold,
+      sensitivity: config.smart_watchlist_sensitivity,
+      excluded: config.excluded_symbols || [],
+    });
+  }
+
   constructor(
     private tickerCache: TickerCacheService,
     private klineStore: KlineStoreService,
@@ -116,36 +134,21 @@ export class MarketFeedService {
 
     // Discovery Managers initialization is now deferred to startGlobalDiscovery
 
-    // RESEARCH-02: Optimized Startup. loadFromDb() called via fetchExchangeInfo()
-    // will now be called before any session start.
-    await this.fetchExchangeInfo(restBase);
+    // CITADEL PROTOCOL: Sequential, jittered startup warmup
+    const warmupSteps = [
+      () => this.fetchExchangeInfo(restBase),
+      () => this.startGlobalDiscovery(),
+      () => this.startWatchlistManager(config),
+      () => this.seedMarketDataFromRest()
+    ];
 
-    // BOLT: Global streams (!miniTicker, !markPrice) are decoupled
-    // to resolve the discovery bootstrap deadlock.
-    await this.startGlobalDiscovery();
-
-    const waitForWs = new Promise<void>((resolve) => {
-      const check = setInterval(() => {
-        if (this.tickerCache.getCacheSize() > 0) {
-          clearInterval(check);
-          resolve();
-        }
-      }, 100);
-      setTimeout(() => { clearInterval(check); resolve(); }, 5000);
-    });
-
-    await waitForWs;
-    if (this.tickerCache.getCacheSize() === 0) await this.fetchInitialTickers(restBase);
-    this.startWatchlistManager(config);
-
-    // SRE: Proactive REST bootstrap. The public market WebSocket can be starved
-    // in some live deployments (recurring live-mode deadlock where the socket
-    // connects and ACKs a SUBSCRIBE but delivers zero frames). Seed the
-    // TickerCache from REST immediately so the momentum scanner always has
-    // candidates and the watchlist can be built without waiting on the WS.
-    this.seedMarketDataFromRest().catch(err => {
-      this.logger.warn(`Initial REST market seed failed: ${err instanceof Error ? err.message : String(err)}`);
-    });
+    for (const step of warmupSteps) {
+      await step().catch(err => {
+        this.logger.warn(`Startup step failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
+      // Add jittered delay (150-300ms)
+      await new Promise(resolve => setTimeout(resolve, 150 + Math.random() * 150));
+    }
 
     // SRE: Startup Self-Test (Citadel Protocol 2026)
     // Assert TickerCache is seeded within 15s or alert loudly.
@@ -347,35 +350,6 @@ export class MarketFeedService {
   getSymbolFilters(symbol: string) { return this.exchangeInfo.get(symbol); }
 
   /**
-   * SRE: Bootstrap initial tickers from the configured Binance REST base when the
-   * market WebSocket startup is delayed. Falls back to REST so the scanner has
-   * candidates even if the WS is starved (see also seedMarketDataFromRest).
-   */
-  private async fetchInitialTickers(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
-    try {
-      this.monitoringService.incrementApiRequests();
-      // SENTINEL: Enforce a strict 5-second timeout on the startup REST fetch request
-      // to prevent unbounded network hangs from blocking the application boot sequence.
-      const response = await fetch(`${restBase}/fapi/v1/ticker/24hr`, {
-        signal: AbortSignal.timeout(5000),
-      });
-      this.updateWeight(response.headers);
-      if (!response.ok) {
-        this.logger.warn(`Initial ticker bootstrap failed from ${restBase}: HTTP ${response.status}`);
-        return;
-      }
-
-      const tickers = await response.json();
-      if (Array.isArray(tickers)) {
-        const usdtTickers = tickers.filter((t: any) => t.symbol.endsWith('USDT'));
-        this.tickerCache.bulkUpdate(usdtTickers);
-      }
-    } catch (error) {
-      this.logger.error(`Initial ticker bootstrap failed from ${restBase}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  /**
    * SRE/Resilience: Seed the TickerCache from REST market data when the
    * public market WebSocket is starved or banned in a live deployment.
    *
@@ -389,6 +363,11 @@ export class MarketFeedService {
    * cadence once populated, and routed through the centralized Binance queue.
    */
   private async seedMarketDataFromRest(): Promise<void> {
+    // P0 FIX: Fail-fast ban guard - do not dispatch REST calls while IP is banned
+    if (this.sessionState.isBanned()) {
+      this.logger.debug(`[MarketFeed] REST seed skipped: IP is currently banned.`);
+      return;
+    }
     if (this.restSeedInFlight) return;
     const now = Date.now();
     const cacheSize = this.tickerCache.getCacheSize();
@@ -433,6 +412,7 @@ export class MarketFeedService {
 
   async stop() {
     this.running = false;
+    this.discoveredSymbolsCache = null;
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
     if (this.watchlistUpdateTimeout) clearTimeout(this.watchlistUpdateTimeout);
 
@@ -452,7 +432,7 @@ export class MarketFeedService {
   }
 
   private lastStreamHealthCheck = 0;
-  private startWatchlistManager(config: SessionConfig) {
+  private async startWatchlistManager(config: SessionConfig) {
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
     this.zeroWatchlistCycles = 0;
     this.updateWatchlist(config);
@@ -599,55 +579,74 @@ export class MarketFeedService {
         let symbols: string[];
         if (config.symbols && config.symbols.length > 0) symbols = config.symbols;
         else {
-          // BOLT: Smart Watchlist Logic - Event driven discovery without extra REST calls.
-          // If enabled, we expand the candidate pool from !miniTicker updates.
-          const watchlistSize = config.watchlist_size || 50;
-          const offset = config.watchlist_offset || 0;
+          const signature = this.getWatchlistConfigSignature(config);
+          const now = Date.now();
+          const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-          if (config.smart_watchlist_enabled) {
-            // Smart Watchlist: Filter all tickers by momentum volatility from the cache (seeded by !miniTicker)
-            // to find candidates that are moving fast even if they are not in the top 50 by volume.
-            const sensitivity = config.smart_watchlist_sensitivity || 0.7;
-            const threshold = (config.scan_pct_threshold || 2.0) * sensitivity;
-
-            const tickers = this.tickerCache.getLatestTickers();
-            const smartCandidates = tickers
-              .filter(t => {
-                if (config.excluded_symbols?.includes(t.symbol)) return false;
-                if (this.getSymbolFilters(t.symbol) === undefined) return false;
-
-                // Estimate momentum if open_24h is available
-                if (t.open_24h && t.open_24h > 0) {
-                  const momentum = Math.abs((t.price - t.open_24h) / t.open_24h) * 100;
-                  return momentum >= threshold;
-                }
-                return false;
-              })
-              .sort((a, b) => b.volume_24h - a.volume_24h)
-              .slice(0, watchlistSize);
-
-            symbols = smartCandidates.map(t => t.symbol);
-
-            // Ensure we also include the standard top volume or change-pct symbols to avoid missing established liquidity
-            const discoveryMode = config.discovery_mode || 'volume';
-            const topSymbols = discoveryMode === 'change_pct'
-              ? await this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), config.excluded_symbols || [])
-              : await this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), config.excluded_symbols || []);
-            const volumeSymbols = topSymbols.map(t => t.symbol);
-
-            symbols = Array.from(new Set([...symbols, ...volumeSymbols]));
+          if (
+            this.discoveredSymbolsCache &&
+            now - this.discoveredSymbolsCache.timestamp < CACHE_TTL_MS &&
+            this.discoveredSymbolsCache.signature === signature
+          ) {
+            symbols = this.discoveredSymbolsCache.symbols;
           } else {
-            const discoveryMode = config.discovery_mode || 'volume';
-            const top = discoveryMode === 'change_pct'
-              ? await this.tickerCache.topByChangePct(watchlistSize + offset, config.excluded_symbols || [])
-              : await this.tickerCache.topByVolume(watchlistSize + offset, config.excluded_symbols || []);
-            const slicedTop = top.slice(offset);
+            // BOLT: Smart Watchlist Logic - Event driven discovery without extra REST calls.
+            // If enabled, we expand the candidate pool from !miniTicker updates.
+            const watchlistSize = config.watchlist_size || 50;
+            const offset = config.watchlist_offset || 0;
 
-            // COMPLIANCE: Filter by getSymbolFilters() to exclude non-crypto symbols (Gold, Equities)
-            // that appear in miniTicker stream but are not tradable by the bot.
-            symbols = slicedTop
-              .map((t: any) => t.symbol)
-              .filter(s => this.getSymbolFilters(s) !== undefined);
+            if (config.smart_watchlist_enabled) {
+              // Smart Watchlist: Filter all tickers by momentum volatility from the cache (seeded by !miniTicker)
+              // to find candidates that are moving fast even if they are not in the top 50 by volume.
+              const sensitivity = config.smart_watchlist_sensitivity || 0.7;
+              const threshold = (config.scan_pct_threshold || 2.0) * sensitivity;
+
+              const tickers = this.tickerCache.getLatestTickers();
+              const smartCandidates = tickers
+                .filter(t => {
+                  if (config.excluded_symbols?.includes(t.symbol)) return false;
+                  if (this.getSymbolFilters(t.symbol) === undefined) return false;
+
+                  // Estimate momentum if open_24h is available
+                  if (t.open_24h && t.open_24h > 0) {
+                    const momentum = Math.abs((t.price - t.open_24h) / t.open_24h) * 100;
+                    return momentum >= threshold;
+                  }
+                  return false;
+                })
+                .sort((a, b) => b.volume_24h - a.volume_24h)
+                .slice(0, watchlistSize);
+
+              symbols = smartCandidates.map(t => t.symbol);
+
+              // Ensure we also include the standard top volume or change-pct symbols to avoid missing established liquidity
+              const discoveryMode = config.discovery_mode || 'volume';
+              const topSymbols = discoveryMode === 'change_pct'
+                ? await this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), config.excluded_symbols || [])
+                : await this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), config.excluded_symbols || []);
+              const volumeSymbols = topSymbols.map(t => t.symbol);
+
+              symbols = Array.from(new Set([...symbols, ...volumeSymbols]));
+            } else {
+              const discoveryMode = config.discovery_mode || 'volume';
+              const top = discoveryMode === 'change_pct'
+                ? await this.tickerCache.topByChangePct(watchlistSize + offset, config.excluded_symbols || [])
+                : await this.tickerCache.topByVolume(watchlistSize + offset, config.excluded_symbols || []);
+              const slicedTop = top.slice(offset);
+
+              // COMPLIANCE: Filter by getSymbolFilters() to exclude non-crypto symbols (Gold, Equities)
+              // that appear in miniTicker stream but are not tradable by the bot.
+              symbols = slicedTop
+                .map((t: any) => t.symbol)
+                .filter(s => this.getSymbolFilters(s) !== undefined);
+            }
+
+            // Save to cache
+            this.discoveredSymbolsCache = {
+              symbols,
+              timestamp: now,
+              signature,
+            };
           }
         }
         const globalInterval = config.scan_interval || '1m';
@@ -1030,6 +1029,13 @@ export class MarketFeedService {
 
     // STRATEGY: Sequential backfill to avoid rate-limit bursts
     while (this.backfillQueue.length > 0 && this.running) {
+      // P0 FIX: Fail-fast ban guard - do not dispatch REST calls while IP is banned
+      if (this.sessionState.isBanned()) {
+        this.logger.warn(`Backfill queue paused: IP is currently banned. Waiting for cooldown...`);
+        await new Promise(resolve => setTimeout(resolve, 30000));
+        continue;
+      }
+
       // SRE: Highly aggressive rate limit for background tasks (50% of limit threshold)
       // This preserves weight for critical entry/exit operations.
       const rateLimit = this.sessionState.getBinanceRateLimit();

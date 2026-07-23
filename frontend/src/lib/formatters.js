@@ -29,8 +29,8 @@ export const formatDuration = (ms) => {
   const d = Math.floor(h / 24);
 
   if (d > 0) return `${d}d ${h % 24}h`;
-  if (h > 0) return `${h}h ${m % 60}m`;
-  if (m > 0) return `${m}m ${s % 60}s`;
+  if (h > 0) return `${h}h ${m % 60}min`;
+  if (m > 0) return `${m}min ${s % 60}s`;
   return `${s}s`;
 };
 
@@ -53,7 +53,7 @@ export const durationFromTimestamp = (entryTs) => {
  * Features an opposite-sign guard for indicators, clamps progress to 99% if the signal hasn't fired yet to avoid visual mismatches,
  * and handles `insufficientData` gracefully.
  */
-export const calculateProximity = (signal, mark, entryPrice) => {
+export const calculateProximity = (signal, mark, entryPrice, isLong = true, isExit = false) => {
   if (!signal) return 0;
 
   const value = Number(signal.value);
@@ -81,10 +81,33 @@ export const calculateProximity = (signal, mark, entryPrice) => {
     if (entry === 0 || threshold === 0 || threshold === entry) {
       return 0;
     }
-    const totalDist = threshold - entry;
-    const currentDist = currentMark - entry;
-    const progress = (currentDist / totalDist) * 100;
-    return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
+    if (isExit) {
+      const reference = Math.max(1e-8, Math.abs(entry - threshold));
+      let progress = 0;
+      if (isLong) {
+        if (currentMark <= threshold) {
+          progress = maxVal;
+        } else {
+          const distance = currentMark - threshold;
+          progress = (1 - (distance / reference)) * 100;
+        }
+      } else {
+        // SHORT
+        if (currentMark >= threshold) {
+          progress = maxVal;
+        } else {
+          const distance = threshold - currentMark;
+          progress = (1 - (distance / reference)) * 100;
+        }
+      }
+      return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
+    } else {
+      // Entry signals
+      const totalDist = threshold - entry;
+      const currentDist = currentMark - entry;
+      const progress = (currentDist / totalDist) * 100;
+      return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
+    }
   }
 
   // Handle indicator-based signals

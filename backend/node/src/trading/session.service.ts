@@ -68,6 +68,7 @@ export class SessionService implements OnModuleInit {
   // SENTINEL: In-memory tracking to prevent database-heavy count() and log spamming
   private logRateLimits = new Map<string, { count: number; resetAt: number }>();
   private sessionLogCounts = new Map<string, number>();
+  private adoptingSymbols: Set<string> = new Set();
 
   constructor(
     @InjectRepository(SessionEntity)
@@ -1284,35 +1285,56 @@ export class SessionService implements OnModuleInit {
     if (!session) return;
     const mode = session.tradingMode || (session.paperMode ? "paper" : "live");
 
-    this.logger.warn(
-      `[Reconciliation] Processing adoption request for ${payload.positions.length} positions.`,
+    const positionsToAdopt = (payload.positions || []).filter(
+      (p) => p && p.symbol && !this.adoptingSymbols.has(p.symbol)
     );
 
-    const imported = await this.adoptExchangePositions(
-      payload.positions,
-      mode,
-      session.config,
-      payload.orders,
-    );
-
-    // Hot-add adopted trades to the running engine
-    for (const t of imported) {
-      const tradeModel = plainToInstance(Trade, t);
-      // BOLT: Use addTrade to ensure PositionTracker correctly initializes milestone state
-      this.tradingSessionService.addTrade(tradeModel as any);
-
-      this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, {
-        trade: tradeModel,
-      });
+    if (positionsToAdopt.length === 0) {
+      this.logger.debug(
+        `[Reconciliation] All positions in adoption request are already being adopted. Skipping.`
+      );
+      return;
     }
 
-    if (imported.length > 0) {
-      // BOLT: Synchronize active trades state and trigger watchlist update for newly adopted trades
-      this.tradingSessionService.seedActiveTrades(
-        this.tradingSessionService.getActiveTradesRaw(),
+    for (const p of positionsToAdopt) {
+      this.adoptingSymbols.add(p.symbol);
+    }
+
+    this.logger.warn(
+      `[Reconciliation] Processing adoption request for ${positionsToAdopt.length} positions.`,
+    );
+
+    try {
+      const imported = await this.adoptExchangePositions(
+        positionsToAdopt,
+        mode,
+        session.config,
+        payload.orders,
       );
-      this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
-      this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
+
+      // Hot-add adopted trades to the running engine
+      for (const t of imported) {
+        const tradeModel = plainToInstance(Trade, t);
+        // BOLT: Use addTrade to ensure PositionTracker correctly initializes milestone state
+        this.tradingSessionService.addTrade(tradeModel as any);
+
+        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, {
+          trade: tradeModel,
+        });
+      }
+
+      if (imported.length > 0) {
+        // BOLT: Synchronize active trades state and trigger watchlist update for newly adopted trades
+        this.tradingSessionService.seedActiveTrades(
+          this.tradingSessionService.getActiveTradesRaw(),
+        );
+        this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
+        this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
+      }
+    } finally {
+      for (const p of positionsToAdopt) {
+        this.adoptingSymbols.delete(p.symbol);
+      }
     }
   }
 

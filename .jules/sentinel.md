@@ -1,3 +1,8 @@
+## 2026-07-23 - SessionConfig and Strategy Label Hardening
+**Vulnerability:** The session config `strategy_label` parameter lacked character-level gating and tag restrictions, creating a high-severity Stored XSS vulnerability as attackers could submit arbitrary JavaScript/HTML scripts that would be persisted in the `Session` and `Trade` database entities and subsequently rendered in the frontend dashboard.
+**Learning:** Hardening core system boundaries requires auditing all user-input configuration models (like `SessionConfig`) rather than just presets and key fields. Enforcing safe character whitelists combined with negative HTML-tag lookaheads at the input validation tier provides definitive XSS and injection immunity.
+**Prevention:** Apply strict character constraints and lookahead rules using class-validator `@Matches` decorators on all descriptive string parameters, and enforce strict item-level type/regex/length validation (`{ each: true }`) on all input string arrays.
+
 ## 2026-07-22 - API Key and Secret Input Validation Hardening
 **Vulnerability:** API key and secret inputs lacked character-level gating, exposing endpoints to potentially hazardous inputs containing Stored XSS payloads, SQL/Command Injection characters, or carriage returns/newlines for Log Injection/CRLF attacks.
 **Learning:** To allow safe Copy-Paste and Masked representations (e.g., `abcd...efgh`), the validation regex must permit dots `.` and spaces ` ` alongside standard base64/alphanumeric characters, while strictly excluding newlines, carriage returns, tabs, quotes, and HTML tag delimiters.

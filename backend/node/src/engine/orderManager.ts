@@ -3031,9 +3031,15 @@ export class OrderManagerService {
         } finally {
           // SRE: Atomicity Guard. If the close sequence was initiated but did not result
           // in a confirmed success, ensure the position remains protected by re-arming
-          // the SL if it was proactively cancelled.
-          if (!closeSuccess && !localOnly && !trade.binance_stop_order_id && trade.status === 'OPEN' && !this.paperMode) {
+          // the SL.
+          if (!closeSuccess && !localOnly && trade.status === 'OPEN' && !this.paperMode) {
              this.logger.warn(`[${symbol}] Close sequence finished without success. Re-arming protection SL...`);
+             if (trade.binance_stop_order_id) {
+                try {
+                   await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type || 'standard');
+                } catch (e) {}
+                trade.binance_stop_order_id = undefined;
+             }
              await this.placeStopLoss(trade, trade.current_sl);
           }
         }

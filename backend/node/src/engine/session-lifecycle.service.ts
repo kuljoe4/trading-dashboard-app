@@ -468,60 +468,68 @@ export class SessionLifecycleService {
     if (data.a.B) {
       let totalWalletBalance = 0;
       let totalBalanceChange = 0;
+      let hasValidAsset = false;
       for (const b of data.a.B) {
-        const wb = parseFloat(b.wb || "0");
-        const bc = parseFloat(b.bc || "0");
-        if (wb > 0) totalWalletBalance += wb;
-        totalBalanceChange += bc;
+        if (["USDT", "USDC", "FDUSD"].includes(b.a)) {
+          const wb = parseFloat(b.wb || "0");
+          const bc = parseFloat(b.bc || "0");
+          if (wb > 0) totalWalletBalance += wb;
+          totalBalanceChange += bc;
+          hasValidAsset = true;
+        }
       }
       
-      const nb = totalWalletBalance;
-      const bc = totalBalanceChange;
-      const now = Date.now();
+      if (hasValidAsset) {
+        const nb = totalWalletBalance;
+        const bc = totalBalanceChange;
+        const now = Date.now();
 
-      // BOLT: Throttled balance logging. Balance updates can be extremely frequent on active accounts.
-      // We only log if it's been 10s or if there's a non-zero balance change (funding/fill).
-      if (bc !== 0 || now - this.lastBalanceLogTs > 10000) {
-        const liveBalMsg = `[Lifecycle] Received real-time balance update: ${nb} USDT (Reason: ${reason}, Delta: ${bc})`;
-        this.logger.log(liveBalMsg);
-        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
-          msg: liveBalMsg,
-          level: "info",
-        });
-        this.lastBalanceLogTs = now;
-      }
-
-      this.sessionState.balanceLive = nb;
-      this.sessionState.balancePaper = nb; // Sync Paper to Live on real-time update
-      const prevBalance = this.sessionState.lastExchangeBalance;
-      this.sessionState.lastExchangeBalance = nb;
-      this.sessionState.lastUdsBalanceUpdate = Date.now();
-
-      // Mark all current trades as UDS-confirmed since we have a fresh absolute balance update
-      if (this.sessionState.activeTrades) {
-        for (const t of this.sessionState.activeTrades) {
-          this.sessionState.udsConfirmedClosedTrades.add(t.id);
+        // BOLT: Throttled balance logging. Balance updates can be extremely frequent on active accounts.
+        // We only log if it's been 10s or if there's a non-zero balance change (funding/fill).
+        if (bc !== 0 || now - this.lastBalanceLogTs > 10000) {
+          const liveBalMsg = `[Lifecycle] Received real-time balance update: ${nb} USDT (Reason: ${reason}, Delta: ${bc})`;
+          this.logger.log(liveBalMsg);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+            msg: liveBalMsg,
+            level: "info",
+          });
+          this.lastBalanceLogTs = now;
         }
-      }
-      if (this.sessionState.closedTrades) {
-        for (const t of this.sessionState.closedTrades) {
-          this.sessionState.udsConfirmedClosedTrades.add(t.id);
+
+        this.sessionState.balanceLive = nb;
+        if (this.sessionState.config?.paper_mode || this.sessionState.config?.trading_mode === 'paper') {
+          this.sessionState.balancePaper = nb; // Sync Paper to Live on real-time update
         }
-      }
+        const prevBalance = this.sessionState.lastExchangeBalance;
+        this.sessionState.lastExchangeBalance = nb;
+        this.sessionState.lastUdsBalanceUpdate = Date.now();
 
-      // Broadcast balance update to frontend
-      // BOLT/Eco: Only egress when the balance actually changed. ACCOUNT_UPDATE fires per
-      // fill and can include a USDT entry even when nothing materially changed for this
-      // asset, so avoid needless frontend broadcasts (consistent with the eco/egress policy).
-      if (bc !== 0 || nb !== prevBalance) {
-        this.broadcastService.broadcast('balance_update', { balance: nb });
-      }
+        // Mark all current trades as UDS-confirmed since we have a fresh absolute balance update
+        if (this.sessionState.activeTrades) {
+          for (const t of this.sessionState.activeTrades) {
+            this.sessionState.udsConfirmedClosedTrades.add(t.id);
+          }
+        }
+        if (this.sessionState.closedTrades) {
+          for (const t of this.sessionState.closedTrades) {
+            this.sessionState.udsConfirmedClosedTrades.add(t.id);
+          }
+        }
 
-      // CHRONOS: Handle Authoritative Funding Fee Attribution
-      // When reason is FUNDING_FEE, the 'bc' field contains the net funding impact.
-      // We attribute this to active trades to ensure PnL and session stats remain accurate.
-      if (reason === "FUNDING_FEE" && bc !== 0) {
-        this.attributeFundingFee(bc, data.a.P || []);
+        // Broadcast balance update to frontend
+        // BOLT/Eco: Only egress when the balance actually changed. ACCOUNT_UPDATE fires per
+        // fill and can include a USDT entry even when nothing materially changed for this
+        // asset, so avoid needless frontend broadcasts (consistent with the eco/egress policy).
+        if (bc !== 0 || nb !== prevBalance) {
+          this.broadcastService.broadcast('balance_update', { balance: nb });
+        }
+
+        // CHRONOS: Handle Authoritative Funding Fee Attribution
+        // When reason is FUNDING_FEE, the 'bc' field contains the net funding impact.
+        // We attribute this to active trades to ensure PnL and session stats remain accurate.
+        if (reason === "FUNDING_FEE" && bc !== 0) {
+          this.attributeFundingFee(bc, data.a.P || []);
+        }
       }
     }
     // Real-time Position Tracking (Zero Weight)

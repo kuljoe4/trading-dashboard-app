@@ -692,7 +692,7 @@ export class MarketFeedService {
         ];
         for (const sig of activeSignals) {
           const tf = config.signal_timeframes[sig];
-          if (tf) mtfIntervals.add(tf);
+          if (tf && tf !== 'default') mtfIntervals.add(tf);
         }
       }
       if (mtfIntervals.size > 0) {

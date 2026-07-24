@@ -208,7 +208,10 @@ export class SignalEngineService {
       }
 
       try {
-        const signalInterval = config.signal_timeframes?.[signalType] || interval;
+        let signalInterval = config.signal_timeframes?.[signalType] || interval;
+        if (signalInterval === 'default') {
+          signalInterval = interval;
+        }
         const signalCandles = (signalInterval !== interval)
           ? this.klineStore.getRawCandles(symbol, signalInterval)
           : candles;
@@ -1440,9 +1443,10 @@ export class SignalEngineService {
       const lookbackWindow = parseInt(params.macd_pbc_lookback || '10', 10);
 
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
+      const absoluteMin = Math.max(Math.max(fastPeriod, slowPeriod) + signalPeriod, trendEmaPeriod + 1);
       const minRequired = Math.max((Math.max(fastPeriod, slowPeriod) + signalPeriod) * 2, trendEmaPeriod * 2);
 
-      if (candles.length < minRequired) {
+      if (candles.length < absoluteMin) {
         return {
           fired: false,
           value: 0,
@@ -1553,7 +1557,7 @@ export class SignalEngineService {
         fired,
         value: roundTo(currHist, 8),
         threshold: roundTo(prevHist, 8),
-        insufficientData: insufficientData || emaRes.insufficientData,
+        insufficientData: insufficientData || emaRes.insufficientData || (candles.length < minRequired),
         unit: 'histogram',
         metric: 'MACD PBC',
         description,

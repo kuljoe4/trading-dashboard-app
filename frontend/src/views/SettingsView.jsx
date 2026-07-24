@@ -172,7 +172,7 @@ export function SettingsView() {
                             type="button"
                             onClick={() => setAdminApiKeyValue('')}
                             aria-label="Clear Admin API Key"
-                            className="hover:text-red transition-colors"
+                            className="hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
                           >
                             <X size={18} />
                           </button>
@@ -183,7 +183,7 @@ export function SettingsView() {
                           type="button"
                           onClick={() => setShowAdminKey(!showAdminKey)}
                           aria-label={showAdminKey ? "Hide key" : "Show key"}
-                          className="hover:text-accent transition-colors"
+                          className="hover:text-accent transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
                         >
                           {showAdminKey ? <EyeOff size={18} /> : <Eye size={18} />}
                         </button>
@@ -332,7 +332,7 @@ export function SettingsView() {
                           type="button"
                           onClick={() => setApiKey('')}
                           aria-label="Clear API Key"
-                          className="absolute right-4 top-1/2 -translate-y-1/2 text-dim hover:text-red transition-colors"
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-dim hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
                         >
                           <X size={18} />
                         </button>
@@ -356,7 +356,7 @@ export function SettingsView() {
                             type="button"
                             onClick={() => setApiSecret('')}
                             aria-label="Clear API Secret"
-                            className="hover:text-red transition-colors"
+                            className="hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
                           >
                             <X size={18} />
                           </button>
@@ -365,7 +365,7 @@ export function SettingsView() {
                           type="button"
                           onClick={() => setShowLiveSecret(!showLiveSecret)}
                           aria-label={showLiveSecret ? "Hide secret" : "Show secret"}
-                          className="hover:text-accent transition-colors"
+                          className="hover:text-accent transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
                         >
                           {showLiveSecret ? <EyeOff size={18} /> : <Eye size={18} />}
                         </button>
@@ -410,7 +410,7 @@ export function SettingsView() {
                           type="button"
                           onClick={() => setTestnetApiKey('')}
                           aria-label="Clear Testnet API Key"
-                          className="absolute right-4 top-1/2 -translate-y-1/2 text-dim hover:text-red transition-colors"
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-dim hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-md"
                         >
                           <X size={18} />
                         </button>
@@ -434,7 +434,7 @@ export function SettingsView() {
                             type="button"
                             onClick={() => setTestnetApiSecret('')}
                             aria-label="Clear Testnet API Secret"
-                            className="hover:text-red transition-colors"
+                            className="hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-md"
                           >
                             <X size={18} />
                           </button>
@@ -443,7 +443,7 @@ export function SettingsView() {
                           type="button"
                           onClick={() => setShowTestnetSecret(!showTestnetSecret)}
                           aria-label={showTestnetSecret ? "Hide secret" : "Show secret"}
-                          className="hover:text-purple transition-colors"
+                          className="hover:text-purple transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-md"
                         >
                           {showTestnetSecret ? <EyeOff size={18} /> : <Eye size={18} />}
                         </button>

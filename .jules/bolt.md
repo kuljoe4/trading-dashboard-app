@@ -226,3 +226,7 @@ Test-every-fix culture: each of the above got a regression spec (zero-SL rejecti
 ## 2026-07-23 - [Optimization] Numeric Timestamp Sorting over Date Instantiation
 **Learning:** Instantiating `new Date()` inside `.sort()` comparators in high-frequency state updates or heavily populated historical tables is a major source of CPU load and Garbage Collection (GC) pressure. Pre-calculating numerical milliseconds (`startTimeMs` / `exit_ts_ms`) during initial normalization/fetching converts complex string-to-date parsing into a simple O(1) mathematical subtraction.
 **Action:** Always pre-calculate numeric equivalents for all date-based fields during data normalization or ingestion, and use them directly in sorting and filtering loops.
+
+## 2026-07-24 - [Optimization] Single-Pass O(N) Lookup over O(N log N) Sorting
+**Learning:** Sorting an entire list with `.sort()` just to retrieve the single maximum or minimum element (`[0]` or `[arr.length - 1]`) is an $O(N \log N)$ operation that unnecessarily copies arrays and recomputes/re-parses values inside the comparator. Replacing it with a single-pass `for` loop reduces complexity to $O(N)$ and eliminates all array allocations and GC pressure.
+**Action:** Always favor a single-pass $O(N)$ loop (or `reduce()`) when extracting the maximum, minimum, or extreme element of a collection, avoiding sorting overhead completely.

@@ -104,4 +104,46 @@ describe('Sentinel: SessionConfig Input Gating & XSS Prevention', () => {
     expect(symbolError).toBeDefined();
     expect(symbolError?.constraints?.matches).toBeDefined();
   });
+
+  describe('Sentinel: SessionConfig Interval Validation', () => {
+    it('should accept valid scan_interval and sl_lookback_timeframe', async () => {
+      const config = plainToInstance(SessionConfig, {
+        scan_interval: '5m',
+        sl_lookback_timeframe: '1h',
+      });
+      const errors = await validate(config);
+      expect(errors.find(e => e.property === 'scan_interval')).toBeUndefined();
+      expect(errors.find(e => e.property === 'sl_lookback_timeframe')).toBeUndefined();
+    });
+
+    it('should reject invalid interval formats or values', async () => {
+      const invalidIntervals = [
+        'invalid',
+        '5',
+        'abc',
+        '0m',
+        '5s',
+        '2y',
+        '<script>',
+        '',
+      ];
+
+      for (const val of invalidIntervals) {
+        const config = plainToInstance(SessionConfig, {
+          scan_interval: val,
+          sl_lookback_timeframe: val,
+        });
+        const errors = await validate(config);
+
+        // Either scan_interval or sl_lookback_timeframe should have error
+        const scanError = errors.find(e => e.property === 'scan_interval');
+        expect(scanError).toBeDefined();
+        expect(scanError?.constraints?.matches).toBeDefined();
+
+        const slError = errors.find(e => e.property === 'sl_lookback_timeframe');
+        expect(slError).toBeDefined();
+        expect(slError?.constraints?.matches).toBeDefined();
+      }
+    });
+  });
 });

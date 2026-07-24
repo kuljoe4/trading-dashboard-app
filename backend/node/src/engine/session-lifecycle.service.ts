@@ -755,6 +755,7 @@ export class SessionLifecycleService {
       });
       this.isUdsConnected = true;
       this.udsReconnectAttempts = 0;
+      this.logger.log(`[UDS-DIAGNOSTIC] Successfully connected to stream with listenKey: ${this.listenKey?.substring(0, 5)}...`);
 
       this.monitoringService.setUdsStatus("CONNECTED");
 
@@ -827,6 +828,8 @@ export class SessionLifecycleService {
           // SDK WebsocketStreams.connect returns a connection that emits 'message' with the already parsed object or string
           let data =
             typeof payload === "string" ? JSON.parse(payload) : payload;
+
+          this.logger.debug(`[UDS-DIAGNOSTIC] Message received: ${JSON.stringify(data).substring(0, 100)}`);
 
           // UDS HARDENING: Handle both direct and combined stream formats (unwrap .data if present)
           if (data && data.data && data.stream) {

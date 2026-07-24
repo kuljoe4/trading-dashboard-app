@@ -66,6 +66,7 @@ export class SessionConfig {
   @IsString()
   @IsOptional()
   @MaxLength(10)
+  @Matches(/^(1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|3d|1w|1M)$/, { message: 'scan_interval must be a valid Binance kline interval' })
   scan_interval: string = "5m";
 
   @IsNumber()
@@ -208,6 +209,7 @@ export class SessionConfig {
   @IsString()
   @IsOptional()
   @MaxLength(10)
+  @Matches(/^(1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|3d|1w|1M)$/, { message: 'sl_lookback_timeframe must be a valid Binance kline interval' })
   sl_lookback_timeframe?: string = "5m";
 
   @IsNumber()

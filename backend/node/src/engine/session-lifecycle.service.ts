@@ -347,12 +347,15 @@ export class SessionLifecycleService {
       // Sum all positive balances across all collateral assets (USDT, USDC, FDUSD, etc.)
       if (Array.isArray(data)) {
         let totalBalance = 0;
+        const allowedAssets = ['USDT', 'USDC', 'FDUSD'];
         for (const b of data) {
-          const bal = parseFloat(String(b.balance || "0"));
-          if (bal > 0) totalBalance += bal;
+          if (b.asset && allowedAssets.includes(b.asset.toUpperCase())) {
+            const bal = parseFloat(String(b.balance || "0"));
+            if (bal > 0) totalBalance += bal;
+          }
         }
         if (totalBalance > 0) {
-          this.logger.debug(`[Lifecycle] Multi-asset balance: ${totalBalance} (assets: ${data.filter(b => parseFloat(b.balance||'0')>0).map(b=>b.asset).join(', ')})`);
+          this.logger.debug(`[Lifecycle] Multi-asset balance: ${totalBalance} (assets: ${data.filter(b => b.asset && allowedAssets.includes(b.asset.toUpperCase()) && parseFloat(b.balance||'0')>0).map(b=>b.asset).join(', ')})`);
           return totalBalance;
         }
       }
@@ -465,21 +468,23 @@ export class SessionLifecycleService {
 
     // Real-time Balance Tracking (Zero Weight)
     // P0 FIX: Multi-collateral support - sum ALL assets in B array (USDT, USDC, FDUSD, etc.)
-    if (data.a.B) {
+    if (data.a.B && data.a.B.length > 0) {
       let totalWalletBalance = 0;
       let totalBalanceChange = 0;
-      let hasValidAsset = false;
+      const allowedAssets = ['USDT', 'USDC', 'FDUSD'];
+      let validAssetFound = false;
+
       for (const b of data.a.B) {
-        if (["USDT", "USDC", "FDUSD"].includes(b.a)) {
+        if (b.a && allowedAssets.includes(b.a.toUpperCase())) {
+          validAssetFound = true;
           const wb = parseFloat(b.wb || "0");
           const bc = parseFloat(b.bc || "0");
           if (wb > 0) totalWalletBalance += wb;
           totalBalanceChange += bc;
-          hasValidAsset = true;
         }
       }
-      
-      if (hasValidAsset) {
+
+      if (validAssetFound) {
         const nb = totalWalletBalance;
         const bc = totalBalanceChange;
         const now = Date.now();
@@ -497,8 +502,8 @@ export class SessionLifecycleService {
         }
 
         this.sessionState.balanceLive = nb;
-        if (this.sessionState.config?.paper_mode || this.sessionState.config?.trading_mode === 'paper') {
-          this.sessionState.balancePaper = nb; // Sync Paper to Live on real-time update
+        if (this.sessionState.config?.paper_mode) {
+          this.sessionState.balancePaper = nb; // Sync Paper to Live on real-time update only if paper_mode is active
         }
         const prevBalance = this.sessionState.lastExchangeBalance;
         this.sessionState.lastExchangeBalance = nb;

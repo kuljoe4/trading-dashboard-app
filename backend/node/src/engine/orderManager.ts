@@ -3032,9 +3032,22 @@ export class OrderManagerService {
           // SRE: Atomicity Guard. If the close sequence was initiated but did not result
           // in a confirmed success, ensure the position remains protected by re-arming
           // the SL if it was proactively cancelled.
-          if (!closeSuccess && !localOnly && !trade.binance_stop_order_id && trade.status === 'OPEN' && !this.paperMode) {
+          if (!closeSuccess && !localOnly && trade.status === 'OPEN' && !this.paperMode) {
+             if (trade.binance_stop_order_id) {
+                this.logger.warn(`[${symbol}] Close sequence finished without success and SL order ${trade.binance_stop_order_id} exists. Proactively cancelling old SL to avoid duplicate conflict.`);
+                try {
+                   await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type || 'standard');
+                } catch (cancelErr) {
+                   this.logger.error(`[${symbol}] Failed to cancel stop-loss order ${trade.binance_stop_order_id} during close failure rollback: ${cancelErr instanceof Error ? cancelErr.message : String(cancelErr)}`);
+                }
+                trade.binance_stop_order_id = undefined;
+             }
              this.logger.warn(`[${symbol}] Close sequence finished without success. Re-arming protection SL...`);
-             await this.placeStopLoss(trade, trade.current_sl);
+             try {
+                await this.placeStopLoss(trade, trade.current_sl);
+             } catch (placeErr) {
+                this.logger.error(`[${symbol}] Failed to re-arm stop-loss during close failure rollback: ${placeErr instanceof Error ? placeErr.message : String(placeErr)}`);
+             }
           }
         }
       } else if (paperMode) {

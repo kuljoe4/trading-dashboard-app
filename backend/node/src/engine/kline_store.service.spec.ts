@@ -127,4 +127,23 @@ describe('KlineStoreService', () => {
     const extremes2 = service.getLookbackExtremes('BTCUSDT', '1m', 2);
     expect(extremes2).toEqual({ minLow: 999, maxHigh: 8888 });
   });
+
+  describe('parseIntervalToMs robust validation', () => {
+    it('defaults gracefully when handling null, undefined, empty, or invalid interval inputs', () => {
+      expect((service as any).parseIntervalToMs(null)).toBe(60000);
+      expect((service as any).parseIntervalToMs(undefined)).toBe(60000);
+      expect((service as any).parseIntervalToMs('')).toBe(60000);
+      expect((service as any).parseIntervalToMs('invalid')).toBe(60000);
+      expect((service as any).parseIntervalToMs('abc')).toBe(60000);
+      expect((service as any).parseIntervalToMs('123')).toBe(60000);
+      expect((service as any).parseIntervalToMs('0m')).toBe(60000);
+      expect((service as any).parseIntervalToMs('-5m')).toBe(60000);
+
+      // Standard intervals should parse correctly
+      expect((service as any).parseIntervalToMs('1m')).toBe(60000);
+      expect((service as any).parseIntervalToMs('5m')).toBe(300000);
+      expect((service as any).parseIntervalToMs('1h')).toBe(3600000);
+      expect((service as any).parseIntervalToMs('1d')).toBe(86400000);
+    });
+  });
 });

@@ -1,3 +1,8 @@
+## 2026-07-24 - Robust Binance Interval Validation and Defensive Parsing Standard
+**Vulnerability:** The session config interval properties (`scan_interval` and `sl_lookback_timeframe`) lacked validation, which could allow malformed interval strings to be passed to internal utility functions like `parseIntervalToMs`. These functions in turn lacked defensive type and format guards, exposing the backend to fatal `TypeError: Cannot read properties of undefined (reading 'slice')` or `NaN` crashes (Denial of Service).
+**Learning:** Hardening core system parameters requires strict format whitelisting on user-provided strings at the DTO layer, coupled with explicit type checking and fallback mechanisms in low-level utility methods. This guarantees absolute system resiliency under arbitrary inputs.
+**Prevention:** Always enforce `@Matches` regex bounds on inputs representing enumeration or specific domain patterns (like kline intervals) and add strict fallback defaults in parsing helpers.
+
 ## 2026-07-23 - SessionConfig and Strategy Label Hardening
 **Vulnerability:** The session config `strategy_label` parameter lacked character-level gating and tag restrictions, creating a high-severity Stored XSS vulnerability as attackers could submit arbitrary JavaScript/HTML scripts that would be persisted in the `Session` and `Trade` database entities and subsequently rendered in the frontend dashboard.
 **Learning:** Hardening core system boundaries requires auditing all user-input configuration models (like `SessionConfig`) rather than just presets and key fields. Enforcing safe character whitelists combined with negative HTML-tag lookaheads at the input validation tier provides definitive XSS and injection immunity.

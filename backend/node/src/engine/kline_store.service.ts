@@ -137,8 +137,15 @@ export class KlineStoreService {
    * This turns O(N) into O(1) for the vast majority of calls and eliminates hot-path string allocations/logging.
    */
   private parseIntervalToMs(interval: string): number {
+    // Robust Defensive Guard: ensure interval is a valid, non-empty string before slicing or parsing
+    if (typeof interval !== 'string' || !interval) {
+      return 60 * 1000; // default to 1m
+    }
     const unit = interval.slice(-1);
     const value = parseInt(interval.slice(0, -1), 10);
+    if (isNaN(value) || value <= 0) {
+      return 60 * 1000; // default to 1m on NaN or invalid values
+    }
     switch (unit) {
       case 'm': return value * 60 * 1000;
       case 'h': return value * 60 * 60 * 1000;

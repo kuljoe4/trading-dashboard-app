@@ -224,6 +224,75 @@ describe('MACD and Supertrend Signal Engine Tests', () => {
       expect(result.details?.macd_pbc?.fired).toBe(false);
       expect(result.details?.macd_pbc?.description).toContain('is below Trend EMA');
     });
+
+    it('should compute MACD PBC on relaxed candle counts (between absoluteMin and minRequired) and set insufficientData: true', () => {
+      const config = new SessionConfig();
+      config.exit_signals = ['macd_pbc'];
+      config.signal_params = {
+        macd_fast: 12,
+        macd_slow: 26,
+        macd_signal: 9,
+        macd_pbc_trend_ema: 50,
+        macd_pbc_lookback: 5,
+      };
+
+      // absoluteMin is Math.max(35, 51) = 51.
+      // Let's generate 60 prices (less than minRequired = 100).
+      const prices = Array(60).fill(100);
+      for (let i = 0; i < 60; i++) {
+        prices[i] = 100 + i * 2; // price steadily above EMA
+      }
+
+      // Pullback & Continuation on last candles - make it very sharp to guarantee pullback with 60 candles
+      prices[55] = 200;
+      prices[56] = 150; // sharp drop
+      prices[57] = 250; // strong reversal rise 1
+      prices[58] = 380; // continuation rise 2
+      prices[59] = 450; // continuation rise 3
+
+      const candles = generateCandles(prices);
+      klineStore.getRawCandles.mockReturnValue(candles);
+
+      const result = service.checkEntry('BTCUSDT', config, '1m', 'LONG', 'exit');
+      expect(result.details?.macd_pbc).toBeDefined();
+      expect(result.details?.macd_pbc?.fired).toBe(true);
+      expect(result.details?.macd_pbc?.insufficientData).toBe(true); // reported as insufficient due to warm-up, but evaluated!
+    });
+
+    it('should gracefully resolve "default" timeframe configuration back to session interval', () => {
+      const config = new SessionConfig();
+      config.enabled_signals = ['macd_pbc'];
+      config.signal_timeframes = {
+        macd_pbc: 'default',
+      };
+      config.signal_params = {
+        macd_fast: 12,
+        macd_slow: 26,
+        macd_signal: 9,
+        macd_pbc_trend_ema: 50,
+        macd_pbc_lookback: 5,
+      };
+
+      const prices = Array(120).fill(100);
+      for (let i = 0; i < 120; i++) {
+        prices[i] = 100 + i * 2;
+      }
+      prices[117] = 300;
+      prices[118] = 330;
+      prices[119] = 380;
+
+      const candles = generateCandles(prices);
+      // Mock candles returned for '1m'
+      klineStore.getRawCandles.mockImplementation((sym, tf) => {
+        if (tf === '1m') return candles;
+        return []; // if it queried 'default', it would get [] and fail with "Insufficient candle data"
+      });
+
+      const result = service.checkEntry('BTCUSDT', config, '1m', 'LONG');
+      expect(result.details?.macd_pbc).toBeDefined();
+      expect(result.details?.macd_pbc?.fired).toBe(true);
+      expect(result.details?.macd_pbc?.description).not.toContain('Insufficient candle data');
+    });
   });
 
   describe('MACD Fade exit signal (Phase 5)', () => {

@@ -214,6 +214,15 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
+  const startingBalance = tradingMode === 'paper'
+    ? (config.paper_starting_balance || 10000)
+    : (tradingMode === 'testnet'
+        ? (config.testnet_starting_balance || 10000)
+        : (config.live_starting_balance || 10000));
+
+  const activePnlPct = startingBalance > 0 ? (s.activePnl / startingBalance) * 100 : 0;
+  const sessionReturnPct = startingBalance > 0 ? (s.totalPnl / startingBalance) * 100 : 0;
+
   const handleCardClick = React.useCallback(() => {
     onClick(s.strategy_label);
   }, [onClick, s.strategy_label]);
@@ -299,14 +308,14 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             {fmtUSD(s.activePnl)}
           </div>
           <span className="text-[9px] text-dim/60 font-semibold uppercase tracking-wider mt-1 block">
-            Live Open P&L · Est. Realize: <span className="font-bold font-mono" style={{ color: pnlColor(s.totalEstPnlToRealize) }}>{fmtUSD(s.totalEstPnlToRealize)}</span>
+            Open ({activePnlPct >= 0 ? '+' : ''}{activePnlPct.toFixed(2)}%) · Est. Realize: <span className="font-bold font-mono" style={{ color: pnlColor(s.totalEstPnlToRealize) }}>{fmtUSD(s.totalEstPnlToRealize)}</span>
           </span>
         </div>
 
         <div className="flex flex-col gap-1 items-end text-right">
           <span className="text-[9px] text-dim font-black uppercase tracking-widest">Session Return</span>
           <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter leading-none" style={{ color: pnlColor(s.totalPnl) }}>
-            {fmtUSD(s.totalPnl)}
+            {fmtUSD(s.totalPnl)} <span className="text-[10px] md:text-xs tracking-tight" style={{ color: pnlColor(s.totalPnl) }}>({sessionReturnPct >= 0 ? '+' : ''}{sessionReturnPct.toFixed(2)}%)</span>
           </div>
           <span className="text-[9px] text-dim/60 font-semibold uppercase tracking-wider mt-1 block">
             {s.entryCount} ENT · {s.hitCount} HIT

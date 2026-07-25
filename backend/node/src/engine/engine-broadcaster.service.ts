@@ -414,12 +414,15 @@ export class EngineBroadcasterService {
             } else {
               signalPnl = (entry - sigStatus.threshold) * qty;
             }
-            if (signalPnl > maxEstPnlForTrade) {
+            // Skip estimated values that are higher than the current active P&L (representing unearned future profit targets)
+            if (signalPnl <= pnlValue && signalPnl > maxEstPnlForTrade) {
               maxEstPnlForTrade = signalPnl;
             }
           }
         }
       }
+      // Defensively cap the estimated P&L to realize at the current active P&L to prevent overestimation
+      maxEstPnlForTrade = Math.min(maxEstPnlForTrade, pnlValue);
       totalEstPnlToRealize += maxEstPnlForTrade;
 
       const riskDist = Math.abs(entry - (trade.initial_sl ?? trade.current_sl ?? entry)) || 1;

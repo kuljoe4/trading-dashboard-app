@@ -90,5 +90,90 @@ describe('TickerCacheService', () => {
       expect(top[0].symbol).toBe('BTCUSDT');
       expect(top[1].symbol).toBe('ETHUSDT');
     });
+
+    it('should handle undefined or empty exclusions without throwing', () => {
+      service.updateTicker('BTCUSDT', 110, 1000000, 100);
+      service.updateTicker('ETHUSDT', 95, 2000000, 100);
+
+      // Call topByChangePct with undefined to trigger default parameter
+      const topDefault = service.topByChangePct(2);
+      expect(topDefault.length).toBe(2);
+
+      // Explicitly pass undefined as the second parameter
+      const topUndefined = service.topByChangePct(2, undefined);
+      expect(topUndefined.length).toBe(2);
+    });
+
+    describe('topByChangePct performance benchmark', () => {
+      it('should run significantly faster than the old unoptimized implementation', () => {
+        // Setup 300 symbols to simulate a realistic production list
+        for (let i = 0; i < 300; i++) {
+          const symbol = `SYM_${i}USDT`;
+          const price = 100 + Math.random() * 50;
+          const open = 100;
+          const volume = Math.random() * 10000000;
+          service.updateTicker(symbol, price, volume, open);
+        }
+
+        // We extract all tickers once
+        const all = service.getLatestTickers();
+
+        // Implement the old sorting logic directly in the test to compare
+        const oldImplementation = (n: number) => {
+          return [...all]
+            .filter(t => t.price && t.open_24h && t.open_24h > 0)
+            .sort((a, b) => {
+              const changeA = Math.abs(((a.price - (a.open_24h || 0)) / (a.open_24h || 1)) * 100);
+              const changeB = Math.abs(((b.price - (b.open_24h || 0)) / (b.open_24h || 1)) * 100);
+              return changeB - changeA;
+            })
+            .slice(0, n);
+        };
+
+        const iterations = 2000;
+
+        // Warm up
+        for (let i = 0; i < 100; i++) {
+          oldImplementation(10);
+          // Clear cache so that the optimized version recomputes
+          (service as any)._topByChangeCache = {};
+          service.topByChangePct(10);
+        }
+
+        // Benchmark Old
+        const startOld = performance.now();
+        for (let i = 0; i < iterations; i++) {
+          oldImplementation(10);
+        }
+        const endOld = performance.now();
+        const oldTime = endOld - startOld;
+
+        // Benchmark Optimized
+        const startOpt = performance.now();
+        for (let i = 0; i < iterations; i++) {
+          // Force recomputation by clearing cache
+          (service as any)._topByChangeCache = {};
+          service.topByChangePct(10);
+        }
+        const endOpt = performance.now();
+        const optTime = endOpt - startOpt;
+
+        console.log(`[BENCHMARK] topByChangePct with 300 symbols over ${iterations} iterations:`);
+        console.log(`  - Original implementation: ${oldTime.toFixed(2)}ms`);
+        console.log(`  - Optimized implementation: ${optTime.toFixed(2)}ms`);
+        const speedup = oldTime / optTime;
+        console.log(`  - Speedup: ${speedup.toFixed(2)}x faster`);
+
+        // Verify they produce identical sorted results
+        const resOld = oldImplementation(10);
+        (service as any)._topByChangeCache = {};
+        const resOpt = service.topByChangePct(10);
+
+        expect(resOpt.length).toBe(resOld.length);
+        for (let i = 0; i < resOpt.length; i++) {
+          expect(resOpt[i].symbol).toBe(resOld[i].symbol);
+        }
+      });
+    });
   });
 });

@@ -126,7 +126,10 @@ const getBaseSignalType = (key) => {
 
 const getSignalInfo = (key, config) => {
   const base = getBaseSignalType(key);
-  const tf = config?.signal_timeframes?.[key] || config?.scan_interval || config?.interval || '1m';
+  let tf = config?.signal_timeframes?.[key] || config?.scan_interval || config?.interval || '1m';
+  if (tf === 'default') {
+    tf = config?.scan_interval || config?.interval || '1m';
+  }
   const params = [];
   const sp = config?.signal_params || {};
 
@@ -318,7 +321,7 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
 
                 <div className="flex justify-between items-center px-0.5 md:px-1">
                    <div className="flex items-center gap-1.5 font-mono">
-                      <span className="text-[7.5px] md:text-[9px] text-dim uppercase font-bold md:inline hidden">
+                      <span className="text-[7.5px] md:text-[9px] text-dim uppercase font-bold md:inline-block hidden">
                         {s.insufficientData ? 'Collecting' : `${Number(s.progress || 0).toFixed(1)}% Proxy`}
                       </span>
                       <span className="text-[7.5px] md:text-[9px] text-dim/60">{price(mark)}</span>

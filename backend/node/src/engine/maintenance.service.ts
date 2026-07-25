@@ -284,6 +284,17 @@ export class MaintenanceService {
               ? trade.entry_price * (1 - slDistPct / 100)
               : trade.entry_price * (1 + slDistPct / 100);
             const reArmPrice = trade.current_sl > 0 ? trade.current_sl : fallbackSl;
+
+            // PRICE PROTECTION BREACH CHECK: Skip SL re-arm if it would immediately trigger
+            const markPrice = this.tickerCache.getMarkPrice(trade.symbol);
+            if (markPrice) {
+               const breach = trade.direction === 'LONG' ? (reArmPrice >= markPrice) : (reArmPrice <= markPrice);
+               if (breach) {
+                  this.logger.warn(`[Watchdog] ${trade.symbol} SL re-arm deferred: Price ${reArmPrice.toFixed(5)} is too close to MarkPrice ${markPrice.toFixed(5)} (Breach). Waiting for market movement.`);
+                  continue;
+               }
+            }
+
             await this.orderManager.placeStopLoss(trade, reArmPrice);
             trade.updated_at = new Date();
           } else {

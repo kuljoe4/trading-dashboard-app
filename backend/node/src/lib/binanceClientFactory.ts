@@ -159,9 +159,13 @@ export class BinanceClientFactory implements OnModuleInit {
           }
         }
 
-        // BOLT: Use manual construction for all combined/HF streams OR any Live stream
-        // to bypass SDK multiplexing bugs and ensure consistent handshake headers.
-        if (params.forceRaw || isCombined || isHF || !isTestnet) {
+        // BOLT: Use manual construction for combined/HF streams (market data) to bypass SDK multiplexing bugs.
+        // CRITICAL FIX: For PRIVATE streams (UDS), ALWAYS use SDK's native implementation.
+        // The SDK's websocketStreams.connect properly handles UDS protocol, reconnection, and message parsing.
+        // Manual WebSocket construction for UDS causes silent data frame loss in live mode (IP reputation starvation).
+        const shouldUseManualWs = (params.forceRaw || isCombined || isHF) && !isPrivate;
+        
+        if (shouldUseManualWs || (!isTestnet && !isPrivate)) {
             const finalUrl = useStreamEndpoint
                 ? `${gatewayURL}?streams=${params.stream}`
                 : `${gatewayURL}/${params.stream}`;

@@ -4,6 +4,7 @@ import {
   Info, ShieldAlert, CheckCircle2, BarChart3, TrendingUp, XCircle, Loader2, Trash2, ArrowRight
 } from 'lucide-react'
 import { fmtUSD, pnlColor, pnlClass, fmt } from '../../lib/theme'
+import { useTradingStore } from '../../store/trading'
 import { price, formatDuration, calculateProximity } from '../../lib/formatters'
 import { StatCard, SectionLabel, cn, CopyButton, Tooltip, PulseDot, Btn } from '../ui/primitives'
 import { SignalGauge } from '../ui/SignalGauge'
@@ -379,6 +380,10 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
 })
 
 export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClosing, confirmClose, setConfirmClose, layout = "grid" }) => {
+  const activeSessionPnl = useTradingStore(state => state.totalPnl);
+  const activeSessionConfig = useTradingStore(state => state.config);
+  const sessionActive = useTradingStore(state => state.sessionActive);
+
   const { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qtyFormatted, riskFormatted, slDistPct = 0, slInitialDistPct = 0, enhancedExitSignals } = useMemo(() => {
     if (!trade) return {
       isLong: true, pnlPct: 0, progress: 50, entry: 0, mark: 0, sl: 0, initialSl: 0, tp: 0,
@@ -565,9 +570,33 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               <SectionLabel className="mb-3 md:mb-5">
                  <Info size={14} className="text-accent" /> Technical Meta
               </SectionLabel>
-              <div className="space-y-1 md:space-y-3.5">
-                 {[
-                   { label: 'TP Mode', value: trade.tp_mode === 'exp_rr_seq' ? 'Expansion RR' : 'Fixed Ratio' },
+              {(() => {
+                const sessionReturnBlock = (() => {
+                  if (trade.exit_ts || !sessionActive) return null;
+                  const tradingMode = activeSessionConfig.trading_mode || (activeSessionConfig.paper_mode ? 'paper' : 'live');
+                  const startingBalance = tradingMode === 'paper'
+                    ? (activeSessionConfig.paper_starting_balance || 10000)
+                    : (tradingMode === 'testnet'
+                        ? (activeSessionConfig.testnet_starting_balance || 10000)
+                        : (activeSessionConfig.live_starting_balance || 10000));
+                  const returnPct = startingBalance > 0 ? (activeSessionPnl / startingBalance) * 100 : 0;
+                  const modeLabel = tradingMode === 'paper' ? 'Paper' : tradingMode === 'testnet' ? 'Testnet' : 'Live';
+                  return {
+                    label: `Session Return (${modeLabel})`,
+                    value: `${fmtUSD(activeSessionPnl)} (${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(2)}%)`,
+                    color: pnlClass(activeSessionPnl)
+                  };
+                })();
+
+                return (
+                  <div className="space-y-1 md:space-y-3.5">
+                     {[
+                       sessionReturnBlock && {
+                         label: sessionReturnBlock.label,
+                         value: sessionReturnBlock.value,
+                         color: sessionReturnBlock.color
+                       },
+                       { label: 'TP Mode', value: trade.tp_mode === 'exp_rr_seq' ? 'Expansion RR' : 'Fixed Ratio' },
                    {
                      label: trade.exit_ts ? 'Exit RR' : 'Exit RR (Projected)',
                      value: `${(() => {
@@ -607,50 +636,52 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                      color: 'text-purple-400'
                    },
                    { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%` },
-                   { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0) },
-                   {
-                     label: 'Daily Δ at Entry',
-                     value: `${(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} ${Number(Math.abs(trade.entry_daily_change_pct || 0)).toFixed(2)}%`,
-                     color: pnlClass(trade.entry_daily_change_pct)
-                   },
-                   trade.exit_ts && {
-                     label: 'Exit Signal',
-                     tooltip: trade.exit_signal_reason,
-                     value: (() => {
-                        const type = trade.exit_signal_type?.replace(/_/g, ' ') || (trade.exit_reason || 'Manual');
-                        const reason = trade.exit_signal_reason || '';
-                        if (type === 'STOP LOSS' || type === 'SL HIT' || type === 'TRAILING STOP') {
-                          if (reason.includes('INITIAL_SL')) return 'Initial Stop Loss';
-                          if (reason.includes('RR_sequence_milestone_0')) return 'Breakeven SL';
-                          if (reason.includes('RR_sequence_milestone')) {
-                            const match = reason.match(/milestone_(\d+)/);
-                            return match ? `Ratchet SL (M${match[1]})` : 'Ratchet SL';
-                          }
-                          if (type === 'TRAILING STOP') return 'Trailing Stop';
-                          return 'Stop Loss';
-                        }
-                        if (type === 'EXCHANGE MANUAL') return 'Exchange Manual';
-                        if (type === 'EXCHANGE FILL') return 'Exchange Fill';
-                        if (type === 'EXCHANGE SYNC') return 'Exchange Sync';
-                        return type;
-                     })(),
-                     color: 'text-accent'
-                   }
-                 ].filter(Boolean).map(item => (
-                   <div key={item.label} className="flex justify-between items-center py-1 md:py-2.5 border-b border-border/40 last:border-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[9px] md:text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
-                      </div>
-                      {item.tooltip ? (
-                        <Tooltip content={item.tooltip}>
-                          <span className={cn("text-xs font-bold font-mono cursor-help border-b border-dotted border-white/10", item.color)}>{item.value}</span>
-                        </Tooltip>
-                      ) : (
-                        <span className={cn("text-xs font-bold font-mono", item.color)}>{item.value}</span>
-                      )}
-                   </div>
-                 ))}
-              </div>
+                       { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0) },
+                       {
+                         label: 'Daily Δ at Entry',
+                         value: `${(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} ${Number(Math.abs(trade.entry_daily_change_pct || 0)).toFixed(2)}%`,
+                         color: pnlClass(trade.entry_daily_change_pct)
+                       },
+                       trade.exit_ts && {
+                         label: 'Exit Signal',
+                         tooltip: trade.exit_signal_reason,
+                         value: (() => {
+                            const type = trade.exit_signal_type?.replace(/_/g, ' ') || (trade.exit_reason || 'Manual');
+                            const reason = trade.exit_signal_reason || '';
+                            if (type === 'STOP LOSS' || type === 'SL HIT' || type === 'TRAILING STOP') {
+                              if (reason.includes('INITIAL_SL')) return 'Initial Stop Loss';
+                              if (reason.includes('RR_sequence_milestone_0')) return 'Breakeven SL';
+                              if (reason.includes('RR_sequence_milestone')) {
+                                const match = reason.match(/milestone_(\d+)/);
+                                return match ? `Ratchet SL (M${match[1]})` : 'Ratchet SL';
+                              }
+                              if (type === 'TRAILING STOP') return 'Trailing Stop';
+                              return 'Stop Loss';
+                            }
+                            if (type === 'EXCHANGE MANUAL') return 'Exchange Manual';
+                            if (type === 'EXCHANGE FILL') return 'Exchange Fill';
+                            if (type === 'EXCHANGE SYNC') return 'Exchange Sync';
+                            return type;
+                         })(),
+                         color: 'text-accent'
+                       }
+                     ].filter(Boolean).map(item => (
+                       <div key={item.label} className="flex justify-between items-center py-1 md:py-2.5 border-b border-border/40 last:border-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[9px] md:text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
+                          </div>
+                          {item.tooltip ? (
+                            <Tooltip content={item.tooltip}>
+                              <span className={cn("text-xs font-bold font-mono cursor-help border-b border-dotted border-white/10", item.color)}>{item.value}</span>
+                            </Tooltip>
+                          ) : (
+                            <span className={cn("text-xs font-bold font-mono", item.color)}>{item.value}</span>
+                          )}
+                       </div>
+                     ))}
+                  </div>
+                );
+              })()}
             </div>
          </div>
       </div>

@@ -57,6 +57,7 @@ describe('Watchdog Robustness', () => {
           provide: TickerCacheService,
           useValue: {
             getPrice: jest.fn(),
+            getTicker: jest.fn(),
           },
         },
         {

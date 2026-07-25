@@ -617,7 +617,7 @@ export function DashboardView({ initialStrategy }) {
 
   const {
     sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
-    totalSlUsed, activeTrades, alerts, config, setSessionActive,
+    totalSlUsed, totalEstPnlToRealize, activeTrades, alerts, config, setSessionActive,
     updateConfig, patchConfig, gateState, gateReason, hibernating, hibernationMode, agreementRequired,
     scannerPaused, sessionList, fetchSessions, wsStatus,
     updateStats, analytics,

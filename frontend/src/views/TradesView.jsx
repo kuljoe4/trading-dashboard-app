@@ -62,7 +62,11 @@ const TradesView = () => {
               label="Active P&L"
               value={fmtUSD(activePnl)}
               color={pnlClass(activePnl)}
-              subValue={`Total: ${fmtUSD(totalPnl)} · Est. Realize: ${fmtUSD(totalEstPnlToRealize)}`}
+              subValue={
+                <span>
+                  Total: {fmtUSD(totalPnl)} · Est. Realize: <span className="font-bold" style={{ color: pnlColor(totalEstPnlToRealize) }}>{fmtUSD(totalEstPnlToRealize)}</span>
+                </span>
+              }
             />
           );
         })()}

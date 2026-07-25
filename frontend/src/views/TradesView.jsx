@@ -2,7 +2,7 @@ import React, { useState, lazy, Suspense, useMemo } from 'react'
 import { useTradingStore } from '../store/trading'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
 import { SectionLabel, StatCard, cn, ViewHeader, Btn } from '../components/ui/primitives'
-import { fmtUSD, pnlClass, safeNum } from '../lib/theme'
+import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Briefcase, Zap } from 'lucide-react'
 import { useResourceFocus } from '../hooks/useResourceFocus'
@@ -54,7 +54,7 @@ const TradesView = () => {
           backAction={() => window.location.hash = '#/'}
         />
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 mb-8 lg:mb-12">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-8 lg:mb-12">
         {(() => {
           const activePnl = (activeTrades || []).reduce((acc, t) => acc + safeNum(t.pnl), 0);
           return (
@@ -62,7 +62,13 @@ const TradesView = () => {
               label="Active P&L"
               value={fmtUSD(activePnl)}
               color={pnlClass(activePnl)}
-              subValue={`Total: ${fmtUSD(totalPnl)} · Est. Realize: ${fmtUSD(totalEstPnlToRealize)}`}
+              subValue={
+                <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                  <span>Total: {fmtUSD(totalPnl)}</span>
+                  <span className="text-dim/30 hidden xs:inline">•</span>
+                  <span>Est. Realize: <span className="font-bold" style={{ color: pnlColor(totalEstPnlToRealize) }}>{fmtUSD(totalEstPnlToRealize)}</span></span>
+                </span>
+              }
             />
           );
         })()}

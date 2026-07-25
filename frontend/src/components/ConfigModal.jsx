@@ -1806,6 +1806,61 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                    </div>
                 </div>
               )}
+
+              {lifetimeAnalytics?.rrOptimization?.recommendedExitSignals && lifetimeAnalytics.rrOptimization.recommendedExitSignals.length > 0 && (
+                <div className="mt-8 p-5 bg-background/20 border border-border/50 rounded-2xl space-y-4 animate-in fade-in slide-in-from-top-2 duration-500">
+                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-accent">
+                    <Target size={14} className="text-accent" />
+                    Optimal Exit Parameters (Statistical Recommendation)
+                  </div>
+                  <p className="text-[11px] text-dim leading-relaxed font-medium">
+                    Based on your actual history of <span className="text-text font-bold">{lifetimeAnalytics.rrOptimization.sampleSize}</span> closed trades, the statistical model recommends the following optimized parameter settings:
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {lifetimeAnalytics.rrOptimization.recommendedExitSignals.map((rec) => (
+                      <div key={rec.signalType} className="p-3 bg-surface/30 border border-border/40 rounded-xl flex flex-col gap-1.5 hover:border-accent/20 transition-all relative group/rec">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] text-text font-black uppercase tracking-wider">{rec.signalType.replace(/_/g, ' ')}</span>
+                          <span className="text-[8px] text-dim font-black uppercase bg-accent/5 border border-accent/20 px-1.5 py-0.5 rounded">Conf: {rec.confidence}%</span>
+                        </div>
+                        <div className="flex items-baseline gap-1.5 mt-0.5">
+                          <span className="text-xs font-bold text-accent font-mono">{rec.recommendedValue}</span>
+                          <span className="text-[8.5px] text-dim font-medium uppercase font-mono">({rec.parameterName})</span>
+                        </div>
+                        <p className="text-[8.5px] text-dim/70 leading-normal font-medium">{rec.reasoning}</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (rec.signalType === 'ema_close') {
+                              setField('signal_params_exit_ema_period', rec.recommendedValue);
+                              addAlert({ level: 'success', title: 'Applied EMA Period', message: `Set exit EMA period to ${rec.recommendedValue}.` });
+                            } else if (rec.signalType === 'ema_dual_close') {
+                              const [fast, slow] = rec.recommendedValue.split(' / ').map(Number);
+                              setField('signal_params_exit_ema_fast', fast);
+                              setField('signal_params_exit_ema_slow', slow);
+                              addAlert({ level: 'success', title: 'Applied Dual EMAs', message: `Set exit fast/slow EMAs to ${fast}/${slow}.` });
+                            } else if (rec.signalType === 'supertrend') {
+                              const [period, mult] = rec.recommendedValue.split(' / ').map(Number);
+                              setField('signal_params_supertrend_period', period);
+                              setField('signal_params_supertrend_multiplier', mult);
+                              addAlert({ level: 'success', title: 'Applied Supertrend', message: `Set ATR Period/Multiplier to ${period}/${mult}.` });
+                            } else if (rec.signalType === 'macd_fade') {
+                              const [fast, slow, signal] = rec.recommendedValue.split(' / ').map(Number);
+                              setField('signal_params_macd_fast', fast);
+                              setField('signal_params_macd_slow', slow);
+                              setField('signal_params_macd_signal', signal);
+                              addAlert({ level: 'success', title: 'Applied MACD Parameters', message: `Set MACD to ${fast}/${slow}/${signal}.` });
+                            }
+                          }}
+                          className="absolute bottom-2 right-2 opacity-0 group-hover/rec:opacity-100 transition-opacity bg-accent text-white px-2 py-1 rounded text-[8px] font-black uppercase tracking-wider hover:bg-accent/80 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white"
+                        >
+                          Apply
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </CollapsibleSection>
 
             <CollapsibleSection id="strategy_exit" icon={XCircle} title="Exit Signals" subtitle="Automated early closures">

@@ -92,4 +92,42 @@ describe('RrOptimizationService', () => {
     expect(result.curve[0].scratches).toBe(30);
     expect(result.curve[0].wins).toBe(0);
   });
+
+  it('generates recommended exit signal parameters based on trade stats', () => {
+    const trades: Partial<TradeEntity>[] = [];
+    const baseTime = Date.now();
+
+    for (let i = 0; i < 15; i++) {
+      trades.push({
+        status: 'CLOSED',
+        entry_ts: new Date(baseTime - 10 * 60000), // 10 minutes ago
+        exit_ts: new Date(baseTime), // now (duration = 10 mins = 10 candles on 1m)
+        max_rr_achieved: 2.0,
+        min_rr_achieved: -0.5,
+        risk_usdt: 10,
+        initial_risk_usdt: 10,
+        entry_price: 100,
+        initial_sl: 98,
+        pnl: 20,
+        is_reconciliation: false,
+        strategy_config: {
+          scan_interval: '1m'
+        }
+      });
+    }
+
+    const result = service.calculateRrOptimization(trades as TradeEntity[]);
+    expect(result.recommendedExitSignals).toBeDefined();
+    const signals = result.recommendedExitSignals!;
+    expect(signals.length).toBe(4);
+
+    const emaCloseRec = signals.find(r => r.signalType === 'ema_close');
+    expect(emaCloseRec).toBeDefined();
+    expect(emaCloseRec!.parameterName).toBe('exit_ema_period');
+    expect(emaCloseRec!.recommendedValue).toBe(5); // Math.max(5, Math.round(10/3)) = 5
+
+    const supertrendRec = signals.find(r => r.signalType === 'supertrend');
+    expect(supertrendRec).toBeDefined();
+    expect(supertrendRec!.parameterName).toBe('supertrend_period / supertrend_multiplier');
+  });
 });

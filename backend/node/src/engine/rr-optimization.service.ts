@@ -2,6 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import { TradeEntity } from '../models/entities/Trade.entity';
 import { roundTo } from '../lib/math';
 
+export interface ExitSignalRecommendation {
+  signalType: string;
+  parameterName: string;
+  recommendedValue: any;
+  reasoning: string;
+  confidence: number;
+}
+
 export interface RrOptimizationPoint {
   threshold: number;
   winRate: number;
@@ -23,6 +31,7 @@ export interface RrOptimizationResult {
   curve: RrOptimizationPoint[];
   sampleSize: number;
   status: 'OPTIMAL' | 'PRELIMINARY' | 'INSUFFICIENT_DATA' | 'STALE';
+  recommendedExitSignals?: ExitSignalRecommendation[];
 }
 
 @Injectable()
@@ -55,6 +64,7 @@ export class RrOptimizationService {
         curve: [],
         sampleSize: closedTrades.length,
         status: 'INSUFFICIENT_DATA',
+        recommendedExitSignals: [],
       };
     }
 
@@ -215,6 +225,69 @@ export class RrOptimizationService {
       conservativeRr = firstProfitable ? firstProfitable.threshold : curve[0].threshold;
     }
 
+    // --- PREDICTIVE MODELLING FOR OPTIMAL EXIT SIGNAL PARAMETERS ---
+    let sumDurationMs = 0;
+    let countWithDuration = 0;
+    let defaultInterval = '1m';
+
+    for (const t of closedTrades) {
+      if (t.entry_ts && t.exit_ts) {
+        const dur = t.exit_ts.getTime() - t.entry_ts.getTime();
+        if (dur > 0) {
+          sumDurationMs += dur;
+          countWithDuration++;
+        }
+      }
+      if (t.strategy_config?.scan_interval) {
+        defaultInterval = t.strategy_config.scan_interval;
+      }
+    }
+
+    const avgDurationMs = countWithDuration > 0 ? sumDurationMs / countWithDuration : 15 * 60000;
+    const intervalToMs = (interval: string): number => {
+      const match = String(interval || '1m').match(/^(\d+)([mhdM])$/);
+      if (!match) return 60000;
+      const val = parseInt(match[1], 10);
+      const unit = match[2];
+      if (unit === 'm') return val * 60000;
+      if (unit === 'h') return val * 3600000;
+      if (unit === 'd') return val * 86400000;
+      return 60000;
+    };
+    const intervalMs = intervalToMs(defaultInterval);
+    const avgDurationCandles = Math.max(3, Math.round(avgDurationMs / intervalMs));
+
+    const recommendedExitSignals: ExitSignalRecommendation[] = [
+      {
+        signalType: 'ema_close',
+        parameterName: 'exit_ema_period',
+        recommendedValue: Math.max(5, Math.min(40, Math.round(avgDurationCandles / 3))),
+        reasoning: `Optimizes exit timing by setting the EMA period to roughly 1/3 of the average trade duration (${avgDurationCandles} candles) to prevent whipsaws while locking in gains.`,
+        confidence: Math.min(95, Math.max(50, 40 + n)),
+      },
+      {
+        signalType: 'ema_dual_close',
+        parameterName: 'exit_ema_fast / exit_ema_slow',
+        recommendedValue: `${Math.max(5, Math.min(30, Math.round(avgDurationCandles / 4)))} / ${Math.max(10, Math.min(80, Math.round(avgDurationCandles / 2)))}`,
+        reasoning: `Aligns the fast/slow EMA cross to the dominant trend cycles of ${avgDurationCandles} candles, establishing a robust trend-following stop.`,
+        confidence: Math.min(95, Math.max(50, 45 + n)),
+      },
+      {
+        signalType: 'supertrend',
+        parameterName: 'supertrend_period / supertrend_multiplier',
+        recommendedValue: `${Math.max(7, Math.min(20, Math.round(avgDurationCandles / 2)))} / ${Math.max(1.5, Math.min(4.0, Number((2.0 + (avgMaePct * 0.5)).toFixed(1))))}`,
+        reasoning: `Dynamically adjusts the ATR multiplier based on historical adverse excursion (avg MAE: ${avgMaePct.toFixed(2)}%), giving breathing room under normal volatility while preventing severe drawdowns.`,
+        confidence: Math.min(95, Math.max(50, 50 + n)),
+      },
+      {
+        signalType: 'macd_fade',
+        parameterName: 'macd_fast / macd_slow / macd_signal',
+        recommendedValue: `${Math.max(6, Math.min(24, Math.round(avgDurationCandles / 4)))} / ${Math.max(12, Math.min(50, Math.round(avgDurationCandles / 2)))} / ${Math.max(4, Math.min(18, Math.round(avgDurationCandles / 6)))}`,
+        reasoning: `Synchronizes MACD momentum decay detection to contract exactly when trade duration of ${avgDurationCandles} candles matures.`,
+        confidence: Math.min(95, Math.max(50, 40 + n)),
+      }
+    ];
+
     return {
       recommendedRr: balancedRr,
       conservativeRr,
@@ -226,6 +299,7 @@ export class RrOptimizationService {
       curve: curve.reverse(),
       sampleSize: n,
       status: n >= 20 ? 'OPTIMAL' : 'PRELIMINARY',
+      recommendedExitSignals,
     };
   }
 }

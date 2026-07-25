@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useTradingStore } from '../store/trading'
 import {
-  StatusBadge, PaperBadge, cn, CopyButton, ViewHeader
+  StatusBadge, PaperBadge, DemoBadge, LiveBadge, cn, CopyButton, ViewHeader
 } from '../components/ui/primitives'
 import { ChevronLeft, ArrowLeft, Activity, Clock } from 'lucide-react'
 import { sessionAPI } from '../api/client'
@@ -83,6 +83,7 @@ const TradeDetailView = ({ tradeId }) => {
   }
 
   const isSyncing = wsStatus !== 'live' || !trade._is_full;
+  const tradingMode = trade.paper_mode ? 'paper' : (trade.strategy_config?.trading_mode || 'live');
 
   return (
     <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -92,6 +93,9 @@ const TradeDetailView = ({ tradeId }) => {
         backAction={() => window.history.back()}
       >
         <div className="flex items-center gap-3">
+          {tradingMode === 'paper' && <PaperBadge />}
+          {tradingMode === 'testnet' && <DemoBadge />}
+          {tradingMode === 'live' && <LiveBadge />}
           <span className={cn("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider", trade.direction === 'LONG' ? 'bg-green/10 text-green border border-green/20' : 'bg-red/10 text-red border border-red/20')}>
             {trade.direction}
           </span>

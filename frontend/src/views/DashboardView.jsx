@@ -1074,15 +1074,15 @@ export function DashboardView({ initialStrategy }) {
               </a>
             </motion.div>
           )}
-          <div className="fixed top-[72px] right-4 z-[200] flex flex-col gap-1.5 w-full max-w-[280px] pointer-events-none">
+          <div className="fixed bottom-4 right-4 z-[200] flex flex-col gap-1 w-full max-w-[240px] pointer-events-none">
             <AnimatePresence mode="popLayout">
               {alerts && alerts.length > 2 && (
                 <motion.button
-                  initial={{ opacity: 0, y: -10 }}
+                  initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
+                  exit={{ opacity: 0, y: 10 }}
                   onClick={() => updateStats({ alerts: [] })}
-                  className="mb-1 self-end px-2 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded-md text-[9px] font-bold uppercase tracking-wider text-white/40 hover:text-white transition-all pointer-events-auto backdrop-blur-md"
+                  className="mb-1 self-end px-1.5 py-0.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-[8px] font-black uppercase tracking-wider text-white/40 hover:text-white transition-all pointer-events-auto backdrop-blur-md"
                 >
                   Dismiss All
                 </motion.button>
@@ -1096,11 +1096,11 @@ export function DashboardView({ initialStrategy }) {
                   <motion.div
                     key={alert.id}
                     layout
-                    initial={{ opacity: 0, x: 30, scale: 0.98 }}
+                    initial={{ opacity: 0, x: 20, scale: 0.98 }}
                     animate={{ opacity: 1, x: 0, scale: 1 }}
-                    exit={{ opacity: 0, x: 10, scale: 0.98 }}
+                    exit={{ opacity: 0, x: 5, scale: 0.98 }}
                     className={cn(
-                      "py-3 px-4 rounded-xl border shadow-[0_8px_32px_rgba(0,0,0,0.3)] flex flex-col gap-1 relative overflow-hidden pointer-events-auto backdrop-blur-2xl",
+                      "py-1.5 px-2.5 rounded-lg border shadow-[0_4px_16px_rgba(0,0,0,0.2)] flex flex-col gap-0.5 relative overflow-hidden pointer-events-auto backdrop-blur-2xl transition-all hover:translate-x-[-2px]",
                       alert.level === 'error' ? "bg-red/10 border-red/30 text-red-400" :
                       alert.level === 'warn' ? "bg-amber/10 border-amber/30 text-amber-400" :
                       alert.level === 'success' ? "bg-green/10 border-green/30 text-green-400" :
@@ -1109,33 +1109,33 @@ export function DashboardView({ initialStrategy }) {
                   >
                     <button
                       onClick={() => updateStats({ alerts: alerts.filter(a => a.id !== alert.id) })}
-                      className="absolute top-2 right-2 p-1 hover:bg-white/10 rounded-lg transition-colors group"
+                      className="absolute top-1.5 right-1.5 p-0.5 hover:bg-white/10 rounded transition-colors group"
                       aria-label="Dismiss alert"
                     >
-                      <XCircle size={12} className="opacity-20 group-hover:opacity-100 transition-opacity" />
+                      <XCircle size={10} className="opacity-20 group-hover:opacity-100 transition-opacity" />
                     </button>
-                    <div className="flex items-center gap-2.5 pr-6">
+                    <div className="flex items-center gap-1.5 pr-4">
                       <div className={cn(
-                        "p-1 rounded-lg shrink-0",
+                        "p-0.5 rounded shrink-0",
                         alert.level === 'error' ? "bg-red/20" :
                         alert.level === 'warn' ? "bg-amber/20" :
                         alert.level === 'success' ? "bg-green/20" :
                         "bg-accent/20"
                       )}>
-                        <Icon size={14} className="shrink-0" />
+                        <Icon size={11} className="shrink-0" />
                       </div>
                       <div className="flex flex-col min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-black uppercase tracking-widest truncate">{alert.title || 'System Alert'}</span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[9px] font-black uppercase tracking-wider truncate">{alert.title || 'System Alert'}</span>
                           {alert.count > 1 && (
-                            <span className="bg-current/20 px-1.5 py-0.5 rounded text-[8px] font-black">x{alert.count}</span>
+                            <span className="bg-current/20 px-1 py-0.2 rounded text-[7px] font-black">x{alert.count}</span>
                           )}
                         </div>
                       </div>
-                      {alert.symbol && <span className="ml-auto bg-black/20 px-1.5 py-0.5 rounded font-mono text-[9px] font-black shrink-0">{alert.symbol}</span>}
+                      {alert.symbol && <span className="ml-auto bg-black/20 px-1 py-0.2 rounded font-mono text-[8px] font-black shrink-0">{alert.symbol}</span>}
                     </div>
-                    <p className="text-[11px] font-bold pl-8 pr-1 leading-relaxed opacity-90 line-clamp-4">{alert.message}</p>
-                    <div className="absolute bottom-0 left-0 h-[2px] bg-current opacity-20 animate-shrink-width" style={{ animationDuration: '10s' }} />
+                    <p className="text-[9px] font-bold pl-5 pr-1 leading-normal opacity-90 line-clamp-3">{alert.message}</p>
+                    <div className="absolute bottom-0 left-0 h-[1.5px] bg-current opacity-25 animate-shrink-width" style={{ animationDuration: '5s' }} />
                   </motion.div>
                 );
               })}
@@ -1169,21 +1169,31 @@ export function DashboardView({ initialStrategy }) {
                 label="Account Balance"
                 value={`$${balance.toLocaleString()}`}
                 tooltipText="Total available funds in the trading account."
-                ariaLabel={lastTrade ? `Account Balance: $${balance.toLocaleString()}. Last trade profit and loss was ${Number(lastTrade.pnl || 0) >= 0 ? 'plus' : 'minus'} $${Math.abs(lastTrade.pnl || 0).toFixed(2)}, representing a ${lastTrade.pnl_pct >= 0 ? 'positive' : 'negative'} ${Math.abs(lastTrade.pnl_pct || 0).toFixed(2)} percent change.` : undefined}
-                subValue={lastTrade && (
-                  <div className="flex items-center gap-1">
-                    {Number(lastTrade.pnl || 0) >= 0 ? <TrendingUp size={10} className="text-green" /> : <TrendingDown size={10} className="text-red" />}
-                    <span className={pnlClass(lastTrade.pnl)}>
-                      {fmtUSD(lastTrade.pnl)} ({lastTrade.pnl_pct >= 0 ? '+' : ''}{Number(lastTrade.pnl_pct || 0).toFixed(2)}%) Last
-                    </span>
-                  </div>
-                )}
+                ariaLabel={(() => {
+                  if (!lastTrade) return undefined;
+                  const prevBalance = balance - (lastTrade.pnl || 0);
+                  const balPctChange = prevBalance > 0 ? ((lastTrade.pnl || 0) / prevBalance) * 100 : 0;
+                  return `Account Balance: $${balance.toLocaleString()}. Last trade profit and loss was ${Number(lastTrade.pnl || 0) >= 0 ? 'plus' : 'minus'} $${Math.abs(lastTrade.pnl || 0).toFixed(2)}, representing a ${balPctChange >= 0 ? 'positive' : 'negative'} ${Math.abs(balPctChange || 0).toFixed(2)} percent change of account balance.`;
+                })()}
+                subValue={(() => {
+                  if (!lastTrade) return null;
+                  const prevBalance = balance - (lastTrade.pnl || 0);
+                  const balPctChange = prevBalance > 0 ? ((lastTrade.pnl || 0) / prevBalance) * 100 : 0;
+                  return (
+                    <div className="flex items-center gap-1">
+                      {Number(lastTrade.pnl || 0) >= 0 ? <TrendingUp size={10} className="text-green" /> : <TrendingDown size={10} className="text-red" />}
+                      <span className={pnlClass(lastTrade.pnl)}>
+                        {fmtUSD(lastTrade.pnl)} ({balPctChange >= 0 ? '+' : ''}{Number(balPctChange).toFixed(2)}%) Last
+                      </span>
+                    </div>
+                  );
+                })()}
               />
               <StatCard
                 label="Active P&L"
                 value={fmtUSD(totalActivePnl)}
                 color={pnlClass(totalActivePnl)}
-                subValue={`Total: ${fmtUSD(totalPnl)}`}
+                subValue={`Total (${config?.trading_mode ? (config.trading_mode === 'paper' ? 'Paper' : config.trading_mode === 'testnet' ? 'Testnet' : 'Live') : (config?.paper_mode ? 'Paper' : 'Live')}): ${fmtUSD(totalPnl)}`}
                 syncing={isResuming}
                 tooltipText="Current P&L from open trades vs. total session performance."
               />

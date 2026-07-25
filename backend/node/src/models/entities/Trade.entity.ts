@@ -27,6 +27,12 @@ export class TradeEntity {
   @Column('decimal', { precision: 20, scale: 8, default: 0 })
   max_rr_achieved: number;
 
+  @Column('decimal', { precision: 20, scale: 8, default: 0 })
+  min_rr_achieved: number;
+
+  @Column('decimal', { precision: 20, scale: 8, default: 0 })
+  exit_rr: number;
+
   @Column({ default: -1 })
   rr_sequence_index: number;
 

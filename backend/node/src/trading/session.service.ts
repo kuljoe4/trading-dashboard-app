@@ -2080,7 +2080,10 @@ export class SessionService implements OnModuleInit {
     } else {
       // Fallback for global analytics or inactive sessions
       trades = await this.tradeRepository.find({
-        select: ["pnl", "exit_ts", "status"],
+        select: [
+          "id", "pnl", "exit_ts", "status", "max_rr_achieved", "min_rr_achieved", "exit_rr",
+          "is_reconciliation", "initial_risk_usdt", "risk_usdt", "entry_price", "current_sl", "initial_sl", "qty"
+        ],
         where: {
           status: In(TERMINAL_STATUSES as any),
           ...(this.currentSessionId
@@ -2387,7 +2390,11 @@ export class SessionService implements OnModuleInit {
   async getLifetimeAnalytics(mode: "paper" | "testnet" | "live" = "paper") {
     // 1. Fetch all closed trades across all sessions for the specific mode
     const trades = await this.tradeRepository.find({
-      select: ["pnl", "exit_ts", "status", "strategy_config", "strategy_label"],
+      select: [
+        "id", "pnl", "exit_ts", "status", "max_rr_achieved", "min_rr_achieved", "exit_rr",
+        "is_reconciliation", "initial_risk_usdt", "risk_usdt", "entry_price", "current_sl", "initial_sl", "qty",
+        "strategy_config", "strategy_label"
+      ],
       where: {
         status: In(TERMINAL_STATUSES as any),
       },

@@ -170,6 +170,69 @@ export class PositionTrackerService {
     this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
   }
 
+  isExitSignalOverrideActive(trade: Trade, config: SessionConfig): boolean {
+    if (!config || !config.exit_signals_override_ratchet) return false;
+
+    // Refresh exit signals to get the latest targets
+    const exitInterval = config.scan_interval || '1m';
+    this.orderManager.checkExitSignals(trade.symbol, trade, config, exitInterval);
+
+    const currentPrice = this.tickerCache.getPrice(trade.symbol) || trade.mark_price || trade.last_price || trade.entry_price;
+    if (!currentPrice || !trade.entry_price || !trade.qty) return false;
+
+    let currentPnl = 0;
+    if (trade.direction === 'LONG') {
+      currentPnl = (currentPrice - trade.entry_price) * trade.qty;
+    } else {
+      currentPnl = (trade.entry_price - currentPrice) * trade.qty;
+    }
+
+    if (currentPnl <= 0) return false;
+
+    // Check trade.exit_signals_status which was populated by checkExitSignals above
+    if (!trade.exit_signals_status) return false;
+
+    for (const [key, status] of Object.entries(trade.exit_signals_status)) {
+      const sigStatus = status as any;
+      if (sigStatus && sigStatus.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0) {
+        let signalPnl = 0;
+        if (trade.direction === 'LONG') {
+          signalPnl = (sigStatus.threshold - trade.entry_price) * trade.qty;
+        } else {
+          signalPnl = (trade.entry_price - sigStatus.threshold) * trade.qty;
+        }
+
+        if (signalPnl > 0 && currentPnl > signalPnl) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  async handleExitSignalOverrideIfNeeded(trade: Trade, config: SessionConfig): Promise<boolean> {
+    if (this.isExitSignalOverrideActive(trade, config)) {
+      if (trade.current_sl && trade.current_sl > 0) {
+        this.logger.log(`[SL Override] Active profit exceeds positive exit target for ${trade.symbol}. Removing SL on runtime.`);
+        if (trade.binance_stop_order_id && !config.paper_mode) {
+          try {
+            await this.orderManager.cancelBinanceOrder(trade.symbol, trade.binance_stop_order_id, trade.binance_stop_order_type || 'standard');
+          } catch (err) {
+            this.logger.warn(`[SL Override] Failed to cancel exchange SL for ${trade.symbol}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+          trade.binance_stop_order_id = undefined;
+          trade.binance_stop_order_type = undefined;
+        }
+        trade.current_sl = 0;
+        trade.updated_at = new Date();
+        this.refreshTradeRisk(trade);
+      }
+      return true;
+    }
+    return false;
+  }
+
   async checkRrSequenceAdjustments(
     symbol: string,
     currentPrice: number,
@@ -177,6 +240,10 @@ export class PositionTrackerService {
   ): Promise<void> {
     const trade = this.trades.get(symbol);
     if (!trade || trade.status !== 'OPEN') return;
+
+    if (await this.handleExitSignalOverrideIfNeeded(trade, config)) {
+      return;
+    }
 
     // Calculate current R:R metrics
     const risk = Math.abs(trade.entry_price - trade.initial_sl);
@@ -195,6 +262,11 @@ export class PositionTrackerService {
       if (liveRr - oldMaxRr >= 0.1) {
         this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
       }
+    }
+
+    // SRE: Update min RR on every tick to capture Maximum Adverse Excursion (MAE)
+    if (trade.min_rr_achieved === undefined || trade.min_rr_achieved === null || trade.min_rr_achieved === 0 || liveRr < trade.min_rr_achieved) {
+      trade.min_rr_achieved = liveRr;
     }
 
     // Find highest milestone crossed by max_rr
@@ -344,8 +416,9 @@ export class PositionTrackerService {
     if (!trade || trade.status !== 'OPEN') return null;
 
     // Check SL hit
-    if ((trade.direction === 'LONG' && currentPrice <= trade.current_sl) ||
-        (trade.direction === 'SHORT' && currentPrice >= trade.current_sl)) {
+    if (trade.current_sl && trade.current_sl > 0) {
+      if ((trade.direction === 'LONG' && currentPrice <= trade.current_sl) ||
+          (trade.direction === 'SHORT' && currentPrice >= trade.current_sl)) {
 
       // CHRONOS: In Live mode, if the stop loss order is already active on the exchange,
       // we must let the exchange execute it authoritatively rather than racing a local market order against it.
@@ -365,6 +438,7 @@ export class PositionTrackerService {
         exitType: 'CLOSED_SL',
         exitReason: `${EXIT_REASONS.SL_HIT}_${slType}`,
       };
+      }
     }
 
     // Check TP hit
@@ -684,7 +758,13 @@ export class PositionTrackerService {
     config: SessionConfig,
   ): Promise<void> {
     const trade = this.trades.get(symbol);
-    if (!trade || trade.status !== 'OPEN' || !config.trailing_stop_enabled) return;
+    if (!trade || trade.status !== 'OPEN') return;
+
+    if (await this.handleExitSignalOverrideIfNeeded(trade, config)) {
+      return;
+    }
+
+    if (!config.trailing_stop_enabled) return;
 
     const distancePct = config.trailing_stop_distance_pct || 1.0;
     const distance = trade.entry_price * (distancePct / 100);

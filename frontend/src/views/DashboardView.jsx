@@ -1169,15 +1169,25 @@ export function DashboardView({ initialStrategy }) {
                 label="Account Balance"
                 value={`$${balance.toLocaleString()}`}
                 tooltipText="Total available funds in the trading account."
-                ariaLabel={lastTrade ? `Account Balance: $${balance.toLocaleString()}. Last trade profit and loss was ${Number(lastTrade.pnl || 0) >= 0 ? 'plus' : 'minus'} $${Math.abs(lastTrade.pnl || 0).toFixed(2)}, representing a ${lastTrade.pnl_pct >= 0 ? 'positive' : 'negative'} ${Math.abs(lastTrade.pnl_pct || 0).toFixed(2)} percent change.` : undefined}
-                subValue={lastTrade && (
-                  <div className="flex items-center gap-1">
-                    {Number(lastTrade.pnl || 0) >= 0 ? <TrendingUp size={10} className="text-green" /> : <TrendingDown size={10} className="text-red" />}
-                    <span className={pnlClass(lastTrade.pnl)}>
-                      {fmtUSD(lastTrade.pnl)} ({lastTrade.pnl_pct >= 0 ? '+' : ''}{Number(lastTrade.pnl_pct || 0).toFixed(2)}%) Last
-                    </span>
-                  </div>
-                )}
+                ariaLabel={(() => {
+                  if (!lastTrade) return undefined;
+                  const prevBalance = balance - (lastTrade.pnl || 0);
+                  const balPctChange = prevBalance > 0 ? ((lastTrade.pnl || 0) / prevBalance) * 100 : 0;
+                  return `Account Balance: $${balance.toLocaleString()}. Last trade profit and loss was ${Number(lastTrade.pnl || 0) >= 0 ? 'plus' : 'minus'} $${Math.abs(lastTrade.pnl || 0).toFixed(2)}, representing a ${balPctChange >= 0 ? 'positive' : 'negative'} ${Math.abs(balPctChange || 0).toFixed(2)} percent change of account balance.`;
+                })()}
+                subValue={(() => {
+                  if (!lastTrade) return null;
+                  const prevBalance = balance - (lastTrade.pnl || 0);
+                  const balPctChange = prevBalance > 0 ? ((lastTrade.pnl || 0) / prevBalance) * 100 : 0;
+                  return (
+                    <div className="flex items-center gap-1">
+                      {Number(lastTrade.pnl || 0) >= 0 ? <TrendingUp size={10} className="text-green" /> : <TrendingDown size={10} className="text-red" />}
+                      <span className={pnlClass(lastTrade.pnl)}>
+                        {fmtUSD(lastTrade.pnl)} ({balPctChange >= 0 ? '+' : ''}{Number(balPctChange).toFixed(2)}%) Last
+                      </span>
+                    </div>
+                  );
+                })()}
               />
               <StatCard
                 label="Active P&L"

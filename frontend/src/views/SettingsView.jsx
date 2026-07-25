@@ -328,14 +328,18 @@ export function SettingsView() {
                         placeholder="8080...2025"
                       />
                       {apiKey && (
-                        <button
-                          type="button"
-                          onClick={() => setApiKey('')}
-                          aria-label="Clear API Key"
-                          className="absolute right-4 top-1/2 -translate-y-1/2 text-dim hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
-                        >
-                          <X size={18} />
-                        </button>
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                          <Tooltip content="Clear Key">
+                            <button
+                              type="button"
+                              onClick={() => setApiKey('')}
+                              aria-label="Clear API Key"
+                              className="text-dim hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
+                            >
+                              <X size={18} />
+                            </button>
+                          </Tooltip>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -352,23 +356,27 @@ export function SettingsView() {
                       />
                       <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 text-dim">
                         {apiSecret && (
+                          <Tooltip content="Clear Secret">
+                            <button
+                              type="button"
+                              onClick={() => setApiSecret('')}
+                              aria-label="Clear API Secret"
+                              className="hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
+                            >
+                              <X size={18} />
+                            </button>
+                          </Tooltip>
+                        )}
+                        <Tooltip content={showLiveSecret ? "Hide Secret" : "Show Secret"}>
                           <button
                             type="button"
-                            onClick={() => setApiSecret('')}
-                            aria-label="Clear API Secret"
-                            className="hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
+                            onClick={() => setShowLiveSecret(!showLiveSecret)}
+                            aria-label={showLiveSecret ? "Hide secret" : "Show secret"}
+                            className="hover:text-accent transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
                           >
-                            <X size={18} />
+                            {showLiveSecret ? <EyeOff size={18} /> : <Eye size={18} />}
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setShowLiveSecret(!showLiveSecret)}
-                          aria-label={showLiveSecret ? "Hide secret" : "Show secret"}
-                          className="hover:text-accent transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
-                        >
-                          {showLiveSecret ? <EyeOff size={18} /> : <Eye size={18} />}
-                        </button>
+                        </Tooltip>
                       </div>
                     </div>
                   </div>
@@ -406,14 +414,18 @@ export function SettingsView() {
                         placeholder="abcd...1234"
                       />
                       {testnetApiKey && (
-                        <button
-                          type="button"
-                          onClick={() => setTestnetApiKey('')}
-                          aria-label="Clear Testnet API Key"
-                          className="absolute right-4 top-1/2 -translate-y-1/2 text-dim hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-md"
-                        >
-                          <X size={18} />
-                        </button>
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                          <Tooltip content="Clear Key">
+                            <button
+                              type="button"
+                              onClick={() => setTestnetApiKey('')}
+                              aria-label="Clear Testnet API Key"
+                              className="text-dim hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-md"
+                            >
+                              <X size={18} />
+                            </button>
+                          </Tooltip>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -430,23 +442,27 @@ export function SettingsView() {
                       />
                       <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 text-dim">
                         {testnetApiSecret && (
+                          <Tooltip content="Clear Secret">
+                            <button
+                              type="button"
+                              onClick={() => setTestnetApiSecret('')}
+                              aria-label="Clear Testnet API Secret"
+                              className="hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-md"
+                            >
+                              <X size={18} />
+                            </button>
+                          </Tooltip>
+                        )}
+                        <Tooltip content={showTestnetSecret ? "Hide Secret" : "Show Secret"}>
                           <button
                             type="button"
-                            onClick={() => setTestnetApiSecret('')}
-                            aria-label="Clear Testnet API Secret"
-                            className="hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-md"
+                            onClick={() => setShowTestnetSecret(!showTestnetSecret)}
+                            aria-label={showTestnetSecret ? "Hide secret" : "Show secret"}
+                            className="hover:text-purple transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-md"
                           >
-                            <X size={18} />
+                            {showTestnetSecret ? <EyeOff size={18} /> : <Eye size={18} />}
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setShowTestnetSecret(!showTestnetSecret)}
-                          aria-label={showTestnetSecret ? "Hide secret" : "Show secret"}
-                          className="hover:text-purple transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-md"
-                        >
-                          {showTestnetSecret ? <EyeOff size={18} /> : <Eye size={18} />}
-                        </button>
+                        </Tooltip>
                       </div>
                     </div>
                   </div>

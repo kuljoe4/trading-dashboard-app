@@ -676,9 +676,9 @@ export class MarketFeedService {
         newWatchlist.get(t.symbol)!.add('1m');
         const resolvedScanInterval = this.resolveInterval(config.scan_interval || '5m', config);
         if (resolvedScanInterval) newWatchlist.get(t.symbol)!.add(resolvedScanInterval);
-        const resolvedTradeScan = this.resolveInterval(t.strategy_config?.scan_interval, config);
+        const resolvedTradeScan = this.resolveInterval(t.strategy_config?.scan_interval || 'default', config);
         if (resolvedTradeScan) newWatchlist.get(t.symbol)!.add(resolvedTradeScan);
-        const resolvedTradeSl = this.resolveInterval(t.strategy_config?.sl_lookback_timeframe, config);
+        const resolvedTradeSl = this.resolveInterval(t.strategy_config?.sl_lookback_timeframe || 'default', config);
         if (resolvedTradeSl) newWatchlist.get(t.symbol)!.add(resolvedTradeSl);
       }
 
@@ -1020,7 +1020,7 @@ export class MarketFeedService {
    * Replaces "default" with the configured scan_interval or "5m".
    * Returns null if the interval is invalid and cannot be resolved.
    */
-  private resolveInterval(interval: string, config?: SessionConfig): string | null {
+  private resolveInterval(interval: string, config?: SessionConfig | null): string | null {
     if (!interval || typeof interval !== 'string') {
       return config?.scan_interval || '5m';
     }

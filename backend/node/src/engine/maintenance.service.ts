@@ -286,7 +286,8 @@ export class MaintenanceService {
             const reArmPrice = trade.current_sl > 0 ? trade.current_sl : fallbackSl;
 
             // PRICE PROTECTION BREACH CHECK: Skip SL re-arm if it would immediately trigger
-            const markPrice = this.tickerCache.getMarkPrice(trade.symbol);
+            const ticker = this.tickerCache.getTicker(trade.symbol);
+            const markPrice = ticker?.mark_price;
             if (markPrice) {
                const breach = trade.direction === 'LONG' ? (reArmPrice >= markPrice) : (reArmPrice <= markPrice);
                if (breach) {

@@ -156,14 +156,26 @@ export class TickerCacheService {
     const all = this.getLatestTickers();
     this.logger.verbose(`topByChangePct requested ${n} symbols. Cache size: ${all.length}. Cache miss - recomputing.`);
 
-    const result = all
-      .filter(t => !excludedSet?.has(t.symbol) && t.price && t.open_24h && t.open_24h > 0)
-      .sort((a, b) => {
-        const changeA = Math.abs(((a.price - (a.open_24h || 0)) / (a.open_24h || 1)) * 100);
-        const changeB = Math.abs(((b.price - (b.open_24h || 0)) / (b.open_24h || 1)) * 100);
-        return changeB - changeA;
-      })
-      .slice(0, n);
+    // BOLT OPTIMIZATION: Schwartzian Transform (map-sort-map) & Loop Fusion.
+    // Pre-calculate absolute 24-hour change percentages in a single linear O(N) pass,
+    // avoiding redundant calculations, O(N log N) divisions/math, and multiple intermediate arrays.
+    const mapped: { ticker: Ticker; change: number }[] = [];
+    const len = all.length;
+    for (let i = 0; i < len; i++) {
+      const t = all[i];
+      if (!excludedSet?.has(t.symbol) && t.price && t.open_24h && t.open_24h > 0) {
+        const change = Math.abs(((t.price - t.open_24h) / t.open_24h) * 100);
+        mapped.push({ ticker: t, change });
+      }
+    }
+
+    mapped.sort((a, b) => b.change - a.change);
+
+    const resultLen = Math.min(n, mapped.length);
+    const result: Ticker[] = new Array(resultLen);
+    for (let i = 0; i < resultLen; i++) {
+      result[i] = mapped[i].ticker;
+    }
 
     const cacheKeys = Object.keys(this._topByChangeCache);
     if (cacheKeys.length >= this.TOP_VOLUME_CACHE_MAX_KEYS && !this._topByChangeCache[cacheKey]) {

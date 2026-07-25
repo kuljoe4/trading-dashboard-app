@@ -11,6 +11,21 @@ import { extractIp } from '../lib/throttle';
 import { AuditLogService } from './audit-log.service';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
 
+/**
+ * Securely masks API keys and secrets.
+ * If the key is shorter than 16 characters, it is fully masked to prevent leakage of short or test credentials.
+ * If the key is 16 characters or longer, only the first 4 and last 4 characters are shown, with '...' in between.
+ */
+export function maskApiKey(key: any): string {
+  if (!key || typeof key !== 'string') return '';
+  const trimmed = key.trim();
+  if (trimmed.length === 0) return '';
+  if (trimmed.length < 16) {
+    return '*'.repeat(Math.min(trimmed.length, 8));
+  }
+  return `${trimmed.slice(0, 4)}...${trimmed.slice(-4)}`;
+}
+
 @Controller('settings')
 @UseGuards(ApiKeyGuard)
 export class SettingsController {
@@ -45,12 +60,8 @@ export class SettingsController {
     const testnetApiKey = decrypt(settings?.binance_testnet_api_key);
 
     return {
-      api_key: (apiKey && typeof apiKey === 'string')
-        ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`
-        : '',
-      testnet_api_key: (testnetApiKey && typeof testnetApiKey === 'string')
-        ? `${testnetApiKey.slice(0, 4)}...${testnetApiKey.slice(-4)}`
-        : '',
+      api_key: maskApiKey(apiKey),
+      testnet_api_key: maskApiKey(testnetApiKey),
     };
   }
 

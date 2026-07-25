@@ -568,20 +568,24 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               <div className="space-y-1 md:space-y-3.5">
                  {[
                    { label: 'TP Mode', value: trade.tp_mode === 'exp_rr_seq' ? 'Expansion RR' : 'Fixed Ratio' },
-                   trade.exit_ts && {
-                     label: 'Exit RR',
+                   {
+                     label: trade.exit_ts ? 'Exit RR' : 'Exit RR (Projected)',
                      value: `${(() => {
+                       if (trade.exit_rr !== undefined && trade.exit_rr !== null && trade.exit_rr !== 0) {
+                         return trade.exit_rr >= 0 ? `+${Number(trade.exit_rr).toFixed(2)}` : Number(trade.exit_rr).toFixed(2);
+                       }
                        const initRisk = Math.abs(trade.entry_price - (trade.initial_sl || trade.sl_price));
-                       const v = trade.exit_rr !== undefined && trade.exit_rr !== null && trade.exit_rr !== 0 ? trade.exit_rr :
-                         (trade.exit_price && trade.entry_price && initRisk > 0 ?
-                           (trade.direction === 'LONG' ? (trade.exit_price - trade.entry_price) : (trade.entry_price - trade.exit_price)) / initRisk : 0);
+                       const refPrice = trade.exit_price || mark;
+                       const v = (refPrice && trade.entry_price && initRisk > 0 ?
+                           (trade.direction === 'LONG' ? (refPrice - trade.entry_price) : (trade.entry_price - refPrice)) / initRisk : 0);
                        return v >= 0 ? `+${v.toFixed(2)}` : v.toFixed(2);
                      })()} R`,
                      color: (() => {
                        const initRisk = Math.abs(trade.entry_price - (trade.initial_sl || trade.sl_price));
+                       const refPrice = trade.exit_price || mark;
                        const v = trade.exit_rr !== undefined && trade.exit_rr !== null && trade.exit_rr !== 0 ? trade.exit_rr :
-                         (trade.exit_price && trade.entry_price && initRisk > 0 ?
-                           (trade.direction === 'LONG' ? (trade.exit_price - trade.entry_price) : (trade.entry_price - trade.exit_price)) / initRisk : 0);
+                         (refPrice && trade.entry_price && initRisk > 0 ?
+                           (trade.direction === 'LONG' ? (refPrice - trade.entry_price) : (trade.entry_price - refPrice)) / initRisk : 0);
                        return v >= 0 ? 'text-green' : 'text-red';
                      })()
                    },

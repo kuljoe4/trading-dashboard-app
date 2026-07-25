@@ -19,6 +19,8 @@ export class Trade {
 
   current_sl: number = 0;
 
+  sl_price?: number;
+
   max_rr_achieved: number = 0;
 
   min_rr_achieved?: number = 0;

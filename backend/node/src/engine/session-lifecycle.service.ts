@@ -25,9 +25,12 @@ import {
 } from "../models/binance.types";
 import { ENGINE_CONSTANTS, EXIT_REASONS } from "../models/constants";
 
+import { LifecycleDiagnosticService } from './lifecycle-diagnostic.service';
+
 @Injectable()
 export class SessionLifecycleService {
   private readonly logger = new Logger(SessionLifecycleService.name);
+  private diagnostic = new LifecycleDiagnosticService();
   private running = false;
   public isUdsConnected = false;
   private udsReconnectAttempts = 0;

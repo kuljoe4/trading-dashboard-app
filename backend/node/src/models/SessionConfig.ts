@@ -266,6 +266,10 @@ export class SessionConfig {
   @IsOptional()
   exit_signal_logic?: 'any' | 'all' = 'any';
 
+  @IsBoolean()
+  @IsOptional()
+  exit_signals_override_ratchet?: boolean = false;
+
   @IsObject()
   @IsOptional()
   exit_signal_delays?: Record<string, number> = {};

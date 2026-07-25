@@ -1884,12 +1884,34 @@ export class OrderManagerService {
     // Check each exit signal
     for (const exitSignal of config.exit_signals) {
       try {
-        const delay = delays[exitSignal] || 0;
-        const isActive = tradeAgeSec >= delay;
-        const remaining = Math.max(0, delay - tradeAgeSec);
+        let delay = delays[exitSignal] || 0;
 
         const detail = consolidatedResult.details ? consolidatedResult.details[exitSignal] : null;
         const isFired = !!(detail?.fired || (consolidatedResult.firedSignals.includes(exitSignal)));
+
+        // SRE: Override delay to zero if exit_signals_override_ratchet is active and we are in high profit relative to signal target
+        if (config.exit_signals_override_ratchet && detail && detail.threshold_is_price && typeof detail.threshold === 'number' && detail.threshold > 0) {
+          const currentPrice = this.tickerCache.getPrice(symbol) || trade.mark_price || trade.last_price || trade.entry_price;
+          if (currentPrice && trade.entry_price && trade.qty) {
+            let currentPnl = 0;
+            let signalPnl = 0;
+            if (trade.direction === 'LONG') {
+              currentPnl = (currentPrice - trade.entry_price) * trade.qty;
+              signalPnl = (detail.threshold - trade.entry_price) * trade.qty;
+            } else {
+              currentPnl = (trade.entry_price - currentPrice) * trade.qty;
+              signalPnl = (trade.entry_price - detail.threshold) * trade.qty;
+            }
+
+            if (currentPnl > 0 && signalPnl > 0 && currentPnl > signalPnl) {
+              delay = 0;
+              this.logger.log(`[SL Override] Positive exit signal target P&L detected for ${symbol} on signal ${exitSignal}. Delay overridden to 0.`);
+            }
+          }
+        }
+
+        const isActive = tradeAgeSec >= delay;
+        const remaining = Math.max(0, delay - tradeAgeSec);
 
         statuses[exitSignal] = {
           fired: isFired,
@@ -3144,6 +3166,10 @@ export class OrderManagerService {
       } else {
         trade.status = 'CLOSED';
       }
+
+      // Calculate final exit RR
+      const initialRisk = Math.abs(trade.entry_price - trade.initial_sl);
+      trade.exit_rr = initialRisk > 0 ? (trade.direction === 'LONG' ? (exitPrice - trade.entry_price) : (trade.entry_price - exitPrice)) / initialRisk : 0;
 
       // REDUCE LOG NOISE: PositionTrackerService already logs a standardized closure message.
       // We only log to debug here for internal traceability.

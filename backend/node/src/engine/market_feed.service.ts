@@ -674,13 +674,19 @@ export class MarketFeedService {
         const t = trade;
         if (!newWatchlist.has(t.symbol)) newWatchlist.set(t.symbol, new Set());
         newWatchlist.get(t.symbol)!.add('1m');
-        if (config.scan_interval) newWatchlist.get(t.symbol)!.add(config.scan_interval);
-        if (t.strategy_config?.scan_interval) newWatchlist.get(t.symbol)!.add(t.strategy_config.scan_interval);
-        if (t.strategy_config?.sl_lookback_timeframe) newWatchlist.get(t.symbol)!.add(t.strategy_config.sl_lookback_timeframe);
+        const resolvedScanInterval = this.resolveInterval(config.scan_interval || '5m', config);
+        if (resolvedScanInterval) newWatchlist.get(t.symbol)!.add(resolvedScanInterval);
+        const resolvedTradeScan = this.resolveInterval(t.strategy_config?.scan_interval || 'default', config);
+        if (resolvedTradeScan) newWatchlist.get(t.symbol)!.add(resolvedTradeScan);
+        const resolvedTradeSl = this.resolveInterval(t.strategy_config?.sl_lookback_timeframe || 'default', config);
+        if (resolvedTradeSl) newWatchlist.get(t.symbol)!.add(resolvedTradeSl);
       }
 
       if (config.sl_lookback_timeframe) {
-        for (const [symbol, intervals] of newWatchlist) intervals.add(config.sl_lookback_timeframe);
+        const resolvedGlobalSl = this.resolveInterval(config.sl_lookback_timeframe, config);
+        if (resolvedGlobalSl) {
+          for (const [symbol, intervals] of newWatchlist) intervals.add(resolvedGlobalSl);
+        }
       }
 
       // MULTI-TIMEFRAME SIGNALS: Extract all unique timeframes from enabled entry & exit signals
@@ -692,7 +698,8 @@ export class MarketFeedService {
         ];
         for (const sig of activeSignals) {
           const tf = config.signal_timeframes[sig];
-          if (tf && tf !== 'default') mtfIntervals.add(tf);
+          const resolvedTf = this.resolveInterval(tf, config);
+          if (resolvedTf) mtfIntervals.add(resolvedTf);
         }
       }
       if (mtfIntervals.size > 0) {
@@ -999,6 +1006,35 @@ export class MarketFeedService {
     }
   }
 
+  /**
+   * Valid Binance Futures kline intervals
+   */
+  private static readonly VALID_INTERVALS = new Set([
+    '1m', '3m', '5m', '15m', '30m',
+    '1h', '2h', '4h', '6h', '8h', '12h',
+    '1d', '3d', '1w', '1M'
+  ]);
+
+  /**
+   * Resolve an interval string to a valid Binance interval.
+   * Replaces "default" with the configured scan_interval or "5m".
+   * Returns null if the interval is invalid and cannot be resolved.
+   */
+  private resolveInterval(interval: string, config?: SessionConfig | null): string | null {
+    if (!interval || typeof interval !== 'string') {
+      return config?.scan_interval || '5m';
+    }
+    const trimmed = interval.trim();
+    if (MarketFeedService.VALID_INTERVALS.has(trimmed)) {
+      return trimmed;
+    }
+    if (trimmed === 'default') {
+      return config?.scan_interval || '5m';
+    }
+    this.logger.warn(`[MarketFeed] Invalid interval "${interval}" for symbol, skipping. Valid intervals: ${Array.from(MarketFeedService.VALID_INTERVALS).join(', ')}`);
+    return null;
+  }
+
   private parseIntervalToMs(interval: string): number {
     // Robust Defensive Guard: ensure interval is a valid, non-empty string before slicing or parsing
     if (typeof interval !== 'string' || !interval) {
@@ -1107,30 +1143,36 @@ export class MarketFeedService {
   }
 
   private async backfillKlines(symbol: string, interval: string) {
+    const resolvedInterval = this.resolveInterval(interval, this.sessionState.config);
+    if (!resolvedInterval) {
+      this.logger.error(`[MarketFeed] Skipping backfill for ${symbol} ${interval}: Invalid interval that cannot be resolved.`);
+      return;
+    }
+    
     const requiredWarmup = this.sessionState.config ? this.signalEngine.getRequiredWarmup(this.sessionState.config) : 100;
 
     // ARCHITECTURAL OPTIMIZATION: Try loading from local DB first to eliminate redundant REST calls.
-    let existingCandles = await this.klineStore.getRecentCandles(symbol, interval, requiredWarmup);
+    let existingCandles = await this.klineStore.getRecentCandles(symbol, resolvedInterval, requiredWarmup);
 
     if (existingCandles.length < requiredWarmup) {
-       this.logger.debug(`[MarketFeed] Low local memory cache for ${symbol} ${interval}. Checking database...`);
-       const loadedCount = await this.klineStore.loadFromDb(symbol, interval, requiredWarmup);
+       this.logger.debug(`[MarketFeed] Low local memory cache for ${symbol} ${resolvedInterval}. Checking database...`);
+       const loadedCount = await this.klineStore.loadFromDb(symbol, resolvedInterval, requiredWarmup);
        if (loadedCount > 0) {
-          this.logger.log(`[MarketFeed] Successfully restored ${loadedCount} candles from local DB for ${symbol} ${interval}.`);
-          existingCandles = await this.klineStore.getRecentCandles(symbol, interval, requiredWarmup);
+          this.logger.log(`[MarketFeed] Successfully restored ${loadedCount} candles from local DB for ${symbol} ${resolvedInterval}.`);
+          existingCandles = await this.klineStore.getRecentCandles(symbol, resolvedInterval, requiredWarmup);
        }
     }
 
     if (existingCandles.length >= requiredWarmup) {
       const lastCandle = existingCandles[0];
-      const intervalMs = this.parseIntervalToMs(interval);
+      const intervalMs = this.parseIntervalToMs(resolvedInterval);
       // If the most recent candle is still fresh enough, skip backfill
       if (lastCandle.time + intervalMs >= Date.now() - (intervalMs * 2)) {
-        this.logger.debug(`Skipping kline backfill for ${symbol} ${interval}: Already have ${existingCandles.length}/${requiredWarmup} candles and data is fresh.`);
+        this.logger.debug(`Skipping kline backfill for ${symbol} ${resolvedInterval}: Already have ${existingCandles.length}/${requiredWarmup} candles and data is fresh.`);
         return;
       }
     } else {
-      this.logger.log(`Backfilling klines for ${symbol} ${interval}: Have ${existingCandles.length}, need ${requiredWarmup} for warmup.`);
+      this.logger.log(`Backfilling klines for ${symbol} ${resolvedInterval}: Have ${existingCandles.length}, need ${requiredWarmup} for warmup.`);
     }
 
     await new Promise(resolve => setTimeout(resolve, Math.random() * ENGINE_CONSTANTS.BACKFILL_MAX_JITTER_MS));
@@ -1141,13 +1183,13 @@ export class MarketFeedService {
       if (this.binanceClient) {
         const response = await this.binanceClient.restAPI.klineCandlestickData({
           symbol,
-          interval: interval as any,
+          interval: resolvedInterval as any,
           limit: this.klineStore.getMaxCandles()
         });
         this.updateWeight(response.headers);
         klines = (await response.data()) as any[][];
       } else {
-        const url = `${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${this.klineStore.getMaxCandles()}`;
+        const url = `${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${resolvedInterval}&limit=${this.klineStore.getMaxCandles()}`;
         const response = await this.binanceClientFactory.genericRequest(
           () => fetch(url, { signal: AbortSignal.timeout(10000) }),
           'klineCandlestickData'
@@ -1156,7 +1198,7 @@ export class MarketFeedService {
         klines = (await response.json()) as any[][];
       }
 
-      if (Array.isArray(klines)) await this.klineStore.seedFromRest(symbol, interval, klines);
+      if (Array.isArray(klines)) await this.klineStore.seedFromRest(symbol, resolvedInterval, klines);
     } catch (err) {
       this.logger.error(`Kline backfill failed for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
     }

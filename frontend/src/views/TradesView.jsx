@@ -13,7 +13,7 @@ import { lazyWithRetry } from '../lib/lazy'
 const TradeDetailModal = lazyWithRetry(() => import('../components/TradeDetailModal').then(m => ({ default: m.TradeDetailModal })))
 
 const TradesView = () => {
-  const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled, isThrottled, wsStatus, isSyncingOnResume, sessionActive } = useTradingStore()
+  const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled, isThrottled, wsStatus, isSyncingOnResume, sessionActive, totalEstPnlToRealize } = useTradingStore()
   const [selectedTradeId, setSelectedTradeId] = useState(null)
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
@@ -62,7 +62,7 @@ const TradesView = () => {
               label="Active P&L"
               value={fmtUSD(activePnl)}
               color={pnlClass(activePnl)}
-              subValue={`Total: ${fmtUSD(totalPnl)}`}
+              subValue={`Total: ${fmtUSD(totalPnl)} · Est. Realize: ${fmtUSD(totalEstPnlToRealize)}`}
             />
           );
         })()}

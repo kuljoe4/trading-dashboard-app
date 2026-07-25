@@ -25,9 +25,12 @@ import {
 } from "../models/binance.types";
 import { ENGINE_CONSTANTS, EXIT_REASONS } from "../models/constants";
 
+import { LifecycleDiagnosticService } from './lifecycle-diagnostic.service';
+
 @Injectable()
 export class SessionLifecycleService {
   private readonly logger = new Logger(SessionLifecycleService.name);
+  private diagnostic = new LifecycleDiagnosticService();
   private running = false;
   public isUdsConnected = false;
   private udsReconnectAttempts = 0;
@@ -831,6 +834,12 @@ export class SessionLifecycleService {
 
           this.logger.debug(`[UDS-DIAGNOSTIC] Message received: ${JSON.stringify(data).substring(0, 100)}`);
 
+          // ENHANCED DIAGNOSTICS: Log every message received on UDS in live mode
+          const isLive = this.sessionState.config?.trading_mode === 'live' || (!this.sessionState.config?.paper_mode && this.sessionState.config?.trading_mode !== 'testnet');
+          if (isLive) {
+            this.logger.log(`[UDS-DIAGNOSTIC] Live mode message received: ${JSON.stringify(data).substring(0, 200)}`);
+          }
+
           // UDS HARDENING: Handle both direct and combined stream formats (unwrap .data if present)
           if (data && data.data && data.stream) {
             data = data.data;
@@ -885,6 +894,13 @@ export class SessionLifecycleService {
               "[Lifecycle] ListenKey expired, restarting user data stream...",
             );
             this.startUserDataStream(bc, true).catch(() => {});
+          } else {
+            // Log unknown event types for debugging
+            if (isLive) {
+              this.logger.log(`[UDS-DIAGNOSTIC] Unhandled event type in live mode: ${data.e || 'unknown'}, full: ${JSON.stringify(data).substring(0, 200)}`);
+            } else {
+              this.logger.debug(`[UDS-DIAGNOSTIC] Unhandled event type: ${data.e || 'unknown'}`);
+            }
           }
         } catch (err) {
           this.logger.debug(

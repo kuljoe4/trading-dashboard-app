@@ -1,3 +1,8 @@
+## 2026-07-25 - Secure API Key Masking and Short Key Protection Standard
+**Vulnerability:** The dynamic key masking logic inside `SettingsController.getKeys()` sliced any stored key using `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}` without validating the key's length. For short/mock test keys or secrets (e.g., less than 8 characters), the prefix and suffix slices overlapped, disclosing the entire secret or a vast majority of its unique characters to the client.
+**Learning:** Security-sensitive maskers must always establish a defensive minimum character threshold before exposing any plaintext subsets of credential strings. Masking must be absolute or length-capped for any string below this threshold to preserve complete confidentiality of credentials.
+**Prevention:** Mask any sensitive key/secret shorter than 16 characters completely, using a fixed-length or capped mask (like `********` or `***`) to avoid leakage of string length or partial key content.
+
 ## 2026-07-24 - Robust Binance Interval Validation and Defensive Parsing Standard
 **Vulnerability:** The session config interval properties (`scan_interval` and `sl_lookback_timeframe`) lacked validation, which could allow malformed interval strings to be passed to internal utility functions like `parseIntervalToMs`. These functions in turn lacked defensive type and format guards, exposing the backend to fatal `TypeError: Cannot read properties of undefined (reading 'slice')` or `NaN` crashes (Denial of Service).
 **Learning:** Hardening core system parameters requires strict format whitelisting on user-provided strings at the DTO layer, coupled with explicit type checking and fallback mechanisms in low-level utility methods. This guarantees absolute system resiliency under arbitrary inputs.

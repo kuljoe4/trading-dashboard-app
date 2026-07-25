@@ -112,6 +112,34 @@ export class EngineBroadcasterService {
       rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / risk;
     }
 
+    const slPriceForEst = trade.current_sl || trade.sl_price || 0;
+    let ratchetPnl = 0;
+    if (slPriceForEst > 0) {
+      if (direction === 'LONG') {
+        ratchetPnl = (slPriceForEst - entry) * (trade.qty ?? 0);
+      } else {
+        ratchetPnl = (entry - slPriceForEst) * (trade.qty ?? 0);
+      }
+    }
+
+    let maxEstPnlForTrade = ratchetPnl;
+    if (trade.exit_signals_status) {
+      for (const [key, status] of Object.entries(trade.exit_signals_status)) {
+        const sigStatus = status as any;
+        if (sigStatus && sigStatus.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0) {
+          let signalPnl = 0;
+          if (direction === 'LONG') {
+            signalPnl = (sigStatus.threshold - entry) * (trade.qty ?? 0);
+          } else {
+            signalPnl = (entry - sigStatus.threshold) * (trade.qty ?? 0);
+          }
+          if (signalPnl > maxEstPnlForTrade) {
+            maxEstPnlForTrade = signalPnl;
+          }
+        }
+      }
+    }
+
     if (minimal) {
       return {
         id: trade.id,
@@ -134,6 +162,9 @@ export class EngineBroadcasterService {
         entry_daily_change_pct: trade.entry_daily_change_pct,
         initial_risk_usdt: trade.initial_risk_usdt ?? undefined,
         risk_usdt: trade.risk_usdt ?? 0,
+        est_pnl_to_realize: roundTo(maxEstPnlForTrade, 2),
+        exit_rr: trade.exit_rr !== undefined ? roundTo(trade.exit_rr, 4) : undefined,
+        min_rr_achieved: trade.min_rr_achieved !== undefined ? roundTo(trade.min_rr_achieved, 4) : undefined,
         close_attempts: trade.close_attempts,
         close_blocked: trade.close_blocked,
         _delta: true,
@@ -159,6 +190,9 @@ export class EngineBroadcasterService {
       paper_mode: config?.paper_mode,
       trading_mode: config?.trading_mode || (config?.paper_mode ? 'paper' : 'live'),
       max_rr: roundTo(trade.max_rr_achieved ?? 0, 4),
+      est_pnl_to_realize: roundTo(maxEstPnlForTrade, 2),
+      exit_rr: trade.exit_rr !== undefined ? roundTo(trade.exit_rr, 4) : undefined,
+      min_rr_achieved: trade.min_rr_achieved !== undefined ? roundTo(trade.min_rr_achieved, 4) : undefined,
       strategy_label: trade.strategy_label || this.getStrategyLabel(trade.strategy_config || config),
       strategy_config: trade.strategy_config,
       live_rr_sequence: trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || [],
@@ -176,6 +210,34 @@ export class EngineBroadcasterService {
   public serializeTickTrade(trade: Trade, config: SessionConfig, current: number, pnlValue: number, rrValue: number): TickTradeDto {
     const direction = (trade.direction || 'LONG').toString().toUpperCase() as 'LONG' | 'SHORT';
     const entry = trade.entry_price ?? 0;
+
+    const slPriceForEst = trade.current_sl || trade.sl_price || 0;
+    let ratchetPnl = 0;
+    if (slPriceForEst > 0) {
+      if (direction === 'LONG') {
+        ratchetPnl = (slPriceForEst - entry) * (trade.qty ?? 0);
+      } else {
+        ratchetPnl = (entry - slPriceForEst) * (trade.qty ?? 0);
+      }
+    }
+
+    let maxEstPnlForTrade = ratchetPnl;
+    if (trade.exit_signals_status) {
+      for (const [key, status] of Object.entries(trade.exit_signals_status)) {
+        const sigStatus = status as any;
+        if (sigStatus && sigStatus.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0) {
+          let signalPnl = 0;
+          if (direction === 'LONG') {
+            signalPnl = (sigStatus.threshold - entry) * (trade.qty ?? 0);
+          } else {
+            signalPnl = (entry - sigStatus.threshold) * (trade.qty ?? 0);
+          }
+          if (signalPnl > maxEstPnlForTrade) {
+            maxEstPnlForTrade = signalPnl;
+          }
+        }
+      }
+    }
 
     return {
       id: trade.id,
@@ -198,6 +260,9 @@ export class EngineBroadcasterService {
       close_blocked: trade.close_blocked,
       initial_risk_usdt: trade.initial_risk_usdt ?? undefined,
       risk_usdt: trade.risk_usdt ?? 0,
+      est_pnl_to_realize: roundTo(maxEstPnlForTrade, 2),
+      exit_rr: trade.exit_rr !== undefined ? roundTo(trade.exit_rr, 4) : undefined,
+      min_rr_achieved: trade.min_rr_achieved !== undefined ? roundTo(trade.min_rr_achieved, 4) : undefined,
       _thin: true,
       _sl_len: trade.sl_adjustments?.length || 0,
       _sig_json: trade._sig_json || JSON.stringify(trade.exit_signals_status || {}),
@@ -290,6 +355,7 @@ export class EngineBroadcasterService {
     let anyPriceChangedSignificant = false;
     let activePnl = 0;
     let totalRiskUsdt = 0;
+    let totalEstPnlToRealize = 0;
     const hasVariants = !!(config?.strategy_variants?.length);
     const variantGroups: Record<string, { pnl: number, risk: number, count: number, hits: number }> = {};
     const priceCache = new Map<string, number | null>();
@@ -326,6 +392,35 @@ export class EngineBroadcasterService {
       const pnlValue = roundEight(grossPnl);
       activePnl += pnlValue;
       totalRiskUsdt += (trade.risk_usdt || 0);
+
+      const slPriceForEst = trade.current_sl || trade.sl_price || 0;
+      let ratchetPnl = 0;
+      if (slPriceForEst > 0) {
+        if (direction === 'LONG') {
+          ratchetPnl = (slPriceForEst - entry) * qty;
+        } else {
+          ratchetPnl = (entry - slPriceForEst) * qty;
+        }
+      }
+
+      let maxEstPnlForTrade = ratchetPnl;
+      if (trade.exit_signals_status) {
+        for (const [key, status] of Object.entries(trade.exit_signals_status)) {
+          const sigStatus = status as any;
+          if (sigStatus && sigStatus.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0) {
+            let signalPnl = 0;
+            if (direction === 'LONG') {
+              signalPnl = (sigStatus.threshold - entry) * qty;
+            } else {
+              signalPnl = (entry - sigStatus.threshold) * qty;
+            }
+            if (signalPnl > maxEstPnlForTrade) {
+              maxEstPnlForTrade = signalPnl;
+            }
+          }
+        }
+      }
+      totalEstPnlToRealize += maxEstPnlForTrade;
 
       const riskDist = Math.abs(entry - (trade.initial_sl ?? trade.current_sl ?? entry)) || 1;
       const rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / riskDist;
@@ -421,6 +516,7 @@ export class EngineBroadcasterService {
       total_pnl: roundTo(totalPnl, 2),
       total_risk_pct: roundTo(balance > 0 ? (totalRiskUsdt / balance) * 100 : 0, 2),
       total_sl_used: roundTo(totalRiskUsdt, 2),
+      total_est_pnl_to_realize: roundTo(totalEstPnlToRealize, 2),
       trades,
       gateState: this.sessionState.gateState,
       gateReason: this.lastRiskResult?.reason || 'OK',

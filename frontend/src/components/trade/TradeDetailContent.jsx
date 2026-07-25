@@ -568,6 +568,31 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               <div className="space-y-1 md:space-y-3.5">
                  {[
                    { label: 'TP Mode', value: trade.tp_mode === 'exp_rr_seq' ? 'Expansion RR' : 'Fixed Ratio' },
+                   trade.exit_ts && {
+                     label: 'Exit RR',
+                     value: `${(() => {
+                       const initRisk = Math.abs(trade.entry_price - (trade.initial_sl || trade.sl_price));
+                       const v = trade.exit_rr !== undefined && trade.exit_rr !== null && trade.exit_rr !== 0 ? trade.exit_rr :
+                         (trade.exit_price && trade.entry_price && initRisk > 0 ?
+                           (trade.direction === 'LONG' ? (trade.exit_price - trade.entry_price) : (trade.entry_price - trade.exit_price)) / initRisk : 0);
+                       return v >= 0 ? `+${v.toFixed(2)}` : v.toFixed(2);
+                     })()} R`,
+                     color: (() => {
+                       const initRisk = Math.abs(trade.entry_price - (trade.initial_sl || trade.sl_price));
+                       const v = trade.exit_rr !== undefined && trade.exit_rr !== null && trade.exit_rr !== 0 ? trade.exit_rr :
+                         (trade.exit_price && trade.entry_price && initRisk > 0 ?
+                           (trade.direction === 'LONG' ? (trade.exit_price - trade.entry_price) : (trade.entry_price - trade.exit_price)) / initRisk : 0);
+                       return v >= 0 ? 'text-green' : 'text-red';
+                     })()
+                   },
+                   {
+                     label: 'Min RR (Drawdown)',
+                     value: `${(() => {
+                       const v = trade.min_rr_achieved !== undefined && trade.min_rr_achieved !== null ? trade.min_rr_achieved : 0;
+                       return v >= 0 ? `+${v.toFixed(2)}` : v.toFixed(2);
+                     })()} R`,
+                     color: (trade.min_rr_achieved || 0) < 0 ? 'text-red' : 'text-dim'
+                   },
                     { label: 'Commission', value: fmtUSD(-(trade.realized_fee || 0)), color: 'text-red/70' },
                     { label: 'Funding Fee', value: fmtUSD(-(trade.funding_fee || 0)), color: trade.funding_fee > 0 ? 'text-red/70' : 'text-green/70' },
                    { label: 'ROI from Entry', value: `${pnlPct.toFixed(2)}%`, color: pnlPct >= 0 ? 'text-green' : 'text-red' },

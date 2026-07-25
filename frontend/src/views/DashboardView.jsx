@@ -298,7 +298,9 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
           <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter leading-none" style={{ color: pnlColor(s.activePnl) }}>
             {fmtUSD(s.activePnl)}
           </div>
-          <span className="text-[9px] text-dim/60 font-semibold uppercase tracking-wider mt-1 block">Live open trades P&L</span>
+          <span className="text-[9px] text-dim/60 font-semibold uppercase tracking-wider mt-1 block">
+            Live Open P&L · Est. Realize: <span className="font-bold font-mono" style={{ color: pnlColor(s.totalEstPnlToRealize) }}>{fmtUSD(s.totalEstPnlToRealize)}</span>
+          </span>
         </div>
 
         <div className="flex flex-col gap-1 items-end text-right">
@@ -615,7 +617,7 @@ export function DashboardView({ initialStrategy }) {
 
   const {
     sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
-    totalSlUsed, activeTrades, alerts, config, setSessionActive,
+    totalSlUsed, totalEstPnlToRealize, activeTrades, alerts, config, setSessionActive,
     updateConfig, patchConfig, gateState, gateReason, hibernating, hibernationMode, agreementRequired,
     scannerPaused, sessionList, fetchSessions, wsStatus,
     updateStats, analytics,
@@ -630,6 +632,7 @@ export function DashboardView({ initialStrategy }) {
     totalPnl: state.totalPnl,
     totalRiskPct: state.totalRiskPct,
     totalSlUsed: state.totalSlUsed,
+    totalEstPnlToRealize: state.totalEstPnlToRealize,
     activeTrades: state.activeTrades,
     config: state.config,
     setSessionActive: state.setSessionActive,
@@ -681,9 +684,9 @@ export function DashboardView({ initialStrategy }) {
   const safeVariantStats = variantStats || {}
 
   const currentStrategy = useMemo(() => ({
-    sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, hitCount,
+    sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, totalEstPnlToRealize, activeTrades, entryCount, hitCount,
     strategy_label: config.strategy_label || 'Momentum Strategy'
-  }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, hitCount, config.strategy_label])
+  }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, totalEstPnlToRealize, activeTrades, entryCount, hitCount, config.strategy_label])
 
   const { lastSession, lastTrade } = useMemo(() => {
     // BOLT OPTIMIZATION: Use O(N) single-pass lookup to find the most recent session instead of sorting,

@@ -1809,6 +1809,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             </CollapsibleSection>
 
             <CollapsibleSection id="strategy_exit" icon={XCircle} title="Exit Signals" subtitle="Automated early closures">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3.5 mb-4 bg-surface/40 border border-border/30 rounded-xl hover:border-accent/15 transition-all">
+                <div className="flex flex-col text-left">
+                  <span className="text-[10px] font-black text-dim uppercase tracking-widest">Exit Logic Override</span>
+                  <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-md">Bypass ratcheting/trailing, immediately cancel SL, and drop exit signal delays to 0 when trade profit exceeds exit targets.</p>
+                </div>
+                <Toggle
+                  value={cfg.exit_signals_override_ratchet || false}
+                  onChange={(v) => setField('exit_signals_override_ratchet', v)}
+                />
+              </div>
               <div className="flex justify-end mb-4">
                  <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.exit_signal_logic || 'any') === 'any' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'any')}>ANY</button>

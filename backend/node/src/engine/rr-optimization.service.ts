@@ -39,7 +39,8 @@ export class RrOptimizationService {
       t.status !== 'OPEN' &&
       t.exit_ts &&
       !t.is_reconciliation &&
-      t.max_rr_achieved !== undefined
+      t.max_rr_achieved !== undefined &&
+      t.max_rr_achieved !== null
     );
 
     if (closedTrades.length < 5) {
@@ -66,9 +67,13 @@ export class RrOptimizationService {
 
       // Calculate Maximum Adverse Excursion (MAE) pct relative to entry
       // MAE pct is effectively how far the trade went against us.
-      // Since MAE isn't directly in TradeEntity, we estimate it from entry vs initial_sl if it was a loss,
-      // or use a safe baseline (0.5%) for wins.
-      const maePct = (pnl < 0) ? Math.abs((t.entry_price - t.current_sl) / t.entry_price) * 100 : 0.5;
+      // We first calculate the full risk distance percentage at entry.
+      const riskDistPct = Math.abs((t.entry_price - (t.initial_sl || t.current_sl || t.entry_price)) / t.entry_price) * 100;
+      // If t.min_rr_achieved is tracked and negative, we have an exact, high-fidelity adverse excursion!
+      // Otherwise, we gracefully fall back to the legacy loss estimation / safe win baseline.
+      const maePct = (t.min_rr_achieved !== undefined && t.min_rr_achieved !== null && t.min_rr_achieved < 0)
+        ? Math.abs(Number(t.min_rr_achieved)) * riskDistPct
+        : ((pnl < 0) ? riskDistPct : 0.5);
       sumMaePct += maePct;
 
       return {

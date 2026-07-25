@@ -54,7 +54,7 @@ const TradesView = () => {
           backAction={() => window.location.hash = '#/'}
         />
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 mb-8 lg:mb-12">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-8 lg:mb-12">
         {(() => {
           const activePnl = (activeTrades || []).reduce((acc, t) => acc + safeNum(t.pnl), 0);
           return (
@@ -63,8 +63,10 @@ const TradesView = () => {
               value={fmtUSD(activePnl)}
               color={pnlClass(activePnl)}
               subValue={
-                <span>
-                  Total: {fmtUSD(totalPnl)} · Est. Realize: <span className="font-bold" style={{ color: pnlColor(totalEstPnlToRealize) }}>{fmtUSD(totalEstPnlToRealize)}</span>
+                <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                  <span>Total: {fmtUSD(totalPnl)}</span>
+                  <span className="text-dim/30 hidden xs:inline">•</span>
+                  <span>Est. Realize: <span className="font-bold" style={{ color: pnlColor(totalEstPnlToRealize) }}>{fmtUSD(totalEstPnlToRealize)}</span></span>
                 </span>
               }
             />

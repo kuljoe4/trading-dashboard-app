@@ -190,12 +190,12 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
           )}>{sanitizedValue}</div>
           {subValue && (
             <div className={cn(
-              "text-dim font-mono font-black uppercase flex items-center gap-1.5 whitespace-nowrap overflow-hidden",
+              "text-dim font-mono font-black uppercase flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0",
               compact ? "text-[7px] md:text-[7.5px] mt-0.5" : "text-[8px] md:text-[9px] mt-0.5",
               syncing && "text-accent/60 animate-pulse"
             )}>
               {syncing && <Loader2 size={compact ? 6 : 8} className="animate-spin shrink-0" aria-hidden="true" />}
-              <span className="truncate">{subValue}</span>
+              <span className="truncate whitespace-normal sm:whitespace-nowrap min-w-0 w-full">{subValue}</span>
             </div>
           )}
         </div>

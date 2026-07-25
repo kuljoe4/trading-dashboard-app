@@ -165,7 +165,7 @@ export class BinanceClientFactory implements OnModuleInit {
         // Manual WebSocket construction for UDS causes silent data frame loss in live mode (IP reputation starvation).
         const shouldUseManualWs = (params.forceRaw || isCombined || isHF) && !isPrivate;
         
-        if (shouldUseManualWs || (!isTestnet && !isPrivate)) {
+        if (!isPrivate && (shouldUseManualWs || !isTestnet)) {
             const finalUrl = useStreamEndpoint
                 ? `${gatewayURL}?streams=${params.stream}`
                 : `${gatewayURL}/${params.stream}`;

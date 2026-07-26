@@ -957,6 +957,28 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [loadedPresetName, setLoadedPresetName] = useState(() => sessionStorage.getItem('loaded_preset_name'));
   const [presetToDelete, setPresetToDelete] = useState(null);
   const [presetSearch, setPresetSearch] = useState('');
+  const [libraryExpanded, setLibraryExpanded] = useState(false);
+
+  const modalRef = React.useRef(null);
+
+  // Auto-focus container on mount for accessible keyboard navigation
+  useEffect(() => {
+    modalRef.current?.focus();
+  }, []);
+
+  // Dismiss modal on Escape key globally, avoiding conflicts with active inputs
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        const activeTag = document.activeElement?.tagName;
+        if (activeTag !== 'INPUT' && activeTag !== 'TEXTAREA') {
+          onClose();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [onClose]);
 
   const partitionedPresets = useMemo(() => {
     const searchLower = presetSearch.toLowerCase().trim();
@@ -1518,7 +1540,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   ), [cfg, errors, setField, handleInputFocus]);
 
   return (
-    <div className="flex flex-col h-full bg-surface text-text overflow-hidden relative">
+    <div ref={modalRef} tabIndex={-1} className="flex flex-col h-full bg-surface text-text overflow-hidden relative outline-none">
       <div className="sticky top-0 z-30 bg-surface/80 backdrop-blur-md border-b border-border">
         <div className="py-3 px-4 flex justify-between items-center">
           <div className="min-w-0 flex-1 mr-4">
@@ -2639,29 +2661,60 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   )}
 
                   {/* Preset Library Section */}
-                  {partitionedPresets.available.length > 0 && (
-                    <div className="space-y-2.5">
-                      <div className="flex items-center gap-2 px-1 text-[9px] font-black uppercase tracking-widest text-dim">
-                        Preset Library
-                      </div>
-                      <motion.div layout className="space-y-2.5">
-                        <AnimatePresence mode="popLayout">
-                          {partitionedPresets.available.map(p => (
-                            <PresetItem
-                              key={p.name}
-                              preset={p}
-                              isLoaded={loadedPresetName === p.name}
-                              isDirty={isDirty}
-                              onLoad={loadPreset}
-                              onToggleVariant={toggleVariant}
-                              onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
-                              isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
-                            />
-                          ))}
+                  {partitionedPresets.available.length > 0 && (() => {
+                    const isLibraryOpen = libraryExpanded || !!presetSearch;
+                    return (
+                      <div className="space-y-2.5">
+                        <button
+                          type="button"
+                          onClick={() => setLibraryExpanded(!libraryExpanded)}
+                          className="flex items-center justify-between w-full px-1 text-[9px] font-black uppercase tracking-widest text-dim hover:text-text transition-colors group/lib-btn focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded py-1"
+                          aria-expanded={isLibraryOpen}
+                          aria-controls="presets-library-content"
+                        >
+                          <span className="flex items-center gap-1.5">
+                            Preset Library ({partitionedPresets.available.length})
+                          </span>
+                          <div className={cn(
+                            "w-4 h-4 rounded border border-border/60 flex items-center justify-center text-dim group-hover/lib-btn:text-text transition-all",
+                            isLibraryOpen && "rotate-180 text-accent border-accent/30"
+                          )}>
+                            <ChevronDown size={10} />
+                          </div>
+                        </button>
+
+                        <AnimatePresence initial={false}>
+                          {isLibraryOpen && (
+                            <motion.div
+                              id="presets-library-content"
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.2, ease: "easeInOut" }}
+                              className="overflow-hidden"
+                            >
+                              <motion.div layout className="space-y-2.5 pt-1">
+                                <AnimatePresence mode="popLayout">
+                                  {partitionedPresets.available.map(p => (
+                                    <PresetItem
+                                      key={p.name}
+                                      preset={p}
+                                      isLoaded={loadedPresetName === p.name}
+                                      isDirty={isDirty}
+                                      onLoad={loadPreset}
+                                      onToggleVariant={toggleVariant}
+                                      onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
+                                      isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
+                                    />
+                                  ))}
+                                </AnimatePresence>
+                              </motion.div>
+                            </motion.div>
+                          )}
                         </AnimatePresence>
-                      </motion.div>
-                    </div>
-                  )}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 

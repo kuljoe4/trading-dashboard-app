@@ -386,7 +386,14 @@ const ManualMonitorInput = React.memo(({ onAdd }) => {
         />
         {value && (
           <Tooltip content="Clear Input">
-            <button type="button" onClick={() => { setValue(''); setIsOpen(false); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear Input"><X size={16} /></button>
+            <button
+              type="button"
+              onClick={() => { setValue(''); setIsOpen(false); }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
+              aria-label="Clear Input"
+            >
+              <X size={16} />
+            </button>
           </Tooltip>
         )}
 
@@ -515,13 +522,16 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
             className="w-full bg-surface border border-border rounded-xl pl-10 pr-10 py-3 text-sm font-mono focus:border-accent outline-none hover:border-border-hover transition-colors"
           />
           {searchTerm && (
-            <button
-              type="button"
-              onClick={() => setSearchTerm('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors"
-            >
-              <X size={16} />
-            </button>
+            <Tooltip content="Clear Search">
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
+                aria-label="Clear Search symbol"
+              >
+                <X size={16} />
+              </button>
+            </Tooltip>
           )}
         </div>
 

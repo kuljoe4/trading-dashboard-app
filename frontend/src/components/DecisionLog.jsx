@@ -182,7 +182,11 @@ export const DecisionLog = React.memo(() => {
           />
           {search && (
               <Tooltip content="Clear Search">
-                <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear Search">
+                <button
+                  onClick={() => setSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-full p-0.5 transition-colors"
+                  aria-label="Clear Search"
+                >
                   <XCircle size={16} />
                 </button>
               </Tooltip>

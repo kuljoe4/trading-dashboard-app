@@ -35,7 +35,8 @@ export class RiskEngineService {
     totalSlUsed: number,
     enteringCount = 0,
     marketScore?: number,
-    prospectiveRiskPct?: number
+    prospectiveRiskPct?: number,
+    globalSlGuardOverride?: number
   ): ReturnType<RiskEngineService['checkFrequencyAndPerformanceLimits']> {
     const now = Date.now();
 
@@ -63,7 +64,7 @@ export class RiskEngineService {
     const totalSlGuardUsdt = config.total_sl_guard_usdt ?? 200.0;
 
     // Global stop loss guard check across ALL strategies for absolute portfolio safety
-    const globalSlGuard = config.total_sl_guard_usdt ?? 200.0;
+    const globalSlGuard = globalSlGuardOverride !== undefined ? globalSlGuardOverride : (config.total_sl_guard_usdt ?? 200.0);
     if (totalSlUsed >= globalSlGuard) {
       return { canEnter: false, reason: `Global Total SL ${Number(totalSlUsed || 0).toFixed(2)} USDT >= guard ${globalSlGuard} USDT` };
     }

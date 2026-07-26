@@ -21,6 +21,8 @@ export class Trade {
 
   sl_price?: number;
 
+  est_pnl_to_realize?: number;
+
   max_rr_achieved: number = 0;
 
   min_rr_achieved?: number = 0;

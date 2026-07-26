@@ -12,28 +12,31 @@ export class VariantAnalyticsService {
     strategyConfigs: SessionConfig[]
   ): Record<string, any> {
     const variantStats: Record<string, any> = {};
-    const groups: Record<string, { pnl: number, risk: number, count: number, hits: number }> = {};
+    const groups: Record<string, { pnl: number, risk: number, count: number, hits: number, estPnlToRealize: number }> = {};
 
     for (let i = 0; i < activeTrades.length; i++) {
       const t = activeTrades[i];
       const l = t.strategy_label || 'Momentum Strategy';
-      if (!groups[l]) groups[l] = { pnl: 0, risk: 0, count: 0, hits: 0 };
+      if (!groups[l]) groups[l] = { pnl: 0, risk: 0, count: 0, hits: 0, estPnlToRealize: 0 };
       groups[l].pnl = roundEight(groups[l].pnl + (t.pnl || 0));
       groups[l].risk = roundEight(groups[l].risk + (t.risk_usdt || 0));
       groups[l].count++;
       if ((t.pnl || 0) > 0) groups[l].hits++;
+      groups[l].estPnlToRealize = roundEight(groups[l].estPnlToRealize + (t.est_pnl_to_realize || 0));
     }
 
     strategyConfigs.forEach(cfg => {
       const l = cfg.strategy_label!;
-      const a = groups[l] || { pnl: 0, risk: 0, count: 0, hits: 0 };
+      const a = groups[l] || { pnl: 0, risk: 0, count: 0, hits: 0, estPnlToRealize: 0 };
       const c = closedStats[l] || { pnl: 0, count: 0, hits: 0 };
       variantStats[l] = {
         totalPnl: roundEight(c.pnl + a.pnl),
         entryCount: c.count + a.count,
         hitCount: c.hits + a.hits,
         totalRiskPct: roundTo(balance > 0 ? (a.risk / balance) * 100 : 0, 2),
-        activeTradeCount: a.count
+        activeTradeCount: a.count,
+        totalSlUsed: roundTo(a.risk, 2),
+        totalEstPnlToRealize: roundTo(a.estPnlToRealize || 0, 2)
       };
     });
 

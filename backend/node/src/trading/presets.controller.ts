@@ -103,9 +103,15 @@ export class PresetsController {
     ) {
       throw new BadRequestException("Invalid preset name format or length");
     }
-    // SEC-SENTINEL: Validate input pattern to prevent directory traversal or malicious character attacks
-    if (!/^[a-zA-Z0-9_\s.\-()><=%+,\[\]]+$/.test(name)) {
-      throw new BadRequestException("Invalid characters in preset name");
+    // SEC-SENTINEL: Validate input pattern to prevent directory traversal, SQL injection, null-bytes, or malicious attacks
+    if (
+      name.includes('/') ||
+      name.includes('\\') ||
+      name.includes('..') ||
+      name.includes(';') ||
+      name.includes('\0')
+    ) {
+      throw new BadRequestException("Invalid characters or path traversal attempt in preset name");
     }
     // SEC-SENTINEL: Prevent HTML tag injection or XSS payloads
     if (/<[a-zA-Z!/]/.test(name)) {

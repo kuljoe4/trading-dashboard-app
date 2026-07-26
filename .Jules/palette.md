@@ -5,3 +5,7 @@
 ## 2026-07-24 - Credentials Input Inline Accessory Button Tooltips
 **Learning:** Icon-only inputs' utility elements, such as inline 'X' clear and 'Eye' show/hide controls, require immediate visual and screen-reader guidance to achieve WCAG/Radix compliance. Integrating `<Tooltip>` wrappers on these elements ensures they are fully understandable on hover/focus, creating a cohesive, professional UX throughout dense forms.
 **Action:** Always wrap utility input accessories with `<Tooltip>` helpers and matching `aria-label` attributes to ensure consistent keyboard-driven and visual accessibility.
+
+## 2026-07-25 - Search and Filter Accessory Clear Buttons Focus-Visible & Tooltip Standard
+**Learning:** Dense trading dashboards with search inputs (such as decision logs, strategy config drawers, or scanner lists) frequently omit keyboard focus rings and tooltips for their inline clear buttons. Standardizing these accessory buttons with high-contrast keyboard-driven focus rings (`focus-visible:ring-2 focus-visible:ring-accent`), explicit screen-reader `aria-label` fields, and Radix-based `<Tooltip>` helpers provides a seamless, pro-grade accessibility flow for mouse and keyboard navigators.
+**Action:** Ensure all accessory inputs' clear action buttons across logs, configs, and scanner components utilize focus-visible rings and tooltip triggers consistently.

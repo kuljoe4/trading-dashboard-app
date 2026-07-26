@@ -809,7 +809,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
               <Tooltip content="Clear Filter">
                 <button
                   onClick={() => setSearch('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-full p-0.5 transition-colors"
                   aria-label="Clear Filter"
                 >
                   <XCircle size={14} />

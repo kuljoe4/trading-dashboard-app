@@ -73,11 +73,11 @@ describe('SessionStateService PnL Aggregation', () => {
     expect(service.stats.hitCount).toBe(1);
     expect(service.stats.entryCount).toBe(4); // 4 trades in session-123
 
-    // Strategy-specific stats check
+    // Strategy-specific stats check (only closed trades are stored in cachedClosedTradesStats)
     const strategyStats = service.cachedClosedTradesStats['Test Strategy'];
     expect(strategyStats).toBeDefined();
-    expect(strategyStats.pnl).toBe(35.0);
-    expect(strategyStats.count).toBe(4); // Should be consistent with entryCount now
+    expect(strategyStats.pnl).toBe(30.3);
+    expect(strategyStats.count).toBe(2);
     expect(strategyStats.hits).toBe(1);
   });
 });

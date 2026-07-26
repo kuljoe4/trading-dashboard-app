@@ -76,9 +76,11 @@ export class SessionStateService {
 
   public udsConfirmedClosedTrades: Set<string> = new Set();
   public localTradePnLAdjustments: Map<string, number> = new Map();
+  public currentSessionId: string | null = null;
 
   reset(config: SessionConfig, initialHistory: Trade[] = [], currentBalance?: number, sessionId?: string, initialOpen: Trade[] = []) {
     this.config = config;
+    this.currentSessionId = sessionId || null;
 
     this.statsVersion = 0;
     this.closedTrades = initialHistory;
@@ -142,16 +144,16 @@ export class SessionStateService {
       this.appliedStrategyPnL.set(trade.id, pnl);
       this.appliedStatsPnL.set(trade.id, pnl);
 
-      // Populate strategy-specific stats
-      const stats = this.cachedClosedTradesStats[label];
-      // CHRONOS: Realized portion (fees/funding) is tracked even for OPEN trades to ensure
-      // consistency with global stats and prevent PnL leakage upon session resume.
-      stats.pnl = roundEight(stats.pnl + pnl);
+      // Populate strategy-specific stats (only for closed trades to prevent double-counting upon session resume)
+      if (trade.status !== 'OPEN') {
+        const stats = this.cachedClosedTradesStats[label];
+        stats.pnl = roundEight(stats.pnl + pnl);
 
-      if (!trade.is_reconciliation) {
-        stats.count++;
-        if (trade.status !== 'OPEN' && pnl > 0) {
-          stats.hits++;
+        if (!trade.is_reconciliation) {
+          stats.count++;
+          if (pnl > 0) {
+            stats.hits++;
+          }
         }
       }
     };

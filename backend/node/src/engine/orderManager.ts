@@ -1212,12 +1212,19 @@ export class OrderManagerService {
 
         this.logger.warn(`[${trade.id.substring(0, 8)}] ${trade.symbol} SL ${currentSlPrice} already breached by price ${currentMarketPrice}. Adaptive limit reached or not profitable. Closing.`);
         const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
-        this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
-          symbol: trade.symbol,
-          exitPrice: currentMarketPrice,
-          reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
-          feesAlreadyAccounted: false // Local trigger, fee not yet accounted by UDS
-        });
+
+        // SRE Loop Prevention: Only emit EXCHANGE_CLOSE if we are not already in a close sequence or close_blocked
+        const isClosing = this.closureLocks.get(trade.symbol) === true;
+        if (!isClosing && !trade.close_blocked) {
+          this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
+            symbol: trade.symbol,
+            exitPrice: currentMarketPrice,
+            reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
+            feesAlreadyAccounted: false // Local trigger, fee not yet accounted by UDS
+          });
+        } else {
+          this.logger.log(`[${trade.id.substring(0, 8)}] ${trade.symbol} SL breach detected but skipped EXCHANGE_CLOSE event dispatch (isClosing=${isClosing}, close_blocked=${!!trade.close_blocked}).`);
+        }
         return { orderId: 'TRIGGERED_LOCALLY', price: currentSlPrice };
       }
     }
@@ -3000,8 +3007,10 @@ export class OrderManagerService {
                     await this.binanceClient!.restAPI.cancelAllOpenOrders({ symbol });
                   } catch (flushErr) {}
 
-                  // ROLLBACK: Re-place SL if it was cancelled and close failed
-                  if (!trade.binance_stop_order_id) {
+                  // ROLLBACK: Re-place SL if it was cancelled, close failed, and we are not blocked/exhausted
+                  const isExhausted = (trade.close_attempts || 0) >= MAX_CLOSE_ATTEMPTS;
+                  const willBeBlocked = trade.close_blocked || isExhausted;
+                  if (!trade.binance_stop_order_id && !willBeBlocked) {
                      this.logger.warn(`[${symbol}] Close failed but position persists. Re-arming protection SL...`);
                      await this.placeStopLoss(trade, trade.current_sl);
                   }
@@ -3053,8 +3062,8 @@ export class OrderManagerService {
         } finally {
           // SRE: Atomicity Guard. If the close sequence was initiated but did not result
           // in a confirmed success, ensure the position remains protected by re-arming
-          // the SL.
-          if (!closeSuccess && !localOnly && trade.status === 'OPEN' && !this.paperMode) {
+          // the SL. Only re-arm if we are not blocked (e.g. close attempts exhausted).
+          if (!closeSuccess && !localOnly && trade.status === 'OPEN' && !this.paperMode && !trade.close_blocked) {
              this.logger.warn(`[${symbol}] Close sequence finished without success. Re-arming protection SL...`);
              if (trade.binance_stop_order_id) {
                 try {

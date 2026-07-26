@@ -361,7 +361,7 @@ export class EngineBroadcasterService {
     let totalRiskUsdt = 0;
     let totalEstPnlToRealize = 0;
     const hasVariants = !!(config?.strategy_variants?.length);
-    const variantGroups: Record<string, { pnl: number, risk: number, count: number, hits: number }> = {};
+    const variantGroups: Record<string, { pnl: number, risk: number, count: number, hits: number, estPnlToRealize: number }> = {};
     const priceCache = new Map<string, number | null>();
 
     const riskResult = this.riskEngine.canEnter(this.positionTracker.activeList(), this.sessionState.closedTrades, this.sessionState.getBalance(config?.paper_mode ?? true), 'DUMMY', config, this.positionTracker.totalRisk());
@@ -435,12 +435,13 @@ export class EngineBroadcasterService {
 
       if (hasVariants) {
         const label = trade.strategy_label || 'Momentum Strategy';
-        if (!variantGroups[label]) variantGroups[label] = { pnl: 0, risk: 0, count: 0, hits: 0 };
+        if (!variantGroups[label]) variantGroups[label] = { pnl: 0, risk: 0, count: 0, hits: 0, estPnlToRealize: 0 };
         const g = variantGroups[label];
         g.pnl = roundEight(g.pnl + pnlValue);
         g.risk = roundEight(g.risk + (trade.risk_usdt || 0));
         g.count++;
         if (pnlValue > 0) g.hits++;
+        g.estPnlToRealize = roundEight(g.estPnlToRealize + maxEstPnlForTrade);
       }
 
       let tradeChanged = !prevTrade || isHeartbeat;
@@ -507,14 +508,16 @@ export class EngineBroadcasterService {
       const closedStats = this.sessionState.cachedClosedTradesStats;
       for (let i = 0; i < strategyConfigs.length; i++) {
         const l = strategyConfigs[i].strategy_label!;
-        const a = variantGroups[l] || { pnl: 0, risk: 0, count: 0, hits: 0 };
+        const a = variantGroups[l] || { pnl: 0, risk: 0, count: 0, hits: 0, estPnlToRealize: 0 };
         const c = closedStats[l] || { pnl: 0, count: 0, hits: 0 };
         variantStats[l] = {
             totalPnl: roundEight(c.pnl + a.pnl),
             entryCount: c.count + a.count,
             hitCount: c.hits + a.hits,
             totalRiskPct: roundTo(balance > 0 ? (a.risk / balance) * 100 : 0, 2),
-            activeTradeCount: a.count
+            activeTradeCount: a.count,
+            totalSlUsed: roundTo(a.risk, 2),
+            totalEstPnlToRealize: roundTo(a.estPnlToRealize || 0, 2)
         };
       }
     }

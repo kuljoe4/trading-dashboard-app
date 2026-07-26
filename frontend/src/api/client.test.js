@@ -250,3 +250,44 @@ describe('sanitizeSessionConfig', () => {
     assert.deepEqual(sanitized.signal_timeframes, { ema: '5m' })
   })
 })
+
+describe('presetsAPI', () => {
+  it('encodes special characters in preset names during delete requests', async () => {
+    const deleteCalls = []
+    const mockApi = {
+      get: () => Promise.resolve({}),
+      post: () => Promise.resolve({}),
+      patch: () => Promise.resolve({}),
+      delete: (url) => {
+        deleteCalls.push(url)
+        return Promise.resolve({ data: { success: true } })
+      }
+    }
+
+    // Import or mock the presetsAPI to use the custom api instance, or we can inspect presetsAPI directly from module
+    // Let's create presetsAPI wrapper or dynamically call client
+    const { presetsAPI } = await import('./client.js')
+
+    // We can also test by calling client's delete method. Since we exported presetsAPI, let's inject mock or intercept using axios mock, or test the function directly:
+    // To ensure zero side-effects, let's verify that deleting names with % and spaces are encoded.
+    // Instead of altering the global axios instance, we can verify presetsAPI.delete exists and constructs the URL correctly by mock-intercepting:
+    const originalDelete = presetsAPI.delete
+    try {
+      let requestedUrl = ''
+      // Mock the default exported axios/api client
+      const defaultClient = (await import('./client.js')).default
+      const originalAxiosDelete = defaultClient.delete
+      defaultClient.delete = (url) => {
+        requestedUrl = url
+        return Promise.resolve({ data: { success: true } })
+      }
+
+      await presetsAPI.delete('Scalp High Vol [9,21] > 2.5%')
+      assert.equal(requestedUrl, '/presets/Scalp%20High%20Vol%20%5B9%2C21%5D%20%3E%202.5%25')
+
+      defaultClient.delete = originalAxiosDelete
+    } finally {
+      presetsAPI.delete = originalDelete
+    }
+  })
+})

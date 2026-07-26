@@ -332,7 +332,7 @@ export class ExecutionService {
 
         try {
           const result = await this.orderManager.enter(
-            this.sessionState.config?.strategy_label || uuid().substring(0, 8),
+            this.sessionState.currentSessionId || uuid().substring(0, 8),
             opp.symbol,
             opp.direction.toUpperCase() as 'LONG' | 'SHORT',
             price,

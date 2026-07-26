@@ -39,40 +39,65 @@ export class RiskEngineService {
   ): ReturnType<RiskEngineService['checkFrequencyAndPerformanceLimits']> {
     const now = Date.now();
 
+    const strategyLabel = config.strategy_label || 'Momentum Strategy';
+    const isBaseStrategy = strategyLabel === 'Momentum Strategy';
+
+    const activeTradesForStrategy = activeTrades.filter(t => {
+      const isTradeBase = !t.strategy_label || t.strategy_label === 'Momentum Strategy';
+      if (isBaseStrategy) return isTradeBase;
+      return t.strategy_label === strategyLabel;
+    });
+
+    const closedTradesForStrategy = closedTrades.filter(t => {
+      const isTradeBase = !t.strategy_label || t.strategy_label === 'Momentum Strategy';
+      if (isBaseStrategy) return isTradeBase;
+      return t.strategy_label === strategyLabel;
+    });
+
+    const totalSlUsedForStrategy = activeTradesForStrategy.reduce((sum, t) => sum + (t.risk_usdt || 0), 0);
+
     // 1. Static Configuration Checks
     const maxOpenTrades = config.max_open_trades ?? 5;
     const maxOpenTradesPerSymbol = config.max_open_trades_per_symbol ?? 1;
     const maxTotalRiskPct = config.max_total_risk_pct ?? 5.0;
     const totalSlGuardUsdt = config.total_sl_guard_usdt ?? 200.0;
 
-    // BOLT: Include enteringCount in capacity check to prevent exceeding limits during concurrency
-    if (activeTrades.length + enteringCount >= maxOpenTrades) {
-      return { canEnter: false, reason: `Global max open trades (${maxOpenTrades}) reached (incl. ${enteringCount} pending)` };
+    // Global stop loss guard check across ALL strategies for absolute portfolio safety
+    const globalSlGuard = config.total_sl_guard_usdt ?? 200.0;
+    if (totalSlUsed >= globalSlGuard) {
+      return { canEnter: false, reason: `Global Total SL ${Number(totalSlUsed || 0).toFixed(2)} USDT >= guard ${globalSlGuard} USDT` };
     }
 
-    const symbolTradeCount = activeTrades.filter(t => t.symbol === symbol).length;
+    // BOLT: Include enteringCount in capacity check to prevent exceeding limits during concurrency (strategy-scoped)
+    if (activeTradesForStrategy.length + enteringCount >= maxOpenTrades) {
+      const maxOpenMsg = isBaseStrategy ? `Global max open trades (${maxOpenTrades}) reached` : `Strategy max open trades (${maxOpenTrades}) reached`;
+      return { canEnter: false, reason: `${maxOpenMsg} (incl. ${enteringCount} pending)${!isBaseStrategy ? ' for label "' + strategyLabel + '"' : ''}` };
+    }
+
+    const symbolTradeCount = activeTradesForStrategy.filter(t => t.symbol === symbol).length;
     if (symbolTradeCount >= maxOpenTradesPerSymbol) {
-      return { canEnter: false, reason: `Max open trades for ${symbol} (${maxOpenTradesPerSymbol}) reached` };
+      return { canEnter: false, reason: `Max open trades for ${symbol} (${maxOpenTradesPerSymbol}) reached${!isBaseStrategy ? ' for label "' + strategyLabel + '"' : ''}` };
     }
 
     const riskPerTrade = prospectiveRiskPct !== undefined ? prospectiveRiskPct : (config.risk_pct_per_trade ?? 1.0);
-    const totalRiskPct = balance > 0 ? (totalSlUsed / balance) * 100 : 0;
+    // In base strategy (or tests), fallback to the passed totalSlUsed to maintain backward compatibility
+    const slUsed = isBaseStrategy ? totalSlUsed : totalSlUsedForStrategy;
+    const totalRiskPct = balance > 0 ? (slUsed / balance) * 100 : 0;
 
     // SRE: Tight Gating. Ensure prospective total risk (current + next entry) does not exceed ceiling.
-    // This prevents a 2% limit from being breached by a new 1% entry when currently at 1.5%.
     if (totalRiskPct + riskPerTrade > maxTotalRiskPct + 0.0001) {
       return {
         canEnter: false,
-        reason: `Risk ceiling reached: ${totalRiskPct.toFixed(2)}% + ${riskPerTrade.toFixed(2)}% prospective > ${maxTotalRiskPct}% max`
+        reason: `Risk ceiling reached for label "${strategyLabel}": ${totalRiskPct.toFixed(2)}% + ${riskPerTrade.toFixed(2)}% prospective > ${maxTotalRiskPct}% max`
       };
     }
 
-    if (totalSlUsed >= totalSlGuardUsdt) {
-      return { canEnter: false, reason: `Total SL ${Number(totalSlUsed || 0).toFixed(2)} USDT >= guard ${totalSlGuardUsdt} USDT` };
+    if (totalSlUsedForStrategy >= totalSlGuardUsdt) {
+      return { canEnter: false, reason: `Strategy Total SL ${Number(totalSlUsedForStrategy || 0).toFixed(2)} USDT >= guard ${totalSlGuardUsdt} USDT for label "${strategyLabel}"` };
     }
 
-    // 2. Frequency, Spacing & Performance Check (ULTRA-OPTIMIZED SINGLE PASS)
-    return this.checkFrequencyAndPerformanceLimits(activeTrades, closedTrades, config, now, enteringCount, symbol, marketScore);
+    // 2. Frequency, Spacing & Performance Check (ULTRA-OPTIMIZED SINGLE PASS - strategy-scoped)
+    return this.checkFrequencyAndPerformanceLimits(activeTradesForStrategy, closedTradesForStrategy, config, now, enteringCount, symbol, marketScore);
   }
 
   /**
@@ -226,7 +251,9 @@ export class RiskEngineService {
 
     // BOLT OPTIMIZATION: Use cached closed trade stats if available for the current window.
     // SRE: Use 5s bucketing for the timestamps in the cache key to stabilize hits during high frequency loops.
-    const cacheKey = `${closedTrades.length}_${closedTrades[0]?.id || 'none'}_${currentHour}_${Math.floor(dayAgo / 5000)}_${Math.floor(periodStartMs / 5000)}`;
+    // Include strategy_label to prevent cache collision across different strategy variants.
+    const strategyLabel = config.strategy_label || 'Momentum Strategy';
+    const cacheKey = `${strategyLabel}_${closedTrades.length}_${closedTrades[0]?.id || 'none'}_${currentHour}_${Math.floor(dayAgo / 5000)}_${Math.floor(periodStartMs / 5000)}`;
 
     if (this._closedStatsCache && this._closedStatsCache.key === cacheKey) {
       const s = this._closedStatsCache.stats;

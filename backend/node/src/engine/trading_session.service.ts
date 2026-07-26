@@ -1118,7 +1118,9 @@ export class TradingSessionService implements OnApplicationShutdown {
     const startingBalance =
       mode === "paper"
         ? this.config?.paper_starting_balance || 10000
-        : this.config?.live_starting_balance || 0;
+        : (mode === "testnet"
+            ? this.config?.testnet_starting_balance || 10000
+            : this.config?.live_starting_balance || 0);
     const currentBalance = this.getBalance();
 
     // DATA-CONSISTENCY: Use mode-specific profit calculation.

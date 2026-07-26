@@ -36,7 +36,7 @@ export const SignalGauge = React.memo(({
     active,
     insufficientData,
     threshold_is_price: thresholdIsPrice
-  }, markPrice, entryPrice);
+  }, markPrice, entryPrice, isLong, type === 'exit');
 
   const getStatus = () => {
     if (insufficientData) return { label: 'Collecting', color: 'text-dim bg-background/50 border-border/40' }

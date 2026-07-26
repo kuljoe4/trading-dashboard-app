@@ -25,8 +25,14 @@ export class VariantAnalyticsService {
       groups[l].estPnlToRealize = roundEight(groups[l].estPnlToRealize + (t.est_pnl_to_realize || 0));
     }
 
+    const allLabels = new Set<string>();
     strategyConfigs.forEach(cfg => {
-      const l = cfg.strategy_label!;
+      if (cfg.strategy_label) allLabels.add(cfg.strategy_label);
+    });
+    Object.keys(groups).forEach(l => allLabels.add(l));
+    Object.keys(closedStats).forEach(l => allLabels.add(l));
+
+    allLabels.forEach(l => {
       const a = groups[l] || { pnl: 0, risk: 0, count: 0, hits: 0, estPnlToRealize: 0 };
       const c = closedStats[l] || { pnl: 0, count: 0, hits: 0 };
       variantStats[l] = {

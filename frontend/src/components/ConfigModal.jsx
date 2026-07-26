@@ -760,27 +760,60 @@ EnvironmentButton.displayName = 'EnvironmentButton'
 const PresetItem = React.memo(({ preset, isLoaded, isDirty, onLoad, onToggleVariant, onDelete, isVariant }) => {
   const pMode = preset.config.trading_mode || (preset.config.paper_mode ? 'paper' : 'live');
   return (
-    <div className="flex items-center justify-between p-4 bg-background border border-border rounded-2xl transition-all group/preset">
-      <button type="button" onClick={() => onLoad(preset)} className="flex-1 flex items-center gap-4 text-left">
-      <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center border transition-colors", isVariant ? "bg-accent border-accent text-white" : "bg-surface border-border text-dim group-hover/preset:border-accent/20")}>
-        {isVariant ? <ShieldCheck size={20} /> : <Zap size={20} />}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-bold group-hover/preset:text-accent transition-colors flex items-center gap-2 flex-wrap">
-           <span className="truncate">{preset.name}</span>
-           <div className="flex items-center gap-1 scale-[0.7] origin-left shrink-0">
-             {pMode === 'paper' && <PaperBadge />}
-             {pMode === 'testnet' && <DemoBadge />}
-             {pMode === 'live' && <LiveBadge />}
-           </div>
-           {isLoaded && (
-             <span className={cn("text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase", isDirty ? "bg-amber/10 text-amber" : "bg-accent/10 text-accent")}>
-               {isDirty ? "Modified" : "Current"}
-             </span>
-           )}
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={{ duration: 0.2, ease: "easeInOut" }}
+      className={cn(
+        "flex items-center justify-between p-4 bg-background border rounded-2xl transition-all group/preset relative overflow-hidden",
+        isLoaded
+          ? "border-accent/40 shadow-[0_0_12px_rgba(var(--accent-rgb),0.06)] bg-accent/[0.01]"
+          : isVariant
+          ? "border-purple/40 shadow-[0_0_12px_rgba(168,85,247,0.06)] bg-purple/[0.01]"
+          : "border-border hover:border-border-hover hover:bg-white/[0.01]"
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => onLoad(preset)}
+        className="flex-1 flex items-center gap-4 text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl p-1 transition-all"
+        aria-label={`Load preset ${preset.name}`}
+      >
+        <div className={cn(
+          "w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300",
+          isLoaded
+            ? "bg-accent/15 border-accent/30 text-accent shadow-[0_0_8px_rgba(var(--accent-rgb),0.15)]"
+            : isVariant
+            ? "bg-purple/15 border-purple/30 text-purple shadow-[0_0_8px_rgba(168,85,247,0.15)]"
+            : "bg-surface border-border text-dim group-hover/preset:border-accent/20 group-hover/preset:text-accent group-hover/preset:scale-105"
+        )}>
+          {isLoaded ? <CheckCircle2 size={18} /> : isVariant ? <ShieldCheck size={18} /> : <Zap size={18} />}
         </div>
-        <div className="text-[10px] text-dim font-bold uppercase tracking-tight">{preset.config.scan_interval} · {preset.config.scan_pct_threshold}% · {preset.config.risk_pct_per_trade}% Risk</div>
-      </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-bold group-hover/preset:text-accent transition-colors flex items-center gap-2 flex-wrap">
+             <span className="truncate">{preset.name}</span>
+             <div className="flex items-center gap-1 scale-[0.7] origin-left shrink-0">
+               {pMode === 'paper' && <PaperBadge />}
+               {pMode === 'testnet' && <DemoBadge />}
+               {pMode === 'live' && <LiveBadge />}
+             </div>
+             {isLoaded && (
+               <span className={cn("text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase", isDirty ? "bg-amber/10 text-amber" : "bg-accent/10 text-accent")}>
+                 {isDirty ? "Modified" : "Active"}
+               </span>
+             )}
+             {isVariant && !isLoaded && (
+               <span className="text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase bg-purple/10 text-purple">
+                 Variant
+               </span>
+             )}
+          </div>
+          <div className="text-[10px] text-dim font-bold uppercase tracking-tight mt-0.5">
+            {preset.config.scan_interval} · {preset.config.scan_pct_threshold}% · {preset.config.risk_pct_per_trade}% Risk
+          </div>
+        </div>
       </button>
 
       <div className="flex items-center gap-2">
@@ -789,7 +822,12 @@ const PresetItem = React.memo(({ preset, isLoaded, isDirty, onLoad, onToggleVari
             type="button"
             onClick={(e) => onToggleVariant(e, preset)}
             aria-label={isVariant ? `Remove ${preset.name} from variants` : `Add ${preset.name} as variant`}
-            className={cn("p-2 rounded-lg transition-all active:scale-95", isVariant ? "bg-accent/10 text-accent border border-accent/20" : "bg-surface border border-border text-dim hover:text-accent hover:border-accent/20")}
+            className={cn(
+              "p-2 rounded-lg transition-all active:scale-95 border focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+              isVariant
+                ? "bg-purple/10 text-purple border-purple/20 hover:bg-purple/20"
+                : "bg-surface border-border text-dim hover:text-accent hover:border-accent/20"
+            )}
           >
             {isVariant ? <XCircle size={16} /> : <Plus size={16} />}
           </button>
@@ -799,13 +837,13 @@ const PresetItem = React.memo(({ preset, isLoaded, isDirty, onLoad, onToggleVari
             type="button"
             onClick={(e) => onDelete(e, preset.name)}
             aria-label={`Delete preset ${preset.name}`}
-            className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"
+            className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5 focus-visible:ring-2 focus-visible:ring-red focus-visible:outline-none"
           >
             <Trash2 size={16} />
           </button>
         </Tooltip>
       </div>
-    </div>
+    </motion.div>
   );
 })
 PresetItem.displayName = 'PresetItem'
@@ -918,6 +956,29 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [modeWarning, setModeWarning] = useState(null)
   const [loadedPresetName, setLoadedPresetName] = useState(() => sessionStorage.getItem('loaded_preset_name'));
   const [presetToDelete, setPresetToDelete] = useState(null);
+  const [presetSearch, setPresetSearch] = useState('');
+
+  const partitionedPresets = useMemo(() => {
+    const searchLower = presetSearch.toLowerCase().trim();
+    const filtered = presets.filter(p =>
+      !searchLower || p.name.toLowerCase().includes(searchLower)
+    );
+
+    const active = [];
+    const available = [];
+
+    filtered.forEach(p => {
+      const isLoaded = loadedPresetName === p.name;
+      const isVar = (cfg.strategy_variants || []).some(v => v.strategy_label === p.name);
+      if (isLoaded || isVar) {
+        active.push(p);
+      } else {
+        available.push(p);
+      }
+    });
+
+    return { active, available };
+  }, [presets, presetSearch, loadedPresetName, cfg.strategy_variants]);
 
   // Use a debounced effect for sessionStorage to avoid heavy stringify on every keystroke
   useEffect(() => {
@@ -2494,8 +2555,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   <Btn variant="ghost" onClick={handleExportToFile} className="flex items-center justify-center gap-2 py-3 border-border hover:bg-accent/5 hover:border-accent/40">
                     <Download size={16} /> Export JSON
                   </Btn>
-                  <label className="relative">
-                    <input type="file" accept=".json" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
+                  <label className="relative focus-within:ring-2 focus-within:ring-accent focus-within:outline-none rounded-xl block">
+                    <input type="file" accept=".json" aria-label="Import JSON config file" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer z-10 outline-none" />
                     <div className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl border border-border bg-transparent text-xs font-bold transition-all hover:bg-accent/5 hover:border-accent/40 cursor-pointer">
                       <Upload size={16} /> Import JSON
                     </div>
@@ -2504,33 +2565,105 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
             </section>
 
-            <section className="pt-6 border-t border-border/40">
-              <div className="flex justify-between items-center mb-4">
-                <SectionHeader icon={FolderOpen} title="Manage Presets" subtitle="Load or combine strategies" />
-                <div className="text-[9px] text-dim font-black uppercase bg-background px-2 py-1 rounded border border-border">
-                  {cfg.strategy_variants?.length || 0} / {CONFIG_LIMITS.MAX_VARIANTS} Variants
+            <section className="pt-6 border-t border-border/40 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex justify-between items-center w-full sm:w-auto">
+                  <SectionHeader icon={FolderOpen} title="Manage Presets" subtitle="Load or combine strategies" />
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="relative flex-1 sm:w-64">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/50" />
+                    <input
+                      type="text"
+                      placeholder="Search preset by name..."
+                      value={presetSearch}
+                      onChange={(e) => setPresetSearch(e.target.value)}
+                      className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-xs focus:border-accent outline-none hover:border-border-hover transition-colors"
+                    />
+                    {presetSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setPresetSearch('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
+                        aria-label="Clear Preset Search"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="text-[9px] text-dim font-black uppercase bg-background px-2.5 py-1.5 rounded-lg border border-border shrink-0">
+                    {cfg.strategy_variants?.length || 0} / {CONFIG_LIMITS.MAX_VARIANTS} Variants
+                  </div>
                 </div>
               </div>
 
-              <div className="space-y-3">
-                {presets.length === 0 ? (
-                  <div className="p-12 border-2 border-dashed border-border rounded-2xl text-center">
-                    <FolderOpen size={32} className="mx-auto mb-4 text-dim/20" />
-                    <div className="text-xs font-bold text-dim uppercase">No saved presets</div>
-                  </div>
-                ) : presets.map(p => (
-                  <PresetItem
-                    key={p.name}
-                    preset={p}
-                    isLoaded={loadedPresetName === p.name}
-                    isDirty={isDirty}
-                    onLoad={loadPreset}
-                    onToggleVariant={toggleVariant}
-                    onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
-                    isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
-                  />
-                ))}
-              </div>
+              {presets.length === 0 ? (
+                <div className="p-12 border-2 border-dashed border-border rounded-2xl text-center">
+                  <FolderOpen size={32} className="mx-auto mb-4 text-dim/20" />
+                  <div className="text-xs font-bold text-dim uppercase">No saved presets</div>
+                </div>
+              ) : partitionedPresets.active.length === 0 && partitionedPresets.available.length === 0 ? (
+                <div className="p-10 border border-dashed border-border rounded-2xl text-center space-y-3">
+                  <Search size={28} className="mx-auto text-dim/30" />
+                  <div className="text-xs font-bold text-dim uppercase">No matching presets found</div>
+                  <Btn variant="ghost" onClick={() => setPresetSearch('')} className="text-accent hover:bg-accent/5 py-1 px-3 text-[10px] uppercase font-black tracking-widest">
+                    Clear Filter
+                  </Btn>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Active Orchestration Section */}
+                  {partitionedPresets.active.length > 0 && (
+                    <div className="space-y-2.5 animate-in fade-in duration-300">
+                      <div className="flex items-center gap-2 px-1 text-[9px] font-black uppercase tracking-widest text-accent">
+                        <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                        Active Strategy & Enabled Variants
+                      </div>
+                      <motion.div layout className="space-y-2.5">
+                        <AnimatePresence mode="popLayout">
+                          {partitionedPresets.active.map(p => (
+                            <PresetItem
+                              key={p.name}
+                              preset={p}
+                              isLoaded={loadedPresetName === p.name}
+                              isDirty={isDirty}
+                              onLoad={loadPreset}
+                              onToggleVariant={toggleVariant}
+                              onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
+                              isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
+                            />
+                          ))}
+                        </AnimatePresence>
+                      </motion.div>
+                    </div>
+                  )}
+
+                  {/* Preset Library Section */}
+                  {partitionedPresets.available.length > 0 && (
+                    <div className="space-y-2.5">
+                      <div className="flex items-center gap-2 px-1 text-[9px] font-black uppercase tracking-widest text-dim">
+                        Preset Library
+                      </div>
+                      <motion.div layout className="space-y-2.5">
+                        <AnimatePresence mode="popLayout">
+                          {partitionedPresets.available.map(p => (
+                            <PresetItem
+                              key={p.name}
+                              preset={p}
+                              isLoaded={loadedPresetName === p.name}
+                              isDirty={isDirty}
+                              onLoad={loadPreset}
+                              onToggleVariant={toggleVariant}
+                              onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
+                              isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
+                            />
+                          ))}
+                        </AnimatePresence>
+                      </motion.div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <ConfirmationModal
                 isOpen={!!presetToDelete}

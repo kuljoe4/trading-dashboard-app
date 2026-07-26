@@ -475,6 +475,29 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
 
   const [alertIndex, setAlertIndex] = React.useState(0)
   const [showDropdown, setShowDropdown] = React.useState(false)
+  const [hasActiveModal, setHasActiveModal] = React.useState(false)
+
+  // SRE-PERF: Highly optimized MutationObserver to detect active overlay modals/dialogs.
+  // When a modal is open, we suppress the global ticker to prevent background visual noise,
+  // screen-reader clutter, and accidental background keyboard tab indexing.
+  React.useEffect(() => {
+    const checkModals = () => {
+      const isOpen = !!document.querySelector('[role="dialog"], [role="alertdialog"], [data-state="open"]');
+      setHasActiveModal(isOpen);
+    };
+
+    checkModals();
+
+    const observer = new MutationObserver(checkModals);
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-state', 'class', 'style']
+    });
+
+    return () => observer.disconnect();
+  }, []);
 
   React.useEffect(() => {
     if (!alerts || alerts.length <= 1) {
@@ -487,7 +510,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
     return () => clearInterval(interval)
   }, [alerts])
 
-  const activeAlert = alerts && alerts.length > 0 ? alerts[alertIndex % alerts.length] : null
+  const activeAlert = !hasActiveModal && alerts && alerts.length > 0 ? alerts[alertIndex % alerts.length] : null
 
   return (
     <div className={cn(

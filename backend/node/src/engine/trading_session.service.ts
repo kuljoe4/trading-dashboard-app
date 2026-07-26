@@ -342,6 +342,7 @@ export class TradingSessionService implements OnApplicationShutdown {
           res.trade.pnl || 0,
           res.trade.is_reconciliation,
           res.trade.id,
+          res.trade.strategy_label
         );
         this.sessionState.addClosedTrade(res.trade);
         await this.updateBalance(res.trade);
@@ -496,7 +497,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       this.appliedPnL.set(trade.id, roundEight(prevApplied + pnlDelta));
 
       // SRE: Update sessionStats to include realized PnL from active trades (fees/funding/partial hits)
-      this.sessionState.updateStatsOnClose(false, trade.pnl, false, trade.id);
+      this.sessionState.updateStatsOnClose(false, trade.pnl, false, trade.id, trade.strategy_label);
     }
 
     if (this.onTradeUpdate) await this.onTradeUpdate(trade, this.getBalance());
@@ -507,45 +508,59 @@ export class TradingSessionService implements OnApplicationShutdown {
     if (!this.running || !this.config) return;
     const activeTrades = this.positionTracker.activeList();
     const prevGateState = this.sessionState.gateState;
-    const isInsideWindow = this.gatingService.isInsideTradingWindow(
-      this.config!,
-    );
+    const strategyConfigs = this.getStrategyConfigs();
 
-    const riskResult = this.riskEngine.canEnter(
-      activeTrades,
-      this.sessionState.closedTrades,
-      this.getBalance(),
-      "DUMMY",
-      this.config!,
-      this.positionTracker.totalRisk(),
-    );
-    const hasUnscheduledMonitors = this.config.single_symbol_configs?.some(
-      (sc) => sc.enabled && sc.follow_schedule === false,
-    );
+    let baseGateState: string | null = null;
+    let baseGateReason: string | null = null;
+    let baseRiskResult: any = null;
 
-    if (!isInsideWindow && !hasUnscheduledMonitors) {
-      this.sessionState.gateState = "sleeping";
-      this.sessionState.isAdaptiveTightened =
-        riskResult.isAdaptiveTightened || false;
-    } else if (!riskResult.canEnter) {
-      // If gating is due to risk (not just symbol max trades), update gateState
-      // BOLT: Only update gateState if the reason is NOT a per-symbol limit.
-      // Per-symbol limits should not trigger a global 'gated' UI state.
-      if (!riskResult.reason.includes("Max open trades for")) {
-        this.sessionState.gateState = this.gatingService.mapGateState(
-          riskResult.reason,
-        );
-      } else {
-        // If it was gated but now it's only a per-symbol limit, clear the global gateState
-        this.sessionState.gateState = null;
+    for (const sc of strategyConfigs) {
+      const label = sc.strategy_label || 'Momentum Strategy';
+      const isInsideWindow = this.gatingService.isInsideTradingWindow(sc);
+      const riskResult = this.riskEngine.canEnter(
+        activeTrades,
+        this.sessionState.closedTrades,
+        this.getBalance(),
+        "DUMMY",
+        sc,
+        this.positionTracker.totalRisk(),
+      );
+
+      let gateState: string | null = null;
+      let gateReason: string | null = null;
+
+      const hasUnscheduledMonitors = sc.single_symbol_configs?.some(
+        (ssc) => ssc.enabled && ssc.follow_schedule === false,
+      );
+
+      if (!isInsideWindow && !hasUnscheduledMonitors) {
+        gateState = "sleeping";
+      } else if (!riskResult.canEnter) {
+        if (!riskResult.reason.includes("Max open trades for")) {
+          gateState = this.gatingService.mapGateState(riskResult.reason);
+        }
       }
-      this.sessionState.isAdaptiveTightened =
-        riskResult.isAdaptiveTightened || false;
-    } else {
-      this.sessionState.gateState = null;
-      this.sessionState.isAdaptiveTightened =
-        riskResult.isAdaptiveTightened || false;
+
+      gateReason = riskResult.reason;
+
+      if (this.sessionState.strategyGateStates) {
+        this.sessionState.strategyGateStates.set(label, {
+          gateState,
+          gateReason,
+          isAdaptiveTightened: riskResult.isAdaptiveTightened || false,
+        });
+      }
+
+      if (label === (this.config.strategy_label || 'Momentum Strategy')) {
+        baseGateState = gateState;
+        baseGateReason = gateReason;
+        baseRiskResult = riskResult;
+        this.sessionState.isAdaptiveTightened = riskResult.isAdaptiveTightened || false;
+      }
     }
+
+    this.sessionState.gateState = baseGateState;
+    const riskResultToUse = baseRiskResult || { reason: 'OK', isAdaptiveTightened: false, nextSlotTs: null };
 
     const shouldHibernate = this.isGated() && activeTrades.length === 0;
 
@@ -573,10 +588,10 @@ export class TradingSessionService implements OnApplicationShutdown {
               !this.sessionState.hibernating
             ) {
               this.logger.log(
-                `[Gating] Transitioning to DEEP SLEEP. Reason: ${riskResult.reason || "Session gated and idle"}`,
+                `[Gating] Transitioning to DEEP SLEEP. Reason: ${riskResultToUse.reason || "Session gated and idle"}`,
               );
               await this.gatingService.enterHibernation(
-                riskResult.reason || "Session gated and idle",
+                riskResultToUse.reason || "Session gated and idle",
                 this.config!,
                 this.positionTracker.activeList(),
               );
@@ -593,7 +608,7 @@ export class TradingSessionService implements OnApplicationShutdown {
         const label = mode === "light" ? "LIGHT SLEEP" : "DEEP SLEEP";
         this.logger.log(`[Gating] Entering ${label} immediately.`);
         await this.gatingService.enterHibernation(
-          riskResult.reason || "Session gated and idle",
+          riskResultToUse.reason || "Session gated and idle",
           this.config!,
           activeTrades,
         );
@@ -627,14 +642,14 @@ export class TradingSessionService implements OnApplicationShutdown {
     }
 
     const prevReason = this.sessionState.gateReason;
-    this.sessionState.gateReason = riskResult.reason;
+    this.sessionState.gateReason = riskResultToUse.reason;
 
     if (
       this.sessionState.gateState !== prevGateState ||
-      riskResult.reason !== prevReason
+      riskResultToUse.reason !== prevReason
     ) {
       if (this.sessionState.gateState !== prevGateState) {
-        const msg = `[Gating] State changed: ${prevGateState || "ACTIVE"} -> ${this.sessionState.gateState || "ACTIVE"}. Reason: ${riskResult.reason}`;
+        const msg = `[Gating] State changed: ${prevGateState || "ACTIVE"} -> ${this.sessionState.gateState || "ACTIVE"}. Reason: ${riskResultToUse.reason}`;
         this.logger.log(msg);
         this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
           msg,
@@ -652,9 +667,9 @@ export class TradingSessionService implements OnApplicationShutdown {
         this._lastGateBroadcastTs = now;
         this.broadcast("gate", {
           gateState: this.sessionState.gateState,
-          reason: riskResult.reason,
-          isAdaptiveTightened: riskResult.isAdaptiveTightened,
-          nextSlotTs: riskResult.nextSlotTs,
+          reason: riskResultToUse.reason,
+          isAdaptiveTightened: riskResultToUse.isAdaptiveTightened,
+          nextSlotTs: riskResultToUse.nextSlotTs,
           scannerPaused:
             this.sessionState.gateState === "max_trades" ||
             this.sessionState.gateState === "sl_guard" ||
@@ -672,7 +687,7 @@ export class TradingSessionService implements OnApplicationShutdown {
         );
       }
     }
-    return riskResult;
+    return riskResultToUse;
   }
 
   private async mainLoop() {
@@ -831,17 +846,33 @@ export class TradingSessionService implements OnApplicationShutdown {
         }
       } else this.refreshActiveWindows(primaryOpportunities);
 
-      if (this.isGated()) {
+      if (this.sessionState.paused) {
         this.mainLoopProcessing = false;
         return;
       }
 
       for (const sc of strategyConfigs) {
+        const label = sc.strategy_label || "Momentum Strategy";
+
+        // Check if strategy is paused
+        if (this.sessionState.isStrategyPaused ? this.sessionState.isStrategyPaused(label) : (this.sessionState.paused || (this.sessionState.pausedStrategies && this.sessionState.pausedStrategies.has(label)))) {
+          this.logger.debug(`Strategy ${label} is paused. Skipping entries.`);
+          continue;
+        }
+
+        // Check if strategy gating is active
+        const gateInfo = this.sessionState.strategyGateStates ? this.sessionState.strategyGateStates.get(label) : null;
+        const isGated = ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(gateInfo?.gateState || '');
+        if (isGated) {
+          this.logger.debug(`Strategy ${label} is gated (${gateInfo?.gateState}). Skipping entries.`);
+          continue;
+        }
+
         const opps = opportunitiesBySignature.get(this.scanSignature(sc)) || [];
         await this.executionService.processEntries(
           opps,
           sc,
-          sc.strategy_label || "Momentum Strategy",
+          label,
           async (t) => {
             // Immediately deduct entry fee from session balance to keep total PnL accurate
             await this.updateBalance(t);
@@ -946,6 +977,14 @@ export class TradingSessionService implements OnApplicationShutdown {
       status,
       running: this.running,
       paused: this.sessionState.paused,
+      paused_strategies: Array.from(this.sessionState.pausedStrategies || []),
+      strategy_gate_states: Object.fromEntries(
+        Array.from((this.sessionState.strategyGateStates || new Map()).entries()).map(([k, v]) => [k, {
+          gateState: v?.gateState || null,
+          gateReason: v?.gateReason || null,
+          isAdaptiveTightened: v?.isAdaptiveTightened || false
+        }])
+      ),
       mode: this.config?.paper_mode ? "PAPER" : "LIVE",
       tradingMode: mode,
       balance: this.getBalance(),
@@ -1033,13 +1072,13 @@ export class TradingSessionService implements OnApplicationShutdown {
         this.onBalanceUpdate(this.getBalance(), t.pnl || 0);
 
       if (pnlDelta !== 0) {
-        this.sessionState.updateStatsOnClose(false, totalPnl, false, t.id);
+        this.sessionState.updateStatsOnClose(false, totalPnl, false, t.id, t.strategy_label);
       }
       return;
     }
 
     if (pnlDelta !== 0) {
-      this.sessionState.updateStatsOnClose(false, totalPnl, false, t.id);
+      this.sessionState.updateStatsOnClose(false, totalPnl, false, t.id, t.strategy_label);
     }
 
     if (this.onBalanceUpdate)
@@ -1135,6 +1174,14 @@ export class TradingSessionService implements OnApplicationShutdown {
     return {
       running: this.running,
       paused: this.sessionState.paused,
+      paused_strategies: Array.from(this.sessionState.pausedStrategies || []),
+      strategy_gate_states: Object.fromEntries(
+        Array.from((this.sessionState.strategyGateStates || new Map()).entries()).map(([k, v]) => [k, {
+          gateState: v?.gateState || null,
+          gateReason: v?.gateReason || null,
+          isAdaptiveTightened: v?.isAdaptiveTightened || false
+        }])
+      ),
       mode: this.config?.paper_mode ? "PAPER" : "LIVE",
       tradingMode: mode,
       balance_paper: this.sessionState.balancePaper,
@@ -1175,9 +1222,23 @@ export class TradingSessionService implements OnApplicationShutdown {
     };
   }
 
-  setPaused(paused: boolean) {
-    this.sessionState.paused = paused;
-    this.broadcast("tick", { paused });
+  setPaused(paused: boolean, strategyLabel?: string) {
+    if (strategyLabel) {
+      if (!this.sessionState.pausedStrategies) {
+        this.sessionState.pausedStrategies = new Set();
+      }
+      if (paused) {
+        this.sessionState.pausedStrategies.add(strategyLabel);
+      } else {
+        this.sessionState.pausedStrategies.delete(strategyLabel);
+      }
+    } else {
+      this.sessionState.paused = paused;
+    }
+    this.broadcast("tick", {
+      paused: this.sessionState.paused,
+      paused_strategies: Array.from(this.sessionState.pausedStrategies || [])
+    });
   }
   updateConfig(config: SessionConfig) {
     const prev = this.config;
@@ -1418,6 +1479,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       trade.pnl || 0,
       trade.is_reconciliation,
       trade.id,
+      trade.strategy_label
     );
     await this.updateBalance(trade);
     this.sessionState.addClosedTrade(trade);

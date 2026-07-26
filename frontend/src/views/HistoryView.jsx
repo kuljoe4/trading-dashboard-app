@@ -50,9 +50,16 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
               {trade.direction}
             </span>
             {showStrategy && (
-              <a href={`#/history?session=${trade.sessionId || session?.id}`} className="text-[8px] font-black px-1.5 py-0.5 rounded border border-accent/20 bg-accent/5 text-accent uppercase truncate max-w-[100px]">
-                {strategyLabel(trade)}
-              </a>
+              <div className="flex items-center gap-1.5">
+                <a href={`#/history?session=${trade.sessionId || session?.id}`} className="text-[8px] font-black px-1.5 py-0.5 rounded border border-accent/20 bg-accent/5 text-accent uppercase truncate max-w-[100px]">
+                  {strategyLabel(trade)}
+                </a>
+                {strategyLabel(trade) !== 'Momentum Strategy' && strategyLabel(trade) !== (session?.config?.strategy_label || 'Momentum Strategy') && (
+                  <span className="text-[7px] font-black px-1.5 py-0.5 rounded border border-purple/20 bg-purple/5 text-purple uppercase shrink-0 scale-90 origin-left">
+                    Variant
+                  </span>
+                )}
+              </div>
             )}
           </div>
           <div className="flex items-center gap-2 text-dim">

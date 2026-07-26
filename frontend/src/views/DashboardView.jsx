@@ -209,9 +209,10 @@ const BanBanner = ({ apiStatus }) => {
 };
 
 // --- Strategy Card ---
-export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner, isMonitored, className, isResuming, showResumingFeedback }) => {
+export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, gateInfo, scannerResults, onOpenScanner, isMonitored, className, isResuming, showResumingFeedback }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
+  const isGated = gateInfo && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(gateInfo.gateState || '');
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
   const startingBalance = tradingMode === 'paper'
@@ -245,7 +246,14 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
       {paused && !isResuming && (
         <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
           <div className="bg-amber/10 border border-amber/20 text-amber px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-2xl">
-            <Pause size={12} fill="currentColor" /> Session Paused
+            <Pause size={12} fill="currentColor" /> Strategy Paused
+          </div>
+        </div>
+      )}
+      {isGated && !paused && !isResuming && (
+        <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
+          <div className="bg-red/10 border border-red/20 text-red px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-2xl">
+            <XCircle size={12} fill="currentColor" className="text-red" /> {gateInfo.gateState === 'sleeping' ? 'Inside Sleep Window' : `Gated: ${gateInfo.gateReason || 'Risk Rules'}`}
           </div>
         </div>
       )}
@@ -267,6 +275,11 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
               {tradingMode === 'testnet' && <DemoBadge />}
               {tradingMode === 'live' && <LiveBadge />}
             </div>
+            {s.strategy_label !== config.strategy_label && (
+              <span className="px-2 py-0.5 rounded bg-purple/10 text-purple border border-purple/20 text-[9px] font-black uppercase tracking-wider scale-90 origin-left">
+                Variant
+              </span>
+            )}
           </div>
           <h3 className="text-base md:text-lg font-black tracking-tight truncate uppercase leading-tight text-text">
             {s.strategy_label}
@@ -625,7 +638,7 @@ export function DashboardView({ initialStrategy }) {
   const [sessionToDelete, setSessionToDelete] = useState(null)
 
   const {
-    sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
+    sessionActive, sessionPaused, pausedStrategies, strategyGateStates, strategyId, balance, totalPnl, totalRiskPct,
     totalSlUsed, totalEstPnlToRealize, activeTrades, alerts, config, setSessionActive,
     updateConfig, patchConfig, gateState, gateReason, hibernating, hibernationMode, agreementRequired,
     scannerPaused, sessionList, fetchSessions, wsStatus,
@@ -636,6 +649,8 @@ export function DashboardView({ initialStrategy }) {
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
+    pausedStrategies: state.pausedStrategies || [],
+    strategyGateStates: state.strategyGateStates || {},
     strategyId: state.strategyId,
     balance: state.balance,
     totalPnl: state.totalPnl,
@@ -851,19 +866,27 @@ export function DashboardView({ initialStrategy }) {
     }
   }, [config, isEditMode, strategyId, editingVariantIndex, updateConfig, setSessionActive, addAlert, fetchSessions, setSyncing]);
 
-  const togglePause = React.useCallback(async () => {
+  const togglePause = React.useCallback(async (strategyLabel) => {
     try {
-      await sessionAPI.pause(!sessionPaused)
+      const isTargetPaused = strategyLabel
+        ? pausedStrategies.includes(strategyLabel)
+        : sessionPaused;
+
+      await sessionAPI.pause(!isTargetPaused, strategyLabel);
+
+      const label = strategyLabel || 'Session';
       addAlert({
         level: 'info',
-        title: sessionPaused ? 'Session Resumed' : 'Session Paused',
-        message: sessionPaused ? 'Engine is now actively scanning for opportunities.' : 'Scanning and entry logic suspended.'
+        title: isTargetPaused ? `${label} Resumed` : `${label} Paused`,
+        message: isTargetPaused
+          ? `Engine is now actively scanning for opportunities on ${label.toLowerCase()}.`
+          : `Scanning and entry logic suspended for ${label.toLowerCase()}.`
       });
     } catch (e) {
-      console.error('Pause toggle failed:', e)
-      addAlert({ level: 'error', title: 'Action Failed', message: 'Could not toggle session pause state.' });
+      console.error('Pause toggle failed:', e);
+      addAlert({ level: 'error', title: 'Action Failed', message: 'Could not toggle pause state.' });
     }
-  }, [sessionPaused, addAlert]);
+  }, [sessionPaused, pausedStrategies, addAlert]);
 
   const handleResumeLast = React.useCallback(async () => {
     if (!lastSession) return;
@@ -1528,7 +1551,8 @@ export function DashboardView({ initialStrategy }) {
                             }}
                             scannerResults={variantScannerResults[currentStrategy.strategy_label]}
                             config={config}
-                            paused={sessionPaused}
+                            paused={pausedStrategies.includes(currentStrategy.strategy_label) || sessionPaused}
+                            gateInfo={strategyGateStates[currentStrategy.strategy_label]}
                             onPause={togglePause}
                             onOpenScanner={handleOpenScanner}
                             onEdit={handleEditPrimary}
@@ -1552,7 +1576,8 @@ export function DashboardView({ initialStrategy }) {
                                 }}
                                 scannerResults={variantScannerResults[label]}
                                 config={variantConfig}
-                                paused={sessionPaused}
+                                paused={pausedStrategies.includes(label) || sessionPaused}
+                                gateInfo={strategyGateStates[label]}
                                 onPause={togglePause}
                                 onOpenScanner={handleOpenScanner}
                                 onEdit={handleEditVariant}

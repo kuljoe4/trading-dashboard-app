@@ -1049,6 +1049,8 @@ export class MarketFeedService {
       case 'm': return value * 60 * 1000;
       case 'h': return value * 60 * 60 * 1000;
       case 'd': return value * 24 * 60 * 60 * 1000;
+      case 'w': return value * 7 * 24 * 60 * 60 * 1000;
+      case 'M': return value * 30 * 24 * 60 * 60 * 1000;
       default: return 60 * 1000;
     }
   }
@@ -1164,7 +1166,9 @@ export class MarketFeedService {
     }
 
     if (existingCandles.length >= requiredWarmup) {
-      const lastCandle = existingCandles[0];
+      // BOLT OPTIMIZATION: Retrieve the last (most recent) candle in chronological order, not the oldest one at index 0.
+      // This prevents the system from misinterpreting valid, fresh local caches as stale, avoiding thousands of redundant REST backfills.
+      const lastCandle = existingCandles[existingCandles.length - 1];
       const intervalMs = this.parseIntervalToMs(resolvedInterval);
       // If the most recent candle is still fresh enough, skip backfill
       if (lastCandle.time + intervalMs >= Date.now() - (intervalMs * 2)) {

@@ -1083,7 +1083,7 @@ export function DashboardView({ initialStrategy }) {
               </a>
             </motion.div>
           )}
-          <div className="fixed bottom-4 right-4 z-[200] flex flex-col gap-1 w-full max-w-[240px] pointer-events-none">
+          <div className="fixed bottom-4 right-4 z-[200] flex flex-col gap-1 w-full max-w-[340px] pointer-events-none">
             <AnimatePresence mode="popLayout">
               {alerts && alerts.length > 2 && (
                 <motion.button
@@ -1109,21 +1109,14 @@ export function DashboardView({ initialStrategy }) {
                     animate={{ opacity: 1, x: 0, scale: 1 }}
                     exit={{ opacity: 0, x: 5, scale: 0.98 }}
                     className={cn(
-                      "py-1.5 px-2.5 rounded-lg border shadow-[0_4px_16px_rgba(0,0,0,0.2)] flex flex-col gap-0.5 relative overflow-hidden pointer-events-auto backdrop-blur-2xl transition-all hover:translate-x-[-2px]",
+                      "py-2 px-2.5 rounded-lg border shadow-[0_4px_16px_rgba(0,0,0,0.2)] flex items-center gap-2 relative overflow-hidden pointer-events-auto backdrop-blur-2xl transition-all hover:translate-x-[-2px] h-8",
                       alert.level === 'error' ? "bg-red/10 border-red/30 text-red-400" :
                       alert.level === 'warn' ? "bg-amber/10 border-amber/30 text-amber-400" :
                       alert.level === 'success' ? "bg-green/10 border-green/30 text-green-400" :
                       "bg-accent/10 border-accent/30 text-accent-400"
                     )}
                   >
-                    <button
-                      onClick={() => updateStats({ alerts: alerts.filter(a => a.id !== alert.id) })}
-                      className="absolute top-1.5 right-1.5 p-0.5 hover:bg-white/10 rounded transition-colors group"
-                      aria-label="Dismiss alert"
-                    >
-                      <XCircle size={10} className="opacity-20 group-hover:opacity-100 transition-opacity" />
-                    </button>
-                    <div className="flex items-center gap-1.5 pr-4">
+                    <div className="flex items-center gap-2 pr-4 min-w-0 w-full text-[9.5px]">
                       <div className={cn(
                         "p-0.5 rounded shrink-0",
                         alert.level === 'error' ? "bg-red/20" :
@@ -1133,17 +1126,27 @@ export function DashboardView({ initialStrategy }) {
                       )}>
                         <Icon size={11} className="shrink-0" />
                       </div>
-                      <div className="flex flex-col min-w-0">
-                        <div className="flex items-center gap-1">
-                          <span className="text-[9px] font-black uppercase tracking-wider truncate">{alert.title || 'System Alert'}</span>
-                          {alert.count > 1 && (
-                            <span className="bg-current/20 px-1 py-0.2 rounded text-[7px] font-black">x{alert.count}</span>
-                          )}
-                        </div>
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        <span className="font-black uppercase tracking-wider shrink-0 text-white">{alert.title || 'Alert'}</span>
+                        <span className="opacity-40 shrink-0 font-black">|</span>
+                        <span className="font-semibold truncate text-text/90" title={alert.message}>{alert.message}</span>
+                        {alert.count > 1 && (
+                          <span className="bg-current/20 px-1 py-0.2 rounded text-[7.5px] font-black shrink-0">x{alert.count}</span>
+                        )}
                       </div>
-                      {alert.symbol && <span className="ml-auto bg-black/20 px-1 py-0.2 rounded font-mono text-[8px] font-black shrink-0">{alert.symbol}</span>}
+                      {alert.symbol && (
+                        <span className="bg-black/30 px-1 py-0.2 rounded font-mono text-[8px] font-black shrink-0 text-text/80">
+                          {alert.symbol}
+                        </span>
+                      )}
                     </div>
-                    <p className="text-[9px] font-bold pl-5 pr-1 leading-normal opacity-90 line-clamp-3">{alert.message}</p>
+                    <button
+                      onClick={() => updateStats({ alerts: alerts.filter(a => a.id !== alert.id) })}
+                      className="absolute top-1/2 -translate-y-1/2 right-1.5 p-0.5 hover:bg-white/10 rounded transition-colors group"
+                      aria-label="Dismiss alert"
+                    >
+                      <XCircle size={10} className="opacity-20 group-hover:opacity-100 transition-opacity" />
+                    </button>
                     <div className="absolute bottom-0 left-0 h-[1.5px] bg-current opacity-25 animate-shrink-width" style={{ animationDuration: '5s' }} />
                   </motion.div>
                 );

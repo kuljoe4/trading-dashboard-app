@@ -265,7 +265,7 @@ export class SessionLifecycleService {
       await this.progress(`Resuming ${open.length} active trades...`);
       for (const t of open) {
         this.positionTracker.addTrade(t);
-        this.sessionState.updateStatsOnEntry(t.id);
+        this.sessionState.updateStatsOnEntry(t.id, t.strategy_label);
       }
     }
     this.sessionState.setActiveTrades(this.positionTracker.activeList());

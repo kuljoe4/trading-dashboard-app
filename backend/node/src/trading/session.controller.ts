@@ -90,7 +90,7 @@ export class SessionController {
     const clientIp =
       req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
     const userAgent = req.headers["user-agent"];
-    return this.sessionService.pauseSession(body.paused, clientIp, userAgent);
+    return this.sessionService.pauseSession(body.paused, body.strategyLabel, clientIp, userAgent);
   }
 
   @Delete("trades/orphans")

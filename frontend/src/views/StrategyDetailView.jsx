@@ -28,6 +28,10 @@ const StrategyDetailView = ({ s, onBack }) => {
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
   const showResumingFeedback = sessionActive && isResuming
+  const isVariant = useMemo(() => {
+    if (!config) return false;
+    return config.strategy_label !== s.strategy_label;
+  }, [config, s.strategy_label]);
 
   // Lifecycle-scoped subscription contract
   useResourceFocus('strategy', s.strategy_label);
@@ -54,6 +58,11 @@ const StrategyDetailView = ({ s, onBack }) => {
          <div className="flex items-center gap-2">
            <CopyButton value={s.strategyId} className="p-1" />
            <StatusBadge status={s.sessionActive} />
+           {isVariant && (
+             <span className="px-2.5 py-1 rounded bg-purple/10 text-purple border border-purple/20 text-[10px] font-black uppercase tracking-widest scale-90 origin-left">
+               Variant
+             </span>
+           )}
          </div>
       </ViewHeader>
 

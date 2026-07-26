@@ -212,7 +212,7 @@ export const createSessionAPI = (apiInstance = api) => ({
   status: (config) => apiInstance.get('/session/status', config),
   list: () => apiInstance.get('/session/list'),
   update: (id, config) => apiInstance.patch(`/session/${id}`, { config: sanitizeSessionConfig(config) }),
-  pause: (paused) => apiInstance.post('/session/pause', { paused }),
+  pause: (paused, strategyLabel) => apiInstance.post('/session/pause', { paused, strategyLabel }),
   delete: (id) => apiInstance.delete(`/session/${id}`),
   rateLimit: () => apiInstance.get('/session/binance/rate-limit'),
   history: (sessionId) => apiInstance.get('/session/history', { params: { sessionId } }),

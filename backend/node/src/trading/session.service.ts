@@ -1916,9 +1916,9 @@ export class SessionService implements OnModuleInit {
     }
   }
 
-  async pauseSession(paused: boolean, ip?: string, userAgent?: string) {
+  async pauseSession(paused: boolean, strategyLabel?: string, ip?: string, userAgent?: string) {
     if (!this.sessionRunning) throw new ConflictException("No session running");
-    this.tradingSessionService.setPaused(paused);
+    this.tradingSessionService.setPaused(paused, strategyLabel);
 
     await this.auditLog.log({
       action: paused ? "PAUSE_SESSION" : "RESUME_SESSION",
@@ -1926,9 +1926,10 @@ export class SessionService implements OnModuleInit {
       actor: ip,
       ip,
       userAgent,
+      details: strategyLabel ? { strategyLabel } : undefined,
     });
 
-    return { status: paused ? "paused" : "resumed" };
+    return { status: paused ? "paused" : "resumed", strategyLabel };
   }
 
   async deleteSession(id: string, actor?: string, userAgent?: string) {
@@ -2086,6 +2087,8 @@ export class SessionService implements OnModuleInit {
     return {
       running: session.running,
       paused: engineStatus.paused,
+      paused_strategies: engineStatus.paused_strategies,
+      strategy_gate_states: engineStatus.strategy_gate_states,
       strategyId: session.id,
       paperMode: session.paperMode,
       tradingMode: session.tradingMode,

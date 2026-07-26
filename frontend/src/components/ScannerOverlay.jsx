@@ -650,14 +650,25 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
     const sortedByVolume = [...results].sort((a, b) => (b.vol || b.volume || 0) - (a.vol || a.volume || 0));
     const sortedByChange = [...results].sort((a, b) => Math.abs(b.pct || 0) - Math.abs(a.pct || 0));
 
+    // BOLT OPTIMIZATION: Convert O(N) findIndex calls into O(1) Map lookups to eliminate quadratic complexity O(N^2)
+    const volRankMap = new Map();
+    for (let i = 0; i < sortedByVolume.length; i++) {
+      volRankMap.set(sortedByVolume[i].symbol, i + 1);
+    }
+
+    const chgRankMap = new Map();
+    for (let i = 0; i < sortedByChange.length; i++) {
+      chgRankMap.set(sortedByChange[i].symbol, i + 1);
+    }
+
     // 1. Map ranks so they remain consistent regardless of secondary search/range filters
     results = results.map(r => {
-      const volIdx = sortedByVolume.findIndex(o => o.symbol === r.symbol);
-      const chgIdx = sortedByChange.findIndex(o => o.symbol === r.symbol);
+      const volRank = volRankMap.get(r.symbol);
+      const chgRank = chgRankMap.get(r.symbol);
       return {
         ...r,
-        volume_rank: volIdx !== -1 ? volIdx + 1 : r.volume_rank,
-        change_rank: chgIdx !== -1 ? chgIdx + 1 : undefined
+        volume_rank: volRank !== undefined ? volRank : r.volume_rank,
+        change_rank: chgRank
       };
     });
 
@@ -798,7 +809,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
               <Tooltip content="Clear Filter">
                 <button
                   onClick={() => setSearch('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-full p-0.5 transition-colors"
                   aria-label="Clear Filter"
                 >
                   <XCircle size={14} />

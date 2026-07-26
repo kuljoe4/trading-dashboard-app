@@ -482,7 +482,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
   // screen-reader clutter, and accidental background keyboard tab indexing.
   React.useEffect(() => {
     const checkModals = () => {
-      const isOpen = !!document.querySelector('[role="dialog"], [role="alertdialog"], [data-state="open"]');
+      const isOpen = !!document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]');
       setHasActiveModal(isOpen);
     };
 

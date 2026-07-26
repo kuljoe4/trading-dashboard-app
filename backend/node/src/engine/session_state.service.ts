@@ -77,10 +77,12 @@ export class SessionStateService {
   public udsConfirmedClosedTrades: Set<string> = new Set();
   public localTradePnLAdjustments: Map<string, number> = new Map();
   public currentSessionId: string | null = null;
+  public assetBalances: Map<string, number> = new Map();
 
   reset(config: SessionConfig, initialHistory: Trade[] = [], currentBalance?: number, sessionId?: string, initialOpen: Trade[] = []) {
     this.config = config;
     this.currentSessionId = sessionId || null;
+    this.assetBalances.clear();
 
     this.statsVersion = 0;
     this.closedTrades = initialHistory;

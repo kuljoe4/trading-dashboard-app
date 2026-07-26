@@ -354,7 +354,10 @@ export class SessionLifecycleService {
         for (const b of data) {
           if (b.asset && allowedAssets.includes(b.asset.toUpperCase())) {
             const bal = parseFloat(String(b.balance || "0"));
-            if (bal > 0) totalBalance += bal;
+            if (bal > 0) {
+              totalBalance += bal;
+              this.sessionState.assetBalances.set(b.asset.toUpperCase(), bal);
+            }
           }
         }
         if (totalBalance > 0) {
@@ -472,7 +475,6 @@ export class SessionLifecycleService {
     // Real-time Balance Tracking (Zero Weight)
     // P0 FIX: Multi-collateral support - sum ALL assets in B array (USDT, USDC, FDUSD, etc.)
     if (data.a.B && data.a.B.length > 0) {
-      let totalWalletBalance = 0;
       let totalBalanceChange = 0;
       const allowedAssets = ['USDT', 'USDC', 'FDUSD'];
       let validAssetFound = false;
@@ -482,12 +484,33 @@ export class SessionLifecycleService {
           validAssetFound = true;
           const wb = parseFloat(b.wb || "0");
           const bc = parseFloat(b.bc || "0");
-          if (wb > 0) totalWalletBalance += wb;
+          if (wb >= 0) {
+            if (this.sessionState.assetBalances) {
+              this.sessionState.assetBalances.set(b.a.toUpperCase(), wb);
+            }
+          }
           totalBalanceChange += bc;
         }
       }
 
       if (validAssetFound) {
+        let totalWalletBalance = 0;
+        if (this.sessionState.assetBalances && this.sessionState.assetBalances.size > 0) {
+          for (const [asset, bal] of this.sessionState.assetBalances.entries()) {
+            if (allowedAssets.includes(asset)) {
+              totalWalletBalance += bal;
+            }
+          }
+        } else {
+          // Fallback if assetBalances cache is uninitialized (e.g. in unit tests)
+          for (const b of data.a.B) {
+            if (b.a && allowedAssets.includes(b.a.toUpperCase())) {
+              const wb = parseFloat(b.wb || "0");
+              if (wb > 0) totalWalletBalance += wb;
+            }
+          }
+        }
+
         const nb = totalWalletBalance;
         const bc = totalBalanceChange;
         const now = Date.now();

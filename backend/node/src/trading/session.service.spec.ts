@@ -133,6 +133,73 @@ describe('SessionService Validation', () => {
       config.slippage_abort_threshold = 0.5; // Max is 0.15
       expect(() => (service as any).validateConfig(config)).toThrow('Slippage abort threshold cannot exceed 15%');
     });
+
+    it('throws error if dynamic records contain too many keys', () => {
+      const config = new SessionConfig();
+      config.exit_signal_delays = {};
+      for (let i = 0; i < 51; i++) {
+        config.exit_signal_delays[`sig_${i}`] = 10;
+      }
+      expect(() => (service as any).validateConfig(config)).toThrow('exit_signal_delays cannot exceed 50 entries');
+    });
+
+    it('throws error for invalid key names or HTML tags in records', () => {
+      const config = new SessionConfig();
+      config.exit_signal_delays = { 'invalid<tag>': 10 };
+      expect(() => (service as any).validateConfig(config)).toThrow('Invalid key format in exit_signal_delays');
+
+      const config2 = new SessionConfig();
+      config2.signal_timeframes = { ['too_long_key_'.repeat(10)]: '1m' };
+      expect(() => (service as any).validateConfig(config2)).toThrow('Invalid key format in signal_timeframes');
+    });
+
+    it('throws error for invalid types or values in exit_signal_delays', () => {
+      const config = new SessionConfig();
+      config.exit_signal_delays = { ema_cross: -10 };
+      expect(() => (service as any).validateConfig(config)).toThrow('exit_signal_delays values must be numbers between 0 and 86400');
+
+      const config2 = new SessionConfig();
+      config2.exit_signal_delays = { ema_cross: '10' as any };
+      expect(() => (service as any).validateConfig(config2)).toThrow('exit_signal_delays values must be numbers between 0 and 86400');
+    });
+
+    it('throws error for invalid exit_signal_actions values', () => {
+      const config = new SessionConfig();
+      config.exit_signal_actions = { ema_cross: 'invalid_action' as any };
+      expect(() => (service as any).validateConfig(config)).toThrow("exit_signal_actions values must be 'close' or 'lock_sl'");
+    });
+
+    it('throws error for invalid signal_timeframes values', () => {
+      const config = new SessionConfig();
+      config.signal_timeframes = { ema_cross: '10m' }; // '10m' is not a valid Binance interval
+      expect(() => (service as any).validateConfig(config)).toThrow('signal_timeframes values must be valid Binance kline intervals');
+    });
+
+    it('throws error for nested objects or arrays of non-primitives in signal_params', () => {
+      const config = new SessionConfig();
+      config.signal_params = { nested: { some: 'object' } };
+      expect(() => (service as any).validateConfig(config)).toThrow('Nested objects in signal_params are not allowed for key "nested"');
+    });
+
+    it('throws error for HTML strings or too long strings in signal_params values', () => {
+      const config = new SessionConfig();
+      config.signal_params = { custom_string: '<script>alert(1)</script>' };
+      expect(() => (service as any).validateConfig(config)).toThrow('Invalid value in signal_params for key "custom_string"');
+
+      const config2 = new SessionConfig();
+      config2.signal_params = { custom_string: 'a'.repeat(101) };
+      expect(() => (service as any).validateConfig(config2)).toThrow('Invalid value in signal_params for key "custom_string"');
+    });
+
+    it('allows valid dynamic configurations', () => {
+      const config = new SessionConfig();
+      config.exit_signal_delays = { ema_cross: 30 };
+      config.exit_signal_actions = { ema_cross: 'close' };
+      config.signal_timeframes = { ema_cross: 'default' };
+      config.scanner_weights = { momentum: 0.5, volatility: 0.3, trend: 0.2 };
+      config.signal_params = { my_param: 'valid_string', my_num: 123, my_bool: true, arr: [1, 'ok'] };
+      expect(() => (service as any).validateConfig(config)).not.toThrow();
+    });
   });
 
   describe('startSession Security Enforcement', () => {

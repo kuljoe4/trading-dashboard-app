@@ -605,6 +605,91 @@ export class SessionService implements OnModuleInit {
         `Slippage abort threshold cannot exceed ${CONFIG_LIMITS.SLIPPAGE_ABORT_MAX * 100}%`,
       );
     }
+
+    // SENTINEL: Validate Record properties to prevent Stored XSS, injection, or DoS
+    const validateRecord = (
+      name: string,
+      record: any,
+      maxKeys: number,
+      valueValidator: (val: any) => boolean,
+      valError: string
+    ) => {
+      if (!record || typeof record !== "object" || Array.isArray(record)) return;
+      const keys = Object.keys(record);
+      if (keys.length > maxKeys) {
+        throw new BadRequestException(`${name} cannot exceed ${maxKeys} entries`);
+      }
+      for (const k of keys) {
+        if (k.length > 50 || !/^[a-zA-Z0-9_\-]*$/.test(k) || /<[a-zA-Z!/]/.test(k)) {
+          throw new BadRequestException(`Invalid key format in ${name}`);
+        }
+        if (!valueValidator(record[k])) {
+          throw new BadRequestException(`${valError} for key "${k}"`);
+        }
+      }
+    };
+
+    validateRecord(
+      "exit_signal_delays",
+      config.exit_signal_delays,
+      50,
+      (v) => typeof v === "number" && !isNaN(v) && v >= 0 && v <= 86400,
+      "exit_signal_delays values must be numbers between 0 and 86400"
+    );
+
+    validateRecord(
+      "exit_signal_actions",
+      config.exit_signal_actions,
+      50,
+      (v) => v === "close" || v === "lock_sl",
+      "exit_signal_actions values must be 'close' or 'lock_sl'"
+    );
+
+    validateRecord(
+      "signal_timeframes",
+      config.signal_timeframes,
+      50,
+      (v) => typeof v === "string" && v.length <= 10 && /^(1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|3d|1w|1M|default)$/.test(v),
+      "signal_timeframes values must be valid Binance kline intervals"
+    );
+
+    validateRecord(
+      "scanner_weights",
+      config.scanner_weights,
+      10,
+      (v) => typeof v === "number" && !isNaN(v) && v >= 0 && v <= 100,
+      "scanner_weights values must be numbers between 0 and 100"
+    );
+
+    if (config.signal_params && typeof config.signal_params === "object" && !Array.isArray(config.signal_params)) {
+      const keys = Object.keys(config.signal_params);
+      if (keys.length > 50) {
+        throw new BadRequestException("signal_params cannot exceed 50 entries");
+      }
+      const valPrimitive = (v: any): boolean => {
+        if (v === null || v === undefined) return true;
+        const t = typeof v;
+        if (t === "boolean" || t === "number") return !isNaN(v);
+        if (t === "string") return v.length <= 100 && !/<[a-zA-Z!/]/.test(v);
+        return false;
+      };
+      for (const k of keys) {
+        if (k.length > 50 || !/^[a-zA-Z0-9_\-]*$/.test(k) || /<[a-zA-Z!/]/.test(k)) {
+          throw new BadRequestException("Invalid key format in signal_params");
+        }
+        const v = config.signal_params[k];
+        if (Array.isArray(v)) {
+          if (v.length > 50) throw new BadRequestException(`Array values in signal_params for key "${k}" cannot exceed 50 items`);
+          for (const item of v) {
+            if (!valPrimitive(item)) throw new BadRequestException(`Invalid value in signal_params array for key "${k}"`);
+          }
+        } else if (v && typeof v === "object") {
+          throw new BadRequestException(`Nested objects in signal_params are not allowed for key "${k}"`);
+        } else {
+          if (!valPrimitive(v)) throw new BadRequestException(`Invalid value in signal_params for key "${k}"`);
+        }
+      }
+    }
   }
 
   async startSession(

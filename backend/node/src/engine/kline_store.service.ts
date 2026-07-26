@@ -150,6 +150,8 @@ export class KlineStoreService {
       case 'm': return value * 60 * 1000;
       case 'h': return value * 60 * 60 * 1000;
       case 'd': return value * 24 * 60 * 60 * 1000;
+      case 'w': return value * 7 * 24 * 60 * 60 * 1000;
+      case 'M': return value * 30 * 24 * 60 * 60 * 1000;
       default: return 60 * 1000;
     }
   }

@@ -681,6 +681,131 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
   )
 }
 
+// --- Modal Alert Ticker ---
+export const ModalAlertTicker = React.memo(() => {
+  const { alerts, updateStats } = useTradingStore()
+  const [alertIndex, setAlertIndex] = React.useState(0)
+  const [showDropdown, setShowDropdown] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!alerts || alerts.length <= 1) {
+      setAlertIndex(0)
+      return
+    }
+    const interval = setInterval(() => {
+      setAlertIndex(prev => (prev + 1) % alerts.length)
+    }, 4000)
+    return () => clearInterval(interval)
+  }, [alerts])
+
+  if (!alerts || alerts.length === 0) return null;
+
+  const activeAlert = alerts[alertIndex % alerts.length];
+
+  return (
+    <div className="relative flex items-center justify-center min-w-0 w-full px-4 py-2 border-b border-border/10 bg-surface/20 z-50 animate-in fade-in">
+      <div className="relative w-full max-w-[540px]">
+        <div
+          onClick={() => setShowDropdown(!showDropdown)}
+          className="group pointer-events-auto cursor-pointer flex items-center justify-between gap-2 px-3.5 py-1.5 bg-surface/30 hover:bg-surface/60 border border-border/40 hover:border-accent/30 rounded-full text-[10px] text-text w-full transition-all duration-300 select-none"
+          title="Click to view all recent alerts"
+        >
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            <span className={cn(
+              "w-1.5 h-1.5 rounded-full shrink-0 animate-pulse",
+              activeAlert.level === 'error' ? "bg-red" :
+              activeAlert.level === 'warn' ? "bg-amber" :
+              activeAlert.level === 'success' ? "bg-green" :
+              "bg-accent"
+            )} />
+            <span className="font-black uppercase tracking-wider shrink-0 opacity-80 text-[8.5px] text-white">
+              {activeAlert.title || 'Alert'}
+            </span>
+            <span className="opacity-30 shrink-0 font-black">|</span>
+            <span className="font-semibold truncate text-dim group-hover:text-text transition-colors">
+              {activeAlert.message}
+            </span>
+            {activeAlert.count > 1 && (
+              <span className="bg-white/10 px-1 py-0.2 rounded text-[7px] font-black shrink-0">x{activeAlert.count}</span>
+            )}
+            {alerts.length > 1 && (
+              <span className="text-[7.5px] font-bold text-accent shrink-0 uppercase tracking-tighter ml-auto">
+                +{alerts.length - 1} more
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              const nextAlerts = alerts.filter(a => a.id !== activeAlert.id)
+              updateStats({ alerts: nextAlerts })
+              if (nextAlerts.length === 0) setShowDropdown(false)
+            }}
+            className="p-0.5 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none"
+            aria-label="Dismiss this alert"
+          >
+            <X size={10} />
+          </button>
+        </div>
+
+        {/* Dropdown Overlay containing the exact alert history */}
+        {showDropdown && (
+          <>
+            <div className="fixed inset-0 z-40 cursor-default" onClick={(e) => { e.stopPropagation(); setShowDropdown(false); }} />
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-surface/95 border border-border/80 shadow-2xl rounded-2xl p-3 w-80 max-h-64 overflow-y-auto no-scrollbar z-50 animate-in fade-in slide-in-from-top-2 pointer-events-auto">
+              <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-border/30">
+                <span className="text-[9px] font-black uppercase tracking-widest text-dim">Recent Alerts ({alerts.length})</span>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); updateStats({ alerts: [] }); setShowDropdown(false); }}
+                  className="text-[8.5px] font-black text-red hover:text-red-400 uppercase tracking-widest transition-colors focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none rounded px-1"
+                >
+                  Clear All
+                </button>
+              </div>
+              <div className="space-y-1.5">
+                {alerts.map(a => (
+                  <div key={a.id} className="flex items-start justify-between gap-2 p-2 bg-background/40 hover:bg-background/80 border border-border/30 rounded-xl transition-all">
+                    <div className="min-w-0 flex-1 text-[9.5px]">
+                      <div className="flex items-center gap-1.5 font-black uppercase tracking-wider text-white">
+                        <span className={cn(
+                          "w-1 h-1 rounded-full shrink-0",
+                          a.level === 'error' ? "bg-red" :
+                          a.level === 'warn' ? "bg-amber" :
+                          a.level === 'success' ? "bg-green" :
+                          "bg-accent"
+                        )} />
+                        {a.title || 'System Alert'}
+                        {a.count > 1 && <span className="text-[7.5px] bg-white/10 px-1 py-0.2 rounded text-text/80">x{a.count}</span>}
+                      </div>
+                      <p className="font-semibold text-dim mt-0.5 leading-normal break-words">{a.message}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const nextAlerts = alerts.filter(item => item.id !== a.id)
+                        updateStats({ alerts: nextAlerts })
+                        if (nextAlerts.length === 0) setShowDropdown(false)
+                      }}
+                      className="p-1 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none"
+                      aria-label="Dismiss"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+})
+ModalAlertTicker.displayName = 'ModalAlertTicker'
+
 // --- Copy Button ---
 export const CopyButton = React.memo(({ value, getValue, className, tooltip = "Copy", successTooltip = "Copied!" }) => {
   const [copied, setCopied] = React.useState(false)

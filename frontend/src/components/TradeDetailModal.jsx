@@ -1,7 +1,7 @@
 import React, { useState, useEffect, memo } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { X, Clock, ArrowUpRight, ArrowDownRight } from 'lucide-react'
-import { cn, CopyButton, VisuallyHidden, Tooltip } from './ui/primitives'
+import { cn, CopyButton, VisuallyHidden, Tooltip, ModalAlertTicker } from './ui/primitives'
 import { formatDuration } from '../lib/formatters'
 import { TradeDetailContent } from './trade/TradeDetailContent'
 import { useTradingStore } from '../store/trading'
@@ -93,6 +93,7 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
               </Dialog.Close>
             </Tooltip>
           </Dialog.Title>
+          <ModalAlertTicker />
 
           <TradeDetailContent 
             trade={trade}

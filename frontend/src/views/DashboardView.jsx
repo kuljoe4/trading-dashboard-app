@@ -236,35 +236,16 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
     <motion.div
       whileHover={{ scale: 1.005 }}
       className={cn(
-        "bg-surface border border-border/50 rounded-2xl p-4 md:p-6 transition-all relative flex flex-col justify-between shadow-sm h-full min-w-0 overflow-hidden",
-        tradingMode === 'paper' ? "hover:border-amber/30 hover:shadow-amber/[0.02]" :
-        tradingMode === 'testnet' ? "hover:border-purple/30 hover:shadow-purple/[0.02]" :
-        "hover:border-green/30 hover:shadow-green/[0.02]",
+        "bg-surface border rounded-2xl p-4 md:p-6 transition-all relative flex flex-col justify-between shadow-sm h-full min-w-0 overflow-hidden",
+        paused && !isResuming ? "border-amber/30 bg-amber/[0.005]" :
+        isGated && !paused && !isResuming ? "border-red/30 bg-red/[0.005]" :
+        showResumingFeedback ? "border-accent/30 bg-accent/[0.005]" :
+        tradingMode === 'paper' ? "border-border/50 hover:border-amber/30 hover:shadow-amber/[0.02]" :
+        tradingMode === 'testnet' ? "border-border/50 hover:border-purple/30 hover:shadow-purple/[0.02]" :
+        "border-border/50 hover:border-green/30 hover:shadow-green/[0.02]",
         className
       )}
     >
-      {paused && !isResuming && (
-        <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
-          <div className="bg-amber/10 border border-amber/20 text-amber px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-2xl">
-            <Pause size={12} fill="currentColor" /> Strategy Paused
-          </div>
-        </div>
-      )}
-      {isGated && !paused && !isResuming && (
-        <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
-          <div className="bg-red/10 border border-red/20 text-red px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-2xl">
-            <XCircle size={12} fill="currentColor" className="text-red" /> {gateInfo.gateState === 'sleeping' ? 'Inside Sleep Window' : `Gated: ${gateInfo.gateReason || 'Risk Rules'}`}
-          </div>
-        </div>
-      )}
-      {showResumingFeedback && (
-        <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
-          <div className="bg-accent/10 border border-accent/20 text-accent px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-2xl">
-            <RefreshCw size={12} className="animate-spin" /> Resuming Feed...
-          </div>
-        </div>
-      )}
-
       {/* Card Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 pb-4 border-b border-border/20 mb-4">
         <div className="min-w-0">
@@ -278,6 +259,26 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             {s.strategy_label !== config.strategy_label && (
               <span className="px-2 py-0.5 rounded bg-purple/10 text-purple border border-purple/20 text-[9px] font-black uppercase tracking-wider scale-90 origin-left">
                 Variant
+              </span>
+            )}
+            {paused && !isResuming && (
+              <span className="px-2.5 py-1 rounded-full border border-amber/20 bg-amber/10 text-[10px] text-amber font-bold tracking-wider flex items-center gap-1.5 scale-90 origin-left">
+                <Pause size={10} fill="currentColor" />
+                PAUSED
+              </span>
+            )}
+            {isGated && !paused && !isResuming && (
+              <Tooltip content={gateInfo.gateReason || 'Gated by Risk Rules'}>
+                <span className="px-2.5 py-1 rounded-full border border-red/20 bg-red/10 text-[10px] text-red font-bold tracking-wider flex items-center gap-1.5 scale-90 origin-left cursor-help">
+                  <XCircle size={10} fill="currentColor" className="text-red" />
+                  {gateInfo.gateState === 'sleeping' ? 'SLEEPING' : 'GATED'}
+                </span>
+              </Tooltip>
+            )}
+            {showResumingFeedback && (
+              <span className="px-2.5 py-1 rounded-full border border-accent/20 bg-accent/10 text-[10px] text-accent font-bold tracking-wider flex items-center gap-1.5 scale-90 origin-left">
+                <RefreshCw size={10} className="animate-spin" />
+                RESUMING
               </span>
             )}
           </div>

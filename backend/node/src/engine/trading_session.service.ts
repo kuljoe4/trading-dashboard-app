@@ -524,6 +524,10 @@ export class TradingSessionService implements OnApplicationShutdown {
         "DUMMY",
         sc,
         this.positionTracker.totalRisk(),
+        0,
+        undefined,
+        undefined,
+        this.config?.total_sl_guard_usdt
       );
 
       let gateState: string | null = null;
@@ -879,6 +883,7 @@ export class TradingSessionService implements OnApplicationShutdown {
             if (this.onTradeUpdate)
               await this.onTradeUpdate(t, this.getBalance());
           },
+          this.config?.total_sl_guard_usdt
         );
       }
       this.monitoringService.setLoopStage("IDLE");

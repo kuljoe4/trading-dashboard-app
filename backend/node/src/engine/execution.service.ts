@@ -129,7 +129,7 @@ export class ExecutionService {
   }
 
   private lastBanLogTs = 0;
-  async processEntries(opportunities: any[], config: SessionConfig, strategyLabel: string, onTradeUpdate?: (t: Trade, b: number) => Promise<void>) {
+  async processEntries(opportunities: any[], config: SessionConfig, strategyLabel: string, onTradeUpdate?: (t: Trade, b: number) => Promise<void>, globalSlGuardOverride?: number) {
     const symbolConfigs = config.single_symbol_configs;
     const symbolConfigMap = (symbolConfigs && symbolConfigs.length > 0) ? new Map(symbolConfigs.map(sc => [sc.symbol, sc])) : null;
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);
@@ -307,7 +307,18 @@ export class ExecutionService {
         this.monitoringService.setLoopStage('RISK_CHECK', opp.symbol);
         const activeTrades = this.positionTracker.activeList();
         const enteringCount = this.positionTracker.enteringCount();
-        const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk(), enteringCount, opp.score, prospectiveRiskPct);
+        const riskResult = this.riskEngine.canEnter(
+          activeTrades,
+          this.sessionState.closedTrades,
+          balance,
+          opp.symbol,
+          symbolConfig,
+          this.positionTracker.totalRisk(),
+          enteringCount,
+          opp.score,
+          prospectiveRiskPct,
+          globalSlGuardOverride
+        );
 
         if (!riskResult.canEnter) {
           // BOLT: Only log symbol-specific rejections as debug.

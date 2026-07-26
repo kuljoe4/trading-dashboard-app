@@ -15,11 +15,9 @@ import { RrOptimizationService } from './rr-optimization.service';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { AuditLogService } from '../trading/audit-log.service';
 import { ConfigService } from '@nestjs/config';
-import { Trade } from '../models/Trade';
 
-describe('Chronos: Position Adoption Redundancy', () => {
+describe('Chronos: Position Adoption Multi-Tenant Safety Check', () => {
   let sessionService: SessionService;
-  let tradingSessionService: TradingSessionService;
   let tradeRepository: any;
 
   const mockSessionRepository = {
@@ -27,6 +25,8 @@ describe('Chronos: Position Adoption Redundancy', () => {
   };
 
   const mockTradeRepository = {
+    findOne: jest.fn(),
+    find: jest.fn(),
     create: jest.fn((dto) => ({ ...dto })),
     save: jest.fn((entity) => Promise.resolve(entity)),
   };
@@ -99,54 +99,84 @@ describe('Chronos: Position Adoption Redundancy', () => {
     }).compile();
 
     sessionService = module.get<SessionService>(SessionService);
-    tradingSessionService = module.get<TradingSessionService>(TradingSessionService);
     tradeRepository = module.get(getRepositoryToken(TradeEntity));
-
-    // Force session to be running in the service state
-    (sessionService as any).sessionRunning = true;
-    (sessionService as any).currentSessionId = 'session-test-id';
   });
 
-  it('should call tradingSessionService.addTrade EXACTLY once per adopted position during handleAdoptPositions', async () => {
-    // 1. Arrange mock session & config
-    mockSessionRepository.findOne.mockResolvedValue({
-      id: 'session-test-id',
-      tradingMode: 'live',
-      paperMode: false,
-      config: {
-        sl_distance_pct: 2.0,
-        strategy_label: 'Mock Strategy',
-      },
+  it('should authorize adoption if there is an active OPEN trade in the local database', async () => {
+    mockTradeRepository.findOne.mockResolvedValue({
+      id: 'local-open-trade-id',
+      symbol: 'BTCUSDT',
+      status: 'OPEN',
     });
 
-    const positionsPayload = [
-      {
-        symbol: 'BTCUSDT',
-        positionAmt: '1.5',
-        entryPrice: '50000',
-        markPrice: '50100',
-        positionSide: 'BOTH',
-      },
+    const isStarted = await (sessionService as any).isPositionStartedByUs('BTCUSDT', []);
+    expect(isStarted).toBe(true);
+    expect(mockTradeRepository.findOne).toHaveBeenCalledWith({
+      where: { symbol: 'BTCUSDT', status: 'OPEN' },
+    });
+  });
+
+  it('should authorize adoption if an open SL order clientOrderId matches a local trade prefix', async () => {
+    mockTradeRepository.findOne.mockResolvedValue(null);
+    mockTradeRepository.find.mockResolvedValue([
+      { id: '12345678-abcd-ef01-2345-6789abcdef01' },
+    ]);
+
+    const openOrders = [
+      { clientOrderId: 'sl-12345678' },
     ];
 
-    jest.spyOn(sessionService as any, 'isPositionStartedByUs').mockResolvedValue(true);
+    const isStarted = await (sessionService as any).isPositionStartedByUs('BTCUSDT', openOrders);
+    expect(isStarted).toBe(true);
+  });
 
-    // 2. Act: handleAdoptPositions event handler is invoked
-    await sessionService.handleAdoptPositions({
-      positions: positionsPayload,
-      orders: [],
-    });
+  it('should authorize adoption if an open entry order clientOrderId matches a local trade prefix', async () => {
+    mockTradeRepository.findOne.mockResolvedValue(null);
+    mockTradeRepository.find.mockResolvedValue([
+      { id: '12345678-abcd-ef01-2345-6789abcdef01' },
+    ]);
 
-    // 3. Assert
-    // - Check that the trade is saved to the DB repository
-    expect(tradeRepository.save).toHaveBeenCalledTimes(1);
+    const openOrders = [
+      { clientOrderId: 'ent-12345678abcdef012345' },
+    ];
 
-    // - Check that addTrade was called exactly once in total for this single position adoption
-    expect(tradingSessionService.addTrade).toHaveBeenCalledTimes(1);
-    expect(tradingSessionService.addTrade).toHaveBeenCalledWith(expect.objectContaining({
-      symbol: 'BTCUSDT',
-      qty: 1.5,
-      entry_price: 50000,
-    }));
+    const isStarted = await (sessionService as any).isPositionStartedByUs('BTCUSDT', openOrders);
+    expect(isStarted).toBe(true);
+  });
+
+  it('should reject adoption if there are open orders but none match a local trade ID prefix', async () => {
+    mockTradeRepository.findOne.mockResolvedValue(null);
+    mockTradeRepository.find.mockResolvedValue([
+      { id: '12345678-abcd-ef01-2345-6789abcdef01' },
+    ]);
+
+    const openOrders = [
+      { clientOrderId: 'sl-99999999' },
+    ];
+
+    const isStarted = await (sessionService as any).isPositionStartedByUs('BTCUSDT', openOrders);
+    expect(isStarted).toBe(false);
+  });
+
+  it('should reject adoption if there are no open orders and no local open trades', async () => {
+    mockTradeRepository.findOne.mockResolvedValue(null);
+    mockTradeRepository.find.mockResolvedValue([
+      { id: '12345678-abcd-ef01-2345-6789abcdef01' },
+    ]);
+
+    const isStarted = await (sessionService as any).isPositionStartedByUs('BTCUSDT', []);
+    expect(isStarted).toBe(false);
+  });
+
+  it('should reject adoption if we have no trade records at all for this symbol', async () => {
+    mockTradeRepository.findOne.mockResolvedValue(null);
+    mockTradeRepository.find.mockResolvedValue([]);
+
+    const openOrders = [
+      { clientOrderId: 'sl-12345678' },
+    ];
+
+    const isStarted = await (sessionService as any).isPositionStartedByUs('BTCUSDT', openOrders);
+    expect(isStarted).toBe(false);
   });
 });

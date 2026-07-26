@@ -10,7 +10,7 @@ import {
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, In } from "typeorm";
+import { Repository, In, Like } from "typeorm";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { Session as SessionEntity } from "../models/entities/Session.entity";
@@ -1483,6 +1483,89 @@ export class SessionService implements OnModuleInit {
   }
 
   /**
+   * Checks if an exchange position was started by this app instance.
+   */
+  private async isPositionStartedByUs(
+    symbol: string,
+    openOrdersOfSymbol: any[],
+  ): Promise<boolean> {
+    // 1. Is there an active open trade in our database for this symbol?
+    const openTrade = await this.tradeRepository.findOne({
+      where: { symbol, status: "OPEN" as any },
+    });
+    if (openTrade) return true;
+
+    // 2. If no open trade, check if there are any open orders for this symbol.
+    if (!openOrdersOfSymbol || openOrdersOfSymbol.length === 0) {
+      return false;
+    }
+
+    // Load all trades for this symbol (both open and closed) to match clientOrderIds
+    const allSymbolTrades = await this.tradeRepository.find({
+      where: { symbol },
+      select: ["id"],
+    });
+    if (allSymbolTrades.length === 0) {
+      return false;
+    }
+
+    // Build sets of possible identifiers from our trade records
+    const tradeIds = new Set(allSymbolTrades.map(t => t.id.toLowerCase()));
+    const tradeIdsNoHyphens = new Set(allSymbolTrades.map(t => t.id.replace(/-/g, '').toLowerCase()));
+
+    // Check if any open order's clientOrderId points to one of our trade IDs
+    for (const order of openOrdersOfSymbol) {
+      const clientOrderId = (order.clientOrderId || order.clientAlgoId || "").toLowerCase();
+      if (!clientOrderId) continue;
+
+      // Stop Loss pattern: sl-${trade.id.substring(0, 8)}
+      if (clientOrderId.startsWith("sl-")) {
+        const prefix = clientOrderId.substring(3, 11);
+        for (const id of tradeIds) {
+          if (id.startsWith(prefix)) {
+            return true;
+          }
+        }
+      }
+
+      // Entry pattern: ent-${trade.id.replace(/-/g, '').substring(0, 20)}
+      if (clientOrderId.startsWith("ent-")) {
+        const prefix = clientOrderId.substring(4, 24);
+        for (const idNoHyphen of tradeIdsNoHyphens) {
+          if (idNoHyphen.startsWith(prefix)) {
+            return true;
+          }
+        }
+      }
+
+      // Limit close pattern: cls-lim-${trade.id.replace(/-/g, '').substring(0, 16)}
+      if (clientOrderId.startsWith("cls-lim-")) {
+        const prefix = clientOrderId.substring(8, 24);
+        for (const idNoHyphen of tradeIdsNoHyphens) {
+          if (idNoHyphen.startsWith(prefix)) {
+            return true;
+          }
+        }
+      }
+
+      // Other close patterns: cls-..., tp-..., sig-... (e.g. prefix-${trade.id.replace(/-/g, '').substring(0, 20)})
+      const genericPrefixes = ["cls-", "tp-", "sig-"];
+      for (const p of genericPrefixes) {
+        if (clientOrderId.startsWith(p) && !clientOrderId.startsWith("cls-lim-")) {
+          const prefix = clientOrderId.substring(p.length, p.length + 20);
+          for (const idNoHyphen of tradeIdsNoHyphens) {
+            if (idNoHyphen.startsWith(prefix)) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * SRE: Adopts exchange positions by creating local synthetic trade records.
    * Ensures that "ghost" trades are brought under system protection and UI visibility.
    */
@@ -1553,6 +1636,29 @@ export class SessionService implements OnModuleInit {
           continue;
         }
 
+        // Fetch/get open orders of this symbol to verify if we started the position
+        let exOrders = allOrdersMap.get(exPos.symbol);
+        if (!exOrders && !useBulkAudit && !preFetchedOrders) {
+          this.logger.debug(
+            `[Reconciliation] Fetching targeted orders for ghost ${exPos.symbol}`,
+          );
+          try {
+            exOrders = await this.orderManager.fetchOpenOrders(exPos.symbol);
+            allOrdersMap.set(exPos.symbol, exOrders);
+          } catch (err) {
+            this.logger.warn(`[Reconciliation] Failed to fetch orders for ${exPos.symbol} during safety check: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        exOrders = exOrders || [];
+
+        const startedByUs = await this.isPositionStartedByUs(exPos.symbol, exOrders);
+        if (!startedByUs) {
+          this.logger.warn(
+            `[Reconciliation] Ghost position ${exPos.symbol} was NOT started by this app instance. Skipping adoption/reconciliation to prevent multi-user interference.`,
+          );
+          continue;
+        }
+
         // RESEARCH: Attempt to discover existing SL/TP protection on exchange for this position
         let slPrice = 0;
         let slId = undefined;
@@ -1560,17 +1666,6 @@ export class SessionService implements OnModuleInit {
         let tpPrice = 0;
 
         try {
-          // Targeted Audit for this ghost position if not already fetched
-          let exOrders = allOrdersMap.get(exPos.symbol);
-          if (!exOrders && !useBulkAudit && !preFetchedOrders) {
-            this.logger.debug(
-              `[Reconciliation] Fetching targeted orders for ghost ${exPos.symbol}`,
-            );
-            exOrders = await this.orderManager.fetchOpenOrders(exPos.symbol);
-            allOrdersMap.set(exPos.symbol, exOrders);
-          }
-          exOrders = exOrders || [];
-
           // COMPLIANCE: Recognize more SL/TP order types during adoption
           const isSl = (o: any) => {
             const type = (o.type || o.algoType || "").toUpperCase();

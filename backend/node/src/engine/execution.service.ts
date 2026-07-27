@@ -87,7 +87,7 @@ export class ExecutionService {
           }
           if (result.exitOccurred && result.trade) {
             const closedTrade = result.trade;
-            this.sessionState.updateStatsOnClose((closedTrade.pnl || 0) > 0, closedTrade.pnl || 0, closedTrade.is_reconciliation, closedTrade.id);
+            this.sessionState.updateStatsOnClose((closedTrade.pnl || 0) > 0, closedTrade.pnl || 0, closedTrade.is_reconciliation, closedTrade.id, closedTrade.strategy_label);
 
             this.sessionState.addClosedTrade(closedTrade);
             this.sessionState.setActiveTrades(this.positionTracker.activeList());
@@ -129,7 +129,7 @@ export class ExecutionService {
   }
 
   private lastBanLogTs = 0;
-  async processEntries(opportunities: any[], config: SessionConfig, strategyLabel: string, onTradeUpdate?: (t: Trade, b: number) => Promise<void>) {
+  async processEntries(opportunities: any[], config: SessionConfig, strategyLabel: string, onTradeUpdate?: (t: Trade, b: number) => Promise<void>, globalSlGuardOverride?: number) {
     const symbolConfigs = config.single_symbol_configs;
     const symbolConfigMap = (symbolConfigs && symbolConfigs.length > 0) ? new Map(symbolConfigs.map(sc => [sc.symbol, sc])) : null;
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);
@@ -307,7 +307,18 @@ export class ExecutionService {
         this.monitoringService.setLoopStage('RISK_CHECK', opp.symbol);
         const activeTrades = this.positionTracker.activeList();
         const enteringCount = this.positionTracker.enteringCount();
-        const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk(), enteringCount, opp.score, prospectiveRiskPct);
+        const riskResult = this.riskEngine.canEnter(
+          activeTrades,
+          this.sessionState.closedTrades,
+          balance,
+          opp.symbol,
+          symbolConfig,
+          this.positionTracker.totalRisk(),
+          enteringCount,
+          opp.score,
+          prospectiveRiskPct,
+          globalSlGuardOverride
+        );
 
         if (!riskResult.canEnter) {
           // BOLT: Only log symbol-specific rejections as debug.
@@ -332,7 +343,7 @@ export class ExecutionService {
 
         try {
           const result = await this.orderManager.enter(
-            this.sessionState.config?.strategy_label || uuid().substring(0, 8),
+            this.sessionState.currentSessionId || uuid().substring(0, 8),
             opp.symbol,
             opp.direction.toUpperCase() as 'LONG' | 'SHORT',
             price,
@@ -349,7 +360,7 @@ export class ExecutionService {
           if (result.status === ExecutionStatus.SUCCESS && result.data) {
             const trade = result.data;
             this.positionTracker.addTrade(trade);
-            this.sessionState.updateStatsOnEntry(trade.id);
+            this.sessionState.updateStatsOnEntry(trade.id, trade.strategy_label);
 
             if (onTradeUpdate) {
               await onTradeUpdate(trade, balance);

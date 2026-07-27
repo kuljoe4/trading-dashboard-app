@@ -46,6 +46,8 @@ export class SessionStateService {
   public statsVersion = 0;
   public gateState: string | null = null;
   public gateReason: string | null = null;
+  public pausedStrategies: Set<string> = new Set();
+  public strategyGateStates: Map<string, { gateState: string | null; gateReason: string | null; isAdaptiveTightened?: boolean }> = new Map();
   public hibernating = false;
   public agreementRequired = false;
   public isAdaptiveTightened = false;
@@ -76,15 +78,36 @@ export class SessionStateService {
 
   public udsConfirmedClosedTrades: Set<string> = new Set();
   public localTradePnLAdjustments: Map<string, number> = new Map();
+  public currentSessionId: string | null = null;
+  public assetBalances: Map<string, number> = new Map();
+
+  isStrategyPaused(label: string): boolean {
+    return this.paused || (this.pausedStrategies ? this.pausedStrategies.has(label) : false);
+  }
+
+  setStrategyPaused(label: string, paused: boolean) {
+    if (!this.pausedStrategies) {
+      this.pausedStrategies = new Set();
+    }
+    if (paused) {
+      this.pausedStrategies.add(label);
+    } else {
+      this.pausedStrategies.delete(label);
+    }
+  }
 
   reset(config: SessionConfig, initialHistory: Trade[] = [], currentBalance?: number, sessionId?: string, initialOpen: Trade[] = []) {
     this.config = config;
+    this.currentSessionId = sessionId || null;
+    this.assetBalances.clear();
 
     this.statsVersion = 0;
     this.closedTrades = initialHistory;
     this.activeTrades = initialOpen;
     this.gateState = null;
     this.gateReason = null;
+    this.pausedStrategies.clear();
+    this.strategyGateStates.clear();
     this.hibernating = false;
     this.agreementRequired = false;
     this.isAdaptiveTightened = false;
@@ -142,16 +165,16 @@ export class SessionStateService {
       this.appliedStrategyPnL.set(trade.id, pnl);
       this.appliedStatsPnL.set(trade.id, pnl);
 
-      // Populate strategy-specific stats
-      const stats = this.cachedClosedTradesStats[label];
-      // CHRONOS: Realized portion (fees/funding) is tracked even for OPEN trades to ensure
-      // consistency with global stats and prevent PnL leakage upon session resume.
-      stats.pnl = roundEight(stats.pnl + pnl);
+      // Populate strategy-specific stats (only for closed trades to prevent double-counting upon session resume)
+      if (trade.status !== 'OPEN') {
+        const stats = this.cachedClosedTradesStats[label];
+        stats.pnl = roundEight(stats.pnl + pnl);
 
-      if (!trade.is_reconciliation) {
-        stats.count++;
-        if (trade.status !== 'OPEN' && pnl > 0) {
-          stats.hits++;
+        if (!trade.is_reconciliation) {
+          stats.count++;
+          if (pnl > 0) {
+            stats.hits++;
+          }
         }
       }
     };
@@ -203,8 +226,18 @@ export class SessionStateService {
   }
 
   isGated(): boolean {
-    return this.paused ||
-      ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(this.gateState || '');
+    if (this.paused) return true;
+    if (this.strategyGateStates && this.strategyGateStates.size > 0) {
+      for (const [label, state] of this.strategyGateStates.entries()) {
+        const isPaused = this.pausedStrategies ? this.pausedStrategies.has(label) : false;
+        const isGated = ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(state.gateState || '');
+        if (!isPaused && !isGated) {
+          return false; // at least one enabled strategy is NOT gated or paused
+        }
+      }
+      return true; // all strategies are gated or paused
+    }
+    return ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(this.gateState || '');
   }
 
   @OnEvent('binance.weight_update')
@@ -369,14 +402,14 @@ export class SessionStateService {
     return this.config?.strategy_label || SessionStateService.DEFAULT_STRATEGY_LABEL;
   }
 
-  updateStatsOnEntry(tradeId?: string) {
+  updateStatsOnEntry(tradeId?: string, strategyLabel?: string) {
     if (tradeId) {
       if (!this.countedGlobalEntries.has(tradeId)) {
         this.stats.entryCount++;
         this.countedGlobalEntries.add(tradeId);
 
         // Update Strategy Stats
-        const label = this.getStrategyLabelForTrade(tradeId);
+        const label = strategyLabel || this.getStrategyLabelForTrade(tradeId);
         if (label) {
           if (!this.cachedClosedTradesStats[label]) {
             this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
@@ -395,7 +428,7 @@ export class SessionStateService {
   }
 
 
-  updateStatsOnClose(isWin: boolean, pnl: number = 0, isReconciliation: boolean = false, tradeId?: string) {
+  updateStatsOnClose(isWin: boolean, pnl: number = 0, isReconciliation: boolean = false, tradeId?: string, strategyLabel?: string) {
     if (tradeId) {
       if (!isReconciliation && isWin && !this.countedGlobalHits.has(tradeId)) {
         this.stats.hitCount++;
@@ -408,7 +441,7 @@ export class SessionStateService {
       this.appliedGlobalPnL.set(tradeId, pnl);
 
       // Update Strategy Stats
-      const label = this.getStrategyLabelForTrade(tradeId);
+      const label = strategyLabel || this.getStrategyLabelForTrade(tradeId);
       if (label) {
         if (!this.cachedClosedTradesStats[label]) {
           this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };

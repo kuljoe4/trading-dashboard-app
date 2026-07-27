@@ -17,19 +17,32 @@ import { useResourceFocus } from '../hooks/useResourceFocus'
 const StrategyDetailView = ({ s, onBack }) => {
   const { config, scannerResults, analytics, wsStatus, isSyncing, isThrottled, isSyncingOnResume, sessionActive } = useTradingStore()
 
+  // BOLT OPTIMIZATION: Resolve variant-specific configuration if viewing a strategy variant
+  const strategyConfig = useMemo(() => {
+    if (!config) return {};
+    const idx = config.strategy_variants?.findIndex(v => v.strategy_label === s.strategy_label);
+    return (idx !== -1 && idx !== undefined)
+      ? { ...config, ...config.strategy_variants[idx] }
+      : config;
+  }, [config, s.strategy_label]);
+
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
   const showResumingFeedback = sessionActive && isResuming
+  const isVariant = useMemo(() => {
+    if (!config) return false;
+    return config.strategy_label !== s.strategy_label;
+  }, [config, s.strategy_label]);
 
   // Lifecycle-scoped subscription contract
   useResourceFocus('strategy', s.strategy_label);
 
   const bestOpp = useMemo(() => scannerResults[0] || { symbol: '---', pct: 0, dir: '---' }, [scannerResults])
-  const scanMet = Math.abs(bestOpp.pct) >= config.scan_pct_threshold
+  const scanMet = Math.abs(bestOpp.pct) >= strategyConfig.scan_pct_threshold
   const signalResult = bestOpp.signalResult || { allFired: false, firedSignals: [] }
   const entryMet = scanMet && signalResult.allFired
-  const signalsCount = config.enabled_signals?.length || 0
+  const signalsCount = strategyConfig.enabled_signals?.length || 0
   const firedCount = signalResult.firedSignals?.length || 0
-  const signalLogic = config.signal_logic || 'all'
+  const signalLogic = strategyConfig.signal_logic || 'all'
 
   return (
     <motion.div
@@ -45,6 +58,11 @@ const StrategyDetailView = ({ s, onBack }) => {
          <div className="flex items-center gap-2">
            <CopyButton value={s.strategyId} className="p-1" />
            <StatusBadge status={s.sessionActive} />
+           {isVariant && (
+             <span className="px-2.5 py-1 rounded bg-purple/10 text-purple border border-purple/20 text-[10px] font-black uppercase tracking-widest scale-90 origin-left">
+               Variant
+             </span>
+           )}
          </div>
       </ViewHeader>
 
@@ -57,20 +75,20 @@ const StrategyDetailView = ({ s, onBack }) => {
           syncing={showResumingFeedback || isSyncing || (analytics === null && s.activePnl === 0)}
         />
         <StatCard label="Hit Count" value={(s.entryCount ?? 0).toString()} color="text-accent" />
-        <StatCard label="SL Budget" value={`$${Number(s.totalSlUsed || 0).toFixed(0)}`} subValue={`Limit $${config.total_sl_guard_usdt}`} color={s.totalSlUsed > config.total_sl_guard_usdt * 0.7 ? "text-amber" : "text-text"} />
-        <StatCard label="Active Risk" value={`${Number(s.totalRiskPct || 0).toFixed(1)}%`} color={s.totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
+        <StatCard label="SL Budget" value={`$${Number(s.totalSlUsed || 0).toFixed(0)}`} subValue={`Limit $${strategyConfig.total_sl_guard_usdt}`} color={s.totalSlUsed > strategyConfig.total_sl_guard_usdt * 0.7 ? "text-amber" : "text-text"} />
+        <StatCard label="Active Risk" value={`${Number(s.totalRiskPct || 0).toFixed(1)}%`} color={s.totalRiskPct > strategyConfig.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
       </div>
 
       <div className="mb-10">
         <SectionLabel>Automation Gating</SectionLabel>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-10">
-          <ConditionWidget label={`Scanner: % Move (${config.scan_interval})`} value={bestOpp.pct} threshold={config.scan_pct_threshold} satisfied={scanMet} sublabel={`Top Opp: ${bestOpp.symbol} ${bestOpp.dir.toUpperCase()}`} />
+          <ConditionWidget label={`Scanner: % Move (${strategyConfig.scan_interval})`} value={bestOpp.pct} threshold={strategyConfig.scan_pct_threshold} satisfied={scanMet} sublabel={`Top Opp: ${bestOpp.symbol} ${bestOpp.dir.toUpperCase()}`} />
           <ConditionWidget label="Signal Authorization" value={firedCount} threshold={signalLogic === 'all' ? signalsCount : 1} unit={`/${signalsCount} signals`} satisfied={entryMet} sublabel={signalResult.reason || "Waiting for structural signal"} />
         </div>
 
         <ScannerPreview
           scannerResults={(scannerResults || []).filter(Boolean)}
-          config={config}
+          config={strategyConfig}
           onOpen={() => window.dispatchEvent(new CustomEvent('toggle-scanner'))}
         />
       </div>

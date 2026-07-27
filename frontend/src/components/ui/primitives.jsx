@@ -1,9 +1,9 @@
 import React from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from "./utils"
 import * as ProgressPrimitive from "@radix-ui/react-progress"
 import * as TooltipPrimitive from "@radix-ui/react-tooltip"
-import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock, Info, RefreshCw, ShieldCheck, Activity } from 'lucide-react'
+import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock, Info, RefreshCw, ShieldCheck, Activity, X } from 'lucide-react'
 import { Sparkline as SparklineChart, CandlestickChart as CandlestickChartBase } from '../DataCharts'
 import { useTradingStore } from '../../store/trading'
 import { useTooltipContext, Tooltip } from './tooltip'
@@ -467,19 +467,59 @@ export const VisuallyHidden = ({ children }) => (
 )
 
 export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = true, backAction, isResuming: propsResuming }) => {
-  const { config, wsStatus, isThrottled, isEcoMode, isSyncingOnResume, sessionActive } = useTradingStore()
+  const { config, wsStatus, isThrottled, isEcoMode, isSyncingOnResume, sessionActive, alerts, updateStats } = useTradingStore()
   const tradingMode = config.trading_mode || 'paper'
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
   const showResumingFeedback = propsResuming ?? (sessionActive && isResuming)
+
+  const [alertIndex, setAlertIndex] = React.useState(0)
+  const [showDropdown, setShowDropdown] = React.useState(false)
+  const [hasActiveModal, setHasActiveModal] = React.useState(false)
+
+  // SRE-PERF: Highly optimized MutationObserver to detect active overlay modals/dialogs.
+  // When a modal is open, we suppress the global ticker to prevent background visual noise,
+  // screen-reader clutter, and accidental background keyboard tab indexing.
+  React.useEffect(() => {
+    const checkModals = () => {
+      const isOpen = !!document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]');
+      setHasActiveModal(isOpen);
+    };
+
+    checkModals();
+
+    const observer = new MutationObserver(checkModals);
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-state', 'class', 'style']
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  React.useEffect(() => {
+    if (!alerts || alerts.length <= 1) {
+      setAlertIndex(0)
+      return
+    }
+    const interval = setInterval(() => {
+      setAlertIndex(prev => (prev + 1) % alerts.length)
+    }, 4000)
+    return () => clearInterval(interval)
+  }, [alerts])
+
+  const activeAlert = !hasActiveModal && alerts && alerts.length > 0 ? alerts[alertIndex % alerts.length] : null
 
   return (
     <div className={cn(
       "z-40 transition-all duration-300 mb-4 lg:mb-6",
       sticky && "sticky top-0 bg-background/90 backdrop-blur-md py-1.5 -mx-4 px-4 md:-mx-10 md:px-10 border-b border-border/10 shadow-sm"
     )}>
-      <div className="flex flex-row items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5 min-w-0">
+      <div className="flex flex-row items-center justify-between gap-3 relative">
+        {/* Left Side: Title and Badges */}
+        <div className="flex items-center gap-2.5 min-w-0 flex-1 md:flex-initial">
           {backAction && (
             <button
               onClick={backAction}
@@ -530,6 +570,109 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
             </div>
           </div>
         </div>
+
+        {/* Center: Integrated Non-Blocking Horizontal Ticker */}
+        {activeAlert && (
+          <div className="hidden md:flex relative items-center justify-center min-w-0 flex-1 px-4 z-50">
+            <div
+              onClick={() => setShowDropdown(!showDropdown)}
+              className="group pointer-events-auto cursor-pointer flex items-center justify-between gap-2 px-3.5 py-1 bg-surface/30 hover:bg-surface/60 border border-border/40 hover:border-accent/30 rounded-full text-[10px] text-text max-w-[360px] lg:max-w-[440px] w-full transition-all duration-300 select-none animate-in fade-in"
+              title="Click to view all recent alerts"
+            >
+              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                <span className={cn(
+                  "w-1.5 h-1.5 rounded-full shrink-0 animate-pulse",
+                  activeAlert.level === 'error' ? "bg-red" :
+                  activeAlert.level === 'warn' ? "bg-amber" :
+                  activeAlert.level === 'success' ? "bg-green" :
+                  "bg-accent"
+                )} />
+                <span className="font-black uppercase tracking-wider shrink-0 opacity-80 text-[8.5px] text-white">
+                  {activeAlert.title || 'Alert'}
+                </span>
+                <span className="opacity-30 shrink-0 font-black">|</span>
+                <span className="font-semibold truncate text-dim group-hover:text-text transition-colors">
+                  {activeAlert.message}
+                </span>
+                {activeAlert.count > 1 && (
+                  <span className="bg-white/10 px-1 py-0.2 rounded text-[7px] font-black shrink-0">x{activeAlert.count}</span>
+                )}
+                {alerts.length > 1 && (
+                  <span className="text-[7.5px] font-bold text-accent shrink-0 uppercase tracking-tighter ml-auto">
+                    +{alerts.length - 1} more
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  const nextAlerts = alerts.filter(a => a.id !== activeAlert.id)
+                  updateStats({ alerts: nextAlerts })
+                  if (nextAlerts.length === 0) setShowDropdown(false)
+                }}
+                className="p-0.5 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none"
+                aria-label="Dismiss this alert"
+              >
+                <X size={10} />
+              </button>
+            </div>
+
+            {/* Dropdown Overlay containing the exact alert history */}
+            {showDropdown && (
+              <>
+                <div className="fixed inset-0 z-40 cursor-default" onClick={(e) => { e.stopPropagation(); setShowDropdown(false); }} />
+                <div className="absolute top-full mt-2 bg-surface/95 border border-border/80 shadow-2xl rounded-2xl p-3 w-80 max-h-64 overflow-y-auto no-scrollbar z-50 animate-in fade-in slide-in-from-top-2 pointer-events-auto">
+                  <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-border/30">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-dim">Recent Alerts ({alerts.length})</span>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); updateStats({ alerts: [] }); setShowDropdown(false); }}
+                      className="text-[8.5px] font-black text-red hover:text-red-400 uppercase tracking-widest transition-colors focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none rounded px-1"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                  <div className="space-y-1.5">
+                    {alerts.map(a => (
+                      <div key={a.id} className="flex items-start justify-between gap-2 p-2 bg-background/40 hover:bg-background/80 border border-border/30 rounded-xl transition-all">
+                        <div className="min-w-0 flex-1 text-[9.5px]">
+                          <div className="flex items-center gap-1.5 font-black uppercase tracking-wider text-white">
+                            <span className={cn(
+                              "w-1 h-1 rounded-full shrink-0",
+                              a.level === 'error' ? "bg-red" :
+                              a.level === 'warn' ? "bg-amber" :
+                              a.level === 'success' ? "bg-green" :
+                              "bg-accent"
+                            )} />
+                            {a.title || 'System Alert'}
+                            {a.count > 1 && <span className="text-[7.5px] bg-white/10 px-1 py-0.2 rounded text-text/80">x{a.count}</span>}
+                          </div>
+                          <p className="font-semibold text-dim mt-0.5 leading-normal break-words">{a.message}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            const nextAlerts = alerts.filter(item => item.id !== a.id)
+                            updateStats({ alerts: nextAlerts })
+                            if (nextAlerts.length === 0) setShowDropdown(false)
+                          }}
+                          className="p-1 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none"
+                          aria-label="Dismiss"
+                        >
+                          <X size={10} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Right Side: Children Action Items */}
         <div className="flex items-center gap-2 shrink-0 scale-90 origin-right">
           {children}
         </div>
@@ -537,6 +680,131 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
     </div>
   )
 }
+
+// --- Modal Alert Ticker ---
+export const ModalAlertTicker = React.memo(() => {
+  const { alerts, updateStats } = useTradingStore()
+  const [alertIndex, setAlertIndex] = React.useState(0)
+  const [showDropdown, setShowDropdown] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!alerts || alerts.length <= 1) {
+      setAlertIndex(0)
+      return
+    }
+    const interval = setInterval(() => {
+      setAlertIndex(prev => (prev + 1) % alerts.length)
+    }, 4000)
+    return () => clearInterval(interval)
+  }, [alerts])
+
+  if (!alerts || alerts.length === 0) return null;
+
+  const activeAlert = alerts[alertIndex % alerts.length];
+
+  return (
+    <div className="relative flex items-center justify-center min-w-0 w-full px-4 py-2 border-b border-border/10 bg-surface/20 z-50 animate-in fade-in">
+      <div className="relative w-full max-w-[540px]">
+        <div
+          onClick={() => setShowDropdown(!showDropdown)}
+          className="group pointer-events-auto cursor-pointer flex items-center justify-between gap-2 px-3.5 py-1.5 bg-surface/30 hover:bg-surface/60 border border-border/40 hover:border-accent/30 rounded-full text-[10px] text-text w-full transition-all duration-300 select-none"
+          title="Click to view all recent alerts"
+        >
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            <span className={cn(
+              "w-1.5 h-1.5 rounded-full shrink-0 animate-pulse",
+              activeAlert.level === 'error' ? "bg-red" :
+              activeAlert.level === 'warn' ? "bg-amber" :
+              activeAlert.level === 'success' ? "bg-green" :
+              "bg-accent"
+            )} />
+            <span className="font-black uppercase tracking-wider shrink-0 opacity-80 text-[8.5px] text-white">
+              {activeAlert.title || 'Alert'}
+            </span>
+            <span className="opacity-30 shrink-0 font-black">|</span>
+            <span className="font-semibold truncate text-dim group-hover:text-text transition-colors">
+              {activeAlert.message}
+            </span>
+            {activeAlert.count > 1 && (
+              <span className="bg-white/10 px-1 py-0.2 rounded text-[7px] font-black shrink-0">x{activeAlert.count}</span>
+            )}
+            {alerts.length > 1 && (
+              <span className="text-[7.5px] font-bold text-accent shrink-0 uppercase tracking-tighter ml-auto">
+                +{alerts.length - 1} more
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              const nextAlerts = alerts.filter(a => a.id !== activeAlert.id)
+              updateStats({ alerts: nextAlerts })
+              if (nextAlerts.length === 0) setShowDropdown(false)
+            }}
+            className="p-0.5 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none"
+            aria-label="Dismiss this alert"
+          >
+            <X size={10} />
+          </button>
+        </div>
+
+        {/* Dropdown Overlay containing the exact alert history */}
+        {showDropdown && (
+          <>
+            <div className="fixed inset-0 z-40 cursor-default" onClick={(e) => { e.stopPropagation(); setShowDropdown(false); }} />
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-surface/95 border border-border/80 shadow-2xl rounded-2xl p-3 w-80 max-h-64 overflow-y-auto no-scrollbar z-50 animate-in fade-in slide-in-from-top-2 pointer-events-auto">
+              <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-border/30">
+                <span className="text-[9px] font-black uppercase tracking-widest text-dim">Recent Alerts ({alerts.length})</span>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); updateStats({ alerts: [] }); setShowDropdown(false); }}
+                  className="text-[8.5px] font-black text-red hover:text-red-400 uppercase tracking-widest transition-colors focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none rounded px-1"
+                >
+                  Clear All
+                </button>
+              </div>
+              <div className="space-y-1.5">
+                {alerts.map(a => (
+                  <div key={a.id} className="flex items-start justify-between gap-2 p-2 bg-background/40 hover:bg-background/80 border border-border/30 rounded-xl transition-all">
+                    <div className="min-w-0 flex-1 text-[9.5px]">
+                      <div className="flex items-center gap-1.5 font-black uppercase tracking-wider text-white">
+                        <span className={cn(
+                          "w-1 h-1 rounded-full shrink-0",
+                          a.level === 'error' ? "bg-red" :
+                          a.level === 'warn' ? "bg-amber" :
+                          a.level === 'success' ? "bg-green" :
+                          "bg-accent"
+                        )} />
+                        {a.title || 'System Alert'}
+                        {a.count > 1 && <span className="text-[7.5px] bg-white/10 px-1 py-0.2 rounded text-text/80">x{a.count}</span>}
+                      </div>
+                      <p className="font-semibold text-dim mt-0.5 leading-normal break-words">{a.message}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const nextAlerts = alerts.filter(item => item.id !== a.id)
+                        updateStats({ alerts: nextAlerts })
+                        if (nextAlerts.length === 0) setShowDropdown(false)
+                      }}
+                      className="p-1 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none"
+                      aria-label="Dismiss"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+})
+ModalAlertTicker.displayName = 'ModalAlertTicker'
 
 // --- Copy Button ---
 export const CopyButton = React.memo(({ value, getValue, className, tooltip = "Copy", successTooltip = "Copied!" }) => {

@@ -209,9 +209,10 @@ const BanBanner = ({ apiStatus }) => {
 };
 
 // --- Strategy Card ---
-export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner, isMonitored, className, isResuming, showResumingFeedback }) => {
+export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, gateInfo, scannerResults, onOpenScanner, isMonitored, className, isResuming, showResumingFeedback }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
+  const isGated = gateInfo && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(gateInfo.gateState || '');
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
   const startingBalance = tradingMode === 'paper'
@@ -235,28 +236,16 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
     <motion.div
       whileHover={{ scale: 1.005 }}
       className={cn(
-        "bg-surface border border-border/50 rounded-2xl p-4 md:p-6 transition-all relative flex flex-col justify-between shadow-sm h-full min-w-0 overflow-hidden",
-        tradingMode === 'paper' ? "hover:border-amber/30 hover:shadow-amber/[0.02]" :
-        tradingMode === 'testnet' ? "hover:border-purple/30 hover:shadow-purple/[0.02]" :
-        "hover:border-green/30 hover:shadow-green/[0.02]",
+        "bg-surface border rounded-2xl p-4 md:p-6 transition-all relative flex flex-col justify-between shadow-sm h-full min-w-0 overflow-hidden",
+        paused && !isResuming ? "border-amber/30 bg-amber/[0.005]" :
+        isGated && !paused && !isResuming ? "border-red/30 bg-red/[0.005]" :
+        showResumingFeedback ? "border-accent/30 bg-accent/[0.005]" :
+        tradingMode === 'paper' ? "border-border/50 hover:border-amber/30 hover:shadow-amber/[0.02]" :
+        tradingMode === 'testnet' ? "border-border/50 hover:border-purple/30 hover:shadow-purple/[0.02]" :
+        "border-border/50 hover:border-green/30 hover:shadow-green/[0.02]",
         className
       )}
     >
-      {paused && !isResuming && (
-        <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
-          <div className="bg-amber/10 border border-amber/20 text-amber px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-2xl">
-            <Pause size={12} fill="currentColor" /> Session Paused
-          </div>
-        </div>
-      )}
-      {showResumingFeedback && (
-        <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
-          <div className="bg-accent/10 border border-accent/20 text-accent px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-2xl">
-            <RefreshCw size={12} className="animate-spin" /> Resuming Feed...
-          </div>
-        </div>
-      )}
-
       {/* Card Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 pb-4 border-b border-border/20 mb-4">
         <div className="min-w-0">
@@ -267,6 +256,31 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
               {tradingMode === 'testnet' && <DemoBadge />}
               {tradingMode === 'live' && <LiveBadge />}
             </div>
+            {s.strategy_label !== config.strategy_label && (
+              <span className="px-2 py-0.5 rounded bg-purple/10 text-purple border border-purple/20 text-[9px] font-black uppercase tracking-wider scale-90 origin-left">
+                Variant
+              </span>
+            )}
+            {paused && !isResuming && (
+              <span className="px-2.5 py-1 rounded-full border border-amber/20 bg-amber/10 text-[10px] text-amber font-bold tracking-wider flex items-center gap-1.5 scale-90 origin-left">
+                <Pause size={10} fill="currentColor" />
+                PAUSED
+              </span>
+            )}
+            {isGated && !paused && !isResuming && (
+              <Tooltip content={gateInfo.gateReason || 'Gated by Risk Rules'}>
+                <span className="px-2.5 py-1 rounded-full border border-red/20 bg-red/10 text-[10px] text-red font-bold tracking-wider flex items-center gap-1.5 scale-90 origin-left cursor-help">
+                  <XCircle size={10} fill="currentColor" className="text-red" />
+                  {gateInfo.gateState === 'sleeping' ? 'SLEEPING' : 'GATED'}
+                </span>
+              </Tooltip>
+            )}
+            {showResumingFeedback && (
+              <span className="px-2.5 py-1 rounded-full border border-accent/20 bg-accent/10 text-[10px] text-accent font-bold tracking-wider flex items-center gap-1.5 scale-90 origin-left">
+                <RefreshCw size={10} className="animate-spin" />
+                RESUMING
+              </span>
+            )}
           </div>
           <h3 className="text-base md:text-lg font-black tracking-tight truncate uppercase leading-tight text-text">
             {s.strategy_label}
@@ -625,7 +639,7 @@ export function DashboardView({ initialStrategy }) {
   const [sessionToDelete, setSessionToDelete] = useState(null)
 
   const {
-    sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
+    sessionActive, sessionPaused, pausedStrategies, strategyGateStates, strategyId, balance, totalPnl, totalRiskPct,
     totalSlUsed, totalEstPnlToRealize, activeTrades, alerts, config, setSessionActive,
     updateConfig, patchConfig, gateState, gateReason, hibernating, hibernationMode, agreementRequired,
     scannerPaused, sessionList, fetchSessions, wsStatus,
@@ -636,6 +650,8 @@ export function DashboardView({ initialStrategy }) {
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
+    pausedStrategies: state.pausedStrategies || [],
+    strategyGateStates: state.strategyGateStates || {},
     strategyId: state.strategyId,
     balance: state.balance,
     totalPnl: state.totalPnl,
@@ -851,19 +867,27 @@ export function DashboardView({ initialStrategy }) {
     }
   }, [config, isEditMode, strategyId, editingVariantIndex, updateConfig, setSessionActive, addAlert, fetchSessions, setSyncing]);
 
-  const togglePause = React.useCallback(async () => {
+  const togglePause = React.useCallback(async (strategyLabel) => {
     try {
-      await sessionAPI.pause(!sessionPaused)
+      const isTargetPaused = strategyLabel
+        ? pausedStrategies.includes(strategyLabel)
+        : sessionPaused;
+
+      await sessionAPI.pause(!isTargetPaused, strategyLabel);
+
+      const label = strategyLabel || 'Session';
       addAlert({
         level: 'info',
-        title: sessionPaused ? 'Session Resumed' : 'Session Paused',
-        message: sessionPaused ? 'Engine is now actively scanning for opportunities.' : 'Scanning and entry logic suspended.'
+        title: isTargetPaused ? `${label} Resumed` : `${label} Paused`,
+        message: isTargetPaused
+          ? `Engine is now actively scanning for opportunities on ${label.toLowerCase()}.`
+          : `Scanning and entry logic suspended for ${label.toLowerCase()}.`
       });
     } catch (e) {
-      console.error('Pause toggle failed:', e)
-      addAlert({ level: 'error', title: 'Action Failed', message: 'Could not toggle session pause state.' });
+      console.error('Pause toggle failed:', e);
+      addAlert({ level: 'error', title: 'Action Failed', message: 'Could not toggle pause state.' });
     }
-  }, [sessionPaused, addAlert]);
+  }, [sessionPaused, pausedStrategies, addAlert]);
 
   const handleResumeLast = React.useCallback(async () => {
     if (!lastSession) return;
@@ -1083,73 +1107,6 @@ export function DashboardView({ initialStrategy }) {
               </a>
             </motion.div>
           )}
-          <div className="fixed bottom-4 right-4 z-[200] flex flex-col gap-1 w-full max-w-[240px] pointer-events-none">
-            <AnimatePresence mode="popLayout">
-              {alerts && alerts.length > 2 && (
-                <motion.button
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 10 }}
-                  onClick={() => updateStats({ alerts: [] })}
-                  className="mb-1 self-end px-1.5 py-0.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded text-[8px] font-black uppercase tracking-wider text-white/40 hover:text-white transition-all pointer-events-auto backdrop-blur-md"
-                >
-                  Dismiss All
-                </motion.button>
-              )}
-              {alerts && alerts.map(alert => {
-                const Icon = alert.level === 'error' ? XCircle :
-                            alert.level === 'warn' ? AlertCircle :
-                            alert.level === 'success' ? CheckCircle2 : Info;
-
-                return (
-                  <motion.div
-                    key={alert.id}
-                    layout
-                    initial={{ opacity: 0, x: 20, scale: 0.98 }}
-                    animate={{ opacity: 1, x: 0, scale: 1 }}
-                    exit={{ opacity: 0, x: 5, scale: 0.98 }}
-                    className={cn(
-                      "py-1.5 px-2.5 rounded-lg border shadow-[0_4px_16px_rgba(0,0,0,0.2)] flex flex-col gap-0.5 relative overflow-hidden pointer-events-auto backdrop-blur-2xl transition-all hover:translate-x-[-2px]",
-                      alert.level === 'error' ? "bg-red/10 border-red/30 text-red-400" :
-                      alert.level === 'warn' ? "bg-amber/10 border-amber/30 text-amber-400" :
-                      alert.level === 'success' ? "bg-green/10 border-green/30 text-green-400" :
-                      "bg-accent/10 border-accent/30 text-accent-400"
-                    )}
-                  >
-                    <button
-                      onClick={() => updateStats({ alerts: alerts.filter(a => a.id !== alert.id) })}
-                      className="absolute top-1.5 right-1.5 p-0.5 hover:bg-white/10 rounded transition-colors group"
-                      aria-label="Dismiss alert"
-                    >
-                      <XCircle size={10} className="opacity-20 group-hover:opacity-100 transition-opacity" />
-                    </button>
-                    <div className="flex items-center gap-1.5 pr-4">
-                      <div className={cn(
-                        "p-0.5 rounded shrink-0",
-                        alert.level === 'error' ? "bg-red/20" :
-                        alert.level === 'warn' ? "bg-amber/20" :
-                        alert.level === 'success' ? "bg-green/20" :
-                        "bg-accent/20"
-                      )}>
-                        <Icon size={11} className="shrink-0" />
-                      </div>
-                      <div className="flex flex-col min-w-0">
-                        <div className="flex items-center gap-1">
-                          <span className="text-[9px] font-black uppercase tracking-wider truncate">{alert.title || 'System Alert'}</span>
-                          {alert.count > 1 && (
-                            <span className="bg-current/20 px-1 py-0.2 rounded text-[7px] font-black">x{alert.count}</span>
-                          )}
-                        </div>
-                      </div>
-                      {alert.symbol && <span className="ml-auto bg-black/20 px-1 py-0.2 rounded font-mono text-[8px] font-black shrink-0">{alert.symbol}</span>}
-                    </div>
-                    <p className="text-[9px] font-bold pl-5 pr-1 leading-normal opacity-90 line-clamp-3">{alert.message}</p>
-                    <div className="absolute bottom-0 left-0 h-[1.5px] bg-current opacity-25 animate-shrink-width" style={{ animationDuration: '5s' }} />
-                  </motion.div>
-                );
-              })}
-            </AnimatePresence>
-          </div>
 
           <GateBanner
             gateState={gateState}
@@ -1528,7 +1485,8 @@ export function DashboardView({ initialStrategy }) {
                             }}
                             scannerResults={variantScannerResults[currentStrategy.strategy_label]}
                             config={config}
-                            paused={sessionPaused}
+                            paused={pausedStrategies.includes(currentStrategy.strategy_label) || sessionPaused}
+                            gateInfo={strategyGateStates[currentStrategy.strategy_label]}
                             onPause={togglePause}
                             onOpenScanner={handleOpenScanner}
                             onEdit={handleEditPrimary}
@@ -1552,7 +1510,8 @@ export function DashboardView({ initialStrategy }) {
                                 }}
                                 scannerResults={variantScannerResults[label]}
                                 config={variantConfig}
-                                paused={sessionPaused}
+                                paused={pausedStrategies.includes(label) || sessionPaused}
+                                gateInfo={strategyGateStates[label]}
                                 onPause={togglePause}
                                 onOpenScanner={handleOpenScanner}
                                 onEdit={handleEditVariant}

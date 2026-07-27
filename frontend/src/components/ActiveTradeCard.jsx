@@ -24,9 +24,9 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
 
   const duration = React.useMemo(() => {
     if (!trade.entry_ts) return '---'
-    const start = new Date(trade.entry_ts).getTime()
+    const start = trade.entry_ts_ms !== undefined ? trade.entry_ts_ms : new Date(trade.entry_ts).getTime()
     return formatDuration(now - start)
-  }, [trade.entry_ts, now])
+  }, [trade.entry_ts, trade.entry_ts_ms, now])
 
   const entry = Number(trade.entry_price || 0)
   const mark = Number(trade.mark_price || trade.last_price || 0)
@@ -92,6 +92,11 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             <span className={cn("text-[9px] md:text-xs font-black px-1.5 py-0.5 rounded border uppercase shrink-0", isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5')}>
               {isLong ? '▲' : '▼'} {trade.direction || '---'}
             </span>
+            {trade.strategy_label && config && trade.strategy_label !== (config.strategy_label || 'Momentum Strategy') && (
+              <span className="bg-purple/10 text-purple border border-purple/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0">
+                Variant
+              </span>
+            )}
             {trade.is_reconciliation && (
               <span className="bg-amber text-black border border-amber text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter">
                 Recon

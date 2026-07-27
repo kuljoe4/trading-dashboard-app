@@ -10,7 +10,7 @@ import { TradeDetailContent } from '../components/trade/TradeDetailContent'
 import { formatDuration } from '../lib/formatters'
 
 const TradeDetailView = ({ tradeId }) => {
-  const { activeTrades, wsStatus, updateStats, addAlert } = useTradingStore()
+  const { activeTrades, wsStatus, updateStats, addAlert, config } = useTradingStore()
   const trade = (activeTrades || []).find(t => t.id === tradeId || t.symbol === tradeId)
   const [now, setNow] = useState(Date.now())
 
@@ -84,6 +84,7 @@ const TradeDetailView = ({ tradeId }) => {
 
   const isSyncing = wsStatus !== 'live' || !trade._is_full;
   const tradingMode = trade.paper_mode ? 'paper' : (trade.strategy_config?.trading_mode || 'live');
+  const isVariant = trade && config && trade.strategy_label !== config.strategy_label;
 
   return (
     <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -96,6 +97,11 @@ const TradeDetailView = ({ tradeId }) => {
           {tradingMode === 'paper' && <PaperBadge />}
           {tradingMode === 'testnet' && <DemoBadge />}
           {tradingMode === 'live' && <LiveBadge />}
+          {isVariant && (
+            <span className="px-2.5 py-1 rounded-full bg-purple/10 text-purple border border-purple/20 text-[10px] font-bold uppercase tracking-wider">
+              Variant
+            </span>
+          )}
           <span className={cn("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider", trade.direction === 'LONG' ? 'bg-green/10 text-green border border-green/20' : 'bg-red/10 text-red border border-red/20')}>
             {trade.direction}
           </span>

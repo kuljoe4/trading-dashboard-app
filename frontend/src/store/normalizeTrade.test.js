@@ -111,14 +111,16 @@ test('normalizeTrade preserves all TradeEntity custom/additional fields during d
   assert.deepStrictEqual(nextState.strategy_config, { key: 'value' }, 'strategy_config should be preserved');
 });
 
-test('normalizeTrade calculates and preserves exit_ts_ms', (t) => {
-  const tradeWithExitTs = {
+test('normalizeTrade calculates and preserves exit_ts_ms & entry_ts_ms', (t) => {
+  const tradeWithExitAndEntryTs = {
     exit_ts: '2026-07-20T12:00:00.000Z',
+    entry_ts: '2026-07-20T11:00:00.000Z',
     createdAt: '2026-07-20T10:00:00.000Z'
   };
 
-  const normWithExitTs = normalizeTrade(tradeWithExitTs);
-  assert.strictEqual(normWithExitTs.exit_ts_ms, new Date('2026-07-20T12:00:00.000Z').getTime());
+  const normWithExitAndEntryTs = normalizeTrade(tradeWithExitAndEntryTs);
+  assert.strictEqual(normWithExitAndEntryTs.exit_ts_ms, new Date('2026-07-20T12:00:00.000Z').getTime());
+  assert.strictEqual(normWithExitAndEntryTs.entry_ts_ms, new Date('2026-07-20T11:00:00.000Z').getTime());
 
   const tradeWithCreatedAt = {
     createdAt: '2026-07-20T10:00:00.000Z'
@@ -126,13 +128,15 @@ test('normalizeTrade calculates and preserves exit_ts_ms', (t) => {
 
   const normWithCreatedAt = normalizeTrade(tradeWithCreatedAt);
   assert.strictEqual(normWithCreatedAt.exit_ts_ms, new Date('2026-07-20T10:00:00.000Z').getTime());
+  assert.strictEqual(normWithCreatedAt.entry_ts_ms, new Date('2026-07-20T10:00:00.000Z').getTime());
 
-  // Test delta update preservation of exit_ts_ms
+  // Test delta update preservation of exit_ts_ms & entry_ts_ms
   const deltaUpdate = {
     _delta: true,
     pnl: 50
   };
 
-  const normDelta = normalizeTrade(deltaUpdate, normWithExitTs);
+  const normDelta = normalizeTrade(deltaUpdate, normWithExitAndEntryTs);
   assert.strictEqual(normDelta.exit_ts_ms, new Date('2026-07-20T12:00:00.000Z').getTime());
+  assert.strictEqual(normDelta.entry_ts_ms, new Date('2026-07-20T11:00:00.000Z').getTime());
 });

@@ -10,7 +10,7 @@ import {
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, In } from "typeorm";
+import { Repository, In, Like } from "typeorm";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { Session as SessionEntity } from "../models/entities/Session.entity";
@@ -604,6 +604,91 @@ export class SessionService implements OnModuleInit {
       throw new BadRequestException(
         `Slippage abort threshold cannot exceed ${CONFIG_LIMITS.SLIPPAGE_ABORT_MAX * 100}%`,
       );
+    }
+
+    // SENTINEL: Validate Record properties to prevent Stored XSS, injection, or DoS
+    const validateRecord = (
+      name: string,
+      record: any,
+      maxKeys: number,
+      valueValidator: (val: any) => boolean,
+      valError: string
+    ) => {
+      if (!record || typeof record !== "object" || Array.isArray(record)) return;
+      const keys = Object.keys(record);
+      if (keys.length > maxKeys) {
+        throw new BadRequestException(`${name} cannot exceed ${maxKeys} entries`);
+      }
+      for (const k of keys) {
+        if (k.length > 50 || !/^[a-zA-Z0-9_\-]*$/.test(k) || /<[a-zA-Z!/]/.test(k)) {
+          throw new BadRequestException(`Invalid key format in ${name}`);
+        }
+        if (!valueValidator(record[k])) {
+          throw new BadRequestException(`${valError} for key "${k}"`);
+        }
+      }
+    };
+
+    validateRecord(
+      "exit_signal_delays",
+      config.exit_signal_delays,
+      50,
+      (v) => typeof v === "number" && !isNaN(v) && v >= 0 && v <= 86400,
+      "exit_signal_delays values must be numbers between 0 and 86400"
+    );
+
+    validateRecord(
+      "exit_signal_actions",
+      config.exit_signal_actions,
+      50,
+      (v) => v === "close" || v === "lock_sl",
+      "exit_signal_actions values must be 'close' or 'lock_sl'"
+    );
+
+    validateRecord(
+      "signal_timeframes",
+      config.signal_timeframes,
+      50,
+      (v) => typeof v === "string" && v.length <= 10 && /^(1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|3d|1w|1M|default)$/.test(v),
+      "signal_timeframes values must be valid Binance kline intervals"
+    );
+
+    validateRecord(
+      "scanner_weights",
+      config.scanner_weights,
+      10,
+      (v) => typeof v === "number" && !isNaN(v) && v >= 0 && v <= 100,
+      "scanner_weights values must be numbers between 0 and 100"
+    );
+
+    if (config.signal_params && typeof config.signal_params === "object" && !Array.isArray(config.signal_params)) {
+      const keys = Object.keys(config.signal_params);
+      if (keys.length > 50) {
+        throw new BadRequestException("signal_params cannot exceed 50 entries");
+      }
+      const valPrimitive = (v: any): boolean => {
+        if (v === null || v === undefined) return true;
+        const t = typeof v;
+        if (t === "boolean" || t === "number") return !isNaN(v);
+        if (t === "string") return v.length <= 100 && !/<[a-zA-Z!/]/.test(v);
+        return false;
+      };
+      for (const k of keys) {
+        if (k.length > 50 || !/^[a-zA-Z0-9_\-]*$/.test(k) || /<[a-zA-Z!/]/.test(k)) {
+          throw new BadRequestException("Invalid key format in signal_params");
+        }
+        const v = config.signal_params[k];
+        if (Array.isArray(v)) {
+          if (v.length > 50) throw new BadRequestException(`Array values in signal_params for key "${k}" cannot exceed 50 items`);
+          for (const item of v) {
+            if (!valPrimitive(item)) throw new BadRequestException(`Invalid value in signal_params array for key "${k}"`);
+          }
+        } else if (v && typeof v === "object") {
+          throw new BadRequestException(`Nested objects in signal_params are not allowed for key "${k}"`);
+        } else {
+          if (!valPrimitive(v)) throw new BadRequestException(`Invalid value in signal_params for key "${k}"`);
+        }
+      }
     }
   }
 
@@ -1398,6 +1483,89 @@ export class SessionService implements OnModuleInit {
   }
 
   /**
+   * Checks if an exchange position was started by this app instance.
+   */
+  private async isPositionStartedByUs(
+    symbol: string,
+    openOrdersOfSymbol: any[],
+  ): Promise<boolean> {
+    // 1. Is there an active open trade in our database for this symbol?
+    const openTrade = await this.tradeRepository.findOne({
+      where: { symbol, status: "OPEN" as any },
+    });
+    if (openTrade) return true;
+
+    // 2. If no open trade, check if there are any open orders for this symbol.
+    if (!openOrdersOfSymbol || openOrdersOfSymbol.length === 0) {
+      return false;
+    }
+
+    // Load all trades for this symbol (both open and closed) to match clientOrderIds
+    const allSymbolTrades = await this.tradeRepository.find({
+      where: { symbol },
+      select: ["id"],
+    });
+    if (allSymbolTrades.length === 0) {
+      return false;
+    }
+
+    // Build sets of possible identifiers from our trade records
+    const tradeIds = new Set(allSymbolTrades.map(t => t.id.toLowerCase()));
+    const tradeIdsNoHyphens = new Set(allSymbolTrades.map(t => t.id.replace(/-/g, '').toLowerCase()));
+
+    // Check if any open order's clientOrderId points to one of our trade IDs
+    for (const order of openOrdersOfSymbol) {
+      const clientOrderId = (order.clientOrderId || order.clientAlgoId || "").toLowerCase();
+      if (!clientOrderId) continue;
+
+      // Stop Loss pattern: sl-${trade.id.substring(0, 8)}
+      if (clientOrderId.startsWith("sl-")) {
+        const prefix = clientOrderId.substring(3, 11);
+        for (const id of tradeIds) {
+          if (id.startsWith(prefix)) {
+            return true;
+          }
+        }
+      }
+
+      // Entry pattern: ent-${trade.id.replace(/-/g, '').substring(0, 20)}
+      if (clientOrderId.startsWith("ent-")) {
+        const prefix = clientOrderId.substring(4, 24);
+        for (const idNoHyphen of tradeIdsNoHyphens) {
+          if (idNoHyphen.startsWith(prefix)) {
+            return true;
+          }
+        }
+      }
+
+      // Limit close pattern: cls-lim-${trade.id.replace(/-/g, '').substring(0, 16)}
+      if (clientOrderId.startsWith("cls-lim-")) {
+        const prefix = clientOrderId.substring(8, 24);
+        for (const idNoHyphen of tradeIdsNoHyphens) {
+          if (idNoHyphen.startsWith(prefix)) {
+            return true;
+          }
+        }
+      }
+
+      // Other close patterns: cls-..., tp-..., sig-... (e.g. prefix-${trade.id.replace(/-/g, '').substring(0, 20)})
+      const genericPrefixes = ["cls-", "tp-", "sig-"];
+      for (const p of genericPrefixes) {
+        if (clientOrderId.startsWith(p) && !clientOrderId.startsWith("cls-lim-")) {
+          const prefix = clientOrderId.substring(p.length, p.length + 20);
+          for (const idNoHyphen of tradeIdsNoHyphens) {
+            if (idNoHyphen.startsWith(prefix)) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * SRE: Adopts exchange positions by creating local synthetic trade records.
    * Ensures that "ghost" trades are brought under system protection and UI visibility.
    */
@@ -1468,6 +1636,29 @@ export class SessionService implements OnModuleInit {
           continue;
         }
 
+        // Fetch/get open orders of this symbol to verify if we started the position
+        let exOrders = allOrdersMap.get(exPos.symbol);
+        if (!exOrders && !useBulkAudit && !preFetchedOrders) {
+          this.logger.debug(
+            `[Reconciliation] Fetching targeted orders for ghost ${exPos.symbol}`,
+          );
+          try {
+            exOrders = await this.orderManager.fetchOpenOrders(exPos.symbol);
+            allOrdersMap.set(exPos.symbol, exOrders);
+          } catch (err) {
+            this.logger.warn(`[Reconciliation] Failed to fetch orders for ${exPos.symbol} during safety check: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        exOrders = exOrders || [];
+
+        const startedByUs = await this.isPositionStartedByUs(exPos.symbol, exOrders);
+        if (!startedByUs) {
+          this.logger.warn(
+            `[Reconciliation] Ghost position ${exPos.symbol} was NOT started by this app instance. Skipping adoption/reconciliation to prevent multi-user interference.`,
+          );
+          continue;
+        }
+
         // RESEARCH: Attempt to discover existing SL/TP protection on exchange for this position
         let slPrice = 0;
         let slId = undefined;
@@ -1475,17 +1666,6 @@ export class SessionService implements OnModuleInit {
         let tpPrice = 0;
 
         try {
-          // Targeted Audit for this ghost position if not already fetched
-          let exOrders = allOrdersMap.get(exPos.symbol);
-          if (!exOrders && !useBulkAudit && !preFetchedOrders) {
-            this.logger.debug(
-              `[Reconciliation] Fetching targeted orders for ghost ${exPos.symbol}`,
-            );
-            exOrders = await this.orderManager.fetchOpenOrders(exPos.symbol);
-            allOrdersMap.set(exPos.symbol, exOrders);
-          }
-          exOrders = exOrders || [];
-
           // COMPLIANCE: Recognize more SL/TP order types during adoption
           const isSl = (o: any) => {
             const type = (o.type || o.algoType || "").toUpperCase();
@@ -1831,9 +2011,9 @@ export class SessionService implements OnModuleInit {
     }
   }
 
-  async pauseSession(paused: boolean, ip?: string, userAgent?: string) {
+  async pauseSession(paused: boolean, strategyLabel?: string, ip?: string, userAgent?: string) {
     if (!this.sessionRunning) throw new ConflictException("No session running");
-    this.tradingSessionService.setPaused(paused);
+    this.tradingSessionService.setPaused(paused, strategyLabel);
 
     await this.auditLog.log({
       action: paused ? "PAUSE_SESSION" : "RESUME_SESSION",
@@ -1841,9 +2021,10 @@ export class SessionService implements OnModuleInit {
       actor: ip,
       ip,
       userAgent,
+      details: strategyLabel ? { strategyLabel } : undefined,
     });
 
-    return { status: paused ? "paused" : "resumed" };
+    return { status: paused ? "paused" : "resumed", strategyLabel };
   }
 
   async deleteSession(id: string, actor?: string, userAgent?: string) {
@@ -2001,6 +2182,8 @@ export class SessionService implements OnModuleInit {
     return {
       running: session.running,
       paused: engineStatus.paused,
+      paused_strategies: engineStatus.paused_strategies,
+      strategy_gate_states: engineStatus.strategy_gate_states,
       strategyId: session.id,
       paperMode: session.paperMode,
       tradingMode: session.tradingMode,

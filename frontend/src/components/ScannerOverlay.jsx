@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { fmtVol } from '../lib/theme'
 import { formatDuration, calculateSupertrend } from '../lib/formatters'
-import { PulseDot, Sparkline, cn, CopyButton, Tooltip, CandlestickChart, MonitoredBadge, InPosBadge, SmartCandidateBadge } from './ui/primitives'
+import { PulseDot, Sparkline, cn, CopyButton, Tooltip, CandlestickChart, MonitoredBadge, InPosBadge, SmartCandidateBadge, ModalAlertTicker } from './ui/primitives'
 import { SignalGauge } from './ui/SignalGauge'
 import { useTradingStore } from '../store/trading'
 import { useResourceFocus } from '../hooks/useResourceFocus'
@@ -824,6 +824,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
           </Tooltip>
         </div>
       </div>
+      <ModalAlertTicker />
 
       <ActiveWindowsList search={search} />
 

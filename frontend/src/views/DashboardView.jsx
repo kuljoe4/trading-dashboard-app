@@ -834,9 +834,17 @@ export function DashboardView({ initialStrategy }) {
     useTradingStore.setState({ configSyncing: true }); // Enable global sync protection
     try {
       let finalConfig = newConfig;
-      if (editingVariantIndex !== null) {
+      const wasPresetLoaded = newConfig._presetLoaded;
+      delete newConfig._presetLoaded;
+
+      let activeVariantIndex = editingVariantIndex;
+      if (wasPresetLoaded) {
+        activeVariantIndex = null;
+      }
+
+      if (activeVariantIndex !== null) {
         const variants = [...(config.strategy_variants || [])];
-        variants[editingVariantIndex] = { ...newConfig, strategy_label: newConfig.strategy_label };
+        variants[activeVariantIndex] = { ...newConfig, strategy_label: newConfig.strategy_label };
         finalConfig = { ...config, strategy_variants: variants };
       }
 

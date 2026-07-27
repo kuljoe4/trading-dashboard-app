@@ -932,7 +932,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     return !!savedDraft;
   });
 
-  const [section, setSection] = useState('scan')
+  const [section, setSection] = useState(isEdit ? 'presets' : 'scan')
+  const [presetLoaded, setPresetLoaded] = useState(false)
   const [presets, setPresets] = useState([])
   const [presetName, setPresetName] = useState('')
   const [errors, setErrors] = useState({})
@@ -1423,7 +1424,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setCfg(next);
     setLoadedPresetName(p.name);
     setPresetName(p.name);
-    setSection('scan');
+    setPresetLoaded(true);
     validate(next);
     setIsDirty(false);
     addAlert({ level: 'success', title: 'Preset Loaded', message: `Active configuration set to "${p.name}".` });
@@ -2923,7 +2924,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         </div>
         <Btn variant="primary" loading={loading} onClick={() => {
           if (validate(cfg)) {
-             onSave(buildConfigToSave());
+             onSave({ ...buildConfigToSave(), _presetLoaded: presetLoaded });
              sessionStorage.removeItem('config_draft');
              setIsDirty(false);
           }

@@ -80,7 +80,7 @@ const VariantGatingSummary = React.memo(() => {
             exit={{ height: 0, opacity: 0 }}
             className="border-t border-border/20 bg-background/20"
           >
-            <div className="p-2.5 space-y-2 max-h-56 overflow-y-auto no-scrollbar">
+            <div className="p-2.5 space-y-2.5 max-h-[380px] overflow-y-auto scrollbar-thin scrollbar-thumb-border hover:scrollbar-thumb-accent/50 min-w-0">
               {activeStrategies.map(({ label, info, isPaused }) => {
                 const isGated = info && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(info.gateState || '');
                 const stateLabel = isPaused ? 'PAUSED' : isGated ? (info.gateState || 'GATED').toUpperCase() : 'ACTIVE';
@@ -273,7 +273,7 @@ export const DecisionLog = React.memo(() => {
   ]
 
   return (
-    <div className="flex flex-col gap-3 max-h-[600px] sm:max-h-[500px] overflow-hidden">
+    <div className="flex flex-col gap-3 h-[500px] min-h-0 overflow-hidden">
       <div className="space-y-3">
         <div className="relative group p-1.5">
           <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
@@ -339,7 +339,7 @@ export const DecisionLog = React.memo(() => {
 
       <div
         aria-live="polite"
-        className="flex-1 flex flex-col gap-1.5 max-h-[340px] relative"
+        className="flex-1 flex flex-col gap-1.5 min-h-0 relative"
       >
         {!isAtTop && (
           <div className="absolute top-2 inset-x-0 z-20 flex justify-center pointer-events-none">

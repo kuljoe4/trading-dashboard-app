@@ -14,8 +14,23 @@ import {
 import { EquityCurve } from '../components/Analytics'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 
+const SIGNAL_LABELS = {
+  momentum_pct: 'Momentum',
+  breakout_hl: 'Breakout H/L',
+  ema_price_cross: 'EMA Cross',
+  ema_dual_cross: 'Dual EMA Cross',
+  ema_close: 'EMA Close',
+  ema_dual_close: 'Dual EMA Close',
+  ma: 'MA Cross',
+  engulfing: 'Engulfing',
+  macd_impulse: 'MACD Impulse',
+  macd_fade: 'MACD Fade',
+  macd_pbc: 'MACD PBC',
+  supertrend: 'Supertrend'
+};
+
 const StrategyDetailView = ({ s, onBack }) => {
-  const { config, scannerResults, analytics, wsStatus, isSyncing, isThrottled, isSyncingOnResume, sessionActive } = useTradingStore()
+  const { config, scannerResults, variantScannerResults, analytics, wsStatus, isSyncing, isThrottled, isSyncingOnResume, sessionActive } = useTradingStore()
 
   // BOLT OPTIMIZATION: Resolve variant-specific configuration if viewing a strategy variant
   const strategyConfig = useMemo(() => {
@@ -25,6 +40,15 @@ const StrategyDetailView = ({ s, onBack }) => {
       ? { ...config, ...config.strategy_variants[idx] }
       : config;
   }, [config, s.strategy_label]);
+
+  // Resolve variant-aware timeframe and scanner opportunities list
+  const strategyScannerResults = useMemo(() => {
+    if (!s || !s.strategy_label) return [];
+    if (variantScannerResults && variantScannerResults[s.strategy_label]) {
+      return variantScannerResults[s.strategy_label];
+    }
+    return scannerResults || [];
+  }, [variantScannerResults, scannerResults, s?.strategy_label]);
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
   const showResumingFeedback = sessionActive && isResuming
@@ -36,7 +60,7 @@ const StrategyDetailView = ({ s, onBack }) => {
   // Lifecycle-scoped subscription contract
   useResourceFocus('strategy', s.strategy_label);
 
-  const bestOpp = useMemo(() => scannerResults[0] || { symbol: '---', pct: 0, dir: '---' }, [scannerResults])
+  const bestOpp = useMemo(() => strategyScannerResults[0] || { symbol: '---', pct: 0, dir: '---' }, [strategyScannerResults])
   const scanMet = Math.abs(bestOpp.pct) >= strategyConfig.scan_pct_threshold
   const signalResult = bestOpp.signalResult || { allFired: false, firedSignals: [] }
   const entryMet = scanMet && signalResult.allFired
@@ -81,13 +105,30 @@ const StrategyDetailView = ({ s, onBack }) => {
 
       <div className="mb-10">
         <SectionLabel>Automation Gating</SectionLabel>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-10">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-4">
           <ConditionWidget label={`Scanner: % Move (${strategyConfig.scan_interval})`} value={bestOpp.pct} threshold={strategyConfig.scan_pct_threshold} satisfied={scanMet} sublabel={`Top Opp: ${bestOpp.symbol} ${bestOpp.dir.toUpperCase()}`} />
           <ConditionWidget label="Signal Authorization" value={firedCount} threshold={signalLogic === 'all' ? signalsCount : 1} unit={`/${signalsCount} signals`} satisfied={entryMet} sublabel={signalResult.reason || "Waiting for structural signal"} />
         </div>
 
+        {/* Evaluation Timeframes List */}
+        {strategyConfig.enabled_signals && strategyConfig.enabled_signals.length > 0 && (
+          <div className="flex flex-wrap gap-2.5 items-center bg-background/30 p-3.5 rounded-2xl border border-border/40 mb-10 text-left animate-in fade-in duration-300">
+            <span className="text-[9px] font-black text-dim uppercase tracking-wider px-1">Evaluation Timeframes:</span>
+            {strategyConfig.enabled_signals.map(sig => {
+              const tf = (strategyConfig.signal_timeframes || {})[sig] || strategyConfig.scan_interval || '5m';
+              return (
+                <span key={sig} className="px-2.5 py-1 rounded-xl bg-surface border border-border text-[10px] font-mono text-text/90 flex items-center gap-1.5 shadow-sm transition-all hover:border-accent/30 group">
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 group-hover:scale-110 transition-transform" />
+                  <span className="font-bold">{SIGNAL_LABELS[sig] || sig}</span>
+                  <span className="text-dim/60 font-semibold font-mono">({tf})</span>
+                </span>
+              );
+            })}
+          </div>
+        )}
+
         <ScannerPreview
-          scannerResults={(scannerResults || []).filter(Boolean)}
+          scannerResults={(strategyScannerResults || []).filter(Boolean)}
           config={strategyConfig}
           onOpen={() => window.dispatchEvent(new CustomEvent('toggle-scanner'))}
         />

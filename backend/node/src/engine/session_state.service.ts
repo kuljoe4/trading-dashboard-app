@@ -277,11 +277,25 @@ export class SessionStateService {
   }
 
   @OnEvent('binance.api_limit_reached')
-  handleApiLimitReached(payload: { banUntil: number; reason: string }) {
-    this.apiStatus.isBanned = true;
-    this.apiStatus.banUntil = payload.banUntil;
-    this.apiStatus.lastErrorMessage = payload.reason;
-    this.logger.warn(`[SessionState] Centralized ban event received: Until ${new Date(payload.banUntil).toISOString()}, Reason: ${payload.reason}`);
+  handleApiLimitReached(payload: {
+    type?: 'BAN' | 'RATE_LIMIT';
+    message?: string;
+    until?: number;
+    banUntil?: number;
+    reason?: string;
+  }) {
+    const isBan = payload.type ? (payload.type === 'BAN') : true;
+    const isRateLimit = payload.type ? (payload.type === 'RATE_LIMIT') : false;
+    const until = payload.until !== undefined ? payload.until : payload.banUntil;
+    const message = payload.message !== undefined ? payload.message : payload.reason;
+
+    this.apiStatus.isBanned = isBan;
+    this.apiStatus.isRateLimited = isRateLimit;
+    this.apiStatus.banUntil = until || null;
+    this.apiStatus.lastErrorMessage = message || null;
+
+    const untilStr = until && !isNaN(until) ? new Date(until).toISOString() : 'unknown';
+    this.logger.warn(`[SessionState] Centralized ban event received: Until ${untilStr}, Reason: ${message}`);
   }
 
   updateOrderRateLimits(headers: any | null, limits?: { limit10s?: number, limit1m?: number }) {
@@ -326,7 +340,7 @@ export class SessionStateService {
     // SRE: Proactive ban expiration. If the ban time has passed, treat it as cleared
     // regardless of the isBanned status bit.
     if (this.apiStatus.isBanned) {
-      if (this.apiStatus.banUntil && Date.now() < this.apiStatus.banUntil) {
+      if (!this.apiStatus.banUntil || Date.now() < this.apiStatus.banUntil) {
         return true;
       }
     }

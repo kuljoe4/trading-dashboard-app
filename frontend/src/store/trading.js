@@ -730,10 +730,10 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
               // BOLT: Aggressive data retention. Preserve telemetry and breakdowns across gated updates.
               return {
                 ...n,
-                history: (n.history && n.history.length > 0) ? n.history : p.history,
-                ohlc_history: (n.ohlc_history && n.ohlc_history.length > 0) ? n.ohlc_history : p.ohlc_history,
-                score_breakdown: n.score_breakdown || p.score_breakdown,
-                signalResult: n.signalResult || p.signalResult
+                history: (n.history && n.history.length > 0) ? n.history : p?.history,
+                ohlc_history: (n.ohlc_history && n.ohlc_history.length > 0) ? n.ohlc_history : p?.ohlc_history,
+                score_breakdown: n.score_breakdown || p?.score_breakdown,
+                signalResult: n.signalResult || p?.signalResult
               };
             }).filter(Boolean),
             variantScannerResults: d.variant_opportunities ? d.variant_opportunities.reduce((acc, v) => {

@@ -11,24 +11,12 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 
 const fmtUSD = (v) => `$${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const CollapsibleSection = ({ id, icon, title, subtitle, children, defaultOpen = true }) => {
-  const storageKey = `config_section_${id}_open`;
-  const [isOpen, setIsOpen] = useState(() => {
-    const saved = localStorage.getItem(storageKey);
-    return saved !== null ? saved === 'true' : defaultOpen;
-  });
-
-  const toggle = () => {
-    const next = !isOpen;
-    setIsOpen(next);
-    localStorage.setItem(storageKey, String(next));
-  };
-
+const CollapsibleSection = ({ id, icon, title, subtitle, children, isOpen, onToggle }) => {
   return (
     <section className="bg-background/40 rounded-xl border border-border/40 overflow-hidden transition-all">
       <button
         type="button"
-        onClick={toggle}
+        onClick={onToggle}
         className="w-full flex items-center justify-between p-2.5 hover:bg-white/[0.02] transition-colors group"
       >
         <SectionHeader icon={icon} title={title} subtitle={subtitle} className="mb-0" />
@@ -958,6 +946,24 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [presetToDelete, setPresetToDelete] = useState(null);
   const [presetSearch, setPresetSearch] = useState('');
   const [libraryExpanded, setLibraryExpanded] = useState(false);
+  const [showPasteOverlay, setShowPasteOverlay] = useState(false);
+  const [pasteValue, setPasteValue] = useState('');
+  const [pasteError, setPasteError] = useState(null);
+  const [openSectionId, setOpenSectionId] = useState('scan_general');
+
+  // Accordion behavior: auto-expand the first section of the selected tab on tab change
+  useEffect(() => {
+    const defaults = {
+      scan: 'scan_general',
+      strategy: 'strategy_entry',
+      risk: 'risk_guards',
+      env: 'adv_env',
+      system: 'adv_perf',
+    };
+    if (defaults[section]) {
+      setOpenSectionId(defaults[section]);
+    }
+  }, [section]);
 
   const modalRef = React.useRef(null);
 
@@ -1478,12 +1484,37 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [validate, addAlert]);
 
   const handlePasteConfig = React.useCallback(async () => {
+    let text = '';
+    let isPermissionError = false;
+
     try {
-      const text = await navigator.clipboard.readText();
-      if (!text) {
-        addAlert({ level: 'warn', title: 'Paste Failed', message: 'Clipboard is empty.' });
-        return;
+      if (!navigator.clipboard || !navigator.clipboard.readText) {
+        throw new Error('Clipboard API is not supported in this browser environment.');
       }
+      text = await navigator.clipboard.readText();
+    } catch (err) {
+      console.warn('[ConfigModal] Direct clipboard reading blocked by browser permissions or context:', err);
+      isPermissionError = true;
+    }
+
+    if (isPermissionError) {
+      setPasteValue('');
+      setPasteError(null);
+      setShowPasteOverlay(true);
+      addAlert({
+        level: 'info',
+        title: 'Clipboard Action',
+        message: 'Browser security requires manual paste. Fallback editor opened.'
+      });
+      return;
+    }
+
+    if (!text || !text.trim()) {
+      addAlert({ level: 'warn', title: 'Paste Failed', message: 'Clipboard is empty.' });
+      return;
+    }
+
+    try {
       const parsed = JSON.parse(text);
       const flattened = flattenConfig(parsed);
       setCfg(flattened);
@@ -1491,10 +1522,31 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       validate(flattened);
       addAlert({ level: 'success', title: 'Paste Successful', message: 'Configuration pasted from clipboard.' });
     } catch (err) {
-      console.error('[ConfigModal] Paste failed:', err);
-      addAlert({ level: 'error', title: 'Paste Failed', message: 'Could not parse clipboard content as JSON.' });
+      console.error('[ConfigModal] Direct paste JSON parse failed, opening fallback editor:', err);
+      setPasteValue(text);
+      setPasteError(err.message);
+      setShowPasteOverlay(true);
+      addAlert({
+        level: 'warn',
+        title: 'Parse Failed',
+        message: 'Content is not valid JSON. Opening fallback editor to inspect.'
+      });
     }
   }, [validate, addAlert]);
+
+  const handlePasteAreaChange = React.useCallback((val) => {
+    setPasteValue(val);
+    if (!val.trim()) {
+      setPasteError(null);
+      return;
+    }
+    try {
+      JSON.parse(val);
+      setPasteError(null);
+    } catch (err) {
+      setPasteError(err.message);
+    }
+  }, []);
 
   const toggleVariant = React.useCallback((e, p) => {
     e.stopPropagation()
@@ -1581,11 +1633,25 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             aria-labelledby="config-tab-scan"
             className="space-y-3 animate-in fade-in duration-300"
           >
-            <CollapsibleSection id="scan_general" icon={Settings2} title="General" subtitle="Basic strategy identification">
+            <CollapsibleSection
+              id="scan_general"
+              icon={Settings2}
+              title="General"
+              subtitle="Basic strategy identification"
+              isOpen={openSectionId === 'scan_general'}
+              onToggle={() => setOpenSectionId(openSectionId === 'scan_general' ? null : 'scan_general')}
+            >
               {renderField('Strategy label', 'strategy_label', 'text', null, { placeholder: 'Momentum Strategy' })}
             </CollapsibleSection>
 
-            <CollapsibleSection id="scan_global" icon={Search} title="Global Scanner" subtitle="Automatic discovery settings">
+            <CollapsibleSection
+              id="scan_global"
+              icon={Search}
+              title="Global Scanner"
+              subtitle="Automatic discovery settings"
+              isOpen={openSectionId === 'scan_global'}
+              onToggle={() => setOpenSectionId(openSectionId === 'scan_global' ? null : 'scan_global')}
+            >
               <div className="p-4 bg-accent/5 border border-accent/20 rounded-2xl flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent">
@@ -1698,7 +1764,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
             </CollapsibleSection>
 
-            <CollapsibleSection id="scan_watchlist" icon={Plus} title="Static Watchlist" subtitle="Rank only these symbols">
+            <CollapsibleSection
+              id="scan_watchlist"
+              icon={Plus}
+              title="Static Watchlist"
+              subtitle="Rank only these symbols"
+              isOpen={openSectionId === 'scan_watchlist'}
+              onToggle={() => setOpenSectionId(openSectionId === 'scan_watchlist' ? null : 'scan_watchlist')}
+            >
               <div className="space-y-4">
                 <WatchlistDropdownInput value={cfg.symbols || []} onChange={(val) => setField('symbols', val)} />
                 <div className="pt-4 border-t border-border/40">
@@ -1708,7 +1781,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
             </CollapsibleSection>
 
-            <CollapsibleSection id="scan_exclusion" icon={XCircle} title="Exclusion List" subtitle="Symbols to never trade">
+            <CollapsibleSection
+              id="scan_exclusion"
+              icon={XCircle}
+              title="Exclusion List"
+              subtitle="Symbols to never trade"
+              isOpen={openSectionId === 'scan_exclusion'}
+              onToggle={() => setOpenSectionId(openSectionId === 'scan_exclusion' ? null : 'scan_exclusion')}
+            >
               <ListInput placeholder="BTCUSDT, ETHUSDT..." value={cfg.excluded_symbols} onChange={(val) => setField('excluded_symbols', val)} />
             </CollapsibleSection>
 
@@ -1738,7 +1818,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             aria-labelledby="config-tab-strategy"
             className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
           >
-            <CollapsibleSection id="strategy_entry" icon={Zap} title="Entry Signals" subtitle="Triggers for opening positions">
+            <CollapsibleSection
+              id="strategy_entry"
+              icon={Zap}
+              title="Entry Signals"
+              subtitle="Triggers for opening positions"
+              isOpen={openSectionId === 'strategy_entry'}
+              onToggle={() => setOpenSectionId(openSectionId === 'strategy_entry' ? null : 'strategy_entry')}
+            >
               <div className="flex justify-end mb-4">
                 <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'any' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'any')}>ANY</button>
@@ -1757,7 +1844,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
             </CollapsibleSection>
 
-            <CollapsibleSection id="strategy_params" icon={Activity} title="Signal Parameters" subtitle="Technical indicator periods">
+            <CollapsibleSection
+              id="strategy_params"
+              icon={Activity}
+              title="Signal Parameters"
+              subtitle="Technical indicator periods"
+              isOpen={openSectionId === 'strategy_params'}
+              onToggle={() => setOpenSectionId(openSectionId === 'strategy_params' ? null : 'strategy_params')}
+            >
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
                 {renderField('MA Period', 'signal_params_ma_period', 'number', null, { min: 1 })}
                 <Tooltip content="Global fallback period used if specific Entry/Exit EMA is not set">
@@ -1956,7 +2050,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               )}
             </CollapsibleSection>
 
-            <CollapsibleSection id="strategy_exit" icon={XCircle} title="Exit Signals" subtitle="Automated early closures">
+            <CollapsibleSection
+              id="strategy_exit"
+              icon={XCircle}
+              title="Exit Signals"
+              subtitle="Automated early closures"
+              isOpen={openSectionId === 'strategy_exit'}
+              onToggle={() => setOpenSectionId(openSectionId === 'strategy_exit' ? null : 'strategy_exit')}
+            >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3.5 mb-4 bg-surface/40 border border-border/30 rounded-xl hover:border-accent/15 transition-all">
                 <div className="flex flex-col text-left">
                   <span className="text-[10px] font-black text-dim uppercase tracking-widest">Exit Logic Override</span>
@@ -1993,7 +2094,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
             </CollapsibleSection>
 
-            <CollapsibleSection id="strategy_timeframes" icon={Clock} title="Multi-Timeframe Overrides" subtitle="Signal-specific timeframe overlays">
+            <CollapsibleSection
+              id="strategy_timeframes"
+              icon={Clock}
+              title="Multi-Timeframe Overrides"
+              subtitle="Signal-specific timeframe overlays"
+              isOpen={openSectionId === 'strategy_timeframes'}
+              onToggle={() => setOpenSectionId(openSectionId === 'strategy_timeframes' ? null : 'strategy_timeframes')}
+            >
               {(() => {
                 const activeEntrySignals = cfg.enabled_signals || [];
                 const activeExitSignals = cfg.exit_signals || [];
@@ -2081,7 +2189,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             aria-labelledby="config-tab-risk"
             className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
           >
-            <CollapsibleSection id="risk_guards" icon={ShieldCheck} title="Capital Guards" subtitle="Global safety limits">
+            <CollapsibleSection
+              id="risk_guards"
+              icon={ShieldCheck}
+              title="Capital Guards"
+              subtitle="Global safety limits"
+              isOpen={openSectionId === 'risk_guards'}
+              onToggle={() => setOpenSectionId(openSectionId === 'risk_guards' ? null : 'risk_guards')}
+            >
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                 {renderField('Risk % Per Trade', 'risk_pct_per_trade', 'number', null, { min: CONFIG_LIMITS.RISK_PER_TRADE_MIN, max: CONFIG_LIMITS.RISK_PER_TRADE_MAX, step: 0.1 })}
                 {renderField('Max Total Risk %', 'max_total_risk_pct', 'number', null, { min: CONFIG_LIMITS.MAX_TOTAL_RISK_MIN, max: CONFIG_LIMITS.MAX_TOTAL_RISK_MAX })}
@@ -2257,7 +2372,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               )}
             </CollapsibleSection>
 
-            <CollapsibleSection id="risk_sl" icon={ShieldCheck} title="Stop Loss Strategy" subtitle="Risk truncation parameters">
+            <CollapsibleSection
+              id="risk_sl"
+              icon={ShieldCheck}
+              title="Stop Loss Strategy"
+              subtitle="Risk truncation parameters"
+              isOpen={openSectionId === 'risk_sl'}
+              onToggle={() => setOpenSectionId(openSectionId === 'risk_sl' ? null : 'risk_sl')}
+            >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                 {renderField('Strategy Type', 'sl_type', 'text', [
                   { value: 'pct', label: 'Fixed Percentage' },
@@ -2324,7 +2446,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
             </CollapsibleSection>
 
-            <CollapsibleSection id="risk_tp" icon={Target} title="Profit Realization" subtitle="Locking gains and scaling exits">
+            <CollapsibleSection
+              id="risk_tp"
+              icon={Target}
+              title="Profit Realization"
+              subtitle="Locking gains and scaling exits"
+              isOpen={openSectionId === 'risk_tp'}
+              onToggle={() => setOpenSectionId(openSectionId === 'risk_tp' ? null : 'risk_tp')}
+            >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                 {renderField('Exit Strategy', 'tp_mode', 'text', [
                   { value: 'fixed', label: 'Fixed Ratio (TP)' },
@@ -2358,7 +2487,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
             </CollapsibleSection>
 
-            <CollapsibleSection id="risk_temporal" icon={Clock} title="Frequency & Temporal Risk" subtitle="Execution windows & frequency shaping">
+            <CollapsibleSection
+              id="risk_temporal"
+              icon={Clock}
+              title="Frequency & Temporal Risk"
+              subtitle="Execution windows & frequency shaping"
+              isOpen={openSectionId === 'risk_temporal'}
+              onToggle={() => setOpenSectionId(openSectionId === 'risk_temporal' ? null : 'risk_temporal')}
+            >
 
               <div className="space-y-4 mb-8">
                 <div className="p-4 bg-background/50 rounded-2xl border border-border/50 flex items-center justify-between group hover:border-accent/30 transition-colors">
@@ -2455,7 +2591,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             aria-labelledby="config-tab-env"
             className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
           >
-            <CollapsibleSection id="adv_env" icon={Briefcase} title="Execution Environment" subtitle="Target exchange and mode">
+            <CollapsibleSection
+              id="adv_env"
+              icon={Briefcase}
+              title="Execution Environment"
+              subtitle="Target exchange and mode"
+              isOpen={openSectionId === 'adv_env'}
+              onToggle={() => setOpenSectionId(openSectionId === 'adv_env' ? null : 'adv_env')}
+            >
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {['paper', 'testnet', 'live'].map(m => (
                   <EnvironmentButton
@@ -2474,7 +2617,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               )}
             </CollapsibleSection>
 
-            <CollapsibleSection id="adv_capital" icon={TrendingUp} title="Initial Capital" subtitle="Starting balance for sessions">
+            <CollapsibleSection
+              id="adv_capital"
+              icon={TrendingUp}
+              title="Initial Capital"
+              subtitle="Starting balance for sessions"
+              isOpen={openSectionId === 'adv_capital'}
+              onToggle={() => setOpenSectionId(openSectionId === 'adv_capital' ? null : 'adv_capital')}
+            >
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                 {renderField('Paper Balance ($)', 'paper_starting_balance', 'number', null, { min: 0 })}
                 {renderField('Demo Balance ($)', 'testnet_starting_balance', 'number', null, { min: 0, placeholder: '10000' })}
@@ -2491,7 +2641,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             aria-labelledby="config-tab-system"
             className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
           >
-            <CollapsibleSection id="adv_perf" icon={Activity} title="Engine Performance" subtitle="Hot and main loop cadences">
+            <CollapsibleSection
+              id="adv_perf"
+              icon={Activity}
+              title="Engine Performance"
+              subtitle="Hot and main loop cadences"
+              isOpen={openSectionId === 'adv_perf'}
+              onToggle={() => setOpenSectionId(openSectionId === 'adv_perf' ? null : 'adv_perf')}
+            >
               <div className="grid grid-cols-2 gap-6 mb-6">
                 {renderField('Hot Loop (ms)', 'hot_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.HOT_LOOP_MIN })}
                 {renderField('Main Loop (ms)', 'main_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.MAIN_LOOP_MIN })}
@@ -2510,7 +2667,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
             </CollapsibleSection>
 
-            <CollapsibleSection id="adv_hibernation" icon={Clock} title="Hibernation Management" subtitle="Gated idle resource strategy">
+            <CollapsibleSection
+              id="adv_hibernation"
+              icon={Clock}
+              title="Hibernation Management"
+              subtitle="Gated idle resource strategy"
+              isOpen={openSectionId === 'adv_hibernation'}
+              onToggle={() => setOpenSectionId(openSectionId === 'adv_hibernation' ? null : 'adv_hibernation')}
+            >
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
                 {[
                   { id: 'light', label: 'Light Sleep', desc: 'Fastest resumption. Keeps market streams active. Best for low latency.' },
@@ -2745,7 +2909,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                />
              </Tooltip>
              <Tooltip content="Paste Configuration from Clipboard">
-                <Btn variant="ghost" onClick={handlePasteConfig} className="w-9 h-9 p-0 flex items-center justify-center border border-border rounded-lg hover:bg-accent/5 hover:border-accent/40 transition-all">
+                <Btn
+                  variant="ghost"
+                  onClick={handlePasteConfig}
+                  aria-label="Paste Configuration from Clipboard"
+                  className="w-9 h-9 p-0 flex items-center justify-center border border-border rounded-lg hover:bg-accent/5 hover:border-accent/40 transition-all"
+                >
                   <ClipboardPaste size={14} className="text-dim group-hover:text-accent" />
                 </Btn>
              </Tooltip>
@@ -2762,6 +2931,108 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
           {isDirty && <span className="w-1 h-1 rounded-full bg-accent animate-pulse" />}
         </Btn>
       </div>
+
+      <AnimatePresence>
+        {showPasteOverlay && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 10 }}
+              className="w-full max-w-lg bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden p-5 space-y-4"
+            >
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
+                    <ClipboardPaste size={16} />
+                  </div>
+                  <div className="text-left">
+                    <h3 className="text-sm font-black uppercase tracking-tight">Paste Configuration</h3>
+                    <p className="text-[9px] text-dim font-medium uppercase">Direct clipboard fallback editor</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setShowPasteOverlay(false); setPasteValue(''); setPasteError(null); }}
+                  className="p-1 hover:bg-white/5 rounded-full transition-colors"
+                >
+                  <X size={16} className="text-dim" />
+                </button>
+              </div>
+
+              <div className="space-y-2 text-left">
+                <p className="text-xs text-dim leading-relaxed">
+                  Paste your strategy configuration JSON below. The engine will instantly parse, validate, and hot-reload your active fields.
+                </p>
+                <div className="relative">
+                  <textarea
+                    value={pasteValue}
+                    onChange={(e) => handlePasteAreaChange(e.target.value)}
+                    placeholder='{ "strategy_label": "Scalp Momentum", ... }'
+                    className={cn(
+                      "w-full h-48 bg-background border rounded-xl p-3 text-xs font-mono focus:outline-none transition-all resize-none",
+                      pasteError ? "border-red/40 focus:border-red" : pasteValue.trim() ? "border-green/40 focus:border-green" : "border-border focus:border-accent"
+                    )}
+                    autoFocus
+                  />
+                </div>
+                <div className="flex items-center justify-between min-h-[20px]">
+                  {pasteError ? (
+                    <span className="text-[10px] text-red font-bold flex items-center gap-1 uppercase">
+                      <AlertTriangle size={12} /> {pasteError}
+                    </span>
+                  ) : pasteValue.trim() ? (
+                    <span className="text-[10px] text-green font-bold flex items-center gap-1 uppercase">
+                      <CheckCircle2 size={12} /> Valid JSON Configuration
+                    </span>
+                  ) : (
+                    <span className="text-[9px] text-dim font-bold uppercase tracking-wider">
+                      Awaiting clipboard input
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-2 justify-end">
+                <Btn
+                  variant="ghost"
+                  onClick={() => { setShowPasteOverlay(false); setPasteValue(''); setPasteError(null); }}
+                  className="px-4 py-2 text-xs"
+                >
+                  Cancel
+                </Btn>
+                <Btn
+                  variant="primary"
+                  disabled={!!pasteError || !pasteValue.trim()}
+                  onClick={() => {
+                    try {
+                      const parsed = JSON.parse(pasteValue);
+                      const flattened = flattenConfig(parsed);
+                      setCfg(flattened);
+                      setIsDirty(true);
+                      validate(flattened);
+                      addAlert({ level: 'success', title: 'Paste Successful', message: 'Configuration pasted and loaded.' });
+                      setShowPasteOverlay(false);
+                      setPasteValue('');
+                      setPasteError(null);
+                    } catch (err) {
+                      setPasteError(err.message);
+                    }
+                  }}
+                  className="px-4 py-2 text-xs bg-accent text-white"
+                >
+                  Apply Pasted Configuration
+                </Btn>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

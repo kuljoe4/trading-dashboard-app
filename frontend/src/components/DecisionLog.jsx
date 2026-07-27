@@ -40,19 +40,19 @@ const VariantGatingSummary = React.memo(() => {
   if (activeStrategies.length === 0) return null;
 
   return (
-    <div className="bg-background/40 border border-border/40 rounded-xl overflow-hidden transition-all my-1.5 shadow-inner">
+    <div className="bg-background/40 border border-border/40 rounded-xl overflow-hidden transition-all my-1.5 shadow-inner w-full min-w-0">
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between p-2.5 hover:bg-white/[0.01] transition-colors text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded-t-xl"
+        className="w-full flex items-center justify-between p-2.5 hover:bg-white/[0.01] transition-colors text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded-t-xl min-w-0"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
           <Activity size={12} className="text-accent shrink-0" />
-          <span className="text-[10px] font-black uppercase tracking-widest text-dim hover:text-text transition-colors">
+          <span className="text-[9.5px] sm:text-[10px] font-black uppercase tracking-wider sm:tracking-widest text-dim hover:text-text transition-colors truncate">
             Variant Gating & Lifecycles ({activeStrategies.length})
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <div className="flex gap-1">
             {activeStrategies.map(({ label, info, isPaused }) => {
               const isGated = info && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(info.gateState || '');
@@ -273,7 +273,7 @@ export const DecisionLog = React.memo(() => {
   ]
 
   return (
-    <div className="flex flex-col gap-3 max-h-[500px] overflow-hidden">
+    <div className="flex flex-col gap-3 max-h-[600px] sm:max-h-[500px] overflow-hidden">
       <div className="space-y-3">
         <div className="relative group p-1.5">
           <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />

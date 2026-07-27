@@ -1,13 +1,14 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
-import { Activity, XCircle, Search, Copy, CheckCircle2, Info, X } from 'lucide-react'
+import { Activity, XCircle, Search, Copy, CheckCircle2, Info, X, ChevronDown, Clock } from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
 import { cn, CopyButton, Tooltip, VisuallyHidden } from './ui/primitives'
 
 const HIGHLIGHTS = {
   positive: ['BUY', 'PROFIT', 'TP', 'HIT', 'SUCCESS', 'STARTED', 'ENTER'],
-  negative: ['SELL', 'LOSS', 'SL', 'REJECTED', 'ERROR', 'FAILED', 'STOPPED', 'CRITICAL'],
-  neutral: ['MONITORING', 'WARM-UP', 'SYNC', 'LIFECYCLE', 'RECONCILING', 'ADAPTIVE']
+  negative: ['SELL', 'LOSS', 'SL', 'REJECTED', 'ERROR', 'FAILED', 'STOPPED', 'CRITICAL', 'GATED', 'SLEEPING'],
+  neutral: ['MONITORING', 'WARM-UP', 'SYNC', 'LIFECYCLE', 'RECONCILING', 'ADAPTIVE', 'COOLDOWN', 'VARIANT']
 }
 
 const formatMessage = (msg) => {
@@ -22,6 +23,111 @@ const formatMessage = (msg) => {
     return word;
   });
 }
+
+const VariantGatingSummary = React.memo(() => {
+  const strategyGateStates = useTradingStore(state => state.strategyGateStates || {});
+  const pausedStrategies = useTradingStore(state => state.pausedStrategies || []);
+  const sessionPaused = useTradingStore(state => state.sessionPaused);
+  const [isOpen, setIsOpen] = useState(false);
+
+  const activeStrategies = useMemo(() => {
+    return Object.entries(strategyGateStates).map(([label, info]) => {
+      const isPaused = pausedStrategies.includes(label) || sessionPaused;
+      return { label, info, isPaused };
+    });
+  }, [strategyGateStates, pausedStrategies, sessionPaused]);
+
+  if (activeStrategies.length === 0) return null;
+
+  return (
+    <div className="bg-background/40 border border-border/40 rounded-xl overflow-hidden transition-all my-1.5 shadow-inner w-full min-w-0">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between p-2.5 hover:bg-white/[0.01] transition-colors text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded-t-xl min-w-0"
+      >
+        <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
+          <Activity size={12} className="text-accent shrink-0" />
+          <span className="text-[9.5px] sm:text-[10px] font-black uppercase tracking-wider sm:tracking-widest text-dim hover:text-text transition-colors truncate">
+            Variant Gating & Lifecycles ({activeStrategies.length})
+          </span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="flex gap-1">
+            {activeStrategies.map(({ label, info, isPaused }) => {
+              const isGated = info && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(info.gateState || '');
+              return (
+                <span
+                  key={label}
+                  className={cn(
+                    "w-1.5 h-1.5 rounded-full shrink-0",
+                    isPaused ? "bg-amber" : isGated ? "bg-red animate-pulse" : "bg-green"
+                  )}
+                  title={`${label}: ${isPaused ? 'Paused' : isGated ? `Gated (${info.gateState})` : 'Monitoring'}`}
+                />
+              );
+            })}
+          </div>
+          <ChevronDown size={12} className={cn("text-dim transition-transform", isOpen && "rotate-180")} />
+        </div>
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="border-t border-border/20 bg-background/20"
+          >
+            <div className="p-2.5 space-y-2.5 max-h-[380px] overflow-y-auto scrollbar-thin scrollbar-thumb-border hover:scrollbar-thumb-accent/50 min-w-0">
+              {activeStrategies.map(({ label, info, isPaused }) => {
+                const isGated = info && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(info.gateState || '');
+                const stateLabel = isPaused ? 'PAUSED' : isGated ? (info.gateState || 'GATED').toUpperCase() : 'ACTIVE';
+
+                return (
+                  <div key={label} className="flex flex-col gap-1 p-2.5 bg-surface/50 border border-border/30 rounded-xl text-left hover:border-border-hover transition-colors">
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <span className="text-[10px] font-bold text-text break-words whitespace-normal text-left flex-1 min-w-0">{label}</span>
+                      <span className={cn(
+                        "text-[8px] font-black px-1.5 py-0.5 rounded tracking-widest uppercase shrink-0 scale-95 origin-right",
+                        isPaused ? "bg-amber/10 text-amber border border-amber/20" :
+                        isGated ? "bg-red/10 text-red border border-red/20" :
+                        "bg-green/10 text-green border border-green/20"
+                      )}>
+                        {stateLabel}
+                      </span>
+                    </div>
+                    {info.gateReason && (
+                      <p className="text-[9px] text-dim/95 font-semibold leading-normal break-words mt-0.5">
+                        {info.gateReason}
+                      </p>
+                    )}
+                    {(info.value !== undefined && info.value !== null) || info.nextSlotTs ? (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 border-t border-border/10 pt-1.5">
+                        {info.value !== undefined && info.value !== null && (
+                          <div className="text-[8px] font-mono text-dim/50 font-bold uppercase">
+                            Trigger: <span className="text-text font-black font-mono">{String(info.value)}</span>
+                          </div>
+                        )}
+                        {info.nextSlotTs && (
+                          <div className="text-[8px] font-mono text-dim/50 font-bold uppercase flex items-center gap-1">
+                            <Clock size={8} /> Next Slot: <span className="text-accent font-black font-mono">{new Date(info.nextSlotTs).toLocaleTimeString()}</span>
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+});
+VariantGatingSummary.displayName = 'VariantGatingSummary';
 
 const LogEntry = React.memo(({ log }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -167,7 +273,7 @@ export const DecisionLog = React.memo(() => {
   ]
 
   return (
-    <div className="flex flex-col gap-3 max-h-[500px] overflow-hidden">
+    <div className="flex flex-col gap-3 h-[500px] min-h-0 overflow-hidden">
       <div className="space-y-3">
         <div className="relative group p-1.5">
           <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
@@ -229,9 +335,11 @@ export const DecisionLog = React.memo(() => {
         </div>
       </div>
 
+      <VariantGatingSummary />
+
       <div
         aria-live="polite"
-        className="flex-1 flex flex-col gap-1.5 max-h-[340px] relative"
+        className="flex-1 flex flex-col gap-1.5 min-h-0 relative"
       >
         {!isAtTop && (
           <div className="absolute top-2 inset-x-0 z-20 flex justify-center pointer-events-none">

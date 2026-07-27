@@ -284,24 +284,21 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
      const now = Date.now();
      const id = Math.random().toString(36).substring(2, 11);
      const newAlert = { id, ts: now, level: 'info', ...alert };
-     let targetId = id;
 
      set(st => {
        const alerts = st.alerts || [];
        const existing = alerts.find(a => a.title === newAlert.title && a.message === newAlert.message && (now - a.ts < 5000));
        if (existing) {
-          targetId = existing.id;
           return { alerts: alerts.map(a => a.id === existing.id ? { ...a, ts: now, count: (a.count || 1) + 1 } : a) };
        }
        return { alerts: [newAlert, ...alerts].slice(0, 10) };
      });
+  },
 
-     // BOLT-PERF: Move side effects out of the updater function for better maintainability and pure state transitions.
-     setTimeout(() => {
-       set(st => ({
-         alerts: st.alerts.filter(a => a.id !== targetId || (Date.now() - a.ts < 10000))
-       }));
-     }, 10000);
+  removeAlert: (targetId) => {
+    set(st => ({
+      alerts: (st.alerts || []).filter(a => a.id !== targetId)
+    }));
   },
   
   _subscriptions: { trades: new Map(), strategies: new Map(), scannerSymbols: new Map(), globalTrades: 0, scanner: 0 },

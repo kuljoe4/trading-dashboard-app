@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from "./utils"
 import * as ProgressPrimitive from "@radix-ui/react-progress"
 import * as TooltipPrimitive from "@radix-ui/react-tooltip"
-import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock, Info, RefreshCw, ShieldCheck, Activity, X } from 'lucide-react'
+import { CheckCircle2, AlertCircle, AlertTriangle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock, Info, RefreshCw, ShieldCheck, Activity, X } from 'lucide-react'
 import { Sparkline as SparklineChart, CandlestickChart as CandlestickChartBase } from '../DataCharts'
 import { useTradingStore } from '../../store/trading'
 import { useTooltipContext, Tooltip } from './tooltip'
@@ -844,3 +844,185 @@ export const CopyButton = React.memo(({ value, getValue, className, tooltip = "C
 // --- Charts ---
 export const Sparkline = SparklineChart;
 export const CandlestickChart = CandlestickChartBase;
+
+// --- Global Toaster & Toast Item ---
+export const ToastItem = React.memo(React.forwardRef(({ alert, onDismiss }, ref) => {
+  const [progress, setProgress] = React.useState(100)
+  const [isPaused, setIsPaused] = React.useState(false)
+  const duration = alert.id?.startsWith('playwright-') ? 60000 : (alert.level === 'error' ? 10000 : 6000) // Test toasts stay 60s, error 10s, others 6s
+  const startTime = React.useRef(Date.now())
+  const remainingTime = React.useRef(duration)
+  const lastTick = React.useRef(Date.now())
+
+  React.useEffect(() => {
+    if (isPaused) return
+
+    lastTick.current = Date.now()
+    const interval = setInterval(() => {
+      const now = Date.now()
+      const delta = now - lastTick.current
+      lastTick.current = now
+
+      remainingTime.current = Math.max(0, remainingTime.current - delta)
+      const nextProgress = (remainingTime.current / duration) * 100
+      setProgress(nextProgress)
+
+      if (remainingTime.current <= 0) {
+        clearInterval(interval)
+        onDismiss(alert.id)
+      }
+    }, 40)
+
+    return () => clearInterval(interval)
+  }, [isPaused, alert.id, onDismiss, duration])
+
+  // Reset countdown and progress if the alert ts updates (due to debouncing count increment)
+  React.useEffect(() => {
+    remainingTime.current = duration
+    setProgress(100)
+    lastTick.current = Date.now()
+  }, [alert.ts, duration])
+
+  const configByLevel = {
+    success: {
+      colorClass: "bg-green/10 border-green/20 shadow-[0_0_20px_rgba(0,229,160,0.06)]",
+      accentClass: "bg-green",
+      iconColor: "text-green",
+      icon: CheckCircle2,
+      role: "status"
+    },
+    error: {
+      colorClass: "bg-red/10 border-red/20 shadow-[0_0_20px_rgba(255,68,102,0.06)]",
+      accentClass: "bg-red",
+      iconColor: "text-red",
+      icon: AlertCircle,
+      role: "alert"
+    },
+    warn: {
+      colorClass: "bg-amber/10 border-amber/20 shadow-[0_0_20px_rgba(245,166,35,0.06)]",
+      accentClass: "bg-amber",
+      iconColor: "text-amber",
+      icon: AlertTriangle,
+      role: "alert"
+    },
+    warning: {
+      colorClass: "bg-amber/10 border-amber/20 shadow-[0_0_20px_rgba(245,166,35,0.06)]",
+      accentClass: "bg-amber",
+      iconColor: "text-amber",
+      icon: AlertTriangle,
+      role: "alert"
+    },
+    info: {
+      colorClass: "bg-accent/10 border-accent/20 shadow-[0_0_20px_rgba(91,111,255,0.06)]",
+      accentClass: "bg-accent",
+      iconColor: "text-accent",
+      icon: Info,
+      role: "status"
+    }
+  }
+
+  const config = configByLevel[alert.level] || configByLevel.info
+  const IconComponent = config.icon
+
+  return (
+    <motion.div
+      ref={ref}
+      layout
+      initial={{ opacity: 0, y: -20, scale: 0.95, x: 20 }}
+      animate={{ opacity: 1, y: 0, scale: 1, x: 0 }}
+      exit={{ opacity: 0, scale: 0.9, x: 50, transition: { duration: 0.15 } }}
+      transition={{ type: "spring", stiffness: 350, damping: 30 }}
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => setIsPaused(false)}
+      onFocus={() => setIsPaused(true)}
+      onBlur={() => setIsPaused(false)}
+      role={config.role}
+      aria-live={config.role === "alert" ? "assertive" : "polite"}
+      className={cn(
+        "pointer-events-auto relative overflow-hidden flex flex-col w-full min-w-[320px] max-w-[400px]",
+        "bg-surface/90 border backdrop-blur-md rounded-2xl transition-all duration-300",
+        config.colorClass
+      )}
+    >
+      <div className="flex gap-3.5 p-4 items-start relative z-10">
+        {/* Left Side: Indicator Line & Icon */}
+        <div className="flex items-center gap-2.5 shrink-0">
+          <div className={cn("w-1 h-8 rounded-full", config.accentClass)} />
+          <div className={cn("w-6 h-6 rounded-lg bg-surface/40 flex items-center justify-center shrink-0 border border-white/5 shadow-sm", config.iconColor)}>
+            <IconComponent size={14} />
+          </div>
+        </div>
+
+        {/* Center: Title and Message */}
+        <div className="flex-grow min-w-0 pr-1 select-text">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <h4 className="text-[11px] font-black uppercase tracking-wider text-text leading-tight truncate">
+              {alert.title || (alert.level === 'error' ? 'Error' : 'System Notice')}
+            </h4>
+            <AnimatePresence mode="popLayout">
+              {alert.count > 1 && (
+                <motion.span
+                  key={alert.count}
+                  initial={{ scale: 0.6, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.6, opacity: 0 }}
+                  className="bg-white/10 text-white border border-white/10 px-1.5 py-0.5 rounded-full text-[8px] font-black shrink-0 tracking-tight leading-none min-w-[16px] text-center"
+                >
+                  x{alert.count}
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </div>
+          <p className="text-[10px] font-semibold text-dim mt-1 leading-relaxed break-words max-h-24 overflow-y-auto no-scrollbar">
+            {alert.message}
+          </p>
+        </div>
+
+        {/* Right Side: Accessible Close Button */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onDismiss(alert.id)
+          }}
+          className={cn(
+            "p-1.5 rounded-lg transition-all shrink-0 text-dim/60 hover:text-red hover:bg-white/5",
+            "focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+          )}
+          aria-label={`Dismiss notification: ${alert.title || ''}`}
+        >
+          <X size={12} />
+        </button>
+      </div>
+
+      {/* Bottom Progress Bar: Draining over time, pausing when hovered/focused */}
+      <div className="h-[2px] w-full bg-white/5 absolute bottom-0 left-0 right-0 z-20">
+        <div
+          className={cn("h-full transition-all duration-[40ms] ease-linear", config.accentClass)}
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+    </motion.div>
+  )
+}))
+ToastItem.displayName = 'ToastItem'
+
+export const GlobalToaster = React.memo(() => {
+  const alerts = useTradingStore(state => state.alerts) || []
+  const removeAlert = useTradingStore(state => state.removeAlert)
+
+  return (
+    <div
+      className="fixed top-4 sm:top-6 right-4 sm:right-6 z-[99999] flex flex-col gap-2 w-full max-w-[380px] pointer-events-none px-4 sm:px-0"
+      role="region"
+      aria-label="Notifications"
+    >
+      <AnimatePresence mode="popLayout">
+        {alerts.map((alert) => (
+          <ToastItem key={alert.id} alert={alert} onDismiss={removeAlert} />
+        ))}
+      </AnimatePresence>
+    </div>
+  )
+})
+GlobalToaster.displayName = 'GlobalToaster'

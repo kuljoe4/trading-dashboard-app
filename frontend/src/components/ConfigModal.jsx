@@ -100,7 +100,7 @@ SectionHeader.displayName = 'SectionHeader'
 
 const Toggle = React.memo(({ value, onChange, label, color = "bg-accent" }) => (
   <label className="flex items-center gap-3 cursor-pointer group">
-    <Switch.Root checked={value} onCheckedChange={onChange} className={cn("relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:border-accent", value ? color : "bg-border")}>
+    <Switch.Root checked={value} onCheckedChange={onChange} className={cn("relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none focus-visible:ring-offset-1 focus-visible:ring-offset-surface", value ? color : "bg-border")}>
       <Switch.Thumb className={cn("pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform", value ? "translate-x-5" : "translate-x-0")} />
     </Switch.Root>
     {label && <span className={cn("text-sm font-bold transition-colors", value ? "text-text" : "text-dim group-hover:text-dim/80")}>{label}</span>}
@@ -150,7 +150,7 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
           id={id}
           value={localValue ?? ''}
           onChange={handleSelectChange}
-          className="bg-surface border border-border rounded-lg px-3 py-1.5 text-xs font-bold text-text focus:border-accent outline-none appearance-none transition-all cursor-pointer hover:border-border-hover"
+          className="bg-surface border border-border rounded-lg px-3 py-1.5 text-xs font-bold text-text focus:border-accent outline-none appearance-none transition-all cursor-pointer hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
         >
           {opts.map((o) => {
             const val = typeof o === 'string' ? o : o.value;
@@ -167,7 +167,7 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
           onChange={handleChange}
           onBlur={(e) => { commit(); attrs.onBlur?.(e); }}
           onKeyDown={(e) => { if (e.key === 'Enter') commit(); }}
-          className="bg-surface border border-border rounded-lg px-3 py-1.5 text-xs font-mono font-bold text-text focus:border-accent outline-none transition-all hover:border-border-hover"
+          className="bg-surface border border-border rounded-lg px-3 py-1.5 text-xs font-mono font-bold text-text focus:border-accent outline-none transition-all hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
         />
       )}
     </div>
@@ -257,7 +257,7 @@ const ExitSignalCard = React.memo(({
                       id={`tf-${layerKey}`}
                       value={tfValue}
                       onChange={(e) => onUpdateLayer(layerKey, 'timeframe', e.target.value)}
-                      className="bg-surface border border-border/40 rounded-lg px-2 py-1 text-[10px] font-bold text-text focus:border-accent outline-none cursor-pointer h-7"
+                      className="bg-surface border border-border/40 rounded-lg px-2 py-1 text-[10px] font-bold text-text focus:border-accent outline-none cursor-pointer h-7 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                     >
                       <option value="default">Default</option>
                       <option value="1m">1m</option>
@@ -285,7 +285,7 @@ const ExitSignalCard = React.memo(({
                           const m = Math.floor(((delayValue || 0) % 3600) / 60);
                           onUpdateLayer(layerKey, 'delay', (h * 3600) + (m * 60));
                         }}
-                        className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-7 w-12"
+                        className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-7 w-12 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                       />
                       <span className="text-dim font-bold">:</span>
                       <input
@@ -299,7 +299,7 @@ const ExitSignalCard = React.memo(({
                           const m = parseInt(e.target.value) || 0;
                           onUpdateLayer(layerKey, 'delay', (h * 3600) + (m * 60));
                         }}
-                        className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-7 w-12"
+                        className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-7 w-12 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                       />
                     </div>
                   </div>
@@ -312,10 +312,10 @@ const ExitSignalCard = React.memo(({
                       value={actionValue}
                       onChange={(e) => onUpdateLayer(layerKey, 'action', e.target.value)}
                       className={cn(
-                        "border rounded-lg px-1.5 py-1 text-[10px] font-black uppercase tracking-tight focus:outline-none cursor-pointer h-7 text-center",
+                        "border rounded-lg px-1.5 py-1 text-[10px] font-black uppercase tracking-tight focus:outline-none cursor-pointer h-7 text-center focus-visible:ring-2 focus-visible:outline-none",
                         actionValue === 'lock_sl'
-                          ? "bg-purple/10 border-purple/30 text-purple focus:border-purple"
-                          : "bg-red/10 border-red/30 text-red focus:border-red"
+                          ? "bg-purple/10 border-purple/30 text-purple focus:border-purple focus-visible:ring-purple"
+                          : "bg-red/10 border-red/30 text-red focus:border-red focus-visible:ring-red"
                       )}
                     >
                       <option value="close">🛑 Close</option>
@@ -2048,7 +2048,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                                 }
                                 setField('signal_timeframes', updated);
                               }}
-                              className="bg-background border border-border rounded-lg pl-3 pr-8 py-1 text-[11px] font-bold text-text focus:border-accent outline-none appearance-none cursor-pointer transition-all hover:border-border-hover h-8"
+                              className="bg-background border border-border rounded-lg pl-3 pr-8 py-1 text-[11px] font-bold text-text focus:border-accent outline-none appearance-none cursor-pointer transition-all hover:border-border-hover h-8 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                             >
                               <option value="default">Default ({cfg.scan_interval || 'Default'})</option>
                               <option value="1m">1m</option>

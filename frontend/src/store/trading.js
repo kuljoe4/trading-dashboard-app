@@ -746,10 +746,10 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
                 if (n === p) return p; // unchanged: reuse previous reference so React.memo bails out
                 return {
                   ...n,
-                  history: (n.history && n.history.length > 0) ? n.history : p.history,
-                  ohlc_history: (n.ohlc_history && n.ohlc_history.length > 0) ? n.ohlc_history : p.ohlc_history,
-                  score_breakdown: n.score_breakdown || p.score_breakdown,
-                  signalResult: n.signalResult || p.signalResult
+                  history: (n.history && n.history.length > 0) ? n.history : p?.history,
+                  ohlc_history: (n.ohlc_history && n.ohlc_history.length > 0) ? n.ohlc_history : p?.ohlc_history,
+                  score_breakdown: n.score_breakdown || p?.score_breakdown,
+                  signalResult: n.signalResult || p?.signalResult
                 };
               }).filter(Boolean);
               return acc;

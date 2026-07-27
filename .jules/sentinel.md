@@ -1,3 +1,8 @@
+## 2026-07-27 - PauseSessionDto Strategy Label Input Gating and XSS Prevention Standard
+**Vulnerability:** The optional `strategyLabel` property inside `PauseSessionDto` lacked size and format validation, exposing the application to Reflected/Stored XSS via script payloads, log/header injection vectors, and potential Denial of Service (DoS) memory/storage exhaustion via excessively large payloads.
+**Learning:** Even simple state-transition parameters such as pause/resume labels must be strictly bound and validated against the same standards as configuration models if they can be logged, stored, or broadcast back to UI clients.
+**Prevention:** Enforce `@MaxLength(100)` and strict alphanumeric/safe-character whitelists `/^[a-zA-Z0-9_\s.\-()><=%+,\[\]]*$/` with HTML tag blocking via negative lookaheads `/^(?!.*<[a-zA-Z!/]).*$/` on any custom label inputs at the DTO layer.
+
 ## 2026-07-26 - Dynamic SessionConfig Record Validation and Hardening Standard
 **Vulnerability:** Dynamic dictionary properties inside `SessionConfig` (like `signal_params`, `exit_signal_delays`, `exit_signal_actions`, `signal_timeframes`, and `scanner_weights`) bypassed standard class-validator structural guards, exposing the system to Stored XSS via parameter keys/values, memory exhaustion DoS via huge payloads, and type-confusion crashes in downstream trading engines.
 **Learning:** Object properties mapped as dynamic records/dictionaries (`Record<string, any>`) must be explicitly audited at the service layer if class-validator cannot check nested elements natively. Safe whitelisting must check keys (length, character patterns, tag prevention), size of keys, and value types/ranges.

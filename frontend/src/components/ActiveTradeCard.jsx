@@ -24,9 +24,9 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
 
   const duration = React.useMemo(() => {
     if (!trade.entry_ts) return '---'
-    const start = new Date(trade.entry_ts).getTime()
+    const start = trade.entry_ts_ms !== undefined ? trade.entry_ts_ms : new Date(trade.entry_ts).getTime()
     return formatDuration(now - start)
-  }, [trade.entry_ts, now])
+  }, [trade.entry_ts, trade.entry_ts_ms, now])
 
   const entry = Number(trade.entry_price || 0)
   const mark = Number(trade.mark_price || trade.last_price || 0)

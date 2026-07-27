@@ -58,8 +58,8 @@ export const calculatePerformanceMetrics = (trades = [], sessionBalance) => {
   if (count === 0) return { sharpe: 0, sortino: 0, profitFactor: 0, winRate: 0, wins: 0, totalPnl: 0, grossProfit: 0, grossLoss: 0 };
 
   // BOLT OPTIMIZATION: Single-pass pre-processing and loop fusion.
-  // We pre-calculate numeric values and timestamps once to avoid redundant property accesses
-  // and expensive Date object creation inside sort and calculation loops.
+  // We pre-calculate numeric values and timestamps once, prioritizing pre-computed ms timestamps (exit_ts_ms, entry_ts_ms)
+  // to avoid redundant property accesses and expensive Date object creation inside sort and calculation loops.
   const processed = new Array(count);
   let totalNetPnL = 0;
 
@@ -69,8 +69,8 @@ export const calculatePerformanceMetrics = (trades = [], sessionBalance) => {
     totalNetPnL += pnl;
     processed[i] = {
       pnl,
-      exitTs: new Date(t.exit_ts || t.createdAt).getTime(),
-      entryTs: new Date(t.entry_ts || t.createdAt).getTime()
+      exitTs: t.exit_ts_ms !== undefined ? t.exit_ts_ms : (t.exit_ts || t.createdAt ? new Date(t.exit_ts || t.createdAt).getTime() : 0),
+      entryTs: t.entry_ts_ms !== undefined ? t.entry_ts_ms : (t.entry_ts || t.createdAt ? new Date(t.entry_ts || t.createdAt).getTime() : 0)
     };
   }
 

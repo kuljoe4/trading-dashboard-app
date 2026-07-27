@@ -112,18 +112,22 @@ const StrategyDetailView = ({ s, onBack }) => {
 
         {/* Evaluation Timeframes List */}
         {strategyConfig.enabled_signals && strategyConfig.enabled_signals.length > 0 && (
-          <div className="flex flex-wrap gap-2.5 items-center bg-background/30 p-3.5 rounded-2xl border border-border/40 mb-10 text-left animate-in fade-in duration-300">
-            <span className="text-[9px] font-black text-dim uppercase tracking-wider px-1">Evaluation Timeframes:</span>
-            {strategyConfig.enabled_signals.map(sig => {
-              const tf = (strategyConfig.signal_timeframes || {})[sig] || strategyConfig.scan_interval || '5m';
-              return (
-                <span key={sig} className="px-2.5 py-1 rounded-xl bg-surface border border-border text-[10px] font-mono text-text/90 flex items-center gap-1.5 shadow-sm transition-all hover:border-accent/30 group">
-                  <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 group-hover:scale-110 transition-transform" />
-                  <span className="font-bold">{SIGNAL_LABELS[sig] || sig}</span>
-                  <span className="text-dim/60 font-semibold font-mono">({tf})</span>
-                </span>
-              );
-            })}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 bg-background/30 p-4 rounded-2xl border border-border/40 mb-10 text-left animate-in fade-in duration-300">
+            <div className="text-[10px] font-black text-dim uppercase tracking-widest shrink-0 whitespace-nowrap">
+              Evaluation Timeframes:
+            </div>
+            <div className="flex flex-wrap gap-2 items-center flex-1 min-w-0">
+              {strategyConfig.enabled_signals.map(sig => {
+                const tf = (strategyConfig.signal_timeframes || {})[sig] || strategyConfig.scan_interval || '5m';
+                return (
+                  <span key={sig} className="px-2.5 py-1 rounded-xl bg-surface border border-border text-[10px] font-mono text-text/90 flex items-center gap-1.5 shadow-sm transition-all hover:border-accent/30 group">
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 group-hover:scale-110 transition-transform" />
+                    <span className="font-bold">{SIGNAL_LABELS[sig] || sig}</span>
+                    <span className="text-dim/60 font-semibold font-mono">({tf})</span>
+                  </span>
+                );
+              })}
+            </div>
           </div>
         )}
 

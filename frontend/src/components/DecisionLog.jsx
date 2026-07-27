@@ -87,8 +87,8 @@ const VariantGatingSummary = React.memo(() => {
 
                 return (
                   <div key={label} className="flex flex-col gap-1 p-2.5 bg-surface/50 border border-border/30 rounded-xl text-left hover:border-border-hover transition-colors">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[10px] font-bold text-text truncate">{label}</span>
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <span className="text-[10px] font-bold text-text break-words whitespace-normal text-left flex-1 min-w-0">{label}</span>
                       <span className={cn(
                         "text-[8px] font-black px-1.5 py-0.5 rounded tracking-widest uppercase shrink-0 scale-95 origin-right",
                         isPaused ? "bg-amber/10 text-amber border border-amber/20" :

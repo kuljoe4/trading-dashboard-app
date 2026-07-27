@@ -649,24 +649,56 @@ export class MarketFeedService {
             };
           }
         }
-        const globalInterval = config.scan_interval || '1m';
-        for (const s of symbols) {
-          if (!newWatchlist.has(s)) newWatchlist.set(s, new Set());
-          newWatchlist.get(s)!.add(globalInterval);
+        const strategyConfigs: SessionConfig[] = [config];
+        if (config.strategy_variants) {
+          for (const v of config.strategy_variants) {
+            if ((v as any).enabled !== false) {
+              strategyConfigs.push({
+                ...config,
+                ...v,
+                strategy_label: v.strategy_label,
+                strategy_variants: [], // prevent infinite recursion
+              });
+            }
+          }
+        }
+
+        for (const sc of strategyConfigs) {
+          const globalInterval = sc.scan_interval || '1m';
+          for (const s of symbols) {
+            if (!newWatchlist.has(s)) newWatchlist.set(s, new Set());
+            newWatchlist.get(s)!.add(globalInterval);
+          }
         }
       }
 
-      if (config.single_symbol_configs) {
-        for (const sc of config.single_symbol_configs) {
-          if (!sc.enabled) continue;
-          // COMPLIANCE: Extend non-crypto filtering to manual monitors
-          if (this.getSymbolFilters(sc.symbol) === undefined) {
-             this.logger.warn(`Filtering out non-crypto symbol from manual monitor: ${sc.symbol}`);
-             continue;
+      const strategyConfigs: SessionConfig[] = [config];
+      if (config.strategy_variants) {
+        for (const v of config.strategy_variants) {
+          if ((v as any).enabled !== false) {
+            strategyConfigs.push({
+              ...config,
+              ...v,
+              strategy_label: v.strategy_label,
+              strategy_variants: [],
+            });
           }
-          if (!newWatchlist.has(sc.symbol)) newWatchlist.set(sc.symbol, new Set());
-          const interval = sc.use_custom_config && sc.custom_config?.scan_interval ? sc.custom_config.scan_interval : config.scan_interval || '1m';
-          newWatchlist.get(sc.symbol)!.add(interval);
+        }
+      }
+
+      for (const sc of strategyConfigs) {
+        if (sc.single_symbol_configs) {
+          for (const ssc of sc.single_symbol_configs) {
+            if (!ssc.enabled) continue;
+            // COMPLIANCE: Extend non-crypto filtering to manual monitors
+            if (this.getSymbolFilters(ssc.symbol) === undefined) {
+               this.logger.warn(`Filtering out non-crypto symbol from manual monitor: ${ssc.symbol}`);
+               continue;
+            }
+            if (!newWatchlist.has(ssc.symbol)) newWatchlist.set(ssc.symbol, new Set());
+            const interval = ssc.use_custom_config && ssc.custom_config?.scan_interval ? ssc.custom_config.scan_interval : sc.scan_interval || '1m';
+            newWatchlist.get(ssc.symbol)!.add(interval);
+          }
         }
       }
 
@@ -674,32 +706,38 @@ export class MarketFeedService {
         const t = trade;
         if (!newWatchlist.has(t.symbol)) newWatchlist.set(t.symbol, new Set());
         newWatchlist.get(t.symbol)!.add('1m');
-        const resolvedScanInterval = this.resolveInterval(config.scan_interval || '5m', config);
-        if (resolvedScanInterval) newWatchlist.get(t.symbol)!.add(resolvedScanInterval);
+        for (const sc of strategyConfigs) {
+          const resolvedScanInterval = this.resolveInterval(sc.scan_interval || '5m', sc);
+          if (resolvedScanInterval) newWatchlist.get(t.symbol)!.add(resolvedScanInterval);
+        }
         const resolvedTradeScan = this.resolveInterval(t.strategy_config?.scan_interval || 'default', config);
         if (resolvedTradeScan) newWatchlist.get(t.symbol)!.add(resolvedTradeScan);
         const resolvedTradeSl = this.resolveInterval(t.strategy_config?.sl_lookback_timeframe || 'default', config);
         if (resolvedTradeSl) newWatchlist.get(t.symbol)!.add(resolvedTradeSl);
       }
 
-      if (config.sl_lookback_timeframe) {
-        const resolvedGlobalSl = this.resolveInterval(config.sl_lookback_timeframe, config);
-        if (resolvedGlobalSl) {
-          for (const [symbol, intervals] of newWatchlist) intervals.add(resolvedGlobalSl);
+      for (const sc of strategyConfigs) {
+        if (sc.sl_lookback_timeframe) {
+          const resolvedGlobalSl = this.resolveInterval(sc.sl_lookback_timeframe, sc);
+          if (resolvedGlobalSl) {
+            for (const [symbol, intervals] of newWatchlist) intervals.add(resolvedGlobalSl);
+          }
         }
       }
 
-      // MULTI-TIMEFRAME SIGNALS: Extract all unique timeframes from enabled entry & exit signals
+      // MULTI-TIMEFRAME SIGNALS: Extract all unique timeframes from enabled entry & exit signals across all strategy configurations
       const mtfIntervals = new Set<string>();
-      if (config.signal_timeframes) {
-        const activeSignals = [
-          ...(config.enabled_signals || []),
-          ...(config.exit_signals || [])
-        ];
-        for (const sig of activeSignals) {
-          const tf = config.signal_timeframes[sig];
-          const resolvedTf = this.resolveInterval(tf, config);
-          if (resolvedTf) mtfIntervals.add(resolvedTf);
+      for (const sc of strategyConfigs) {
+        if (sc.signal_timeframes) {
+          const activeSignals = [
+            ...(sc.enabled_signals || []),
+            ...(sc.exit_signals || [])
+          ];
+          for (const sig of activeSignals) {
+            const tf = sc.signal_timeframes[sig];
+            const resolvedTf = this.resolveInterval(tf, sc);
+            if (resolvedTf) mtfIntervals.add(resolvedTf);
+          }
         }
       }
       if (mtfIntervals.size > 0) {

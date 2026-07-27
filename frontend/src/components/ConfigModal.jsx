@@ -745,10 +745,11 @@ const EnvironmentButton = React.memo(({ mode, isSelected, onClick }) => (
 ))
 EnvironmentButton.displayName = 'EnvironmentButton'
 
-const PresetItem = React.memo(({ preset, isLoaded, isDirty, onLoad, onToggleVariant, onDelete, isVariant }) => {
+const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onLoad, onToggleVariant, onDelete, isVariant }, ref) => {
   const pMode = preset.config.trading_mode || (preset.config.paper_mode ? 'paper' : 'live');
   return (
     <motion.div
+      ref={ref}
       layout
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
@@ -833,7 +834,7 @@ const PresetItem = React.memo(({ preset, isLoaded, isDirty, onLoad, onToggleVari
       </div>
     </motion.div>
   );
-})
+}))
 PresetItem.displayName = 'PresetItem'
 
 const flattenConfig = (config) => {

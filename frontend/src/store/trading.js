@@ -124,10 +124,12 @@ export const normalizeTrade = (t = {}, pt = null) => {
     const isLong = (t.direction ?? p.direction ?? '').toString().toUpperCase() === 'LONG';
     const calculatedPnlPct = ep > 0 ? ((cp - ep) / ep) * 100 * (isLong ? 1 : -1) : 0;
 
-    // BOLT OPTIMIZATION: Pre-calculate exit_ts_ms to avoid redundant parsing inside sort comparators.
+    // BOLT OPTIMIZATION: Pre-calculate exit_ts_ms and entry_ts_ms to avoid redundant parsing inside sort comparators and analytics.
     const exit_ts = t.exit_ts ?? p.exit_ts;
+    const entry_ts = t.entry_ts ?? p.entry_ts;
     const createdAt = t.createdAt ?? p.createdAt;
     const exit_ts_ms = exit_ts ? new Date(exit_ts).getTime() : (createdAt ? new Date(createdAt).getTime() : 0);
+    const entry_ts_ms = entry_ts ? new Date(entry_ts).getTime() : (createdAt ? new Date(createdAt).getTime() : 0);
 
     return {
       ...p, ...t,
@@ -155,7 +157,8 @@ export const normalizeTrade = (t = {}, pt = null) => {
       realized_fee: t.realized_fee !== undefined ? toNumber(t.realized_fee) : p.realized_fee,
       funding_fee: t.funding_fee !== undefined ? toNumber(t.funding_fee) : p.funding_fee,
       is_reconciliation: t.is_reconciliation ?? p.is_reconciliation,
-      exit_ts_ms
+      exit_ts_ms,
+      entry_ts_ms
     };
   }
   const ep = toNumber(t.entry_price ?? t.entry ?? p.entry_price);
@@ -164,12 +167,14 @@ export const normalizeTrade = (t = {}, pt = null) => {
   const calculatedPnlPct = ep > 0 ? ((cp - ep) / ep) * 100 * (isLong ? 1 : -1) : 0;
   const pnlPct = t.pnl_pct !== undefined ? toNumber(t.pnl_pct) : (p.pnl_pct !== undefined ? toNumber(p.pnl_pct) : calculatedPnlPct);
 
-  // BOLT OPTIMIZATION: Pre-calculate exit_ts_ms to avoid redundant parsing inside sort comparators.
+  // BOLT OPTIMIZATION: Pre-calculate exit_ts_ms and entry_ts_ms to avoid redundant parsing inside sort comparators and analytics.
   const exit_ts = t.exit_ts ?? p.exit_ts;
+  const entry_ts = t.entry_ts ?? p.entry_ts;
   const createdAt = t.createdAt ?? p.createdAt;
   const exit_ts_ms = exit_ts ? new Date(exit_ts).getTime() : (createdAt ? new Date(createdAt).getTime() : 0);
+  const entry_ts_ms = entry_ts ? new Date(entry_ts).getTime() : (createdAt ? new Date(createdAt).getTime() : 0);
 
-  return { ...t, symbol: t.symbol ?? p.symbol ?? '---', strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy', direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(), entry_price: ep, current_price: cp, sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price), initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl), tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp), pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl ?? 0, pnl_pct: pnlPct, rr: (t.rr !== undefined) ? toNumber(t.rr) : p.rr ?? 0, max_rr: (t.max_rr !== undefined) ? toNumber(t.max_rr) : p.max_rr ?? 0, est_pnl_to_realize: t.est_pnl_to_realize !== undefined ? toNumber(t.est_pnl_to_realize) : p.est_pnl_to_realize ?? 0, exit_rr: t.exit_rr !== undefined ? toNumber(t.exit_rr) : p.exit_rr ?? 0, min_rr_achieved: t.min_rr_achieved !== undefined ? toNumber(t.min_rr_achieved) : p.min_rr_achieved ?? 0, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [], exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [], tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'), tp_ratio: (t.tp_ratio !== undefined) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0, sl_adjustments: t.sl_adjustments || p.sl_adjustments || [], exit_reason: t.exit_reason ?? p.exit_reason, exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price), paper_mode: t.paper_mode ?? p.paper_mode ?? true, qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0), max_rr_achieved: toNumber(t.max_rr_achieved ?? t.max_rr ?? p.max_rr_achieved ?? 0), exit_signals_status: sigStatus || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, _fingerprint: f, exit_ts_ms };
+  return { ...t, symbol: t.symbol ?? p.symbol ?? '---', strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy', direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(), entry_price: ep, current_price: cp, sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price), initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl), tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp), pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl ?? 0, pnl_pct: pnlPct, rr: (t.rr !== undefined) ? toNumber(t.rr) : p.rr ?? 0, max_rr: (t.max_rr !== undefined) ? toNumber(t.max_rr) : p.max_rr ?? 0, est_pnl_to_realize: t.est_pnl_to_realize !== undefined ? toNumber(t.est_pnl_to_realize) : p.est_pnl_to_realize ?? 0, exit_rr: t.exit_rr !== undefined ? toNumber(t.exit_rr) : p.exit_rr ?? 0, min_rr_achieved: t.min_rr_achieved !== undefined ? toNumber(t.min_rr_achieved) : p.min_rr_achieved ?? 0, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [], exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [], tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'), tp_ratio: (t.tp_ratio !== undefined) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0, sl_adjustments: t.sl_adjustments || p.sl_adjustments || [], exit_reason: t.exit_reason ?? p.exit_reason, exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price), paper_mode: t.paper_mode ?? p.paper_mode ?? true, qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0), max_rr_achieved: toNumber(t.max_rr_achieved ?? t.max_rr ?? p.max_rr_achieved ?? 0), exit_signals_status: sigStatus || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, _fingerprint: f, exit_ts_ms, entry_ts_ms };
 }
 
 const deepMerge = (target, source) => {

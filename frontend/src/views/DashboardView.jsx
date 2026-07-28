@@ -1646,7 +1646,7 @@ export function DashboardView({ initialStrategy }) {
               </div>
               <div className="flex-1 min-h-0">
                 <Suspense fallback={<LoadingFallback />}>
-                  {showScanner && <ScannerOverlay onClose={() => setShowScanner(false)} />}
+                  {showScanner && <ScannerOverlay onClose={() => setShowScanner(false)} selectedStrategyLabel={selected} />}
                 </Suspense>
               </div>
             </Drawer.Content>

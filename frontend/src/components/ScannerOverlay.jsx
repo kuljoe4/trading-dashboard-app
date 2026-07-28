@@ -323,33 +323,24 @@ const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, th
            </div>
                  <div className="bg-surface/50 border border-border rounded-xl p-3 md:p-4 flex flex-col gap-2.5 md:gap-3 relative overflow-hidden group/scoring shadow-sm">
               {/* Score Bars Section */}
-                    <div className="grid grid-cols-3 gap-3 pb-2 border-b border-white/5">
+              <div className="flex flex-wrap gap-2 pb-2.5 border-b border-white/5">
                  {[
-                   { label: 'Momentum', value: opp.score_breakdown?.momentum, color: 'bg-accent', text: 'text-accent' },
-                   { label: 'Volatility', value: opp.score_breakdown?.volatility, color: 'bg-amber', text: 'text-amber' },
-                   { label: 'Trend', value: opp.score_breakdown?.trend, color: 'bg-purple-400', text: 'text-purple-400' }
+                   { label: 'Momentum', value: opp.score_breakdown?.momentum, color: 'text-accent bg-accent/5 border-accent/20' },
+                   { label: 'Volatility', value: opp.score_breakdown?.volatility, color: 'text-amber bg-amber/5 border-amber/20' },
+                   { label: 'Trend', value: opp.score_breakdown?.trend, color: 'text-purple border-purple/5 border-purple/20' }
                  ].map((metric) => (
-                        <div key={metric.label} className="space-y-0.5">
-                          <div className="flex justify-between items-center text-[7.5px] font-black uppercase tracking-wider leading-none">
-                       <span className="text-dim/80 truncate mr-1">{metric.label}</span>
-                       <span className={cn(metric.text)}>{Number(metric.value || 0).toFixed(0)}%</span>
+                    <div key={metric.label} className={cn("px-2 py-0.5 rounded-lg border text-[8.5px] font-black uppercase tracking-wider flex items-center gap-1.5", metric.color)}>
+                       <span className="opacity-80">{metric.label}:</span>
+                       <span className="font-mono font-black">{Number(metric.value || 0).toFixed(0)}%</span>
                     </div>
-                          <div className="h-0.5 bg-background/80 rounded-full overflow-hidden">
-                       <motion.div
-                         initial={{ width: 0 }}
-                         animate={{ width: `${metric.value || 0}%` }}
-                         className={cn("h-full", metric.color)}
-                       />
-                    </div>
-                  </div>
                  ))}
               </div>
 
               {/* Decision path */}
-                    <DecisionPipeline steps={funnelSteps} />
+              <DecisionPipeline steps={funnelSteps} />
 
               {/* Signal Checklist */}
-                    <div className="space-y-2.5">
+              <div className="space-y-2 flex-1 min-h-0">
                 <div className="flex items-center justify-between">
                    <div className="text-[9px] font-black text-dim uppercase tracking-widest">Technical Checklist</div>
                    <div className={cn(
@@ -360,31 +351,42 @@ const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, th
                    </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <SignalGauge
-                    label="Velocity"
-                    value={Math.abs(opp.pct)}
-                    threshold={threshold}
-                    unit="%"
-                    fired={passing}
-                    active={true}
-                    type="entry"
-                  />
-                  {Object.entries(checklistSignals).map(([key, s]) => (
-                    <SignalGauge
-                      key={key}
-                      label={s.label || key}
-                      value={s.value}
-                      threshold={s.threshold}
-                      unit={s.unit}
-                      fired={s.fired}
-                      active={s.active}
-                      remainingDelay={s.remaining_delay}
-                      configDelay={s.config_delay}
-                      insufficientData={s.insufficientData}
-                      type="entry"
-                    />
-                  ))}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {/* Inline lightweight checklist entries */}
+                  <div className={cn(
+                    "flex items-center justify-between px-3 py-1.5 rounded-xl border text-[10px] font-bold font-mono transition-all",
+                    passing ? "bg-green/5 border-green/20 text-green" : "bg-background/40 border-border text-dim/60"
+                  )}>
+                    <div className="flex items-center gap-2 truncate">
+                      <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", passing ? "bg-green animate-pulse" : "bg-dim/40")} />
+                      <span className="truncate">Velocity</span>
+                    </div>
+                    <span className="shrink-0 font-black ml-1">
+                      {Math.abs(opp.pct).toFixed(2)}%
+                    </span>
+                  </div>
+
+                  {Object.entries(checklistSignals).map(([key, s]) => {
+                    const isFired = s.fired && s.active;
+                    const isDelayed = s.remaining_delay > 0 && !isFired;
+                    return (
+                      <div key={key} className={cn(
+                        "flex items-center justify-between px-3 py-1.5 rounded-xl border text-[10px] font-bold font-mono transition-all",
+                        isFired ? "bg-green/5 border-green/20 text-green" : s.fired ? "bg-amber/5 border-amber/20 text-amber" : "bg-background/40 border-border text-dim/60"
+                      )}>
+                        <div className="flex items-center gap-2 truncate">
+                          <span className={cn(
+                            "w-1.5 h-1.5 rounded-full shrink-0",
+                            isFired ? "bg-green" : isDelayed ? "bg-amber animate-pulse" : s.fired ? "bg-amber" : "bg-dim/40"
+                          )} />
+                          <span className="truncate">{s.label || key}</span>
+                        </div>
+                        <span className="shrink-0 font-black ml-1">
+                          {s.insufficientData ? 'Collecting' : isFired ? 'Triggered' : isDelayed ? `Delay` : s.fired ? 'Met' : 'Watching'}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -471,62 +473,53 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
         tabIndex={0}
         aria-expanded={isExpanded}
         className={cn(
-          "flex md:grid md:grid-cols-[25px_90px_1fr_50px_1fr_1.2fr_135px] items-center px-3 py-1 md:py-1.5 md:px-4 transition-all h-[42px] md:h-[46px] group cursor-pointer outline-none focus-visible:bg-white/5",
+          "flex md:grid md:grid-cols-[30px_1.5fr_1fr_1.2fr_120px] items-center px-3 py-1 md:py-1.5 md:px-4 transition-all h-[42px] md:h-[46px] group cursor-pointer outline-none focus-visible:bg-white/5",
           !passing && "opacity-45 grayscale-[0.5]",
           isSingleMonitor && "bg-accent/5",
           passing && "hover:bg-white/5 active:bg-white/10",
           isExpanded && "bg-white/[0.02]"
         )}>
-        <div className="flex flex-col justify-center gap-0.5 w-6 shrink-0 md:w-auto md:shrink leading-none">
-          <span className="text-[9px] text-dim font-black font-mono leading-none opacity-40 group-hover:opacity-100 transition-opacity">{(i + 1).toString().padStart(2, '0')}</span>
-          {opp.change_rank !== undefined ? (
-            <div className="flex items-center">
-              <span className="text-[7.5px] bg-purple/10 border border-purple/20 px-1 py-0.2 rounded-[3px] text-purple font-black uppercase tracking-tighter shadow-sm leading-none">
-                C{opp.change_rank}
-              </span>
-            </div>
-          ) : opp.volume_rank !== undefined ? (
-            <div className="flex items-center">
-              <span className="text-[7.5px] bg-accent/10 border border-accent/20 px-1 py-0.2 rounded-[3px] text-accent font-black uppercase tracking-tighter shadow-sm leading-none">
-                V{opp.volume_rank}
-              </span>
-            </div>
-          ) : null}
+        <div className="flex items-center text-[9px] text-dim font-black font-mono leading-none opacity-40 group-hover:opacity-100 transition-opacity">
+          {(i + 1).toString().padStart(2, '0')}
         </div>
         <div className="flex flex-col justify-center overflow-hidden flex-1 md:flex-none">
-           <div className="flex items-baseline gap-0.5 leading-none">
+           <div className="flex items-center gap-2 leading-none">
              <span className="text-[12px] md:text-[13px] font-bold font-mono truncate">{opp.symbol.replace("USDT", "")}</span>
              <span className="text-[8px] text-dim font-mono opacity-50">/U</span>
              <CopyButton value={opp.symbol} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ml-0.5 p-0.5 scale-75" />
+             <div className="hidden md:block ml-2 opacity-80 group-hover:opacity-100 transition-opacity">
+               <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={40} height={14} />
+             </div>
            </div>
-           <div className="flex items-center gap-1 mt-0.5 h-3">
-            {isInPosition && (
-              <InPosBadge />
+           <div className="flex items-center gap-1.5 mt-1 h-3 flex-wrap">
+            {isInPosition && <InPosBadge />}
+            {opp.is_smart_candidate && <SmartCandidateBadge />}
+            {isSingleMonitor && <MonitoredBadge />}
+            {opp.change_rank !== undefined && (
+              <span className="text-[7.5px] bg-purple/10 border border-purple/20 px-1 py-0.2 rounded-[3px] text-purple font-black uppercase tracking-tighter leading-none">
+                C{opp.change_rank}
+              </span>
             )}
-            {opp.is_smart_candidate && (
-              <SmartCandidateBadge />
-            )}
-            {isSingleMonitor && (
-              <MonitoredBadge />
+            {opp.volume_rank !== undefined && (
+              <span className="text-[7.5px] bg-accent/10 border border-accent/20 px-1 py-0.2 rounded-[3px] text-accent font-black uppercase tracking-tighter leading-none">
+                V{opp.volume_rank}
+              </span>
             )}
            </div>
         </div>
-        <div className="flex flex-col items-end w-14 shrink-0 md:w-auto md:shrink">
+        <div className="flex flex-col items-end w-14 shrink-0 md:w-auto md:shrink md:items-start md:pl-2">
           <span className={cn(
             "text-[12px] md:text-[13px] font-bold font-mono leading-none",
             isLong ? "text-green" : "text-red"
           )}>
             {isLong ? "+" : "-"}{Number(Math.abs(opp.pct || 0)).toFixed(2)}%
           </span>
-          <div className="md:hidden mt-0.5 scale-90">
+          <div className="md:hidden mt-1 scale-90">
             <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={36} height={10} />
           </div>
         </div>
-        <div className="md:flex justify-center hidden">
-          <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={40} height={14} />
-        </div>
-        <span className="text-[10px] text-dim font-mono text-right md:block hidden">{fmtVol(opp.vol)}</span>
-        <div className="md:flex items-center gap-1.5 px-1.5 overflow-hidden hidden" role="region" aria-label={`Opportunity score for ${opp.symbol}: ${Number(opp.score || 0).toFixed(1)}`}>
+        <div className="hidden md:flex items-center justify-between gap-4 overflow-hidden pr-2">
+          <span className="text-[10px] text-dim font-mono font-bold leading-none">{fmtVol(opp.vol)}</span>
           <Tooltip content={
             <div className="flex flex-col gap-1.5 p-1 min-w-[120px]">
                <div className="text-[9px] font-black uppercase tracking-widest border-b border-white/10 pb-1">Score Breakdown</div>
@@ -548,34 +541,23 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
                </div>
             </div>
           }>
-            <div className="flex-1 flex items-center gap-1.5 cursor-help" aria-label="Score breakdown bar">
-              <div className="flex-1 h-1 bg-white/5 rounded-full overflow-hidden flex min-w-[35px] border border-white/5">
+            <div className="flex items-center gap-1.5 cursor-help" aria-label="Score breakdown bar">
+              <span className={cn(
+                "text-[10px] font-mono font-black",
+                opp.score > 85 ? "text-accent" : "text-text"
+              )}>
+                {Number(opp.score || 0).toFixed(0)}
+              </span>
+              <div className="w-8 h-1 bg-white/5 rounded-full overflow-hidden flex border border-white/5">
                 <div className="h-full bg-accent/80" style={{ width: `${opp.score_breakdown?.momentum || 0}%` }} />
                 <div className="h-full bg-amber/80" style={{ width: `${opp.score_breakdown?.volatility || 0}%` }} />
                 <div className="h-full bg-purple/80" style={{ width: `${opp.score_breakdown?.trend || 0}%` }} />
               </div>
-              <div className="relative">
-                <span className={cn(
-                  "text-[9px] font-mono whitespace-nowrap",
-                  opp.score > 85 ? "text-accent font-black" : "text-dim"
-                )}>
-                  {Number(opp.score || 0).toFixed(1)}
-                </span>
-                {opp.score > 85 && (
-                  <span className="absolute -inset-0.5 bg-accent/20 blur-md rounded-full animate-pulse -z-10" />
-                )}
-              </div>
             </div>
           </Tooltip>
         </div>
-        <div className="flex justify-end md:justify-center items-center gap-1.5 w-18 shrink-0 md:w-auto md:shrink">
-          <div className="hidden lg:flex items-center gap-1 mr-2">
-             <div className="flex flex-col items-end leading-none">
-                <span className="text-[9px] font-bold text-text/90 font-mono leading-none">{proximity}%</span>
-                <span className="text-[6.5px] text-dim font-black uppercase tracking-widest leading-none mt-0.5">Prox</span>
-             </div>
-          </div>
-          <span className={cn("px-1 md:px-1.5 py-0.2 rounded text-[7.5px] md:text-[8px] font-black uppercase tracking-tighter border min-w-[55px] md:min-w-[65px] text-center transition-colors leading-none", status.color)}>
+        <div className="flex justify-end items-center gap-1.5 w-18 shrink-0 md:w-auto md:shrink">
+          <span className={cn("px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border min-w-[65px] text-center transition-colors leading-none", status.color)}>
             {status.label}
           </span>
           <div className="hidden md:block opacity-0 group-hover:opacity-100 transition-opacity ml-1">
@@ -612,9 +594,10 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
   );
 });
 
-export const ScannerOverlay = React.memo(({ onClose }) => {
-  const { scannerResults, config, scannerPaused, hibernating, hibernationMode, activeTrades, sessionActive, isThrottled, wsStatus, isSyncingOnResume } = useTradingStore(state => ({
+export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) => {
+  const { scannerResults, variantScannerResults, config, scannerPaused, hibernating, hibernationMode, activeTrades, sessionActive, isThrottled, wsStatus, isSyncingOnResume } = useTradingStore(state => ({
     scannerResults: state.scannerResults,
+    variantScannerResults: state.variantScannerResults || {},
     config: state.config,
     scannerPaused: state.scannerPaused,
     hibernating: state.hibernating,
@@ -626,11 +609,27 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
     isSyncingOnResume: state.isSyncingOnResume
   }), shallow)
 
+  const strategyConfig = useMemo(() => {
+    if (!config) return {};
+    if (!selectedStrategyLabel) return config;
+    const idx = config.strategy_variants?.findIndex(v => v.strategy_label === selectedStrategyLabel);
+    return (idx !== -1 && idx !== undefined)
+      ? { ...config, ...config.strategy_variants[idx] }
+      : config;
+  }, [config, selectedStrategyLabel]);
+
+  const strategyScannerResults = useMemo(() => {
+    if (selectedStrategyLabel && variantScannerResults && variantScannerResults[selectedStrategyLabel]) {
+      return variantScannerResults[selectedStrategyLabel];
+    }
+    return scannerResults || [];
+  }, [variantScannerResults, scannerResults, selectedStrategyLabel]);
+
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
   const showResumingFeedback = sessionActive && isResuming;
 
   const activeTradeSymbols = useMemo(() => new Set((activeTrades || []).map(t => t.symbol)), [activeTrades])
-  const threshold = config.scan_pct_threshold || 2.0
+  const threshold = strategyConfig.scan_pct_threshold || 2.0
   const [search, setSearch] = useState('')
   const [discoveryMode, setDiscoveryMode] = useState('all') // 'all' | 'volume' | 'pct_change'
   const [sortBy, setSortBy] = useState('score') // 'score' | 'pct_desc' | 'pct_asc' | 'vol_desc'
@@ -644,7 +643,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
   }, []);
 
   const filteredResults = useMemo(() => {
-    let results = Array.isArray(scannerResults) ? scannerResults.filter(Boolean) : []
+    let results = Array.isArray(strategyScannerResults) ? strategyScannerResults.filter(Boolean) : []
 
     // Pre-calculate full lists for ranking reference
     const sortedByVolume = [...results].sort((a, b) => (b.vol || b.volume || 0) - (a.vol || a.volume || 0));
@@ -712,17 +711,17 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
     }
 
     return results;
-  }, [scannerResults, search, rangeFilter, discoveryMode, sortBy])
+  }, [strategyScannerResults, search, rangeFilter, discoveryMode, sortBy])
 
   // BOLT OPTIMIZATION: Pre-calculate a Set of monitored symbols to avoid O(N*M) lookup in the render loop.
   // Reduces complexity from O(N*M) to O(N+M), improving render performance when many symbols are monitored.
   const monitoredSymbols = useMemo(() => {
     const set = new Set();
-    (config?.single_symbol_configs || []).forEach(sc => {
+    (strategyConfig?.single_symbol_configs || []).forEach(sc => {
       if (sc.enabled) set.add(sc.symbol);
     });
     return set;
-  }, [config?.single_symbol_configs]);
+  }, [strategyConfig?.single_symbol_configs]);
 
   return (
     <div className="flex flex-col h-full bg-surface text-text overflow-hidden">
@@ -756,7 +755,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
                   <div className="flex items-center gap-1.5 opacity-60 mt-0.5">
                     <div className="text-[7.5px] text-dim font-black uppercase tracking-tighter leading-none">Weights</div>
                     <div className="px-1 py-0.2 rounded bg-background border border-border/50 font-mono text-[7.5px] font-bold text-text/60 leading-none">
-                      {config.scanner_weights ? `${Number((config.scanner_weights.momentum || 0)*100).toFixed(0)}:${Number((config.scanner_weights.volatility || 0)*100).toFixed(0)}:${Number((config.scanner_weights.trend || 0)*100).toFixed(0)}` : '50:30:20'}
+                      {strategyConfig.scanner_weights ? `${Number((strategyConfig.scanner_weights.momentum || 0)*100).toFixed(0)}:${Number((strategyConfig.scanner_weights.volatility || 0)*100).toFixed(0)}:${Number((strategyConfig.scanner_weights.trend || 0)*100).toFixed(0)}` : '50:30:20'}
                     </div>
                   </div>
                 </div>
@@ -895,22 +894,17 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-[25px_90px_1fr_50px_1fr_1.2fr_135px] items-center px-4 py-1.5 text-[9px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase h-[32px] shrink-0 md:grid hidden">
+      <div className="grid grid-cols-[30px_1.5fr_1fr_1.2fr_120px] items-center px-4 py-1.5 text-[9px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase h-[32px] shrink-0 md:grid hidden">
         <span>#</span>
         <div className="flex flex-col leading-none">
-          <span>Symbol</span>
+          <span>Symbol & Trend</span>
           <span className="text-[7.5px] text-dim/60 normal-case tracking-normal">Top 15 results</span>
         </div>
-        <div className="flex justify-end">
-          <span>Move</span>
+        <div className="flex items-center pl-2">
+          <span>24h Change</span>
         </div>
-        <div className="flex justify-center">
-          <span>Trend</span>
-        </div>
-        <div className="flex justify-end">
+        <div className="flex items-center justify-between pr-2">
           <span>Volume</span>
-        </div>
-        <div className="flex justify-end px-1">
           <span>Score</span>
         </div>
         <div className="flex justify-center">
@@ -931,7 +925,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
       </div>
 
       <div className="flex-1 overflow-y-auto no-scrollbar min-h-0">
-        {scannerResults.length === 0 ? (
+        {strategyScannerResults.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-dim gap-3 py-20">
              <RefreshCw size={24} className="animate-spin opacity-20" />
              <div className="text-[13px] font-bold uppercase tracking-widest opacity-40 italic">Initializing scanner...</div>
@@ -956,7 +950,7 @@ export const ScannerOverlay = React.memo(({ onClose }) => {
               key={opp.symbol}
               opp={opp}
               i={i}
-              config={config}
+              config={strategyConfig}
               isInPosition={activeTradeSymbols.has(opp.symbol)}
               isMonitored={monitoredSymbols.has(opp.symbol)}
               scannerPaused={scannerPaused}

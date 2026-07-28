@@ -395,17 +395,17 @@ const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, th
                  <div className="flex items-center gap-2.5">
                     <div className={cn(
                       "w-8 h-8 md:w-9 md:h-9 rounded-lg md:rounded-xl flex items-center justify-center border transition-transform duration-500 shrink-0",
-                      opp.signalResult?.allFired ? "bg-green text-white border-green/30" : "bg-red text-white border-red/30"
+                      opp.signalResult?.allFired ? "bg-green text-white border-green/30" : passing ? "bg-amber text-black border-amber/30" : "bg-surface text-dim border-border"
                     )}>
                       {opp.signalResult?.allFired ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
                     </div>
                     <div className="flex flex-col gap-0.5">
                        <div className="text-[11px] md:text-xs font-black uppercase tracking-tight leading-none">
-                          {opp.signalResult?.allFired ? 'Signal Authorized' : 'Signal Denied'}
+                          {opp.signalResult?.allFired ? 'TRIGGERED (AUTHORIZED)' : passing ? 'PENDING (AWAITING SIGNALS)' : 'WAITING (MOMENTUM LOW)'}
                        </div>
                        {!opp.signalResult?.allFired && (
-                         <div className="text-[9px] text-red-400/90 font-bold italic leading-none">
-                            {opp.signalResult?.reason || 'Critical logic mismatch'}
+                         <div className={cn("text-[9px] font-bold italic leading-none", passing ? "text-amber" : "text-dim/80")}>
+                            {opp.signalResult?.reason || (passing ? 'Awaiting signal engine validation' : 'Awaiting scanner threshold')}
                          </div>
                        )}
                     </div>
@@ -441,10 +441,10 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
   const isSingleMonitor = isMonitored;
 
   const getStatus = () => {
-    if (opp.score > 85 && opp.signalResult?.allFired) return { label: 'Strong Setup', color: 'bg-green/10 text-green border-green/20' };
-    if (opp.signalResult?.allFired) return { label: 'Ready', color: 'bg-accent/10 text-accent border-accent/20' };
-    if (passing) return { label: 'Watching', color: 'bg-amber/10 text-amber border-amber/20' };
-    return { label: 'Waiting', color: 'bg-surface text-dim border-border' };
+    if (opp.score > 85 && opp.signalResult?.allFired) return { label: 'TRIGGERED (STRONG)', color: 'bg-green/10 text-green border-green/20' };
+    if (opp.signalResult?.allFired) return { label: 'TRIGGERED', color: 'bg-green/10 text-green border-green/20' };
+    if (passing) return { label: 'PENDING', color: 'bg-amber/10 text-amber border-amber/20' };
+    return { label: 'WAITING', color: 'bg-surface text-dim border-border' };
   };
 
   const status = getStatus();

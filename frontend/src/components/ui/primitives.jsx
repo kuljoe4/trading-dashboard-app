@@ -340,15 +340,16 @@ SmartCandidateBadge.displayName = 'SmartCandidateBadge'
 
 // --- Condition Widget ---
 export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%", satisfied, sublabel }) => {
+  const isCount = unit.includes('/') || unit.includes('signals');
   const absThreshold = Math.max(Math.abs(threshold), 0.0001);
-  const pct = threshold !== 0
-    ? Math.min((Math.abs(value) / (absThreshold * 1.5)) * 100, 100)
-    : Math.min(value > 0 ? 100 : 0, 100);
+  const pct = isCount
+    ? (threshold !== 0 ? Math.min((value / threshold) * 100, 100) : 100)
+    : (threshold !== 0
+        ? Math.min((Math.abs(value) / (absThreshold * 1.5)) * 100, 100)
+        : Math.min(value > 0 ? 100 : 0, 100));
   const colorClass = satisfied ? "bg-green" : "bg-amber";
   const textColorClass = satisfied ? "text-green" : "text-amber";
   const borderColorClass = satisfied ? "border-green/30 shadow-[0_0_15px_rgba(0,229,160,0.05)]" : "border-border";
-
-  const isCount = unit.includes('/') || unit.includes('signals');
   const formattedValue = Number.isFinite(value)
     ? `${!isCount && value > 0 ? "+" : ""}${isCount ? Math.round(value) : Number(value).toFixed(2)}${unit}`
     : `N/A ${unit}`;

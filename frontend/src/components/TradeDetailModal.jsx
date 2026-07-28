@@ -10,12 +10,13 @@ import { RefreshCw } from 'lucide-react'
 export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) => {
   const [isClosing, setIsClosing] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
-  const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive } = useTradingStore(state => ({
+  const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive, config } = useTradingStore(state => ({
     addAlert: state.addAlert,
     isThrottled: state.isThrottled,
     wsStatus: state.wsStatus,
     isSyncingOnResume: state.isSyncingOnResume,
-    sessionActive: state.sessionActive
+    sessionActive: state.sessionActive,
+    config: state.config
   }));
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
@@ -72,15 +73,33 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
                   <span className="text-base font-black tracking-tighter">{trade.symbol}</span>
                   <CopyButton value={trade.symbol} className="opacity-40 hover:opacity-100" />
                 </div>
-                <div className="flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase tracking-[0.2em]">
+                <div className="flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase tracking-[0.2em] flex-wrap">
                   {showResumingFeedback ? (
                     <span className="text-accent flex items-center gap-1">
                       <RefreshCw size={9} className="animate-spin" /> Resuming Feed...
                     </span>
                   ) : (
-                    <span className={cn("px-1 py-0.5 rounded-full", isLong ? 'bg-green/10 text-green' : 'bg-red/10 text-red')}>
-                      {trade.direction}
-                    </span>
+                    <>
+                      <span className={cn("px-1 py-0.5 rounded-full", isLong ? 'bg-green/10 text-green' : 'bg-red/10 text-red')}>
+                        {trade.direction}
+                      </span>
+                      {trade.strategy_label && (
+                        <span className="text-dim/80 font-bold lowercase tracking-normal">
+                          via {trade.strategy_label}
+                        </span>
+                      )}
+                      {trade.strategy_label && config && (
+                        trade.strategy_label === (config.strategy_label || 'Momentum Strategy') ? (
+                          <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[7px] md:text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 normal-case">
+                            Base
+                          </span>
+                        ) : (
+                          <span className="bg-purple/10 text-purple border border-purple/20 text-[7px] md:text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 normal-case">
+                            Variant
+                          </span>
+                        )
+                      )}
+                    </>
                   )}
                 </div>
               </div>

@@ -2012,6 +2012,121 @@ export class SessionService implements OnModuleInit {
     }
   }
 
+  async updateTradeConfig(
+    id: string,
+    dto: {
+      current_sl?: number;
+      live_rr_sequence?: number[];
+      exit_rr_sequence?: number[];
+      strategy_config?: Record<string, any>;
+    },
+    ip?: string,
+    userAgent?: string,
+  ) {
+    // 1. Fetch trade entity
+    const trade = await this.tradeRepository.findOne({
+      where: [{ id }, { symbol: id, status: "OPEN" as any }] as any,
+    });
+
+    if (!trade) {
+      throw new NotFoundException(`Active trade ${id} not found`);
+    }
+
+    if (trade.status !== "OPEN") {
+      throw new BadRequestException("Can only update open trades");
+    }
+
+    const session = await this.sessionRepository.findOne({
+      where: { id: trade.sessionId || undefined },
+      select: ["id", "tradingMode", "paperMode", "config"],
+    } as any);
+
+    if (!session) {
+      throw new NotFoundException(`Session ${trade.sessionId} not found`);
+    }
+
+    const mode = session.tradingMode || (session.paperMode ? "paper" : "live");
+    const isPaper = mode === "paper";
+
+    // 2. Perform Stop-Loss Exchange Modification if requested
+    let finalSl = trade.current_sl;
+    if (dto.current_sl !== undefined && dto.current_sl !== null && dto.current_sl !== trade.current_sl) {
+      const newSl = Number(dto.current_sl);
+      if (isNaN(newSl) || newSl <= 0) {
+        throw new BadRequestException("Invalid stop loss price");
+      }
+
+      if (isPaper) {
+        finalSl = newSl;
+      } else {
+        const engineTrade = this.tradingSessionService.getTrade(trade.id);
+        if (!engineTrade) {
+          throw new BadRequestException("Active trade not loaded in trading engine");
+        }
+
+        // Use standard OrderManager updateStopLoss replacement sequence
+        const res = await this.orderManager.updateStopLoss(engineTrade, newSl, trade.current_sl);
+        if (!res.success) {
+          throw new BadRequestException("Exchange failed to replace stop loss order");
+        }
+        finalSl = res.price || newSl;
+      }
+    }
+
+    // 3. Merge Strategy Configuration overrides (MACD Fade, Supertrend, etc.)
+    const strategyConfig = {
+      ...(trade.strategy_config || {}),
+      ...(dto.strategy_config || {}),
+    };
+
+    // 4. Update dynamic variables
+    trade.current_sl = finalSl;
+    if (dto.live_rr_sequence) {
+      trade.live_rr_sequence = dto.live_rr_sequence;
+    }
+    if (dto.exit_rr_sequence) {
+      trade.exit_rr_sequence = dto.exit_rr_sequence;
+    }
+    trade.strategy_config = strategyConfig;
+    trade.updated_at = new Date();
+
+    // Preserve local and database states
+    await this.tradeRepository.save(trade);
+
+    // 5. Hot-reload to the active engine state
+    const engineTrade = this.tradingSessionService.getTrade(trade.id);
+    if (engineTrade) {
+      engineTrade.current_sl = finalSl;
+      if (dto.live_rr_sequence) {
+        engineTrade.live_rr_sequence = dto.live_rr_sequence;
+      }
+      if (dto.exit_rr_sequence) {
+        engineTrade.exit_rr_sequence = dto.exit_rr_sequence;
+      }
+      engineTrade.strategy_config = strategyConfig;
+
+      // Seed update to WS clients & memory loops
+      this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade: engineTrade });
+    }
+
+    await this.auditLog.log({
+      action: "UPDATE_TRADE_CONFIG",
+      resourceId: trade.id,
+      actor: ip,
+      ip,
+      userAgent,
+      details: {
+        symbol: trade.symbol,
+        current_sl: dto.current_sl,
+        live_rr_sequence: dto.live_rr_sequence,
+        exit_rr_sequence: dto.exit_rr_sequence,
+        strategy_config: dto.strategy_config,
+      },
+    });
+
+    return { status: "updated", trade };
+  }
+
   async pauseSession(paused: boolean, strategyLabel?: string, ip?: string, userAgent?: string) {
     if (!this.sessionRunning) throw new ConflictException("No session running");
     this.tradingSessionService.setPaused(paused, strategyLabel);

@@ -532,6 +532,28 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     }
   },
 
+  updateActiveTradeConfig: async (tradeId, payload) => {
+    try {
+      const res = await sessionAPI.updateTradeConfig(tradeId, payload);
+      if (res.data && res.data.trade) {
+        const updatedTrade = normalizeTrade(res.data.trade);
+        set(st => ({
+          activeTrades: (st.activeTrades || []).map(t =>
+            (t.id === updatedTrade.id || t.symbol === updatedTrade.symbol) ? { ...t, ...updatedTrade } : t
+          )
+        }));
+        get().addAlert({ level: 'success', title: 'Configuration Saved', message: `Successfully updated exit parameters for ${updatedTrade.symbol}.` });
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error('Failed to update active trade config:', e);
+      const errMsg = e?.response?.data?.message || e.message || 'Could not save parameters.';
+      get().addAlert({ level: 'error', title: 'Save Failed', message: errMsg });
+      throw e;
+    }
+  },
+
   updateConfig: (c) => {
     console.log('[Config Trace] updateConfig called with:', c);
     if (c.trading_mode) {

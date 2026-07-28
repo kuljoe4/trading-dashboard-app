@@ -219,6 +219,7 @@ export const createSessionAPI = (apiInstance = api) => ({
   history: (sessionId) => apiInstance.get('/session/history', { params: { sessionId } }),
   getTrade: (id) => apiInstance.get(`/session/trade/${id}`),
   closeTrade: (symbol) => apiInstance.post(`/session/trade/${symbol}/close`),
+  updateTradeConfig: (id, payload) => apiInstance.patch(`/session/trade/${id}/config`, payload),
   analytics: () => apiInstance.get('/session/analytics'),
   getLifetimeAnalytics: (mode) => apiInstance.get('/session/lifetime-analytics', { params: { mode } }),
   resetPaperBalance: () => apiInstance.post('/session/reset-paper-balance'),

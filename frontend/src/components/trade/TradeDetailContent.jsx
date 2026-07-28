@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, memo } from 'react'
 import { 
   ShieldCheck, Clock, ArrowUpRight, ArrowDownRight, Activity, Zap, 
-  Info, ShieldAlert, CheckCircle2, BarChart3, TrendingUp, XCircle, Loader2, Trash2, ArrowRight
+  Info, ShieldAlert, CheckCircle2, BarChart3, TrendingUp, XCircle, Loader2, Trash2, ArrowRight,
+  Edit3, Sliders, Plus, Trash
 } from 'lucide-react'
 import { fmtUSD, pnlColor, pnlClass, fmt } from '../../lib/theme'
 import { useTradingStore } from '../../store/trading'
@@ -383,6 +384,119 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
   const activeSessionPnl = useTradingStore(state => state.totalPnl);
   const activeSessionConfig = useTradingStore(state => state.config);
   const sessionActive = useTradingStore(state => state.sessionActive);
+  const updateActiveTradeConfig = useTradingStore(state => state.updateActiveTradeConfig);
+
+  // Active Trade Customization Form State
+  const [isEditing, setIsEditing] = useState(false)
+  const [formSl, setFormSl] = useState(trade?.sl_price || trade?.current_sl || 0)
+
+  // Guard Ladder state representation
+  const [formLadder, setFormLadder] = useState([])
+
+  // Overrides configurations
+  const [formOverrides, setFormOverrides] = useState({
+    exit_ema_period: '',
+    supertrend_period: '',
+    supertrend_multiplier: '',
+    macd_fast: '',
+    macd_slow: '',
+    macd_signal: '',
+  })
+
+  const [savingConfig, setSavingConfig] = useState(false)
+
+  // Sync state with trade details whenever they refresh/mount
+  useEffect(() => {
+    if (trade) {
+      setFormSl(trade.sl_price || trade.current_sl || 0)
+
+      const triggers = trade.live_rr_sequence || []
+      const exits = trade.exit_rr_sequence || []
+      const ladderPairs = triggers.map((trigger, idx) => ({
+        trigger,
+        exit: exits[idx] !== undefined ? exits[idx] : 0,
+      }))
+      setFormLadder(ladderPairs)
+
+      const sc = trade.strategy_config?.signal_params || trade.strategy_config || {}
+      setFormOverrides({
+        exit_ema_period: sc.exit_ema_period ?? sc.ema_period ?? '',
+        supertrend_period: sc.supertrend_period ?? '',
+        supertrend_multiplier: sc.supertrend_multiplier ?? '',
+        macd_fast: sc.macd_fast ?? '',
+        macd_slow: sc.macd_slow ?? '',
+        macd_signal: sc.macd_signal ?? '',
+      })
+    }
+  }, [trade])
+
+  const ladderValidationError = useMemo(() => {
+    if (formLadder.length === 0) return null;
+    for (let i = 0; i < formLadder.length; i++) {
+      const row = formLadder[i];
+      if (isNaN(row.trigger) || isNaN(row.exit)) {
+        return "All triggers and exits must be valid numbers.";
+      }
+      if (i > 0) {
+        if (Number(row.trigger) <= Number(formLadder[i-1].trigger)) {
+          return "Guard Ladder triggers must be in strictly ascending order.";
+        }
+      }
+    }
+    return null;
+  }, [formLadder])
+
+  const handleAddLadderRow = () => {
+    const lastRow = formLadder[formLadder.length - 1]
+    const nextTrigger = lastRow ? Number(lastRow.trigger) + 1.0 : 1.0
+    const nextExit = lastRow ? Number(lastRow.exit) + 0.5 : 0.5
+    setFormLadder([...formLadder, { trigger: nextTrigger, exit: nextExit }])
+  }
+
+  const handleRemoveLadderRow = (idx) => {
+    setFormLadder(formLadder.filter((_, i) => i !== idx))
+  }
+
+  const handleUpdateLadderRow = (idx, field, value) => {
+    setFormLadder(formLadder.map((row, i) =>
+      i === idx ? { ...row, [field]: Number(value) } : row
+    ))
+  }
+
+  const handleSaveTradeConfig = async () => {
+    if (ladderValidationError) return;
+    setSavingConfig(true)
+    try {
+      const live_rr_sequence = formLadder.map(r => Number(r.trigger))
+      const exit_rr_sequence = formLadder.map(r => Number(r.exit))
+
+      const signal_params = {}
+      if (formOverrides.exit_ema_period !== '') signal_params.exit_ema_period = Number(formOverrides.exit_ema_period);
+      if (formOverrides.supertrend_period !== '') signal_params.supertrend_period = Number(formOverrides.supertrend_period);
+      if (formOverrides.supertrend_multiplier !== '') signal_params.supertrend_multiplier = Number(formOverrides.supertrend_multiplier);
+      if (formOverrides.macd_fast !== '') signal_params.macd_fast = Number(formOverrides.macd_fast);
+      if (formOverrides.macd_slow !== '') signal_params.macd_slow = Number(formOverrides.macd_slow);
+      if (formOverrides.macd_signal !== '') signal_params.macd_signal = Number(formOverrides.macd_signal);
+
+      const payload = {
+        current_sl: Number(formSl),
+        live_rr_sequence,
+        exit_rr_sequence,
+        strategy_config: {
+          signal_params
+        }
+      }
+
+      const success = await updateActiveTradeConfig(trade.id || trade.symbol, payload)
+      if (success) {
+        setIsEditing(false)
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setSavingConfig(false)
+    }
+  }
 
   const { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qtyFormatted, riskFormatted, slDistPct = 0, slInitialDistPct = 0, enhancedExitSignals } = useMemo(() => {
     if (!trade) return {
@@ -685,6 +799,231 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
             </div>
          </div>
       </div>
+
+      {/* Active Trade Stop Loss & Exit Monitors Configuration Workspace */}
+      {trade.status === 'OPEN' && (
+        <div className="mt-3 md:mt-5 pt-4 border-t border-border/40">
+          <div className="flex justify-between items-center mb-3">
+            <SectionLabel className="mb-0 flex items-center gap-1.5">
+              <Sliders size={14} className="text-accent" /> Active Exit Guard Configuration
+            </SectionLabel>
+            <Btn
+              variant={isEditing ? "ghost" : "primary"}
+              onClick={() => setIsEditing(!isEditing)}
+              className="px-3.5 py-1.5 h-8 text-[10px] uppercase tracking-wider font-black rounded-lg"
+            >
+              {isEditing ? "Collapse" : "Edit Config"}
+            </Btn>
+          </div>
+
+          <AnimatePresence initial={false}>
+            {isEditing && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ type: "spring", stiffness: 100, damping: 20 }}
+                className="overflow-hidden"
+              >
+                <div className="bg-surface/50 border border-border/40 rounded-2xl p-4 md:p-6 shadow-md backdrop-blur-md space-y-4 md:space-y-6">
+
+                  {/* Part 1: Stop-Loss Override */}
+                  <div className="space-y-2">
+                    <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase">
+                      Stop-Loss Override
+                    </SectionLabel>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-center">
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/60 font-mono text-xs">$</span>
+                        <input
+                          type="number"
+                          step="any"
+                          value={formSl}
+                          onChange={(e) => setFormSl(e.target.value)}
+                          className="pl-7 pr-3 py-1.5 w-full font-mono text-sm bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+                          aria-label="Edit stop loss price"
+                        />
+                      </div>
+                      <div className="text-[10px] md:text-xs font-mono text-dim/80 space-y-0.5">
+                        <div className="flex justify-between">
+                          <span>Risk Distance:</span>
+                          <span className="font-bold text-red">
+                            {Number(entry) > 0 ? `${Number(Math.abs(entry - Number(formSl)) / entry * 100).toFixed(2)}%` : '0.00%'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Projected Risk:</span>
+                          <span className="font-bold text-red">
+                            {fmtUSD(Math.abs(entry - Number(formSl)) * Number(qty))}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Part 2: Exponential RR Guard Ladder */}
+                  <div className="space-y-3 pt-3 border-t border-border/30">
+                    <div className="flex justify-between items-center">
+                      <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-0">
+                        Profit-Locking Guard Ladder Milestones
+                      </SectionLabel>
+                      <Btn
+                        variant="ghost"
+                        onClick={handleAddLadderRow}
+                        className="px-2 py-1 h-7 text-[9px] uppercase tracking-wider font-black rounded-md"
+                        icon={Plus}
+                      >
+                        Add Row
+                      </Btn>
+                    </div>
+
+                    {ladderValidationError && (
+                      <div className="bg-red/10 border border-red/20 rounded-xl p-3 text-[10px] text-red uppercase tracking-wider font-black">
+                        ⚠ {ladderValidationError}
+                      </div>
+                    )}
+
+                    <div className="space-y-1.5 max-h-[220px] overflow-y-auto no-scrollbar pr-1">
+                      {formLadder.map((row, idx) => (
+                        <div key={idx} className="grid grid-cols-[1fr_1fr_40px] gap-2 items-center">
+                          <div className="relative">
+                            <input
+                              type="number"
+                              step="any"
+                              value={row.trigger}
+                              onChange={(e) => handleUpdateLadderRow(idx, "trigger", e.target.value)}
+                              placeholder="Trigger RR"
+                              className="px-3 py-1.5 w-full font-mono text-sm bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+                              aria-label={`Milestone trigger ${idx + 1}`}
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">Trigger R</span>
+                          </div>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              step="any"
+                              value={row.exit}
+                              onChange={(e) => handleUpdateLadderRow(idx, "exit", e.target.value)}
+                              placeholder="Exit SL RR"
+                              className="px-3 py-1.5 w-full font-mono text-sm bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+                              aria-label={`Milestone exit stop loss ${idx + 1}`}
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">Lock R</span>
+                          </div>
+                          <Btn
+                            variant="ghost"
+                            onClick={() => handleRemoveLadderRow(idx)}
+                            className="p-2 h-9 w-10 flex items-center justify-center rounded-lg hover:bg-red/10 hover:text-red hover:border-red/20 shrink-0 border border-border/40 text-dim"
+                            icon={Trash}
+                            aria-label={`Delete milestone row ${idx + 1}`}
+                          />
+                        </div>
+                      ))}
+
+                      {formLadder.length === 0 && (
+                        <div className="text-center py-4 text-xs text-dim italic">
+                          No guard ladder milestones configured. Add a row to enable live ratcheting.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Part 3: Exit Monitors indicator parameter overrides */}
+                  <div className="space-y-3 pt-3 border-t border-border/30">
+                    <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-1">
+                      Technical Indicator Overrides
+                    </SectionLabel>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      <div>
+                        <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">Exit EMA Period</label>
+                        <input
+                          type="number"
+                          placeholder="e.g. 12"
+                          value={formOverrides.exit_ema_period}
+                          onChange={(e) => setFormOverrides({ ...formOverrides, exit_ema_period: e.target.value })}
+                          className="px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">Supertrend Period</label>
+                        <input
+                          type="number"
+                          placeholder="e.g. 10"
+                          value={formOverrides.supertrend_period}
+                          onChange={(e) => setFormOverrides({ ...formOverrides, supertrend_period: e.target.value })}
+                          className="px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">Supertrend Multiplier</label>
+                        <input
+                          type="number"
+                          placeholder="e.g. 3"
+                          value={formOverrides.supertrend_multiplier}
+                          onChange={(e) => setFormOverrides({ ...formOverrides, supertrend_multiplier: e.target.value })}
+                          className="px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">MACD Fast Period</label>
+                        <input
+                          type="number"
+                          placeholder="e.g. 12"
+                          value={formOverrides.macd_fast}
+                          onChange={(e) => setFormOverrides({ ...formOverrides, macd_fast: e.target.value })}
+                          className="px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">MACD Slow Period</label>
+                        <input
+                          type="number"
+                          placeholder="e.g. 26"
+                          value={formOverrides.macd_slow}
+                          onChange={(e) => setFormOverrides({ ...formOverrides, macd_slow: e.target.value })}
+                          className="px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">MACD Signal Period</label>
+                        <input
+                          type="number"
+                          placeholder="e.g. 9"
+                          value={formOverrides.macd_signal}
+                          onChange={(e) => setFormOverrides({ ...formOverrides, macd_signal: e.target.value })}
+                          className="px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Saving Actions */}
+                  <div className="flex justify-end gap-3 pt-3 border-t border-border/30">
+                    <Btn
+                      variant="ghost"
+                      onClick={() => setIsEditing(false)}
+                      disabled={savingConfig}
+                      className="px-4 py-1.5 h-9 text-[11px] uppercase tracking-wider font-black rounded-lg"
+                    >
+                      Cancel
+                    </Btn>
+                    <Btn
+                      variant="primary"
+                      onClick={handleSaveTradeConfig}
+                      disabled={savingConfig || !!ladderValidationError}
+                      loading={savingConfig}
+                      className="px-5 py-1.5 h-9 text-[11px] uppercase tracking-wider font-black rounded-lg"
+                    >
+                      Save Parameters
+                    </Btn>
+                  </div>
+
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
 
       <div className="mt-3 md:mt-5 pt-4 border-t border-border/40">
         <SectionLabel className="mb-2.5 text-red">Danger Zone</SectionLabel>

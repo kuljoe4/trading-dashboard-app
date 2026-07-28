@@ -17,7 +17,7 @@ import { plainToInstance } from "class-transformer";
 import { SessionService } from "./session.service";
 import { ApiKeyGuard } from "../lib/api-key.guard";
 import { SessionConfig } from "../models/SessionConfig";
-import { StartSessionDto, UpdateSessionDto } from "./dto/session.dto";
+import { StartSessionDto, UpdateSessionDto, UpdateTradeConfigDto } from "./dto/session.dto";
 import { PauseSessionDto } from "./dto/pause-session.dto";
 import { extractIp } from "../lib/throttle";
 
@@ -131,6 +131,34 @@ export class SessionController {
       throw new BadRequestException("Invalid trade ID or symbol format");
     }
     return this.sessionService.getTrade(id);
+  }
+
+  @Patch("trade/:id/config")
+  async updateTradeConfig(
+    @Param("id") id: string,
+    @Body() body: UpdateTradeConfigDto,
+    @Req() req: Request,
+  ) {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        id,
+      );
+    const isSymbol = /^[A-Z0-9]{3,20}$/.test(id);
+
+    if (!isUuid && !isSymbol) {
+      throw new BadRequestException("Invalid trade ID or symbol format");
+    }
+
+    const clientIp =
+      req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
+    const userAgent = req.headers["user-agent"];
+
+    return this.sessionService.updateTradeConfig(
+      id,
+      body,
+      clientIp,
+      userAgent,
+    );
   }
 
   @Get("binance/rate-limit")

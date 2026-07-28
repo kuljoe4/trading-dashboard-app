@@ -51,8 +51,9 @@ export class PresetsController {
       req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
 
     // SEC-SENTINEL: Defense-in-depth validation of the strategy configuration
+    // SENTINEL: Enforce whitelist and forbidNonWhitelisted to prevent arbitrary parameter injection/pollution in preset configuration
     const configInstance = plainToInstance(SessionConfig, body.config || {});
-    const errors = await validate(configInstance);
+    const errors = await validate(configInstance, { whitelist: true, forbidNonWhitelisted: true });
     if (errors.length > 0) {
       const detailedErrors = formatValidationErrors(errors);
       this.logger.warn(

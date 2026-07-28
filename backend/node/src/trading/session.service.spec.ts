@@ -606,5 +606,29 @@ describe('SessionService Validation', () => {
       const partialConfig = { paper_starting_balance: 20000 } as any;
       await expect(service.updateSession(sessionId, partialConfig)).rejects.toThrow('Cannot modify paper_starting_balance while session is running');
     });
+
+    it('should reject updates with extraneous, un-decorated keys inside config', async () => {
+      const sessionId = 'session-id';
+      const existingSession = {
+        id: sessionId,
+        tradingMode: 'live',
+        paperMode: false,
+        config: {
+          strategy_label: 'Original',
+          max_trades_24h: 50,
+          trading_mode: 'live',
+          paper_mode: false
+        }
+      };
+
+      mockQueryRunner.manager.findOne.mockResolvedValue(existingSession);
+
+      const partialConfig = {
+        max_trades_24h: 100,
+        malicious_extraneous_key: 'hacked_payload_or_sql_injection'
+      } as any;
+
+      await expect(service.updateSession(sessionId, partialConfig)).rejects.toThrow();
+    });
   });
 });

@@ -92,10 +92,16 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             <span className={cn("text-[9px] md:text-xs font-black px-1.5 py-0.5 rounded border uppercase shrink-0", isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5')}>
               {isLong ? '▲' : '▼'} {trade.direction || '---'}
             </span>
-            {trade.strategy_label && config && trade.strategy_label !== (config.strategy_label || 'Momentum Strategy') && (
-              <span className="bg-purple/10 text-purple border border-purple/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0">
-                Variant
-              </span>
+            {trade.strategy_label && config && (
+              trade.strategy_label === (config.strategy_label || 'Momentum Strategy') ? (
+                <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0">
+                  Base
+                </span>
+              ) : (
+                <span className="bg-purple/10 text-purple border border-purple/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0">
+                  Variant
+                </span>
+              )
             )}
             {trade.is_reconciliation && (
               <span className="bg-amber text-black border border-amber text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter">

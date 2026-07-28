@@ -1956,8 +1956,9 @@ export class SessionService implements OnModuleInit {
 
       // 2. Deep validation of full merged config
       // SEC-01: Re-apply DTO-level validation on the merged object to ensure data integrity
+      // SENTINEL: Enforce whitelist and forbidNonWhitelisted to prevent arbitrary parameter injection/pollution
       const configInstance = plainToInstance(SessionConfig, mergedConfig);
-      const errors = await validate(configInstance);
+      const errors = await validate(configInstance, { whitelist: true, forbidNonWhitelisted: true });
       if (errors.length > 0) {
         // SENTINEL: Extract non-sensitive metadata from validation errors for reporting
         const detailedErrors = formatValidationErrors(errors);

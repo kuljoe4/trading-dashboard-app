@@ -118,7 +118,8 @@ const StrategyDetailView = ({ s, onBack }) => {
             </div>
             <div className="flex flex-wrap gap-2 items-center flex-1 min-w-0">
               {strategyConfig.enabled_signals.map(sig => {
-                const tf = (strategyConfig.signal_timeframes || {})[sig] || strategyConfig.scan_interval || '5m';
+                const rawTf = (strategyConfig.signal_timeframes || {})[sig];
+                const tf = (!rawTf || rawTf === 'default') ? (strategyConfig.scan_interval || '5m') : rawTf;
                 return (
                   <span key={sig} className="px-2.5 py-1 rounded-xl bg-surface border border-border text-[10px] font-mono text-text/90 flex items-center gap-1.5 shadow-sm transition-all hover:border-accent/30 group">
                     <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 group-hover:scale-110 transition-transform" />

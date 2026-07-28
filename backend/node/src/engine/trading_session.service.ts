@@ -780,27 +780,28 @@ export class TradingSessionService implements OnApplicationShutdown {
         if (primaryOpportunities.length === 0)
           primaryOpportunities = opportunitiesBySignature.get(sig) || [];
       }
-      const scannerData = strategyConfigs.map((c) => ({
-        strategy_label: c.strategy_label,
-        opportunities:
-          opportunitiesBySignature.get(this.scanSignature(c)) || [],
-      }));
-
-      if (this.sessionState.dashboardCount > 0) {
-        const baseConfig = strategyConfigs[0];
-        // BOLT: Process all Top 15 opportunities (matching UI) for entry signals and telemetry.
-        const opportunitiesWithSignals = primaryOpportunities
+      const scannerData = strategyConfigs.map((c) => {
+        const rawOpps = opportunitiesBySignature.get(this.scanSignature(c)) || [];
+        const opportunitiesWithSignals = rawOpps
           .slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS)
           .map((opp) => {
             const signalResult = this.signalEngine.checkEntry(
               opp.symbol,
-              baseConfig,
-              baseConfig.scan_interval || "1m",
+              c,
+              c.scan_interval || "1m",
               opp.direction.toUpperCase() as "LONG" | "SHORT",
               "entry",
             );
             return { ...opp, signalResult };
           });
+        return {
+          strategy_label: c.strategy_label,
+          opportunities: opportunitiesWithSignals,
+        };
+      });
+
+      if (this.sessionState.dashboardCount > 0) {
+        const opportunitiesWithSignals = scannerData[0]?.opportunities || [];
         this.updateScannerResults(opportunitiesWithSignals);
         this.lastVariantScannerResults = scannerData;
         const now = Date.now();

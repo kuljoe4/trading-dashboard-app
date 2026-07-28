@@ -275,6 +275,18 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
                 </span>
               </Tooltip>
             )}
+            {s.activeTradeCount !== undefined && (
+              s.activeTradeCount > 0 ? (
+                <span className="px-2.5 py-1 rounded-full bg-green/10 text-green border border-green/20 text-[10px] font-bold tracking-wider scale-90 origin-left animate-pulse flex items-center gap-1.5 shadow-[0_0_10px_rgba(34,197,94,0.1)]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green" />
+                  {s.activeTradeCount} ACTIVE
+                </span>
+              ) : (
+                <span className="px-2.5 py-1 rounded-full bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 text-[10px] font-bold tracking-wider scale-90 origin-left opacity-70">
+                  FLAT
+                </span>
+              )
+            )}
             {showResumingFeedback && (
               <span className="px-2.5 py-1 rounded-full border border-accent/20 bg-accent/10 text-[10px] text-accent font-bold tracking-wider flex items-center gap-1.5 scale-90 origin-left">
                 <RefreshCw size={10} className="animate-spin" />
@@ -332,7 +344,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             {fmtUSD(s.totalPnl)} <span className="text-[10px] md:text-xs tracking-tight" style={{ color: pnlColor(s.totalPnl) }}>({sessionReturnPct >= 0 ? '+' : ''}{sessionReturnPct.toFixed(2)}%)</span>
           </div>
           <span className="text-[9px] text-dim/60 font-semibold uppercase tracking-wider mt-1 block">
-            {s.entryCount} ENT · {s.hitCount} HIT
+            {s.entryCount} ENT · {s.hitCount} HIT · {s.activeTradeCount || 0} ACT
           </span>
         </div>
 
@@ -742,6 +754,20 @@ export function DashboardView({ initialStrategy }) {
     (activeTrades || []).forEach(t => {
       if (t && map[t.strategy_label] !== undefined) {
         map[t.strategy_label] += safeNum(t.pnl);
+      }
+    });
+    return map;
+  }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
+
+  const activeTradeCountsMap = useMemo(() => {
+    const map = { [currentStrategy.strategy_label]: 0 };
+    (config.strategy_variants || []).forEach(v => {
+      const label = v.strategy_label || 'Variant';
+      map[label] = 0;
+    });
+    (activeTrades || []).forEach(t => {
+      if (t && map[t.strategy_label] !== undefined) {
+        map[t.strategy_label]++;
       }
     });
     return map;
@@ -1492,7 +1518,8 @@ export function DashboardView({ initialStrategy }) {
                             s={{
                               ...currentStrategy,
                               ...safeVariantStats[currentStrategy.strategy_label],
-                              activePnl: activePnlMap[currentStrategy.strategy_label] || 0
+                              activePnl: activePnlMap[currentStrategy.strategy_label] || 0,
+                              activeTradeCount: activeTradeCountsMap[currentStrategy.strategy_label] || 0
                             }}
                             scannerResults={variantScannerResults[currentStrategy.strategy_label]}
                             config={config}
@@ -1517,7 +1544,8 @@ export function DashboardView({ initialStrategy }) {
                                   ...currentStrategy,
                                   strategy_label: label,
                                   ...safeVariantStats[label],
-                                  activePnl: activePnlMap[label] || 0
+                                  activePnl: activePnlMap[label] || 0,
+                                  activeTradeCount: activeTradeCountsMap[label] || 0
                                 }}
                                 scannerResults={variantScannerResults[label]}
                                 config={variantConfig}

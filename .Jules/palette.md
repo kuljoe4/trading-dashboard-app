@@ -13,3 +13,11 @@
 ## 2026-07-26 - Keyboard Shortcuts Modal Persistent Overlay and Auto-Closure Standard
 **Learning:** In highly keyboard-driven, single-page application dashboards, displaying a global keyboard shortcut cheatsheet modal (such as on pressing `?`) can lead to confusing visual states if the modal is not automatically dismissed on navigation. When a user executes a hotkey or navigation link while the cheatsheet is open, keeping the modal active blocks the target viewport and forces manual dismissal. Automatically syncing modal visibility to routing/hash change events ensures a seamless, launcher-like transition.
 **Action:** Always auto-dismiss global cheatsheet and help modals upon routing/hash change events to prevent overlay blocking.
+
+## 2026-07-27 - Global Text Input Focus-Visible Accessibility Standard
+**Learning:** Under high-contrast, dark-mode dashboard environments, interactive inputs and textareas that only apply standard border hover transitions frequently fail visual-gating requirements for keyboard-driven navigation. Upgrading all text fields to apply explicit `focus-visible:ring-2` focus rings that match the context theme (such as purple for testnet elements and accent blue for live elements) establishes absolute visual parity and keyboard accessibility.
+**Action:** Ensure all input fields, textareas, search inputs, and manual tracking fields use theme-aligned `focus-visible:ring-2` rules paired with `focus-visible:outline-none`.
+
+## 2026-07-28 - Frontend Hash Routing E2E Test Warmup
+**Learning:** In single-page applications where view states are managed via custom hash routers, cold-starting directly into deeply nested routes (e.g. `#/settings`) during visual automated testing (like Playwright) often results in a blank view or redirection. This occurs because early hydration guards check if the store has hydrated before registering the global hashchange event listeners. First loading the default cockpit route (`#/`), waiting for hydration, and then performing hash transitions guarantees consistent view initialization.
+**Action:** Always warm-start E2E testing flows on the root route (`#/`), wait for store hydration, and then navigate to nested subviews.

@@ -370,7 +370,7 @@ const ManualMonitorInput = React.memo(({ onAdd }) => {
               setIsOpen(false);
             }
           }}
-          className="w-full bg-surface border border-border rounded-xl pl-4 pr-10 py-3 text-sm font-mono focus:border-accent outline-none hover:border-border-hover transition-colors"
+          className="w-full bg-surface border border-border rounded-xl pl-4 pr-10 py-3 text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
         />
         {value && (
           <Tooltip content="Clear Input">
@@ -433,7 +433,7 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) 
         placeholder="Preset name (e.g. Scalp High Vol)"
         value={name}
         onChange={(e) => setName(e.target.value)}
-        className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none"
+        className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
       />
       <Btn
         variant="primary"
@@ -507,7 +507,7 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
             value={searchTerm}
             onFocus={() => setIsOpen(true)}
             onChange={(e) => { setSearchTerm(e.target.value.toUpperCase()); setIsOpen(true); }}
-            className="w-full bg-surface border border-border rounded-xl pl-10 pr-10 py-3 text-sm font-mono focus:border-accent outline-none hover:border-border-hover transition-colors"
+            className="w-full bg-surface border border-border rounded-xl pl-10 pr-10 py-3 text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
           />
           {searchTerm && (
             <Tooltip content="Clear Search">
@@ -642,7 +642,7 @@ const ListInput = React.memo(({ value, onChange, placeholder }) => {
       onChange={(e) => setLocalValue(e.target.value)}
       onBlur={handleBlur}
       onKeyDown={(e) => { if (e.key === 'Enter') handleBlur(); }}
-      className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none hover:border-border-hover transition-colors"
+      className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
     />
   );
 })
@@ -2765,7 +2765,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       placeholder="Search preset by name..."
                       value={presetSearch}
                       onChange={(e) => setPresetSearch(e.target.value)}
-                      className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-xs focus:border-accent outline-none hover:border-border-hover transition-colors"
+                      className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-xs focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
                     />
                     {presetSearch && (
                       <button
@@ -2976,8 +2976,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     onChange={(e) => handlePasteAreaChange(e.target.value)}
                     placeholder='{ "strategy_label": "Scalp Momentum", ... }'
                     className={cn(
-                      "w-full h-48 bg-background border rounded-xl p-3 text-xs font-mono focus:outline-none transition-all resize-none",
-                      pasteError ? "border-red/40 focus:border-red" : pasteValue.trim() ? "border-green/40 focus:border-green" : "border-border focus:border-accent"
+                      "w-full h-48 bg-background border rounded-xl p-3 text-xs font-mono focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all resize-none",
+                      pasteError ? "border-red/40 focus:border-red focus-visible:ring-red" : pasteValue.trim() ? "border-green/40 focus:border-green focus-visible:ring-green" : "border-border focus:border-accent focus-visible:ring-accent"
                     )}
                     autoFocus
                   />

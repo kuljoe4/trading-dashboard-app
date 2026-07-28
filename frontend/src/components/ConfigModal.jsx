@@ -892,6 +892,88 @@ const flattenConfig = (config) => {
     };
   } catch (e) { return { ...config }; }
 };
+
+const coerceAndSanitizeConfig = (rawConfig) => {
+  if (!rawConfig) return {};
+  try {
+    const flat = flattenConfig(rawConfig);
+    const c = { ...flat, strategy_label: (flat.strategy_label || '').trim() };
+
+    // Explicitly sanitize inputs for security and data integrity
+    const sp = { ...(typeof flat.signal_params === 'string' ? JSON.parse(flat.signal_params || '{}') : flat.signal_params || {}) };
+    ['ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period', 'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow', 'macd_fast', 'macd_slow', 'macd_signal', 'supertrend_period', 'supertrend_multiplier', 'macd_pbc_trend_ema', 'macd_pbc_lookback'].forEach(k => {
+      const val = flat[`signal_params_${k}`];
+      if (val !== undefined && val !== null) {
+        sp[k] = Number(val);
+      }
+    });
+    if (flat.signal_params_macd_strict_expansion !== undefined) {
+      sp.macd_strict_expansion = flat.signal_params_macd_strict_expansion === true || flat.signal_params_macd_strict_expansion === 'true';
+    }
+    if (flat.signal_params_supertrend_mode !== undefined) {
+      sp.supertrend_mode = flat.signal_params_supertrend_mode;
+    }
+    c.signal_params = sp;
+
+    // Ensure numeric values where expected
+    const numericFields = [
+      'risk_pct_per_trade', 'max_total_risk_pct', 'max_open_trades', 'total_sl_guard_usdt',
+      'max_single_trade_risk_pct',
+      'smart_watchlist_sensitivity',
+      'trailing_stop_distance_pct',
+      'scan_pct_threshold', 'scan_lookback', 'scan_min_volume_usdt', 'watchlist_size',
+      'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
+      'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
+      'scanner_signal_depth',
+      'engulfing_lookback', 'engulfing_streak',
+      'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
+      'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
+      'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
+      'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
+      'slippage_abort_threshold'
+    ];
+
+    numericFields.forEach(f => {
+      if (c[f] !== undefined && c[f] !== null) {
+        c[f] = Number(c[f]);
+      }
+    });
+
+    c.scanner_weights = {
+      momentum: Number(flat.scanner_weights_momentum || 0) / 100,
+      volatility: Number(flat.scanner_weights_volatility || 0) / 100,
+      trend: Number(flat.scanner_weights_trend || 0) / 100
+    };
+
+    // Remove flattened UI fields after bundling into scanner_weights object
+    delete c.scanner_weights_momentum;
+    delete c.scanner_weights_volatility;
+    delete c.scanner_weights_trend;
+
+    if (c.hibernation_grace_period_sec !== undefined) {
+      c.hibernation_grace_period_sec = Number(c.hibernation_grace_period_sec);
+    }
+
+    // UI Conversion: UI percentage back to backend decimal
+    if (c.slippage_warning_threshold !== undefined) {
+      c.slippage_warning_threshold = Number(c.slippage_warning_threshold) / 100;
+    }
+
+    // Zero out nested variants to prevent runaway nesting
+    c.strategy_variants = [];
+
+    // Clean up temporary UI fields
+    Object.keys(c).forEach(k => {
+      if (k.startsWith('signal_params_') && k !== 'signal_params') {
+        delete c[k];
+      }
+    });
+
+    return c;
+  } catch (e) {
+    return { ...rawConfig };
+  }
+};
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
   const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics } = useTradingStore(state => ({
     addAlert: state.addAlert,
@@ -1330,7 +1412,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     if (c.slippage_warning_threshold !== undefined) {
       c.slippage_warning_threshold = Number(c.slippage_warning_threshold) / 100;
     }
-    c.strategy_variants = (cfg.strategy_variants || []).map((v) => ({ ...v, strategy_label: v.strategy_label || 'Variant', strategy_variants: [] }));
+    c.strategy_variants = (cfg.strategy_variants || []).map((v) => {
+      return coerceAndSanitizeConfig({ ...v, strategy_label: v.strategy_label || 'Variant' });
+    });
 
     // Clean up temporary UI fields
     Object.keys(c).forEach(k => {
@@ -1343,7 +1427,19 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [cfg, presetName, generatedPresetName]);
 
   const savePreset = React.useCallback(async (explicitName) => {
-    const name = (explicitName || presetName || (explicitName === undefined ? loadedPresetName : '') || generatedPresetName || '').trim();
+    // SRE name-resolution helper: cleanly resolves the preset name with strict precedence.
+    // 1. explicitName: provided when user specifies a name in the Save dialog (e.g., Save As).
+    // 2. presetName: the state field from the preset input box.
+    // 3. loadedPresetName: the active preset if explicitName is not explicitly skipped (undefined).
+    // 4. generatedPresetName: fallback auto-generated label based on scan interval & risk distance.
+    const resolvePresetName = () => {
+      if (explicitName) return explicitName;
+      if (presetName) return presetName;
+      if (explicitName === undefined && loadedPresetName) return loadedPresetName;
+      return generatedPresetName || '';
+    };
+
+    const name = resolvePresetName().trim();
     console.log(`[ConfigModal] Attempting to save preset: "${name}"`);
 
     try {
@@ -1566,7 +1662,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
     setField('strategy_variants', exists
       ? variants.filter((v) => v.strategy_label !== p.name)
-      : [...variants, { ...p.config, strategy_label: p.name }])
+      : [...variants, coerceAndSanitizeConfig({ ...p.config, strategy_label: p.name })])
   }, [cfg.strategy_variants, setField]);
 
   const currentModeBalance = cfg.trading_mode === 'paper' ? (cfg.paper_starting_balance || 10000) : cfg.trading_mode === 'testnet' ? (cfg.testnet_starting_balance || 0) : (cfg.live_starting_balance || 0);

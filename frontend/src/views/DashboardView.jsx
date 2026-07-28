@@ -378,7 +378,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
                   style={{ width: `${slPct}%` }}
                 />
               </div>
-              <ScannerPreview scannerResults={scannerResults} config={config} onOpen={onOpenScanner} />
+              <ScannerPreview scannerResults={scannerResults} config={config} onOpen={() => onOpenScanner(s.strategy_label)} />
 
               <div className="mt-6 pt-6 border-t border-border/20">
                  <div className="flex items-center justify-between gap-4">
@@ -590,12 +590,12 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
                     <div className="w-12 flex justify-end">
                       {passing ? (
                         opp.signalResult?.allFired ? (
-                          <b className="text-[10px] font-black text-green uppercase tracking-wider">PASS</b>
+                          <b className="text-[10px] font-black text-green uppercase tracking-wider">TRIGGERED</b>
                         ) : (
-                          <b className="text-[10px] font-black text-red-400 uppercase tracking-wider">REJECT</b>
+                          <b className="text-[10px] font-black text-amber uppercase tracking-wider">PENDING</b>
                         )
                       ) : (
-                        <b className="text-[10px] font-bold text-dim uppercase tracking-wider">WAIT</b>
+                        <b className="text-[10px] font-bold text-dim uppercase tracking-wider">WAITING</b>
                       )}
                     </div>
                   </motion.div>
@@ -957,7 +957,11 @@ export function DashboardView({ initialStrategy }) {
     }
   }, [sessionToDelete, addAlert, fetchSessions, setSyncing]);
 
-  const handleOpenScanner = React.useCallback(() => setShowScanner(true), []);
+  const [scannerFocusLabel, setScannerFocusLabel] = useState(null)
+  const handleOpenScanner = React.useCallback((label) => {
+    setScannerFocusLabel(typeof label === 'string' ? label : null);
+    setShowScanner(true);
+  }, []);
   const handleEditPrimary = React.useCallback(() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }, [config]);
   const handleSelectPrimary = React.useCallback(() => {
     window.location.hash = `#/strategy/${encodeURIComponent(currentStrategy.strategy_label)}`;
@@ -978,28 +982,15 @@ export function DashboardView({ initialStrategy }) {
     window.location.hash = `#/strategy/${encodeURIComponent(label)}`;
   }, []);
 
-  if (selected) {
-    const strategyData = {
+  const strategyData = useMemo(() => {
+    if (!selected) return null;
+    return {
       ...currentStrategy,
       strategy_label: selected,
       ...safeVariantStats[selected],
       activePnl: activePnlMap[selected] || 0
     };
-
-    return (
-      <div className={cn(
-        "transition-all duration-300",
-        healthEnabled ? "pb-48 lg:pb-8" : "pb-32 lg:pb-8",
-        sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
-      )}>
-        <Sidebar selected={selected} />
-        <Suspense fallback={<LoadingFallback />}>
-          <StrategyDetailView s={strategyData} onBack={() => { window.location.hash = '#/'; }} />
-        </Suspense>
-        <BottomNav selected={selected} />
-      </div>
-    )
-  }
+  }, [selected, currentStrategy, safeVariantStats, activePnlMap]);
 
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
@@ -1019,10 +1010,22 @@ export function DashboardView({ initialStrategy }) {
         <div className="fixed top-0 left-0 right-0 h-1 bg-amber z-[100] shadow-[0_2px_10px_rgba(245,166,35,0.5)]" />
       )}
       <Sidebar selected={selected} />
-      <div className={cn(
-        "max-w-[1600px] mx-auto p-4 md:p-10 lg:pb-10 transition-all",
-        healthEnabled ? "pb-48" : "pb-32"
-      )}>
+
+      {selected ? (
+        <Suspense fallback={<LoadingFallback />}>
+          <StrategyDetailView
+            s={strategyData}
+            onBack={() => { window.location.hash = '#/'; }}
+            onEdit={strategyData?.strategy_label === config.strategy_label ? handleEditPrimary : () => handleEditVariant(strategyData?.strategy_label)}
+            onPause={togglePause}
+            onOpenScanner={handleOpenScanner}
+          />
+        </Suspense>
+      ) : (
+        <div className={cn(
+          "max-w-[1600px] mx-auto p-4 md:p-10 lg:pb-10 transition-all",
+          healthEnabled ? "pb-48" : "pb-32"
+        )}>
 
         <ConfirmationModal
           isOpen={confirmStop}
@@ -1602,6 +1605,8 @@ export function DashboardView({ initialStrategy }) {
             </div>
           </motion.div>
         </div>
+      </div>
+      )}
 
       {/* Modals & Drawers */}
         <Drawer.Root open={showConfig} onOpenChange={setShowConfig} repositionInputs={false}>
@@ -1646,7 +1651,7 @@ export function DashboardView({ initialStrategy }) {
               </div>
               <div className="flex-1 min-h-0">
                 <Suspense fallback={<LoadingFallback />}>
-                  {showScanner && <ScannerOverlay onClose={() => setShowScanner(false)} selectedStrategyLabel={selected} />}
+                  {showScanner && <ScannerOverlay onClose={() => setShowScanner(false)} selectedStrategyLabel={scannerFocusLabel || selected} />}
                 </Suspense>
               </div>
             </Drawer.Content>
@@ -1667,7 +1672,6 @@ export function DashboardView({ initialStrategy }) {
         </div>
 
         <BottomNav selected={selected} />
-      </div>
     </div>
   )
 }

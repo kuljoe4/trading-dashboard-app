@@ -805,6 +805,8 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               )}
          </div>
       </div>
+          </div>
+       </div>
 
       {/* Active Trade Stop Loss & Exit Monitors Configuration Workspace */}
       {trade.status === 'OPEN' && (

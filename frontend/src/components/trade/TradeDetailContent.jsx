@@ -40,70 +40,32 @@ const RRLadder = memo(({ trade }) => {
     return (price - trade.entry_price) * trade.qty * (trade.direction === 'LONG' ? 1 : -1)
   }
 
+// Simplified 5-column grid for RRLadder
   return (
     <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">
       <div className="flex justify-between items-center mb-3 md:mb-5">
-        <div className="flex items-center gap-2">
-          <SectionLabel className="mb-0">
+         <SectionLabel className="mb-0">
              <Zap size={14} className="text-accent" fill="currentColor" /> Guard Ladder
           </SectionLabel>
-        </div>
-        <div className="flex items-center gap-2">
-          {trade.strategy_config?.trailing_stop_enabled && (
-            <div className="text-[10px] text-purple-400 font-mono bg-purple-400/10 px-2 py-0.5 rounded border border-purple-400/20 flex items-center gap-1">
-              <Activity size={10} /> Trailing
-            </div>
-          )}
-          <div className="text-[10px] text-accent font-mono bg-accent/10 px-2 py-0.5 rounded border border-accent/20">Live Ratchet</div>
-        </div>
       </div>
 
-      <div className="flex gap-4 overflow-x-auto no-scrollbar mb-3 md:mb-8 pb-2">
+      <div className="grid grid-cols-5 gap-2 mb-4">
         {(triggers || []).map((trigger, i) => {
           const done = maxRR >= trigger
           const current = i === activeIdx
           return (
-            <div key={`${trigger}-${i}`} className="min-w-[60px] md:min-w-[80px] flex-1">
+            <div key={`${trigger}-${i}`} className="flex flex-col items-center">
               <div className={cn(
-                "text-[10px] md:text-xs font-bold mb-1.5 md:mb-3 text-center",
+                "text-[10px] font-bold mb-2",
                 current ? "text-accent" : done ? "text-green" : "text-dim"
               )}>{trigger}R</div>
               <div className={cn(
-                "h-1.5 md:h-2 rounded-full transition-all duration-500",
+                "h-2 w-full rounded-full transition-all duration-500",
                 done ? (current ? "bg-accent shadow-[0_0_10px_rgba(91,111,255,0.4)]" : "bg-green") : "bg-border"
               )} />
-              <div className={cn(
-                "text-[9px] md:text-[10px] font-bold mt-1.5 md:mt-3 uppercase tracking-widest text-center flex flex-col",
-                done ? "text-text" : "text-dim"
-              )}>
-                <span>SL {exits[i] === 0 ? 'BE' : `${exits[i]}R`}</span>
-                <span className={cn("text-[8px] font-mono", done ? pnlClass(getEstPnl(trade.direction === 'LONG' ? trade.entry_price + risk * exits[i] : trade.entry_price - risk * exits[i])) : "opacity-40")}>
-                  {fmtUSD(getEstPnl(trade.direction === 'LONG' ? trade.entry_price + risk * exits[i] : trade.entry_price - risk * exits[i]))}
-                </span>
-              </div>
             </div>
           )
         })}
-      </div>
-
-      <div className="grid grid-cols-3 gap-2 md:gap-6">
-        <div className="p-2 md:p-4 bg-background/40 rounded-xl border border-border">
-          <div className="text-[8px] md:text-[10px] text-dim font-bold uppercase tracking-widest mb-0.5 md:mb-1">Live RR</div>
-          <div className={cn("text-sm md:text-xl font-mono font-bold", liveRR >= 0 ? "text-green" : "text-red")}>{fmt(liveRR, 2)}</div>
-        </div>
-        <div className="p-2 md:p-4 bg-background/40 rounded-xl border border-border">
-          <div className="text-[8px] md:text-[10px] text-dim font-bold uppercase tracking-widest mb-0.5 md:mb-1">Peak RR</div>
-          <div className="text-sm md:text-xl font-mono font-bold text-accent">{fmt(maxRR, 2)}</div>
-        </div>
-        <div className="p-2 md:p-4 bg-background/40 rounded-xl border border-border">
-          <div className="text-[8px] md:text-[10px] text-dim font-bold uppercase tracking-widest mb-0.5 md:mb-1">Secured SL</div>
-          <div className="text-sm md:text-xl font-mono font-bold text-text flex flex-col leading-tight">
-            <span>{price(currentSl)}</span>
-            <span className={cn("text-[7px] md:text-[10px]", pnlClass(getEstPnl(currentSl)))}>
-              {fmtUSD(getEstPnl(currentSl))}
-            </span>
-          </div>
-        </div>
       </div>
     </div>
   )
@@ -217,6 +179,10 @@ const getSignalInfo = (key, config) => {
 };
 
 const ExitMonitor = memo(({ status, logic, trade }) => {
+  const [editingDelay, setEditingDelay] = useState(null) // key being edited
+  const [tempDelay, setTempDelay] = useState('')
+  const updateActiveTradeConfig = useTradingStore(state => state.updateActiveTradeConfig);
+
   if (!status || Object.keys(status).length === 0) return null;
   const mark = Number(trade.current_price || trade.mark_price || 0)
   const isLong = trade.direction === 'LONG'
@@ -236,6 +202,21 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
   const totalCount = entries.length
   const allFired = satisfiedCount === totalCount
   const criteriaMet = logic === 'all' ? allFired : satisfiedCount > 0;
+
+  const handleUpdateDelay = async (key) => {
+    const newDelay = Number(tempDelay);
+    if (isNaN(newDelay) || newDelay < 0) return;
+    
+    const currentDelays = trade.strategy_config?.exit_signal_delays || {};
+    const payload = {
+      strategy_config: {
+        exit_signal_delays: { ...currentDelays, [key]: newDelay }
+      }
+    };
+    await updateActiveTradeConfig(trade.id || trade.symbol, payload);
+    setEditingDelay(null);
+    setTempDelay('');
+  };
 
   return (
     <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col">
@@ -291,9 +272,17 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
                       Collecting
                     </span>
                   ) : s.remaining_delay > 0 && !isFired && (
-                    <span className="text-amber bg-amber/10 px-1 rounded flex items-center gap-1 scale-90 md:scale-100">
-                      <Clock size={8} /> {formatDuration(s.remaining_delay * 1000)}
-                    </span>
+                    <div className="flex items-center gap-1 bg-amber/10 text-amber px-1 rounded cursor-pointer hover:bg-amber/20 transition-colors" 
+                         onClick={() => { setEditingDelay(key); setTempDelay(String(s.remaining_delay)); }}>
+                      <Clock size={8} /> 
+                      {editingDelay === key ? (
+                        <input type="number" className="w-10 bg-transparent text-amber font-mono outline-none" value={tempDelay} 
+                               onChange={(e) => setTempDelay(e.target.value)} onBlur={() => handleUpdateDelay(key)} 
+                               onKeyDown={(e) => e.key === 'Enter' && handleUpdateDelay(key)} autoFocus />
+                      ) : (
+                        <span>{formatDuration(s.remaining_delay * 1000)}</span>
+                      )}
+                    </div>
                   )}
                   <span className={cn(
                     "md:hidden inline text-[8px] font-mono",
@@ -306,6 +295,7 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
                   <span className={isFired ? "text-red" : "text-text"}>{price(threshold)}</span>
                 </div>
               </div>
+              // ... rest of the component content ...
 
               {/* Enhanced Proximity Bar (SignalGauge Style) */}
               <div className="space-y-0.5 md:space-y-1.5">
@@ -691,9 +681,12 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                   const startingBalance = tradingMode === 'paper'
                     ? (activeSessionConfig.paper_starting_balance || 10000)
                     : (tradingMode === 'testnet'
-                        ? (activeSessionConfig.testnet_starting_balance || 10000)
-                        : (activeSessionConfig.live_starting_balance || 10000));
-                  const returnPct = startingBalance > 0 ? (activeSessionPnl / startingBalance) * 100 : 0;
+                        ? (activeSessionConfig.testnet_starting_balance || 0)
+                        : (activeSessionConfig.live_starting_balance));
+                  
+                  if (!startingBalance || startingBalance <= 0) return null;
+
+                  const returnPct = (activeSessionPnl / startingBalance) * 100;
                   const modeLabel = tradingMode === 'paper' ? 'Paper' : tradingMode === 'testnet' ? 'Testnet' : 'Live';
                   return {
                     label: `Session Return (${modeLabel})`,
@@ -708,9 +701,14 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                        sessionReturnBlock && {
                          label: sessionReturnBlock.label,
                          value: sessionReturnBlock.value,
-                         color: sessionReturnBlock.color
+                         color: sessionReturnBlock.color,
+                         tooltip: 'P&L for the current active trading session.'
                        },
-                       { label: 'TP Mode', value: trade.tp_mode === 'exp_rr_seq' ? 'Expansion RR' : 'Fixed Ratio' },
+                       { 
+                         label: 'TP Mode', 
+                         value: trade.tp_mode === 'exp_rr_seq' ? 'Expansion RR' : 'Fixed Ratio',
+                         tooltip: 'The strategy applied for managing Take Profit targets.'
+                       },
                    {
                      label: trade.exit_ts ? 'Exit RR' : 'Exit RR (Projected)',
                      value: `${(() => {
@@ -730,7 +728,8 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                          (refPrice && trade.entry_price && initRisk > 0 ?
                            (trade.direction === 'LONG' ? (refPrice - trade.entry_price) : (trade.entry_price - refPrice)) / initRisk : 0);
                        return v >= 0 ? 'text-green' : 'text-red';
-                     })()
+                     })(),
+                     tooltip: 'The Reward-to-Risk ratio for the current trade.'
                    },
                    {
                      label: 'Min RR (Drawdown)',
@@ -738,27 +737,29 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                        const v = trade.min_rr_achieved !== undefined && trade.min_rr_achieved !== null ? trade.min_rr_achieved : 0;
                        return v >= 0 ? `+${v.toFixed(2)}` : v.toFixed(2);
                      })()} R`,
-                     color: (trade.min_rr_achieved || 0) < 0 ? 'text-red' : 'text-dim'
+                     color: (trade.min_rr_achieved || 0) < 0 ? 'text-red' : 'text-dim',
+                     tooltip: 'The lowest RR (deepest drawdown) reached during this trade.'
                    },
-                    { label: 'Commission', value: fmtUSD(-(trade.realized_fee || 0)), color: 'text-red/70' },
-                    { label: 'Funding Fee', value: fmtUSD(-(trade.funding_fee || 0)), color: trade.funding_fee > 0 ? 'text-red/70' : 'text-green/70' },
-                   { label: 'ROI from Entry', value: `${pnlPct.toFixed(2)}%`, color: pnlPct >= 0 ? 'text-green' : 'text-red' },
-                   { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%` },
+                    { label: 'Commission', value: fmtUSD(-(trade.realized_fee || 0)), color: 'text-red/70', tooltip: 'Realized trading fees.' },
+                    { label: 'Funding Fee', value: fmtUSD(-(trade.funding_fee || 0)), color: trade.funding_fee > 0 ? 'text-red/70' : 'text-green/70', tooltip: 'Funding fees paid/received.' },
+                   { label: 'ROI from Entry', value: `${pnlPct.toFixed(2)}%`, color: pnlPct >= 0 ? 'text-green' : 'text-red', tooltip: 'Percentage return on investment from entry price.' },
+                   { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%`, tooltip: 'Distance between mark price and current SL.' },
                    trade.strategy_config?.trailing_stop_enabled && {
                      label: 'Trailing Stop',
                      value: `${trade.strategy_config.trailing_stop_distance_pct}%`,
-                     color: 'text-purple-400'
+                     color: 'text-purple-400',
+                     tooltip: 'Trailing stop-loss distance percentage.'
                    },
-                   { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%` },
-                       { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0) },
+                   { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%`, tooltip: 'Initial SL distance percentage from entry.' },
+                       { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0), tooltip: 'Maximum risk defined at trade entry.' },
                        {
                          label: 'Daily Δ at Entry',
                          value: `${(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} ${Number(Math.abs(trade.entry_daily_change_pct || 0)).toFixed(2)}%`,
-                         color: pnlClass(trade.entry_daily_change_pct)
+                         color: pnlClass(trade.entry_daily_change_pct),
+                         tooltip: 'Market price change % at trade entry.'
                        },
                        trade.exit_ts && {
                          label: 'Exit Signal',
-                         tooltip: trade.exit_signal_reason,
                          value: (() => {
                             const type = trade.exit_signal_type?.replace(/_/g, ' ') || (trade.exit_reason || 'Manual');
                             const reason = trade.exit_signal_reason || '';
@@ -777,20 +778,18 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                             if (type === 'EXCHANGE SYNC') return 'Exchange Sync';
                             return type;
                          })(),
-                         color: 'text-accent'
+                         color: 'text-accent',
+                         tooltip: trade.exit_signal_reason || 'Exit signal details.'
                        }
                      ].filter(Boolean).map(item => (
                        <div key={item.label} className="flex justify-between items-center py-1 md:py-2.5 border-b border-border/40 last:border-0">
                           <div className="flex items-center gap-1.5">
                             <span className="text-[9px] md:text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
-                          </div>
-                          {item.tooltip ? (
-                            <Tooltip content={item.tooltip}>
-                              <span className={cn("text-xs font-bold font-mono cursor-help border-b border-dotted border-white/10", item.color)}>{item.value}</span>
+                            <Tooltip content={item.tooltip || 'No info'}>
+                              <Info size={10} className="text-dim/50 hover:text-accent cursor-help" />
                             </Tooltip>
-                          ) : (
-                            <span className={cn("text-xs font-bold font-mono", item.color)}>{item.value}</span>
-                          )}
+                          </div>
+                          <span className={cn("text-xs font-bold font-mono", item.color)}>{item.value}</span>
                        </div>
                      ))}
                   </div>

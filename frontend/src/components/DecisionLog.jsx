@@ -138,7 +138,7 @@ const LogEntry = React.memo(({ log }) => {
 
   return (
     <>
-      <div className="flex items-center gap-2.5 text-[11px] font-mono border-b border-border/40 py-1.5 min-w-fit hover:bg-white/[0.02] transition-colors group/entry pr-4">
+      <div className="flex items-center gap-2.5 text-[11px] font-mono border-b border-border/40 py-1.5 hover:bg-white/[0.02] transition-colors group/entry pr-4">
         <div
           role="button"
           tabIndex={0}
@@ -149,7 +149,7 @@ const LogEntry = React.memo(({ log }) => {
         >
           <span className="text-dim/60 whitespace-nowrap shrink-0">[{logTimestamp}]</span>
           <span className={cn(
-            "transition-colors whitespace-nowrap min-w-fit",
+            "transition-colors break-words",
             logLevel === 'warn' ? "text-amber font-black" :
             logLevel === 'error' ? "text-red font-black" :
             "text-text/90 font-medium"

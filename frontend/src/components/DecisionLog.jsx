@@ -131,10 +131,18 @@ VariantGatingSummary.displayName = 'VariantGatingSummary';
 
 const LogEntry = React.memo(({ log }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const safeLog = (log && typeof log === 'object') ? log : {};
   const logLevel = String(safeLog.level ?? 'info').toLowerCase();
   const logMessage = typeof safeLog.msg === 'string' ? safeLog.msg : String(safeLog.msg ?? '');
   const logTimestamp = String(safeLog.ts ?? '');
+
+  const isRoutine = useMemo(() => {
+    const lower = logMessage.toLowerCase();
+    return lower.includes('hibernat') || lower.includes('sleep') || lower.includes('cooldown') || lower.includes('gate') || lower.includes('monitoring') || lower.includes('warm-up');
+  }, [logMessage]);
+
+  const shouldTruncate = isRoutine && logMessage.length > 80;
 
   return (
     <>
@@ -142,19 +150,31 @@ const LogEntry = React.memo(({ log }) => {
         <div
           role="button"
           tabIndex={0}
-          onClick={() => setIsOpen(true)}
-          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setIsOpen(true)}
-          className="flex items-start gap-2.5 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-accent/50 rounded-sm w-full text-left"
+          onClick={() => {
+            if (shouldTruncate) {
+              setIsExpanded(!isExpanded);
+            } else {
+              setIsOpen(true);
+            }
+          }}
+          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (shouldTruncate ? setIsExpanded(!isExpanded) : setIsOpen(true))}
+          className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-2.5 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-accent/50 rounded-sm w-full text-left"
           aria-label="View log details"
         >
-          <span className="text-dim/60 whitespace-nowrap shrink-0">[{logTimestamp}]</span>
+          <span className="text-dim/60 whitespace-nowrap shrink-0 sm:mb-0 mb-0.5">[{logTimestamp}]</span>
           <span className={cn(
             "transition-colors break-words break-all min-w-0 flex-1",
+            shouldTruncate && !isExpanded && "line-clamp-2",
             logLevel === 'warn' ? "text-amber font-black" :
             logLevel === 'error' ? "text-red font-black" :
             "text-text/90 font-medium"
           )}>
             {formatMessage(logMessage)}
+            {shouldTruncate && (
+              <span className="text-accent hover:underline ml-1 cursor-pointer font-black text-[9px] uppercase tracking-wider whitespace-nowrap">
+                {isExpanded ? ' (show less)' : ' (show more)'}
+              </span>
+            )}
           </span>
         </div>
         <CopyButton
@@ -348,7 +368,7 @@ export const DecisionLog = React.memo(() => {
                 if (listRef.current) listRef.current.scrollTo({ top: 0 })
                 setIsAtTop(true)
               }}
-              className="pointer-events-auto bg-accent text-white px-4 py-1.5 rounded-full text-[10px] font-bold shadow-xl border border-white/10 animate-in fade-in zoom-in slide-in-from-top-2 duration-300"
+              className="pointer-events-auto bg-accent text-white px-4 py-1.5 rounded-full text-[10px] font-bold shadow-xl border border-white/10 animate-in fade-in zoom-in slide-in-from-top-2 duration-300 whitespace-nowrap"
             >
               New logs above ↑
             </button>

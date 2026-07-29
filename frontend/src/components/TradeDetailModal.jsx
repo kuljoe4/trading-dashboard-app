@@ -54,15 +54,12 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
         <Dialog.Content 
           aria-labelledby="modal-title"
           aria-describedby="modal-description"
-          className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-3xl max-h-[90vh] overflow-y-auto no-scrollbar bg-surface/95 border border-border/50 rounded-xl p-3.5 md:p-5 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.6)] backdrop-blur-xl z-[101] animate-in fade-in zoom-in-95 duration-300 focus:outline-none">
+          className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-1.5rem)] md:w-full md:max-w-3xl max-h-[90vh] overflow-y-auto no-scrollbar bg-surface/95 border border-border/50 rounded-xl p-3.5 md:p-5 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.6)] backdrop-blur-xl z-[101] animate-in fade-in zoom-in-95 duration-300 focus:outline-none">
           <VisuallyHidden>
             <Dialog.Description id="modal-description">
               Detailed view of the active trade for {trade.symbol}, including P&L and exit signals.
             </Dialog.Description>
           </VisuallyHidden>
-          <Dialog.Title asChild>
-            <VisuallyHidden>Trade Details for {trade.symbol}</VisuallyHidden>
-          </Dialog.Title>
           <div className="flex items-center justify-between mb-3 sticky -top-5 bg-surface/80 backdrop-blur-sm z-20 pb-2 pt-2">
             <div className="flex items-center gap-2.5">
               <div className={cn(
@@ -73,7 +70,9 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
               </div>
               <div className="flex flex-col">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-base font-black tracking-tighter">{trade.symbol}</span>
+                  <Dialog.Title asChild>
+                    <h2 id="modal-title" className="text-base font-black tracking-tighter">{trade.symbol}</h2>
+                  </Dialog.Title>
                   <CopyButton value={trade.symbol} className="opacity-40 hover:opacity-100" />
                 </div>
                 <div className="flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase tracking-[0.2em] flex-wrap">
@@ -119,7 +118,7 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
 
           <TradeDetailContent 
             trade={trade}
-            isSyncing={false}
+            isSyncing={isResuming}
             onTradeClose={handleForceClose}
             isClosing={isClosing}
             confirmClose={confirmClose}
